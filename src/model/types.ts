@@ -2,16 +2,12 @@
  * Grid type represents a grid of rows and columns.
  * Indexes are 1-based.
  */
-export type Grid = Map<number, Row>;
-/**
- * Row type represents a row in the sheet.
- */
-export type Row = Map<number, Cell>;
+export type Grid = Map<string, Cell>;
 
 /**
  * Cell type represents a cell in the sheet.
  */
-export type Cell = number | null;
+export type Cell = number;
 
 /**
  * CellIndex type represents the index of a cell in the sheet.

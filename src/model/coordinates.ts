@@ -1,7 +1,7 @@
 import { CellIndex } from "./types";
 
 /**
- * createCellIndices generates the cell indices from the given range.
+ * `generateCellIndices` generates the cell indices from the given range.
  */
 export function* generateCellIndices(
   from: CellIndex,
@@ -12,6 +12,32 @@ export function* generateCellIndices(
       yield { row, col };
     }
   }
+}
+
+/**
+ * `toReference` converts the cell index to the cell reference.
+ * @param cellIndex
+ */
+export function toReference(cellIndex: CellIndex): string {
+  return toColumnLabel(cellIndex.col) + cellIndex.row;
+}
+
+/**
+ *
+ */
+export function toColumnLabel(col: number): string {
+  let columnLabel = "";
+  while (col > 0) {
+    const rem = col % 26;
+    if (rem === 0) {
+      columnLabel = "Z" + columnLabel;
+      col = Math.floor(col / 26) - 1;
+    } else {
+      columnLabel = String.fromCharCode(rem + 64) + columnLabel;
+      col = Math.floor(col / 26);
+    }
+  }
+  return columnLabel;
 }
 
 /**

@@ -1,49 +1,52 @@
-import { generateCellIndices, parseRangeReference } from "./coordinates";
+import {
+  generateCellIndices,
+  parseRangeReference,
+  toReference,
+} from "./coordinates";
 import { Grid } from "./types";
+
+/**
+ * `InitialDimensions` represents the initial dimensions of the sheet.
+ * This is used when the sheet is created for the first time.
+ * The sheet will have 100 rows and 26 columns. A1:Z100
+ */
+const InitialDimensions = { rows: 100, columns: 26 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
  */
 export class Sheet {
+  /**
+   * `grid` is a 2D grid that represents the sheet.
+   */
   private grid: Grid;
 
   /**
-   * Creates a new `Sheet` instance.
-   * @param rows Number of rows in the sheet.
-   * @param columns Number of columns in the sheet.
+   * `dimension` is the dimensions of the sheet that are currently visible.
    */
-  constructor(rows: number) {
-    this.grid = new Map();
+  private dimension: { rows: number; columns: number };
 
-    for (let rowIndex = 1; rowIndex <= rows; rowIndex++) {
-      this.grid.set(rowIndex, new Map());
-    }
+  /**
+   * `constructor` creates a new `Sheet` instance.
+   * @param grid optional grid to initialize the sheet.
+   */
+  constructor(grid?: Grid) {
+    this.grid = grid || new Map();
+    this.dimension = { ...InitialDimensions };
   }
 
   /**
-   * Adds a new row to the sheet.
-   */
-  addRow(): void {
-    this.grid.set(this.grid.size, new Map());
-  }
-
-  /**
-   * setData sets the data at the given row and column.
-   * @param rowIndex row index.
-   * @param columnIndex column number.
+   * `setData` sets the data at the given row and column.
+   * @param row row index.
+   * @param col column number.
    * @param data data to set.
    */
-  setData(rowIndex: number, columnIndex: number, data: number): void {
-    if (!this.grid.has(rowIndex)) {
-      throw new Error(`Row ${rowIndex} does not exist`);
-    }
-
-    const row = this.grid.get(rowIndex)!;
-    row.set(columnIndex, data);
+  setData(row: number, col: number, data: number): void {
+    this.grid.set(toReference({ row: row, col: col }), data);
   }
 
   /**
-   * calculateSum calculates the sum of the sheet based on the given reference.
+   * `calculateSum` calculates the sum of the sheet based on the given reference.
    *
    * @param rangeReference range reference. e.g. "A1:B2"
    * @return sum of the cells.
@@ -51,11 +54,31 @@ export class Sheet {
   calculateSum(rangeReference: string): number {
     const [fromIndex, toIndex] = parseRangeReference(rangeReference);
     let sum = 0;
-    for (let cellIndex of generateCellIndices(fromIndex, toIndex)) {
-      const cell = this.grid.get(cellIndex.row)?.get(cellIndex.col) ?? 0;
-      sum += cell;
+    for (let { row, col } of generateCellIndices(fromIndex, toIndex)) {
+      sum += this.getData(row, col) || 0;
     }
 
     return sum;
+  }
+
+  /**
+   * `getDimension` returns the row size of the sheet.
+   */
+  getDimension(): { rows: number; columns: number } {
+    return this.dimension;
+  }
+
+  /**
+   * `hasData` checks if the given row and column has data.
+   */
+  hasData(row: number, col: number): boolean {
+    return this.grid.has(toReference({ row, col }));
+  }
+
+  /**
+   * `getData` returns the data at the given row and column.
+   */
+  getData(row: number, col: number): number | undefined {
+    return this.grid.get(toReference({ row, col }));
   }
 }

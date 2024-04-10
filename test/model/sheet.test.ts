@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 
 describe("Sheet", () => {
   it("should correctly calculate sum of numbers", () => {
-    const sheet = new Sheet(1);
+    const sheet = new Sheet();
     sheet.setData(1, 1, 10);
     sheet.setData(1, 2, 20);
     sheet.setData(1, 3, 30);
