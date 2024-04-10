@@ -1,3 +1,3 @@
 # maltese
 
-Maltese is a simple, lightweight, and fast spreadsheet. It is designed to be used in large-scale data processing and analysis.
+Maltese is a simple spreadsheet for large-scale data processing and analysis.
