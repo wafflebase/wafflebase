@@ -9,9 +9,9 @@ const CellBorderWidth = 0.5;
 const CellBorderColor = "#d3d3d3";
 const CellBGColor = "#ffffff";
 const CellTextColor = "#000000";
-const RowHeaderWidth = 50;
 const HeaderBGColor = "#f0f0f0";
 const HeaderTextAlign = "center";
+const RowHeaderWidth = 50;
 
 /**
  * setupSpreadsheet sets up the spreadsheet in the given container.

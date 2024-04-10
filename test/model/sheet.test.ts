@@ -1,5 +1,5 @@
-import { Sheet } from "../../src/model/sheet";
 import { describe, it, expect } from "vitest";
+import { Sheet } from "../../src/model/sheet";
 
 describe("Sheet", () => {
   it("should correctly calculate sum of numbers", () => {
