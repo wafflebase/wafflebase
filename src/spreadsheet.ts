@@ -1,16 +1,16 @@
-import { toColumnLabel } from "./model/coordinates";
-import { Sheet } from "./model/sheet";
-import { Grid } from "./model/types";
-import { MockGrid } from "./model/mock";
+import { toColumnLabel } from './model/coordinates';
+import { Sheet } from './model/sheet';
+import { Grid } from './model/types';
+import { MockGrid } from './model/mock';
 
 const CellWidth = 100;
 const CellHeight = 20;
 const CellBorderWidth = 0.5;
-const CellBorderColor = "#d3d3d3";
-const CellBGColor = "#ffffff";
-const CellTextColor = "#000000";
-const HeaderBGColor = "#f0f0f0";
-const HeaderTextAlign = "center";
+const CellBorderColor = '#d3d3d3';
+const CellBGColor = '#ffffff';
+const CellTextColor = '#000000';
+const HeaderBGColor = '#f0f0f0';
+const HeaderTextAlign = 'center';
 const RowHeaderWidth = 50;
 
 /**
@@ -30,24 +30,25 @@ class Spreadsheet {
   private container: HTMLDivElement;
 
   constructor(container: HTMLDivElement, grid?: Grid) {
-    this.container = container;
     this.sheet = new Sheet(grid);
+    this.container = container;
+    // TODO(hackerwins): Add event listeners to handle user interactions.
   }
 
   /**
    * render renders the spreadsheet in the container.
    */
   render() {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d")!;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
     const dimension = this.sheet.getDimension();
 
     const ratio = window.devicePixelRatio || 1;
     canvas.width = (dimension.columns + 1) * CellWidth * ratio;
     canvas.height = (dimension.rows + 1) * CellHeight * ratio;
     canvas.style.width =
-      (dimension.columns + 1) * CellWidth + RowHeaderWidth + "px";
-    canvas.style.height = (dimension.rows + 1) * CellHeight + "px";
+      (dimension.columns + 1) * CellWidth + RowHeaderWidth + 'px';
+    canvas.style.height = (dimension.rows + 1) * CellHeight + 'px';
 
     ctx.scale(ratio, ratio);
 
@@ -83,7 +84,7 @@ class Spreadsheet {
     x: number,
     y: number,
     width: number,
-    label: string
+    label: string,
   ) {
     ctx.fillStyle = HeaderBGColor;
     ctx.fillRect(x, y, width, CellHeight);
@@ -99,7 +100,7 @@ class Spreadsheet {
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
-    data: number | undefined
+    data: number | undefined,
   ) {
     ctx.strokeStyle = CellTextColor;
     ctx.lineWidth = CellBorderWidth;
@@ -108,7 +109,7 @@ class Spreadsheet {
     ctx.fillRect(x, y, CellWidth, CellHeight);
     if (data != undefined) {
       ctx.fillStyle = CellTextColor;
-      ctx.textAlign = "center";
+      ctx.textAlign = 'center';
       ctx.fillText(data.toString(), x + CellWidth / 2, y + 15);
     }
   }

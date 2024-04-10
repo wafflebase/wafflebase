@@ -2,8 +2,8 @@ import {
   generateCellIndices,
   parseRangeReference,
   toReference,
-} from "./coordinates";
-import { Grid } from "./types";
+} from './coordinates';
+import { Grid } from './types';
 
 /**
  * `InitialDimensions` represents the initial dimensions of the sheet.
