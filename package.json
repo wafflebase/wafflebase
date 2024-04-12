@@ -8,16 +8,21 @@
     "test": "vitest --run",
     "test:watch": "vitest --watch",
     "build": "tsc && vite build",
+    "build:formula": "antlr4ts -visitor formula/Formula.g4",
     "preview": "vite preview",
     "format": "prettier --write .",
     "prepare": "husky"
   },
   "devDependencies": {
+    "antlr4ts-cli": "^0.5.0-alpha.4",
     "husky": "^9.0.11",
     "lint-staged": "^15.2.2",
     "prettier": "^3.2.5",
     "typescript": "^5.2.2",
     "vite": "^5.2.0",
     "vitest": "^1.4.0"
+  },
+  "dependencies": {
+    "antlr4ts": "^0.5.0-alpha.4"
   }
 }

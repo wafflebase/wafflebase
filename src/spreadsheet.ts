@@ -1,7 +1,7 @@
-import { toColumnLabel } from './model/coordinates';
-import { Sheet } from './model/sheet';
-import { Grid } from './model/types';
-import { MockGrid } from './model/mock';
+import { toColumnLabel } from './sheet/coordinates';
+import { Sheet } from './sheet/sheet';
+import { Grid } from './sheet/types';
+import { MockGrid } from './sheet/mock';
 
 const CellWidth = 100;
 const CellHeight = 20;

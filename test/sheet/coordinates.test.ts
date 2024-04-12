@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseCellReference,
   parseRangeReference,
-} from '../../src/model/coordinates';
+} from '../../src/sheet/coordinates';
 
 describe('parseCellReference', () => {
   it('should parse the cell reference and return the cell index', () => {
