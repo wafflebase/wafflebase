@@ -115,14 +115,9 @@ class Spreadsheet {
     });
 
     this.bottomRightContainer.addEventListener('dblclick', (e) => {
-      const index = this.toCellIndex(e.offsetX, e.offsetY);
-      const data = this.sheet.getData(index);
-      const rect = this.toBoundingRect(index);
-
-      this.inputContainer.style.left = rect.left + 'px';
-      this.inputContainer.style.top = rect.top + 'px';
-      this.cellInput.value = data?.toString() || '';
+      this.showCellInput();
       this.cellInput.focus();
+      e.preventDefault();
     });
 
     this.cellInput.addEventListener('blur', () => {
@@ -184,19 +179,21 @@ class Spreadsheet {
       }
       e.preventDefault();
     } else if (this.isCellInput(e.key)) {
-      this.showCellInput();
+      this.showCellInput(true);
     }
   }
 
   /**
    * `showCellInput` shows the cell input.
    */
-  private showCellInput() {
+  private showCellInput(withoutValue = false) {
     const selection = this.sheet.getSelection();
     const rect = this.toBoundingRect(selection);
     this.inputContainer.style.left = rect.left + 'px';
     this.inputContainer.style.top = rect.top + 'px';
-    this.cellInput.value = this.sheet.getData(selection)?.toString() || '';
+    this.cellInput.value = withoutValue
+      ? ''
+      : this.sheet.toInputString(selection);
     this.cellInput.focus();
   }
 
@@ -378,7 +375,7 @@ class Spreadsheet {
     ctx.fillStyle = CellBGColor;
     ctx.fillRect(rect.left, rect.top, CellWidth, CellHeight);
 
-    const data = this.sheet.getData(index);
+    const data = this.sheet.toDisplayString(index);
     if (data != undefined) {
       ctx.fillStyle = CellTextColor;
       ctx.textAlign = 'center';

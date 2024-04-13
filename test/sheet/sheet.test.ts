@@ -8,9 +8,9 @@ describe('Sheet', () => {
     sheet.setData({ row: 1, col: 2 }, '20');
     sheet.setData({ row: 1, col: 3 }, '30');
 
-    expect(sheet.getData({ row: 1, col: 1 })).toBe('10');
-    expect(sheet.getData({ row: 1, col: 2 })).toBe('20');
-    expect(sheet.getData({ row: 1, col: 3 })).toBe('30');
+    expect(sheet.toInputString({ row: 1, col: 1 })).toBe('10');
+    expect(sheet.toInputString({ row: 1, col: 2 })).toBe('20');
+    expect(sheet.toInputString({ row: 1, col: 3 })).toBe('30');
   });
 
   it('should update selection', () => {

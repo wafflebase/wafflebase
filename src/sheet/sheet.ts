@@ -1,3 +1,4 @@
+import { evaluate } from '../formula/formula';
 import { toReference } from './coordinates';
 import { Grid, CellIndex } from './types';
 
@@ -52,17 +53,36 @@ export class Sheet {
   }
 
   /**
-   * `getData` returns the data at the given row and column.
+   * `toInputString` returns the input string at the given row and column.
    */
-  getData(index: CellIndex): string | undefined {
-    return this.grid.get(toReference(index));
+  toInputString(index: CellIndex): string {
+    const cell = this.grid.get(toReference(index));
+    return !cell ? '' : cell.f ? cell.f : cell.v || '';
+  }
+
+  /**
+   * `toDisplayString` returns the display string at the given row and column.
+   */
+  toDisplayString(index: CellIndex): string {
+    const cell = this.grid.get(toReference(index));
+    return (cell && cell.v) || '';
   }
 
   /**
    * `setData` sets the data at the given row and column.
    */
-  setData(index: CellIndex, data: string): void {
-    this.grid.set(toReference(index), data);
+  setData(index: CellIndex, value: string): void {
+    if (value.startsWith('=')) {
+      const formula = value.slice(1);
+      this.grid.set(toReference(index), {
+        f: value,
+        v: String(evaluate(formula)),
+      });
+
+      return;
+    }
+
+    this.grid.set(toReference(index), { v: value });
   }
 
   /**

@@ -25,7 +25,6 @@ class Evaluator implements FormulaVisitor<number> {
   visitErrorNode(): number {
     throw new Error('Method not implemented.');
   }
-  visitFunction?: ((ctx: FunctionContext) => number) | undefined;
   visitReference?: ((ctx: ReferenceContext) => number) | undefined;
   visitFormula?: ((ctx: FormulaContext) => number) | undefined;
   visitExpr?: ((ctx: ExprContext) => number) | undefined;
@@ -33,6 +32,22 @@ class Evaluator implements FormulaVisitor<number> {
 
   visit(tree: ParseTree): number {
     return tree.accept(this);
+  }
+
+  visitFunction(ctx: FunctionContext): number {
+    const name = ctx.FUNCNAME().text.toUpperCase();
+    if (name === 'SUM') {
+      let sum = 0;
+      if (ctx.args()) {
+        const args = ctx.args()!;
+        for (let i = 0; i < args.expr().length; i++) {
+          sum += this.visit(args.expr(i));
+        }
+      }
+      return sum;
+    }
+
+    throw new Error('Method not implemented.');
   }
 
   visitParentheses(ctx: ParenthesesContext) {

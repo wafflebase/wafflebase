@@ -1,4 +1,4 @@
-import { CellIndex } from './types';
+import { CellIndex, Reference } from './types';
 
 /**
  * `generateCellIndices` generates the cell indices from the given range.
@@ -18,7 +18,7 @@ export function* generateCellIndices(
  * `toReference` converts the cell index to the cell reference.
  * @param index
  */
-export function toReference(index: CellIndex): string {
+export function toReference(index: CellIndex): Reference {
   return toColumnLabel(index.col) + index.row;
 }
 
@@ -43,10 +43,10 @@ export function toColumnLabel(col: number): string {
 /**
  * parseCellReference parses the cell reference and returns the cell index.
  */
-export function parseCellReference(cellReference: string): CellIndex {
+export function parseReference(ref: Reference): CellIndex {
   let startRow = 0;
-  for (let i = 0; i < cellReference.length; i++) {
-    const charCode = cellReference.charCodeAt(i);
+  for (let i = 0; i < ref.length; i++) {
+    const charCode = ref.charCodeAt(i);
     if (48 <= charCode && charCode <= 57) {
       startRow = i;
       break;
@@ -57,8 +57,8 @@ export function parseCellReference(cellReference: string): CellIndex {
     throw new Error('Invalid Reference');
   }
 
-  const row = parseInt(cellReference.substring(startRow));
-  const col = cellReference
+  const row = parseInt(ref.substring(startRow));
+  const col = ref
     .substring(0, startRow)
     .split('')
     .reverse()
@@ -76,9 +76,7 @@ export function parseCellReference(cellReference: string): CellIndex {
 /**
  * parseRangeReference parses the range reference and returns the cell indices.
  */
-export function parseRangeReference(
-  rangeReference: string,
-): [CellIndex, CellIndex] {
-  const [from, to] = rangeReference.split(':');
-  return [parseCellReference(from), parseCellReference(to)];
+export function parseRangeReference(range: string): [CellIndex, CellIndex] {
+  const [from, to] = range.split(':');
+  return [parseReference(from), parseReference(to)];
 }

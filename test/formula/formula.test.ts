@@ -32,4 +32,9 @@ describe('Formula', () => {
     expect(evaluate('10-5/2')).toBe(7.5);
     expect(evaluate('(10-5)/2')).toBe(2.5);
   });
+
+  it('should correctly evaluate functions', () => {
+    expect(evaluate('SUM(0)')).toBe(0);
+    expect(evaluate('SUM(1,2,3)')).toBe(6);
+  });
 });

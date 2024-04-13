@@ -1,20 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parseCellReference,
+  parseReference,
   parseRangeReference,
 } from '../../src/sheet/coordinates';
 
 describe('parseCellReference', () => {
   it('should parse the cell reference and return the cell index', () => {
-    expect(parseCellReference('A1')).toEqual({ row: 1, col: 1 });
-    expect(parseCellReference('Z100')).toEqual({ row: 100, col: 26 });
-    expect(parseCellReference('AB1')).toEqual({ row: 1, col: 28 });
+    expect(parseReference('A1')).toEqual({ row: 1, col: 1 });
+    expect(parseReference('Z100')).toEqual({ row: 100, col: 26 });
+    expect(parseReference('AB1')).toEqual({ row: 1, col: 28 });
   });
 
   it('should throw an error for invalid cell reference', () => {
-    expect(() => parseCellReference('A')).toThrowError('Invalid Reference');
-    expect(() => parseCellReference('@')).toThrowError('Invalid Reference');
-    expect(() => parseCellReference('1A')).toThrowError('Invalid Reference');
+    expect(() => parseReference('A')).toThrowError('Invalid Reference');
+    expect(() => parseReference('@')).toThrowError('Invalid Reference');
+    expect(() => parseReference('1A')).toThrowError('Invalid Reference');
   });
 });
 
