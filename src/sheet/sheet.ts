@@ -1,8 +1,4 @@
-import {
-  generateCellIndices,
-  parseRangeReference,
-  toReference,
-} from './coordinates';
+import { toReference } from './coordinates';
 import { Grid } from './types';
 
 /**
@@ -43,22 +39,6 @@ export class Sheet {
    */
   setData(row: number, col: number, data: number): void {
     this.grid.set(toReference({ row: row, col: col }), data);
-  }
-
-  /**
-   * `calculateSum` calculates the sum of the sheet based on the given reference.
-   *
-   * @param rangeReference range reference. e.g. "A1:B2"
-   * @return sum of the cells.
-   */
-  calculateSum(rangeReference: string): number {
-    const [fromIndex, toIndex] = parseRangeReference(rangeReference);
-    let sum = 0;
-    for (let { row, col } of generateCellIndices(fromIndex, toIndex)) {
-      sum += this.getData(row, col) || 0;
-    }
-
-    return sum;
   }
 
   /**
