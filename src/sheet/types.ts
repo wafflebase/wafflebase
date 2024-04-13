@@ -7,7 +7,7 @@ export type Grid = Map<string, Cell>;
 /**
  * Cell type represents a cell in the sheet.
  */
-export type Cell = number;
+export type Cell = string;
 
 /**
  * CellIndex type represents the index of a cell in the sheet.

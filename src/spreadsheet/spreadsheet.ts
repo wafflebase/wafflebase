@@ -1,10 +1,10 @@
 import { toColumnLabel } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
-import { Grid } from '../sheet/types';
+import { Grid, CellIndex } from '../sheet/types';
 import { MockGrid } from '../sheet/mock';
 
 const CellWidth = 90;
-const CellHeight = 20;
+const CellHeight = 22;
 const CellBorderWidth = 0.5;
 const CellBorderColor = '#d3d3d3';
 const CellBGColor = '#ffffff';
@@ -13,6 +13,16 @@ const ActiveCellColor = '#0000ff';
 const HeaderBGColor = '#f0f0f0';
 const HeaderTextAlign = 'center';
 const RowHeaderWidth = 50;
+
+/**
+ * BoundingRect represents the bounding rectangle of a cell.
+ */
+type BoundingRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 
 /**
  * setupSpreadsheet sets up the spreadsheet in the given container.
@@ -33,11 +43,15 @@ class Spreadsheet {
   private bottomContainer: HTMLDivElement;
   private bottomLeftContainer: HTMLDivElement;
   private bottomRightContainer: HTMLDivElement;
+  private inputContainer: HTMLDivElement;
+  private cellInput: HTMLInputElement;
   private columnHeaderCanvas: HTMLCanvasElement;
   private rowHeaderCanvas: HTMLCanvasElement;
   private gridCanvas: HTMLCanvasElement;
 
   constructor(container: HTMLDivElement, grid?: Grid) {
+    this.sheet = new Sheet(grid);
+
     this.container = container;
     this.container.style.position = 'relative';
     this.container.style.overflow = 'scroll';
@@ -65,70 +79,195 @@ class Spreadsheet {
     this.bottomRightContainer = document.createElement('div');
     this.bottomRightContainer.style.flexGrow = '1';
 
+    this.inputContainer = document.createElement('div');
+    this.inputContainer.style.position = 'absolute';
+    this.inputContainer.style.left = '-1000px';
+    this.inputContainer.style.width = CellWidth + 'px';
+    this.inputContainer.style.height = CellHeight + 'px';
+    this.inputContainer.style.zIndex = '1';
+    this.inputContainer.style.margin = '0px';
+
+    this.cellInput = document.createElement('input');
+    this.cellInput.style.width = '100%';
+    this.cellInput.style.height = '100%';
+    this.cellInput.style.border = 'none';
+    this.inputContainer.appendChild(this.cellInput);
+
     this.columnHeaderCanvas = this.topContainer.appendChild(
       document.createElement('canvas'),
     );
     this.rowHeaderCanvas = this.bottomLeftContainer.appendChild(
       document.createElement('canvas'),
     );
-
     this.gridCanvas = this.bottomRightContainer.appendChild(
       document.createElement('canvas'),
     );
 
     this.bottomContainer.appendChild(this.bottomLeftContainer);
     this.bottomContainer.appendChild(this.bottomRightContainer);
+    this.bottomContainer.appendChild(this.inputContainer);
     this.container.appendChild(this.topContainer);
     this.container.appendChild(this.bottomContainer);
 
-    this.sheet = new Sheet(grid);
-
-    this.container.addEventListener('mousedown', (e) => {
-      const x = e.offsetX;
-      const y = e.offsetY;
-
-      const row = Math.floor(y / CellHeight) + 1;
-      const col = Math.floor(x / CellWidth) + 1;
-      this.sheet.setSelection({ row, col });
-      this.render();
+    this.bottomRightContainer.addEventListener('mousedown', (e) => {
+      this.sheet.setSelection(this.toCellIndex(e.offsetX, e.offsetY));
+      this.paintGrid();
     });
 
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown') {
-        this.sheet.moveSelection(1, 0);
-        this.render();
-        e.preventDefault();
-      } else if (e.key === 'ArrowUp') {
-        this.sheet.moveSelection(-1, 0);
-        this.render();
-        e.preventDefault();
-      } else if (e.key === 'ArrowLeft') {
-        this.sheet.moveSelection(0, -1);
-        this.render();
-        e.preventDefault();
-      } else if (e.key === 'ArrowRight') {
-        this.sheet.moveSelection(0, 1);
-        this.render();
-        e.preventDefault();
+    this.bottomRightContainer.addEventListener('dblclick', (e) => {
+      const index = this.toCellIndex(e.offsetX, e.offsetY);
+      const data = this.sheet.getData(index);
+      const rect = this.toBoundingRect(index);
+
+      this.inputContainer.style.left = rect.left + 'px';
+      this.inputContainer.style.top = rect.top + 'px';
+      this.cellInput.value = data?.toString() || '';
+      this.cellInput.focus();
+    });
+
+    this.cellInput.addEventListener('blur', () => {
+      this.hideCellInput();
+      this.paintGrid();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (this.isCellInputFocused()) {
+        this.handleCellInputKeydown(e);
+        return;
       }
+
+      this.handleGridKeydown(e);
     });
+  }
+
+  handleCellInputKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      this.sheet.setData(this.sheet.getSelection(), this.cellInput.value);
+      this.sheet.moveSelection(1, 0);
+      this.hideCellInput();
+      e.preventDefault();
+    } else if (e.key === 'Tab') {
+      this.sheet.setData(this.sheet.getSelection(), this.cellInput.value);
+      this.sheet.moveSelection(0, 1);
+      this.hideCellInput();
+      e.preventDefault();
+    } else if (e.key === 'Escape') {
+      this.hideCellInput();
+    }
+  }
+
+  handleGridKeydown(e: KeyboardEvent) {
+    if (e.key === 'ArrowDown') {
+      this.sheet.moveSelection(1, 0);
+      this.paintGrid();
+      e.preventDefault();
+    } else if (e.key === 'ArrowUp') {
+      this.sheet.moveSelection(-1, 0);
+      this.paintGrid();
+      e.preventDefault();
+    } else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
+      this.sheet.moveSelection(0, -1);
+      this.paintGrid();
+      e.preventDefault();
+    } else if (e.key === 'ArrowRight' || e.key === 'Tab') {
+      this.sheet.moveSelection(0, 1);
+      this.paintGrid();
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      this.showCellInput();
+      this.cellInput.focus();
+      e.preventDefault();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      const selection = this.sheet.getSelection();
+      if (this.sheet.removeData(selection)) {
+        this.paintGrid();
+      }
+      e.preventDefault();
+    } else if (this.isCellInput(e.key)) {
+      this.showCellInput();
+    }
   }
 
   /**
-   * render renders the spreadsheet in the container.
+   * `showCellInput` shows the cell input.
    */
-  render() {
+  private showCellInput() {
+    const selection = this.sheet.getSelection();
+    const rect = this.toBoundingRect(selection);
+    this.inputContainer.style.left = rect.left + 'px';
+    this.inputContainer.style.top = rect.top + 'px';
+    this.cellInput.value = this.sheet.getData(selection)?.toString() || '';
+    this.cellInput.focus();
+  }
+
+  /**
+   * `hideCellInput` hides the cell input.
+   */
+  private hideCellInput() {
+    this.inputContainer.style.left = '-1000px';
+    this.cellInput.value = '';
+    this.cellInput.blur();
+  }
+
+  /**
+   * `isCellInput` checks if the key is a valid cell input.
+   */
+  private isCellInput(key: string): boolean {
+    return /^[a-zA-Z0-9 =]$/.test(key);
+  }
+
+  /**
+   * `isCellInputFocused` checks if the cell input is focused.
+   */
+  private isCellInputFocused(): boolean {
+    return document.activeElement === this.cellInput;
+  }
+
+  /**
+   * `toCellIndex` returns the cell index for the given x and y coordinates.
+   */
+  private toCellIndex(x: number, y: number): CellIndex {
+    const row = Math.floor(y / CellHeight) + 1;
+    const col = Math.floor(x / CellWidth) + 1;
+    return { row, col };
+  }
+
+  /**
+   * `toBoundingRect` returns the bounding rectangle for the given cell index.
+   */
+  private toBoundingRect(
+    index: CellIndex,
+    excludeRowHeader = false,
+  ): BoundingRect {
+    return {
+      left:
+        (excludeRowHeader ? 0 : RowHeaderWidth) + (index.col - 1) * CellWidth,
+      top: (index.row - 1) * CellHeight,
+      width: CellWidth,
+      height: CellHeight,
+    };
+  }
+
+  /**
+   * `render` renders the spreadsheet in the container.
+   */
+  public render() {
     this.paintSheet();
   }
 
-  paintSheet() {
+  /**
+   * `paintSheet` paints the spreadsheet.
+   */
+  private paintSheet() {
     this.paintColumnHeader();
     this.paintRowHeader();
     this.paintGrid();
-    this.paintSelection();
   }
 
-  paintColumnHeader() {
+  /**
+   * `paintColumnHeader` paints the column header.
+   */
+  private paintColumnHeader() {
     const ctx = this.columnHeaderCanvas.getContext('2d')!;
     const dimension = this.sheet.getDimension();
 
@@ -148,7 +287,10 @@ class Spreadsheet {
     }
   }
 
-  paintRowHeader() {
+  /**
+   * `paintRowHeader` paints the row header.
+   */
+  private paintRowHeader() {
     const ctx = this.rowHeaderCanvas.getContext('2d')!;
     const dimension = this.sheet.getDimension();
 
@@ -166,13 +308,16 @@ class Spreadsheet {
     }
   }
 
-  paintGrid() {
+  /**
+   * `paintGrid` paints the grid.
+   */
+  private paintGrid() {
     this.gridCanvas.width = 0;
     this.gridCanvas.height = 0;
 
-    const ctx = this.gridCanvas.getContext('2d')!;
     const dimension = this.sheet.getDimension();
 
+    const ctx = this.gridCanvas.getContext('2d')!;
     const ratio = window.devicePixelRatio || 1;
     this.gridCanvas.width = dimension.columns * CellWidth * ratio;
     this.gridCanvas.height = dimension.rows * CellHeight * ratio;
@@ -180,31 +325,31 @@ class Spreadsheet {
     this.gridCanvas.style.height = dimension.rows * CellHeight + 'px';
     ctx.scale(ratio, ratio);
 
-    for (let i = 0; i <= dimension.rows; i++) {
-      for (let j = 0; j <= dimension.columns; j++) {
-        const x = j * CellWidth;
-        const y = i * CellHeight;
-        const data = this.sheet.getData(i + 1, j + 1);
-        this.paintCell(ctx, x, y, data);
+    for (let row = 1; row <= dimension.rows + 1; row++) {
+      for (let col = 1; col <= dimension.columns + 1; col++) {
+        this.paintCell(ctx, { row, col });
       }
     }
+
+    this.paintSelection();
   }
 
+  /**
+   * `paintSelection` paints the selection.
+   */
   private paintSelection() {
     const ctx = this.gridCanvas.getContext('2d')!;
-    const row = this.sheet.getSelection().row;
-    const col = this.sheet.getSelection().col;
-
-    const x = (col - 1) * CellWidth;
-    const y = (row - 1) * CellHeight;
-    const width = CellWidth;
-    const height = CellHeight;
+    const selection = this.sheet.getSelection();
+    const rect = this.toBoundingRect(selection, true);
 
     ctx.strokeStyle = ActiveCellColor;
     ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, width, height);
+    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
   }
 
+  /**
+   * `paintHeader` paints the header.
+   */
   private paintHeader(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -222,21 +367,27 @@ class Spreadsheet {
     ctx.fillText(label, x + width / 2, y + 15);
   }
 
-  private paintCell(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    data: number | undefined,
-  ) {
+  /**
+   * `paintCell` paints the cell.
+   */
+  private paintCell(ctx: CanvasRenderingContext2D, index: CellIndex) {
+    const rect = this.toBoundingRect(index, true);
     ctx.strokeStyle = CellTextColor;
     ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(x, y, CellWidth, CellHeight);
+    ctx.strokeRect(rect.left, rect.top, CellWidth, CellHeight);
     ctx.fillStyle = CellBGColor;
-    ctx.fillRect(x, y, CellWidth, CellHeight);
+    ctx.fillRect(rect.left, rect.top, CellWidth, CellHeight);
+
+    const data = this.sheet.getData(index);
     if (data != undefined) {
       ctx.fillStyle = CellTextColor;
       ctx.textAlign = 'center';
-      ctx.fillText(data.toString(), x + CellWidth / 2, y + 15);
+      ctx.fillText(
+        data.toString(),
+        rect.left + CellWidth / 2,
+        rect.top + 15,
+        CellWidth,
+      );
     }
   }
 }

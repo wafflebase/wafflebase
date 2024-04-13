@@ -47,25 +47,29 @@ export class Sheet {
   /**
    * `hasData` checks if the given row and column has data.
    */
-  hasData(row: number, col: number): boolean {
-    return this.grid.has(toReference({ row, col }));
+  hasData(index: CellIndex): boolean {
+    return this.grid.has(toReference(index));
   }
 
   /**
    * `getData` returns the data at the given row and column.
    */
-  getData(row: number, col: number): number | undefined {
-    return this.grid.get(toReference({ row, col }));
+  getData(index: CellIndex): string | undefined {
+    return this.grid.get(toReference(index));
   }
 
   /**
    * `setData` sets the data at the given row and column.
-   * @param row row index.
-   * @param col column number.
-   * @param data data to set.
    */
-  setData(row: number, col: number, data: number): void {
-    this.grid.set(toReference({ row: row, col: col }), data);
+  setData(index: CellIndex, data: string): void {
+    this.grid.set(toReference(index), data);
+  }
+
+  /**
+   * `removeData` removes the data at the given row and column.
+   */
+  removeData(index: CellIndex): boolean {
+    return this.grid.delete(toReference(index));
   }
 
   /**
