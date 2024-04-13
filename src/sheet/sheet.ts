@@ -1,5 +1,5 @@
 import { toReference } from './coordinates';
-import { Grid } from './types';
+import { Grid, CellIndex } from './types';
 
 /**
  * `InitialDimensions` represents the initial dimensions of the sheet.
@@ -23,22 +23,18 @@ export class Sheet {
   private dimension: { rows: number; columns: number };
 
   /**
+   * `selection` is the currently selected cell.
+   */
+  private selection: CellIndex;
+
+  /**
    * `constructor` creates a new `Sheet` instance.
    * @param grid optional grid to initialize the sheet.
    */
   constructor(grid?: Grid) {
     this.grid = grid || new Map();
     this.dimension = { ...InitialDimensions };
-  }
-
-  /**
-   * `setData` sets the data at the given row and column.
-   * @param row row index.
-   * @param col column number.
-   * @param data data to set.
-   */
-  setData(row: number, col: number, data: number): void {
-    this.grid.set(toReference({ row: row, col: col }), data);
+    this.selection = { row: 1, col: 1 };
   }
 
   /**
@@ -60,5 +56,60 @@ export class Sheet {
    */
   getData(row: number, col: number): number | undefined {
     return this.grid.get(toReference({ row, col }));
+  }
+
+  /**
+   * `setData` sets the data at the given row and column.
+   * @param row row index.
+   * @param col column number.
+   * @param data data to set.
+   */
+  setData(row: number, col: number, data: number): void {
+    this.grid.set(toReference({ row: row, col: col }), data);
+  }
+
+  /**
+   * `getSelection` returns the currently selected cell.
+   */
+  getSelection(): CellIndex {
+    return this.selection;
+  }
+
+  /**
+   * `setSelection` sets the selection to the given cell.
+   */
+  setSelection(selection: CellIndex) {
+    if (
+      selection.row < 1 ||
+      selection.col < 1 ||
+      selection.row > this.dimension.rows ||
+      selection.col > this.dimension.columns
+    ) {
+      return;
+    }
+    this.selection = selection;
+  }
+
+  /**
+   * `moveSelection` moves the selection by the given delta.
+   * @param rowDelta Delta to move the selection in the row direction.
+   * @param colDelta Delta to move the selection in the column direction.
+   */
+  moveSelection(rowDelta: number, colDelta: number) {
+    let newRow = this.selection.row + rowDelta;
+    let newCol = this.selection.col + colDelta;
+
+    if (newRow < 1) {
+      newRow = 1;
+    } else if (newRow > this.dimension.rows) {
+      newRow = this.dimension.rows;
+    }
+
+    if (newCol < 1) {
+      newCol = 1;
+    } else if (newCol > this.dimension.columns) {
+      newCol = this.dimension.columns;
+    }
+    this.selection = { row: newRow, col: newCol };
   }
 }
