@@ -1,6 +1,6 @@
-import { evaluate } from '../formula/formula';
+import { evaluate, extractReferences } from '../formula/formula';
 import { toReference } from './coordinates';
-import { Grid, CellIndex } from './types';
+import { Grid, CellIndex, Reference } from './types';
 
 /**
  * `InitialDimensions` represents the initial dimensions of the sheet.
@@ -10,6 +10,16 @@ import { Grid, CellIndex } from './types';
 const InitialDimensions = { rows: 100, columns: 26 };
 
 /**
+ * `CalculationError` represents an error that occurs during calculation.
+ */
+class CalculationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CalculationError';
+  }
+}
+
+/**
  * `Sheet` class represents a sheet with rows and columns.
  */
 export class Sheet {
@@ -17,6 +27,14 @@ export class Sheet {
    * `grid` is a 2D grid that represents the sheet.
    */
   private grid: Grid;
+
+  /**
+   * `dependantsMap` is a map that represents dependants of cells.
+   *
+   * TODO(hackerwins): We need to move this map to spreadsheet level, because references
+   * can be across sheets.
+   */
+  private dependantsMap: Map<Reference, Set<Reference>>;
 
   /**
    * `dimension` is the dimensions of the sheet that are currently visible.
@@ -34,8 +52,11 @@ export class Sheet {
    */
   constructor(grid?: Grid) {
     this.grid = grid || new Map();
+    this.dependantsMap = new Map();
     this.dimension = { ...InitialDimensions };
     this.selection = { row: 1, col: 1 };
+
+    this.buildDependantsMap();
   }
 
   /**
@@ -72,27 +93,33 @@ export class Sheet {
    * `setData` sets the data at the given row and column.
    */
   setData(index: CellIndex, value: string): void {
-    // TODO(hackerwins): Recalculate the dependent cells.
+    const reference = toReference(index);
 
+    // 01. Update the cell with the new value.
+    const cell = value.startsWith('=') ? { f: value } : { v: value };
+    this.grid.set(reference, cell);
+
+    // 02. Update the dependencies.
     if (value.startsWith('=')) {
-      const formula = value.slice(1);
-      const result = evaluate(formula, this);
-      this.grid.set(toReference(index), {
-        f: value,
-        v: String(result),
-      });
-
-      return;
+      const refs = extractReferences(value);
+      for (const ref of refs) {
+        if (!this.dependantsMap.has(ref)) {
+          this.dependantsMap.set(ref, new Set());
+        }
+        this.dependantsMap.get(ref)!.add(reference);
+      }
     }
 
-    this.grid.set(toReference(index), { v: value });
+    this.calculate(reference);
   }
 
   /**
    * `removeData` removes the data at the given row and column.
    */
   removeData(index: CellIndex): boolean {
-    return this.grid.delete(toReference(index));
+    const updated = this.grid.delete(toReference(index));
+    this.calculate(toReference(index));
+    return updated;
   }
 
   /**
@@ -138,5 +165,90 @@ export class Sheet {
       newCol = this.dimension.columns;
     }
     this.selection = { row: newRow, col: newCol };
+  }
+
+  /**
+   * `buildDependencies` builds the entire dependency graph.
+   */
+  private buildDependantsMap() {
+    for (const [reference, cell] of this.grid) {
+      if (!cell.f) {
+        continue;
+      }
+
+      const refs = extractReferences(cell.f);
+      for (const ref of refs) {
+        if (!this.dependantsMap.has(ref)) {
+          this.dependantsMap.set(ref, new Set());
+        }
+        this.dependantsMap.get(ref)!.add(reference);
+      }
+    }
+  }
+
+  /**
+   * `calculate` calculates recursively the given cell and its dependencies.
+   */
+  private calculate(reference: string) {
+    try {
+      for (const ref of this.topologicalSort(reference)) {
+        const cell = this.grid.get(ref);
+        if (!cell || !cell.f) {
+          continue;
+        }
+
+        const value = evaluate(cell.f, this);
+        this.grid.set(ref, {
+          v: value.toString(),
+          f: cell.f,
+        });
+      }
+    } catch (error) {
+      if (error instanceof CalculationError) {
+        const cell = this.grid.get(reference);
+        if (cell) {
+          this.grid.set(reference, {
+            v: '#REF!',
+            f: cell.f,
+          });
+        }
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * `topologicalSort` returns the topological sort of the dependencies.
+   */
+  private topologicalSort(reference: Reference): Array<Reference> {
+    const sorted: Array<Reference> = [reference];
+    const visited = new Set<Reference>();
+    const stack = new Set<Reference>();
+
+    const dfs = (ref: Reference) => {
+      if (stack.has(ref)) {
+        throw new CalculationError('Circular reference detected');
+      }
+
+      stack.add(ref);
+
+      if (!visited.has(ref)) {
+        visited.add(ref);
+
+        if (this.dependantsMap.has(ref)) {
+          for (const dependant of this.dependantsMap.get(ref)!) {
+            dfs(dependant);
+          }
+        }
+        sorted.push(ref);
+      }
+
+      stack.delete(ref);
+    };
+
+    dfs(reference);
+    return sorted.reverse();
   }
 }

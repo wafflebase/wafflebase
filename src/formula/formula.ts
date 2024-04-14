@@ -14,12 +14,32 @@ import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionMap } from './functions';
 import { Sheet } from '../sheet/sheet';
 import { parseReference } from '../sheet/coordinates';
+import { Reference } from '../sheet/types';
+
+/**
+ * `extractReferences` returns the set of references in the expression.
+ */
+export function extractReferences(formula: string): Set<Reference> {
+  const stream = CharStreams.fromString(formula.slice(1));
+  const lexer = new FormulaLexer(stream);
+  const tokens = new CommonTokenStream(lexer);
+  tokens.fill();
+
+  const references = new Set<Reference>();
+  for (const token of tokens.getTokens()) {
+    if (token.type === FormulaParser.REFERENCE) {
+      references.add(token.text!);
+    }
+  }
+
+  return references;
+}
 
 /**
  * `evaluate` returns the result of the expression.
  */
-export function evaluate(expression: string, sheet?: Sheet): number {
-  const stream = CharStreams.fromString(expression);
+export function evaluate(formula: string, sheet?: Sheet): number {
+  const stream = CharStreams.fromString(formula.slice(1));
   const lexer = new FormulaLexer(stream);
   const tokens = new CommonTokenStream(lexer);
   const parser = new FormulaParser(tokens);
