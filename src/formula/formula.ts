@@ -25,7 +25,6 @@ class Evaluator implements FormulaVisitor<number> {
   visitErrorNode(): number {
     throw new Error('Method not implemented.');
   }
-  visitReference?: ((ctx: ReferenceContext) => number) | undefined;
   visitFormula?: ((ctx: FormulaContext) => number) | undefined;
   visitExpr?: ((ctx: ExprContext) => number) | undefined;
   visitArgs?: ((ctx: ArgsContext) => number) | undefined;
@@ -47,6 +46,12 @@ class Evaluator implements FormulaVisitor<number> {
       return sum;
     }
 
+    throw new Error('Function not implemented.');
+  }
+
+  visitReference(ctx: ReferenceContext): number {
+    // TODO(hackerwins): Implement cell reference
+    console.log(ctx.text);
     throw new Error('Method not implemented.');
   }
 

@@ -34,6 +34,32 @@ export function setupSpreadsheet(container: HTMLDivElement) {
 }
 /**
  * Spreadsheet is a class that represents a spreadsheet.
+ *
+ * Container Layout:
+ *
+ * +----------------------------------------+
+ * |            Top Container               |
+ * +----------------------------------------+
+ * |            Bottom Container            |
+ * | +------------------+-----------------+ |
+ * | | Bottom Left      | Bottom Right    | |
+ * | | Container        | Container       | |
+ * | +------------------+-----------------+ |
+ * |            Input Container             |
+ * +----------------------------------------+
+ *
+ * The spreadsheet is rendered inside a container element.
+ * The container is divided into two main sections: top container and bottom container.
+ *
+ * - The top container is sticky and contains the column header.
+ * - The bottom container is divided into two sub-containers: bottom left container and bottom right container.
+ * - The bottom left container contains the row header.
+ * - The bottom right container contains the grid.
+ * - The input container is used to display the cell input and is positioned outside the visible area.
+ *
+ * TODO(hackerwins): We need to implement the following features:
+ * - `freezePane`: Freeze the pane at the given cell index.
+ * - `autoScroll`: Automatically scroll the grid when the selection is outside the visible area.
  */
 class Spreadsheet {
   private sheet: Sheet;
