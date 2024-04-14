@@ -72,11 +72,14 @@ export class Sheet {
    * `setData` sets the data at the given row and column.
    */
   setData(index: CellIndex, value: string): void {
+    // TODO(hackerwins): Recalculate the dependent cells.
+
     if (value.startsWith('=')) {
       const formula = value.slice(1);
+      const result = evaluate(formula, this);
       this.grid.set(toReference(index), {
         f: value,
-        v: String(evaluate(formula)),
+        v: String(result),
       });
 
       return;

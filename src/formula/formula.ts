@@ -3,19 +3,41 @@ import { FormulaLexer } from '../../antlr/FormulaLexer';
 import { FormulaVisitor } from '../../antlr/FormulaVisitor';
 import {
   AddSubContext,
-  ArgsContext,
-  ExprContext,
   FormulaParser,
   FunctionContext,
-  FormulaContext,
   MulDivContext,
   NumberContext,
   ParenthesesContext,
   ReferenceContext,
 } from '../../antlr/FormulaParser';
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
+import { FunctionMap } from './functions';
+import { Sheet } from '../sheet/sheet';
+import { parseReference } from '../sheet/coordinates';
+
+/**
+ * `evaluate` returns the result of the expression.
+ */
+export function evaluate(expression: string, sheet?: Sheet): number {
+  const stream = CharStreams.fromString(expression);
+  const lexer = new FormulaLexer(stream);
+  const tokens = new CommonTokenStream(lexer);
+  const parser = new FormulaParser(tokens);
+
+  // TODO(hackerwins): Return #VALUE! if there is a syntax error.
+  const tree = parser.expr();
+  const evaluator = new Evaluator(sheet);
+  return evaluator.visit(tree);
+}
 
 class Evaluator implements FormulaVisitor<number> {
+  private sheet: Sheet | undefined;
+
+  constructor(sheet?: Sheet) {
+    this.visit = this.visit.bind(this);
+    this.sheet = sheet;
+  }
+
   visitChildren(): number {
     throw new Error('Method not implemented.');
   }
@@ -25,9 +47,15 @@ class Evaluator implements FormulaVisitor<number> {
   visitErrorNode(): number {
     throw new Error('Method not implemented.');
   }
-  visitFormula?: ((ctx: FormulaContext) => number) | undefined;
-  visitExpr?: ((ctx: ExprContext) => number) | undefined;
-  visitArgs?: ((ctx: ArgsContext) => number) | undefined;
+  visitFormula(): number {
+    throw new Error('Method not implemented.');
+  }
+  visitExpr(): number {
+    throw new Error('Method not implemented.');
+  }
+  visitArgs(): number {
+    throw new Error('Method not implemented.');
+  }
 
   visit(tree: ParseTree): number {
     return tree.accept(this);
@@ -35,24 +63,23 @@ class Evaluator implements FormulaVisitor<number> {
 
   visitFunction(ctx: FunctionContext): number {
     const name = ctx.FUNCNAME().text.toUpperCase();
-    if (name === 'SUM') {
-      let sum = 0;
-      if (ctx.args()) {
-        const args = ctx.args()!;
-        for (let i = 0; i < args.expr().length; i++) {
-          sum += this.visit(args.expr(i));
-        }
-      }
-      return sum;
+    if (FunctionMap.has(name)) {
+      const func = FunctionMap.get(name)!;
+      return func(ctx, this.visit);
     }
 
     throw new Error('Function not implemented.');
   }
 
   visitReference(ctx: ReferenceContext): number {
-    // TODO(hackerwins): Implement cell reference
-    console.log(ctx.text);
-    throw new Error('Method not implemented.');
+    // TODO(hackerwins): Reteurn #REF! if sheet or cell not found.
+    if (!this.sheet) {
+      throw new Error('Sheet not found.');
+    }
+
+    const cellIndex = parseReference(ctx.text);
+    const displayValue = this.sheet.toDisplayString(cellIndex);
+    return parseInt(displayValue);
   }
 
   visitParentheses(ctx: ParenthesesContext) {
@@ -82,18 +109,4 @@ class Evaluator implements FormulaVisitor<number> {
       return left / right;
     }
   }
-}
-
-/**
- * `evaluate` returns the result of the expression.
- */
-export function evaluate(expression: string): number {
-  const stream = CharStreams.fromString(expression);
-  const lexer = new FormulaLexer(stream);
-  const tokens = new CommonTokenStream(lexer);
-  const parser = new FormulaParser(tokens);
-
-  const tree = parser.expr();
-  const evaluator = new Evaluator();
-  return evaluator.visit(tree);
 }
