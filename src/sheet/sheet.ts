@@ -1,6 +1,7 @@
-import { evaluate, extractReferences } from '../formula/formula';
+import { extractReferences } from '../formula/formula';
+import { calculate } from './calculator';
 import { toReference } from './coordinates';
-import { Grid, CellIndex, Reference } from './types';
+import { Grid, Cell, CellIndex, Reference } from './types';
 
 /**
  * `InitialDimensions` represents the initial dimensions of the sheet.
@@ -8,16 +9,6 @@ import { Grid, CellIndex, Reference } from './types';
  * The sheet will have 100 rows and 26 columns. A1:Z100
  */
 const InitialDimensions = { rows: 100, columns: 26 };
-
-/**
- * `CalculationError` represents an error that occurs during calculation.
- */
-class CalculationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CalculationError';
-  }
-}
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -67,10 +58,46 @@ export class Sheet {
   }
 
   /**
+   * `getCell` returns the cell at the given row and column.
+   */
+  getCell(ref: Reference) {
+    return this.grid.get(ref);
+  }
+
+  /**
+   * `setCell` sets the cell at the given row and column.
+   */
+  setCell(ref: Reference, cell: Cell) {
+    this.grid.set(ref, cell);
+  }
+
+  /**
    * `hasData` checks if the given row and column has data.
    */
   hasData(index: CellIndex): boolean {
     return this.grid.has(toReference(index));
+  }
+
+  /**
+   * `hasFormula` checks if the given row and column has a formula.
+   */
+  hasFormula(ref: Reference): boolean {
+    const cell = this.grid.get(ref);
+    return cell && cell.f ? true : false;
+  }
+
+  /**
+   * `hasDependants` checks if the given row and column has dependants.
+   */
+  hasDependants(ref: Reference): boolean {
+    return this.dependantsMap.has(ref);
+  }
+
+  /**
+   * `getDependants` returns the dependants of the given row and column.
+   */
+  getDependants(ref: Reference): Set<Reference> | undefined {
+    return this.dependantsMap.get(ref);
   }
 
   /**
@@ -110,7 +137,8 @@ export class Sheet {
       }
     }
 
-    this.calculate(reference);
+    // 03. Calculate the cell and its dependencies.
+    calculate(this, reference);
   }
 
   /**
@@ -118,7 +146,7 @@ export class Sheet {
    */
   removeData(index: CellIndex): boolean {
     const updated = this.grid.delete(toReference(index));
-    this.calculate(toReference(index));
+    calculate(this, toReference(index));
     return updated;
   }
 
@@ -184,71 +212,5 @@ export class Sheet {
         this.dependantsMap.get(ref)!.add(reference);
       }
     }
-  }
-
-  /**
-   * `calculate` calculates recursively the given cell and its dependencies.
-   */
-  private calculate(reference: string) {
-    try {
-      for (const ref of this.topologicalSort(reference)) {
-        const cell = this.grid.get(ref);
-        if (!cell || !cell.f) {
-          continue;
-        }
-
-        const value = evaluate(cell.f, this);
-        this.grid.set(ref, {
-          v: value.toString(),
-          f: cell.f,
-        });
-      }
-    } catch (error) {
-      if (error instanceof CalculationError) {
-        const cell = this.grid.get(reference);
-        if (cell) {
-          this.grid.set(reference, {
-            v: '#REF!',
-            f: cell.f,
-          });
-        }
-        return;
-      }
-
-      throw error;
-    }
-  }
-
-  /**
-   * `topologicalSort` returns the topological sort of the dependencies.
-   */
-  private topologicalSort(reference: Reference): Array<Reference> {
-    const sorted: Array<Reference> = [reference];
-    const visited = new Set<Reference>();
-    const stack = new Set<Reference>();
-
-    const dfs = (ref: Reference) => {
-      if (stack.has(ref)) {
-        throw new CalculationError('Circular reference detected');
-      }
-
-      stack.add(ref);
-
-      if (!visited.has(ref)) {
-        visited.add(ref);
-
-        if (this.dependantsMap.has(ref)) {
-          for (const dependant of this.dependantsMap.get(ref)!) {
-            dfs(dependant);
-          }
-        }
-        sorted.push(ref);
-      }
-
-      stack.delete(ref);
-    };
-
-    dfs(reference);
-    return sorted.reverse();
   }
 }

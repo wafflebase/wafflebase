@@ -1,4 +1,4 @@
-// Generated from formula/Formula.g4 by ANTLR 4.9.0-SNAPSHOT
+// Generated from antlr/Formula.g4 by ANTLR 4.9.0-SNAPSHOT
 
 import { ParseTreeListener } from 'antlr4ts/tree/ParseTreeListener';
 

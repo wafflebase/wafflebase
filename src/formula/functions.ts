@@ -15,12 +15,12 @@ export function sum(
 ): number {
   // TODO(hackerwins): Sum should filter out non-numeric values.
   // TODO(hackerwins): Sum must accpet at least 1 argument.
-  let sum = 0;
+  let result = 0;
   if (ctx.args()) {
     const args = ctx.args()!;
     for (let i = 0; i < args.expr().length; i++) {
-      sum += visit(args.expr(i));
+      result += visit(args.expr(i));
     }
   }
-  return sum;
+  return result;
 }

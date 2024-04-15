@@ -50,6 +50,10 @@ export function evaluate(formula: string, sheet?: Sheet): number {
   return evaluator.visit(tree);
 }
 
+/**
+ * `Evaluator` class evaluates the formula. The grammar of the formula is defined in
+ * `antlr/Formula.g4` file.
+ */
 class Evaluator implements FormulaVisitor<number> {
   private sheet: Sheet | undefined;
 
