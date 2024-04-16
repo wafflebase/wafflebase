@@ -6,6 +6,7 @@ import { FunctionContext } from './FormulaParser';
 import { MulDivContext } from './FormulaParser';
 import { AddSubContext } from './FormulaParser';
 import { NumberContext } from './FormulaParser';
+import { BooleanContext } from './FormulaParser';
 import { ReferenceContext } from './FormulaParser';
 import { ParenthesesContext } from './FormulaParser';
 import { FormulaContext } from './FormulaParser';
@@ -51,6 +52,14 @@ export interface FormulaVisitor<Result> extends ParseTreeVisitor<Result> {
    * @return the visitor result
    */
   visitNumber?: (ctx: NumberContext) => Result;
+
+  /**
+   * Visit a parse tree produced by the `Boolean`
+   * labeled alternative in `FormulaParser.expr`.
+   * @param ctx the parse tree
+   * @return the visitor result
+   */
+  visitBoolean?: (ctx: BooleanContext) => Result;
 
   /**
    * Visit a parse tree produced by the `Reference`

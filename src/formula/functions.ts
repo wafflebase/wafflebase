@@ -1,5 +1,7 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
+import { EvaluationResult } from './formula';
+import { NumberArgs } from './arguments';
 
 /**
  * FunctionMap is a map of function name to the function implementation.
@@ -11,16 +13,20 @@ export const FunctionMap = new Map([['SUM', sum]]);
  */
 export function sum(
   ctx: FunctionContext,
-  visit: (tree: ParseTree) => number,
-): number {
-  // TODO(hackerwins): Sum should filter out non-numeric values.
-  // TODO(hackerwins): Sum must accpet at least 1 argument.
-  let result = 0;
-  if (ctx.args()) {
-    const args = ctx.args()!;
-    for (let i = 0; i < args.expr().length; i++) {
-      result += visit(args.expr(i));
-    }
+  visit: (tree: ParseTree) => EvaluationResult,
+): EvaluationResult {
+  const args = ctx.args()!;
+  if (!args) {
+    return { t: 'error', v: '#N/A' };
   }
-  return result;
+
+  let value = 0;
+  for (const expr of args.expr()) {
+    value += NumberArgs.map(visit(expr)).v;
+  }
+
+  return {
+    t: 'number',
+    v: value,
+  };
 }

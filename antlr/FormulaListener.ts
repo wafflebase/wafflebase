@@ -6,6 +6,7 @@ import { FunctionContext } from './FormulaParser';
 import { MulDivContext } from './FormulaParser';
 import { AddSubContext } from './FormulaParser';
 import { NumberContext } from './FormulaParser';
+import { BooleanContext } from './FormulaParser';
 import { ReferenceContext } from './FormulaParser';
 import { ParenthesesContext } from './FormulaParser';
 import { FormulaContext } from './FormulaParser';
@@ -68,6 +69,19 @@ export interface FormulaListener extends ParseTreeListener {
    * @param ctx the parse tree
    */
   exitNumber?: (ctx: NumberContext) => void;
+
+  /**
+   * Enter a parse tree produced by the `Boolean`
+   * labeled alternative in `FormulaParser.expr`.
+   * @param ctx the parse tree
+   */
+  enterBoolean?: (ctx: BooleanContext) => void;
+  /**
+   * Exit a parse tree produced by the `Boolean`
+   * labeled alternative in `FormulaParser.expr`.
+   * @param ctx the parse tree
+   */
+  exitBoolean?: (ctx: BooleanContext) => void;
 
   /**
    * Enter a parse tree produced by the `Reference`

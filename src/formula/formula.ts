@@ -3,6 +3,7 @@ import { FormulaLexer } from '../../antlr/FormulaLexer';
 import { FormulaVisitor } from '../../antlr/FormulaVisitor';
 import {
   AddSubContext,
+  BooleanContext,
   FormulaParser,
   FunctionContext,
   MulDivContext,
@@ -13,11 +14,12 @@ import {
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionMap } from './functions';
 import { Sheet } from '../sheet/sheet';
-import { parseReference } from '../sheet/coordinates';
+import { parseRef, isRangeRef } from '../sheet/coordinates';
 import { Reference } from '../sheet/types';
+import { NumberArgs } from './arguments';
 
 /**
- * `extractReferences` returns the set of references in the expression.
+ * `extractReferences` returns references in the expression.
  */
 export function extractReferences(formula: string): Set<Reference> {
   const stream = CharStreams.fromString(formula.slice(1));
@@ -38,23 +40,42 @@ export function extractReferences(formula: string): Set<Reference> {
 /**
  * `evaluate` returns the result of the expression.
  */
-export function evaluate(formula: string, sheet?: Sheet): number {
-  const stream = CharStreams.fromString(formula.slice(1));
-  const lexer = new FormulaLexer(stream);
-  const tokens = new CommonTokenStream(lexer);
-  const parser = new FormulaParser(tokens);
+export function evaluate(formula: string, sheet?: Sheet): string {
+  try {
+    const stream = CharStreams.fromString(formula.slice(1));
+    const lexer = new FormulaLexer(stream);
+    const tokens = new CommonTokenStream(lexer);
+    const parser = new FormulaParser(tokens);
+    parser.removeErrorListeners();
 
-  // TODO(hackerwins): Return #VALUE! if there is a syntax error.
-  const tree = parser.expr();
-  const evaluator = new Evaluator(sheet);
-  return evaluator.visit(tree);
+    // TODO(hackerwins): Return #VALUE! if there is a syntax error.
+    const tree = parser.expr();
+    const evaluator = new Evaluator(sheet);
+    return evaluator.visit(tree).v.toString();
+  } catch (e) {
+    return '#ERROR!';
+  }
 }
+
+export type NumberResult = { t: 'number'; v: number };
+export type StringResult = { t: 'string'; v: string };
+export type BooleanResult = { t: 'boolean'; v: boolean };
+export type ErrorResult = { t: 'error'; v: string };
+
+/**
+ * `Result` represents the result of the evaluation.
+ */
+export type EvaluationResult =
+  | NumberResult
+  | StringResult
+  | BooleanResult
+  | ErrorResult;
 
 /**
  * `Evaluator` class evaluates the formula. The grammar of the formula is defined in
  * `antlr/Formula.g4` file.
  */
-class Evaluator implements FormulaVisitor<number> {
+class Evaluator implements FormulaVisitor<EvaluationResult> {
   private sheet: Sheet | undefined;
 
   constructor(sheet?: Sheet) {
@@ -62,30 +83,30 @@ class Evaluator implements FormulaVisitor<number> {
     this.sheet = sheet;
   }
 
-  visitChildren(): number {
+  visitChildren(): EvaluationResult {
     throw new Error('Method not implemented.');
   }
-  visitTerminal(): number {
+  visitTerminal(): EvaluationResult {
     throw new Error('Method not implemented.');
   }
-  visitErrorNode(): number {
+  visitErrorNode(): EvaluationResult {
     throw new Error('Method not implemented.');
   }
-  visitFormula(): number {
+  visitFormula(): EvaluationResult {
     throw new Error('Method not implemented.');
   }
-  visitExpr(): number {
+  visitExpr(): EvaluationResult {
     throw new Error('Method not implemented.');
   }
-  visitArgs(): number {
+  visitArgs(): EvaluationResult {
     throw new Error('Method not implemented.');
   }
 
-  visit(tree: ParseTree): number {
+  visit(tree: ParseTree): EvaluationResult {
     return tree.accept(this);
   }
 
-  visitFunction(ctx: FunctionContext): number {
+  visitFunction(ctx: FunctionContext): EvaluationResult {
     const name = ctx.FUNCNAME().text.toUpperCase();
     if (FunctionMap.has(name)) {
       const func = FunctionMap.get(name)!;
@@ -95,42 +116,57 @@ class Evaluator implements FormulaVisitor<number> {
     throw new Error('Function not implemented.');
   }
 
-  visitReference(ctx: ReferenceContext): number {
-    // TODO(hackerwins): Reteurn #REF! if sheet or cell not found.
+  visitReference(ctx: ReferenceContext): EvaluationResult {
     if (!this.sheet) {
-      throw new Error('Sheet not found.');
+      return { t: 'error', v: '#REF!' };
     }
 
-    const cellIndex = parseReference(ctx.text);
-    const displayValue = this.sheet.toDisplayString(cellIndex);
-    return parseInt(displayValue);
+    // TODO(hackerwins): Decompose RefRange.
+    if (isRangeRef(ctx.text)) {
+      throw new Error('RangeRef not implemented.');
+    }
+
+    const value = this.sheet.toDisplayString(parseRef(ctx.text));
+    return NumberArgs.map({ t: 'string', v: value });
   }
 
-  visitParentheses(ctx: ParenthesesContext) {
+  visitParentheses(ctx: ParenthesesContext): EvaluationResult {
     return this.visit(ctx.expr());
   }
 
-  visitNumber(ctx: NumberContext): number {
-    return parseInt(ctx.text);
+  visitNumber(ctx: NumberContext): EvaluationResult {
+    return {
+      t: 'number',
+      v: Number(ctx.text),
+    };
   }
 
-  visitAddSub(ctx: AddSubContext): number {
-    const left = this.visit(ctx.expr(0));
-    const right = this.visit(ctx.expr(1));
+  visitBoolean(ctx: BooleanContext): EvaluationResult {
+    return {
+      t: 'boolean',
+      v: ctx.text === 'TRUE' || ctx.text === 'true',
+    };
+  }
+
+  visitAddSub(ctx: AddSubContext): EvaluationResult {
+    const left = NumberArgs.map(this.visit(ctx.expr(0)));
+    const right = NumberArgs.map(this.visit(ctx.expr(1)));
+
     if (ctx._op.type === FormulaParser.ADD) {
-      return left + right;
-    } else {
-      return left - right;
+      return { t: 'number', v: left.v + right.v };
     }
+
+    return { t: 'number', v: left.v - right.v };
   }
 
-  visitMulDiv(ctx: MulDivContext): number {
-    const left = this.visit(ctx.expr(0));
-    const right = this.visit(ctx.expr(1));
+  visitMulDiv(ctx: MulDivContext): EvaluationResult {
+    const left = NumberArgs.map(this.visit(ctx.expr(0)));
+    const right = NumberArgs.map(this.visit(ctx.expr(1)));
+
     if (ctx._op.type === FormulaParser.MUL) {
-      return left * right;
-    } else {
-      return left / right;
+      return { t: 'number', v: left.v * right.v };
     }
+
+    return { t: 'number', v: left.v / right.v };
   }
 }

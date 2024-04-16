@@ -1,6 +1,6 @@
 import { toColumnLabel } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
-import { Grid, CellIndex } from '../sheet/types';
+import { Grid, CellID } from '../sheet/types';
 import { MockGrid } from '../sheet/mock';
 
 const CellWidth = 90;
@@ -136,7 +136,7 @@ class Spreadsheet {
     this.container.appendChild(this.bottomContainer);
 
     this.bottomRightContainer.addEventListener('mousedown', (e) => {
-      this.sheet.setSelection(this.toCellIndex(e.offsetX, e.offsetY));
+      this.sheet.setSelection(this.toCellID(e.offsetX, e.offsetY));
       this.paintGrid();
     });
 
@@ -247,9 +247,9 @@ class Spreadsheet {
   }
 
   /**
-   * `toCellIndex` returns the cell index for the given x and y coordinates.
+   * `toCellID` returns the cell ID for the given x and y coordinates.
    */
-  private toCellIndex(x: number, y: number): CellIndex {
+  private toCellID(x: number, y: number): CellID {
     const row = Math.floor(y / CellHeight) + 1;
     const col = Math.floor(x / CellWidth) + 1;
     return { row, col };
@@ -259,7 +259,7 @@ class Spreadsheet {
    * `toBoundingRect` returns the bounding rectangle for the given cell index.
    */
   private toBoundingRect(
-    index: CellIndex,
+    index: CellID,
     excludeRowHeader = false,
   ): BoundingRect {
     return {
@@ -393,7 +393,7 @@ class Spreadsheet {
   /**
    * `paintCell` paints the cell.
    */
-  private paintCell(ctx: CanvasRenderingContext2D, index: CellIndex) {
+  private paintCell(ctx: CanvasRenderingContext2D, index: CellID) {
     const rect = this.toBoundingRect(index, true);
     ctx.strokeStyle = CellTextColor;
     ctx.lineWidth = CellBorderWidth;

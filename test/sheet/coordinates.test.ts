@@ -1,31 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import {
-  parseReference,
-  parseRangeReference,
-} from '../../src/sheet/coordinates';
+import { parseRef, parseRefRange } from '../../src/sheet/coordinates';
 
-describe('parseCellReference', () => {
+describe('parseRef', () => {
   it('should parse the cell reference and return the cell index', () => {
-    expect(parseReference('A1')).toEqual({ row: 1, col: 1 });
-    expect(parseReference('Z100')).toEqual({ row: 100, col: 26 });
-    expect(parseReference('AB1')).toEqual({ row: 1, col: 28 });
+    expect(parseRef('A1')).toEqual({ row: 1, col: 1 });
+    expect(parseRef('Z100')).toEqual({ row: 100, col: 26 });
+    expect(parseRef('AB1')).toEqual({ row: 1, col: 28 });
   });
 
   it('should throw an error for invalid cell reference', () => {
-    expect(() => parseReference('A')).toThrowError('Invalid Reference');
-    expect(() => parseReference('@')).toThrowError('Invalid Reference');
-    expect(() => parseReference('1A')).toThrowError('Invalid Reference');
+    expect(() => parseRef('A')).toThrowError('Invalid Reference');
+    expect(() => parseRef('@')).toThrowError('Invalid Reference');
+    expect(() => parseRef('1A')).toThrowError('Invalid Reference');
   });
 });
 
-describe('parseRangeReference', () => {
+describe('parseRefRange', () => {
   it('should parse the range reference and return the cell indices', () => {
-    expect(parseRangeReference('A1:B3')).toEqual([
+    expect(parseRefRange('A1:B3')).toEqual([
       { row: 1, col: 1 },
       { row: 3, col: 2 },
     ]);
 
-    expect(parseRangeReference('A1:A1')).toEqual([
+    expect(parseRefRange('A1:A1')).toEqual([
       { row: 1, col: 1 },
       { row: 1, col: 1 },
     ]);

@@ -1,7 +1,7 @@
 import { extractReferences } from '../formula/formula';
 import { calculate } from './calculator';
-import { toReference } from './coordinates';
-import { Grid, Cell, CellIndex, Reference } from './types';
+import { toRef, toRefs } from './coordinates';
+import { Grid, Cell, CellID, Ref } from './types';
 
 /**
  * `InitialDimensions` represents the initial dimensions of the sheet.
@@ -25,7 +25,7 @@ export class Sheet {
    * TODO(hackerwins): We need to move this map to spreadsheet level, because references
    * can be across sheets.
    */
-  private dependantsMap: Map<Reference, Set<Reference>>;
+  private dependantsMap: Map<Ref, Set<Ref>>;
 
   /**
    * `dimension` is the dimensions of the sheet that are currently visible.
@@ -35,7 +35,7 @@ export class Sheet {
   /**
    * `selection` is the currently selected cell.
    */
-  private selection: CellIndex;
+  private selection: CellID;
 
   /**
    * `constructor` creates a new `Sheet` instance.
@@ -60,28 +60,28 @@ export class Sheet {
   /**
    * `getCell` returns the cell at the given row and column.
    */
-  getCell(ref: Reference) {
+  getCell(ref: Ref) {
     return this.grid.get(ref);
   }
 
   /**
    * `setCell` sets the cell at the given row and column.
    */
-  setCell(ref: Reference, cell: Cell) {
+  setCell(ref: Ref, cell: Cell) {
     this.grid.set(ref, cell);
   }
 
   /**
    * `hasData` checks if the given row and column has data.
    */
-  hasData(index: CellIndex): boolean {
-    return this.grid.has(toReference(index));
+  hasData(index: CellID): boolean {
+    return this.grid.has(toRef(index));
   }
 
   /**
    * `hasFormula` checks if the given row and column has a formula.
    */
-  hasFormula(ref: Reference): boolean {
+  hasFormula(ref: Ref): boolean {
     const cell = this.grid.get(ref);
     return cell && cell.f ? true : false;
   }
@@ -89,38 +89,38 @@ export class Sheet {
   /**
    * `hasDependants` checks if the given row and column has dependants.
    */
-  hasDependants(ref: Reference): boolean {
+  hasDependants(ref: Ref): boolean {
     return this.dependantsMap.has(ref);
   }
 
   /**
    * `getDependants` returns the dependants of the given row and column.
    */
-  getDependants(ref: Reference): Set<Reference> | undefined {
+  getDependants(ref: Ref): Set<Ref> | undefined {
     return this.dependantsMap.get(ref);
   }
 
   /**
    * `toInputString` returns the input string at the given row and column.
    */
-  toInputString(index: CellIndex): string {
-    const cell = this.grid.get(toReference(index));
+  toInputString(index: CellID): string {
+    const cell = this.grid.get(toRef(index));
     return !cell ? '' : cell.f ? cell.f : cell.v || '';
   }
 
   /**
    * `toDisplayString` returns the display string at the given row and column.
    */
-  toDisplayString(index: CellIndex): string {
-    const cell = this.grid.get(toReference(index));
+  toDisplayString(index: CellID): string {
+    const cell = this.grid.get(toRef(index));
     return (cell && cell.v) || '';
   }
 
   /**
    * `setData` sets the data at the given row and column.
    */
-  setData(index: CellIndex, value: string): void {
-    const reference = toReference(index);
+  setData(index: CellID, value: string): void {
+    const reference = toRef(index);
 
     // 01. Update the cell with the new value.
     const cell = value.startsWith('=') ? { f: value } : { v: value };
@@ -128,8 +128,7 @@ export class Sheet {
 
     // 02. Update the dependencies.
     if (value.startsWith('=')) {
-      const refs = extractReferences(value);
-      for (const ref of refs) {
+      for (const ref of toRefs(extractReferences(value))) {
         if (!this.dependantsMap.has(ref)) {
           this.dependantsMap.set(ref, new Set());
         }
@@ -144,23 +143,23 @@ export class Sheet {
   /**
    * `removeData` removes the data at the given row and column.
    */
-  removeData(index: CellIndex): boolean {
-    const updated = this.grid.delete(toReference(index));
-    calculate(this, toReference(index));
+  removeData(id: CellID): boolean {
+    const updated = this.grid.delete(toRef(id));
+    calculate(this, toRef(id));
     return updated;
   }
 
   /**
    * `getSelection` returns the currently selected cell.
    */
-  getSelection(): CellIndex {
+  getSelection(): CellID {
     return this.selection;
   }
 
   /**
    * `setSelection` sets the selection to the given cell.
    */
-  setSelection(selection: CellIndex) {
+  setSelection(selection: CellID) {
     if (
       selection.row < 1 ||
       selection.col < 1 ||
@@ -199,17 +198,17 @@ export class Sheet {
    * `buildDependencies` builds the entire dependency graph.
    */
   private buildDependantsMap() {
-    for (const [reference, cell] of this.grid) {
+    for (const [ref, cell] of this.grid) {
       if (!cell.f) {
         continue;
       }
 
-      const refs = extractReferences(cell.f);
-      for (const ref of refs) {
-        if (!this.dependantsMap.has(ref)) {
-          this.dependantsMap.set(ref, new Set());
+      const references = extractReferences(cell.f);
+      for (const reference of toRefs(references)) {
+        if (!this.dependantsMap.has(reference)) {
+          this.dependantsMap.set(reference, new Set());
         }
-        this.dependantsMap.get(ref)!.add(reference);
+        this.dependantsMap.get(reference)!.add(ref);
       }
     }
   }

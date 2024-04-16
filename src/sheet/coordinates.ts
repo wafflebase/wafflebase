@@ -1,12 +1,9 @@
-import { CellIndex, Reference } from './types';
+import { CellID, CellRange, Reference, Ref } from './types';
 
 /**
- * `generateCellIndices` generates the cell indices from the given range.
+ * `generateCellIDs` generates the CellIDs from the given range.
  */
-export function* generateCellIndices(
-  from: CellIndex,
-  to: CellIndex,
-): Generator<CellIndex> {
+export function* generateCellIDs(from: CellID, to: CellID): Generator<CellID> {
   for (let row = from.row; row <= to.row; row++) {
     for (let col = from.col; col <= to.col; col++) {
       yield { row, col };
@@ -15,15 +12,40 @@ export function* generateCellIndices(
 }
 
 /**
- * `toReference` converts the cell index to the cell reference.
- * @param index
+ * `isRangeRef` returns whether Reference is RangeRef.
  */
-export function toReference(index: CellIndex): Reference {
-  return toColumnLabel(index.col) + index.row;
+export function isRangeRef(reference: Reference): boolean {
+  return reference.includes(':');
 }
 
 /**
- * `toColumnLabel` converts the column index to the column label.
+ * `toRefs` converts the references to Refs. If the reference is a range,
+ *  it decomposes the range into individual references.
+ */
+export function* toRefs(references: Set<Reference>): Generator<Ref> {
+  for (const reference of references) {
+    if (isRangeRef(reference)) {
+      const range = parseRefRange(reference);
+      for (const id of range) {
+        yield toRef(id);
+      }
+      continue;
+    }
+
+    yield reference;
+  }
+}
+
+/**
+ * `toRef` converts the cell index to Ref.
+ * @param id
+ */
+export function toRef(id: CellID): Ref {
+  return toColumnLabel(id.col) + id.row;
+}
+
+/**
+ * `toColumnLabel` converts the column to the column label.
  */
 export function toColumnLabel(col: number): string {
   let columnLabel = '';
@@ -41,9 +63,9 @@ export function toColumnLabel(col: number): string {
 }
 
 /**
- * parseCellReference parses the cell reference and returns the cell index.
+ * parseRef parses the ref and returns CellID.
  */
-export function parseReference(ref: Reference): CellIndex {
+export function parseRef(ref: Ref): CellID {
   let startRow = 0;
   for (let i = 0; i < ref.length; i++) {
     const charCode = ref.charCodeAt(i);
@@ -76,7 +98,7 @@ export function parseReference(ref: Reference): CellIndex {
 /**
  * parseRangeReference parses the range reference and returns the cell indices.
  */
-export function parseRangeReference(range: string): [CellIndex, CellIndex] {
+export function parseRefRange(range: string): CellRange {
   const [from, to] = range.split(':');
-  return [parseReference(from), parseReference(to)];
+  return [parseRef(from), parseRef(to)];
 }
