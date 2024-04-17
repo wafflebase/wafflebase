@@ -14,6 +14,13 @@ export function* toCellIDs(range: CellRange): Generator<CellID> {
 }
 
 /**
+ * `isSameID` returns whether the given cellIDs are the same.
+ */
+export function isSameID(id1: CellID, id2: CellID): boolean {
+  return id1.row === id2.row && id1.col === id2.col;
+}
+
+/**
  * `isRangeRef` returns whether Reference is RangeRef.
  */
 export function isRangeRef(reference: Reference): boolean {
@@ -39,7 +46,7 @@ export function* toRefs(references: Set<Reference>): Generator<Ref> {
 }
 
 /**
- * `toRef` converts the cell index to Ref.
+ * `toRef` converts the given id to Ref.
  * @param id
  */
 export function toRef(id: CellID): Ref {

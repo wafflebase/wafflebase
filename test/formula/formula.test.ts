@@ -36,13 +36,16 @@ describe('Formula', () => {
   it('should correctly evaluate functions', () => {
     expect(evaluate('=SUM(0)')).toBe('0');
     expect(evaluate('=SUM(1,2,3)')).toBe('6');
-    expect(evaluate('=SUM()')).toBe('#N/A');
     expect(evaluate('=SUM(true,false,true)')).toBe('2');
   });
 
   it('should display #ERROR! for invalid formulas', () => {
     expect(evaluate('abc')).toBe('#ERROR!');
     expect(evaluate('=1+')).toBe('#ERROR!');
+  });
+
+  it('should display #N/A for invalid arguments', () => {
+    expect(evaluate('=SUM()')).toBe('#N/A');
   });
 
   it('should correctly extract references', () => {

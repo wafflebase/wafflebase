@@ -1,7 +1,7 @@
 import { extractReferences } from '../formula/formula';
 import { calculate } from './calculator';
-import { toRef, toRefs } from './coordinates';
-import { Grid, Cell, CellID, Ref } from './types';
+import { isSameID, toRef, toRefs } from './coordinates';
+import { Grid, Cell, CellID, Ref, CellRange } from './types';
 
 /**
  * `InitialDimensions` represents the initial dimensions of the sheet.
@@ -20,22 +20,19 @@ export class Sheet {
   private grid: Grid;
 
   /**
-   * `dependantsMap` is a map that represents dependants of cells.
-   *
-   * TODO(hackerwins): We need to move this map to spreadsheet level, because references
-   * can be across sheets.
-   */
-  private dependantsMap: Map<Ref, Set<Ref>>;
-
-  /**
    * `dimension` is the dimensions of the sheet that are currently visible.
    */
   private dimension: { rows: number; columns: number };
 
   /**
-   * `selection` is the currently selected cell.
+   * `activeCell` is the currently selected cell.
    */
-  private selection: CellID;
+  private activeCell: CellID;
+
+  /**
+   * `range` is the range of cells that are currently selected.
+   */
+  private range?: [CellID, CellID];
 
   /**
    * `constructor` creates a new `Sheet` instance.
@@ -43,11 +40,8 @@ export class Sheet {
    */
   constructor(grid?: Grid) {
     this.grid = grid || new Map();
-    this.dependantsMap = new Map();
     this.dimension = { ...InitialDimensions };
-    this.selection = { row: 1, col: 1 };
-
-    this.buildDependantsMap();
+    this.activeCell = { row: 1, col: 1 };
   }
 
   /**
@@ -60,22 +54,15 @@ export class Sheet {
   /**
    * `getCell` returns the cell at the given row and column.
    */
-  getCell(ref: Ref) {
+  getCell(ref: Ref): Cell | undefined {
     return this.grid.get(ref);
   }
 
   /**
    * `setCell` sets the cell at the given row and column.
    */
-  setCell(ref: Ref, cell: Cell) {
+  setCell(ref: Ref, cell: Cell): void {
     this.grid.set(ref, cell);
-  }
-
-  /**
-   * `hasData` checks if the given row and column has data.
-   */
-  hasData(index: CellID): boolean {
-    return this.grid.has(toRef(index));
   }
 
   /**
@@ -87,57 +74,36 @@ export class Sheet {
   }
 
   /**
-   * `hasDependants` checks if the given row and column has dependants.
-   */
-  hasDependants(ref: Ref): boolean {
-    return this.dependantsMap.has(ref);
-  }
-
-  /**
-   * `getDependants` returns the dependants of the given row and column.
-   */
-  getDependants(ref: Ref): Set<Ref> | undefined {
-    return this.dependantsMap.get(ref);
-  }
-
-  /**
    * `toInputString` returns the input string at the given row and column.
    */
-  toInputString(index: CellID): string {
-    const cell = this.grid.get(toRef(index));
+  toInputString(ref: Ref): string {
+    const cell = this.grid.get(ref);
     return !cell ? '' : cell.f ? cell.f : cell.v || '';
   }
 
   /**
    * `toDisplayString` returns the display string at the given row and column.
    */
-  toDisplayString(index: CellID): string {
-    const cell = this.grid.get(toRef(index));
+  toDisplayString(ref: Ref): string {
+    const cell = this.grid.get(ref);
     return (cell && cell.v) || '';
   }
 
   /**
    * `setData` sets the data at the given row and column.
    */
-  setData(index: CellID, value: string): void {
-    const reference = toRef(index);
+  setData(id: CellID, value: string): void {
+    const ref = toRef(id);
 
     // 01. Update the cell with the new value.
     const cell = value.startsWith('=') ? { f: value } : { v: value };
-    this.grid.set(reference, cell);
+    this.grid.set(ref, cell);
 
     // 02. Update the dependencies.
-    if (value.startsWith('=')) {
-      for (const ref of toRefs(extractReferences(value))) {
-        if (!this.dependantsMap.has(ref)) {
-          this.dependantsMap.set(ref, new Set());
-        }
-        this.dependantsMap.get(ref)!.add(reference);
-      }
-    }
+    const dependantsMap = this.buildDependantsMap();
 
     // 03. Calculate the cell and its dependencies.
-    calculate(this, reference);
+    calculate(this, dependantsMap, ref);
   }
 
   /**
@@ -145,40 +111,70 @@ export class Sheet {
    */
   removeData(id: CellID): boolean {
     const updated = this.grid.delete(toRef(id));
-    calculate(this, toRef(id));
+    const dependantsMap = this.buildDependantsMap();
+    calculate(this, dependantsMap, toRef(id));
     return updated;
   }
 
   /**
-   * `getSelection` returns the currently selected cell.
+   * `getActiveCell` returns the currently selected cell.
    */
-  getSelection(): CellID {
-    return this.selection;
+  getActiveCell(): CellID {
+    return this.activeCell;
   }
 
   /**
-   * `setSelection` sets the selection to the given cell.
+   * `getRange` returns the range of cells that are currently selected.
    */
-  setSelection(selection: CellID) {
+  getRange(): CellRange | undefined {
+    return this.range;
+  }
+
+  /**
+   * `selectStart` sets the start cell of the selection.
+   */
+  selectStart(id: CellID): void {
     if (
-      selection.row < 1 ||
-      selection.col < 1 ||
-      selection.row > this.dimension.rows ||
-      selection.col > this.dimension.columns
+      id.row < 1 ||
+      id.col < 1 ||
+      id.row > this.dimension.rows ||
+      id.col > this.dimension.columns
     ) {
       return;
     }
-    this.selection = selection;
+    this.activeCell = id;
+    this.range = undefined;
   }
 
   /**
-   * `moveSelection` moves the selection by the given delta.
-   * @param rowDelta Delta to move the selection in the row direction.
-   * @param colDelta Delta to move the selection in the column direction.
+   * `selectEnd` sets the end cell of the selection.
    */
-  moveSelection(rowDelta: number, colDelta: number) {
-    let newRow = this.selection.row + rowDelta;
-    let newCol = this.selection.col + colDelta;
+  selectEnd(id: CellID): void {
+    if (
+      id.row < 1 ||
+      id.col < 1 ||
+      id.row > this.dimension.rows ||
+      id.col > this.dimension.columns
+    ) {
+      return;
+    }
+
+    if (isSameID(this.activeCell, id)) {
+      this.range = undefined;
+      return;
+    }
+
+    this.range = [this.activeCell, id];
+  }
+
+  /**
+   * `moveActiveCell` moves the selection by the given delta.
+   * @param rowDelta Delta to move the activeCell in the row direction.
+   * @param colDelta Delta to move the activeCell in the column direction.
+   */
+  moveActiveCell(rowDelta: number, colDelta: number): void {
+    let newRow = this.activeCell.row + rowDelta;
+    let newCol = this.activeCell.col + colDelta;
 
     if (newRow < 1) {
       newRow = 1;
@@ -191,24 +187,27 @@ export class Sheet {
     } else if (newCol > this.dimension.columns) {
       newCol = this.dimension.columns;
     }
-    this.selection = { row: newRow, col: newCol };
+    this.activeCell = { row: newRow, col: newCol };
   }
 
   /**
    * `buildDependencies` builds the entire dependency graph.
    */
-  private buildDependantsMap() {
+  private buildDependantsMap(): Map<Ref, Set<Ref>> {
+    const dependantsMap = new Map();
+
     for (const [ref, cell] of this.grid) {
       if (!cell.f) {
         continue;
       }
 
-      for (const reference of toRefs(extractReferences(cell.f))) {
-        if (!this.dependantsMap.has(reference)) {
-          this.dependantsMap.set(reference, new Set());
+      for (const r of toRefs(extractReferences(cell.f))) {
+        if (!dependantsMap.has(r)) {
+          dependantsMap.set(r, new Set());
         }
-        this.dependantsMap.get(reference)!.add(ref);
+        dependantsMap.get(r)!.add(ref);
       }
     }
+    return dependantsMap;
   }
 }

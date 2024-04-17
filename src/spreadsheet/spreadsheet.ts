@@ -1,4 +1,4 @@
-import { toColumnLabel } from '../sheet/coordinates';
+import { toColumnLabel, toRef } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
 import { Grid, CellID } from '../sheet/types';
 import { MockGrid } from '../sheet/mock';
@@ -136,8 +136,20 @@ class Spreadsheet {
     this.container.appendChild(this.bottomContainer);
 
     this.bottomRightContainer.addEventListener('mousedown', (e) => {
-      this.sheet.setSelection(this.toCellID(e.offsetX, e.offsetY));
+      this.sheet.selectStart(this.toCellID(e.offsetX, e.offsetY));
       this.paintGrid();
+
+      const onMove = (e: MouseEvent) => {
+        this.sheet.selectEnd(this.toCellID(e.offsetX, e.offsetY));
+        this.paintGrid();
+      };
+      const onUp = () => {
+        this.bottomRightContainer.removeEventListener('mousemove', onMove);
+        this.bottomRightContainer.removeEventListener('mouseup', onUp);
+      };
+
+      this.bottomRightContainer.addEventListener('mousemove', onMove);
+      this.bottomRightContainer.addEventListener('mouseup', onUp);
     });
 
     this.bottomRightContainer.addEventListener('dblclick', (e) => {
@@ -163,13 +175,13 @@ class Spreadsheet {
 
   handleCellInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
-      this.sheet.setData(this.sheet.getSelection(), this.cellInput.value);
-      this.sheet.moveSelection(1, 0);
+      this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
+      this.sheet.moveActiveCell(1, 0);
       this.hideCellInput();
       e.preventDefault();
     } else if (e.key === 'Tab') {
-      this.sheet.setData(this.sheet.getSelection(), this.cellInput.value);
-      this.sheet.moveSelection(0, 1);
+      this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
+      this.sheet.moveActiveCell(0, 1);
       this.hideCellInput();
       e.preventDefault();
     } else if (e.key === 'Escape') {
@@ -179,19 +191,19 @@ class Spreadsheet {
 
   handleGridKeydown(e: KeyboardEvent) {
     if (e.key === 'ArrowDown') {
-      this.sheet.moveSelection(1, 0);
+      this.sheet.moveActiveCell(1, 0);
       this.paintGrid();
       e.preventDefault();
     } else if (e.key === 'ArrowUp') {
-      this.sheet.moveSelection(-1, 0);
+      this.sheet.moveActiveCell(-1, 0);
       this.paintGrid();
       e.preventDefault();
     } else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
-      this.sheet.moveSelection(0, -1);
+      this.sheet.moveActiveCell(0, -1);
       this.paintGrid();
       e.preventDefault();
     } else if (e.key === 'ArrowRight' || e.key === 'Tab') {
-      this.sheet.moveSelection(0, 1);
+      this.sheet.moveActiveCell(0, 1);
       this.paintGrid();
       e.preventDefault();
     } else if (e.key === 'Enter') {
@@ -199,7 +211,7 @@ class Spreadsheet {
       this.cellInput.focus();
       e.preventDefault();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
-      const selection = this.sheet.getSelection();
+      const selection = this.sheet.getActiveCell();
       if (this.sheet.removeData(selection)) {
         this.paintGrid();
       }
@@ -213,13 +225,13 @@ class Spreadsheet {
    * `showCellInput` shows the cell input.
    */
   private showCellInput(withoutValue = false) {
-    const selection = this.sheet.getSelection();
+    const selection = this.sheet.getActiveCell();
     const rect = this.toBoundingRect(selection);
     this.inputContainer.style.left = rect.left + 'px';
     this.inputContainer.style.top = rect.top + 'px';
     this.cellInput.value = withoutValue
       ? ''
-      : this.sheet.toInputString(selection);
+      : this.sheet.toInputString(toRef(selection));
     this.cellInput.focus();
   }
 
@@ -258,14 +270,10 @@ class Spreadsheet {
   /**
    * `toBoundingRect` returns the bounding rectangle for the given cell index.
    */
-  private toBoundingRect(
-    index: CellID,
-    excludeRowHeader = false,
-  ): BoundingRect {
+  private toBoundingRect(id: CellID, excludeRowHeader = false): BoundingRect {
     return {
-      left:
-        (excludeRowHeader ? 0 : RowHeaderWidth) + (index.col - 1) * CellWidth,
-      top: (index.row - 1) * CellHeight,
+      left: (excludeRowHeader ? 0 : RowHeaderWidth) + (id.col - 1) * CellWidth,
+      top: (id.row - 1) * CellHeight,
       width: CellWidth,
       height: CellHeight,
     };
@@ -362,12 +370,26 @@ class Spreadsheet {
    */
   private paintSelection() {
     const ctx = this.gridCanvas.getContext('2d')!;
-    const selection = this.sheet.getSelection();
+    const selection = this.sheet.getActiveCell();
     const rect = this.toBoundingRect(selection, true);
 
     ctx.strokeStyle = ActiveCellColor;
     ctx.lineWidth = 2;
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+
+    const range = this.sheet.getRange();
+    if (range) {
+      const start = this.toBoundingRect(range[0], true);
+      const end = this.toBoundingRect(range[1], true);
+
+      ctx.fillStyle = 'rgba(0, 0, 155, 0.2)';
+      ctx.fillRect(
+        Math.min(start.left, end.left),
+        Math.min(start.top, end.top),
+        Math.abs(start.left - end.left) + CellWidth,
+        Math.abs(start.top - end.top) + CellHeight,
+      );
+    }
   }
 
   /**
@@ -393,15 +415,15 @@ class Spreadsheet {
   /**
    * `paintCell` paints the cell.
    */
-  private paintCell(ctx: CanvasRenderingContext2D, index: CellID) {
-    const rect = this.toBoundingRect(index, true);
+  private paintCell(ctx: CanvasRenderingContext2D, id: CellID) {
+    const rect = this.toBoundingRect(id, true);
     ctx.strokeStyle = CellTextColor;
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(rect.left, rect.top, CellWidth, CellHeight);
     ctx.fillStyle = CellBGColor;
     ctx.fillRect(rect.left, rect.top, CellWidth, CellHeight);
 
-    const data = this.sheet.toDisplayString(index);
+    const data = this.sheet.toDisplayString(toRef(id));
     if (data != undefined) {
       ctx.fillStyle = CellTextColor;
       ctx.textAlign = 'center';

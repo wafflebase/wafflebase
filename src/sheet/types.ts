@@ -17,7 +17,6 @@ export type RefRange = string;
 
 /**
  * Grid type represents a grid of rows and columns.
- * Indexes are 1-based.
  */
 export type Grid = Map<Ref, Cell>;
 

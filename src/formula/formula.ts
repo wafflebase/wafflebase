@@ -16,7 +16,6 @@ import { FunctionMap } from './functions';
 import { Sheet } from '../sheet/sheet';
 import { Reference } from '../sheet/types';
 import { NumberArgs } from './arguments';
-import { parseRef } from '../sheet/coordinates';
 
 /**
  * `extractReferences` returns references in the expression.
@@ -54,7 +53,7 @@ export function evaluate(formula: string, sheet?: Sheet): string {
 
     const node = evaluator.visit(tree);
     if (node.t === 'ref' && sheet) {
-      return sheet.toDisplayString(parseRef(node.v));
+      return sheet.toDisplayString(node.v);
     }
 
     return node.v.toString();

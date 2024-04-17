@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseRef, parseRefRange, toRefs } from '../../src/sheet/coordinates';
 
 describe('parseRef', () => {
-  it('should parse the cell reference and return the cell index', () => {
+  it('should parse the cell reference and return the cell id', () => {
     expect(parseRef('A1')).toEqual({ row: 1, col: 1 });
     expect(parseRef('Z100')).toEqual({ row: 100, col: 26 });
     expect(parseRef('AB1')).toEqual({ row: 1, col: 28 });
@@ -30,7 +30,7 @@ describe('parseRefRange', () => {
 });
 
 describe('toRefs', () => {
-  it('should convert the set of references to a generator of Ref', () => {
+  it('should convert the set of refs to a generator of Ref', () => {
     const references = new Set(['A1', 'B2', 'C3']);
     const refs = toRefs(references);
     expect(refs.next().value).toEqual('A1');

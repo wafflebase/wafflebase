@@ -1,4 +1,3 @@
-import { parseRef } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
 import { EvalNode, BoolNode, NumNode, StrNode, RefNode } from './formula';
 
@@ -69,7 +68,7 @@ function str2num(result: StrNode): NumNode {
  * `ref2num` converts a reference result to a number result.
  */
 export function ref2num(result: RefNode, sheet: Sheet): NumNode {
-  const val = sheet.toDisplayString(parseRef(result.v));
+  const val = sheet.toDisplayString(result.v);
   return { t: 'num', v: Number(val) };
 }
 

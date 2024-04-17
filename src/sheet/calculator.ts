@@ -3,60 +3,51 @@ import { Sheet } from './sheet';
 import { Ref } from './types';
 
 /**
- * `CalculationError` represents an error that occurs during calculation.
- */
-class CalculationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CalculationError';
-  }
-}
-
-/**
  * `calculate` calculates recursively the given cell and its dependencies.
  */
-export function calculate(sheet: Sheet, reference: Ref) {
-  try {
-    for (const ref of topologicalSort(sheet, reference)) {
-      if (!sheet.hasFormula(ref)) {
-        continue;
-      }
+export function calculate(
+  sheet: Sheet,
+  dependantsMap: Map<Ref, Set<Ref>>,
+  ref: Ref,
+) {
+  const [sorted, hasCycle] = topologicalSort(dependantsMap, ref);
+  for (const ref of sorted) {
+    if (!sheet.hasFormula(ref)) {
+      continue;
+    }
 
-      const cell = sheet.getCell(ref)!;
-      const value = evaluate(cell.f!, sheet);
+    const cell = sheet.getCell(ref)!;
+    if (hasCycle) {
       sheet.setCell(ref, {
-        v: value,
+        v: '#REF!',
         f: cell.f,
       });
-    }
-  } catch (error) {
-    // TODO(hackerwins): Propergate #REF! to dependants.
-    if (error instanceof CalculationError) {
-      const cell = sheet.getCell(reference);
-      if (cell) {
-        sheet.setCell(reference, {
-          v: '#REF!',
-          f: cell.f,
-        });
-      }
-      return;
+      continue;
     }
 
-    throw error;
+    const value = evaluate(cell.f!, sheet);
+    sheet.setCell(ref, {
+      v: value,
+      f: cell.f,
+    });
   }
 }
 
 /**
  * `topologicalSort` returns the topological sort of the dependencies.
  */
-export function topologicalSort(sheet: Sheet, start: Ref): Array<Ref> {
+export function topologicalSort(
+  dependantsMap: Map<Ref, Set<Ref>>,
+  start: Ref,
+): [Array<Ref>, boolean] {
   const sorted: Array<Ref> = [start];
   const visited = new Set<Ref>();
   const stack = new Set<Ref>();
+  let hasCycle = false;
 
   const dfs = (ref: Ref) => {
     if (stack.has(ref)) {
-      throw new CalculationError('Circular reference detected');
+      hasCycle = true;
     }
 
     stack.add(ref);
@@ -64,8 +55,8 @@ export function topologicalSort(sheet: Sheet, start: Ref): Array<Ref> {
     if (!visited.has(ref)) {
       visited.add(ref);
 
-      if (sheet.hasDependants(ref)) {
-        for (const dependant of sheet.getDependants(ref)!) {
+      if (dependantsMap.has(ref)) {
+        for (const dependant of dependantsMap.get(ref)!) {
           dfs(dependant);
         }
       }
@@ -76,5 +67,5 @@ export function topologicalSort(sheet: Sheet, start: Ref): Array<Ref> {
   };
 
   dfs(start);
-  return sorted.reverse();
+  return [sorted.reverse(), hasCycle];
 }
