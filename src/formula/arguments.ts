@@ -1,43 +1,50 @@
-import {
-  EvaluationResult,
-  BooleanResult,
-  NumberResult,
-  StringResult,
-} from './formula';
+import { parseRef } from '../sheet/coordinates';
+import { Sheet } from '../sheet/sheet';
+import { EvalNode, BoolNode, NumNode, StrNode, RefNode } from './formula';
 
 /**
- * Arguments is a helper class to build arguments for a function.
+ * Arguments is a helper to build arguments for a function.
  */
-class Arguments<T extends EvaluationResult> {
-  private bool?: (result: BooleanResult) => T;
-  private num?: (result: NumberResult) => T;
-  private str?: (result: StringResult) => T;
+class Arguments<T extends EvalNode> {
+  private bool?: (result: BoolNode) => T;
+  private num?: (result: NumNode) => T;
+  private str?: (result: StrNode) => T;
+  private ref?: (result: RefNode, sheet: Sheet) => T;
 
-  static create<T extends EvaluationResult>(): Arguments<T> {
+  static create<T extends EvalNode>(): Arguments<T> {
     return new Arguments<T>();
   }
 
-  setBool(bool: (result: BooleanResult) => T): this {
+  setBool(bool: (result: BoolNode) => T): this {
     this.bool = bool;
     return this;
   }
 
-  setStr(str: (result: StringResult) => T): this {
+  setStr(str: (result: StrNode) => T): this {
     this.str = str;
     return this;
   }
 
-  map(result: EvaluationResult): T {
-    if (result.t === 'boolean' && this.bool) {
+  setRef(ref: (result: RefNode, sheet: Sheet) => T): this {
+    this.ref = ref;
+    return this;
+  }
+
+  map(result: EvalNode, sheet?: Sheet): T {
+    if (result.t === 'bool' && this.bool) {
       return this.bool(result);
     }
 
-    if (result.t === 'number' && this.num) {
+    if (result.t === 'num' && this.num) {
       return this.num(result);
     }
 
-    if (result.t === 'string' && this.str) {
+    if (result.t === 'str' && this.str) {
       return this.str(result);
+    }
+
+    if (result.t === 'ref' && this.ref && sheet) {
+      return this.ref(result, sheet);
     }
 
     return result as T;
@@ -47,20 +54,29 @@ class Arguments<T extends EvaluationResult> {
 /**
  * `bool2num` converts a boolean result to a number result.
  */
-function bool2num(result: BooleanResult): NumberResult {
-  return { t: 'number', v: result.v ? 1 : 0 };
+function bool2num(result: BoolNode): NumNode {
+  return { t: 'num', v: result.v ? 1 : 0 };
 }
 
 /**
  * `str2num` converts a string result to a number result.
  */
-function str2num(result: StringResult): NumberResult {
-  return { t: 'number', v: result.v === '' ? 0 : Number(result.v) };
+function str2num(result: StrNode): NumNode {
+  return { t: 'num', v: result.v === '' ? 0 : Number(result.v) };
+}
+
+/**
+ * `ref2num` converts a reference result to a number result.
+ */
+export function ref2num(result: RefNode, sheet: Sheet): NumNode {
+  const val = sheet.toDisplayString(parseRef(result.v));
+  return { t: 'num', v: Number(val) };
 }
 
 /**
  * `NumberArgs` is a helper to build arguments for a number function.
  */
-export const NumberArgs = Arguments.create<NumberResult>()
+export const NumberArgs = Arguments.create<NumNode>()
+  .setRef(ref2num)
   .setBool(bool2num)
   .setStr(str2num);

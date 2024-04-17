@@ -203,8 +203,7 @@ export class Sheet {
         continue;
       }
 
-      const references = extractReferences(cell.f);
-      for (const reference of toRefs(references)) {
+      for (const reference of toRefs(extractReferences(cell.f))) {
         if (!this.dependantsMap.has(reference)) {
           this.dependantsMap.set(reference, new Set());
         }

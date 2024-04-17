@@ -1,9 +1,11 @@
 import { CellID, CellRange, Reference, Ref } from './types';
 
 /**
- * `generateCellIDs` generates the CellIDs from the given range.
+ * `toCellIDs` generates cellIDs from the given range.
  */
-export function* generateCellIDs(from: CellID, to: CellID): Generator<CellID> {
+export function* toCellIDs(range: CellRange): Generator<CellID> {
+  const [from, to] = range;
+
   for (let row = from.row; row <= to.row; row++) {
     for (let col = from.col; col <= to.col; col++) {
       yield { row, col };
@@ -26,7 +28,7 @@ export function* toRefs(references: Set<Reference>): Generator<Ref> {
   for (const reference of references) {
     if (isRangeRef(reference)) {
       const range = parseRefRange(reference);
-      for (const id of range) {
+      for (const id of toCellIDs(range)) {
         yield toRef(id);
       }
       continue;
