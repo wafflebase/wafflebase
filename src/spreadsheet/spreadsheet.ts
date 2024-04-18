@@ -382,7 +382,7 @@ class Spreadsheet {
       const start = this.toBoundingRect(range[0], true);
       const end = this.toBoundingRect(range[1], true);
 
-      ctx.fillStyle = 'rgba(0, 0, 155, 0.2)';
+      ctx.fillStyle = 'rgba(0, 0, 155, 0.1)';
       ctx.fillRect(
         Math.min(start.left, end.left),
         Math.min(start.top, end.top),
