@@ -26,16 +26,16 @@ describe('Sheet', () => {
     const sheet = new Sheet();
     sheet.selectStart({ row: 1, col: 1 });
 
-    sheet.moveSelection(1, 0);
+    sheet.move(1, 0);
     expect(sheet.getActiveCell()).toEqual({ row: 2, col: 1 });
 
-    sheet.moveSelection(0, 1);
+    sheet.move(0, 1);
     expect(sheet.getActiveCell()).toEqual({ row: 2, col: 2 });
 
-    sheet.moveSelection(-1, 0);
+    sheet.move(-1, 0);
     expect(sheet.getActiveCell()).toEqual({ row: 1, col: 2 });
 
-    sheet.moveSelection(0, -1);
+    sheet.move(0, -1);
     expect(sheet.getActiveCell()).toEqual({ row: 1, col: 1 });
   });
 
@@ -43,13 +43,13 @@ describe('Sheet', () => {
     const sheet = new Sheet();
     sheet.selectStart({ row: 1, col: 1 });
 
-    sheet.moveSelection(-1, 0);
+    sheet.move(-1, 0);
     expect(sheet.getActiveCell()).toEqual({ row: 1, col: 1 });
 
-    sheet.moveSelection(0, -1);
+    sheet.move(0, -1);
     expect(sheet.getActiveCell()).toEqual({ row: 1, col: 1 });
 
-    sheet.moveSelection(1, 0);
+    sheet.move(1, 0);
     expect(sheet.getActiveCell()).toEqual({ row: 2, col: 1 });
   });
 });

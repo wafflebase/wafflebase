@@ -21,6 +21,20 @@ export function isSameID(id1: CellID, id2: CellID): boolean {
 }
 
 /**
+ * `cloneID` clones the given cellID.
+ */
+export function cloneID(id: CellID): CellID {
+  return { row: id.row, col: id.col };
+}
+
+/**
+ * `cloneRange` clones the given range.
+ */
+export function cloneRange(range: CellRange): CellRange {
+  return [cloneID(range[0]), cloneID(range[1])];
+}
+
+/**
  * `isRangeRef` returns whether Reference is RangeRef.
  */
 export function isRangeRef(reference: Reference): boolean {
