@@ -1,6 +1,6 @@
 import { extractReferences } from '../formula/formula';
 import { calculate } from './calculator';
-import { isSameID, toRef, toRefs } from './coordinates';
+import { isSameID, toCellIDs, toRef, toRefs } from './coordinates';
 import { Grid, Cell, CellID, Ref, CellRange } from './types';
 
 /**
@@ -109,11 +109,32 @@ export class Sheet {
   /**
    * `removeData` removes the data at the given row and column.
    */
-  removeData(id: CellID): boolean {
-    const updated = this.grid.delete(toRef(id));
-    const dependantsMap = this.buildDependantsMap();
-    calculate(this, dependantsMap, toRef(id));
+  removeData(): boolean {
+    let updated = false;
+    for (const id of this.toSelectedID()) {
+      if (this.grid.delete(toRef(id))) {
+        updated = true;
+      }
+
+      // TODO(hackerwins): Optimize this to only calculate the affected cells.
+      const dependantsMap = this.buildDependantsMap();
+      calculate(this, dependantsMap, toRef(id));
+    }
     return updated;
+  }
+
+  /**
+   * `toSelectedID` returns the selected cell or range of cells.
+   */
+  *toSelectedID(): Generator<CellID> {
+    if (!this.range) {
+      yield this.activeCell;
+      return;
+    }
+
+    for (const id of toCellIDs(this.range)) {
+      yield id;
+    }
   }
 
   /**
@@ -168,26 +189,89 @@ export class Sheet {
   }
 
   /**
-   * `moveActiveCell` moves the selection by the given delta.
+   * `hasRange` checks if the sheet has a range selected.
+   */
+  hasRange(): boolean {
+    return !!this.range;
+  }
+
+  /**
+   * `moveSelection` moves the selection by the given delta.
    * @param rowDelta Delta to move the activeCell in the row direction.
    * @param colDelta Delta to move the activeCell in the column direction.
+   * @param inRange If true, the selection will wrap around the edges.
    */
-  moveActiveCell(rowDelta: number, colDelta: number): void {
-    let newRow = this.activeCell.row + rowDelta;
-    let newCol = this.activeCell.col + colDelta;
-
-    if (newRow < 1) {
-      newRow = 1;
-    } else if (newRow > this.dimension.rows) {
-      newRow = this.dimension.rows;
+  moveSelection(rowDelta: number, colDelta: number, inRange = false): void {
+    if (inRange) {
+      const range = this.range || [
+        { row: 1, col: 1 },
+        { row: this.dimension.rows, col: this.dimension.columns },
+      ];
+      this.activeCell = this.moveInRange(
+        this.activeCell,
+        range,
+        rowDelta,
+        colDelta,
+      );
+      return;
     }
 
-    if (newCol < 1) {
-      newCol = 1;
-    } else if (newCol > this.dimension.columns) {
-      newCol = this.dimension.columns;
+    let row = this.activeCell.row + rowDelta;
+    if (rowDelta < 0) {
+      row = Math.max(1, row);
+    } else if (rowDelta > 0) {
+      row = Math.min(row, this.dimension.rows);
     }
-    this.activeCell = { row: newRow, col: newCol };
+
+    let col = this.activeCell.col + colDelta;
+    if (colDelta < 0) {
+      col = Math.max(1, col);
+    } else if (colDelta > 0) {
+      col = Math.min(col, this.dimension.columns);
+    }
+
+    this.range = undefined;
+    this.activeCell = { row, col };
+  }
+
+  /**
+   * `moveInRange` moves the id within the given range.
+   */
+  private moveInRange(
+    id: CellID,
+    range: CellRange,
+    rowDelta: number,
+    colDelta: number,
+  ): CellID {
+    let row = id.row;
+    let col = id.col;
+    const rows = range[1].row - range[0].row + 1;
+    const cols = range[1].col - range[0].col + 1;
+    if (rowDelta !== 0) {
+      if (row + rowDelta > range[1].row) {
+        row = range[0].row;
+        col = ((col + 1 - range[0].col + cols) % cols) + range[0].col;
+      } else if (row + rowDelta < range[0].row) {
+        row = range[1].row;
+        col = ((col - 1 - range[0].col + cols) % cols) + range[0].col;
+      } else {
+        row += rowDelta;
+      }
+    }
+
+    if (colDelta !== 0) {
+      if (col + colDelta > range[1].col) {
+        col = range[0].col;
+        row = ((row + 1 - range[0].row + rows) % rows) + range[0].row;
+      } else if (col + colDelta < range[0].col) {
+        col = range[1].col;
+        row = ((row - 1 - range[0].row + rows) % rows) + range[0].row;
+      } else {
+        col += colDelta;
+      }
+    }
+
+    return { row, col };
   }
 
   /**

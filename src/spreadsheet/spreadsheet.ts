@@ -176,12 +176,12 @@ class Spreadsheet {
   handleCellInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
-      this.sheet.moveActiveCell(1, 0);
+      this.sheet.moveSelection(1, 0);
       this.hideCellInput();
       e.preventDefault();
     } else if (e.key === 'Tab') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
-      this.sheet.moveActiveCell(0, 1);
+      this.sheet.moveSelection(0, 1);
       this.hideCellInput();
       e.preventDefault();
     } else if (e.key === 'Escape') {
@@ -191,28 +191,36 @@ class Spreadsheet {
 
   handleGridKeydown(e: KeyboardEvent) {
     if (e.key === 'ArrowDown') {
-      this.sheet.moveActiveCell(1, 0);
+      this.sheet.moveSelection(1, 0);
       this.paintGrid();
       e.preventDefault();
     } else if (e.key === 'ArrowUp') {
-      this.sheet.moveActiveCell(-1, 0);
+      this.sheet.moveSelection(-1, 0);
       this.paintGrid();
       e.preventDefault();
-    } else if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) {
-      this.sheet.moveActiveCell(0, -1);
+    } else if (e.key === 'ArrowLeft') {
+      this.sheet.moveSelection(0, -1);
       this.paintGrid();
       e.preventDefault();
-    } else if (e.key === 'ArrowRight' || e.key === 'Tab') {
-      this.sheet.moveActiveCell(0, 1);
+    } else if (e.key === 'ArrowRight') {
+      this.sheet.moveSelection(0, 1);
+      this.paintGrid();
+      e.preventDefault();
+    } else if (e.key === 'Tab') {
+      this.sheet.moveSelection(0, e.shiftKey ? -1 : 1, true);
       this.paintGrid();
       e.preventDefault();
     } else if (e.key === 'Enter') {
-      this.showCellInput();
-      this.cellInput.focus();
+      if (this.sheet.hasRange()) {
+        this.sheet.moveSelection(e.shiftKey ? -1 : 1, 0, true);
+        this.paintGrid();
+      } else {
+        this.showCellInput();
+        this.cellInput.focus();
+      }
       e.preventDefault();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
-      const selection = this.sheet.getActiveCell();
-      if (this.sheet.removeData(selection)) {
+      if (this.sheet.removeData()) {
         this.paintGrid();
       }
       e.preventDefault();
