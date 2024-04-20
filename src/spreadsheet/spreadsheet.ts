@@ -82,24 +82,26 @@ class Spreadsheet {
 
     this.container = container;
     this.container.style.position = 'relative';
-    this.container.style.overflow = 'scroll';
+    this.container.style.overflowY = 'scroll';
 
     this.topContainer = document.createElement('div');
     this.topContainer.style.position = 'sticky';
     this.topContainer.style.top = '0';
-    this.topContainer.style.left = '0';
     this.topContainer.style.height = DefaultCellHeight + 'px';
     this.topContainer.style.zIndex = '1';
+    this.topContainer.style.overflowX = 'scroll';
+    this.topContainer.style.scrollbarWidth = 'none';
 
     this.bottomContainer = document.createElement('div');
-    this.bottomContainer.style.position = 'absolute';
-    this.bottomContainer.style.overflow = 'auto';
-    this.bottomContainer.style.top = DefaultCellHeight + 'px';
+    this.bottomContainer.style.position = 'relative';
+    this.bottomContainer.style.overflowX = 'scroll';
     this.bottomContainer.style.left = '0';
     this.bottomContainer.style.bottom = '0';
     this.bottomContainer.style.display = 'flex';
 
     this.bottomLeftContainer = document.createElement('div');
+    this.bottomLeftContainer.style.position = 'sticky';
+    this.bottomLeftContainer.style.left = '0';
     this.bottomLeftContainer.style.width = RowHeaderWidth + 'px';
     this.bottomLeftContainer.style.height = '100%';
     this.bottomLeftContainer.style.zIndex = '2';
@@ -136,6 +138,24 @@ class Spreadsheet {
     this.bottomContainer.appendChild(this.inputContainer);
     this.container.appendChild(this.topContainer);
     this.container.appendChild(this.bottomContainer);
+
+    this.addEventLisnters();
+  }
+
+  /**
+   * `render` renders the spreadsheet in the container.
+   */
+  public render() {
+    this.paintSheet();
+  }
+
+  /**
+   * `addEventLisnters` adds event listeners to the spreadsheet.
+   */
+  private addEventLisnters() {
+    this.bottomContainer.addEventListener('scroll', () => {
+      this.topContainer.scrollLeft = this.bottomContainer.scrollLeft;
+    });
 
     this.bottomRightContainer.addEventListener('mousedown', (e) => {
       this.sheet.selectStart(this.toCellID(e.offsetX, e.offsetY));
@@ -175,7 +195,7 @@ class Spreadsheet {
     });
   }
 
-  handleCellInputKeydown(e: KeyboardEvent) {
+  private handleCellInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
       this.sheet.move(1, 0);
@@ -192,7 +212,7 @@ class Spreadsheet {
     }
   }
 
-  handleGridKeydown(e: KeyboardEvent) {
+  private handleGridKeydown(e: KeyboardEvent) {
     if (e.key === 'ArrowDown') {
       this.sheet.move(1, 0, e.shiftKey);
       this.render();
@@ -244,26 +264,23 @@ class Spreadsheet {
   private scrollIntoView(id: CellID = this.sheet.getActiveCell()) {
     const cellRect = this.toBoundingRect(id);
     const screenRect = {
-      left: this.bottomRightContainer.scrollLeft,
-      top: this.bottomContainer.scrollTop,
-      right:
-        this.bottomRightContainer.scrollLeft +
-        this.bottomRightContainer.offsetWidth,
-      bottom:
-        this.bottomContainer.scrollTop + this.bottomContainer.offsetHeight,
+      left: this.bottomContainer.scrollLeft + RowHeaderWidth,
+      top: this.container.scrollTop,
+      right: this.bottomContainer.scrollLeft + this.bottomContainer.offsetWidth,
+      bottom: this.container.scrollTop + this.container.offsetHeight,
     };
     if (
       cellRect.left < screenRect.left ||
       cellRect.left + cellRect.width > screenRect.right
     ) {
-      this.bottomRightContainer.scrollLeft = cellRect.left;
+      this.bottomContainer.scrollLeft = cellRect.left - RowHeaderWidth;
     }
 
     if (
       cellRect.top < screenRect.top ||
       cellRect.top + cellRect.height > screenRect.bottom
     ) {
-      this.bottomContainer.scrollTop = cellRect.top;
+      this.container.scrollTop = cellRect.top;
     }
   }
 
@@ -340,13 +357,6 @@ class Spreadsheet {
       width: Math.abs(start.left - end.left) + DefaultCellWidth,
       height: Math.abs(start.top - end.top) + DefaultCellHeight,
     };
-  }
-
-  /**
-   * `render` renders the spreadsheet in the container.
-   */
-  public render() {
-    this.paintSheet();
   }
 
   /**
