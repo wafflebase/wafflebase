@@ -1,6 +1,6 @@
-# maltese
+# wafflebase
 
-Maltese is a simple spreadsheet for large-scale data processing and analysis.
+Wafflebase is a simple spreadsheet for large-scale data processing and analysis.
 
 ## Setting Development Environment
 

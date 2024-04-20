@@ -3,15 +3,16 @@ import { Sheet } from '../sheet/sheet';
 import { Grid, CellID } from '../sheet/types';
 import { MockGrid } from '../sheet/mock';
 
-const CellWidth = 90;
-const CellHeight = 22;
+const DefaultCellWidth = 100;
+const DefaultCellHeight = 23;
 const CellBorderWidth = 0.5;
-const CellBorderColor = '#d3d3d3';
-const CellBGColor = '#ffffff';
+const CellBorderColor = '#D3D3D3';
+const CellBGColor = '#FFFFFF';
 const CellTextColor = '#000000';
-const ActiveCellColor = '#0000ff';
-const HeaderBGColor = '#f0f0f0';
-const HeaderActiveBGColor = '#cccccc';
+const ActiveCellColor = '#FFD580';
+const SelectionBGColor = 'rgba(255, 213, 128, 0.1)';
+const HeaderBGColor = '#F0F0F0';
+const HeaderActiveBGColor = '#FFD580';
 const HeaderTextAlign = 'center';
 const RowHeaderWidth = 50;
 
@@ -87,13 +88,13 @@ class Spreadsheet {
     this.topContainer.style.position = 'sticky';
     this.topContainer.style.top = '0';
     this.topContainer.style.left = '0';
-    this.topContainer.style.height = CellHeight + 'px';
+    this.topContainer.style.height = DefaultCellHeight + 'px';
     this.topContainer.style.zIndex = '1';
 
     this.bottomContainer = document.createElement('div');
     this.bottomContainer.style.position = 'absolute';
     this.bottomContainer.style.overflow = 'auto';
-    this.bottomContainer.style.top = CellHeight + 'px';
+    this.bottomContainer.style.top = DefaultCellHeight + 'px';
     this.bottomContainer.style.left = '0';
     this.bottomContainer.style.bottom = '0';
     this.bottomContainer.style.display = 'flex';
@@ -109,8 +110,8 @@ class Spreadsheet {
     this.inputContainer = document.createElement('div');
     this.inputContainer.style.position = 'absolute';
     this.inputContainer.style.left = '-1000px';
-    this.inputContainer.style.width = CellWidth + 'px';
-    this.inputContainer.style.height = CellHeight + 'px';
+    this.inputContainer.style.width = DefaultCellWidth + 'px';
+    this.inputContainer.style.height = DefaultCellHeight + 'px';
     this.inputContainer.style.zIndex = '1';
     this.inputContainer.style.margin = '0px';
 
@@ -179,6 +180,7 @@ class Spreadsheet {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
       this.sheet.move(1, 0);
       this.hideCellInput();
+      this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Tab') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
@@ -194,27 +196,33 @@ class Spreadsheet {
     if (e.key === 'ArrowDown') {
       this.sheet.move(1, 0, e.shiftKey);
       this.render();
+      this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'ArrowUp') {
       this.sheet.move(-1, 0, e.shiftKey);
       this.render();
+      this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'ArrowLeft') {
       this.sheet.move(0, -1, e.shiftKey);
       this.render();
+      this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'ArrowRight') {
       this.sheet.move(0, 1, e.shiftKey);
       this.render();
+      this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Tab') {
       this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
       this.render();
+      this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Enter') {
       if (this.sheet.hasRange()) {
         this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
         this.render();
+        this.scrollIntoView();
       } else {
         this.showCellInput();
         this.cellInput.focus();
@@ -225,15 +233,44 @@ class Spreadsheet {
         this.render();
       }
       e.preventDefault();
-    } else if (this.isCellInput(e.key)) {
+    } else if (!e.metaKey && !e.ctrlKey && this.isCellInput(e.key)) {
       this.showCellInput(true);
+    }
+  }
+
+  /**
+   * `scrollIntoView` scrolls the active cell into view.
+   */
+  private scrollIntoView(id: CellID = this.sheet.getActiveCell()) {
+    const cellRect = this.toBoundingRect(id);
+    const screenRect = {
+      left: this.bottomRightContainer.scrollLeft,
+      top: this.bottomContainer.scrollTop,
+      right:
+        this.bottomRightContainer.scrollLeft +
+        this.bottomRightContainer.offsetWidth,
+      bottom:
+        this.bottomContainer.scrollTop + this.bottomContainer.offsetHeight,
+    };
+    if (
+      cellRect.left < screenRect.left ||
+      cellRect.left + cellRect.width > screenRect.right
+    ) {
+      this.bottomRightContainer.scrollLeft = cellRect.left;
+    }
+
+    if (
+      cellRect.top < screenRect.top ||
+      cellRect.top + cellRect.height > screenRect.bottom
+    ) {
+      this.bottomContainer.scrollTop = cellRect.top;
     }
   }
 
   /**
    * `showCellInput` shows the cell input.
    */
-  private showCellInput(withoutValue = false) {
+  private showCellInput(withoutValue: boolean = false) {
     const selection = this.sheet.getActiveCell();
     const rect = this.toBoundingRect(selection);
     this.inputContainer.style.left = rect.left + 'px';
@@ -271,8 +308,8 @@ class Spreadsheet {
    * `toCellID` returns the cell ID for the given x and y coordinates.
    */
   private toCellID(x: number, y: number): CellID {
-    const row = Math.floor(y / CellHeight) + 1;
-    const col = Math.floor(x / CellWidth) + 1;
+    const row = Math.floor(y / DefaultCellHeight) + 1;
+    const col = Math.floor(x / DefaultCellWidth) + 1;
     return { row, col };
   }
 
@@ -281,10 +318,27 @@ class Spreadsheet {
    */
   private toBoundingRect(id: CellID, excludeRowHeader = false): BoundingRect {
     return {
-      left: (excludeRowHeader ? 0 : RowHeaderWidth) + (id.col - 1) * CellWidth,
-      top: (id.row - 1) * CellHeight,
-      width: CellWidth,
-      height: CellHeight,
+      left:
+        (excludeRowHeader ? 0 : RowHeaderWidth) +
+        (id.col - 1) * DefaultCellWidth,
+      top: (id.row - 1) * DefaultCellHeight,
+      width: DefaultCellWidth,
+      height: DefaultCellHeight,
+    };
+  }
+
+  /**
+   * `expandBoundingRect` expands the bounding rectangle to include the end cell.
+   */
+  private expandBoundingRect(
+    start: BoundingRect,
+    end: BoundingRect,
+  ): BoundingRect {
+    return {
+      left: Math.min(start.left, end.left),
+      top: Math.min(start.top, end.top),
+      width: Math.abs(start.left - end.left) + DefaultCellWidth,
+      height: Math.abs(start.top - end.top) + DefaultCellHeight,
     };
   }
 
@@ -313,22 +367,22 @@ class Spreadsheet {
 
     const ratio = window.devicePixelRatio || 1;
     this.columnHeaderCanvas.width =
-      (RowHeaderWidth + dimension.columns * CellWidth) * ratio;
-    this.columnHeaderCanvas.height = CellHeight * ratio;
+      (RowHeaderWidth + dimension.columns * DefaultCellWidth) * ratio;
+    this.columnHeaderCanvas.height = DefaultCellHeight * ratio;
     this.columnHeaderCanvas.style.width =
-      RowHeaderWidth + dimension.columns * CellWidth + 'px';
-    this.columnHeaderCanvas.style.height = CellHeight + 'px';
+      RowHeaderWidth + dimension.columns * DefaultCellWidth + 'px';
+    this.columnHeaderCanvas.style.height = DefaultCellHeight + 'px';
     ctx.scale(ratio, ratio);
 
     const id = this.sheet.getActiveCell();
     for (let j = 0; j < dimension.columns; j++) {
-      const x = RowHeaderWidth + CellWidth * j;
+      const x = RowHeaderWidth + DefaultCellWidth * j;
       const y = 0;
       this.paintHeader(
         ctx,
         x,
         y,
-        CellWidth,
+        DefaultCellWidth,
         toColumnLabel(j + 1),
         id.col === j + 1,
       );
@@ -344,21 +398,22 @@ class Spreadsheet {
 
     const ratio = window.devicePixelRatio || 1;
     this.rowHeaderCanvas.width = RowHeaderWidth * ratio;
-    this.rowHeaderCanvas.height = dimension.rows * CellHeight * ratio;
+    this.rowHeaderCanvas.height = dimension.rows * DefaultCellHeight * ratio;
     this.rowHeaderCanvas.style.width = RowHeaderWidth + 'px';
-    this.rowHeaderCanvas.style.height = dimension.rows * CellHeight + 'px';
+    this.rowHeaderCanvas.style.height =
+      dimension.rows * DefaultCellHeight + 'px';
     ctx.scale(ratio, ratio);
 
     const id = this.sheet.getActiveCell();
     for (let i = 0; i < dimension.rows; i++) {
       const x = 0;
-      const y = i * CellHeight;
+      const y = i * DefaultCellHeight;
       this.paintHeader(
         ctx,
         x,
         y,
         RowHeaderWidth,
-        (i + 1).toString(),
+        String(i + 1),
         id.row === i + 1,
       );
     }
@@ -375,10 +430,10 @@ class Spreadsheet {
 
     const ctx = this.gridCanvas.getContext('2d')!;
     const ratio = window.devicePixelRatio || 1;
-    this.gridCanvas.width = dimension.columns * CellWidth * ratio;
-    this.gridCanvas.height = dimension.rows * CellHeight * ratio;
-    this.gridCanvas.style.width = dimension.columns * CellWidth + 'px';
-    this.gridCanvas.style.height = dimension.rows * CellHeight + 'px';
+    this.gridCanvas.width = dimension.columns * DefaultCellWidth * ratio;
+    this.gridCanvas.height = dimension.rows * DefaultCellHeight * ratio;
+    this.gridCanvas.style.width = dimension.columns * DefaultCellWidth + 'px';
+    this.gridCanvas.style.height = dimension.rows * DefaultCellHeight + 'px';
     ctx.scale(ratio, ratio);
 
     for (let row = 1; row <= dimension.rows + 1; row++) {
@@ -404,16 +459,16 @@ class Spreadsheet {
 
     const range = this.sheet.getRange();
     if (range) {
-      const start = this.toBoundingRect(range[0], true);
-      const end = this.toBoundingRect(range[1], true);
-
-      ctx.fillStyle = 'rgba(0, 0, 155, 0.1)';
-      ctx.fillRect(
-        Math.min(start.left, end.left),
-        Math.min(start.top, end.top),
-        Math.abs(start.left - end.left) + CellWidth,
-        Math.abs(start.top - end.top) + CellHeight,
+      const rect = this.expandBoundingRect(
+        this.toBoundingRect(range[0], true),
+        this.toBoundingRect(range[1], true),
       );
+
+      ctx.fillStyle = SelectionBGColor;
+      ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+      ctx.strokeStyle = ActiveCellColor;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
     }
   }
 
@@ -429,12 +484,13 @@ class Spreadsheet {
     selected: boolean,
   ) {
     ctx.fillStyle = selected ? HeaderActiveBGColor : HeaderBGColor;
-    ctx.fillRect(x, y, width, CellHeight);
+    ctx.fillRect(x, y, width, DefaultCellHeight);
     ctx.strokeStyle = CellBorderColor;
     ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(x, y, width, CellHeight);
+    ctx.strokeRect(x, y, width, DefaultCellHeight);
     ctx.fillStyle = CellTextColor;
     ctx.textAlign = HeaderTextAlign;
+    ctx.font = selected ? 'bold 10px Arial' : '10px Arial';
     ctx.fillText(label, x + width / 2, y + 15);
   }
 
@@ -445,19 +501,20 @@ class Spreadsheet {
     const rect = this.toBoundingRect(id, true);
     ctx.strokeStyle = CellTextColor;
     ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(rect.left, rect.top, CellWidth, CellHeight);
+    ctx.strokeRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
     ctx.fillStyle = CellBGColor;
-    ctx.fillRect(rect.left, rect.top, CellWidth, CellHeight);
+    ctx.fillRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
 
     const data = this.sheet.toDisplayString(toRef(id));
     if (data != undefined) {
       ctx.fillStyle = CellTextColor;
       ctx.textAlign = 'center';
+      ctx.font = '12px Arial';
       ctx.fillText(
-        data.toString(),
-        rect.left + CellWidth / 2,
+        data,
+        rect.left + DefaultCellWidth / 2,
         rect.top + 15,
-        CellWidth,
+        DefaultCellWidth,
       );
     }
   }
