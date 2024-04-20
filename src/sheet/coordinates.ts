@@ -27,6 +27,21 @@ export function inRange(id: CellID, range: CellRange): boolean {
 }
 
 /**
+ * `isRangeInRange` returns whether the given range is in the range.
+ */
+export function isRangeInRange(range1: CellRange, range2: CellRange): boolean {
+  const [from1, to1] = range1;
+  const [from2, to2] = range2;
+
+  return (
+    from2.row <= from1.row &&
+    to1.row <= to2.row &&
+    from2.col <= from1.col &&
+    to1.col <= to2.col
+  );
+}
+
+/**
  * `toRange` returns the range of the given cellIDs.
  * @param id1
  * @param id2

@@ -3,6 +3,7 @@ import { calculate } from './calculator';
 import {
   cloneRange,
   inRange,
+  isRangeInRange,
   isSameID,
   toCellIDs,
   toRange,
@@ -277,12 +278,21 @@ export class Sheet {
   resizeRange(rowDelta: number, colDelta: number): boolean {
     let range = cloneRange(this.range || [this.activeCell, this.activeCell]);
 
-    // TODO(hackerwins): Do not allow the range to go out of active cell.
-    if (rowDelta != 0) {
+    if (this.activeCell.row === range[1].row) {
+      range[0].row += rowDelta;
+    } else {
       range[1].row += rowDelta;
     }
-    if (colDelta != 0) {
+
+    if (this.activeCell.col === range[1].col) {
+      range[0].col += colDelta;
+    } else {
       range[1].col += colDelta;
+    }
+
+    range = toRange(range[0], range[1]);
+    if (!isRangeInRange(range, this.dimensionRange)) {
+      return false;
     }
 
     this.range = range;

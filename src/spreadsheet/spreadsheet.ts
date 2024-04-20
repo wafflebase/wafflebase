@@ -205,14 +205,15 @@ class Spreadsheet {
   private handleCellInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
-      this.sheet.move(1, 0);
       this.hideCellInput();
+      this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Tab') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
-      this.sheet.move(0, 1);
       this.hideCellInput();
+      this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
+      this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Escape') {
       this.hideCellInput();
