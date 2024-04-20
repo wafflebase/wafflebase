@@ -291,20 +291,24 @@ class Spreadsheet {
    * `scrollIntoView` scrolls the active cell into view.
    */
   private scrollIntoView(id: CellID = this.sheet.getActiveCell()) {
-    const cell = this.toBoundingRect(id);
+    const cell = this.toBoundingRect(id, true);
     const view = {
-      left: this.bottomContainer.scrollLeft + RowHeaderWidth,
+      left: this.bottomContainer.scrollLeft,
       top: this.container.scrollTop,
-      right: this.bottomContainer.scrollLeft + this.bottomContainer.offsetWidth,
-      bottom: this.container.scrollTop + this.container.offsetHeight,
+      width: this.bottomContainer.offsetWidth - RowHeaderWidth,
+      height: this.container.offsetHeight - DefaultCellHeight,
     };
 
-    if (cell.left < view.left || cell.left + cell.width > view.right) {
-      this.bottomContainer.scrollLeft = cell.left - RowHeaderWidth;
+    if (cell.left < view.left) {
+      this.bottomContainer.scrollLeft = cell.left;
+    } else if (cell.left + cell.width > view.left + view.width) {
+      this.bottomContainer.scrollLeft = cell.left + cell.width - view.width;
     }
 
-    if (cell.top < view.top || cell.top + cell.height > view.bottom) {
+    if (cell.top < view.top) {
       this.container.scrollTop = cell.top;
+    } else if (cell.top + cell.height > view.top + view.height) {
+      this.container.scrollTop = cell.top + cell.height - view.height;
     }
 
     this.render();
