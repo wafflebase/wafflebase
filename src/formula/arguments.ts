@@ -61,7 +61,8 @@ function bool2num(result: BoolNode): NumNode {
  * `str2num` converts a string result to a number result.
  */
 function str2num(result: StrNode): NumNode {
-  return { t: 'num', v: result.v === '' ? 0 : Number(result.v) };
+  const num = Number(result);
+  return { t: 'num', v: isNaN(num) ? 0 : num };
 }
 
 /**
@@ -69,7 +70,8 @@ function str2num(result: StrNode): NumNode {
  */
 export function ref2num(result: RefNode, sheet: Sheet): NumNode {
   const val = sheet.toDisplayString(result.v);
-  return { t: 'num', v: Number(val) };
+  const num = Number(val);
+  return { t: 'num', v: isNaN(num) ? 0 : num };
 }
 
 /**

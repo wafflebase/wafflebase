@@ -123,7 +123,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       return { t: 'err', v: '#REF!' };
     }
 
-    return { t: 'ref', v: ctx.text };
+    return { t: 'ref', v: ctx.text.toUpperCase() };
   }
 
   visitParentheses(ctx: ParenthesesContext): EvalNode {
