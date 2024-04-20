@@ -14,6 +14,38 @@ export function* toCellIDs(range: CellRange): Generator<CellID> {
 }
 
 /**
+ * `inRange` returns whether the given cellID is in the range.
+ */
+export function inRange(id: CellID, range: CellRange): boolean {
+  const [from, to] = range;
+  return (
+    from.row <= id.row &&
+    id.row <= to.row &&
+    from.col <= id.col &&
+    id.col <= to.col
+  );
+}
+
+/**
+ * `toRange` returns the range of the given cellIDs.
+ * @param id1
+ * @param id2
+ * @returns
+ */
+export function toRange(id1: CellID, id2: CellID): CellRange {
+  return [
+    {
+      row: Math.min(id1.row, id2.row),
+      col: Math.min(id1.col, id2.col),
+    },
+    {
+      row: Math.max(id1.row, id2.row),
+      col: Math.max(id1.col, id2.col),
+    },
+  ];
+}
+
+/**
  * `isSameID` returns whether the given cellIDs are the same.
  */
 export function isSameID(id1: CellID, id2: CellID): boolean {

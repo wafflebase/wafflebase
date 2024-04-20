@@ -220,23 +220,29 @@ class Spreadsheet {
   }
 
   private handleGridKeydown(e: KeyboardEvent) {
+    const move = (row: number, col: number, shift: boolean, ctrl: boolean) => {
+      let changed = shift
+        ? this.sheet.resizeRange(row, col)
+        : ctrl
+          ? this.sheet.moveToEdge(row, col)
+          : this.sheet.move(row, col);
+      if (changed) {
+        this.scrollIntoView();
+      }
+      e.preventDefault();
+    };
+
     if (e.key === 'ArrowDown') {
-      this.sheet.move(1, 0, e.shiftKey);
-      this.scrollIntoView();
-      e.preventDefault();
+      move(1, 0, e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowUp') {
-      this.sheet.move(-1, 0, e.shiftKey);
-      this.scrollIntoView();
-      e.preventDefault();
+      move(-1, 0, e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowLeft') {
-      this.sheet.move(0, -1, e.shiftKey);
-      this.scrollIntoView();
-      e.preventDefault();
+      move(0, -1, e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowRight') {
-      this.sheet.move(0, 1, e.shiftKey);
-      this.scrollIntoView();
-      e.preventDefault();
-    } else if (e.key === 'Tab') {
+      move(0, 1, e.shiftKey, e.metaKey);
+    }
+
+    if (e.key === 'Tab') {
       this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
       this.scrollIntoView();
       e.preventDefault();

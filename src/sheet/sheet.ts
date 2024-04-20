@@ -1,6 +1,14 @@
 import { extractReferences } from '../formula/formula';
 import { calculate } from './calculator';
-import { cloneRange, isSameID, toCellIDs, toRef, toRefs } from './coordinates';
+import {
+  cloneRange,
+  inRange,
+  isSameID,
+  toCellIDs,
+  toRange,
+  toRef,
+  toRefs,
+} from './coordinates';
 import { Grid, Cell, CellID, Ref, CellRange } from './types';
 
 /**
@@ -42,6 +50,16 @@ export class Sheet {
     this.grid = grid || new Map();
     this.dimension = { ...InitialDimensions };
     this.activeCell = { row: 1, col: 1 };
+  }
+
+  /**
+   * `getDimensionRange` returns the range of the dimensions.
+   */
+  get dimensionRange(): CellRange {
+    return [
+      { row: 1, col: 1 },
+      { row: this.dimension.rows, col: this.dimension.columns },
+    ];
   }
 
   /**
@@ -155,14 +173,10 @@ export class Sheet {
    * `selectStart` sets the start cell of the selection.
    */
   selectStart(id: CellID): void {
-    if (
-      id.row < 1 ||
-      id.col < 1 ||
-      id.row > this.dimension.rows ||
-      id.col > this.dimension.columns
-    ) {
+    if (!inRange(id, this.dimensionRange)) {
       return;
     }
+
     this.activeCell = id;
     this.range = undefined;
   }
@@ -171,12 +185,7 @@ export class Sheet {
    * `selectEnd` sets the end cell of the selection.
    */
   selectEnd(id: CellID): void {
-    if (
-      id.row < 1 ||
-      id.col < 1 ||
-      id.row > this.dimension.rows ||
-      id.col > this.dimension.columns
-    ) {
+    if (!inRange(id, this.dimensionRange)) {
       return;
     }
 
@@ -185,7 +194,7 @@ export class Sheet {
       return;
     }
 
-    this.range = [this.activeCell, id];
+    this.range = toRange(this.activeCell, id);
   }
 
   /**
@@ -196,43 +205,88 @@ export class Sheet {
   }
 
   /**
-   * `move` moves the selection by the given delta.
+   * `moveToEdge` moves the selection to the content edge.
    * @param rowDelta Delta to move the activeCell in the row direction.
    * @param colDelta Delta to move the activeCell in the column direction.
-   * @param adjustRange Adjust the range if it is selected.
+   * @return boolean if the selection was moved.
    */
-  move(rowDelta: number, colDelta: number, adjustRange = false): void {
-    if (adjustRange) {
-      let range = cloneRange(this.range || [this.activeCell, this.activeCell]);
+  moveToEdge(rowDelta: number, colDelta: number): boolean {
+    let row = this.activeCell.row;
+    let col = this.activeCell.col;
+    const fromData = this.grid.has(toRef(this.activeCell));
 
-      // TODO(hackerwins): Do not allow the range to go out of active cell.
-      if (rowDelta != 0) {
-        range[1].row += rowDelta;
-      }
-      if (colDelta != 0) {
-        range[1].col += colDelta;
+    // TODO(hackerwins): If the active cell is contents edge, move to the next
+    // cell even if it is empty.
+    while (true) {
+      const nextRow = row + rowDelta;
+      const nextCol = col + colDelta;
+
+      if (!inRange({ row: nextRow, col: nextCol }, this.dimensionRange)) {
+        break;
       }
 
-      this.range = range;
-      return;
+      if (fromData && !this.grid.has(toRef({ row: nextRow, col: nextCol }))) {
+        break;
+      }
+
+      row = nextRow;
+      col = nextCol;
+
+      if (!fromData && this.grid.has(toRef({ row: nextRow, col: nextCol }))) {
+        break;
+      }
     }
 
-    let row = this.activeCell.row + rowDelta;
-    let col = this.activeCell.col + colDelta;
-    if (rowDelta < 0) {
-      row = Math.max(1, row);
-    } else if (rowDelta > 0) {
-      row = Math.min(row, this.dimension.rows);
-    }
-
-    if (colDelta < 0) {
-      col = Math.max(1, col);
-    } else if (colDelta > 0) {
-      col = Math.min(col, this.dimension.columns);
+    if (isSameID(this.activeCell, { row, col })) {
+      return false;
     }
 
     this.range = undefined;
     this.activeCell = { row, col };
+    return true;
+  }
+  /**
+   * `move` moves the selection by the given delta.
+   * @param rowDelta Delta to move the activeCell in the row direction.
+   * @param colDelta Delta to move the activeCell in the column direction.
+   * @return boolean if the selection was moved.
+   */
+  move(rowDelta: number, colDelta: number): boolean {
+    let row = this.activeCell.row + rowDelta;
+    let col = this.activeCell.col + colDelta;
+
+    if (!inRange({ row, col }, this.dimensionRange)) {
+      return false;
+    }
+
+    if (isSameID(this.activeCell, { row, col })) {
+      return false;
+    }
+
+    this.range = undefined;
+    this.activeCell = { row, col };
+    return true;
+  }
+
+  /**
+   * `resizeRange` resizes the range by the given delta.
+   * @param rowDelta Delta to move the range in the row direction.
+   * @param colDelta Delta to move the range in the column direction.
+   * @param return boolean if the range was resized.
+   */
+  resizeRange(rowDelta: number, colDelta: number): boolean {
+    let range = cloneRange(this.range || [this.activeCell, this.activeCell]);
+
+    // TODO(hackerwins): Do not allow the range to go out of active cell.
+    if (rowDelta != 0) {
+      range[1].row += rowDelta;
+    }
+    if (colDelta != 0) {
+      range[1].col += colDelta;
+    }
+
+    this.range = range;
+    return true;
   }
 
   /**
@@ -241,10 +295,7 @@ export class Sheet {
    * @param colDelta Delta to move the activeCell in the column direction.
    */
   moveInRange(rowDelta: number, colDelta: number): void {
-    const range = this.range || [
-      { row: 1, col: 1 },
-      { row: this.dimension.rows, col: this.dimension.columns },
-    ];
+    const range = this.range || this.dimensionRange;
 
     let row = this.activeCell.row;
     let col = this.activeCell.col;
