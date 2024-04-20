@@ -37,7 +37,7 @@ export function setupSpreadsheet(container: HTMLDivElement) {
 /**
  * Spreadsheet is a class that represents a spreadsheet.
  *
- * Container Layout:
+ * SheetContainer Layout:
  *
  * +----------------------------------------+
  * |            Top Container               |
@@ -67,6 +67,10 @@ class Spreadsheet {
   private sheet: Sheet;
 
   private container: HTMLDivElement;
+  private formulaBar: HTMLDivElement;
+  private cellLabel: HTMLDivElement;
+  private formulaInput: HTMLInputElement;
+  private sheetContainer: HTMLDivElement;
   private topContainer: HTMLDivElement;
   private bottomContainer: HTMLDivElement;
   private bottomLeftContainer: HTMLDivElement;
@@ -81,8 +85,36 @@ class Spreadsheet {
     this.sheet = new Sheet(grid);
 
     this.container = container;
-    this.container.style.position = 'relative';
-    this.container.style.overflowY = 'scroll';
+    this.formulaBar = document.createElement('div');
+    this.formulaBar.style.height = `${DefaultCellHeight}px`;
+    this.formulaBar.style.margin = '10px 0px';
+    this.formulaBar.style.display = 'flex';
+    this.formulaBar.style.alignItems = 'center';
+    this.formulaBar.style.borderTop = `1px solid ${CellBorderColor}`;
+    this.formulaBar.style.borderBottom = `1px solid ${CellBorderColor}`;
+    this.formulaBar.style.justifyContent = 'flex-start';
+
+    this.cellLabel = document.createElement('div');
+    this.cellLabel.style.width = '50px';
+    this.cellLabel.style.textAlign = 'center';
+    this.cellLabel.style.font = '12px Arial';
+    this.cellLabel.style.borderRight = `1px solid ${CellBorderColor}`;
+    this.formulaBar.appendChild(this.cellLabel);
+
+    this.formulaInput = document.createElement('input');
+    this.formulaInput.style.margin = '20px';
+    this.formulaInput.style.width = '100%';
+    this.formulaInput.style.height = '12px';
+    this.formulaInput.style.border = 'none';
+    this.formulaInput.style.font = '12px Arial';
+    this.formulaInput.style.outlineWidth = '0';
+    this.formulaBar.appendChild(this.formulaInput);
+
+    this.sheetContainer = document.createElement('div');
+    this.sheetContainer.style.width = '100%';
+    this.sheetContainer.style.height = '100%';
+    this.sheetContainer.style.position = 'relative';
+    this.sheetContainer.style.overflowY = 'scroll';
 
     this.topContainer = document.createElement('div');
     this.topContainer.style.position = 'sticky';
@@ -121,6 +153,7 @@ class Spreadsheet {
     this.cellInput.style.width = '100%';
     this.cellInput.style.height = '100%';
     this.cellInput.style.border = 'none';
+    this.cellInput.style.outline = `2px solid ${ActiveCellColor}`;
     this.inputContainer.appendChild(this.cellInput);
 
     this.columnHeaderCanvas = this.topContainer.appendChild(
@@ -136,8 +169,11 @@ class Spreadsheet {
     this.bottomContainer.appendChild(this.bottomLeftContainer);
     this.bottomContainer.appendChild(this.bottomRightContainer);
     this.bottomContainer.appendChild(this.inputContainer);
-    this.container.appendChild(this.topContainer);
-    this.container.appendChild(this.bottomContainer);
+    this.sheetContainer.appendChild(this.topContainer);
+    this.sheetContainer.appendChild(this.bottomContainer);
+
+    this.container.appendChild(this.formulaBar);
+    this.container.appendChild(this.sheetContainer);
 
     this.addEventLisnters();
   }
@@ -146,6 +182,7 @@ class Spreadsheet {
    * `render` renders the spreadsheet in the container.
    */
   public render() {
+    this.paintFormulaBar();
     this.paintSheet();
   }
 
@@ -156,7 +193,7 @@ class Spreadsheet {
     window.addEventListener('resize', () => {
       this.render();
     });
-    this.container.addEventListener('scroll', () => {
+    this.sheetContainer.addEventListener('scroll', () => {
       this.render();
     });
     this.bottomContainer.addEventListener('scroll', () => {
@@ -196,10 +233,16 @@ class Spreadsheet {
       if (this.isCellInputFocused()) {
         this.handleCellInputKeydown(e);
         return;
+      } else if (this.isFormulaInputFocused()) {
+        return;
       }
 
       this.handleGridKeydown(e);
     });
+  }
+
+  private isFormulaInputFocused(): boolean {
+    return document.activeElement === this.formulaInput;
   }
 
   private handleCellInputKeydown(e: KeyboardEvent) {
@@ -270,17 +313,19 @@ class Spreadsheet {
    * `viewRange` returns the visible range of the grid.
    */
   private viewRange(): CellRange {
-    const scrollTop = this.container.scrollTop;
+    const scrollTop = this.sheetContainer.scrollTop;
     const scrollLeft = this.bottomContainer.scrollLeft;
 
     const startRow = Math.floor(scrollTop / DefaultCellHeight) + 1;
     const endRow =
-      Math.ceil((scrollTop + this.container.clientHeight) / DefaultCellHeight) +
-      1;
+      Math.ceil(
+        (scrollTop + this.sheetContainer.clientHeight) / DefaultCellHeight,
+      ) + 1;
     const startCol = Math.floor(scrollLeft / DefaultCellWidth) + 1;
     const endCol =
-      Math.ceil((scrollLeft + this.container.clientWidth) / DefaultCellWidth) +
-      1;
+      Math.ceil(
+        (scrollLeft + this.sheetContainer.clientWidth) / DefaultCellWidth,
+      ) + 1;
 
     return [
       { row: startRow, col: startCol },
@@ -295,9 +340,9 @@ class Spreadsheet {
     const cell = this.toBoundingRect(id, true);
     const view = {
       left: this.bottomContainer.scrollLeft,
-      top: this.container.scrollTop,
+      top: this.sheetContainer.scrollTop,
       width: this.bottomContainer.offsetWidth - RowHeaderWidth,
-      height: this.container.offsetHeight - DefaultCellHeight,
+      height: this.sheetContainer.offsetHeight - DefaultCellHeight,
     };
 
     if (cell.left < view.left) {
@@ -307,9 +352,9 @@ class Spreadsheet {
     }
 
     if (cell.top < view.top) {
-      this.container.scrollTop = cell.top;
+      this.sheetContainer.scrollTop = cell.top;
     } else if (cell.top + cell.height > view.top + view.height) {
-      this.container.scrollTop = cell.top + cell.height - view.height;
+      this.sheetContainer.scrollTop = cell.top + cell.height - view.height;
     }
 
     this.render();
@@ -388,6 +433,15 @@ class Spreadsheet {
       width: Math.abs(start.left - end.left) + DefaultCellWidth,
       height: Math.abs(start.top - end.top) + DefaultCellHeight,
     };
+  }
+
+  /**
+   * `paintFormulaBar` paints the formula bar.
+   */
+  private paintFormulaBar() {
+    const id = this.sheet.getActiveCell();
+    this.cellLabel.textContent = toRef(id);
+    this.formulaInput.value = this.sheet.toInputString(toRef(id));
   }
 
   /**
