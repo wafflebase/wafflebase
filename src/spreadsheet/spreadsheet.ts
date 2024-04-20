@@ -1,6 +1,6 @@
 import { toColumnLabel, toRef } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
-import { Grid, CellID } from '../sheet/types';
+import { Grid, CellID, CellRange } from '../sheet/types';
 import { MockGrid } from '../sheet/mock';
 
 const DefaultCellWidth = 100;
@@ -153,8 +153,15 @@ class Spreadsheet {
    * `addEventLisnters` adds event listeners to the spreadsheet.
    */
   private addEventLisnters() {
+    window.addEventListener('resize', () => {
+      this.render();
+    });
+    this.container.addEventListener('scroll', () => {
+      this.render();
+    });
     this.bottomContainer.addEventListener('scroll', () => {
       this.topContainer.scrollLeft = this.bottomContainer.scrollLeft;
+      this.render();
     });
 
     this.bottomRightContainer.addEventListener('mousedown', (e) => {
@@ -215,33 +222,27 @@ class Spreadsheet {
   private handleGridKeydown(e: KeyboardEvent) {
     if (e.key === 'ArrowDown') {
       this.sheet.move(1, 0, e.shiftKey);
-      this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'ArrowUp') {
       this.sheet.move(-1, 0, e.shiftKey);
-      this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'ArrowLeft') {
       this.sheet.move(0, -1, e.shiftKey);
-      this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'ArrowRight') {
       this.sheet.move(0, 1, e.shiftKey);
-      this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Tab') {
       this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
-      this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Enter') {
       if (this.sheet.hasRange()) {
         this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
-        this.render();
         this.scrollIntoView();
       } else {
         this.showCellInput();
@@ -259,29 +260,48 @@ class Spreadsheet {
   }
 
   /**
+   * `viewRange` returns the visible range of the grid.
+   */
+  private viewRange(): CellRange {
+    const scrollTop = this.container.scrollTop;
+    const scrollLeft = this.bottomContainer.scrollLeft;
+
+    const startRow = Math.floor(scrollTop / DefaultCellHeight) + 1;
+    const endRow =
+      Math.ceil((scrollTop + this.container.clientHeight) / DefaultCellHeight) +
+      1;
+    const startCol = Math.floor(scrollLeft / DefaultCellWidth) + 1;
+    const endCol =
+      Math.ceil((scrollLeft + this.container.clientWidth) / DefaultCellWidth) +
+      1;
+
+    return [
+      { row: startRow, col: startCol },
+      { row: endRow, col: endCol },
+    ];
+  }
+
+  /**
    * `scrollIntoView` scrolls the active cell into view.
    */
   private scrollIntoView(id: CellID = this.sheet.getActiveCell()) {
-    const cellRect = this.toBoundingRect(id);
-    const screenRect = {
+    const cell = this.toBoundingRect(id);
+    const view = {
       left: this.bottomContainer.scrollLeft + RowHeaderWidth,
       top: this.container.scrollTop,
       right: this.bottomContainer.scrollLeft + this.bottomContainer.offsetWidth,
       bottom: this.container.scrollTop + this.container.offsetHeight,
     };
-    if (
-      cellRect.left < screenRect.left ||
-      cellRect.left + cellRect.width > screenRect.right
-    ) {
-      this.bottomContainer.scrollLeft = cellRect.left - RowHeaderWidth;
+
+    if (cell.left < view.left || cell.left + cell.width > view.right) {
+      this.bottomContainer.scrollLeft = cell.left - RowHeaderWidth;
     }
 
-    if (
-      cellRect.top < screenRect.top ||
-      cellRect.top + cellRect.height > screenRect.bottom
-    ) {
-      this.container.scrollTop = cellRect.top;
+    if (cell.top < view.top || cell.top + cell.height > view.bottom) {
+      this.container.scrollTop = cell.top;
     }
+
+    this.render();
   }
 
   /**
@@ -384,17 +404,18 @@ class Spreadsheet {
     this.columnHeaderCanvas.style.height = DefaultCellHeight + 'px';
     ctx.scale(ratio, ratio);
 
+    const [startID, endID] = this.viewRange();
     const id = this.sheet.getActiveCell();
-    for (let j = 0; j < dimension.columns; j++) {
-      const x = RowHeaderWidth + DefaultCellWidth * j;
+    for (let col = startID.col; col <= endID.col; col++) {
+      const x = RowHeaderWidth + DefaultCellWidth * (col - 1);
       const y = 0;
       this.paintHeader(
         ctx,
         x,
         y,
         DefaultCellWidth,
-        toColumnLabel(j + 1),
-        id.col === j + 1,
+        toColumnLabel(col),
+        id.col === col,
       );
     }
   }
@@ -414,18 +435,12 @@ class Spreadsheet {
       dimension.rows * DefaultCellHeight + 'px';
     ctx.scale(ratio, ratio);
 
+    const [startID, endID] = this.viewRange();
     const id = this.sheet.getActiveCell();
-    for (let i = 0; i < dimension.rows; i++) {
+    for (let row = startID.row; row <= endID.row; row++) {
       const x = 0;
-      const y = i * DefaultCellHeight;
-      this.paintHeader(
-        ctx,
-        x,
-        y,
-        RowHeaderWidth,
-        String(i + 1),
-        id.row === i + 1,
-      );
+      const y = (row - 1) * DefaultCellHeight;
+      this.paintHeader(ctx, x, y, RowHeaderWidth, String(row), id.row === row);
     }
   }
 
@@ -446,8 +461,9 @@ class Spreadsheet {
     this.gridCanvas.style.height = dimension.rows * DefaultCellHeight + 'px';
     ctx.scale(ratio, ratio);
 
-    for (let row = 1; row <= dimension.rows + 1; row++) {
-      for (let col = 1; col <= dimension.columns + 1; col++) {
+    const [startID, endID] = this.viewRange();
+    for (let row = startID.row; row <= endID.row + 1; row++) {
+      for (let col = startID.col; col <= endID.col + 1; col++) {
         this.paintCell(ctx, { row, col });
       }
     }
@@ -516,7 +532,7 @@ class Spreadsheet {
     ctx.fillRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
 
     const data = this.sheet.toDisplayString(toRef(id));
-    if (data != undefined) {
+    if (data) {
       ctx.fillStyle = CellTextColor;
       ctx.textAlign = 'center';
       ctx.font = '12px Arial';
