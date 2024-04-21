@@ -81,6 +81,9 @@ class Spreadsheet {
   private rowHeaderCanvas: HTMLCanvasElement;
   private gridCanvas: HTMLCanvasElement;
 
+  /**
+   * `constructor` initializes the spreadsheet with the given grid.
+   */
   constructor(container: HTMLDivElement, grid?: Grid) {
     this.sheet = new Sheet(grid);
 
@@ -230,21 +233,63 @@ class Spreadsheet {
     });
 
     document.addEventListener('keydown', (e) => {
-      if (this.isCellInputFocused()) {
-        this.handleCellInputKeydown(e);
+      if (this.isFormulaInputFocused()) {
+        this.handleFormulaInputKeydown(e);
         return;
-      } else if (this.isFormulaInputFocused()) {
+      } else if (this.isCellInputFocused()) {
+        this.handleCellInputKeydown(e);
         return;
       }
 
       this.handleGridKeydown(e);
     });
+
+    document.addEventListener('keyup', () => {
+      if (this.isFormulaInputFocused()) {
+        this.cellInput.value = this.formulaInput.value;
+        return;
+      } else if (this.isCellInputFocused()) {
+        this.formulaInput.value = this.cellInput.value;
+        return;
+      }
+    });
   }
 
+  /**
+   * `isFormulaInputFocused` checks if the formula input is focused.
+   */
   private isFormulaInputFocused(): boolean {
     return document.activeElement === this.formulaInput;
   }
 
+  /**
+   * `handleFormulaInputKeydown` handles the keydown event for the formula input.
+   */
+  private handleFormulaInputKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') {
+      this.sheet.setData(this.sheet.getActiveCell(), this.formulaInput.value);
+      this.sheet.move(1, 0);
+      this.scrollIntoView();
+      this.hideCellInput();
+      this.formulaInput.blur();
+      e.preventDefault();
+    } else if (e.key === 'Escape') {
+      this.formulaInput.value = this.sheet.toInputString(
+        toRef(this.sheet.getActiveCell()),
+      );
+      this.hideCellInput();
+      this.formulaInput.blur();
+      e.preventDefault();
+    } else {
+      if (!this.isCellInputShown()) {
+        this.showCellInput(true, true);
+      }
+    }
+  }
+
+  /**
+   * `handleCellInputKeydown` handles the keydown event for the cell input.
+   */
   private handleCellInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
@@ -263,6 +308,9 @@ class Spreadsheet {
     }
   }
 
+  /**
+   * `handleGridKeydown` handles the keydown event for the grid.
+   */
   private handleGridKeydown(e: KeyboardEvent) {
     const move = (row: number, col: number, shift: boolean, ctrl: boolean) => {
       let changed = shift
@@ -304,7 +352,7 @@ class Spreadsheet {
         this.render();
       }
       e.preventDefault();
-    } else if (!e.metaKey && !e.ctrlKey && this.isCellInput(e.key)) {
+    } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
       this.showCellInput(true);
     }
   }
@@ -361,9 +409,19 @@ class Spreadsheet {
   }
 
   /**
+   * `isCellInputShown` checks if the cell input is shown.
+   */
+  private isCellInputShown(): boolean {
+    return this.inputContainer.style.left !== '-1000px';
+  }
+
+  /**
    * `showCellInput` shows the cell input.
    */
-  private showCellInput(withoutValue: boolean = false) {
+  private showCellInput(
+    withoutValue: boolean = false,
+    withoutFocus: boolean = false,
+  ) {
     const selection = this.sheet.getActiveCell();
     const rect = this.toBoundingRect(selection);
     this.inputContainer.style.left = rect.left + 'px';
@@ -371,7 +429,10 @@ class Spreadsheet {
     this.cellInput.value = withoutValue
       ? ''
       : this.sheet.toInputString(toRef(selection));
-    this.cellInput.focus();
+
+    if (!withoutFocus) {
+      this.cellInput.focus();
+    }
   }
 
   /**
@@ -384,9 +445,9 @@ class Spreadsheet {
   }
 
   /**
-   * `isCellInput` checks if the key is a valid cell input.
+   * `isValidCellInput` checks if the key is a valid cell input.
    */
-  private isCellInput(key: string): boolean {
+  private isValidCellInput(key: string): boolean {
     return /^[a-zA-Z0-9 =]$/.test(key);
   }
 
