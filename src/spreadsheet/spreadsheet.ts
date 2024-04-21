@@ -80,6 +80,7 @@ class Spreadsheet {
   private columnHeaderCanvas: HTMLCanvasElement;
   private rowHeaderCanvas: HTMLCanvasElement;
   private gridCanvas: HTMLCanvasElement;
+  private overlayCanvas: HTMLCanvasElement;
 
   /**
    * `constructor` initializes the spreadsheet with the given grid.
@@ -124,8 +125,6 @@ class Spreadsheet {
     this.topContainer.style.top = '0';
     this.topContainer.style.height = DefaultCellHeight + 'px';
     this.topContainer.style.zIndex = '1';
-    this.topContainer.style.overflowX = 'scroll';
-    this.topContainer.style.scrollbarWidth = 'none';
 
     this.bottomContainer = document.createElement('div');
     this.bottomContainer.style.position = 'relative';
@@ -168,6 +167,13 @@ class Spreadsheet {
     this.gridCanvas = this.bottomRightContainer.appendChild(
       document.createElement('canvas'),
     );
+    this.overlayCanvas = this.bottomRightContainer.appendChild(
+      document.createElement('canvas'),
+    );
+    this.columnHeaderCanvas.style.position = 'absolute';
+    this.gridCanvas.style.position = 'absolute';
+    this.overlayCanvas.style.position = 'absolute';
+    this.overlayCanvas.style.zIndex = '1';
 
     this.bottomContainer.appendChild(this.bottomLeftContainer);
     this.bottomContainer.appendChild(this.bottomRightContainer);
@@ -187,6 +193,7 @@ class Spreadsheet {
   public render() {
     this.paintFormulaBar();
     this.paintSheet();
+    this.paintOverlay();
   }
 
   /**
@@ -194,23 +201,23 @@ class Spreadsheet {
    */
   private addEventLisnters() {
     window.addEventListener('resize', () => {
-      this.render();
+      this.paintSheet();
     });
     this.sheetContainer.addEventListener('scroll', () => {
-      this.render();
+      this.paintSheet();
     });
     this.bottomContainer.addEventListener('scroll', () => {
-      this.topContainer.scrollLeft = this.bottomContainer.scrollLeft;
-      this.render();
+      this.columnHeaderCanvas.style.left = `-${this.bottomContainer.scrollLeft}px`;
+      this.paintSheet();
     });
 
     this.bottomRightContainer.addEventListener('mousedown', (e) => {
       this.sheet.selectStart(this.toCellID(e.offsetX, e.offsetY));
-      this.render();
+      this.paintOverlay();
 
       const onMove = (e: MouseEvent) => {
         this.sheet.selectEnd(this.toCellID(e.offsetX, e.offsetY));
-        this.render();
+        this.paintOverlay();
       };
       const onUp = () => {
         this.bottomRightContainer.removeEventListener('mousemove', onMove);
@@ -295,12 +302,14 @@ class Spreadsheet {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
       this.hideCellInput();
       this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
+      this.paintOverlay();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Tab') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
       this.hideCellInput();
       this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
+      this.paintOverlay();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Escape') {
@@ -319,6 +328,7 @@ class Spreadsheet {
           ? this.sheet.moveToEdge(row, col)
           : this.sheet.move(row, col);
       if (changed) {
+        this.paintOverlay();
         this.scrollIntoView();
       }
       e.preventDefault();
@@ -336,11 +346,13 @@ class Spreadsheet {
 
     if (e.key === 'Tab') {
       this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
+      this.paintOverlay();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Enter') {
       if (this.sheet.hasRange()) {
         this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
+        this.paintOverlay();
         this.scrollIntoView();
       } else {
         this.showCellInput();
@@ -349,7 +361,7 @@ class Spreadsheet {
       e.preventDefault();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       if (this.sheet.removeData()) {
-        this.render();
+        this.paintSheet();
       }
       e.preventDefault();
     } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
@@ -360,7 +372,7 @@ class Spreadsheet {
   /**
    * `viewRange` returns the visible range of the grid.
    */
-  private viewRange(): CellRange {
+  private get viewRange(): CellRange {
     const scrollTop = this.sheetContainer.scrollTop;
     const scrollLeft = this.bottomContainer.scrollLeft;
 
@@ -393,19 +405,26 @@ class Spreadsheet {
       height: this.sheetContainer.offsetHeight - DefaultCellHeight,
     };
 
+    let changed = false;
     if (cell.left < view.left) {
       this.bottomContainer.scrollLeft = cell.left;
+      changed = true;
     } else if (cell.left + cell.width > view.left + view.width) {
       this.bottomContainer.scrollLeft = cell.left + cell.width - view.width;
+      changed = true;
     }
 
     if (cell.top < view.top) {
       this.sheetContainer.scrollTop = cell.top;
+      changed = true;
     } else if (cell.top + cell.height > view.top + view.height) {
       this.sheetContainer.scrollTop = cell.top + cell.height - view.height;
+      changed = true;
     }
 
-    this.render();
+    if (changed) {
+      this.paintSheet();
+    }
   }
 
   /**
@@ -519,18 +538,17 @@ class Spreadsheet {
    */
   private paintColumnHeader() {
     const ctx = this.columnHeaderCanvas.getContext('2d')!;
-    const dimension = this.sheet.getDimension();
 
     const ratio = window.devicePixelRatio || 1;
-    this.columnHeaderCanvas.width =
-      (RowHeaderWidth + dimension.columns * DefaultCellWidth) * ratio;
+    const gridSize = this.gridSize;
+    this.columnHeaderCanvas.width = (RowHeaderWidth + gridSize.width) * ratio;
     this.columnHeaderCanvas.height = DefaultCellHeight * ratio;
     this.columnHeaderCanvas.style.width =
-      RowHeaderWidth + dimension.columns * DefaultCellWidth + 'px';
+      RowHeaderWidth + gridSize.width + 'px';
     this.columnHeaderCanvas.style.height = DefaultCellHeight + 'px';
     ctx.scale(ratio, ratio);
 
-    const [startID, endID] = this.viewRange();
+    const [startID, endID] = this.viewRange;
     const id = this.sheet.getActiveCell();
     for (let col = startID.col; col <= endID.col; col++) {
       const x = RowHeaderWidth + DefaultCellWidth * (col - 1);
@@ -551,17 +569,16 @@ class Spreadsheet {
    */
   private paintRowHeader() {
     const ctx = this.rowHeaderCanvas.getContext('2d')!;
-    const dimension = this.sheet.getDimension();
 
     const ratio = window.devicePixelRatio || 1;
+    const gridSize = this.gridSize;
     this.rowHeaderCanvas.width = RowHeaderWidth * ratio;
-    this.rowHeaderCanvas.height = dimension.rows * DefaultCellHeight * ratio;
+    this.rowHeaderCanvas.height = gridSize.height * ratio;
     this.rowHeaderCanvas.style.width = RowHeaderWidth + 'px';
-    this.rowHeaderCanvas.style.height =
-      dimension.rows * DefaultCellHeight + 'px';
+    this.rowHeaderCanvas.style.height = gridSize.height + 'px';
     ctx.scale(ratio, ratio);
 
-    const [startID, endID] = this.viewRange();
+    const [startID, endID] = this.viewRange;
     const id = this.sheet.getActiveCell();
     for (let row = startID.row; row <= endID.row; row++) {
       const x = 0;
@@ -577,23 +594,37 @@ class Spreadsheet {
     this.gridCanvas.width = 0;
     this.gridCanvas.height = 0;
 
-    const dimension = this.sheet.getDimension();
-
     const ctx = this.gridCanvas.getContext('2d')!;
     const ratio = window.devicePixelRatio || 1;
-    this.gridCanvas.width = dimension.columns * DefaultCellWidth * ratio;
-    this.gridCanvas.height = dimension.rows * DefaultCellHeight * ratio;
-    this.gridCanvas.style.width = dimension.columns * DefaultCellWidth + 'px';
-    this.gridCanvas.style.height = dimension.rows * DefaultCellHeight + 'px';
+    const gridSize = this.gridSize;
+    this.gridCanvas.width = gridSize.width * ratio;
+    this.gridCanvas.height = gridSize.height * ratio;
+    this.gridCanvas.style.width = gridSize.width + 'px';
+    this.gridCanvas.style.height = gridSize.height + 'px';
     ctx.scale(ratio, ratio);
 
-    const [startID, endID] = this.viewRange();
+    const [startID, endID] = this.viewRange;
     for (let row = startID.row; row <= endID.row + 1; row++) {
       for (let col = startID.col; col <= endID.col + 1; col++) {
         this.paintCell(ctx, { row, col });
       }
     }
+  }
 
+  private get gridSize(): { width: number; height: number } {
+    const dimension = this.sheet.getDimension();
+    return {
+      width: dimension.columns * DefaultCellWidth,
+      height: dimension.rows * DefaultCellHeight,
+    };
+  }
+
+  /**
+   * `paintOverlay` paints the overlay.
+   */
+  private paintOverlay() {
+    this.paintRowHeader();
+    this.paintColumnHeader();
     this.paintSelection();
   }
 
@@ -601,7 +632,18 @@ class Spreadsheet {
    * `paintSelection` paints the selection.
    */
   private paintSelection() {
-    const ctx = this.gridCanvas.getContext('2d')!;
+    this.overlayCanvas.width = 0;
+    this.overlayCanvas.height = 0;
+
+    const ctx = this.overlayCanvas.getContext('2d')!;
+    const ratio = window.devicePixelRatio || 1;
+    const gridSize = this.gridSize;
+    this.overlayCanvas.width = gridSize.width * ratio;
+    this.overlayCanvas.height = gridSize.height * ratio;
+    this.overlayCanvas.style.width = gridSize.width + 'px';
+    this.overlayCanvas.style.height = gridSize.height + 'px';
+    ctx.scale(ratio, ratio);
+
     const selection = this.sheet.getActiveCell();
     const rect = this.toBoundingRect(selection, true);
 
