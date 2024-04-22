@@ -18,10 +18,21 @@ const RowHeaderWidth = 50;
 
 /**
  * BoundingRect represents the bounding rectangle of a cell.
+ * TODO(hackerwins): We need to use `BigInt` for the coordinates
+ * and `number` for the width and height. Because the coordinates
+ * can be very large for big dimensions of the grid.
  */
 type BoundingRect = {
   left: number;
   top: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * Size represents the size of the rectangle.
+ */
+type Size = {
   width: number;
   height: number;
 };
@@ -37,28 +48,6 @@ export function setupSpreadsheet(container: HTMLDivElement) {
 /**
  * Spreadsheet is a class that represents a spreadsheet.
  *
- * SheetContainer Layout:
- *
- * +----------------------------------------+
- * |            Top Container               |
- * +----------------------------------------+
- * |            Bottom Container            |
- * | +------------------+-----------------+ |
- * | | Bottom Left      | Bottom Right    | |
- * | | Container        | Container       | |
- * | +------------------+-----------------+ |
- * |            Input Container             |
- * +----------------------------------------+
- *
- * The spreadsheet is rendered inside a container element.
- * The container is divided into two main sections: top container and bottom container.
- *
- * - The top container is sticky and contains the column header.
- * - The bottom container is divided into two sub-containers: bottom left container and bottom right container.
- * - The bottom left container contains the row header.
- * - The bottom right container contains the grid.
- * - The input container is used to display the cell input and is positioned outside the visible area.
- *
  * TODO(hackerwins): We need to implement the following features:
  * - `freezePane`: Freeze the pane at the given cell index.
  * - `autoScroll`: Automatically scroll the grid when the selection is outside the visible area.
@@ -71,14 +60,10 @@ class Spreadsheet {
   private cellLabel: HTMLDivElement;
   private formulaInput: HTMLInputElement;
   private sheetContainer: HTMLDivElement;
-  private topContainer: HTMLDivElement;
-  private bottomContainer: HTMLDivElement;
-  private bottomLeftContainer: HTMLDivElement;
-  private bottomRightContainer: HTMLDivElement;
+  private scrollContainer: HTMLDivElement;
+  private dummyContainer: HTMLDivElement;
   private inputContainer: HTMLDivElement;
   private cellInput: HTMLInputElement;
-  private columnHeaderCanvas: HTMLCanvasElement;
-  private rowHeaderCanvas: HTMLCanvasElement;
   private gridCanvas: HTMLCanvasElement;
   private overlayCanvas: HTMLCanvasElement;
 
@@ -99,7 +84,7 @@ class Spreadsheet {
     this.formulaBar.style.justifyContent = 'flex-start';
 
     this.cellLabel = document.createElement('div');
-    this.cellLabel.style.width = '50px';
+    this.cellLabel.style.width = '100px';
     this.cellLabel.style.textAlign = 'center';
     this.cellLabel.style.font = '12px Arial';
     this.cellLabel.style.borderRight = `1px solid ${CellBorderColor}`;
@@ -115,33 +100,21 @@ class Spreadsheet {
     this.formulaBar.appendChild(this.formulaInput);
 
     this.sheetContainer = document.createElement('div');
+    this.sheetContainer.style.position = 'relative';
     this.sheetContainer.style.width = '100%';
     this.sheetContainer.style.height = '100%';
-    this.sheetContainer.style.position = 'relative';
-    this.sheetContainer.style.overflowY = 'scroll';
 
-    this.topContainer = document.createElement('div');
-    this.topContainer.style.position = 'sticky';
-    this.topContainer.style.top = '0';
-    this.topContainer.style.height = DefaultCellHeight + 'px';
-    this.topContainer.style.zIndex = '1';
+    this.scrollContainer = document.createElement('div');
+    this.scrollContainer.style.position = 'absolute';
+    this.scrollContainer.style.overflow = 'auto';
+    this.scrollContainer.style.width = '100%';
+    this.scrollContainer.style.height = '100%';
+    this.scrollContainer.style.zIndex = '1';
 
-    this.bottomContainer = document.createElement('div');
-    this.bottomContainer.style.position = 'relative';
-    this.bottomContainer.style.overflowX = 'scroll';
-    this.bottomContainer.style.left = '0';
-    this.bottomContainer.style.bottom = '0';
-    this.bottomContainer.style.display = 'flex';
-
-    this.bottomLeftContainer = document.createElement('div');
-    this.bottomLeftContainer.style.position = 'sticky';
-    this.bottomLeftContainer.style.left = '0';
-    this.bottomLeftContainer.style.width = RowHeaderWidth + 'px';
-    this.bottomLeftContainer.style.height = '100%';
-    this.bottomLeftContainer.style.zIndex = '2';
-
-    this.bottomRightContainer = document.createElement('div');
-    this.bottomRightContainer.style.flexGrow = '1';
+    this.dummyContainer = document.createElement('div');
+    this.dummyContainer.style.margin = '0px';
+    this.dummyContainer.style.padding = '0px';
+    this.scrollContainer.appendChild(this.dummyContainer);
 
     this.inputContainer = document.createElement('div');
     this.inputContainer.style.position = 'absolute';
@@ -158,28 +131,17 @@ class Spreadsheet {
     this.cellInput.style.outline = `2px solid ${ActiveCellColor}`;
     this.inputContainer.appendChild(this.cellInput);
 
-    this.columnHeaderCanvas = this.topContainer.appendChild(
+    this.gridCanvas = this.sheetContainer.appendChild(
       document.createElement('canvas'),
     );
-    this.rowHeaderCanvas = this.bottomLeftContainer.appendChild(
+    this.overlayCanvas = this.sheetContainer.appendChild(
       document.createElement('canvas'),
     );
-    this.gridCanvas = this.bottomRightContainer.appendChild(
-      document.createElement('canvas'),
-    );
-    this.overlayCanvas = this.bottomRightContainer.appendChild(
-      document.createElement('canvas'),
-    );
-    this.columnHeaderCanvas.style.position = 'absolute';
+    this.sheetContainer.appendChild(this.scrollContainer);
+    this.sheetContainer.appendChild(this.inputContainer);
     this.gridCanvas.style.position = 'absolute';
     this.overlayCanvas.style.position = 'absolute';
     this.overlayCanvas.style.zIndex = '1';
-
-    this.bottomContainer.appendChild(this.bottomLeftContainer);
-    this.bottomContainer.appendChild(this.bottomRightContainer);
-    this.bottomContainer.appendChild(this.inputContainer);
-    this.sheetContainer.appendChild(this.topContainer);
-    this.sheetContainer.appendChild(this.bottomContainer);
 
     this.container.appendChild(this.formulaBar);
     this.container.appendChild(this.sheetContainer);
@@ -201,34 +163,30 @@ class Spreadsheet {
    */
   private addEventLisnters() {
     window.addEventListener('resize', () => {
-      this.paintSheet();
+      this.render();
     });
-    this.sheetContainer.addEventListener('scroll', () => {
-      this.paintSheet();
-    });
-    this.bottomContainer.addEventListener('scroll', () => {
-      this.columnHeaderCanvas.style.left = `-${this.bottomContainer.scrollLeft}px`;
-      this.paintSheet();
+    this.scrollContainer.addEventListener('scroll', () => {
+      this.render();
     });
 
-    this.bottomRightContainer.addEventListener('mousedown', (e) => {
+    this.scrollContainer.addEventListener('mousedown', (e) => {
       this.sheet.selectStart(this.toCellID(e.offsetX, e.offsetY));
-      this.paintOverlay();
+      this.render();
 
       const onMove = (e: MouseEvent) => {
         this.sheet.selectEnd(this.toCellID(e.offsetX, e.offsetY));
-        this.paintOverlay();
+        this.render();
       };
       const onUp = () => {
-        this.bottomRightContainer.removeEventListener('mousemove', onMove);
-        this.bottomRightContainer.removeEventListener('mouseup', onUp);
+        this.scrollContainer.removeEventListener('mousemove', onMove);
+        this.scrollContainer.removeEventListener('mouseup', onUp);
       };
 
-      this.bottomRightContainer.addEventListener('mousemove', onMove);
-      this.bottomRightContainer.addEventListener('mouseup', onUp);
+      this.scrollContainer.addEventListener('mousemove', onMove);
+      this.scrollContainer.addEventListener('mouseup', onUp);
     });
 
-    this.bottomRightContainer.addEventListener('dblclick', (e) => {
+    this.scrollContainer.addEventListener('dblclick', (e) => {
       this.showCellInput();
       this.cellInput.focus();
       e.preventDefault();
@@ -302,14 +260,14 @@ class Spreadsheet {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
       this.hideCellInput();
       this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
-      this.paintOverlay();
+      this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Tab') {
       this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
       this.hideCellInput();
       this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
-      this.paintOverlay();
+      this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Escape') {
@@ -328,7 +286,7 @@ class Spreadsheet {
           ? this.sheet.moveToEdge(row, col)
           : this.sheet.move(row, col);
       if (changed) {
-        this.paintOverlay();
+        this.render();
         this.scrollIntoView();
       }
       e.preventDefault();
@@ -346,13 +304,13 @@ class Spreadsheet {
 
     if (e.key === 'Tab') {
       this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
-      this.paintOverlay();
+      this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Enter') {
       if (this.sheet.hasRange()) {
         this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
-        this.paintOverlay();
+        this.render();
         this.scrollIntoView();
       } else {
         this.showCellInput();
@@ -361,7 +319,7 @@ class Spreadsheet {
       e.preventDefault();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       if (this.sheet.removeData()) {
-        this.paintSheet();
+        this.render();
       }
       e.preventDefault();
     } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
@@ -373,18 +331,18 @@ class Spreadsheet {
    * `viewRange` returns the visible range of the grid.
    */
   private get viewRange(): CellRange {
-    const scrollTop = this.sheetContainer.scrollTop;
-    const scrollLeft = this.bottomContainer.scrollLeft;
+    const scrollTop = this.scrollContainer.scrollTop;
+    const scrollLeft = this.scrollContainer.scrollLeft;
 
     const startRow = Math.floor(scrollTop / DefaultCellHeight) + 1;
     const endRow =
       Math.ceil(
-        (scrollTop + this.sheetContainer.clientHeight) / DefaultCellHeight,
+        (scrollTop + this.scrollContainer.clientHeight) / DefaultCellHeight,
       ) + 1;
     const startCol = Math.floor(scrollLeft / DefaultCellWidth) + 1;
     const endCol =
       Math.ceil(
-        (scrollLeft + this.sheetContainer.clientWidth) / DefaultCellWidth,
+        (scrollLeft + this.scrollContainer.clientWidth) / DefaultCellWidth,
       ) + 1;
 
     return [
@@ -397,33 +355,36 @@ class Spreadsheet {
    * `scrollIntoView` scrolls the active cell into view.
    */
   private scrollIntoView(id: CellID = this.sheet.getActiveCell()) {
+    const scrollSize = this.scrollSize;
     const cell = this.toBoundingRect(id, true);
     const view = {
-      left: this.bottomContainer.scrollLeft,
-      top: this.sheetContainer.scrollTop,
-      width: this.bottomContainer.offsetWidth - RowHeaderWidth,
-      height: this.sheetContainer.offsetHeight - DefaultCellHeight,
+      left: scrollSize.width + RowHeaderWidth,
+      top: scrollSize.height + DefaultCellHeight,
+      width: this.viewportSize.width - RowHeaderWidth,
+      height: this.viewportSize.height - DefaultCellHeight,
     };
 
     let changed = false;
     if (cell.left < view.left) {
-      this.bottomContainer.scrollLeft = cell.left;
+      this.scrollContainer.scrollLeft = cell.left - RowHeaderWidth;
       changed = true;
     } else if (cell.left + cell.width > view.left + view.width) {
-      this.bottomContainer.scrollLeft = cell.left + cell.width - view.width;
+      this.scrollContainer.scrollLeft =
+        cell.left + cell.width - view.width - RowHeaderWidth;
       changed = true;
     }
 
     if (cell.top < view.top) {
-      this.sheetContainer.scrollTop = cell.top;
+      this.scrollContainer.scrollTop = cell.top - DefaultCellHeight;
       changed = true;
     } else if (cell.top + cell.height > view.top + view.height) {
-      this.sheetContainer.scrollTop = cell.top + cell.height - view.height;
+      this.scrollContainer.scrollTop =
+        cell.top + cell.height - view.height - DefaultCellHeight;
       changed = true;
     }
 
     if (changed) {
-      this.paintSheet();
+      this.render();
     }
   }
 
@@ -481,20 +442,25 @@ class Spreadsheet {
    * `toCellID` returns the cell ID for the given x and y coordinates.
    */
   private toCellID(x: number, y: number): CellID {
-    const row = Math.floor(y / DefaultCellHeight) + 1;
-    const col = Math.floor(x / DefaultCellWidth) + 1;
+    const row = Math.floor(y / DefaultCellHeight);
+    const col = Math.floor((x + RowHeaderWidth) / DefaultCellWidth);
     return { row, col };
   }
 
   /**
    * `toBoundingRect` returns the bounding rectangle for the given cell index.
    */
-  private toBoundingRect(id: CellID, excludeRowHeader = false): BoundingRect {
+  private toBoundingRect(id: CellID, absolute: boolean = false): BoundingRect {
+    const scrollSize = this.scrollSize;
     return {
       left:
-        (excludeRowHeader ? 0 : RowHeaderWidth) +
-        (id.col - 1) * DefaultCellWidth,
-      top: (id.row - 1) * DefaultCellHeight,
+        (id.col - 1) * DefaultCellWidth +
+        RowHeaderWidth -
+        (absolute ? 0 : scrollSize.width),
+      top:
+        (id.row - 1) * DefaultCellHeight +
+        DefaultCellHeight -
+        (absolute ? 0 : scrollSize.height),
       width: DefaultCellWidth,
       height: DefaultCellHeight,
     };
@@ -528,63 +494,18 @@ class Spreadsheet {
    * `paintSheet` paints the spreadsheet.
    */
   private paintSheet() {
-    this.paintColumnHeader();
-    this.paintRowHeader();
+    this.paintDummy();
     this.paintGrid();
   }
 
   /**
-   * `paintColumnHeader` paints the column header.
+   * `paintDummy` paints the dummy container.
    */
-  private paintColumnHeader() {
-    const ctx = this.columnHeaderCanvas.getContext('2d')!;
-
-    const ratio = window.devicePixelRatio || 1;
+  private paintDummy() {
     const gridSize = this.gridSize;
-    this.columnHeaderCanvas.width = (RowHeaderWidth + gridSize.width) * ratio;
-    this.columnHeaderCanvas.height = DefaultCellHeight * ratio;
-    this.columnHeaderCanvas.style.width =
-      RowHeaderWidth + gridSize.width + 'px';
-    this.columnHeaderCanvas.style.height = DefaultCellHeight + 'px';
-    ctx.scale(ratio, ratio);
-
-    const [startID, endID] = this.viewRange;
-    const id = this.sheet.getActiveCell();
-    for (let col = startID.col; col <= endID.col; col++) {
-      const x = RowHeaderWidth + DefaultCellWidth * (col - 1);
-      const y = 0;
-      this.paintHeader(
-        ctx,
-        x,
-        y,
-        DefaultCellWidth,
-        toColumnLabel(col),
-        id.col === col,
-      );
-    }
-  }
-
-  /**
-   * `paintRowHeader` paints the row header.
-   */
-  private paintRowHeader() {
-    const ctx = this.rowHeaderCanvas.getContext('2d')!;
-
-    const ratio = window.devicePixelRatio || 1;
-    const gridSize = this.gridSize;
-    this.rowHeaderCanvas.width = RowHeaderWidth * ratio;
-    this.rowHeaderCanvas.height = gridSize.height * ratio;
-    this.rowHeaderCanvas.style.width = RowHeaderWidth + 'px';
-    this.rowHeaderCanvas.style.height = gridSize.height + 'px';
-    ctx.scale(ratio, ratio);
-
-    const [startID, endID] = this.viewRange;
-    const id = this.sheet.getActiveCell();
-    for (let row = startID.row; row <= endID.row; row++) {
-      const x = 0;
-      const y = (row - 1) * DefaultCellHeight;
-      this.paintHeader(ctx, x, y, RowHeaderWidth, String(row), id.row === row);
-    }
+    this.dummyContainer.style.width = gridSize.width + RowHeaderWidth + 'px';
+    this.dummyContainer.style.height =
+      gridSize.height + DefaultCellHeight + 'px';
   }
 
   /**
@@ -596,22 +517,49 @@ class Spreadsheet {
 
     const ctx = this.gridCanvas.getContext('2d')!;
     const ratio = window.devicePixelRatio || 1;
-    const gridSize = this.gridSize;
-    this.gridCanvas.width = gridSize.width * ratio;
-    this.gridCanvas.height = gridSize.height * ratio;
-    this.gridCanvas.style.width = gridSize.width + 'px';
-    this.gridCanvas.style.height = gridSize.height + 'px';
+    const viewportSize = this.viewportSize;
+    const scrollSize = this.scrollSize;
+
+    this.gridCanvas.width = viewportSize.width * ratio;
+    this.gridCanvas.height = viewportSize.height * ratio;
+    this.gridCanvas.style.width = viewportSize.width + 'px';
+    this.gridCanvas.style.height = viewportSize.height + 'px';
     ctx.scale(ratio, ratio);
 
     const [startID, endID] = this.viewRange;
+    const id = this.sheet.getActiveCell();
+
+    // Paint cells
     for (let row = startID.row; row <= endID.row + 1; row++) {
       for (let col = startID.col; col <= endID.col + 1; col++) {
         this.paintCell(ctx, { row, col });
       }
     }
+
+    // Paint column header
+    for (let col = startID.col; col <= endID.col; col++) {
+      const x =
+        RowHeaderWidth + DefaultCellWidth * (col - 1) - scrollSize.width;
+      const y = 0;
+      this.paintHeader(
+        ctx,
+        x,
+        y,
+        DefaultCellWidth,
+        toColumnLabel(col),
+        id.col === col,
+      );
+    }
+
+    // Paint row header
+    for (let row = startID.row; row <= endID.row; row++) {
+      const x = 0;
+      const y = row * DefaultCellHeight - scrollSize.height;
+      this.paintHeader(ctx, x, y, RowHeaderWidth, String(row), id.row === row);
+    }
   }
 
-  private get gridSize(): { width: number; height: number } {
+  private get gridSize(): Size {
     const dimension = this.sheet.getDimension();
     return {
       width: dimension.columns * DefaultCellWidth,
@@ -619,33 +567,38 @@ class Spreadsheet {
     };
   }
 
+  private get viewportSize(): Size {
+    return {
+      width: this.scrollContainer.clientWidth,
+      height: this.scrollContainer.clientHeight,
+    };
+  }
+  private get scrollSize(): Size {
+    return {
+      width: this.scrollContainer.scrollLeft,
+      height: this.scrollContainer.scrollTop,
+    };
+  }
+
   /**
    * `paintOverlay` paints the overlay.
    */
   private paintOverlay() {
-    this.paintRowHeader();
-    this.paintColumnHeader();
-    this.paintSelection();
-  }
-
-  /**
-   * `paintSelection` paints the selection.
-   */
-  private paintSelection() {
     this.overlayCanvas.width = 0;
     this.overlayCanvas.height = 0;
 
     const ctx = this.overlayCanvas.getContext('2d')!;
     const ratio = window.devicePixelRatio || 1;
-    const gridSize = this.gridSize;
-    this.overlayCanvas.width = gridSize.width * ratio;
-    this.overlayCanvas.height = gridSize.height * ratio;
-    this.overlayCanvas.style.width = gridSize.width + 'px';
-    this.overlayCanvas.style.height = gridSize.height + 'px';
+    const viewportSize = this.viewportSize;
+
+    this.overlayCanvas.width = viewportSize.width * ratio;
+    this.overlayCanvas.height = viewportSize.height * ratio;
+    this.overlayCanvas.style.width = viewportSize.width + 'px';
+    this.overlayCanvas.style.height = viewportSize.height + 'px';
     ctx.scale(ratio, ratio);
 
     const selection = this.sheet.getActiveCell();
-    const rect = this.toBoundingRect(selection, true);
+    const rect = this.toBoundingRect(selection);
 
     ctx.strokeStyle = ActiveCellColor;
     ctx.lineWidth = 2;
@@ -654,8 +607,8 @@ class Spreadsheet {
     const range = this.sheet.getRange();
     if (range) {
       const rect = this.expandBoundingRect(
-        this.toBoundingRect(range[0], true),
-        this.toBoundingRect(range[1], true),
+        this.toBoundingRect(range[0]),
+        this.toBoundingRect(range[1]),
       );
 
       ctx.fillStyle = SelectionBGColor;
@@ -692,7 +645,8 @@ class Spreadsheet {
    * `paintCell` paints the cell.
    */
   private paintCell(ctx: CanvasRenderingContext2D, id: CellID) {
-    const rect = this.toBoundingRect(id, true);
+    const rect = this.toBoundingRect(id);
+
     ctx.strokeStyle = CellTextColor;
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);

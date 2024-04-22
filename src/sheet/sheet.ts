@@ -15,9 +15,9 @@ import { Grid, Cell, CellID, Ref, CellRange } from './types';
 /**
  * `InitialDimensions` represents the initial dimensions of the sheet.
  * This is used when the sheet is created for the first time.
- * The sheet will have 100 rows and 26 columns. A1:Z100
+ * The sheet will have 500000 rows and 26 columns. A1:Z500000
  */
-const InitialDimensions = { rows: 100, columns: 26 };
+const InitialDimensions = { rows: 500000, columns: 26 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
