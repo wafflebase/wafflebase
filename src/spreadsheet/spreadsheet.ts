@@ -31,6 +31,9 @@ type BoundingRect = {
 
 /**
  * Size represents the size of the rectangle.
+ * TODO(hackerwins): We need to use `BigInt` for the coordinates
+ * and `number` for the width and height. Because the coordinates
+ * can be very large for big dimensions of the grid.
  */
 type Size = {
   width: number;
@@ -159,6 +162,21 @@ class Spreadsheet {
   }
 
   /**
+   * `finishEditing` finishes the editing of the cell.
+   */
+  private finishEditing() {
+    if (this.isFormulaInputFocused()) {
+      this.sheet.setData(this.sheet.getActiveCell(), this.formulaInput.value);
+      this.formulaInput.blur();
+      this.hideCellInput();
+    } else if (this.isCellInputFocused()) {
+      this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
+      this.cellInput.blur();
+      this.hideCellInput();
+    }
+  }
+
+  /**
    * `addEventLisnters` adds event listeners to the spreadsheet.
    */
   private addEventLisnters() {
@@ -170,6 +188,7 @@ class Spreadsheet {
     });
 
     this.scrollContainer.addEventListener('mousedown', (e) => {
+      this.finishEditing();
       this.sheet.selectStart(this.toCellID(e.offsetX, e.offsetY));
       this.render();
 
@@ -190,11 +209,6 @@ class Spreadsheet {
       this.showCellInput();
       this.cellInput.focus();
       e.preventDefault();
-    });
-
-    this.cellInput.addEventListener('blur', () => {
-      this.hideCellInput();
-      this.render();
     });
 
     document.addEventListener('keydown', (e) => {
@@ -232,11 +246,9 @@ class Spreadsheet {
    */
   private handleFormulaInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
-      this.sheet.setData(this.sheet.getActiveCell(), this.formulaInput.value);
+      this.finishEditing();
       this.sheet.move(1, 0);
       this.scrollIntoView();
-      this.hideCellInput();
-      this.formulaInput.blur();
       e.preventDefault();
     } else if (e.key === 'Escape') {
       this.formulaInput.value = this.sheet.toInputString(
@@ -257,16 +269,38 @@ class Spreadsheet {
    */
   private handleCellInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
-      this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
-      this.hideCellInput();
+      this.finishEditing();
       this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
       this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Tab') {
-      this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
-      this.hideCellInput();
+      this.finishEditing();
       this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
+      this.render();
+      this.scrollIntoView();
+      e.preventDefault();
+    } else if (e.key === 'ArrowDown') {
+      this.finishEditing();
+      this.sheet.move(1, 0);
+      this.render();
+      this.scrollIntoView();
+      e.preventDefault();
+    } else if (e.key === 'ArrowUp') {
+      this.finishEditing();
+      this.sheet.move(-1, 0);
+      this.render();
+      this.scrollIntoView();
+      e.preventDefault();
+    } else if (e.key === 'ArrowLeft') {
+      this.finishEditing();
+      this.sheet.move(0, -1);
+      this.render();
+      this.scrollIntoView();
+      e.preventDefault();
+    } else if (e.key === 'ArrowRight') {
+      this.finishEditing();
+      this.sheet.move(0, 1);
       this.render();
       this.scrollIntoView();
       e.preventDefault();
