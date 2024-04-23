@@ -54,4 +54,8 @@ describe('Formula', () => {
       new Set(['A1', 'A2:A3', 'A4']),
     );
   });
+
+  it('should convert lowercase references to uppercase', () => {
+    expect(extractReferences('=a1+b1')).toEqual(new Set(['A1', 'B1']));
+  });
 });

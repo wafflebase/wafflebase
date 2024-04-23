@@ -31,7 +31,7 @@ export function extractReferences(formula: string): Set<Reference> {
   const references = new Set<Reference>();
   for (const token of tokens.getTokens()) {
     if (token.type === FormulaParser.REFERENCE) {
-      references.add(token.text!);
+      references.add(token.text!.toUpperCase());
     }
   }
 
