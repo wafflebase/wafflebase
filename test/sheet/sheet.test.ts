@@ -24,7 +24,6 @@ describe('Sheet', () => {
 
   it('should move selection', () => {
     const sheet = new Sheet();
-    sheet.selectStart({ row: 1, col: 1 });
 
     sheet.move(1, 0);
     expect(sheet.getActiveCell()).toEqual({ row: 2, col: 1 });
@@ -41,7 +40,6 @@ describe('Sheet', () => {
 
   it('should not move selection beyond sheet dimensions', () => {
     const sheet = new Sheet();
-    sheet.selectStart({ row: 1, col: 1 });
 
     sheet.move(-1, 0);
     expect(sheet.getActiveCell()).toEqual({ row: 1, col: 1 });
@@ -51,5 +49,24 @@ describe('Sheet', () => {
 
     sheet.move(1, 0);
     expect(sheet.getActiveCell()).toEqual({ row: 2, col: 1 });
+  });
+
+  it('should correctly move to content edge', () => {
+    const sheet = new Sheet();
+    sheet.setData({ row: 1, col: 1 }, '10');
+    sheet.setData({ row: 1, col: 2 }, '20');
+
+    sheet.setData({ row: 1, col: 4 }, '40');
+    sheet.setData({ row: 1, col: 5 }, '50');
+    sheet.setData({ row: 1, col: 6 }, '60');
+
+    sheet.moveToEdge(0, 1);
+    expect(sheet.getActiveCell()).toEqual({ row: 1, col: 2 });
+
+    sheet.moveToEdge(0, 1);
+    expect(sheet.getActiveCell()).toEqual({ row: 1, col: 4 });
+
+    sheet.moveToEdge(0, 1);
+    expect(sheet.getActiveCell()).toEqual({ row: 1, col: 6 });
   });
 });

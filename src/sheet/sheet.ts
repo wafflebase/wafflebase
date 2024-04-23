@@ -229,10 +229,9 @@ export class Sheet {
   moveToEdge(rowDelta: number, colDelta: number): boolean {
     let row = this.activeCell.row;
     let col = this.activeCell.col;
-    const fromData = this.grid.has(toRef(this.activeCell));
 
-    // TODO(hackerwins): If the active cell is contents edge, move to the next
-    // cell even if it is empty.
+    let first = true;
+    let prev = true;
     while (true) {
       const nextRow = row + rowDelta;
       const nextCol = col + colDelta;
@@ -241,16 +240,21 @@ export class Sheet {
         break;
       }
 
-      if (fromData && !this.grid.has(toRef({ row: nextRow, col: nextCol }))) {
+      const curr = this.grid.has(toRef({ row, col }));
+      const next = this.grid.has(toRef({ row: nextRow, col: nextCol }));
+
+      if (!prev && curr) {
         break;
       }
+      if (!first && curr && !next) {
+        break;
+      }
+
+      prev = curr;
+      first = false;
 
       row = nextRow;
       col = nextCol;
-
-      if (!fromData && this.grid.has(toRef({ row: nextRow, col: nextCol }))) {
-        break;
-      }
     }
 
     if (isSameID(this.activeCell, { row, col })) {
