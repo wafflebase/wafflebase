@@ -112,10 +112,15 @@ export class Sheet {
    * `recalculate` recalculates the entire sheet.
    */
   recalculate(): void {
-    const dependantsMap = this.buildDependantsMap();
+    const refs = new Set<Ref>();
     for (const ref of this.grid.keys()) {
-      calculate(this, dependantsMap, ref);
+      if (this.hasFormula(ref)) {
+        refs.add(ref);
+      }
     }
+
+    const dependantsMap = this.buildDependantsMap();
+    calculate(this, dependantsMap, refs);
   }
 
   /**
@@ -132,24 +137,24 @@ export class Sheet {
     const dependantsMap = this.buildDependantsMap();
 
     // 03. Calculate the cell and its dependencies.
-    calculate(this, dependantsMap, ref);
+    calculate(this, dependantsMap, [ref]);
   }
 
   /**
    * `removeData` removes the data at the given row and column.
    */
   removeData(): boolean {
-    let updated = false;
+    const removeds = new Set<Ref>();
     for (const id of this.toSelectedID()) {
       if (this.grid.delete(toRef(id))) {
-        updated = true;
+        removeds.add(toRef(id));
       }
-
-      // TODO(hackerwins): Optimize this to only calculate the affected cells.
-      const dependantsMap = this.buildDependantsMap();
-      calculate(this, dependantsMap, toRef(id));
     }
-    return updated;
+
+    const dependantsMap = this.buildDependantsMap();
+    calculate(this, dependantsMap, removeds);
+
+    return removeds.size > 0;
   }
 
   /**

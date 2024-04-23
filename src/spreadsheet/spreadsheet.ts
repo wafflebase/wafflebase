@@ -280,27 +280,19 @@ class Spreadsheet {
       this.render();
       this.scrollIntoView();
       e.preventDefault();
-    } else if (e.key === 'ArrowDown') {
+    } else if (e.key.startsWith('Arrow') && !this.hasFormulaInCellInput()) {
       this.finishEditing();
-      this.sheet.move(1, 0);
-      this.render();
-      this.scrollIntoView();
-      e.preventDefault();
-    } else if (e.key === 'ArrowUp') {
-      this.finishEditing();
-      this.sheet.move(-1, 0);
-      this.render();
-      this.scrollIntoView();
-      e.preventDefault();
-    } else if (e.key === 'ArrowLeft') {
-      this.finishEditing();
-      this.sheet.move(0, -1);
-      this.render();
-      this.scrollIntoView();
-      e.preventDefault();
-    } else if (e.key === 'ArrowRight') {
-      this.finishEditing();
-      this.sheet.move(0, 1);
+
+      if (e.key === 'ArrowDown') {
+        this.sheet.move(1, 0);
+      } else if (e.key === 'ArrowUp') {
+        this.sheet.move(-1, 0);
+      } else if (e.key === 'ArrowLeft') {
+        this.sheet.move(0, -1);
+      } else if (e.key === 'ArrowRight') {
+        this.sheet.move(0, 1);
+      }
+
       this.render();
       this.scrollIntoView();
       e.preventDefault();
@@ -430,6 +422,13 @@ class Spreadsheet {
   }
 
   /**
+   * `hasFormulaInCellInput` checks if the cell input has a formula.
+   */
+  private hasFormulaInCellInput(): boolean {
+    return this.cellInput.value.startsWith('=');
+  }
+
+  /**
    * `showCellInput` shows the cell input.
    */
   private showCellInput(
@@ -462,7 +461,7 @@ class Spreadsheet {
    * `isValidCellInput` checks if the key is a valid cell input.
    */
   private isValidCellInput(key: string): boolean {
-    return /^[a-zA-Z0-9 =]$/.test(key);
+    return /^[a-zA-Z0-9 =-]$/.test(key);
   }
 
   /**

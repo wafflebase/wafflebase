@@ -8,9 +8,9 @@ import { Ref } from './types';
 export function calculate(
   sheet: Sheet,
   dependantsMap: Map<Ref, Set<Ref>>,
-  ref: Ref,
+  refs: Iterable<Ref>,
 ) {
-  const [sorted, hasCycle] = topologicalSort(dependantsMap, ref);
+  const [sorted, hasCycle] = topologicalSort(dependantsMap, refs);
   for (const ref of sorted) {
     if (!sheet.hasFormula(ref)) {
       continue;
@@ -38,9 +38,9 @@ export function calculate(
  */
 export function topologicalSort(
   dependantsMap: Map<Ref, Set<Ref>>,
-  start: Ref,
+  start: Iterable<Ref>,
 ): [Array<Ref>, boolean] {
-  const sorted: Array<Ref> = [start];
+  const sorted: Array<Ref> = [];
   const visited = new Set<Ref>();
   const stack = new Set<Ref>();
   let hasCycle = false;
@@ -66,6 +66,8 @@ export function topologicalSort(
     stack.delete(ref);
   };
 
-  dfs(start);
+  for (const ref of start) {
+    dfs(ref);
+  }
   return [sorted.reverse(), hasCycle];
 }
