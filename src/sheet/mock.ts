@@ -25,4 +25,9 @@ export const MockGrid: Array<[string, Cell]> = [
   // 04. Not enough arguments
   ['D1', { v: 'Arguments' }],
   ['D2', { f: '=SUM()', v: '#N/A!' }],
+
+  // 05. Invalid arguments
+  ['E1', { v: 'RefRange' }],
+  ['E2', { v: '1' }],
+  ['E3', { f: '=E1:E2', v: '#VALUE!' }],
 ];

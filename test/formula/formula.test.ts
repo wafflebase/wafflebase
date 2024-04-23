@@ -45,7 +45,7 @@ describe('Formula', () => {
   });
 
   it('should display #N/A for invalid arguments', () => {
-    expect(evaluate('=SUM()')).toBe('#N/A');
+    expect(evaluate('=SUM()')).toBe('#N/A!');
   });
 
   it('should correctly extract references', () => {

@@ -16,6 +16,7 @@ import { FunctionMap } from './functions';
 import { Sheet } from '../sheet/sheet';
 import { Reference } from '../sheet/types';
 import { NumberArgs } from './arguments';
+import { isRangeRef } from '../sheet/coordinates';
 
 /**
  * `extractReferences` returns references in the expression.
@@ -53,6 +54,9 @@ export function evaluate(formula: string, sheet?: Sheet): string {
 
     const node = evaluator.visit(tree);
     if (node.t === 'ref' && sheet) {
+      if (isRangeRef(node.v)) {
+        return '#VALUE!';
+      }
       return sheet.toDisplayString(node.v);
     }
 
@@ -65,7 +69,10 @@ export function evaluate(formula: string, sheet?: Sheet): string {
 export type NumNode = { t: 'num'; v: number };
 export type StrNode = { t: 'str'; v: string };
 export type BoolNode = { t: 'bool'; v: boolean };
-export type ErrNode = { t: 'err'; v: string };
+export type ErrNode = {
+  t: 'err';
+  v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!';
+};
 export type RefNode = { t: 'ref'; v: Reference };
 
 /**
@@ -146,7 +153,15 @@ class Evaluator implements FormulaVisitor<EvalNode> {
 
   visitAddSub(ctx: AddSubContext): EvalNode {
     const left = NumberArgs.map(this.visit(ctx.expr(0)), this.sheet);
+    if (left.t === 'err') {
+      return left;
+    }
+
     const right = NumberArgs.map(this.visit(ctx.expr(1)), this.sheet);
+    if (right.t === 'err') {
+      return right;
+    }
+
     if (ctx._op.type === FormulaParser.ADD) {
       return { t: 'num', v: left.v + right.v };
     }
@@ -156,7 +171,15 @@ class Evaluator implements FormulaVisitor<EvalNode> {
 
   visitMulDiv(ctx: MulDivContext): EvalNode {
     const left = NumberArgs.map(this.visit(ctx.expr(0)), this.sheet);
+    if (left.t === 'err') {
+      return left;
+    }
+
     const right = NumberArgs.map(this.visit(ctx.expr(1)), this.sheet);
+    if (right.t === 'err') {
+      return right;
+    }
+
     if (ctx._op.type === FormulaParser.MUL) {
       return { t: 'num', v: left.v * right.v };
     }

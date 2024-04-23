@@ -109,6 +109,16 @@ export class Sheet {
   }
 
   /**
+   * `recalculate` recalculates the entire sheet.
+   */
+  recalculate(): void {
+    const dependantsMap = this.buildDependantsMap();
+    for (const ref of this.grid.keys()) {
+      calculate(this, dependantsMap, ref);
+    }
+  }
+
+  /**
    * `setData` sets the data at the given row and column.
    */
   setData(id: CellID, value: string): void {

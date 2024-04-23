@@ -19,11 +19,15 @@ export function sum(
 ): EvalNode {
   const args = ctx.args()!;
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return { t: 'err', v: '#N/A!' };
   }
 
   let value = 0;
   for (const node of NumberArgs.iterate(args, visit, sheet)) {
+    if (node.t === 'err') {
+      return node;
+    }
+
     value += node.v;
   }
 
