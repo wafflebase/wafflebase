@@ -1,9 +1,8 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
 import { EvalNode } from './formula';
-import { NumberArgs, ref2num } from './arguments';
+import { NumberArgs } from './arguments';
 import { Sheet } from '../sheet/sheet';
-import { toRefs } from '../sheet/coordinates';
 
 /**
  * FunctionMap is a map of function name to the function implementation.
@@ -24,17 +23,8 @@ export function sum(
   }
 
   let value = 0;
-  for (const expr of args.expr()) {
-    const node = visit(expr);
-    // TODO(hackerwins): We need to hide toRefs and ref2num behind NumberArgs.
-    // TODO(hackerwins): We need to clean up ref and cellID. There are too many type conversions.
-    if (node.t === 'ref' && sheet) {
-      for (const ref of toRefs(new Set([node.v]))) {
-        value += ref2num({ t: 'ref', v: ref }, sheet).v;
-      }
-      continue;
-    }
-    value += NumberArgs.map(node, sheet).v;
+  for (const node of NumberArgs.iterate(args, visit, sheet)) {
+    value += node.v;
   }
 
   return {

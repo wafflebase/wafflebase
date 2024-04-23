@@ -92,7 +92,7 @@ export function isRangeRef(reference: Reference): boolean {
  * `toRefs` converts the references to Refs. If the reference is a range,
  *  it decomposes the range into individual references.
  */
-export function* toRefs(references: Set<Reference>): Generator<Ref> {
+export function* toRefs(references: Iterable<Reference>): Generator<Ref> {
   for (const reference of references) {
     if (isRangeRef(reference)) {
       const range = parseRefRange(reference);

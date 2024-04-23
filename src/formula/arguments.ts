@@ -1,34 +1,58 @@
+import { ParseTree } from 'antlr4ts/tree/ParseTree';
+import { ArgsContext } from '../../antlr/FormulaParser';
 import { Sheet } from '../sheet/sheet';
 import { EvalNode, BoolNode, NumNode, StrNode, RefNode } from './formula';
+import { toRefs } from '../sheet/coordinates';
 
 /**
  * Arguments is a helper to build arguments for a function.
  */
 class Arguments<T extends EvalNode> {
+  private ref?: (result: RefNode, sheet: Sheet) => T;
   private bool?: (result: BoolNode) => T;
   private num?: (result: NumNode) => T;
   private str?: (result: StrNode) => T;
-  private ref?: (result: RefNode, sheet: Sheet) => T;
 
   static create<T extends EvalNode>(): Arguments<T> {
     return new Arguments<T>();
   }
 
-  setBool(bool: (result: BoolNode) => T): this {
-    this.bool = bool;
-    return this;
-  }
-
-  setStr(str: (result: StrNode) => T): this {
-    this.str = str;
-    return this;
-  }
-
+  /**
+   * `setRef` sets the mapping function for the reference node.
+   */
   setRef(ref: (result: RefNode, sheet: Sheet) => T): this {
     this.ref = ref;
     return this;
   }
 
+  /**
+   * `setBool` sets the mapping function for the boolean node.
+   */
+  setBool(bool: (result: BoolNode) => T): this {
+    this.bool = bool;
+    return this;
+  }
+
+  /**
+   * `setNum` sets the mapping function for the number node.
+   */
+  setNum(num: (result: NumNode) => T): this {
+    this.num = num;
+    return this;
+  }
+
+  /**
+   * `setStr` sets the mapping function for the string node.
+   */
+  setStr(str: (result: StrNode) => T): this {
+    this.str = str;
+    return this;
+  }
+
+  /**
+   * `map` maps the given node to the expected node. If the node is ref and
+   * the value is a range, it does not map the result to the expected node.
+   */
   map(result: EvalNode, sheet?: Sheet): T {
     if (result.t === 'bool' && this.bool) {
       return this.bool(result);
@@ -47,6 +71,26 @@ class Arguments<T extends EvalNode> {
     }
 
     return result as T;
+  }
+
+  /**
+   * `iterate` iterates over the arguments and yields the result.
+   */
+  *iterate(
+    args: ArgsContext,
+    visit: (tree: ParseTree) => EvalNode,
+    sheet?: Sheet,
+  ): Generator<T> {
+    for (const expr of args.expr()) {
+      const node = visit(expr);
+      if (node.t === 'ref' && sheet) {
+        for (const ref of toRefs([node.v])) {
+          yield this.ref!({ t: 'ref', v: ref }, sheet);
+        }
+      } else {
+        yield this.map(node);
+      }
+    }
   }
 }
 
