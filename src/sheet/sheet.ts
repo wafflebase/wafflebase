@@ -15,9 +15,9 @@ import { Grid, Cell, CellID, Ref, CellRange } from './types';
 /**
  * `InitialDimensions` represents the initial dimensions of the sheet.
  * This is used when the sheet is created for the first time.
- * The sheet will have 500000 rows and 26 columns. A1:Z500000
+ * The sheet will have 720000 rows and 16384 columns. A1:XFD720000
  */
-const InitialDimensions = { rows: 500000, columns: 26 };
+const InitialDimensions = { rows: 720000, columns: 16384 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -51,6 +51,9 @@ export class Sheet {
     this.grid = grid || new Map();
     this.dimension = { ...InitialDimensions };
     this.activeCell = { row: 1, col: 1 };
+
+    // TODO(hackerwins): Uncomment this line to recalculate the sheet on initialization.
+    // this.recalculate();
   }
 
   /**
