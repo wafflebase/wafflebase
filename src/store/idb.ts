@@ -47,25 +47,6 @@ export class IDBStore {
   }
 
   /**
-   * Retrieves a value from the database by key.
-   */
-  public async get(key: Ref): Promise<Cell> {
-    return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([DBName], 'readonly');
-      const objectStore = transaction.objectStore(DBName);
-      const request = objectStore.get(key);
-
-      request.onsuccess = () => {
-        resolve(request.result);
-      };
-
-      request.onerror = () => {
-        reject(request.error);
-      };
-    });
-  }
-
-  /**
    * Stores a value in the database with the specified key.
    * @param key The key to store the value under.
    * @param value The value to store.
@@ -87,6 +68,25 @@ export class IDBStore {
   }
 
   /**
+   * Retrieves a value from the database by key.
+   */
+  public async get(key: Ref): Promise<Cell> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([DBName], 'readonly');
+      const objectStore = transaction.objectStore(DBName);
+      const request = objectStore.get(key);
+
+      request.onsuccess = () => {
+        resolve(request.result);
+      };
+
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
    * `has` method checks if the database contains a value with the specified key.
    */
   public async has(key: Ref): Promise<boolean> {
@@ -97,6 +97,25 @@ export class IDBStore {
 
       request.onsuccess = () => {
         resolve(request.result !== undefined);
+      };
+
+      request.onerror = () => {
+        reject(request.error);
+      };
+    });
+  }
+
+  /**
+   * `delete` method removes a value from the database by key.
+   */
+  public async delete(key: Ref): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([DBName], 'readwrite');
+      const objectStore = transaction.objectStore(DBName);
+      const request = objectStore.delete(key);
+
+      request.onsuccess = () => {
+        resolve();
       };
 
       request.onerror = () => {

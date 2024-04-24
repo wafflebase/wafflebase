@@ -32,5 +32,10 @@ describe('IDBStore', () => {
 
     await store.set('A1', { v: '20' });
     expect(await store.get('A1')).toEqual({ v: '20' });
+
+    await store.delete('A1');
+    expect(await store.has('A1')).toBe(false);
+    await store.delete('A1');
+    expect(await store.has('A1')).toBe(false);
   });
 });
