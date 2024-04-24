@@ -54,8 +54,7 @@ export class Sheet {
     this.dimension = { ...Dimensions };
     this.activeCell = { row: 1, col: 1 };
 
-    // TODO(hackerwins): Uncomment this line to recalculate the sheet on initialization.
-    // this.recalculate();
+    this.recalculate();
   }
 
   /**
@@ -117,14 +116,14 @@ export class Sheet {
    * `recalculate` recalculates the entire sheet.
    */
   recalculate(): void {
+    const dependantsMap = this.buildDependantsMap();
+
     const refs = new Set<Ref>();
     for (const [ref] of this.store) {
       if (this.hasFormula(ref)) {
         refs.add(ref);
       }
     }
-
-    const dependantsMap = this.buildDependantsMap();
     calculate(this, dependantsMap, refs);
   }
 

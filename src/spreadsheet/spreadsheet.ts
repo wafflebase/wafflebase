@@ -50,10 +50,6 @@ export function setupSpreadsheet(container: HTMLDivElement) {
 }
 /**
  * Spreadsheet is a class that represents a spreadsheet.
- *
- * TODO(hackerwins): We need to implement the following features:
- * - `freezePane`: Freeze the pane at the given cell index.
- * - `autoScroll`: Automatically scroll the grid when the selection is outside the visible area.
  */
 class Spreadsheet {
   private sheet: Sheet;

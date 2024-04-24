@@ -10,14 +10,14 @@ export function calculate(
   dependantsMap: Map<Ref, Set<Ref>>,
   refs: Iterable<Ref>,
 ) {
-  const [sorted, hasCycle] = topologicalSort(dependantsMap, refs);
+  const [sorted, cycled] = topologicalSort(dependantsMap, refs);
   for (const ref of sorted) {
     if (!sheet.hasFormula(ref)) {
       continue;
     }
 
     const cell = sheet.getCell(ref)!;
-    if (hasCycle) {
+    if (cycled.has(ref)) {
       sheet.setCell(ref, {
         v: '#REF!',
         f: cell.f,
@@ -38,16 +38,18 @@ export function calculate(
  */
 export function topologicalSort(
   dependantsMap: Map<Ref, Set<Ref>>,
-  start: Iterable<Ref>,
-): [Array<Ref>, boolean] {
+  refs: Iterable<Ref>,
+): [Array<Ref>, Set<Ref>] {
   const sorted: Array<Ref> = [];
+  const cycled = new Set<Ref>();
   const visited = new Set<Ref>();
   const stack = new Set<Ref>();
-  let hasCycle = false;
 
   const dfs = (ref: Ref) => {
     if (stack.has(ref)) {
-      hasCycle = true;
+      for (const r of stack) {
+        cycled.add(r);
+      }
     }
 
     stack.add(ref);
@@ -66,8 +68,9 @@ export function topologicalSort(
     stack.delete(ref);
   };
 
-  for (const ref of start) {
+  for (const ref of refs) {
     dfs(ref);
   }
-  return [sorted.reverse(), hasCycle];
+
+  return [sorted.reverse(), cycled];
 }
