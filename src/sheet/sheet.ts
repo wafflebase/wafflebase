@@ -1,4 +1,6 @@
 import { extractReferences } from '../formula/formula';
+import { MemStore } from '../store/memory';
+import { Store } from '../store/store';
 import { calculate } from './calculator';
 import {
   cloneRange,
@@ -13,11 +15,11 @@ import {
 import { Grid, Cell, CellID, Ref, CellRange } from './types';
 
 /**
- * `InitialDimensions` represents the initial dimensions of the sheet.
+ * `Dimensions` represents the dimensions of the sheet.
  * This is used when the sheet is created for the first time.
  * The sheet will have 720000 rows and 16384 columns. A1:XFD720000
  */
-const InitialDimensions = { rows: 720000, columns: 16384 };
+const Dimensions = { rows: 720000, columns: 16384 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -26,7 +28,7 @@ export class Sheet {
   /**
    * `grid` is a 2D grid that represents the sheet.
    */
-  private grid: Grid;
+  private store: Store;
 
   /**
    * `dimension` is the dimensions of the sheet that are currently visible.
@@ -48,8 +50,8 @@ export class Sheet {
    * @param grid optional grid to initialize the sheet.
    */
   constructor(grid?: Grid) {
-    this.grid = grid || new Map();
-    this.dimension = { ...InitialDimensions };
+    this.store = new MemStore(grid);
+    this.dimension = { ...Dimensions };
     this.activeCell = { row: 1, col: 1 };
 
     // TODO(hackerwins): Uncomment this line to recalculate the sheet on initialization.
@@ -77,21 +79,21 @@ export class Sheet {
    * `getCell` returns the cell at the given row and column.
    */
   getCell(ref: Ref): Cell | undefined {
-    return this.grid.get(ref);
+    return this.store.get(ref);
   }
 
   /**
    * `setCell` sets the cell at the given row and column.
    */
   setCell(ref: Ref, cell: Cell): void {
-    this.grid.set(ref, cell);
+    this.store.set(ref, cell);
   }
 
   /**
    * `hasFormula` checks if the given row and column has a formula.
    */
   hasFormula(ref: Ref): boolean {
-    const cell = this.grid.get(ref);
+    const cell = this.store.get(ref);
     return cell && cell.f ? true : false;
   }
 
@@ -99,7 +101,7 @@ export class Sheet {
    * `toInputString` returns the input string at the given row and column.
    */
   toInputString(ref: Ref): string {
-    const cell = this.grid.get(ref);
+    const cell = this.store.get(ref);
     return !cell ? '' : cell.f ? cell.f : cell.v || '';
   }
 
@@ -107,7 +109,7 @@ export class Sheet {
    * `toDisplayString` returns the display string at the given row and column.
    */
   toDisplayString(ref: Ref): string {
-    const cell = this.grid.get(ref);
+    const cell = this.store.get(ref);
     return (cell && cell.v) || '';
   }
 
@@ -116,7 +118,7 @@ export class Sheet {
    */
   recalculate(): void {
     const refs = new Set<Ref>();
-    for (const ref of this.grid.keys()) {
+    for (const [ref] of this.store) {
       if (this.hasFormula(ref)) {
         refs.add(ref);
       }
@@ -134,7 +136,7 @@ export class Sheet {
 
     // 01. Update the cell with the new value.
     const cell = value.startsWith('=') ? { f: value } : { v: value };
-    this.grid.set(ref, cell);
+    this.store.set(ref, cell);
 
     // 02. Update the dependencies.
     const dependantsMap = this.buildDependantsMap();
@@ -149,7 +151,7 @@ export class Sheet {
   removeData(): boolean {
     const removeds = new Set<Ref>();
     for (const id of this.toSelectedID()) {
-      if (this.grid.delete(toRef(id))) {
+      if (this.store.delete(toRef(id))) {
         removeds.add(toRef(id));
       }
     }
@@ -243,8 +245,8 @@ export class Sheet {
         break;
       }
 
-      const curr = this.grid.has(toRef({ row, col }));
-      const next = this.grid.has(toRef({ row: nextRow, col: nextCol }));
+      const curr = this.store.has(toRef({ row, col }));
+      const next = this.store.has(toRef({ row: nextRow, col: nextCol }));
 
       if (!prev && curr) {
         break;
@@ -366,7 +368,7 @@ export class Sheet {
   private buildDependantsMap(): Map<Ref, Set<Ref>> {
     const dependantsMap = new Map();
 
-    for (const [ref, cell] of this.grid) {
+    for (const [ref, cell] of this.store) {
       if (!cell.f) {
         continue;
       }
