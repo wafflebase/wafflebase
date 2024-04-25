@@ -2,7 +2,7 @@ import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
 import { EvalNode } from './formula';
 import { NumberArgs } from './arguments';
-import { Sheet } from '../sheet/sheet';
+import { Grid } from '../sheet/types';
 
 /**
  * FunctionMap is a map of function name to the function implementation.
@@ -15,7 +15,7 @@ export const FunctionMap = new Map([['SUM', sum]]);
 export function sum(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
-  sheet?: Sheet,
+  grid?: Grid,
 ): EvalNode {
   const args = ctx.args()!;
   if (!args) {
@@ -23,7 +23,7 @@ export function sum(
   }
 
   let value = 0;
-  for (const node of NumberArgs.iterate(args, visit, sheet)) {
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
     if (node.t === 'err') {
       return node;
     }

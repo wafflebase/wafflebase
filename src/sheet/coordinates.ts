@@ -29,15 +29,15 @@ export function inRange(id: CellID, range: CellRange): boolean {
 /**
  * `isRangeInRange` returns whether the given range is in the range.
  */
-export function isRangeInRange(range1: CellRange, range2: CellRange): boolean {
-  const [from1, to1] = range1;
-  const [from2, to2] = range2;
+export function isRangeInRange(inner: CellRange, outer: CellRange): boolean {
+  const [fromInner, toInner] = inner;
+  const [fromOuter, toOuter] = outer;
 
   return (
-    from2.row <= from1.row &&
-    to1.row <= to2.row &&
-    from2.col <= from1.col &&
-    to1.col <= to2.col
+    fromOuter.row <= fromInner.row &&
+    toInner.row <= toOuter.row &&
+    fromOuter.col <= fromInner.col &&
+    toInner.col <= toOuter.col
   );
 }
 
@@ -112,6 +112,21 @@ export function* toRefs(references: Iterable<Reference>): Generator<Ref> {
  */
 export function toRef(id: CellID): Ref {
   return toColumnLabel(id.col) + id.row;
+}
+
+/**
+ * `toRefRange` converts the given range to RefRange.
+ */
+export function toRefRange(range: CellRange): string {
+  return toRef(range[0]) + ':' + toRef(range[1]);
+}
+
+/**
+ * `toRefRangeFromRefs` converts the given refs to RefRange.
+ */
+export function toRefRangeFromRefs(refs: Iterable<Ref>): string {
+  const refArray = Array.from(refs);
+  return refArray[0] + ':' + refArray[refArray.length - 1];
 }
 
 /**

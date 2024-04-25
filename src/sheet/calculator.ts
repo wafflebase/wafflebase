@@ -1,22 +1,22 @@
-import { evaluate } from '../formula/formula';
+import { evaluate, extractReferences } from '../formula/formula';
 import { Sheet } from './sheet';
 import { Ref } from './types';
 
 /**
  * `calculate` calculates recursively the given cell and its dependencies.
  */
-export function calculate(
+export async function calculate(
   sheet: Sheet,
   dependantsMap: Map<Ref, Set<Ref>>,
   refs: Iterable<Ref>,
 ) {
   const [sorted, cycled] = topologicalSort(dependantsMap, refs);
   for (const ref of sorted) {
-    if (!sheet.hasFormula(ref)) {
+    if (!(await sheet.hasFormula(ref))) {
       continue;
     }
 
-    const cell = sheet.getCell(ref)!;
+    const cell = (await sheet.getCell(ref))!;
     if (cycled.has(ref)) {
       sheet.setCell(ref, {
         v: '#REF!',
@@ -25,8 +25,10 @@ export function calculate(
       continue;
     }
 
-    const value = evaluate(cell.f!, sheet);
-    sheet.setCell(ref, {
+    const references = extractReferences(cell.f!);
+    const grid = await sheet.fetchGridByReferences(references);
+    const value = await evaluate(cell.f!, grid);
+    await sheet.setCell(ref, {
       v: value,
       f: cell.f,
     });

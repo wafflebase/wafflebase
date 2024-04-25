@@ -11,23 +11,55 @@ export class MemStore {
     this.grid = grid || new Map();
   }
 
-  set(key: Ref, value: Cell) {
-    this.grid.set(key, value);
+  async set(ref: Ref, value: Cell) {
+    this.grid.set(ref, value);
   }
 
-  get(key: Ref): Cell | undefined {
-    return this.grid.get(key);
+  async get(ref: Ref): Promise<Cell | undefined> {
+    return this.grid.get(ref);
   }
 
-  has(key: Ref): boolean {
-    return this.grid.has(key);
+  async has(ref: Ref): Promise<boolean> {
+    return this.grid.has(ref);
   }
 
-  delete(key: Ref): boolean {
-    return this.grid.delete(key);
+  async delete(ref: Ref): Promise<boolean> {
+    return this.grid.delete(ref);
   }
 
-  [Symbol.iterator](): IterableIterator<[Ref, Cell]> {
-    return this.grid.entries();
+  range(from: Ref, to: Ref): AsyncIterable<[Ref, Cell]> {
+    const entries = Array.from(this.grid.entries());
+    let index = 0;
+
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
+        return {
+          next: () => {
+            while (index < entries.length) {
+              const entry = entries[index++];
+              if (entry[0] >= from && entry[0] <= to) {
+                return Promise.resolve({ value: entry, done: false });
+              }
+            }
+            return Promise.resolve({ value: undefined, done: true });
+          },
+        };
+      },
+    };
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
+    const entries = Array.from(this.grid.entries());
+    let index = 0;
+
+    return {
+      next: () => {
+        if (index < entries.length) {
+          return Promise.resolve({ value: entries[index++], done: false });
+        } else {
+          return Promise.resolve({ value: undefined, done: true });
+        }
+      },
+    };
   }
 }

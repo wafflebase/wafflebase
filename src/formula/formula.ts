@@ -13,8 +13,7 @@ import {
 } from '../../antlr/FormulaParser';
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionMap } from './functions';
-import { Sheet } from '../sheet/sheet';
-import { Reference } from '../sheet/types';
+import { Grid, Reference } from '../sheet/types';
 import { NumberArgs } from './arguments';
 import { isRangeRef } from '../sheet/coordinates';
 
@@ -41,23 +40,23 @@ export function extractReferences(formula: string): Set<Reference> {
 /**
  * `evaluate` returns the result of the expression.
  */
-export function evaluate(formula: string, sheet?: Sheet): string {
+export function evaluate(formula: string, grid?: Grid): string {
   try {
     const stream = CharStreams.fromString(formula.slice(1));
     const lexer = new FormulaLexer(stream);
     const tokens = new CommonTokenStream(lexer);
     const parser = new FormulaParser(tokens);
     const tree = parser.expr();
-    const evaluator = new Evaluator(sheet);
+    const evaluator = new Evaluator(grid);
     lexer.removeErrorListeners();
     parser.removeErrorListeners();
 
     const node = evaluator.visit(tree);
-    if (node.t === 'ref' && sheet) {
+    if (node.t === 'ref' && grid) {
       if (isRangeRef(node.v)) {
         return '#VALUE!';
       }
-      return sheet.toDisplayString(node.v);
+      return grid.get(node.v)?.v || '';
     }
 
     return node.v.toString();
@@ -85,11 +84,11 @@ export type EvalNode = NumNode | StrNode | BoolNode | RefNode | ErrNode;
  * `antlr/Formula.g4` file.
  */
 class Evaluator implements FormulaVisitor<EvalNode> {
-  private sheet: Sheet | undefined;
+  private grid: Grid | undefined;
 
-  constructor(sheet?: Sheet) {
+  constructor(grid?: Grid) {
     this.visit = this.visit.bind(this);
-    this.sheet = sheet;
+    this.grid = grid;
   }
 
   visitChildren(): EvalNode {
@@ -119,14 +118,14 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     const name = ctx.FUNCNAME().text.toUpperCase();
     if (FunctionMap.has(name)) {
       const func = FunctionMap.get(name)!;
-      return func(ctx, this.visit, this.sheet);
+      return func(ctx, this.visit, this.grid);
     }
 
     throw new Error('Function not implemented.');
   }
 
   visitReference(ctx: ReferenceContext): EvalNode {
-    if (!this.sheet) {
+    if (!this.grid) {
       return { t: 'err', v: '#REF!' };
     }
 
@@ -152,12 +151,12 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitAddSub(ctx: AddSubContext): EvalNode {
-    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.sheet);
+    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
     if (left.t === 'err') {
       return left;
     }
 
-    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.sheet);
+    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
     if (right.t === 'err') {
       return right;
     }
@@ -170,12 +169,12 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitMulDiv(ctx: MulDivContext): EvalNode {
-    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.sheet);
+    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
     if (left.t === 'err') {
       return left;
     }
 
-    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.sheet);
+    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
     if (right.t === 'err') {
       return right;
     }
