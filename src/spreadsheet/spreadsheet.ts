@@ -45,14 +45,14 @@ type Size = {
  * @param container Container element to render the spreadsheet.
  */
 export function setupSpreadsheet(container: HTMLDivElement) {
-  const spreadsheet = new Spreadsheet(container, new Map(MockGrid));
-  spreadsheet.render();
+  const spreadsheet = new Spreadsheet(container);
+  spreadsheet.load(new Map(MockGrid));
 }
 /**
  * Spreadsheet is a class that represents a spreadsheet.
  */
 class Spreadsheet {
-  private sheet: Sheet;
+  private sheet?: Sheet;
 
   private container: HTMLDivElement;
   private formulaBar: HTMLDivElement;
@@ -69,9 +69,7 @@ class Spreadsheet {
   /**
    * `constructor` initializes the spreadsheet with the given grid.
    */
-  constructor(container: HTMLDivElement, grid?: Grid) {
-    this.sheet = new Sheet(grid);
-
+  constructor(container: HTMLDivElement) {
     this.container = container;
     this.formulaBar = document.createElement('div');
     this.formulaBar.style.height = `${DefaultCellHeight}px`;
@@ -148,6 +146,12 @@ class Spreadsheet {
     this.addEventLisnters();
   }
 
+  public async load(grid?: Grid) {
+    this.sheet = new Sheet(grid);
+    await this.sheet.recalculate();
+    this.render();
+  }
+
   /**
    * `render` renders the spreadsheet in the container.
    */
@@ -160,13 +164,19 @@ class Spreadsheet {
   /**
    * `finishEditing` finishes the editing of the cell.
    */
-  private finishEditing() {
+  private async finishEditing() {
     if (this.isFormulaInputFocused()) {
-      this.sheet.setData(this.sheet.getActiveCell(), this.formulaInput.value);
+      await this.sheet!.setData(
+        this.sheet!.getActiveCell(),
+        this.formulaInput.value,
+      );
       this.formulaInput.blur();
       this.hideCellInput();
     } else if (this.isCellInputFocused()) {
-      this.sheet.setData(this.sheet.getActiveCell(), this.cellInput.value);
+      await this.sheet!.setData(
+        this.sheet!.getActiveCell(),
+        this.cellInput.value,
+      );
       this.cellInput.blur();
       this.hideCellInput();
     }
@@ -183,13 +193,13 @@ class Spreadsheet {
       this.render();
     });
 
-    this.scrollContainer.addEventListener('mousedown', (e) => {
-      this.finishEditing();
-      this.sheet.selectStart(this.toCellID(e.offsetX, e.offsetY));
+    this.scrollContainer.addEventListener('mousedown', async (e) => {
+      await this.finishEditing();
+      this.sheet!.selectStart(this.toCellID(e.offsetX, e.offsetY));
       this.render();
 
       const onMove = (e: MouseEvent) => {
-        this.sheet.selectEnd(this.toCellID(e.offsetX, e.offsetY));
+        this.sheet!.selectEnd(this.toCellID(e.offsetX, e.offsetY));
         this.render();
       };
       const onUp = () => {
@@ -240,15 +250,15 @@ class Spreadsheet {
   /**
    * `handleFormulaInputKeydown` handles the keydown event for the formula input.
    */
-  private handleFormulaInputKeydown(e: KeyboardEvent) {
+  private async handleFormulaInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
-      this.finishEditing();
-      this.sheet.move(1, 0);
+      await this.finishEditing();
+      this.sheet!.move(1, 0);
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Escape') {
-      this.formulaInput.value = this.sheet.toInputString(
-        toRef(this.sheet.getActiveCell()),
+      this.formulaInput.value = await this.sheet!.toInputString(
+        toRef(this.sheet!.getActiveCell()),
       );
       this.hideCellInput();
       this.formulaInput.blur();
@@ -263,30 +273,30 @@ class Spreadsheet {
   /**
    * `handleCellInputKeydown` handles the keydown event for the cell input.
    */
-  private handleCellInputKeydown(e: KeyboardEvent) {
+  private async handleCellInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
-      this.finishEditing();
-      this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
+      await this.finishEditing();
+      this.sheet!.moveInRange(e.shiftKey ? -1 : 1, 0);
       this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Tab') {
-      this.finishEditing();
-      this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
+      await this.finishEditing();
+      this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
       this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key.startsWith('Arrow') && !this.hasFormulaInCellInput()) {
-      this.finishEditing();
+      await this.finishEditing();
 
       if (e.key === 'ArrowDown') {
-        this.sheet.move(1, 0);
+        this.sheet!.move(1, 0);
       } else if (e.key === 'ArrowUp') {
-        this.sheet.move(-1, 0);
+        this.sheet!.move(-1, 0);
       } else if (e.key === 'ArrowLeft') {
-        this.sheet.move(0, -1);
+        this.sheet!.move(0, -1);
       } else if (e.key === 'ArrowRight') {
-        this.sheet.move(0, 1);
+        this.sheet!.move(0, 1);
       }
 
       this.render();
@@ -300,13 +310,18 @@ class Spreadsheet {
   /**
    * `handleGridKeydown` handles the keydown event for the grid.
    */
-  private handleGridKeydown(e: KeyboardEvent) {
-    const move = (row: number, col: number, shift: boolean, ctrl: boolean) => {
+  private async handleGridKeydown(e: KeyboardEvent) {
+    const move = async (
+      row: number,
+      col: number,
+      shift: boolean,
+      ctrl: boolean,
+    ) => {
       let changed = shift
-        ? this.sheet.resizeRange(row, col)
+        ? this.sheet!.resizeRange(row, col)
         : ctrl
-          ? this.sheet.moveToEdge(row, col)
-          : this.sheet.move(row, col);
+          ? await this.sheet!.moveToEdge(row, col)
+          : this.sheet!.move(row, col);
       if (changed) {
         this.render();
         this.scrollIntoView();
@@ -325,13 +340,13 @@ class Spreadsheet {
     }
 
     if (e.key === 'Tab') {
-      this.sheet.moveInRange(0, e.shiftKey ? -1 : 1);
+      this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
       this.render();
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Enter') {
-      if (this.sheet.hasRange()) {
-        this.sheet.moveInRange(e.shiftKey ? -1 : 1, 0);
+      if (this.sheet!.hasRange()) {
+        this.sheet!.moveInRange(e.shiftKey ? -1 : 1, 0);
         this.render();
         this.scrollIntoView();
       } else {
@@ -340,7 +355,7 @@ class Spreadsheet {
       }
       e.preventDefault();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (this.sheet.removeData()) {
+      if (await this.sheet!.removeData()) {
         this.render();
       }
       e.preventDefault();
@@ -376,7 +391,7 @@ class Spreadsheet {
   /**
    * `scrollIntoView` scrolls the active cell into view.
    */
-  private scrollIntoView(id: CellID = this.sheet.getActiveCell()) {
+  private scrollIntoView(id: CellID = this.sheet!.getActiveCell()) {
     const scrollSize = this.scrollSize;
     const cell = this.toBoundingRect(id, true);
     const view = {
@@ -427,17 +442,17 @@ class Spreadsheet {
   /**
    * `showCellInput` shows the cell input.
    */
-  private showCellInput(
+  private async showCellInput(
     withoutValue: boolean = false,
     withoutFocus: boolean = false,
   ) {
-    const selection = this.sheet.getActiveCell();
+    const selection = this.sheet!.getActiveCell();
     const rect = this.toBoundingRect(selection);
     this.inputContainer.style.left = rect.left + 'px';
     this.inputContainer.style.top = rect.top + 'px';
     this.cellInput.value = withoutValue
       ? ''
-      : this.sheet.toInputString(toRef(selection));
+      : await this.sheet!.toInputString(toRef(selection));
 
     if (!withoutFocus) {
       this.cellInput.focus();
@@ -513,10 +528,10 @@ class Spreadsheet {
   /**
    * `paintFormulaBar` paints the formula bar.
    */
-  private paintFormulaBar() {
-    const id = this.sheet.getActiveCell();
+  private async paintFormulaBar() {
+    const id = this.sheet!.getActiveCell();
     this.cellLabel.textContent = toRef(id);
-    this.formulaInput.value = this.sheet.toInputString(toRef(id));
+    this.formulaInput.value = await this.sheet!.toInputString(toRef(id));
   }
 
   /**
@@ -556,7 +571,7 @@ class Spreadsheet {
     ctx.scale(ratio, ratio);
 
     const [startID, endID] = this.viewRange;
-    const id = this.sheet.getActiveCell();
+    const id = this.sheet!.getActiveCell();
 
     // Paint cells
     for (let row = startID.row; row <= endID.row + 1; row++) {
@@ -589,7 +604,7 @@ class Spreadsheet {
   }
 
   private get gridSize(): Size {
-    const dimension = this.sheet.getDimension();
+    const dimension = this.sheet!.getDimension();
     return {
       width: dimension.columns * DefaultCellWidth,
       height: dimension.rows * DefaultCellHeight,
@@ -626,14 +641,14 @@ class Spreadsheet {
     this.overlayCanvas.style.height = viewportSize.height + 'px';
     ctx.scale(ratio, ratio);
 
-    const selection = this.sheet.getActiveCell();
+    const selection = this.sheet!.getActiveCell();
     const rect = this.toBoundingRect(selection);
 
     ctx.strokeStyle = ActiveCellColor;
     ctx.lineWidth = 2;
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
 
-    const range = this.sheet.getRange();
+    const range = this.sheet!.getRange();
     if (range) {
       const rect = this.expandBoundingRect(
         this.toBoundingRect(range[0]),
@@ -673,7 +688,7 @@ class Spreadsheet {
   /**
    * `paintCell` paints the cell.
    */
-  private paintCell(ctx: CanvasRenderingContext2D, id: CellID) {
+  private async paintCell(ctx: CanvasRenderingContext2D, id: CellID) {
     const rect = this.toBoundingRect(id);
 
     ctx.strokeStyle = CellTextColor;
@@ -682,7 +697,7 @@ class Spreadsheet {
     ctx.fillStyle = CellBGColor;
     ctx.fillRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
 
-    const data = this.sheet.toDisplayString(toRef(id));
+    const data = await this.sheet!.toDisplayString(toRef(id));
     if (data) {
       ctx.fillStyle = CellTextColor;
       ctx.textAlign = 'center';

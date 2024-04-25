@@ -53,8 +53,6 @@ export class Sheet {
     this.store = new MemStore(grid);
     this.dimension = { ...Dimensions };
     this.activeCell = { row: 1, col: 1 };
-
-    this.recalculate();
   }
 
   /**
@@ -77,88 +75,104 @@ export class Sheet {
   /**
    * `getCell` returns the cell at the given row and column.
    */
-  getCell(ref: Ref): Cell | undefined {
+  async getCell(ref: Ref): Promise<Cell | undefined> {
     return this.store.get(ref);
   }
 
   /**
    * `setCell` sets the cell at the given row and column.
    */
-  setCell(ref: Ref, cell: Cell): void {
+  async setCell(ref: Ref, cell: Cell): Promise<void> {
     this.store.set(ref, cell);
   }
 
   /**
    * `hasFormula` checks if the given row and column has a formula.
    */
-  hasFormula(ref: Ref): boolean {
-    const cell = this.store.get(ref);
+  async hasFormula(ref: Ref): Promise<boolean> {
+    const cell = await this.store.get(ref);
     return cell && cell.f ? true : false;
   }
 
   /**
    * `toInputString` returns the input string at the given row and column.
    */
-  toInputString(ref: Ref): string {
-    const cell = this.store.get(ref);
+  async toInputString(ref: Ref): Promise<string> {
+    const cell = await this.store.get(ref);
     return !cell ? '' : cell.f ? cell.f : cell.v || '';
   }
 
   /**
    * `toDisplayString` returns the display string at the given row and column.
    */
-  toDisplayString(ref: Ref): string {
-    const cell = this.store.get(ref);
+  async toDisplayString(ref: Ref): Promise<string> {
+    const cell = await this.store.get(ref);
     return (cell && cell.v) || '';
   }
 
   /**
    * `recalculate` recalculates the entire sheet.
    */
-  recalculate(): void {
+  async recalculate(): Promise<void> {
     const dependantsMap = this.buildDependantsMap();
 
     const refs = new Set<Ref>();
     for (const [ref] of this.store) {
-      if (this.hasFormula(ref)) {
+      if (await this.hasFormula(ref)) {
         refs.add(ref);
       }
     }
-    calculate(this, dependantsMap, refs);
+    await calculate(this, dependantsMap, refs);
   }
 
   /**
    * `setData` sets the data at the given row and column.
    */
-  setData(id: CellID, value: string): void {
+  async setData(id: CellID, value: string): Promise<void> {
     const ref = toRef(id);
 
     // 01. Update the cell with the new value.
     const cell = value.startsWith('=') ? { f: value } : { v: value };
-    this.store.set(ref, cell);
+    await this.store.set(ref, cell);
 
     // 02. Update the dependencies.
     const dependantsMap = this.buildDependantsMap();
 
     // 03. Calculate the cell and its dependencies.
-    calculate(this, dependantsMap, [ref]);
+    await calculate(this, dependantsMap, [ref]);
   }
 
   /**
    * `removeData` removes the data at the given row and column.
    */
-  removeData(): boolean {
+  async removeData(): Promise<boolean> {
     const removeds = new Set<Ref>();
     for (const id of this.toSelectedID()) {
-      if (this.store.delete(toRef(id))) {
+      if (await this.store.delete(toRef(id))) {
         removeds.add(toRef(id));
       }
     }
 
     const dependantsMap = this.buildDependantsMap();
-    calculate(this, dependantsMap, removeds);
+    await calculate(this, dependantsMap, removeds);
 
     return removeds.size > 0;
+  }
+
+  /**
+   * `createGrid` creates a grid from the given references.
+   */
+  async createGrid(references: Set<Ref>): Promise<Grid> {
+    const grid = new Map<Ref, Cell>();
+    for (const ref of toRefs(references)) {
+      const cell = await this.store.get(ref);
+      if (!cell) {
+        continue;
+      }
+
+      grid.set(ref, cell);
+    }
+    return grid;
   }
 
   /**
@@ -230,7 +244,7 @@ export class Sheet {
    * @param colDelta Delta to move the activeCell in the column direction.
    * @return boolean if the selection was moved.
    */
-  moveToEdge(rowDelta: number, colDelta: number): boolean {
+  async moveToEdge(rowDelta: number, colDelta: number): Promise<boolean> {
     let row = this.activeCell.row;
     let col = this.activeCell.col;
 
@@ -244,8 +258,8 @@ export class Sheet {
         break;
       }
 
-      const curr = this.store.has(toRef({ row, col }));
-      const next = this.store.has(toRef({ row: nextRow, col: nextCol }));
+      const curr = await this.store.has(toRef({ row, col }));
+      const next = await this.store.has(toRef({ row: nextRow, col: nextCol }));
 
       if (!prev && curr) {
         break;

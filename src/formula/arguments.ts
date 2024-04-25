@@ -1,6 +1,5 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { ArgsContext } from '../../antlr/FormulaParser';
-import { Sheet } from '../sheet/sheet';
 import {
   EvalNode,
   BoolNode,
@@ -10,12 +9,13 @@ import {
   ErrNode,
 } from './formula';
 import { isRangeRef, toRefs } from '../sheet/coordinates';
+import { Grid } from '../sheet/types';
 
 /**
  * Arguments is a helper to build arguments for a function.
  */
 class Arguments<T extends EvalNode> {
-  private ref?: (result: RefNode, sheet: Sheet) => T | ErrNode;
+  private ref?: (result: RefNode, grid: Grid) => T | ErrNode;
   private bool?: (result: BoolNode) => T | ErrNode;
   private num?: (result: NumNode) => T | ErrNode;
   private str?: (result: StrNode) => T | ErrNode;
@@ -27,7 +27,7 @@ class Arguments<T extends EvalNode> {
   /**
    * `setRef` sets the mapping function for the reference node.
    */
-  setRef(ref: (result: RefNode, sheet: Sheet) => T | ErrNode): this {
+  setRef(ref: (result: RefNode, grid: Grid) => T | ErrNode): this {
     this.ref = ref;
     return this;
   }
@@ -60,7 +60,7 @@ class Arguments<T extends EvalNode> {
    * `map` maps the given node to the expected node. If the node is ref and
    * the value is a range, it does not map the result to the expected node.
    */
-  map(result: EvalNode, sheet?: Sheet): T | ErrNode {
+  map(result: EvalNode, grid?: Grid): T | ErrNode {
     if (result.t === 'bool' && this.bool) {
       return this.bool(result);
     }
@@ -73,8 +73,8 @@ class Arguments<T extends EvalNode> {
       return this.str(result);
     }
 
-    if (result.t === 'ref' && this.ref && sheet) {
-      return this.ref(result, sheet);
+    if (result.t === 'ref' && this.ref && grid) {
+      return this.ref(result, grid);
     }
 
     return result as T;
@@ -86,13 +86,13 @@ class Arguments<T extends EvalNode> {
   *iterate(
     args: ArgsContext,
     visit: (tree: ParseTree) => EvalNode,
-    sheet?: Sheet,
+    grid?: Grid,
   ): Generator<T | ErrNode> {
     for (const expr of args.expr()) {
       const node = visit(expr);
-      if (node.t === 'ref' && sheet) {
+      if (node.t === 'ref' && grid) {
         for (const ref of toRefs([node.v])) {
-          yield this.ref!({ t: 'ref', v: ref }, sheet);
+          yield this.ref!({ t: 'ref', v: ref }, grid);
         }
       } else {
         yield this.map(node);
@@ -119,12 +119,12 @@ function str2num(result: StrNode): NumNode {
 /**
  * `ref2num` converts a reference result to a number result.
  */
-export function ref2num(result: RefNode, sheet: Sheet): NumNode | ErrNode {
+export function ref2num(result: RefNode, grid: Grid): NumNode | ErrNode {
   if (isRangeRef(result.v)) {
     return { t: 'err', v: '#VALUE!' };
   }
 
-  const val = sheet.toDisplayString(result.v);
+  const val = grid.get(result.v)?.v || '';
   const num = Number(val);
   return { t: 'num', v: isNaN(num) ? 0 : num };
 }

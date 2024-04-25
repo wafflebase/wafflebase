@@ -11,19 +11,19 @@ export class MemStore {
     this.grid = grid || new Map();
   }
 
-  set(key: Ref, value: Cell) {
+  async set(key: Ref, value: Cell) {
     this.grid.set(key, value);
   }
 
-  get(key: Ref): Cell | undefined {
+  async get(key: Ref): Promise<Cell | undefined> {
     return this.grid.get(key);
   }
 
-  has(key: Ref): boolean {
+  async has(key: Ref): Promise<boolean> {
     return this.grid.has(key);
   }
 
-  delete(key: Ref): boolean {
+  async delete(key: Ref): Promise<boolean> {
     return this.grid.delete(key);
   }
 

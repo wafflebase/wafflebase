@@ -1,23 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { IDBStore, createIDBStore } from '../../src/store/idb';
+import { createIDBStore } from '../../src/store/idb';
 
 describe('Memstore', () => {
-  it('should correctly set and remove data', () => {
+  it('should correctly set and remove data', async () => {
     const mem = new MemStore();
 
-    mem.set('A1', { v: '10' });
-    expect(mem.get('A1')).toEqual({ v: '10' });
-    expect(mem.has('A1')).toBe(true);
-    expect(mem.has('B1')).toBe(false);
+    await mem.set('A1', { v: '10' });
+    expect(await mem.get('A1')).toEqual({ v: '10' });
+    expect(await mem.has('A1')).toBe(true);
+    expect(await mem.has('B1')).toBe(false);
 
-    mem.set('A1', { v: '20' });
-    expect(mem.get('A1')).toEqual({ v: '20' });
+    await mem.set('A1', { v: '20' });
+    expect(await mem.get('A1')).toEqual({ v: '20' });
 
-    mem.delete('A1');
-    expect(mem.has('A1')).toBe(false);
-    mem.delete('A1');
-    expect(mem.has('A1')).toBe(false);
+    await mem.delete('A1');
+    expect(await mem.has('A1')).toBe(false);
+    await mem.delete('A1');
+    expect(await mem.has('A1')).toBe(false);
   });
 });
 
