@@ -55,6 +55,10 @@ export class CachedIDBStore {
     return await this.store.delete(ref);
   }
 
+  async setGrid(grid: Grid): Promise<void> {
+    await this.store.setGrid(grid);
+  }
+
   async *range(from: Ref, to: Ref): AsyncIterable<[Ref, Cell]> {
     if (this.cache.hasRange(toRefRangeFromRefs([from, to]))) {
       for (const [ref, cell] of this.cache.range(from, to)) {

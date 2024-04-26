@@ -1,4 +1,4 @@
-import { Cell, Ref } from '../sheet/types';
+import { Cell, Grid, Ref } from '../sheet/types';
 
 /**
  * `Store` interface represents a storage that stores the cell values.
@@ -9,5 +9,6 @@ export interface Store {
   has(ref: Ref): Promise<boolean>;
   delete(ref: Ref): Promise<boolean>;
   range(from: Ref, to: Ref): AsyncIterable<[Ref, Cell]>;
+  setGrid(grid: Grid): Promise<void>;
   [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]>;
 }

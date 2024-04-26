@@ -1,9 +1,12 @@
+import Papa from 'papaparse';
 import { toColumnLabel, toRef } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
 import { Cell, CellID, CellRange, Grid } from '../sheet/types';
 import { createCachedIDBStore } from '../store/cachedidb';
 import { Store } from '../store/store';
 
+const FormulaBarHeight = 23;
+const FormulaBarMargin = 10;
 const DefaultCellWidth = 100;
 const DefaultCellHeight = 23;
 const CellBorderWidth = 0.5;
@@ -50,6 +53,7 @@ export async function setupSpreadsheet(container: HTMLDivElement) {
   const store = await createCachedIDBStore('spreadsheet');
   spreadsheet.load(store);
 }
+
 /**
  * Spreadsheet is a class that represents a spreadsheet.
  */
@@ -57,6 +61,7 @@ class Spreadsheet {
   private sheet?: Sheet;
 
   private container: HTMLDivElement;
+
   private formulaBar: HTMLDivElement;
   private cellLabel: HTMLDivElement;
   private formulaInput: HTMLInputElement;
@@ -68,14 +73,19 @@ class Spreadsheet {
   private gridCanvas: HTMLCanvasElement;
   private overlayCanvas: HTMLCanvasElement;
 
+  private dropZone: HTMLDivElement;
+
   /**
    * `constructor` initializes the spreadsheet with the given grid.
    */
   constructor(container: HTMLDivElement) {
     this.container = container;
+    this.container.style.position = 'relative';
+    this.container.style.overflow = 'hidden';
+
     this.formulaBar = document.createElement('div');
-    this.formulaBar.style.height = `${DefaultCellHeight}px`;
-    this.formulaBar.style.margin = '10px 0px';
+    this.formulaBar.style.height = `${FormulaBarHeight}px`;
+    this.formulaBar.style.margin = `${FormulaBarMargin}px 0px`;
     this.formulaBar.style.display = 'flex';
     this.formulaBar.style.alignItems = 'center';
     this.formulaBar.style.borderTop = `1px solid ${CellBorderColor}`;
@@ -98,10 +108,12 @@ class Spreadsheet {
     this.formulaInput.style.outlineWidth = '0';
     this.formulaBar.appendChild(this.formulaInput);
 
+    // TODO(hackerwins): We need to extract the sheet container to a separate class.
+    // It will help us to manage the sheet container separately.
     this.sheetContainer = document.createElement('div');
     this.sheetContainer.style.position = 'relative';
     this.sheetContainer.style.width = '100%';
-    this.sheetContainer.style.height = '100%';
+    this.sheetContainer.style.height = `calc(100% - ${FormulaBarHeight + FormulaBarMargin * 2}px)`;
 
     this.scrollContainer = document.createElement('div');
     this.scrollContainer.style.position = 'absolute';
@@ -142,6 +154,25 @@ class Spreadsheet {
     this.overlayCanvas.style.position = 'absolute';
     this.overlayCanvas.style.zIndex = '1';
 
+    this.dropZone = document.createElement('div');
+    this.dropZone.style.display = 'none';
+    this.dropZone.style.position = 'absolute';
+    this.dropZone.style.top = '0';
+    this.dropZone.style.left = '0';
+    this.dropZone.style.width = 'calc(100% - 4px)';
+    this.dropZone.style.height = 'calc(100% - 4px)';
+    this.dropZone.style.border = '2px dashed #4A90E2';
+    this.dropZone.style.justifyContent = 'center';
+    this.dropZone.style.alignItems = 'center';
+    this.dropZone.style.backgroundColor = '#fff';
+    this.dropZone.style.opacity = '0.8';
+    this.dropZone.style.zIndex = '1000';
+    this.dropZone.style.color = '#4A90E2';
+    this.dropZone.style.fontSize = '24px';
+    this.dropZone.style.fontWeight = 'bold';
+    this.dropZone.innerText = 'Drag and drop a file here';
+
+    this.container.appendChild(this.dropZone);
     this.container.appendChild(this.formulaBar);
     this.container.appendChild(this.sheetContainer);
 
@@ -191,6 +222,7 @@ class Spreadsheet {
     window.addEventListener('resize', () => {
       this.render();
     });
+
     this.scrollContainer.addEventListener('scroll', () => {
       this.render();
     });
@@ -240,6 +272,35 @@ class Spreadsheet {
         return;
       }
     });
+
+    this.container.addEventListener('dragenter', () => {
+      this.dropZone.style.display = 'flex';
+    });
+
+    this.container.addEventListener('dragleave', (e: DragEvent) => {
+      e.stopPropagation();
+
+      // Check if the related target is inside the container
+      if (!this.container.contains(e.relatedTarget as Node)) {
+        this.hideDropZone();
+      }
+    });
+
+    this.dropZone.addEventListener(
+      'dragover',
+      this.handleDragOver.bind(this),
+      false,
+    );
+
+    this.dropZone.addEventListener(
+      'drop',
+      this.handleFileSelect.bind(this),
+      false,
+    );
+  }
+
+  private hideDropZone() {
+    this.dropZone.style.display = 'none';
   }
 
   /**
@@ -247,6 +308,60 @@ class Spreadsheet {
    */
   private isFormulaInputFocused(): boolean {
     return document.activeElement === this.formulaInput;
+  }
+
+  /**
+   * `handleDragOver` handles the drag over event.
+   */
+  private handleDragOver(e: DragEvent) {
+    e.stopPropagation();
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'copy';
+  }
+
+  /**
+   * `handleFileSelect` handles the file select event.
+   */
+  private handleFileSelect(evt: DragEvent) {
+    this.hideDropZone();
+    evt.stopPropagation();
+    evt.preventDefault();
+
+    const files = evt.dataTransfer?.files;
+    if (!files || files.length === 0) {
+      return;
+    }
+
+    // TODO(hackerwins): We need to introduce chunking for large files.
+    // For now, we are loading the entire file in memory.
+    let row = 1;
+    const grid: Grid = new Map();
+    for (const file of files) {
+      let processedBytes = 0;
+      const totalBytes = file.size;
+      Papa.parse(file, {
+        worker: true,
+        step: (result: { data: any }) => {
+          const { data } = result;
+          for (let col = 1; col <= data.length; col++) {
+            const cell = { v: data[col - 1] };
+            grid.set(toRef({ row, col }), cell);
+          }
+          row += 1;
+
+          const rowSize = new Blob([result.data.join(',')]).size;
+          processedBytes += rowSize;
+          console.log('Progress:', processedBytes / totalBytes);
+        },
+        complete: async () => {
+          await this.sheet!.setGrid(grid);
+          console.log('Saved:', processedBytes / totalBytes);
+        },
+        error: (err: any) => {
+          console.error('Error while parsing:', err);
+        },
+      });
+    }
   }
 
   /**
@@ -556,6 +671,27 @@ class Spreadsheet {
     this.paintGrid(grid);
   }
 
+  private get gridSize(): Size {
+    const dimension = this.sheet!.getDimension();
+    return {
+      width: dimension.columns * DefaultCellWidth,
+      height: dimension.rows * DefaultCellHeight,
+    };
+  }
+
+  private get viewportSize(): Size {
+    return {
+      width: this.scrollContainer.clientWidth,
+      height: this.scrollContainer.clientHeight,
+    };
+  }
+  private get scrollSize(): Size {
+    return {
+      width: this.scrollContainer.scrollLeft,
+      height: this.scrollContainer.scrollTop,
+    };
+  }
+
   /**
    * `paintDummy` paints the dummy container.
    */
@@ -615,27 +751,6 @@ class Spreadsheet {
       const y = row * DefaultCellHeight - scrollSize.height;
       this.paintHeader(ctx, x, y, RowHeaderWidth, String(row), id.row === row);
     }
-  }
-
-  private get gridSize(): Size {
-    const dimension = this.sheet!.getDimension();
-    return {
-      width: dimension.columns * DefaultCellWidth,
-      height: dimension.rows * DefaultCellHeight,
-    };
-  }
-
-  private get viewportSize(): Size {
-    return {
-      width: this.scrollContainer.clientWidth,
-      height: this.scrollContainer.clientHeight,
-    };
-  }
-  private get scrollSize(): Size {
-    return {
-      width: this.scrollContainer.scrollLeft,
-      height: this.scrollContainer.scrollTop,
-    };
   }
 
   /**

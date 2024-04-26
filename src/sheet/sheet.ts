@@ -83,7 +83,14 @@ export class Sheet {
    * `setCell` sets the cell at the given row and column.
    */
   async setCell(ref: Ref, cell: Cell): Promise<void> {
-    this.store.set(ref, cell);
+    await this.store.set(ref, cell);
+  }
+
+  /**
+   * `setGrid` sets the grid of cells.
+   */
+  async setGrid(grid: Grid): Promise<void> {
+    await this.store.setGrid(grid);
   }
 
   /**

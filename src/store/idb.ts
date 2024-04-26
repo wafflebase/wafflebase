@@ -1,5 +1,5 @@
 import { parseRef, toRef } from '../sheet/coordinates';
-import { Ref, Cell } from '../sheet/types';
+import { Ref, Cell, Grid } from '../sheet/types';
 
 const DBName = 'wafflebase';
 const DBVersion = 1;
@@ -99,6 +99,28 @@ export class IDBStore {
 
   constructor(db: IDBDatabase) {
     this.db = db;
+  }
+
+  /**
+   * `setGrid` method stores a grid in the database.
+   */
+  public async setGrid(items: Grid): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(GridStore, 'readwrite');
+      const store = transaction.objectStore(GridStore);
+
+      for (const [ref, cell] of items) {
+        store.put(toRecord(ref, cell));
+      }
+
+      transaction.oncomplete = () => {
+        resolve();
+      };
+
+      transaction.onerror = () => {
+        reject(transaction.error);
+      };
+    });
   }
 
   /**

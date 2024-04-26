@@ -27,6 +27,12 @@ export class MemStore {
     return this.grid.delete(ref);
   }
 
+  async setGrid(grid: Grid): Promise<void> {
+    for (const [ref, cell] of grid) {
+      this.grid.set(ref, cell);
+    }
+  }
+
   range(from: Ref, to: Ref): AsyncIterable<[Ref, Cell]> {
     const entries = Array.from(this.grid.entries());
     let index = 0;
