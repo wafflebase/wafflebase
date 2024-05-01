@@ -1,24 +1,24 @@
 /**
  * Reference type represents reference to cells in the sheet.
  */
-export type Reference = Ref | RefRange;
+export type Reference = Sref | Srng;
 
 /**
- * Ref type represents a reference to a cell in the sheet.
+ * Sref type represents a reference to a cell in the sheet.
  * e.g. A1, B2, C3, etc.
  */
-export type Ref = string;
+export type Sref = string;
 
 /**
- * RefRange type represents a range of cells in the sheet.
+ * Srng type represents a range of cells in the sheet.
  * e.g. A1:B2, C3:D4, etc.
  */
-export type RefRange = string;
+export type Srng = string;
 
 /**
  * Grid type represents a grid of rows and columns.
  */
-export type Grid = Map<Ref, Cell>;
+export type Grid = Map<Sref, Cell>;
 
 /**
  * Cell type represents a cell in the sheet.
@@ -29,14 +29,14 @@ export type Cell = {
 };
 
 /**
- * CellRange type represents a range of cells in the sheet.
+ * Range type represents a range of cells in the sheet.
  */
-export type CellRange = [CellID, CellID];
+export type Range = [Ref, Ref];
 
 /**
- * CellID type represents the id of a cell in the sheet.
+ * Ref type represents the id of a cell in the sheet.
  */
-export type CellID = {
-  row: number;
-  col: number;
+export type Ref = {
+  r: number;
+  c: number;
 };

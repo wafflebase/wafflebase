@@ -1,23 +1,25 @@
 import { evaluate, extractReferences } from '../formula/formula';
+import { parseRef } from './coordinates';
 import { Sheet } from './sheet';
-import { Ref } from './types';
+import { Sref } from './types';
 
 /**
  * `calculate` calculates recursively the given cell and its dependencies.
  */
 export async function calculate(
   sheet: Sheet,
-  dependantsMap: Map<Ref, Set<Ref>>,
-  refs: Iterable<Ref>,
+  dependantsMap: Map<Sref, Set<Sref>>,
+  refs: Iterable<Sref>,
 ) {
   const [sorted, cycled] = topologicalSort(dependantsMap, refs);
-  for (const ref of sorted) {
+  for (const sref of sorted) {
+    const ref = parseRef(sref);
     if (!(await sheet.hasFormula(ref))) {
       continue;
     }
 
     const cell = (await sheet.getCell(ref))!;
-    if (cycled.has(ref)) {
+    if (cycled.has(sref)) {
       sheet.setCell(ref, {
         v: '#REF!',
         f: cell.f,
@@ -39,15 +41,15 @@ export async function calculate(
  * `topologicalSort` returns the topological sort of the dependencies.
  */
 export function topologicalSort(
-  dependantsMap: Map<Ref, Set<Ref>>,
-  refs: Iterable<Ref>,
-): [Array<Ref>, Set<Ref>] {
-  const sorted: Array<Ref> = [];
-  const cycled = new Set<Ref>();
-  const visited = new Set<Ref>();
-  const stack = new Set<Ref>();
+  dependantsMap: Map<Sref, Set<Sref>>,
+  refs: Iterable<Sref>,
+): [Array<Sref>, Set<Sref>] {
+  const sorted: Array<Sref> = [];
+  const cycled = new Set<Sref>();
+  const visited = new Set<Sref>();
+  const stack = new Set<Sref>();
 
-  const dfs = (ref: Ref) => {
+  const dfs = (ref: Sref) => {
     if (stack.has(ref)) {
       for (const r of stack) {
         cycled.add(r);

@@ -14,9 +14,9 @@ describe('Sheet.Calcuation', () => {
       ),
     );
     await sheet.recalculate();
-    expect(await sheet.toDisplayString('A1')).toBe('10');
-    expect(await sheet.toDisplayString('B1')).toBe('30');
-    expect(await sheet.toDisplayString('C1')).toBe('60');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('30');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('60');
   });
 
   it('should calculate cells recursively', async () => {
@@ -31,16 +31,16 @@ describe('Sheet.Calcuation', () => {
       ),
     );
     await sheet.recalculate();
-    expect(await sheet.toDisplayString('A1')).toBe('10');
-    expect(await sheet.toDisplayString('B1')).toBe('30');
-    expect(await sheet.toDisplayString('C1')).toBe('60');
-    expect(await sheet.toDisplayString('D1')).toBe('100');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('30');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('60');
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('100');
 
-    await sheet.setData({ row: 1, col: 1 }, '5');
-    expect(await sheet.toDisplayString('A1')).toBe('5');
-    expect(await sheet.toDisplayString('B1')).toBe('25');
-    expect(await sheet.toDisplayString('C1')).toBe('55');
-    expect(await sheet.toDisplayString('D1')).toBe('95');
+    await sheet.setData({ r: 1, c: 1 }, '5');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('5');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('25');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('55');
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('95');
   });
 
   it('should handle circular dependencies', async () => {
@@ -53,12 +53,12 @@ describe('Sheet.Calcuation', () => {
       ),
     );
     await sheet.recalculate();
-    expect(await sheet.toDisplayString('A1')).toBe('#REF!');
-    expect(await sheet.toDisplayString('B1')).toBe('#REF!');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('#REF!');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('#REF!');
 
-    await sheet.setData({ row: 1, col: 1 }, '10');
-    expect(await sheet.toDisplayString('A1')).toBe('10');
-    expect(await sheet.toDisplayString('B1')).toBe('30');
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('30');
   });
 
   it('should handle lower case references', async () => {
@@ -71,8 +71,8 @@ describe('Sheet.Calcuation', () => {
       ),
     );
     await sheet.recalculate();
-    expect(await sheet.toDisplayString('A1')).toBe('10');
-    expect(await sheet.toDisplayString('B1')).toBe('30');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('30');
   });
 
   it('should handle string filters in references', async () => {
@@ -87,10 +87,10 @@ describe('Sheet.Calcuation', () => {
       ),
     );
     await sheet.recalculate();
-    expect(await sheet.toDisplayString('A1')).toBe('10');
-    expect(await sheet.toDisplayString('B1')).toBe('20');
-    expect(await sheet.toDisplayString('C1')).toBe('hello');
-    expect(await sheet.toDisplayString('D1')).toBe('30');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('20');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('hello');
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('30');
   });
 
   it('should handle invalid value: range without array function', async () => {
@@ -104,9 +104,9 @@ describe('Sheet.Calcuation', () => {
       ),
     );
     await sheet.recalculate();
-    expect(await sheet.toDisplayString('C1')).toBe('#VALUE!');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('#VALUE!');
 
-    await sheet.setData({ row: 1, col: 4 }, '=A1:B1+A1:B1');
-    expect(await sheet.toDisplayString('D1')).toBe('#VALUE!');
+    await sheet.setData({ r: 1, c: 4 }, '=A1:B1+A1:B1');
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('#VALUE!');
   });
 });

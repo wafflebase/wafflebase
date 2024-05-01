@@ -15,7 +15,7 @@ import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionMap } from './functions';
 import { Grid, Reference } from '../sheet/types';
 import { NumberArgs } from './arguments';
-import { isRangeRef } from '../sheet/coordinates';
+import { isSrng } from '../sheet/coordinates';
 
 /**
  * `extractReferences` returns references in the expression.
@@ -53,7 +53,7 @@ export function evaluate(formula: string, grid?: Grid): string {
 
     const node = evaluator.visit(tree);
     if (node.t === 'ref' && grid) {
-      if (isRangeRef(node.v)) {
+      if (isSrng(node.v)) {
         return '#VALUE!';
       }
       return grid.get(node.v)?.v || '';

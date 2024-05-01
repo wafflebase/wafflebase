@@ -1,6 +1,6 @@
-import { toRef, toColumnLabel } from '../sheet/coordinates';
+import { toSref, toColumnLabel } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
-import { CellRange, CellID, Grid, Cell } from '../sheet/types';
+import { Range, Ref, Grid, Cell } from '../sheet/types';
 
 const FormulaBarHeight = 23;
 const FormulaBarMargin = 10;
@@ -186,11 +186,11 @@ export class Worksheet {
 
     this.scrollContainer.addEventListener('mousedown', async (e) => {
       await this.finishEditing();
-      this.sheet!.selectStart(this.toCellID(e.offsetX, e.offsetY));
+      this.sheet!.selectStart(this.toRef(e.offsetX, e.offsetY));
       this.render();
 
       const onMove = (e: MouseEvent) => {
-        this.sheet!.selectEnd(this.toCellID(e.offsetX, e.offsetY));
+        this.sheet!.selectEnd(this.toRef(e.offsetX, e.offsetY));
         this.render();
       };
       const onUp = () => {
@@ -249,7 +249,7 @@ export class Worksheet {
       e.preventDefault();
     } else if (e.key === 'Escape') {
       this.formulaInput.value = await this.sheet!.toInputString(
-        toRef(this.sheet!.getActiveCell()),
+        this.sheet!.getActiveCell(),
       );
       this.hideCellInput();
       this.formulaInput.blur();
@@ -365,7 +365,7 @@ export class Worksheet {
   /**
    * `viewRange` returns the visible range of the grid.
    */
-  private get viewRange(): CellRange {
+  private get viewRange(): Range {
     const scrollTop = this.scrollContainer.scrollTop;
     const scrollLeft = this.scrollContainer.scrollLeft;
 
@@ -381,17 +381,17 @@ export class Worksheet {
       ) + 1;
 
     return [
-      { row: startRow, col: startCol },
-      { row: endRow, col: endCol },
+      { r: startRow, c: startCol },
+      { r: endRow, c: endCol },
     ];
   }
 
   /**
    * `scrollIntoView` scrolls the active cell into view.
    */
-  private scrollIntoView(id: CellID = this.sheet!.getActiveCell()) {
+  private scrollIntoView(ref: Ref = this.sheet!.getActiveCell()) {
     const scrollSize = this.scrollSize;
-    const cell = this.toBoundingRect(id, true);
+    const cell = this.toBoundingRect(ref, true);
     const view = {
       left: scrollSize.width + RowHeaderWidth,
       top: scrollSize.height + DefaultCellHeight,
@@ -450,7 +450,7 @@ export class Worksheet {
     this.inputContainer.style.top = rect.top + 'px';
     this.cellInput.value = withoutValue
       ? ''
-      : await this.sheet!.toInputString(toRef(selection));
+      : await this.sheet!.toInputString(selection);
 
     if (!withoutFocus) {
       this.cellInput.focus();
@@ -481,26 +481,26 @@ export class Worksheet {
   }
 
   /**
-   * `toCellID` returns the cell ID for the given x and y coordinates.
+   * `toRef` returns the Ref for the given x and y coordinates.
    */
-  private toCellID(x: number, y: number): CellID {
+  private toRef(x: number, y: number): Ref {
     const row = Math.floor(y / DefaultCellHeight);
     const col = Math.floor((x + RowHeaderWidth) / DefaultCellWidth);
-    return { row, col };
+    return { r: row, c: col };
   }
 
   /**
-   * `toBoundingRect` returns the bounding rectangle for the given cell index.
+   * `toBoundingRect` returns the bounding rectangle for the given Ref.
    */
-  private toBoundingRect(id: CellID, absolute: boolean = false): BoundingRect {
+  private toBoundingRect(id: Ref, absolute: boolean = false): BoundingRect {
     const scrollSize = this.scrollSize;
     return {
       left:
-        (id.col - 1) * DefaultCellWidth +
+        (id.c - 1) * DefaultCellWidth +
         RowHeaderWidth -
         (absolute ? 0 : scrollSize.width),
       top:
-        (id.row - 1) * DefaultCellHeight +
+        (id.r - 1) * DefaultCellHeight +
         DefaultCellHeight -
         (absolute ? 0 : scrollSize.height),
       width: DefaultCellWidth,
@@ -527,9 +527,9 @@ export class Worksheet {
    * `paintFormulaBar` paints the formula bar.
    */
   private async paintFormulaBar() {
-    const id = this.sheet!.getActiveCell();
-    this.cellLabel.textContent = toRef(id);
-    this.formulaInput.value = await this.sheet!.toInputString(toRef(id));
+    const ref = this.sheet!.getActiveCell();
+    this.cellLabel.textContent = toSref(ref);
+    this.formulaInput.value = await this.sheet!.toInputString(ref);
   }
 
   /**
@@ -595,17 +595,21 @@ export class Worksheet {
     ctx.scale(ratio, ratio);
 
     const [startID, endID] = this.viewRange;
-    const id = this.sheet!.getActiveCell();
+    const ref = this.sheet!.getActiveCell();
 
     // Paint cells
-    for (let row = startID.row; row <= endID.row + 1; row++) {
-      for (let col = startID.col; col <= endID.col + 1; col++) {
-        this.paintCell(ctx, { row, col }, grid?.get(toRef({ row, col })));
+    for (let row = startID.r; row <= endID.r + 1; row++) {
+      for (let col = startID.c; col <= endID.c + 1; col++) {
+        this.paintCell(
+          ctx,
+          { r: row, c: col },
+          grid?.get(toSref({ r: row, c: col })),
+        );
       }
     }
 
     // Paint column header
-    for (let col = startID.col; col <= endID.col; col++) {
+    for (let col = startID.c; col <= endID.c; col++) {
       const x =
         RowHeaderWidth + DefaultCellWidth * (col - 1) - scrollSize.width;
       const y = 0;
@@ -615,15 +619,15 @@ export class Worksheet {
         y,
         DefaultCellWidth,
         toColumnLabel(col),
-        id.col === col,
+        ref.c === col,
       );
     }
 
     // Paint row header
-    for (let row = startID.row; row <= endID.row; row++) {
+    for (let row = startID.r; row <= endID.r; row++) {
       const x = 0;
       const y = row * DefaultCellHeight - scrollSize.height;
-      this.paintHeader(ctx, x, y, RowHeaderWidth, String(row), id.row === row);
+      this.paintHeader(ctx, x, y, RowHeaderWidth, String(row), ref.r === row);
     }
   }
 
@@ -691,7 +695,7 @@ export class Worksheet {
   /**
    * `paintCell` paints the cell.
    */
-  private paintCell(ctx: CanvasRenderingContext2D, id: CellID, cell?: Cell) {
+  private paintCell(ctx: CanvasRenderingContext2D, id: Ref, cell?: Cell) {
     const rect = this.toBoundingRect(id);
 
     ctx.strokeStyle = CellTextColor;

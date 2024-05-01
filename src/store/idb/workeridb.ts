@@ -1,8 +1,11 @@
-import { parseRef, toRef } from '../../sheet/coordinates';
-import { Ref, Cell, Grid } from '../../sheet/types';
+import { Cell, Grid, Ref, Range } from '../../sheet/types';
 import workerUrl from './worker?worker&url';
 import { ResMessage } from './worker';
+import { parseRef } from '../../sheet/coordinates';
 
+/**
+ * `createWorkerIDBStore` creates a new `WorkerIDBStore` instance.
+ */
 export async function createWorkerIDBStore(
   key: string,
 ): Promise<WorkerIDBStore> {
@@ -29,6 +32,9 @@ type Pending = {
   reject: (reason?: any) => void;
 };
 
+/**
+ * `WorkerIDBStore` is a store that communicates with a worker.
+ */
 export class WorkerIDBStore {
   private worker: Worker;
 
@@ -76,35 +82,21 @@ export class WorkerIDBStore {
     return this.postMessage('setGrid', [grid]);
   }
 
-  range(from: Ref, to: Ref): AsyncIterable<[Ref, Cell]> {
-    // TODO(hackerwins): This is a temporary implementation.
-    const fromID = parseRef(from);
-    const toID = parseRef(to);
-    const that = this;
-    return {
-      [Symbol.asyncIterator]: async function* () {
-        for (let row = fromID.row; row <= toID.row; row++) {
-          for (let col = fromID.col; col <= toID.col; col++) {
-            const ref = toRef({ row, col });
-            const cell = await that.get(ref);
-            if (cell !== undefined) {
-              yield [ref, cell];
-            }
-          }
-        }
-      },
-    };
+  async getGrid(range: Range): Promise<Grid> {
+    return (await this.postMessage('getGrid', [range])) as Grid;
   }
 
   [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
-    // TODO(hackerwins): This is a temporary implementation.
-    return this.range('A1', 'ZZ1000')[Symbol.asyncIterator]();
+    throw new Error('Method not implemented.');
   }
 
   private postMessage(method: string, args: any): Promise<any> {
     const id = this.requestID++;
     this.worker.postMessage({ id, method, args });
     return new Promise((resolve, reject) => {
+      console.log(
+        `postMessage: ${method} ${JSON.stringify(args)} ${this.pendings.size}`,
+      );
       this.pendings.set(id, { resolve, reject });
     });
   }

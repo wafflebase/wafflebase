@@ -1,5 +1,5 @@
 import Papa, { Parser } from 'papaparse';
-import { toRef } from '../sheet/coordinates';
+import { toSref } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
 import { Grid } from '../sheet/types';
 
@@ -144,7 +144,7 @@ export class Dropzone {
         const { data } = result;
         for (let col = 1; col <= data.length; col++) {
           const cell = { v: data[col - 1] };
-          chunk.set(toRef({ row, col }), cell);
+          chunk.set(toSref({ r: row, c: col }), cell);
         }
         row += 1;
         chunkCounter += 1;

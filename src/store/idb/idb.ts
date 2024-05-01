@@ -1,5 +1,5 @@
-import { parseRef, toRef } from '../../sheet/coordinates';
-import { Ref, Cell, Grid } from '../../sheet/types';
+import { parseRef, toSref } from '../../sheet/coordinates';
+import { Cell, Grid, Ref, Range } from '../../sheet/types';
 
 const DBName = 'wafflebase';
 const DBVersion = 1;
@@ -40,11 +40,9 @@ function toCell(record: GridRecord | undefined): Cell | undefined {
  * `toRecord` function converts a cell to a record.
  */
 function toRecord(ref: Ref, cell: Cell): GridRecord {
-  const id = parseRef(ref);
-
   const record: GridRecord = {
-    r: id.row,
-    c: id.col,
+    r: ref.r,
+    c: ref.c,
   };
 
   if (cell.v) {
@@ -104,12 +102,13 @@ export class IDBStore {
   /**
    * `setGrid` method stores a grid in the database.
    */
-  public async setGrid(items: Grid): Promise<void> {
+  public async setGrid(grid: Grid): Promise<void> {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(GridStore, 'readwrite');
       const store = transaction.objectStore(GridStore);
 
-      for (const [ref, cell] of items) {
+      for (const [sref, cell] of grid) {
+        const ref = parseRef(sref);
         store.put(toRecord(ref, cell));
       }
 
@@ -151,8 +150,7 @@ export class IDBStore {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(GridStore, 'readonly');
       const store = transaction.objectStore(GridStore);
-      const id = parseRef(ref);
-      const request = store.get([id.row, id.col]);
+      const request = store.get([ref.r, ref.c]);
 
       request.onsuccess = () => {
         resolve(toCell(request.result));
@@ -171,8 +169,7 @@ export class IDBStore {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(GridStore, 'readonly');
       const store = transaction.objectStore(GridStore);
-      const id = parseRef(ref);
-      const request = store.get([id.row, id.col]);
+      const request = store.get([ref.r, ref.c]);
 
       request.onsuccess = () => {
         resolve(request.result !== undefined);
@@ -191,12 +188,11 @@ export class IDBStore {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(GridStore, 'readwrite');
       const store = transaction.objectStore(GridStore);
-      const id = parseRef(ref);
-      const request = store.get([id.row, id.col]);
+      const request = store.get([ref.r, ref.c]);
 
       request.onsuccess = () => {
         if (request.result !== undefined) {
-          const deleteRequest = store.delete([id.row, id.col]);
+          const deleteRequest = store.delete([ref.r, ref.c]);
 
           deleteRequest.onsuccess = () => {
             resolve(true);
@@ -216,47 +212,33 @@ export class IDBStore {
     });
   }
 
-  /**
-   * `range` method returns an async iterable that allows iterating over a range of values.
-   */
-  range(from: Ref, to: Ref): AsyncIterable<[Ref, Cell]> {
+  public async getGrid(range: Range): Promise<Grid> {
+    const [from, to] = range;
     const transaction = this.db.transaction(GridStore, 'readonly');
     const store = transaction.objectStore(GridStore);
-    const fromID = parseRef(from);
-    const toID = parseRef(to);
-    const keyRange = IDBKeyRange.bound(
-      [fromID.row, fromID.col],
-      [toID.row, toID.col],
-    );
+    const keyRange = IDBKeyRange.bound([from.r, from.c], [to.r, to.c]);
     const cursor = store.openCursor(keyRange);
 
-    return {
-      [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
-        return {
-          next: () => {
-            return new Promise((resolve, reject) => {
-              cursor.onsuccess = (event) => {
-                const cursor = (event.target as IDBRequest).result;
-                if (cursor) {
-                  const [row, col] = cursor.key;
-                  resolve({
-                    value: [toRef({ row, col }), cursor.value],
-                    done: false,
-                  });
-                  cursor.continue();
-                } else {
-                  resolve({ value: undefined, done: true });
-                }
-              };
+    const grid: Grid = new Map();
+    return new Promise((resolve, reject) => {
+      cursor.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+          const {
+            key: [row, col],
+            value,
+          } = cursor;
+          grid.set(toSref({ r: row, c: col }), toCell(value)!);
+          cursor.continue();
+        } else {
+          resolve(grid);
+        }
+      };
 
-              cursor.onerror = () => {
-                reject(cursor.error);
-              };
-            });
-          },
-        };
-      },
-    };
+      cursor.onerror = () => {
+        reject(cursor.error);
+      };
+    });
   }
 
   /**
@@ -275,7 +257,7 @@ export class IDBStore {
             if (cursor) {
               const [row, col] = cursor.key;
               resolve({
-                value: [toRef({ row, col }), toCell(cursor.value)!],
+                value: [{ r: row, c: col }, toCell(cursor.value)!],
                 done: false,
               });
               cursor.continue();

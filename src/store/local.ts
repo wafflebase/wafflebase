@@ -1,8 +1,7 @@
-import { Cell, Grid, Ref } from '../sheet/types';
+import { Cell, Grid, Ref, Range } from '../sheet/types';
 import { Store } from './store';
 import { createWorkerIDBStore } from './idb/workeridb';
 import { Cache } from './memory/cache';
-import { toRefRangeFromRefs } from '../sheet/coordinates';
 
 export async function createStore(key: string): Promise<LocalStore> {
   const idb = await createWorkerIDBStore(key);
@@ -27,7 +26,7 @@ export class LocalStore {
   }
 
   async get(ref: Ref): Promise<Cell | undefined> {
-    if (this.cache.hasRange(toRefRangeFromRefs([ref]))) {
+    if (this.cache.hasRange([ref, ref])) {
       return this.cache.get(ref);
     }
 
@@ -42,7 +41,7 @@ export class LocalStore {
   }
 
   async has(ref: Ref): Promise<boolean> {
-    if (this.cache.hasRange(toRefRangeFromRefs([ref]))) {
+    if (this.cache.hasRange([ref, ref])) {
       return this.cache.has(ref);
     }
 
@@ -58,21 +57,14 @@ export class LocalStore {
     await this.store.setGrid(grid);
   }
 
-  async *range(from: Ref, to: Ref): AsyncIterable<[Ref, Cell]> {
-    if (this.cache.hasRange(toRefRangeFromRefs([from, to]))) {
-      for (const [ref, cell] of this.cache.range(from, to)) {
-        yield [ref, cell];
-      }
-      return;
+  async getGrid(range: Range): Promise<Grid> {
+    if (this.cache.hasRange(range)) {
+      return this.cache.getGrid(range);
     }
 
-    const grid: Grid = new Map();
-    for await (const [ref, cell] of this.store.range(from, to)) {
-      grid.set(ref, cell);
-      yield [ref, cell];
-    }
-
-    this.cache.setRange(`${from}:${to}`, grid);
+    const grid = await this.store.getGrid(range);
+    this.cache.setGrid(range, grid);
+    return grid;
   }
 
   [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {

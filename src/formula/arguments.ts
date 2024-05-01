@@ -8,7 +8,7 @@ import {
   RefNode,
   ErrNode,
 } from './formula';
-import { isRangeRef, toRefs } from '../sheet/coordinates';
+import { isSrng, toSrefs } from '../sheet/coordinates';
 import { Grid } from '../sheet/types';
 
 /**
@@ -91,7 +91,7 @@ class Arguments<T extends EvalNode> {
     for (const expr of args.expr()) {
       const node = visit(expr);
       if (node.t === 'ref' && grid) {
-        for (const ref of toRefs([node.v])) {
+        for (const ref of toSrefs([node.v])) {
           yield this.ref!({ t: 'ref', v: ref }, grid);
         }
       } else {
@@ -120,7 +120,7 @@ function str2num(result: StrNode): NumNode {
  * `ref2num` converts a reference result to a number result.
  */
 export function ref2num(result: RefNode, grid: Grid): NumNode | ErrNode {
-  if (isRangeRef(result.v)) {
+  if (isSrng(result.v)) {
     return { t: 'err', v: '#VALUE!' };
   }
 

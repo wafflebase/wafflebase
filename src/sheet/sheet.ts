@@ -6,13 +6,14 @@ import {
   cloneRange,
   inRange,
   isRangeInRange,
-  isSameID,
-  toCellIDs,
-  toRange,
-  toRef,
+  isSameRef,
   toRefs,
+  toRange,
+  toSref,
+  toSrefs,
+  parseRef,
 } from './coordinates';
-import { Grid, Cell, CellID, Ref, CellRange } from './types';
+import { Grid, Cell, Ref, Sref, Range } from './types';
 
 /**
  * `Dimensions` represents the dimensions of the sheet.
@@ -38,12 +39,12 @@ export class Sheet {
   /**
    * `activeCell` is the currently selected cell.
    */
-  private activeCell: CellID;
+  private activeCell: Ref;
 
   /**
    * `range` is the range of cells that are currently selected.
    */
-  private range?: [CellID, CellID];
+  private range?: [Ref, Ref];
 
   /**
    * `constructor` creates a new `Sheet` instance.
@@ -52,16 +53,16 @@ export class Sheet {
   constructor(store?: Store) {
     this.store = store || new MemStore();
     this.dimension = { ...Dimensions };
-    this.activeCell = { row: 1, col: 1 };
+    this.activeCell = { r: 1, c: 1 };
   }
 
   /**
    * `getDimensionRange` returns the range of the dimensions.
    */
-  get dimensionRange(): CellRange {
+  get dimensionRange(): Range {
     return [
-      { row: 1, col: 1 },
-      { row: this.dimension.rows, col: this.dimension.columns },
+      { r: 1, c: 1 },
+      { r: this.dimension.rows, c: this.dimension.columns },
     ];
   }
 
@@ -119,48 +120,47 @@ export class Sheet {
 
   /**
    * `recalculate` recalculates the entire sheet.
+   * TODO(hackerwins): Optimize this.
    */
   async recalculate(): Promise<void> {
-    const dependantsMap = await this.buildDependantsMap();
-
-    const refs = new Set<Ref>();
+    const srefs = new Set<Sref>();
     for await (const [ref] of this.store) {
       if (await this.hasFormula(ref)) {
-        refs.add(ref);
+        srefs.add(toSref(ref));
       }
     }
-    await calculate(this, dependantsMap, refs);
+
+    const dependantsMap = await this.store.buildDependantsMap(srefs);
+    await calculate(this, dependantsMap, srefs);
   }
 
   /**
    * `setData` sets the data at the given row and column.
    */
-  async setData(id: CellID, value: string): Promise<void> {
-    const ref = toRef(id);
-
+  async setData(ref: Ref, value: string): Promise<void> {
     // 01. Update the cell with the new value.
     const cell = value.startsWith('=') ? { f: value } : { v: value };
     await this.store.set(ref, cell);
 
     // 02. Update the dependencies.
-    const dependantsMap = await this.buildDependantsMap();
+    const dependantsMap = await this.store.buildDependantsMap([toSref(ref)]);
 
     // 03. Calculate the cell and its dependencies.
-    await calculate(this, dependantsMap, [ref]);
+    await calculate(this, dependantsMap, [toSref(ref)]);
   }
 
   /**
    * `removeData` removes the data at the given row and column.
    */
   async removeData(): Promise<boolean> {
-    const removeds = new Set<Ref>();
-    for (const id of this.toSelectedID()) {
-      if (await this.store.delete(toRef(id))) {
-        removeds.add(toRef(id));
+    const removeds = new Set<Sref>();
+    for (const ref of this.toSelecteds()) {
+      if (await this.store.delete(ref)) {
+        removeds.add(toSref(ref));
       }
     }
 
-    const dependantsMap = await this.buildDependantsMap();
+    const dependantsMap = await this.store.buildDependantsMap(removeds);
     await calculate(this, dependantsMap, removeds);
 
     return removeds.size > 0;
@@ -169,90 +169,81 @@ export class Sheet {
   /**
    * `createGrid` fetches the grid by the given range.
    */
-  async fetchGrid(range: CellRange): Promise<Grid> {
-    const grid = new Map<Ref, Cell>();
-    const [start, end] = range;
-
-    for await (const [ref, cell] of this.store.range(
-      toRef(start),
-      toRef(end),
-    )) {
-      grid.set(ref, cell);
-    }
-
-    return grid;
+  async fetchGrid(range: Range): Promise<Grid> {
+    return this.store.getGrid(range);
   }
 
   /**
    * `fetchGridByReferences` fetches the grid by the given references.
    */
-  async fetchGridByReferences(references: Set<Ref>): Promise<Grid> {
-    const grid = new Map<Ref, Cell>();
-    for (const ref of toRefs(references)) {
-      const cell = await this.store.get(ref);
+  async fetchGridByReferences(references: Set<Sref>): Promise<Grid> {
+    const grid = new Map<Sref, Cell>();
+    for (const sref of toSrefs(references)) {
+      const cell = await this.store.get(parseRef(sref));
       if (!cell) {
         continue;
       }
 
-      grid.set(ref, cell);
+      grid.set(sref, cell);
     }
+
     return grid;
   }
 
   /**
-   * `toSelectedID` returns the selected cell or range of cells.
+   * `toSelecteds` returns the selected refs.
    */
-  *toSelectedID(): Generator<CellID> {
+  *toSelecteds(): Generator<Ref> {
     if (!this.range) {
       yield this.activeCell;
       return;
     }
 
-    for (const id of toCellIDs(this.range)) {
-      yield id;
+    for (const ref of toRefs(this.range)) {
+      yield ref;
     }
   }
 
   /**
    * `getActiveCell` returns the currently selected cell.
    */
-  getActiveCell(): CellID {
+  getActiveCell(): Ref {
     return this.activeCell;
   }
 
   /**
    * `getRange` returns the range of cells that are currently selected.
    */
-  getRange(): CellRange | undefined {
+  getRange(): Range | undefined {
     return this.range;
   }
 
   /**
    * `selectStart` sets the start cell of the selection.
    */
-  selectStart(id: CellID): void {
-    if (!inRange(id, this.dimensionRange)) {
+  selectStart(ref: Ref): void {
+    if (!inRange(ref, this.dimensionRange)) {
       return;
     }
 
-    this.activeCell = id;
+    this.activeCell = ref;
     this.range = undefined;
   }
 
   /**
    * `selectEnd` sets the end cell of the selection.
    */
-  selectEnd(id: CellID): void {
-    if (!inRange(id, this.dimensionRange)) {
+  selectEnd(ref: Ref): void {
+    if (!inRange(ref, this.dimensionRange)) {
       return;
     }
 
-    if (isSameID(this.activeCell, id)) {
+    if (isSameRef(this.activeCell, ref)) {
       this.range = undefined;
       return;
     }
 
-    this.range = toRange(this.activeCell, id);
+    this.range = toRange(this.activeCell, ref);
   }
 
   /**
@@ -269,8 +260,8 @@ export class Sheet {
    * @return boolean if the selection was moved.
    */
   async moveToEdge(rowDelta: number, colDelta: number): Promise<boolean> {
-    let row = this.activeCell.row;
-    let col = this.activeCell.col;
+    let row = this.activeCell.r;
+    let col = this.activeCell.c;
 
     let first = true;
     let prev = true;
@@ -278,12 +269,12 @@ export class Sheet {
       const nextRow = row + rowDelta;
       const nextCol = col + colDelta;
 
-      if (!inRange({ row: nextRow, col: nextCol }, this.dimensionRange)) {
+      if (!inRange({ r: nextRow, c: nextCol }, this.dimensionRange)) {
         break;
       }
 
-      const curr = await this.store.has(toRef({ row, col }));
-      const next = await this.store.has(toRef({ row: nextRow, col: nextCol }));
+      const curr = await this.store.has({ r: row, c: col });
+      const next = await this.store.has({ r: nextRow, c: nextCol });
 
       if (!prev && curr) {
         break;
@@ -299,12 +290,12 @@ export class Sheet {
       col = nextCol;
     }
 
-    if (isSameID(this.activeCell, { row, col })) {
+    if (isSameRef(this.activeCell, { r: row, c: col })) {
       return false;
     }
 
     this.range = undefined;
-    this.activeCell = { row, col };
+    this.activeCell = { r: row, c: col };
     return true;
   }
 
@@ -315,19 +306,19 @@ export class Sheet {
    * @return boolean if the selection was moved.
    */
   move(rowDelta: number, colDelta: number): boolean {
-    let row = this.activeCell.row + rowDelta;
-    let col = this.activeCell.col + colDelta;
+    let row = this.activeCell.r + rowDelta;
+    let col = this.activeCell.c + colDelta;
 
-    if (!inRange({ row, col }, this.dimensionRange)) {
+    if (!inRange({ r: row, c: col }, this.dimensionRange)) {
       return false;
     }
 
-    if (isSameID(this.activeCell, { row, col })) {
+    if (isSameRef(this.activeCell, { r: row, c: col })) {
       return false;
     }
 
     this.range = undefined;
-    this.activeCell = { row, col };
+    this.activeCell = { r: row, c: col };
     return true;
   }
 
@@ -340,16 +331,16 @@ export class Sheet {
   resizeRange(rowDelta: number, colDelta: number): boolean {
     let range = cloneRange(this.range || [this.activeCell, this.activeCell]);
 
-    if (this.activeCell.row === range[1].row) {
-      range[0].row += rowDelta;
+    if (this.activeCell.r === range[1].r) {
+      range[0].r += rowDelta;
     } else {
-      range[1].row += rowDelta;
+      range[1].r += rowDelta;
     }
 
-    if (this.activeCell.col === range[1].col) {
-      range[0].col += colDelta;
+    if (this.activeCell.c === range[1].c) {
+      range[0].c += colDelta;
     } else {
-      range[1].col += colDelta;
+      range[1].c += colDelta;
     }
 
     range = toRange(range[0], range[1]);
@@ -369,55 +360,34 @@ export class Sheet {
   moveInRange(rowDelta: number, colDelta: number): void {
     const range = this.range || this.dimensionRange;
 
-    let row = this.activeCell.row;
-    let col = this.activeCell.col;
-    const rows = range[1].row - range[0].row + 1;
-    const cols = range[1].col - range[0].col + 1;
+    let row = this.activeCell.r;
+    let col = this.activeCell.c;
+    const rows = range[1].r - range[0].r + 1;
+    const cols = range[1].c - range[0].c + 1;
     if (rowDelta !== 0) {
-      if (row + rowDelta > range[1].row) {
-        row = range[0].row;
-        col = ((col + 1 - range[0].col + cols) % cols) + range[0].col;
-      } else if (row + rowDelta < range[0].row) {
-        row = range[1].row;
-        col = ((col - 1 - range[0].col + cols) % cols) + range[0].col;
+      if (row + rowDelta > range[1].r) {
+        row = range[0].r;
+        col = ((col + 1 - range[0].c + cols) % cols) + range[0].c;
+      } else if (row + rowDelta < range[0].r) {
+        row = range[1].r;
+        col = ((col - 1 - range[0].c + cols) % cols) + range[0].c;
       } else {
         row += rowDelta;
       }
     }
 
     if (colDelta !== 0) {
-      if (col + colDelta > range[1].col) {
-        col = range[0].col;
-        row = ((row + 1 - range[0].row + rows) % rows) + range[0].row;
-      } else if (col + colDelta < range[0].col) {
-        col = range[1].col;
-        row = ((row - 1 - range[0].row + rows) % rows) + range[0].row;
+      if (col + colDelta > range[1].c) {
+        col = range[0].c;
+        row = ((row + 1 - range[0].r + rows) % rows) + range[0].r;
+      } else if (col + colDelta < range[0].c) {
+        col = range[1].c;
+        row = ((row - 1 - range[0].r + rows) % rows) + range[0].r;
       } else {
         col += colDelta;
       }
     }
 
-    this.activeCell = { row, col };
-  }
-
-  /**
-   * `buildDependencies` builds the entire dependency graph.
-   */
-  private async buildDependantsMap(): Promise<Map<Ref, Set<Ref>>> {
-    const dependantsMap = new Map();
-
-    for await (const [ref, cell] of this.store) {
-      if (!cell.f) {
-        continue;
-      }
-
-      for (const r of toRefs(extractReferences(cell.f))) {
-        if (!dependantsMap.has(r)) {
-          dependantsMap.set(r, new Set());
-        }
-        dependantsMap.get(r)!.add(ref);
-      }
-    }
-    return dependantsMap;
+    this.activeCell = { r: row, c: col };
   }
 }

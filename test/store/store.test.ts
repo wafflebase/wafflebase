@@ -15,38 +15,38 @@ describe('IDBStore', () => {
 function runTests(createStore: (key: string) => Promise<Store>) {
   it('should contain data after set', async function ({ task }) {
     const store = await createStore(task.name);
-    await store.set('A2', { v: '30' });
-    expect(await store.has('A2')).toBe(true);
+    await store.set({ r: 2, c: 1 }, { v: '30' });
+    expect(await store.has({ r: 2, c: 1 })).toBe(true);
   });
 
   it('should not contain data after delete', async function ({ task }) {
     const store = await createStore(task.name);
-    await store.set('A3', { v: '40' });
-    await store.delete('A3');
-    expect(await store.has('A3')).toBe(false);
+    await store.set({ r: 3, c: 1 }, { v: '40' });
+    await store.delete({ r: 3, c: 1 });
+    expect(await store.has({ r: 3, c: 1 })).toBe(false);
   });
 
   it('should contain data after multiple sets', async function ({ task }) {
     const store = await createStore(task.name);
-    await store.set('A4', { v: '50' });
-    await store.set('A4', { v: '60' });
-    expect(await store.get('A4')).toEqual({ v: '60' });
+    await store.set({ r: 4, c: 1 }, { v: '50' });
+    await store.set({ r: 4, c: 1 }, { v: '60' });
+    expect(await store.get({ r: 4, c: 1 })).toEqual({ v: '60' });
   });
 
   it('should not contain data after multiple deletes', async function ({
     task,
   }) {
     const store = await createStore(task.name);
-    await store.set('A5', { v: '70' });
-    await store.delete('A5');
-    await store.delete('A5');
-    expect(await store.has('A5')).toBe(false);
+    await store.set({ r: 5, c: 1 }, { v: '70' });
+    await store.delete({ r: 5, c: 1 });
+    await store.delete({ r: 5, c: 1 });
+    expect(await store.has({ r: 5, c: 1 })).toBe(false);
   });
 
   it('should iterate over all data', async function ({ task }) {
     const store = await createStore(task.name);
-    await store.set('A6', { v: '80' });
-    await store.set('A7', { v: '90' });
+    await store.set({ r: 6, c: 1 }, { v: '80' });
+    await store.set({ r: 7, c: 1 }, { v: '90' });
 
     const data: Array<[Ref, Cell]> = [];
     for await (const [ref, cell] of store) {
@@ -54,8 +54,8 @@ function runTests(createStore: (key: string) => Promise<Store>) {
     }
 
     expect(data).toEqual([
-      ['A6', { v: '80' }],
-      ['A7', { v: '90' }],
+      [{ r: 6, c: 1 }, { v: '80' }],
+      [{ r: 7, c: 1 }, { v: '90' }],
     ]);
   });
 }
