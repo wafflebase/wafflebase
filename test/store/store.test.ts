@@ -42,20 +42,4 @@ function runTests(createStore: (key: string) => Promise<Store>) {
     await store.delete({ r: 5, c: 1 });
     expect(await store.has({ r: 5, c: 1 })).toBe(false);
   });
-
-  it('should iterate over all data', async function ({ task }) {
-    const store = await createStore(task.name);
-    await store.set({ r: 6, c: 1 }, { v: '80' });
-    await store.set({ r: 7, c: 1 }, { v: '90' });
-
-    const data: Array<[Ref, Cell]> = [];
-    for await (const [ref, cell] of store) {
-      data.push([ref, cell]);
-    }
-
-    expect(data).toEqual([
-      [{ r: 6, c: 1 }, { v: '80' }],
-      [{ r: 7, c: 1 }, { v: '90' }],
-    ]);
-  });
 }

@@ -10,6 +10,5 @@ export interface Store {
   delete(ref: Ref): Promise<boolean>;
   setGrid(grid: Grid): Promise<void>;
   getGrid(range: Range): Promise<Grid>;
-  buildDependantsMap(refs: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>>;
-  [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]>;
+  buildDependantsMap(srefs: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>>;
 }

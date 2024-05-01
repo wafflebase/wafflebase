@@ -14,6 +14,20 @@ export function* toRefs(range: Range): Generator<Ref> {
 }
 
 /**
+ * `expandRange` expands the given range by the given rate.
+ */
+export function expandRange(range: Range, rate: number): Range {
+  const [from, to] = range;
+  const rowDelta = Math.floor((to.r - from.r) * rate);
+  const colDelta = Math.floor((to.c - from.c) * rate);
+
+  return [
+    { r: Math.max(from.r - rowDelta, 1), c: Math.max(from.c - colDelta, 1) },
+    { r: to.r + rowDelta, c: to.c + colDelta },
+  ];
+}
+
+/**
  * `inRange` returns whether the given Ref is in the Range.
  */
 export function inRange(ref: Ref, range: Range): boolean {

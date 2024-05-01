@@ -49,9 +49,10 @@ export class MemStore {
   }
 
   async buildDependantsMap(_: Array<Sref>): Promise<Map<Sref, Set<Sref>>> {
-    const dependantsMap = new Map<Sref, Set<Sref>>();
+    const entries = Array.from(this.grid.entries());
 
-    for await (const [ref, cell] of this) {
+    const dependantsMap = new Map<Sref, Set<Sref>>();
+    for (const [ref, cell] of entries) {
       if (!cell.f) {
         continue;
       }
@@ -60,29 +61,9 @@ export class MemStore {
         if (!dependantsMap.has(r)) {
           dependantsMap.set(r, new Set());
         }
-        dependantsMap.get(r)!.add(toSref(ref));
+        dependantsMap.get(r)!.add(ref);
       }
     }
     return dependantsMap;
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
-    const entries = Array.from(this.grid.entries());
-    let index = 0;
-
-    return {
-      next: () => {
-        if (index < entries.length) {
-          const [sref, cell] = entries[index++];
-
-          return Promise.resolve({
-            value: [parseRef(sref), cell],
-            done: false,
-          });
-        }
-
-        return Promise.resolve({ value: undefined, done: true });
-      },
-    };
   }
 }

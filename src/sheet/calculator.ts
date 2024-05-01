@@ -20,7 +20,7 @@ export async function calculate(
 
     const cell = (await sheet.getCell(ref))!;
     if (cycled.has(sref)) {
-      sheet.setCell(ref, {
+      await sheet.setCell(ref, {
         v: '#REF!',
         f: cell.f,
       });

@@ -1,12 +1,18 @@
-import { Cell, Grid, Ref, Range } from '../sheet/types';
+import { Cell, Grid, Ref, Range, Sref } from '../sheet/types';
 import { Store } from './store';
 import { createWorkerIDBStore } from './idb/workeridb';
 import { Cache } from './memory/cache';
+import { expandRange } from '../sheet/coordinates';
 
 export async function createStore(key: string): Promise<LocalStore> {
   const idb = await createWorkerIDBStore(key);
   return new LocalStore(idb);
 }
+
+/**
+ * `ExpandRate` is the rate to expand the range when fetching the grid.
+ */
+const ExpandRate = 10;
 
 /**
  * `LocalStore` class represents a cached IndexedDB storage.
@@ -62,12 +68,15 @@ export class LocalStore {
       return this.cache.getGrid(range);
     }
 
-    const grid = await this.store.getGrid(range);
-    this.cache.setGrid(range, grid);
+    const expandedRange = expandRange(range, ExpandRate);
+    const grid = await this.store.getGrid(expandedRange);
+    this.cache.setGrid(expandedRange, grid);
     return grid;
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
-    return this.store[Symbol.asyncIterator]();
+  async buildDependantsMap(
+    srefs: Iterable<Sref>,
+  ): Promise<Map<Sref, Set<Sref>>> {
+    return this.store.buildDependantsMap(srefs);
   }
 }

@@ -1,4 +1,3 @@
-import { extractReferences } from '../formula/formula';
 import { MemStore } from '../store/memory/memory';
 import { Store } from '../store/store';
 import { calculate } from './calculator';
@@ -116,22 +115,6 @@ export class Sheet {
   async toDisplayString(ref: Ref): Promise<string> {
     const cell = await this.store.get(ref);
     return (cell && cell.v) || '';
-  }
-
-  /**
-   * `recalculate` recalculates the entire sheet.
-   * TODO(hackerwins): Optimize this.
-   */
-  async recalculate(): Promise<void> {
-    const srefs = new Set<Sref>();
-    for await (const [ref] of this.store) {
-      if (await this.hasFormula(ref)) {
-        srefs.add(toSref(ref));
-      }
-    }
-
-    const dependantsMap = await this.store.buildDependantsMap(srefs);
-    await calculate(this, dependantsMap, srefs);
   }
 
   /**

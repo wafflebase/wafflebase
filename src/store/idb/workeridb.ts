@@ -1,7 +1,6 @@
-import { Cell, Grid, Ref, Range } from '../../sheet/types';
+import { Cell, Grid, Ref, Range, Sref } from '../../sheet/types';
 import workerUrl from './worker?worker&url';
 import { ResMessage } from './worker';
-import { parseRef } from '../../sheet/coordinates';
 
 /**
  * `createWorkerIDBStore` creates a new `WorkerIDBStore` instance.
@@ -86,8 +85,13 @@ export class WorkerIDBStore {
     return (await this.postMessage('getGrid', [range])) as Grid;
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
-    throw new Error('Method not implemented.');
+  async buildDependantsMap(
+    srefs: Iterable<Sref>,
+  ): Promise<Map<Sref, Set<Sref>>> {
+    return (await this.postMessage('buildDependantsMap', [srefs])) as Map<
+      Sref,
+      Set<Sref>
+    >;
   }
 
   private postMessage(method: string, args: any): Promise<any> {
@@ -95,7 +99,7 @@ export class WorkerIDBStore {
     this.worker.postMessage({ id, method, args });
     return new Promise((resolve, reject) => {
       console.log(
-        `postMessage: ${method} ${JSON.stringify(args)} ${this.pendings.size}`,
+        `IndexedDB: ${method} ${JSON.stringify(args)} ${this.pendings.size}`,
       );
       this.pendings.set(id, { resolve, reject });
     });

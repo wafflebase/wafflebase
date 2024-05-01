@@ -1,4 +1,4 @@
-import { Cell, Grid, Ref, Range } from '../../sheet/types';
+import { Cell, Grid, Ref, Range, Sref } from '../../sheet/types';
 import { IDBStore, createIDBStore } from './idb';
 
 /**
@@ -39,6 +39,11 @@ export type ReqMessage =
       id: number;
       method: 'getGrid';
       args: [Range];
+    }
+  | {
+      id: number;
+      method: 'buildDependantsMap';
+      args: [Iterable<Sref>];
     };
 
 /**
@@ -82,6 +87,10 @@ onmessage = async (event: MessageEvent<ReqMessage>) => {
       const range = event.data.args[0];
       const grid = await store.getGrid(range);
       postMessage({ id: event.data.id, result: grid });
+    } else if (event.data.method === 'buildDependantsMap') {
+      const srefs = event.data.args[0];
+      const dependantsMap = await store.buildDependantsMap(srefs);
+      postMessage({ id: event.data.id, result: dependantsMap });
     } else {
       postMessage({
         error: `Unknown Method: ${event.data}`,
