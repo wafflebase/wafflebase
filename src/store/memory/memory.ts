@@ -1,4 +1,5 @@
-import { Ref, Cell, Grid } from '../sheet/types';
+import { inRange, parseRef, toRange } from '../../sheet/coordinates';
+import { Ref, Cell, Grid } from '../../sheet/types';
 
 /**
  * `MemStore` class represents an in-memory storage.
@@ -34,22 +35,16 @@ export class MemStore {
   }
 
   range(from: Ref, to: Ref): AsyncIterable<[Ref, Cell]> {
-    const entries = Array.from(this.grid.entries());
-    let index = 0;
+    const entries = this.grid.entries();
+    const range = toRange(parseRef(from), parseRef(to));
 
     return {
-      [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
-        return {
-          next: () => {
-            while (index < entries.length) {
-              const entry = entries[index++];
-              if (entry[0] >= from && entry[0] <= to) {
-                return Promise.resolve({ value: entry, done: false });
-              }
-            }
-            return Promise.resolve({ value: undefined, done: true });
-          },
-        };
+      [Symbol.asyncIterator]: async function* () {
+        for (const [ref, value] of entries) {
+          if (inRange(parseRef(ref), range)) {
+            yield [ref, value];
+          }
+        }
       },
     };
   }

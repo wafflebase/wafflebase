@@ -4,9 +4,8 @@ import {
   parseRefRange,
   toCellIDs,
   toRef,
-  toRefRange,
-} from '../sheet/coordinates';
-import { Ref, Cell, Grid, CellRange, RefRange } from '../sheet/types';
+} from '../../sheet/coordinates';
+import { Ref, Cell, Grid, CellRange, RefRange } from '../../sheet/types';
 
 /**
  * `Cache` class represents a simple in-memory cache.
@@ -56,7 +55,6 @@ export class Cache {
    * `setRange` method sets the cell values in the cache.
    */
   setRange(range: RefRange, grid: Grid) {
-    console.log(`prev:${toRefRange(this.view)}, load:${range}`);
     this.view = parseRefRange(range);
     this.grid = grid;
   }

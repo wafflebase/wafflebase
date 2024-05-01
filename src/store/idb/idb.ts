@@ -1,5 +1,5 @@
-import { parseRef, toRef } from '../sheet/coordinates';
-import { Ref, Cell, Grid } from '../sheet/types';
+import { parseRef, toRef } from '../../sheet/coordinates';
+import { Ref, Cell, Grid } from '../../sheet/types';
 
 const DBName = 'wafflebase';
 const DBVersion = 1;
@@ -231,29 +231,31 @@ export class IDBStore {
     const cursor = store.openCursor(keyRange);
 
     return {
-      [Symbol.asyncIterator]: () => ({
-        next: (): Promise<IteratorResult<[Ref, Cell]>> => {
-          return new Promise((resolve, reject) => {
-            cursor.onsuccess = (event) => {
-              const cursor = (event.target as IDBRequest).result;
-              if (cursor) {
-                const [row, col] = cursor.key;
-                resolve({
-                  value: [toRef({ row, col }), cursor.value],
-                  done: false,
-                });
-                cursor.continue();
-              } else {
-                resolve({ value: undefined, done: true });
-              }
-            };
+      [Symbol.asyncIterator](): AsyncIterator<[Ref, Cell]> {
+        return {
+          next: () => {
+            return new Promise((resolve, reject) => {
+              cursor.onsuccess = (event) => {
+                const cursor = (event.target as IDBRequest).result;
+                if (cursor) {
+                  const [row, col] = cursor.key;
+                  resolve({
+                    value: [toRef({ row, col }), cursor.value],
+                    done: false,
+                  });
+                  cursor.continue();
+                } else {
+                  resolve({ value: undefined, done: true });
+                }
+              };
 
-            cursor.onerror = () => {
-              reject(cursor.error);
-            };
-          });
-        },
-      }),
+              cursor.onerror = () => {
+                reject(cursor.error);
+              };
+            });
+          },
+        };
+      },
     };
   }
 

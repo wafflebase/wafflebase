@@ -1,23 +1,22 @@
 import { Cell, Grid, Ref } from '../sheet/types';
-import { createIDBStore, IDBStore } from './idb';
-import { Cache } from './cache';
+import { Store } from './store';
+import { createWorkerIDBStore } from './idb/workeridb';
+import { Cache } from './memory/cache';
 import { toRefRangeFromRefs } from '../sheet/coordinates';
 
-export async function createCachedIDBStore(
-  key: string,
-): Promise<CachedIDBStore> {
-  const idb = await createIDBStore(key);
-  return new CachedIDBStore(idb);
+export async function createStore(key: string): Promise<LocalStore> {
+  const idb = await createWorkerIDBStore(key);
+  return new LocalStore(idb);
 }
 
 /**
- * `CachedIDBStore` class represents a cached IndexedDB storage.
+ * `LocalStore` class represents a cached IndexedDB storage.
  */
-export class CachedIDBStore {
+export class LocalStore {
   private cache: Cache;
-  private store: IDBStore;
+  private store: Store;
 
-  constructor(idb: IDBStore) {
+  constructor(idb: Store) {
     this.cache = new Cache();
     this.store = idb;
   }

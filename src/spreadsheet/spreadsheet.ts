@@ -1,5 +1,5 @@
 import { Sheet } from '../sheet/sheet';
-import { createCachedIDBStore } from '../store/cachedidb';
+import { createStore } from '../store/local';
 import { Store } from '../store/store';
 
 import { Worksheet } from './worksheet';
@@ -11,7 +11,7 @@ import { Dropzone } from './dropzone';
  */
 export async function setupSpreadsheet(container: HTMLDivElement) {
   const spreadsheet = new Spreadsheet(container);
-  const store = await createCachedIDBStore('spreadsheet');
+  const store = await createStore('spreadsheet');
   spreadsheet.initialize(store);
 }
 

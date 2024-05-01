@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Cell, Ref } from '../../src/sheet/types';
 import { Store } from '../../src/store/store';
-import { createIDBStore } from '../../src/store/idb';
-import { createCachedIDBStore } from '../../src/store/cachedidb';
-import { MemStore } from '../../src/store/memory';
+import { createIDBStore } from '../../src/store/idb/idb';
+import { MemStore } from '../../src/store/memory/memory';
 
 describe('MemStore', () => {
   runTests(async () => new MemStore());
@@ -11,10 +10,6 @@ describe('MemStore', () => {
 
 describe('IDBStore', () => {
   runTests(async (key: string) => createIDBStore(key));
-});
-
-describe('CachedIDBStore', () => {
-  runTests(async (key: string) => createCachedIDBStore(key));
 });
 
 function runTests(createStore: (key: string) => Promise<Store>) {

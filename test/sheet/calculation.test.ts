@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MemStore } from '../../src/store/memory';
+import { MemStore } from '../../src/store/memory/memory';
 import { Sheet } from '../../src/sheet/sheet';
 
 describe('Sheet.Calcuation', () => {

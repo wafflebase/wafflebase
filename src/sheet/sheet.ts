@@ -1,5 +1,5 @@
 import { extractReferences } from '../formula/formula';
-import { MemStore } from '../store/memory';
+import { MemStore } from '../store/memory/memory';
 import { Store } from '../store/store';
 import { calculate } from './calculator';
 import {
