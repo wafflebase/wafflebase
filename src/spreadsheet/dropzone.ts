@@ -1,7 +1,12 @@
-import Papa from 'papaparse';
+import Papa, { Parser } from 'papaparse';
 import { toRef } from '../sheet/coordinates';
 import { Sheet } from '../sheet/sheet';
 import { Grid } from '../sheet/types';
+
+/**
+ * `RowChunkSize` is the number of rows to process in a single chunk.
+ */
+const RowChunkSize = 1000;
 
 /**
  * `Dropzone` is a class that handles the drag and drop of files.
@@ -109,36 +114,65 @@ export class Dropzone {
       return;
     }
 
-    // TODO(hackerwins): We need to introduce chunking for large files.
-    // For now, we are loading the entire file in memory.
-    let row = 1;
-    const grid: Grid = new Map();
-    for (const file of files) {
-      let processedBytes = 0;
-      const totalBytes = file.size;
-      Papa.parse(file, {
-        worker: true,
-        step: (result: { data: any }) => {
-          const { data } = result;
-          for (let col = 1; col <= data.length; col++) {
-            const cell = { v: data[col - 1] };
-            grid.set(toRef({ row, col }), cell);
-          }
-          row += 1;
+    const file = files[0];
+    this.uploadFile(file);
+  }
 
-          const rowSize = new Blob([result.data.join(',')]).size;
-          processedBytes += rowSize;
-          console.log('Progress:', processedBytes / totalBytes);
-        },
-        complete: async () => {
-          await this.sheet!.setGrid(grid);
-          console.log('Saved:', processedBytes / totalBytes);
-        },
-        error: (err: any) => {
-          console.error('Error while parsing:', err);
-        },
-      });
-    }
+  private async uploadFile(file: File) {
+    const startTime = performance.now();
+    const total = file.size;
+    let processed = 0;
+    let chunkCounter = 0;
+    let row = 0;
+
+    const chunk: Grid = new Map();
+
+    const updateProgress = () => {
+      const progress = Math.floor((processed / total) * 100);
+      const elapsed = this.toSecs(performance.now() - startTime);
+      console.log(`Progress: ${progress}%, Elapsed: ${elapsed}s`);
+    };
+
+    const processChunk = async () => {
+      await this.sheet!.setGrid(chunk);
+      chunk.clear();
+      chunkCounter = 0;
+    };
+
+    Papa.parse(file, {
+      step: async (result: { data: any }, parser: Parser) => {
+        const { data } = result;
+        for (let col = 1; col <= data.length; col++) {
+          const cell = { v: data[col - 1] };
+          chunk.set(toRef({ row, col }), cell);
+        }
+        row += 1;
+        chunkCounter += 1;
+
+        const rowSize = new Blob([result.data.join(',')]).size;
+        processed += rowSize;
+
+        if (chunkCounter >= RowChunkSize) {
+          parser.pause();
+          await processChunk();
+          updateProgress();
+          parser.resume();
+        }
+      },
+      complete: async () => {
+        if (chunk.size > 0) {
+          await processChunk();
+        }
+        console.log(`Finished: ${this.toSecs(performance.now() - startTime)}s`);
+      },
+      error: (err: any) => {
+        console.error('Error while parsing:', err);
+      },
+    });
+  }
+
+  private toSecs(ms: number) {
+    return (ms / 1000).toFixed(2);
   }
 
   private hide() {
