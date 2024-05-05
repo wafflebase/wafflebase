@@ -67,6 +67,15 @@ export class Cache {
   }
 
   /**
+   * `evict` method evicts the cell values in the given range from the cache.
+   */
+  evict(range: Range) {
+    this.grids = this.grids.filter(
+      (grid) => !isRangeInRange(range, grid.range),
+    );
+  }
+
+  /**
    * `range` method returns a generator that yields the cells in the given range.
    */
   async getGrid(range: Range): Promise<Grid> {

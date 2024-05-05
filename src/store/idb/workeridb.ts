@@ -37,7 +37,14 @@ type Pending = {
 export class WorkerIDBStore {
   private worker: Worker;
 
+  /**
+   * `requestID` is the ID of the request.
+   */
   private requestID = 0;
+
+  /**
+   * `pendings` is a map of pending requests.
+   */
   private pendings: Map<number, Pending>;
 
   constructor(worker: Worker) {
@@ -99,7 +106,7 @@ export class WorkerIDBStore {
     this.worker.postMessage({ id, method, args });
     return new Promise((resolve, reject) => {
       console.log(
-        `IndexedDB: ${method} ${JSON.stringify(args)} ${this.pendings.size}`,
+        `IDBStore: ${method} ${JSON.stringify(args)}, pendings: ${this.pendings.size}`,
       );
       this.pendings.set(id, { resolve, reject });
     });

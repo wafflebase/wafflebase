@@ -48,6 +48,10 @@ export class MemStore {
     return Promise.resolve(grid);
   }
 
+  /**
+   * `buildDependantsMap` method builds a map of dependants. Unlike the
+   * `IDBStore` implementation, this builds the map from the entire grid.
+   */
   async buildDependantsMap(_: Array<Sref>): Promise<Map<Sref, Set<Sref>>> {
     const entries = Array.from(this.grid.entries());
 

@@ -16,9 +16,17 @@ export type Sref = string;
 export type Srng = string;
 
 /**
- * Grid type represents a grid of rows and columns.
+ * Ref type represents the id of a cell in the sheet.
  */
-export type Grid = Map<Sref, Cell>;
+export type Ref = {
+  r: number;
+  c: number;
+};
+
+/**
+ * Range type represents a range of cells in the sheet.
+ */
+export type Range = [Ref, Ref];
 
 /**
  * Cell type represents a cell in the sheet.
@@ -29,14 +37,6 @@ export type Cell = {
 };
 
 /**
- * Range type represents a range of cells in the sheet.
+ * Grid type represents a grid of rows and columns.
  */
-export type Range = [Ref, Ref];
-
-/**
- * Ref type represents the id of a cell in the sheet.
- */
-export type Ref = {
-  r: number;
-  c: number;
-};
+export type Grid = Map<Sref, Cell>;

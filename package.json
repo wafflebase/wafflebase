@@ -7,7 +7,7 @@
     "dev": "vite",
     "test": "vitest --run",
     "test:watch": "vitest --watch",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "build:formula": "antlr4ts -visitor antlr/Formula.g4",
     "preview": "vite preview",
     "format": "prettier --write .",

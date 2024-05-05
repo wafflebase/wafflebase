@@ -5,24 +5,13 @@ import { Cell, Grid, Ref, Range, Sref } from '../../sheet/types';
 
 const DBName = 'wafflebase';
 const DBVersion = 1;
-const GridStore = 'grid';
-const DependantsStore = 'dependants';
-
-interface DBType extends DBSchema {
-  grid: {
-    key: [number, number];
-    value: GridRecord;
-  };
-  dependants: {
-    key: Sref;
-    value: { sref: Sref; dependants: Array<Sref> };
-  };
-}
+const CellStore = 'cells';
+const DependantStore = 'dependants';
 
 /**
- * `GridRecord` type represents a record in the IndexedDB database.
+ * `CellRecord` type represents a record in the database.
  */
-type GridRecord = {
+type CellRecord = {
   r: number;
   c: number;
   v?: string;
@@ -30,9 +19,31 @@ type GridRecord = {
 };
 
 /**
+ * `DependantRecord` type represents a record in the dependants store.
+ */
+type DependantRecord = {
+  sref: Sref;
+  dependants: Array<Sref>;
+};
+
+/**
+ * `DBType` interface represents the database schema.
+ */
+interface DBType extends DBSchema {
+  [CellStore]: {
+    key: [number, number];
+    value: CellRecord;
+  };
+  [DependantStore]: {
+    key: Sref;
+    value: DependantRecord;
+  };
+}
+
+/**
  * `toCell` function converts a record to a cell.
  */
-function toCell(record: GridRecord | undefined): Cell | undefined {
+function toCell(record: CellRecord | undefined): Cell | undefined {
   if (!record) {
     return undefined;
   }
@@ -53,8 +64,8 @@ function toCell(record: GridRecord | undefined): Cell | undefined {
 /**
  * `toRecord` function converts a cell to a record.
  */
-function toRecord(ref: Ref, cell: Cell): GridRecord {
-  const record: GridRecord = {
+function toRecord(ref: Ref, cell: Cell): CellRecord {
+  const record: CellRecord = {
     r: ref.r,
     c: ref.c,
   };
@@ -84,18 +95,18 @@ export async function createIDBStore(key: string): Promise<IDBStore> {
 async function openIDB(key: string): Promise<IDBPDatabase<DBType>> {
   return await openDB<DBType>(`${DBName}-${key}`, DBVersion, {
     upgrade(db) {
-      if (!db.objectStoreNames.contains(GridStore)) {
-        db.createObjectStore(GridStore, { keyPath: ['r', 'c'] });
+      if (!db.objectStoreNames.contains(CellStore)) {
+        db.createObjectStore(CellStore, { keyPath: ['r', 'c'] });
       }
-      if (!db.objectStoreNames.contains(DependantsStore)) {
-        db.createObjectStore(DependantsStore, { keyPath: 'sref' });
+      if (!db.objectStoreNames.contains(DependantStore)) {
+        db.createObjectStore(DependantStore, { keyPath: 'sref' });
       }
     },
   });
 }
 
 /**
- * `IDBStore` class is a wrapper around the `IDBDatabase` object.
+ * `IDBStore` class is a wrapper around the `IDBPDatabase` object.
  * It provides a set of methods to interact with the database.
  */
 export class IDBStore {
@@ -105,12 +116,71 @@ export class IDBStore {
     this.db = db;
   }
 
-  /**
-   * `setGrid` method stores a grid in the database.
-   */
+  public async set(ref: Ref, cell: Cell): Promise<void> {
+    const tx = this.db.transaction([CellStore, DependantStore], 'readwrite');
+    await tx.objectStore(CellStore).put(toRecord(ref, cell));
+
+    if (cell.f) {
+      for (const sref of toSrefs(extractReferences(cell.f))) {
+        const record = await tx.objectStore(DependantStore).get(sref);
+        const dependants = new Set(record ? record.dependants : []);
+        dependants.add(toSref(ref));
+        await tx
+          .objectStore(DependantStore)
+          .put({ sref, dependants: Array.from(dependants) });
+      }
+    }
+
+    await tx.done;
+  }
+
+  public async get(ref: Ref): Promise<Cell | undefined> {
+    const tx = this.db.transaction(CellStore, 'readonly');
+    const record = await tx.objectStore(CellStore).get([ref.r, ref.c]);
+    return toCell(record);
+  }
+
+  public async has(ref: Ref): Promise<boolean> {
+    const tx = this.db.transaction(CellStore, 'readonly');
+    const store = tx.objectStore(CellStore);
+    const cell = await store.get([ref.r, ref.c]);
+    return cell !== undefined;
+  }
+
+  public async delete(ref: Ref): Promise<boolean> {
+    const tx = this.db.transaction([CellStore, DependantStore], 'readwrite');
+    const store = tx.objectStore(CellStore);
+    const cell = await store.get([ref.r, ref.c]);
+    if (cell === undefined) {
+      return false;
+    }
+
+    await store.delete([ref.r, ref.c]);
+
+    if (cell.f) {
+      for (const sref of toSrefs(extractReferences(cell.f))) {
+        const record = await tx.objectStore(DependantStore).get(sref);
+        const dependants = new Set(record?.dependants || []);
+        dependants.delete(toSref(ref));
+
+        if (dependants.size === 0) {
+          await tx.objectStore(DependantStore).delete(sref);
+          continue;
+        }
+        await tx
+          .objectStore(DependantStore)
+          .put({ sref, dependants: Array.from(dependants) });
+      }
+    }
+
+    await tx.done;
+
+    return true;
+  }
+
   public async setGrid(grid: Grid): Promise<void> {
-    const tx = this.db.transaction(GridStore, 'readwrite');
-    const store = tx.objectStore(GridStore);
+    const tx = this.db.transaction(CellStore, 'readwrite');
+    const store = tx.objectStore(CellStore);
 
     for (const [sref, cell] of grid) {
       await store.put(toRecord(parseRef(sref), cell));
@@ -119,82 +189,11 @@ export class IDBStore {
     await tx.done;
   }
 
-  /**
-   * `set` stores a value in the database with the specified key.
-   * @param ref The key to store the value under.
-   * @param cell The value to store.
-   */
-  public async set(ref: Ref, cell: Cell): Promise<void> {
-    const tx = this.db.transaction([GridStore, DependantsStore], 'readwrite');
-    await tx.objectStore(GridStore).put(toRecord(ref, cell));
-    if (cell.f) {
-      for (const sref of toSrefs(extractReferences(cell.f))) {
-        const record = await tx.objectStore(DependantsStore).get(sref);
-        const dependants = new Set(record ? record.dependants : []);
-        dependants.add(toSref(ref));
-        await tx
-          .objectStore(DependantsStore)
-          .put({ sref, dependants: Array.from(dependants) });
-      }
-    }
-    await tx.done;
-  }
-
-  /**
-   * `get` retrieves a value from the database by key.
-   */
-  public async get(ref: Ref): Promise<Cell | undefined> {
-    const tx = this.db.transaction(GridStore, 'readonly');
-    const record = await tx.objectStore(GridStore).get([ref.r, ref.c]);
-    return toCell(record);
-  }
-
-  /**
-   * `has` method checks if the database contains a value with the specified key.
-   */
-  public async has(ref: Ref): Promise<boolean> {
-    const tx = this.db.transaction(GridStore, 'readonly');
-    const store = tx.objectStore(GridStore);
-    const cell = await store.get([ref.r, ref.c]);
-    return cell !== undefined;
-  }
-
-  /**
-   * `delete` method removes a value from the database by key.
-   */
-  public async delete(ref: Ref): Promise<boolean> {
-    const tx = this.db.transaction([GridStore, DependantsStore], 'readwrite');
-    const store = tx.objectStore(GridStore);
-    const cell = await store.get([ref.r, ref.c]);
-    if (cell === undefined) {
-      return false;
-    }
-
-    await store.delete([ref.r, ref.c]);
-    if (cell.f) {
-      for (const sref of toSrefs(extractReferences(cell.f))) {
-        const record = await tx.objectStore(DependantsStore).get(sref);
-        const dependants = new Set(record?.dependants || []);
-        dependants.delete(toSref(ref));
-
-        if (dependants.size === 0) {
-          await tx.objectStore(DependantsStore).delete(sref);
-          continue;
-        }
-        await tx
-          .objectStore(DependantsStore)
-          .put({ sref, dependants: Array.from(dependants) });
-      }
-    }
-
-    return true;
-  }
-
   public async getGrid(range: Range): Promise<Grid> {
     const [from, to] = range;
-    const tx = this.db.transaction(GridStore, 'readonly');
+    const tx = this.db.transaction(CellStore, 'readonly');
     let cursor = await tx
-      .objectStore(GridStore)
+      .objectStore(CellStore)
       .openCursor(IDBKeyRange.bound([from.r, from.c], [to.r, to.c]));
 
     const grid: Grid = new Map();
@@ -212,16 +211,24 @@ export class IDBStore {
   async buildDependantsMap(
     srefs: Iterable<Sref>,
   ): Promise<Map<Sref, Set<Sref>>> {
-    const tx = this.db.transaction(DependantsStore, 'readonly');
+    const tx = this.db.transaction(DependantStore, 'readonly');
 
+    const stack = Array.from(srefs);
     const dependantsMap = new Map<Sref, Set<Sref>>();
-    for (const sref of srefs) {
-      const record = await tx.objectStore(DependantsStore).get(sref);
+    while (stack.length) {
+      const sref = stack.pop()!;
+      if (dependantsMap.has(sref)) {
+        continue;
+      }
+
+      const record = await tx.objectStore(DependantStore).get(sref);
       if (record === undefined) {
+        dependantsMap.set(sref, new Set());
         continue;
       }
 
       dependantsMap.set(sref, new Set(record.dependants));
+      stack.push(...record.dependants);
     }
 
     return dependantsMap;

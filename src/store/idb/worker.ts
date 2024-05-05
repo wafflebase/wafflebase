@@ -59,36 +59,35 @@ let store: IDBStore;
 onmessage = async (event: MessageEvent<ReqMessage>) => {
   try {
     if (event.data.method === 'init') {
-      const key = event.data.args[0];
+      const [key] = event.data.args;
       store = await createIDBStore(key);
       postMessage({ id: event.data.id, result: 'created' });
     } else if (event.data.method === 'get') {
-      const ref = event.data.args[0];
+      const [ref] = event.data.args;
       const cell = await store.get(ref);
       postMessage({ id: event.data.id, result: cell });
     } else if (event.data.method === 'set') {
-      const ref = event.data.args[0];
-      const cell = event.data.args[1];
+      const [ref, cell] = event.data.args;
       await store.set(ref, cell);
       postMessage({ id: event.data.id });
     } else if (event.data.method === 'has') {
-      const ref = event.data.args[0];
+      const [ref] = event.data.args;
       const has = await store.has(ref);
       postMessage({ id: event.data.id, result: has });
     } else if (event.data.method === 'delete') {
-      const ref = event.data.args[0];
+      const [ref] = event.data.args;
       const deleted = await store.delete(ref);
       postMessage({ id: event.data.id, result: deleted });
     } else if (event.data.method === 'setGrid') {
-      const grid = event.data.args[0];
+      const [grid] = event.data.args;
       await store.setGrid(grid);
       postMessage({ id: event.data.id });
     } else if (event.data.method === 'getGrid') {
-      const range = event.data.args[0];
+      const [range] = event.data.args;
       const grid = await store.getGrid(range);
       postMessage({ id: event.data.id, result: grid });
     } else if (event.data.method === 'buildDependantsMap') {
-      const srefs = event.data.args[0];
+      const [srefs] = event.data.args;
       const dependantsMap = await store.buildDependantsMap(srefs);
       postMessage({ id: event.data.id, result: dependantsMap });
     } else {
