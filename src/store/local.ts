@@ -1,12 +1,12 @@
 import { Cell, Grid, Ref, Range, Sref } from '../sheet/types';
 import { Store } from './store';
-import { createWorkerIDBStore } from './idb/workeridb';
+import { createDuckDBStore } from './duckdb/duckdb';
 import { Cache } from './memory/cache';
 import { expandRange } from '../sheet/coordinates';
 
 export async function createStore(key: string): Promise<LocalStore> {
-  const idb = await createWorkerIDBStore(key);
-  return new LocalStore(idb);
+  const store = await createDuckDBStore(key);
+  return new LocalStore(store);
 }
 
 /**
@@ -21,9 +21,9 @@ export class LocalStore {
   private cache: Cache;
   private store: Store;
 
-  constructor(idb: Store) {
+  constructor(store: Store) {
     this.cache = new Cache();
-    this.store = idb;
+    this.store = store;
   }
 
   async set(ref: Ref, cell: Cell): Promise<void> {
