@@ -1,4 +1,30 @@
-import { Ref, Range, Reference, Sref, Srng } from './types';
+import { Ref, Range, Reference, Sref, Srng, Grid } from './types';
+
+/**
+ * `isIntersect` returns whether the given Ranges are intersected.
+ */
+export function isIntersect(range1: Range, range2: Range): boolean {
+  const [from1, to1] = range1;
+  const [from2, to2] = range2;
+
+  return (
+    from1.r <= to2.r && to1.r >= from2.r && from1.c <= to2.c && to1.c >= from2.c
+  );
+}
+
+/**
+ * `rangeOf` returns the range of the given grid.
+ */
+export function rangeOf(grid: Grid): Range {
+  const refs = Array.from(grid.keys()).map(parseRef);
+  const rows = refs.map((ref) => ref.r);
+  const cols = refs.map((ref) => ref.c);
+
+  return [
+    { r: Math.min(...rows), c: Math.min(...cols) },
+    { r: Math.max(...rows), c: Math.max(...cols) },
+  ];
+}
 
 /**
  * `toRefs` generates Refs from the given Range.
@@ -70,6 +96,13 @@ export function toRange(ref1: Ref, ref2: Ref): Range {
 }
 
 /**
+ * `cloneRange` clones the given range.
+ */
+export function cloneRange(range: Range): Range {
+  return [cloneRef(range[0]), cloneRef(range[1])];
+}
+
+/**
  * `isSameRef` returns whether the given Refs are the same.
  */
 export function isSameRef(ref1: Ref, ref2: Ref): boolean {
@@ -81,13 +114,6 @@ export function isSameRef(ref1: Ref, ref2: Ref): boolean {
  */
 export function cloneRef(ref: Ref): Ref {
   return { r: ref.r, c: ref.c };
-}
-
-/**
- * `cloneRange` clones the given range.
- */
-export function cloneRange(range: Range): Range {
-  return [cloneRef(range[0]), cloneRef(range[1])];
 }
 
 /**

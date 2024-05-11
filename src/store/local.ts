@@ -2,7 +2,7 @@ import { Cell, Grid, Ref, Range, Sref } from '../sheet/types';
 import { Store } from './store';
 import { createWorkerIDBStore } from './idb/workeridb';
 import { Cache } from './memory/cache';
-import { expandRange } from '../sheet/coordinates';
+import { expandRange, rangeOf } from '../sheet/coordinates';
 
 export async function createStore(key: string): Promise<LocalStore> {
   const idb = await createWorkerIDBStore(key);
@@ -60,6 +60,8 @@ export class LocalStore {
   }
 
   async setGrid(grid: Grid): Promise<void> {
+    const range = rangeOf(grid);
+    this.cache.evict(range);
     await this.store.setGrid(grid);
   }
 
