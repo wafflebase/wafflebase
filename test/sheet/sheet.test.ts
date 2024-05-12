@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Sheet } from '../../src/sheet/sheet';
+import { Sheet } from '../../src/worksheet/sheet';
 
 describe('Sheet', () => {
   it('should correctly set and get data', async () => {
@@ -25,29 +25,29 @@ describe('Sheet', () => {
   it('should move selection', () => {
     const sheet = new Sheet();
 
-    sheet.move(1, 0);
+    sheet.move('down');
     expect(sheet.getActiveCell()).toEqual({ r: 2, c: 1 });
 
-    sheet.move(0, 1);
+    sheet.move('right');
     expect(sheet.getActiveCell()).toEqual({ r: 2, c: 2 });
 
-    sheet.move(-1, 0);
+    sheet.move('up');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 2 });
 
-    sheet.move(0, -1);
+    sheet.move('left');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 1 });
   });
 
   it('should not move selection beyond sheet dimensions', () => {
     const sheet = new Sheet();
 
-    sheet.move(-1, 0);
+    sheet.move('up');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 1 });
 
-    sheet.move(0, -1);
+    sheet.move('left');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 1 });
 
-    sheet.move(1, 0);
+    sheet.move('down');
     expect(sheet.getActiveCell()).toEqual({ r: 2, c: 1 });
   });
 
@@ -60,13 +60,13 @@ describe('Sheet', () => {
     await sheet.setData({ r: 1, c: 5 }, '50');
     await sheet.setData({ r: 1, c: 6 }, '60');
 
-    await sheet.moveToEdge(0, 1);
+    await sheet.moveToEdge('right');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 2 });
 
-    await sheet.moveToEdge(0, 1);
+    await sheet.moveToEdge('right');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 4 });
 
-    await sheet.moveToEdge(0, 1);
+    await sheet.moveToEdge('right');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 6 });
   });
 });

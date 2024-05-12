@@ -8,8 +8,8 @@ import {
   RefNode,
   ErrNode,
 } from './formula';
-import { isSrng, toSrefs } from '../sheet/coordinates';
-import { Grid } from '../sheet/types';
+import { isSrng, toSrefs } from '../worksheet/coordinates';
+import { Grid } from '../worksheet/types';
 
 /**
  * Arguments is a helper to build arguments for a function.

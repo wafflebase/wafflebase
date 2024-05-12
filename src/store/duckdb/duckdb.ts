@@ -1,3 +1,4 @@
+import * as arrow from 'apache-arrow';
 import {
   LogLevel,
   Logger,
@@ -11,9 +12,8 @@ import mvpworker from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url
 import dbwasmnext from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
 import ehworker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 
-import * as arrow from 'apache-arrow';
-import { Cell, Grid, Ref, Range, Sref } from '../../sheet/types';
-import { parseRef, toSref, toSrefs } from '../../sheet/coordinates';
+import { Cell, Grid, Ref, Range, Sref, Direction } from '../../worksheet/types';
+import { parseRef, toSref, toSrefs } from '../../worksheet/coordinates';
 import { extractReferences } from '../../formula/formula';
 
 /**
@@ -129,11 +129,10 @@ class DuckDBStore {
 
   public async has(ref: Ref): Promise<boolean> {
     const table = await this.conn.query<CellRecord>(
-      `SELECT * FROM cells WHERE r = ${ref.r} AND c = ${ref.c}`,
+      `SELECT r, c FROM cells WHERE r = ${ref.r} AND c = ${ref.c}`,
     );
 
-    const res = table.toArray();
-    return res.length > 0;
+    return table.numRows > 0;
   }
 
   public async delete(ref: Ref): Promise<boolean> {
@@ -142,7 +141,7 @@ class DuckDBStore {
     const table = await this.conn.query<CellRecord>(
       `DELETE FROM cells WHERE r = ${ref.r} AND c = ${ref.c}`,
     );
-    const result = table.toArray().length > 0;
+    const result = table.numRows > 0;
     await this.deleteDependency(ref);
 
     await this.conn.query('COMMIT;');
@@ -169,7 +168,60 @@ class DuckDBStore {
     return grid;
   }
 
-  async buildDependantsMap(
+  public async findEdge(
+    ref: Ref,
+    direction: Direction,
+    dimension: Range,
+  ): Promise<Ref> {
+    const [from, to] = dimension;
+    const isVertical = direction === 'up' || direction === 'down';
+    const isAscending = direction === 'up' || direction === 'left';
+    const axis = isVertical ? 'r' : 'c';
+    const fixedAxis = isVertical ? 'c' : 'r';
+    const fixedValue = ref[fixedAxis];
+    const fromValue = from[axis];
+    const toValue = to[axis];
+
+    const table = await this.conn.query<CellRecord>(
+      `SELECT r, c FROM cells
+       WHERE ${axis} ${isAscending ? '<=' : '>='} ${ref[axis]}
+       AND ${fixedAxis} = ${fixedValue} AND ${axis} >= ${fromValue} AND ${axis} <= ${toValue}
+       ORDER BY ${axis} ${isAscending ? 'DESC' : 'ASC'}`,
+    );
+
+    if (table.numRows === 0) {
+      return {
+        [fixedAxis]: fixedValue,
+        [axis]: isAscending ? fromValue : toValue,
+      } as Ref;
+    }
+
+    // TODO(hackerwins): toArray might be expensive. We should consider
+    // implementing a custom iterator to avoid this.
+    const cells = table.toArray();
+    const first = cells[0];
+    const hasValue = first[axis] === ref[axis];
+    if (!hasValue) {
+      return { r: first.r, c: first.c };
+    }
+
+    if (hasValue && cells.length === 1) {
+      return {
+        [fixedAxis]: fixedValue,
+        [axis]: isAscending ? fromValue : toValue,
+      } as Ref;
+    }
+
+    for (let i = 1; i < cells.length; i++) {
+      if (cells[i][axis] !== cells[i - 1][axis] + (isAscending ? -1 : 1)) {
+        return { r: cells[i - 1].r, c: cells[i - 1].c };
+      }
+    }
+
+    return { r: cells[cells.length - 1].r, c: cells[cells.length - 1].c };
+  }
+
+  public async buildDependantsMap(
     srefs: Iterable<Sref>,
   ): Promise<Map<string, Set<string>>> {
     const stack = Array.from(srefs);
@@ -202,7 +254,7 @@ class DuckDBStore {
     return dependants;
   }
 
-  async close() {
+  public async close() {
     await this.conn.close();
     await this.db.terminate();
     await this.worker.terminate();

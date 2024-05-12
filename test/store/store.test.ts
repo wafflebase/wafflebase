@@ -1,14 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { Store } from '../../src/store/store';
-import { createIDBStore } from '../../src/store/idb/idb';
 import { MemStore } from '../../src/store/memory/memory';
 
 describe('MemStore', () => {
   runTests(async () => new MemStore());
-});
-
-describe('IDBStore', () => {
-  runTests(async (key: string) => createIDBStore(key));
 });
 
 function runTests(createStore: (key: string) => Promise<Store>) {

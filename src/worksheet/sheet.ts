@@ -12,14 +12,14 @@ import {
   toSrefs,
   parseRef,
 } from './coordinates';
-import { Grid, Cell, Ref, Sref, Range } from './types';
+import { Grid, Cell, Ref, Sref, Range, Direction } from './types';
 
 /**
  * `Dimensions` represents the dimensions of the sheet.
  * This is used when the sheet is created for the first time.
- * The sheet will have 720000 rows and 16384 columns. A1:XFD720000
+ * It represents cells from A1 to ZZZ2147483647.
  */
-const Dimensions = { rows: 720000, columns: 16384 };
+const Dimensions = { rows: 2147483647, columns: 18278 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -242,53 +242,33 @@ export class Sheet {
    * @param colDelta Delta to move the activeCell in the column direction.
    * @return boolean if the selection was moved.
    */
-  async moveToEdge(rowDelta: number, colDelta: number): Promise<boolean> {
-    let row = this.activeCell.r;
-    let col = this.activeCell.c;
+  async moveToEdge(direction: Direction): Promise<boolean> {
+    // Move to the edge of the content.
+    // If the cell is empty, move to the first non-empty cell.
+    // If the cell is non-empty, move to the last non-empty cell.
+    const ref = await this.store.findEdge(
+      this.activeCell,
+      direction,
+      this.dimensionRange,
+    );
 
-    let first = true;
-    let prev = true;
-    while (true) {
-      const nextRow = row + rowDelta;
-      const nextCol = col + colDelta;
-
-      if (!inRange({ r: nextRow, c: nextCol }, this.dimensionRange)) {
-        break;
-      }
-
-      const curr = await this.store.has({ r: row, c: col });
-      const next = await this.store.has({ r: nextRow, c: nextCol });
-
-      if (!prev && curr) {
-        break;
-      }
-      if (!first && curr && !next) {
-        break;
-      }
-
-      prev = curr;
-      first = false;
-
-      row = nextRow;
-      col = nextCol;
-    }
-
-    if (isSameRef(this.activeCell, { r: row, c: col })) {
+    if (isSameRef(this.activeCell, ref)) {
       return false;
     }
 
     this.range = undefined;
-    this.activeCell = { r: row, c: col };
+    this.activeCell = ref;
     return true;
   }
 
   /**
    * `move` moves the selection by the given delta.
-   * @param rowDelta Delta to move the activeCell in the row direction.
-   * @param colDelta Delta to move the activeCell in the column direction.
    * @return boolean if the selection was moved.
    */
-  move(rowDelta: number, colDelta: number): boolean {
+  move(direction: Direction): boolean {
+    const rowDelta = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
+    const colDelta = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
+
     let row = this.activeCell.r + rowDelta;
     let col = this.activeCell.c + colDelta;
 
@@ -311,7 +291,9 @@ export class Sheet {
    * @param colDelta Delta to move the range in the column direction.
    * @param return boolean if the range was resized.
    */
-  resizeRange(rowDelta: number, colDelta: number): boolean {
+  resizeRange(direction: Direction): boolean {
+    const rowDelta = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
+    const colDelta = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
     let range = cloneRange(this.range || [this.activeCell, this.activeCell]);
 
     if (this.activeCell.r === range[1].r) {

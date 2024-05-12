@@ -4,6 +4,11 @@
 export type Reference = Sref | Srng;
 
 /**
+ * Direction type represents the direction of the movement.
+ */
+export type Direction = 'up' | 'down' | 'left' | 'right';
+
+/**
  * Sref type represents a reference to a cell in the sheet.
  * e.g. A1, B2, C3, etc.
  */

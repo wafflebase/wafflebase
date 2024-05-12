@@ -1,6 +1,6 @@
-import { toSref, toColumnLabel } from '../sheet/coordinates';
-import { Sheet } from '../sheet/sheet';
-import { Range, Ref, Grid, Cell } from '../sheet/types';
+import { toSref, toColumnLabel } from '../worksheet/coordinates';
+import { Sheet } from '../worksheet/sheet';
+import { Range, Ref, Grid, Cell, Direction } from '../worksheet/types';
 
 const FormulaBarHeight = 23;
 const FormulaBarMargin = 10;
@@ -73,7 +73,7 @@ export class Worksheet {
     this.formulaBar.style.justifyContent = 'flex-start';
 
     this.cellLabel = document.createElement('div');
-    this.cellLabel.style.width = '100px';
+    this.cellLabel.style.width = '120px';
     this.cellLabel.style.textAlign = 'center';
     this.cellLabel.style.font = '12px Arial';
     this.cellLabel.style.borderRight = `1px solid ${CellBorderColor}`;
@@ -244,7 +244,7 @@ export class Worksheet {
   private async handleFormulaInputKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       await this.finishEditing();
-      this.sheet!.move(1, 0);
+      this.sheet!.move('down');
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Escape') {
@@ -285,13 +285,13 @@ export class Worksheet {
       await this.finishEditing();
 
       if (e.key === 'ArrowDown') {
-        this.sheet!.move(1, 0);
+        this.sheet!.move('down');
       } else if (e.key === 'ArrowUp') {
-        this.sheet!.move(-1, 0);
+        this.sheet!.move('up');
       } else if (e.key === 'ArrowLeft') {
-        this.sheet!.move(0, -1);
+        this.sheet!.move('left');
       } else if (e.key === 'ArrowRight') {
-        this.sheet!.move(0, 1);
+        this.sheet!.move('right');
       }
 
       this.render();
@@ -306,18 +306,17 @@ export class Worksheet {
    */
   private async handleGridKeydown(e: KeyboardEvent) {
     const move = async (
-      row: number,
-      col: number,
+      direction: Direction,
       shift: boolean,
       ctrl: boolean,
     ) => {
       e.preventDefault();
 
       let changed = shift
-        ? this.sheet!.resizeRange(row, col)
+        ? this.sheet!.resizeRange(direction)
         : ctrl
-          ? await this.sheet!.moveToEdge(row, col)
-          : this.sheet!.move(row, col);
+          ? await this.sheet!.moveToEdge(direction)
+          : this.sheet!.move(direction);
       if (changed) {
         this.render();
         this.scrollIntoView();
@@ -325,13 +324,13 @@ export class Worksheet {
     };
 
     if (e.key === 'ArrowDown') {
-      move(1, 0, e.shiftKey, e.metaKey);
+      move('down', e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowUp') {
-      move(-1, 0, e.shiftKey, e.metaKey);
+      move('up', e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowLeft') {
-      move(0, -1, e.shiftKey, e.metaKey);
+      move('left', e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowRight') {
-      move(0, 1, e.shiftKey, e.metaKey);
+      move('right', e.shiftKey, e.metaKey);
     }
 
     if (e.key === 'Tab') {

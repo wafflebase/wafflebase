@@ -1,8 +1,8 @@
-import { Cell, Grid, Ref, Range, Sref } from '../sheet/types';
+import { Cell, Grid, Ref, Range, Sref, Direction } from '../worksheet/types';
 import { Store } from './store';
 import { createDuckDBStore } from './duckdb/duckdb';
 import { Cache } from './memory/cache';
-import { expandRange, rangeOf } from '../sheet/coordinates';
+import { expandRange, rangeOf } from '../worksheet/coordinates';
 
 export async function createStore(key: string): Promise<LocalStore> {
   const store = await createDuckDBStore(key);
@@ -74,6 +74,14 @@ export class LocalStore {
     const grid = await this.store.getGrid(expandedRange);
     this.cache.setGrid(expandedRange, grid);
     return grid;
+  }
+
+  async findEdge(
+    ref: Ref,
+    direction: Direction,
+    dimension: Range,
+  ): Promise<Ref> {
+    return this.store.findEdge(ref, direction, dimension);
   }
 
   async buildDependantsMap(

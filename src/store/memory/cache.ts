@@ -5,8 +5,8 @@ import {
   toRefs,
   toSref,
   toSrng,
-} from '../../sheet/coordinates';
-import { Cell, Grid, Range, Ref } from '../../sheet/types';
+} from '../../worksheet/coordinates';
+import { Cell, Grid, Range, Ref } from '../../worksheet/types';
 
 /**
  * `Cache` class represents a simple in-memory cache.

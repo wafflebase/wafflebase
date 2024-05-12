@@ -1,7 +1,7 @@
 import Papa, { Parser } from 'papaparse';
-import { toSref } from '../sheet/coordinates';
-import { Sheet } from '../sheet/sheet';
-import { Grid } from '../sheet/types';
+import { toSref } from '../worksheet/coordinates';
+import { Sheet } from '../worksheet/sheet';
+import { Grid } from '../worksheet/types';
 
 /**
  * `RowChunkSize` is the number of rows to process in a single chunk.

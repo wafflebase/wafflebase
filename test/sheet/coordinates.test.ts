@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseRef, parseRange, toSrefs } from '../../src/sheet/coordinates';
+import { parseRef, parseRange, toSrefs } from '../../src/worksheet/coordinates';
 
 describe('parseRef', () => {
   it('should parse the Sref and return the Ref', () => {

@@ -1,4 +1,5 @@
 import { CharStreams, CommonTokenStream } from 'antlr4ts';
+import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FormulaLexer } from '../../antlr/FormulaLexer';
 import { FormulaVisitor } from '../../antlr/FormulaVisitor';
 import {
@@ -11,11 +12,10 @@ import {
   ParenthesesContext,
   ReferenceContext,
 } from '../../antlr/FormulaParser';
-import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionMap } from './functions';
-import { Grid, Reference } from '../sheet/types';
+import { Grid, Reference } from '../worksheet/types';
 import { NumberArgs } from './arguments';
-import { isSrng } from '../sheet/coordinates';
+import { isSrng } from '../worksheet/coordinates';
 
 /**
  * `extractReferences` returns references in the expression.

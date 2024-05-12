@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Sheet } from '../../src/sheet/sheet';
+import { Sheet } from '../../src/worksheet/sheet';
 
 describe('Sheet.Calcuation', () => {
   it('should calculate cells', async () => {

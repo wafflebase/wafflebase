@@ -1,4 +1,4 @@
-import { Cell, Grid, Ref, Range, Sref } from '../sheet/types';
+import { Cell, Grid, Ref, Range, Sref, Direction } from '../worksheet/types';
 
 /**
  * `Store` interface represents a storage that stores the cell values.
@@ -33,6 +33,11 @@ export interface Store {
    * `getGrid` method gets the grid.
    */
   getGrid(range: Range): Promise<Grid>;
+
+  /**
+   * `findEgde` method finds the edge of the grid.
+   */
+  findEdge(ref: Ref, direction: Direction, dimension: Range): Promise<Ref>;
 
   /**
    * `buildDependantsMap` method builds a map of dependants.
