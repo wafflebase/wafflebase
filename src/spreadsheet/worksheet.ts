@@ -19,22 +19,23 @@ const RowHeaderWidth = 50;
 
 /**
  * BoundingRect represents the bounding rectangle of a cell.
- * TODO(hackerwins): We need to use `BigInt` for the coordinates
+ *
+ * TODO(hackerwins): We need to use `bigint` for the coordinates
  * and `number` for the width and height. Because the coordinates
  * can be very large for big dimensions of the grid.
  */
-type BoundingRect = {
+type BoundingRect = Position & Size;
+
+/**
+ * Position represents the position of the rectangle.
+ */
+type Position = {
   left: number;
   top: number;
-  width: number;
-  height: number;
 };
 
 /**
  * Size represents the size of the rectangle.
- * TODO(hackerwins): We need to use `BigInt` for the coordinates
- * and `number` for the width and height. Because the coordinates
- * can be very large for big dimensions of the grid.
  */
 type Size = {
   width: number;
@@ -365,19 +366,15 @@ export class Worksheet {
    * `viewRange` returns the visible range of the grid.
    */
   private get viewRange(): Range {
-    const scrollTop = this.scrollContainer.scrollTop;
-    const scrollLeft = this.scrollContainer.scrollLeft;
+    const scroll = this.scroll;
+    const viewport = this.viewport;
 
-    const startRow = Math.floor(scrollTop / DefaultCellHeight) + 1;
+    const startRow = Math.floor(scroll.top / DefaultCellHeight) + 1;
     const endRow =
-      Math.ceil(
-        (scrollTop + this.scrollContainer.clientHeight) / DefaultCellHeight,
-      ) + 1;
-    const startCol = Math.floor(scrollLeft / DefaultCellWidth) + 1;
+      Math.ceil((scroll.top + viewport.height) / DefaultCellHeight) + 1;
+    const startCol = Math.floor(scroll.left / DefaultCellWidth) + 1;
     const endCol =
-      Math.ceil(
-        (scrollLeft + this.scrollContainer.clientWidth) / DefaultCellWidth,
-      ) + 1;
+      Math.ceil((scroll.left + viewport.width) / DefaultCellWidth) + 1;
 
     return [
       { r: startRow, c: startCol },
@@ -389,31 +386,33 @@ export class Worksheet {
    * `scrollIntoView` scrolls the active cell into view.
    */
   private scrollIntoView(ref: Ref = this.sheet!.getActiveCell()) {
-    const scrollSize = this.scrollSize;
+    const scroll = this.scroll;
     const cell = this.toBoundingRect(ref, true);
     const view = {
-      left: scrollSize.width + RowHeaderWidth,
-      top: scrollSize.height + DefaultCellHeight,
-      width: this.viewportSize.width - RowHeaderWidth,
-      height: this.viewportSize.height - DefaultCellHeight,
+      left: scroll.left + RowHeaderWidth,
+      top: scroll.top + DefaultCellHeight,
+      width: this.viewport.width - RowHeaderWidth,
+      height: this.viewport.height - DefaultCellHeight,
     };
 
     let changed = false;
     if (cell.left < view.left) {
-      this.scrollContainer.scrollLeft = cell.left - RowHeaderWidth;
+      this.scroll = { left: cell.left - RowHeaderWidth };
       changed = true;
     } else if (cell.left + cell.width > view.left + view.width) {
-      this.scrollContainer.scrollLeft =
-        cell.left + cell.width - view.width - RowHeaderWidth;
+      this.scroll = {
+        left: cell.left + cell.width - view.width - RowHeaderWidth,
+      };
       changed = true;
     }
 
     if (cell.top < view.top) {
-      this.scrollContainer.scrollTop = cell.top - DefaultCellHeight;
+      this.scroll = { top: cell.top - DefaultCellHeight };
       changed = true;
     } else if (cell.top + cell.height > view.top + view.height) {
-      this.scrollContainer.scrollTop =
-        cell.top + cell.height - view.height - DefaultCellHeight;
+      this.scroll = {
+        top: cell.top + cell.height - view.height - DefaultCellHeight,
+      };
       changed = true;
     }
 
@@ -492,16 +491,16 @@ export class Worksheet {
    * `toBoundingRect` returns the bounding rectangle for the given Ref.
    */
   private toBoundingRect(id: Ref, absolute: boolean = false): BoundingRect {
-    const scrollSize = this.scrollSize;
+    const scroll = this.scroll;
     return {
       left:
         (id.c - 1) * DefaultCellWidth +
         RowHeaderWidth -
-        (absolute ? 0 : scrollSize.width),
+        (absolute ? 0 : scroll.left),
       top:
         (id.r - 1) * DefaultCellHeight +
         DefaultCellHeight -
-        (absolute ? 0 : scrollSize.height),
+        (absolute ? 0 : scroll.top),
       width: DefaultCellWidth,
       height: DefaultCellHeight,
     };
@@ -552,17 +551,27 @@ export class Worksheet {
     };
   }
 
-  private get viewportSize(): Size {
+  private get viewport(): Size {
     return {
       width: this.scrollContainer.clientWidth,
       height: this.scrollContainer.clientHeight,
     };
   }
-  private get scrollSize(): Size {
+
+  private get scroll(): Position {
     return {
-      width: this.scrollContainer.scrollLeft,
-      height: this.scrollContainer.scrollTop,
+      left: this.scrollContainer.scrollLeft,
+      top: this.scrollContainer.scrollTop,
     };
+  }
+
+  private set scroll(position: { left?: number; top?: number }) {
+    if (position.left !== undefined) {
+      this.scrollContainer.scrollLeft = position.left;
+    }
+    if (position.top !== undefined) {
+      this.scrollContainer.scrollTop = position.top;
+    }
   }
 
   /**
@@ -584,13 +593,13 @@ export class Worksheet {
 
     const ctx = this.gridCanvas.getContext('2d')!;
     const ratio = window.devicePixelRatio || 1;
-    const viewportSize = this.viewportSize;
-    const scrollSize = this.scrollSize;
+    const viewport = this.viewport;
+    const scroll = this.scroll;
 
-    this.gridCanvas.width = viewportSize.width * ratio;
-    this.gridCanvas.height = viewportSize.height * ratio;
-    this.gridCanvas.style.width = viewportSize.width + 'px';
-    this.gridCanvas.style.height = viewportSize.height + 'px';
+    this.gridCanvas.width = viewport.width * ratio;
+    this.gridCanvas.height = viewport.height * ratio;
+    this.gridCanvas.style.width = viewport.width + 'px';
+    this.gridCanvas.style.height = viewport.height + 'px';
     ctx.scale(ratio, ratio);
 
     const [startID, endID] = this.viewRange;
@@ -609,8 +618,7 @@ export class Worksheet {
 
     // Paint column header
     for (let col = startID.c; col <= endID.c; col++) {
-      const x =
-        RowHeaderWidth + DefaultCellWidth * (col - 1) - scrollSize.width;
+      const x = RowHeaderWidth + DefaultCellWidth * (col - 1) - scroll.left;
       const y = 0;
       this.paintHeader(
         ctx,
@@ -625,7 +633,7 @@ export class Worksheet {
     // Paint row header
     for (let row = startID.r; row <= endID.r; row++) {
       const x = 0;
-      const y = row * DefaultCellHeight - scrollSize.height;
+      const y = row * DefaultCellHeight - scroll.top;
       this.paintHeader(ctx, x, y, RowHeaderWidth, String(row), ref.r === row);
     }
   }
@@ -639,12 +647,12 @@ export class Worksheet {
 
     const ctx = this.overlayCanvas.getContext('2d')!;
     const ratio = window.devicePixelRatio || 1;
-    const viewportSize = this.viewportSize;
+    const viewport = this.viewport;
 
-    this.overlayCanvas.width = viewportSize.width * ratio;
-    this.overlayCanvas.height = viewportSize.height * ratio;
-    this.overlayCanvas.style.width = viewportSize.width + 'px';
-    this.overlayCanvas.style.height = viewportSize.height + 'px';
+    this.overlayCanvas.width = viewport.width * ratio;
+    this.overlayCanvas.height = viewport.height * ratio;
+    this.overlayCanvas.style.width = viewport.width + 'px';
+    this.overlayCanvas.style.height = viewport.height + 'px';
     ctx.scale(ratio, ratio);
 
     const selection = this.sheet!.getActiveCell();
