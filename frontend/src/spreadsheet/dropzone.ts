@@ -17,7 +17,7 @@ export class Dropzone {
   private sheet?: Sheet;
 
   private container: HTMLDivElement;
-  private element: HTMLDivElement;
+  private readonly element: HTMLDivElement;
 
   constructor(container: HTMLDivElement) {
     this.element = document.createElement('div');

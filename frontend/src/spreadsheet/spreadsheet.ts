@@ -12,14 +12,14 @@ import { Dropzone } from './dropzone';
 export async function setupSpreadsheet(container: HTMLDivElement) {
   const spreadsheet = new Spreadsheet(container);
   const store = await createStore('spreadsheet');
-  spreadsheet.initialize(store);
+  await spreadsheet.initialize(store);
 }
 
 /**
  * Spreadsheet is a class that represents a spreadsheet.
  */
 class Spreadsheet {
-  private container: HTMLDivElement;
+  private readonly container: HTMLDivElement;
   private worksheet: Worksheet;
   private dropzone: Dropzone;
 

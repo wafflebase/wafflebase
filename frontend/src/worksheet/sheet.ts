@@ -47,7 +47,7 @@ export class Sheet {
 
   /**
    * `constructor` creates a new `Sheet` instance.
-   * @param grid optional grid to initialize the sheet.
+   * @param store Store to store the data.
    */
   constructor(store?: Store) {
     this.store = store || new MemStore();
@@ -98,7 +98,7 @@ export class Sheet {
    */
   async hasFormula(ref: Ref): Promise<boolean> {
     const cell = await this.store.get(ref);
-    return cell && cell.f ? true : false;
+    return !!(cell && cell.f);
   }
 
   /**
@@ -238,8 +238,6 @@ export class Sheet {
 
   /**
    * `moveToEdge` moves the selection to the content edge.
-   * @param rowDelta Delta to move the activeCell in the row direction.
-   * @param colDelta Delta to move the activeCell in the column direction.
    * @return boolean if the selection was moved.
    */
   async moveToEdge(direction: Direction): Promise<boolean> {
@@ -287,9 +285,7 @@ export class Sheet {
 
   /**
    * `resizeRange` resizes the range by the given delta.
-   * @param rowDelta Delta to move the range in the row direction.
-   * @param colDelta Delta to move the range in the column direction.
-   * @param return boolean if the range was resized.
+   * @return boolean if the range was resized.
    */
   resizeRange(direction: Direction): boolean {
     const rowDelta = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;

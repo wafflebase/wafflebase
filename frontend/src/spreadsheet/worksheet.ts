@@ -174,7 +174,7 @@ export class Worksheet {
   }
 
   /**
-   * `addEventLisnters` adds event listeners to the spreadsheet.
+   * `addEventListeners` adds event listeners to the spreadsheet.
    */
   private addEventListeners() {
     window.addEventListener('resize', () => {
@@ -203,22 +203,22 @@ export class Worksheet {
       this.scrollContainer.addEventListener('mouseup', onUp);
     });
 
-    this.scrollContainer.addEventListener('dblclick', (e) => {
-      this.showCellInput();
+    this.scrollContainer.addEventListener('dblclick', async (e) => {
+      await this.showCellInput();
       this.cellInput.focus();
       e.preventDefault();
     });
 
-    document.addEventListener('keydown', (e) => {
+    document.addEventListener('keydown', async (e) => {
       if (this.isFormulaInputFocused()) {
-        this.handleFormulaInputKeydown(e);
+        await this.handleFormulaInputKeydown(e);
         return;
       } else if (this.isCellInputFocused()) {
-        this.handleCellInputKeydown(e);
+        await this.handleCellInputKeydown(e);
         return;
       }
 
-      this.handleGridKeydown(e);
+      await this.handleGridKeydown(e);
     });
 
     document.addEventListener('keyup', () => {
@@ -257,7 +257,7 @@ export class Worksheet {
       e.preventDefault();
     } else {
       if (!this.isCellInputShown()) {
-        this.showCellInput(true, true);
+        await this.showCellInput(true, true);
       }
     }
   }
@@ -325,13 +325,13 @@ export class Worksheet {
     };
 
     if (e.key === 'ArrowDown') {
-      move('down', e.shiftKey, e.metaKey);
+      await move('down', e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowUp') {
-      move('up', e.shiftKey, e.metaKey);
+      await move('up', e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowLeft') {
-      move('left', e.shiftKey, e.metaKey);
+      await move('left', e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowRight') {
-      move('right', e.shiftKey, e.metaKey);
+      await move('right', e.shiftKey, e.metaKey);
     }
 
     if (e.key === 'Tab') {
@@ -348,7 +348,7 @@ export class Worksheet {
         this.render();
         this.scrollIntoView();
       } else {
-        this.showCellInput();
+        await this.showCellInput();
         this.cellInput.focus();
       }
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -358,7 +358,7 @@ export class Worksheet {
         this.render();
       }
     } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
-      this.showCellInput(true);
+      await this.showCellInput(true);
     }
   }
 
