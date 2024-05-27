@@ -1,5 +1,5 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
-import { ArgsContext } from '../../antlr/FormulaParser';
+import { ArgsContext } from '../../frontend/antlr/FormulaParser';
 import {
   EvalNode,
   BoolNode,

@@ -1,5 +1,5 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
-import { FunctionContext } from '../../antlr/FormulaParser';
+import { FunctionContext } from '../../frontend/antlr/FormulaParser';
 import { EvalNode } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../worksheet/types';

@@ -1,4 +1,4 @@
-# wafflebase
+# wafflebase frontend
 
 Wafflebase is a simple spreadsheet for large-scale data processing and analysis.
 
