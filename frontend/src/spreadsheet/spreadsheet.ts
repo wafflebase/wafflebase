@@ -1,6 +1,7 @@
 import { Sheet } from '../worksheet/sheet';
 import { Store } from '../store/store';
-import { createStore } from '../store/local';
+// import { createStore } from '../store/local';
+import { createBackendStore } from '../store/backend';
 
 import { Worksheet } from './worksheet';
 import { Dropzone } from './dropzone';
@@ -11,7 +12,7 @@ import { Dropzone } from './dropzone';
  */
 export async function setupSpreadsheet(container: HTMLDivElement) {
   const spreadsheet = new Spreadsheet(container);
-  const store = await createStore('spreadsheet');
+  const store = await createBackendStore('spreadsheet');
   await spreadsheet.initialize(store);
 }
 
