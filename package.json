@@ -17,17 +17,17 @@
     "@types/papaparse": "^5.3.14",
     "antlr4ts-cli": "^0.5.0-alpha.4",
     "husky": "^9.0.11",
-    "lint-staged": "^15.2.2",
-    "prettier": "^3.2.5",
-    "typescript": "^5.2.2",
-    "vite": "^5.2.0",
-    "vite-plugin-node-polyfills": "^0.21.0",
-    "vitest": "^1.4.0"
+    "lint-staged": "^15.2.7",
+    "prettier": "^3.3.2",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.3",
+    "vite-plugin-node-polyfills": "^0.22.0",
+    "vitest": "^1.6.0"
   },
   "dependencies": {
-    "@duckdb/duckdb-wasm": "^1.28.1-dev194.0",
+    "@duckdb/duckdb-wasm": "^1.28.1-dev234.0",
     "antlr4ts": "^0.5.0-alpha.4",
-    "apache-arrow": "^16.0.0",
+    "apache-arrow": "^16.1.0",
     "papaparse": "^5.4.1"
   }
 }
