@@ -201,20 +201,27 @@ class DuckDBStore {
     const cells = table.toArray();
     const first = cells[0];
     const hasValue = first[axis] === ref[axis];
+
     if (!hasValue) {
       return { r: first.r, c: first.c };
     }
 
-    if (hasValue && cells.length === 1) {
+    if (cells.length === 1) {
       return {
         [fixedAxis]: fixedValue,
         [axis]: isAscending ? fromValue : toValue,
       } as Ref;
     }
 
+    // NOTE(hackerwins): Find the cell on the edge. If ref is on the edge,
+    // return the next cell.
     for (let i = 1; i < cells.length; i++) {
-      if (cells[i][axis] !== cells[i - 1][axis] + (isAscending ? -1 : 1)) {
-        return { r: cells[i - 1].r, c: cells[i - 1].c };
+      const curr = cells[i - 1];
+      const next = cells[i];
+      if (next[axis] !== curr[axis] + (isAscending ? -1 : 1)) {
+        return curr[axis] == ref[axis]
+          ? { r: next.r, c: next.c }
+          : { r: curr.r, c: curr.c };
       }
     }
 
