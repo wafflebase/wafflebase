@@ -77,6 +77,14 @@ export function isRangeInRange(inner: Range, outer: Range): boolean {
 }
 
 /**
+ * `isCollapsedRange` returns whether the given Range is collapsed.
+ */
+export function isCollapsedRange(range: Range): boolean {
+  const [from, to] = range;
+  return from.r === to.r && from.c === to.c;
+}
+
+/**
  * `toRange` returns the range of the given Refs.
  * @param ref1
  * @param ref2
@@ -100,6 +108,69 @@ export function toRange(ref1: Ref, ref2: Ref): Range {
  */
 export function cloneRange(range: Range): Range {
   return [cloneRef(range[0]), cloneRef(range[1])];
+}
+
+/**
+ * `isSameRange` returns whether the given Ranges are the same.
+ */
+export function isSameRange(range1: Range, range2: Range): boolean {
+  return isSameRef(range1[0], range2[0]) && isSameRef(range1[1], range2[1]);
+}
+
+/**
+ * `toBorderRanges` returns the border ranges of the given range.
+ */
+export function toBorderRanges(range: Range, dimension: Range): Array<Range> {
+  const borders: Array<Range> = [];
+
+  if (range[0].r > dimension[0].r) {
+    borders.push([
+      { r: range[0].r - 1, c: range[0].c },
+      { r: range[0].r - 1, c: range[1].c },
+    ]);
+  }
+
+  if (range[1].r < dimension[1].r) {
+    borders.push([
+      { r: range[1].r + 1, c: range[0].c },
+      { r: range[1].r + 1, c: range[1].c },
+    ]);
+  }
+
+  if (range[0].c > dimension[0].c) {
+    borders.push([
+      { r: range[0].r, c: range[0].c - 1 },
+      { r: range[1].r, c: range[0].c - 1 },
+    ]);
+  }
+
+  if (range[1].c < dimension[1].c) {
+    borders.push([
+      { r: range[0].r, c: range[1].c + 1 },
+      { r: range[1].r, c: range[1].c + 1 },
+    ]);
+  }
+
+  return borders;
+}
+
+/**
+ * `mergeRanges` merges the given ranges into one range.
+ */
+export function mergeRanges(rangeA: Range, rangeB: Range): Range {
+  const [fromA, toA] = rangeA;
+  const [fromB, toB] = rangeB;
+
+  return [
+    {
+      r: Math.min(fromA.r, fromB.r),
+      c: Math.min(fromA.c, fromB.c),
+    },
+    {
+      r: Math.max(toA.r, toB.r),
+      c: Math.max(toA.c, toB.c),
+    },
+  ];
 }
 
 /**

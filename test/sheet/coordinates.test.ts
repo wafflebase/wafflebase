@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseRef, parseRange, toSrefs } from '../../src/worksheet/coordinates';
+import {
+  parseRef,
+  parseRange,
+  toSrefs,
+  toBorderRanges,
+} from '../../src/worksheet/coordinates';
+import { Range } from '../../src/worksheet/types';
 
 describe('parseRef', () => {
   it('should parse the Sref and return the Ref', () => {
@@ -45,5 +51,52 @@ describe('toSrefs', () => {
     expect(srefs.next().value).toEqual('B1');
     expect(srefs.next().value).toEqual('A2');
     expect(srefs.next().value).toEqual('B2');
+  });
+});
+
+describe('toBorderRanges', () => {
+  it('should return the border ranges for the given range', () => {
+    const range: Range = [
+      { r: 2, c: 2 },
+      { r: 3, c: 3 },
+    ];
+
+    const dimension: Range = [
+      { r: 1, c: 1 },
+      { r: 4, c: 4 },
+    ];
+
+    expect(toBorderRanges(range, dimension)).toEqual([
+      [
+        { r: 1, c: 2 },
+        { r: 1, c: 3 },
+      ],
+      [
+        { r: 4, c: 2 },
+        { r: 4, c: 3 },
+      ],
+      [
+        { r: 2, c: 1 },
+        { r: 3, c: 1 },
+      ],
+      [
+        { r: 2, c: 4 },
+        { r: 3, c: 4 },
+      ],
+    ]);
+  });
+
+  it('should exclude the border ranges that are outside the dimension', () => {
+    const range: Range = [
+      { r: 1, c: 1 },
+      { r: 1, c: 1 },
+    ];
+
+    const dimension: Range = [
+      { r: 1, c: 1 },
+      { r: 1, c: 1 },
+    ];
+
+    expect(toBorderRanges(range, dimension)).toEqual([]);
   });
 });
