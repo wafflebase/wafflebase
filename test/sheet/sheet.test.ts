@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Sheet } from '../../src/worksheet/sheet';
 
-describe('Sheet', () => {
+describe('Sheet.Data', () => {
   it('should correctly set and get data', async () => {
     const sheet = new Sheet();
     await sheet.setData({ r: 1, c: 1 }, '10');
@@ -12,7 +12,9 @@ describe('Sheet', () => {
     expect(await sheet.toInputString({ r: 1, c: 2 })).toBe('20');
     expect(await sheet.toInputString({ r: 1, c: 3 })).toBe('30');
   });
+});
 
+describe('Sheet.Selection', () => {
   it('should update selection', () => {
     const sheet = new Sheet();
     sheet.selectStart({ r: 1, c: 1 });
@@ -69,4 +71,39 @@ describe('Sheet', () => {
     await sheet.moveToEdge('right');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 6 });
   });
+});
+
+describe('Sheet.SelectAll', async () => {
+  const sheet = new Sheet();
+  await sheet.setData({ r: 2, c: 2 }, 'B2');
+  await sheet.setData({ r: 2, c: 3 }, 'C2');
+  await sheet.setData({ r: 3, c: 2 }, 'B3');
+  await sheet.setData({ r: 3, c: 3 }, 'C3');
+
+  const tests = [
+    {
+      msg: 'selection is outside of the content range',
+      start: { r: 1, c: 1 },
+      end: { r: 1, c: 1 },
+      expectedRange: sheet.dimensionRange,
+    },
+    {
+      msg: 'selection is on the top left corner of the content range',
+      start: { r: 2, c: 2 },
+      end: { r: 2, c: 2 },
+      expectedRange: [
+        { r: 2, c: 2 },
+        { r: 3, c: 3 },
+      ],
+    },
+  ];
+
+  for (const test of tests) {
+    it(test.msg, async () => {
+      await sheet.selectStart(test.start);
+      await sheet.selectEnd(test.end);
+      await sheet.selectAll();
+      expect(sheet.getRange()).toEqual(test.expectedRange);
+    });
+  }
 });

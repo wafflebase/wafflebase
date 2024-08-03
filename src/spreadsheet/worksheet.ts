@@ -332,9 +332,11 @@ export class Worksheet {
       move('left', e.shiftKey, e.metaKey);
     } else if (e.key === 'ArrowRight') {
       move('right', e.shiftKey, e.metaKey);
-    }
-
-    if (e.key === 'Tab') {
+    } else if (e.key === 'a' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      await this.sheet!.selectAll();
+      this.render();
+    } else if (e.key === 'Tab') {
       e.preventDefault();
 
       this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);

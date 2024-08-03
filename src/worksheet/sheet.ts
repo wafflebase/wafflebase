@@ -11,6 +11,10 @@ import {
   toSref,
   toSrefs,
   parseRef,
+  isCollapsedRange,
+  toBorderRanges,
+  isSameRange,
+  mergeRanges,
 } from './coordinates';
 import { Grid, Cell, Ref, Sref, Range, Direction } from './types';
 
@@ -157,6 +161,20 @@ export class Sheet {
   }
 
   /**
+   * `hasContents` checks if the given range has contents.
+   */
+  async hasContents(range: Range): Promise<boolean> {
+    // TODO(hackerwins): Optimize this to check with the store.
+    for (const ref of toRefs(range)) {
+      if (await this.store.get(ref)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * `fetchGridByReferences` fetches the grid by the given references.
    */
   async fetchGridByReferences(references: Set<Sref>): Promise<Grid> {
@@ -202,6 +220,14 @@ export class Sheet {
   }
 
   /**
+   * `getRangeOrActiveCell` returns the range of cells that are currently
+   * selected. It returns the active cell as a range if the range is not set.
+   */
+  getRangeOrActiveCell(): Range {
+    return this.range || [this.activeCell, this.activeCell];
+  }
+
+  /**
    * `selectStart` sets the start cell of the selection.
    */
   selectStart(ref: Ref): void {
@@ -234,6 +260,34 @@ export class Sheet {
    */
   hasRange(): boolean {
     return !!this.range;
+  }
+
+  /**
+   * `selectAll` selects all the cells in the sheet.
+   */
+  async selectAll(): Promise<void> {
+    let prev = this.getRangeOrActiveCell();
+    let curr = cloneRange(prev);
+
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const border of toBorderRanges(curr, this.dimensionRange)) {
+        if (!(await this.hasContents(border))) {
+          continue;
+        }
+
+        curr = mergeRanges(curr, border);
+        expanded = true;
+      }
+    }
+
+    if (isSameRange(prev, curr)) {
+      this.range = cloneRange(this.dimensionRange);
+      return;
+    }
+
+    this.range = curr;
   }
 
   /**
