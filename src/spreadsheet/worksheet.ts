@@ -17,6 +17,9 @@ const HeaderActiveBGColor = '#FFD580';
 const HeaderTextAlign = 'center';
 const RowHeaderWidth = 50;
 
+const ScrollIntervalMS = 10;
+const ScrollSpeedMS = 10;
+
 /**
  * BoundingRect represents the bounding rectangle of a cell.
  *
@@ -190,17 +193,76 @@ export class Worksheet {
       this.sheet!.selectStart(this.toRef(e.offsetX, e.offsetY));
       this.render();
 
+      let scrollInterval: NodeJS.Timeout | null = null;
+      let offsetX: number | null = null;
+      let offsetY: number | null = null;
       const onMove = (e: MouseEvent) => {
-        this.sheet!.selectEnd(this.toRef(e.offsetX, e.offsetY));
+        offsetX = e.offsetX;
+        offsetY = e.offsetY;
+
+        const viewport = this.viewport;
+        // NOTE(hackerwins): If the mouse is outside the scroll container,
+        // calculate the offset based on the sheet container.
+        if (e.target !== this.scrollContainer) {
+          offsetX = Math.max(
+            0,
+            Math.min(viewport.width, e.clientX - viewport.left),
+          );
+          offsetY = Math.max(
+            0,
+            Math.min(viewport.height, e.clientY - viewport.top),
+          );
+        }
+
+        this.sheet!.selectEnd(
+          this.toRef(offsetX + this.scroll.left, offsetY + this.scroll.top),
+        );
         this.render();
-      };
-      const onUp = () => {
-        this.scrollContainer.removeEventListener('mousemove', onMove);
-        this.scrollContainer.removeEventListener('mouseup', onUp);
+
+        const { clientX, clientY } = e;
+        if (scrollInterval) {
+          clearInterval(scrollInterval);
+        }
+
+        // Calculate the scroll offset based on the mouse position.
+        const scrollOffset = { x: 0, y: 0 };
+        if (clientX <= viewport.left) {
+          scrollOffset.x = -ScrollSpeedMS;
+        } else if (clientX >= viewport.width) {
+          scrollOffset.x = ScrollSpeedMS;
+        }
+
+        if (clientY <= viewport.top) {
+          scrollOffset.y = -ScrollSpeedMS;
+        } else if (clientY >= viewport.height) {
+          scrollOffset.y = ScrollSpeedMS;
+        }
+
+        if (scrollOffset.x !== 0 || scrollOffset.y !== 0) {
+          scrollInterval = setInterval(() => {
+            this.scrollContainer.scrollBy(scrollOffset.x, scrollOffset.y);
+            this.sheet!.selectEnd(
+              this.toRef(
+                offsetX! + this.scroll.left,
+                offsetY! + this.scroll.top,
+              ),
+            );
+            this.render();
+          }, ScrollIntervalMS);
+        }
       };
 
-      this.scrollContainer.addEventListener('mousemove', onMove);
-      this.scrollContainer.addEventListener('mouseup', onUp);
+      const onUp = () => {
+        if (scrollInterval) {
+          clearInterval(scrollInterval);
+        }
+
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
     });
 
     this.scrollContainer.addEventListener('dblclick', (e) => {
@@ -553,13 +615,17 @@ export class Worksheet {
     };
   }
 
-  private get viewport(): Size {
-    return {
-      width: this.scrollContainer.clientWidth,
-      height: this.scrollContainer.clientHeight,
-    };
+  /**
+   * `viewport` returns the viewport of the scroll container.
+   * It returns the position and size of the scroll container.
+   */
+  private get viewport(): BoundingRect {
+    return this.scrollContainer.getBoundingClientRect();
   }
 
+  /**
+   * `scroll` returns the scroll position of the scroll container.
+   */
   private get scroll(): Position {
     return {
       left: this.scrollContainer.scrollLeft,
@@ -567,6 +633,9 @@ export class Worksheet {
     };
   }
 
+  /**
+   * `scroll` sets the scroll position of the scroll container.
+   */
   private set scroll(position: { left?: number; top?: number }) {
     if (position.left !== undefined) {
       this.scrollContainer.scrollLeft = position.left;
