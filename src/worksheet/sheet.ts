@@ -11,12 +11,12 @@ import {
   toSref,
   toSrefs,
   parseRef,
-  isCollapsedRange,
   toBorderRanges,
   isSameRange,
   mergeRanges,
 } from './coordinates';
 import { Grid, Cell, Ref, Sref, Range, Direction } from './types';
+import { grid2string, string2grid } from './grids';
 
 /**
  * `Dimensions` represents the dimensions of the sheet.
@@ -158,6 +158,26 @@ export class Sheet {
    */
   async fetchGrid(range: Range): Promise<Grid> {
     return this.store.getGrid(range);
+  }
+
+  /**
+   * `copy` returns the copied content.
+   */
+  public async copy(): Promise<string> {
+    if (!this.range) {
+      return '';
+    }
+
+    const grid = await this.fetchGrid(this.range);
+    return grid2string(grid);
+  }
+
+  /**
+   * `paste` pastes the copied content.
+   */
+  public async paste(value: string): Promise<void> {
+    const grid = string2grid(this.activeCell, value);
+    await this.setGrid(grid);
   }
 
   /**

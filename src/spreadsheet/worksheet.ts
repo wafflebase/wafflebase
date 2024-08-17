@@ -364,6 +364,21 @@ export class Worksheet {
     }
   }
 
+  private async copy(): Promise<void> {
+    const data = await this.sheet!.copy();
+    await navigator.clipboard.writeText(data);
+  }
+
+  private async paste(): Promise<void> {
+    try {
+      const text = await navigator.clipboard.readText();
+      await this.sheet!.paste(text);
+      this.render();
+    } catch (err) {
+      console.error('Failed to paste cell content: ', err);
+    }
+  }
+
   /**
    * `handleGridKeydown` handles the keydown event for the grid.
    */
@@ -423,6 +438,12 @@ export class Worksheet {
       }
     } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
       this.showCellInput(true);
+    } else if (e.key === 'c' && e.metaKey) {
+      e.preventDefault();
+      await this.copy();
+    } else if (e.key === 'v' && e.metaKey) {
+      e.preventDefault();
+      await this.paste();
     }
   }
 
