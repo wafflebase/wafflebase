@@ -1,3 +1,5 @@
+import { setTextRange, toTextRange } from './textrange';
+import { extractTokens, Token } from '../formula/formula';
 import { toSref, toColumnLabel } from '../worksheet/coordinates';
 import { Sheet } from '../worksheet/sheet';
 import { Range, Ref, Grid, Cell, Direction } from '../worksheet/types';
@@ -19,6 +21,11 @@ const RowHeaderWidth = 50;
 
 const ScrollIntervalMS = 10;
 const ScrollSpeedMS = 10;
+
+const TokenColorMap = new Map<string, string>([
+  ['REFERENCE', 'green'],
+  ['NUM', 'blue'],
+]);
 
 /**
  * BoundingRect represents the bounding rectangle of a cell.
@@ -60,7 +67,7 @@ export class Worksheet {
   private scrollContainer: HTMLDivElement;
   private dummyContainer: HTMLDivElement;
   private inputContainer: HTMLDivElement;
-  private cellInput: HTMLInputElement;
+  private cellInput: HTMLDivElement;
   private gridCanvas: HTMLCanvasElement;
   private overlayCanvas: HTMLCanvasElement;
 
@@ -117,11 +124,18 @@ export class Worksheet {
     this.inputContainer.style.zIndex = '1';
     this.inputContainer.style.margin = '0px';
 
-    this.cellInput = document.createElement('input');
+    this.cellInput = document.createElement('div');
+    this.cellInput.contentEditable = 'true';
     this.cellInput.style.width = '100%';
     this.cellInput.style.height = '100%';
     this.cellInput.style.border = 'none';
     this.cellInput.style.outline = `2px solid ${ActiveCellColor}`;
+    this.cellInput.style.fontFamily = 'Arial, sans-serif';
+    this.cellInput.style.fontSize = '14px';
+    this.cellInput.style.fontWeight = 'normal';
+    this.cellInput.style.lineHeight = '1.5';
+    this.cellInput.style.color = 'black';
+    this.cellInput.style.backgroundColor = 'white';
     this.inputContainer.appendChild(this.cellInput);
 
     this.gridCanvas = this.sheetContainer.appendChild(
@@ -169,7 +183,7 @@ export class Worksheet {
     } else if (this.isCellInputFocused()) {
       await this.sheet!.setData(
         this.sheet!.getActiveCell(),
-        this.cellInput.value,
+        this.cellInput.innerText,
       );
       this.cellInput.blur();
       this.hideCellInput();
@@ -267,8 +281,11 @@ export class Worksheet {
 
     this.scrollContainer.addEventListener('dblclick', (e) => {
       this.showCellInput();
-      this.cellInput.focus();
       e.preventDefault();
+    });
+
+    this.cellInput.addEventListener('input', () => {
+      this.paintCellInput();
     });
 
     document.addEventListener('keydown', (e) => {
@@ -285,10 +302,10 @@ export class Worksheet {
 
     document.addEventListener('keyup', () => {
       if (this.isFormulaInputFocused()) {
-        this.cellInput.value = this.formulaInput.value;
+        this.cellInput.innerText = this.formulaInput.value;
         return;
       } else if (this.isCellInputFocused()) {
-        this.formulaInput.value = this.cellInput.value;
+        this.formulaInput.value = this.cellInput.innerText;
         return;
       }
     });
@@ -428,7 +445,6 @@ export class Worksheet {
         this.scrollIntoView();
       } else {
         this.showCellInput();
-        this.cellInput.focus();
       }
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
@@ -517,7 +533,7 @@ export class Worksheet {
    * `hasFormulaInCellInput` checks if the cell input has a formula.
    */
   private hasFormulaInCellInput(): boolean {
-    return this.cellInput.value.startsWith('=');
+    return this.cellInput.innerText.startsWith('=');
   }
 
   /**
@@ -531,11 +547,16 @@ export class Worksheet {
     const rect = this.toBoundingRect(selection);
     this.inputContainer.style.left = rect.left + 'px';
     this.inputContainer.style.top = rect.top + 'px';
-    this.cellInput.value = withoutValue
+    this.cellInput.innerText = withoutValue
       ? ''
       : await this.sheet!.toInputString(selection);
 
+    this.paintCellInput();
     if (!withoutFocus) {
+      setTextRange(this.cellInput, {
+        start: this.cellInput.innerText.length,
+        end: this.cellInput.innerText.length,
+      });
       this.cellInput.focus();
     }
   }
@@ -545,7 +566,7 @@ export class Worksheet {
    */
   private hideCellInput() {
     this.inputContainer.style.left = '-1000px';
-    this.cellInput.value = '';
+    this.cellInput.innerText = '';
     this.cellInput.blur();
   }
 
@@ -808,6 +829,68 @@ export class Worksheet {
       ctx.fillStyle = CellTextColor;
       ctx.font = '12px Arial';
       ctx.fillText(data, rect.left + 3, rect.top + 15);
+    }
+  }
+
+  private paintCellInput() {
+    const text = this.cellInput.innerText;
+    if (!text.startsWith('=')) {
+      return;
+    }
+
+    const tokens = extractTokens(text);
+    const filledTokens: Array<Token> = [];
+    let prevToken: Token | null = null;
+    for (const token of tokens) {
+      if (token.type === 'EOF') {
+        break;
+      }
+
+      const prevStop = prevToken ? prevToken.stop : 0;
+      const diff = token.start - prevStop;
+      if (diff > 1) {
+        filledTokens.push({
+          type: 'WHITESPACE',
+          start: prevStop,
+          stop: token.start,
+          text: ' '.repeat(diff - 1),
+        });
+      }
+      filledTokens.push(token);
+
+      prevToken = token;
+    }
+
+    const contents: Array<string> = [];
+    for (const token of filledTokens) {
+      if (token.type === 'EOF') {
+        break;
+      }
+
+      if (TokenColorMap.has(token.type)) {
+        contents.push(
+          `<span style="color: ${TokenColorMap.get(token.type)}">${token.text}</span>`,
+        );
+        continue;
+      }
+
+      let text = token.text;
+      // escapse characters for HTML content.
+      text = text.replace(/&/g, '&amp;');
+      text = text.replace(/</g, '&lt;');
+      text = text.replace(/>/g, '&gt;');
+      text = text.replace(/"/g, '&quot;');
+      text = text.replace(/'/g, '&#039;');
+      text = text.replace(/\n/g, '<br>');
+      text = text.replace(/ /g, '&nbsp;');
+
+      contents.push(token.text);
+    }
+
+    const textRange = toTextRange(this.cellInput);
+    this.cellInput.innerHTML = '=' + contents.join('');
+    if (textRange) {
+      setTextRange(this.cellInput, textRange);
     }
   }
 }
