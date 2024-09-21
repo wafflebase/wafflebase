@@ -18,6 +18,16 @@ import { NumberArgs } from './arguments';
 import { isSrng } from '../worksheet/coordinates';
 
 /**
+ * `Token` represents a token in the formula.
+ */
+export type Token = {
+  type: string;
+  start: number;
+  stop: number;
+  text: string;
+};
+
+/**
  * `extractReferences` returns references in the expression.
  */
 export function extractReferences(formula: string): Set<Reference> {
@@ -35,6 +45,32 @@ export function extractReferences(formula: string): Set<Reference> {
   }
 
   return references;
+}
+
+/**
+ * `extractTokens` returns tokens in the expression.
+ */
+export function extractTokens(formula: string): Array<Token> {
+  const stream = CharStreams.fromString(formula.slice(1));
+  const lexer = new FormulaLexer(stream);
+  const tokenStream = new CommonTokenStream(lexer);
+  lexer.removeErrorListeners();
+  tokenStream.fill();
+
+  const tokens: Array<Token> = [];
+  for (const token of tokenStream.getTokens()) {
+    tokens.push({
+      type:
+        token.type === -1
+          ? 'EOF'
+          : lexer.vocabulary.getSymbolicName(token.type)!,
+      start: token.startIndex,
+      stop: token.stopIndex,
+      text: token.text!,
+    });
+  }
+
+  return tokens;
 }
 
 /**
