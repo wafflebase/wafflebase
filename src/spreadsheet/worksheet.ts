@@ -3,6 +3,7 @@ import { extractTokens, Token } from '../formula/formula';
 import { toSref, toColumnLabel } from '../worksheet/coordinates';
 import { Sheet } from '../worksheet/sheet';
 import { Range, Ref, Grid, Cell, Direction } from '../worksheet/types';
+import { escapeHTML } from './htmlutils';
 
 const FormulaBarHeight = 23;
 const FormulaBarMargin = 10;
@@ -874,17 +875,7 @@ export class Worksheet {
         continue;
       }
 
-      let text = token.text;
-      // escapse characters for HTML content.
-      text = text.replace(/&/g, '&amp;');
-      text = text.replace(/</g, '&lt;');
-      text = text.replace(/>/g, '&gt;');
-      text = text.replace(/"/g, '&quot;');
-      text = text.replace(/'/g, '&#039;');
-      text = text.replace(/\n/g, '<br>');
-      text = text.replace(/ /g, '&nbsp;');
-
-      contents.push(token.text);
+      contents.push(escapeHTML(token.text));
     }
 
     const textRange = toTextRange(this.cellInput);
