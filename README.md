@@ -49,6 +49,7 @@ You need to have the following software installed on your system:
 #### Building & Testing
 
 ```bash
+cd frontend
 npm install
 npm run build
 npm test
@@ -57,6 +58,7 @@ npm test
 #### Running
 
 ```bash
+cd frontend
 npm run dev
 ```
 
@@ -67,5 +69,6 @@ Then open `http://localhost:5173` in your browser.
 If you make changes to the formula grammar, you need to rebuild the formula parser:
 
 ```bash
+cd frontend
 npm run build:formula
 ```
