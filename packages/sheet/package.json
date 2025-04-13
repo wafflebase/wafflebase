@@ -1,7 +1,8 @@
 {
-  "name": "wafflebase",
+  "name": "@wafflebase/sheet",
   "private": true,
   "version": "0.0.0",
+  "description": "Frontend for Wafflebase",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,10 +16,8 @@
   },
   "devDependencies": {
     "@types/papaparse": "^5.3.14",
-    "@duckdb/duckdb-wasm": "^1.28.1-dev234.0",
     "antlr4ts": "^0.5.0-alpha.4",
     "antlr4ts-cli": "^0.5.0-alpha.4",
-    "apache-arrow": "^16.1.0",
     "husky": "^9.0.11",
     "lint-staged": "^15.2.7",
     "prettier": "^3.3.2",

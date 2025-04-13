@@ -1,0 +1,15 @@
+{
+  "name": "wafflebase",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "frontend": "pnpm --filter @wafflebase/frontend",
+    "backend": "pnpm --filter @wafflebase/backend",
+    "sheet": "pnpm --filter @wafflebase/sheet"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.5.2"
+}

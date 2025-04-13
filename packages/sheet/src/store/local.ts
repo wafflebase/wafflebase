@@ -1,11 +1,11 @@
 import { Cell, Grid, Ref, Range, Sref, Direction } from '../worksheet/types';
 import { Store } from './store';
-import { createDuckDBStore } from './duckdb/duckdb';
 import { Cache } from './memory/cache';
+import { MemStore } from './memory/memory';
 import { expandRange, rangeOf } from '../worksheet/coordinates';
 
 export async function createStore(key: string): Promise<LocalStore> {
-  const store = await createDuckDBStore(key);
+  const store = new MemStore();
   return new LocalStore(store);
 }
 
