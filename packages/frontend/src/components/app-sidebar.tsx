@@ -1,13 +1,6 @@
 import * as React from "react";
-import {
-  IconCamera,
-  IconFileAi,
-  IconFileDescription,
-  IconFolder,
-  IconInnerShadowTop,
-  IconSettings,
-  IconUsers,
-} from "@tabler/icons-react";
+import { Link } from "react-router-dom";
+import { IconInnerShadowTop } from "@tabler/icons-react";
 
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -22,78 +15,17 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useMe } from "@/hooks/useMe";
+import { NavItem } from "@/types/nav-items";
 
-const data = {
-  navMain: [
-    {
-      title: "Documents",
-      url: "#",
-      icon: IconFolder,
-    },
-    {
-      title: "Team",
-      url: "#",
-      icon: IconUsers,
-    },
-  ],
-  navClouds: [
-    {
-      title: "Capture",
-      icon: IconCamera,
-      isActive: true,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Proposal",
-      icon: IconFileDescription,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Prompts",
-      icon: IconFileAi,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-  ],
-  navSecondary: [
-    {
-      title: "Settings",
-      url: "#",
-      icon: IconSettings,
-    },
-  ],
-};
-
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({
+  items,
+  ...props
+}: React.ComponentProps<typeof Sidebar> & {
+  items: {
+    main: Array<NavItem>;
+    secondary: Array<NavItem>;
+  };
+}) {
   const { me, isLoading } = useMe();
 
   if (isLoading) {
@@ -109,17 +41,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               asChild
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
-              <a href="#">
+              <Link to="/">
                 <IconInnerShadowTop className="!size-5" />
                 <span className="text-base font-semibold">Wafflebase</span>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
+        <NavMain items={items.main} />
+        <NavSecondary items={items.secondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={me!} />

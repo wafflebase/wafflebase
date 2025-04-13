@@ -1,10 +1,13 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import Login from "@/app/login/page";
-import Dashboard from "@/app/dashboard/page";
+import Documents from "@/app/documents/page";
+import Members from "@/app/members/page";
+import Settings from "@/app/settings/page";
 import { PrivateRoute } from "./PrivateRoute";
 import { PublicRoute } from "./PublicRoute";
 import { ThemeProvider } from "./components/theme-provider";
+import Layout from "./app/Layout";
 
 function App() {
   return (
@@ -15,7 +18,11 @@ function App() {
             <Route path="/login" element={<Login />} />
           </Route>
           <Route element={<PrivateRoute />}>
-            <Route path="/" element={<Dashboard />} />
+            <Route element={<Layout />}>
+              <Route path="/" element={<Documents />} />
+              <Route path="/members" element={<Members />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
           </Route>
         </Routes>
       </Router>

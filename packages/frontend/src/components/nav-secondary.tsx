@@ -1,7 +1,5 @@
-"use client"
-
-import * as React from "react"
-import { type Icon } from "@tabler/icons-react"
+import * as React from "react";
+import { Link } from "react-router-dom";
 
 import {
   SidebarGroup,
@@ -9,18 +7,15 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
+import { NavItem } from "@/types/nav-items";
 
 export function NavSecondary({
   items,
   ...props
-}: {
-  items: {
-    title: string
-    url: string
-    icon: Icon
-  }[]
-} & React.ComponentPropsWithoutRef<typeof SidebarGroup>) {
+}: { items: Array<NavItem> } & React.ComponentPropsWithoutRef<
+  typeof SidebarGroup
+>) {
   return (
     <SidebarGroup {...props}>
       <SidebarGroupContent>
@@ -28,15 +23,15 @@ export function NavSecondary({
           {items.map((item) => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton asChild>
-                <a href={item.url}>
-                  <item.icon />
+                <Link to={item.url} className="flex items-center gap-2">
+                  {item.icon && <item.icon />}
                   <span>{item.title}</span>
-                </a>
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
-  )
+  );
 }

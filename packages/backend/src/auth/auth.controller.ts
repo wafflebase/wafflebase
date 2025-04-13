@@ -20,7 +20,7 @@ export class AuthController {
 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
-  async logout(@Res() res: Response, @Req() req: Request & { user: User }) {
+  async logout(@Res() res: Response) {
     res.clearCookie('wafflebase_session', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -40,7 +40,7 @@ export class AuthController {
   @UseGuards(AuthGuard('github'))
   async githubAuthCallback(
     @Req() req: Request & { user: User },
-    @Res({ passthrough: true }) res: Response,
+    @Res() res: Response,
   ) {
     const { token } = await this.authService.createToken(req.user);
 

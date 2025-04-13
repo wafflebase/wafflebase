@@ -17,9 +17,7 @@ export function LoginForm({
       <div className="grid gap-6">
         <Button variant="outline" className="w-full" asChild>
           <Link
-            to={`${
-              import.meta.env.VITE_BACKEND_API_URL
-            }/auth/github?returnTo=${encodeURIComponent("/dashboard")}`}
+            to={`${import.meta.env.VITE_BACKEND_API_URL}/auth/github`}
             rel="noopener noreferrer"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">

@@ -6,7 +6,7 @@ export interface User {
   id: string;
   username: string;
   email: string;
-  returnTo?: string;
+  photo: string;
 }
 
 @Injectable()
@@ -18,6 +18,7 @@ export class AuthService {
       sub: user.id,
       username: user.username,
       email: user.email,
+      photo: user.photo,
     };
 
     return {
