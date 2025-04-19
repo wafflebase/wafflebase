@@ -16,20 +16,20 @@ const LightTheme = {
   cellBorderColor: '#D3D3D3',
   cellBGColor: '#FFFFFF',
   cellTextColor: '#000000',
-  activeCellColor: '#FFD580',
-  selectionBGColor: 'rgba(255, 213, 128, 0.1)',
+  activeCellColor: '#E6C746',
+  selectionBGColor: 'rgba(230, 199, 70, 0.1)',
   headerBGColor: '#F0F0F0',
-  headerActiveBGColor: '#FFD580',
+  headerActiveBGColor: '#E6C746',
 };
 
 const DarkTheme = {
   cellBorderColor: '#4A4A4A',
   cellBGColor: '#1E1E1E',
   cellTextColor: '#FFFFFF',
-  activeCellColor: '#FFD580',
-  selectionBGColor: 'rgba(255, 213, 128, 0.1)',
+  activeCellColor: '#D4B73E',
+  selectionBGColor: 'rgba(212, 183, 62, 0.1)',
   headerBGColor: '#2D2D2D',
-  headerActiveBGColor: '#FFD580',
+  headerActiveBGColor: '#D4B73E',
 };
 
 const HeaderTextAlign = 'center';
@@ -87,11 +87,22 @@ export class Worksheet {
   private cellInput: HTMLDivElement;
   private gridCanvas: HTMLCanvasElement;
   private overlayCanvas: HTMLCanvasElement;
-  private resizeObserver: ResizeObserver;
+
+  private listeners: Array<{
+    element: EventTarget;
+    type: string;
+    handler: EventListenerOrEventListenerObject;
+  }> = [];
+
   private boundRender: () => void;
   private boundHandleGridKeydown: (e: KeyboardEvent) => void;
   private boundHandleFormulaInputKeydown: (e: KeyboardEvent) => void;
   private boundHandleCellInputKeydown: (e: KeyboardEvent) => void;
+  private boundHandleMouseDown: (e: MouseEvent) => void;
+  private boundHandleDblClick: (e: MouseEvent) => void;
+  private boundHandleCellInput: () => void;
+  private boundHandleKeyDown: (e: KeyboardEvent) => void;
+  private boundHandleKeyUp: () => void;
 
   constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
@@ -176,54 +187,45 @@ export class Worksheet {
     this.container.appendChild(this.formulaBar);
     this.container.appendChild(this.sheetContainer);
 
-    this.resizeObserver = new ResizeObserver(() => {
-      this.render();
-    });
-
     this.boundRender = this.render.bind(this);
     this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
-    this.boundHandleFormulaInputKeydown = this.handleFormulaInputKeydown.bind(this);
+    this.boundHandleFormulaInputKeydown =
+      this.handleFormulaInputKeydown.bind(this);
     this.boundHandleCellInputKeydown = this.handleCellInputKeydown.bind(this);
+    this.boundHandleMouseDown = this.handleMouseDown.bind(this);
+    this.boundHandleDblClick = this.handleDblClick.bind(this);
+    this.boundHandleCellInput = this.paintCellInput.bind(this);
+    this.boundHandleKeyDown = this.handleKeyDown.bind(this);
+    this.boundHandleKeyUp = this.handleKeyUp.bind(this);
   }
 
   public initialize(sheet: Sheet) {
     this.sheet = sheet;
     this.addEventListeners();
-    this.resizeObserver.observe(this.container);
     this.render();
   }
 
   public cleanup() {
-    window.removeEventListener('resize', this.boundRender);
-    this.scrollContainer.removeEventListener('scroll', this.boundRender);
-    this.scrollContainer.removeEventListener('mousedown', this.boundHandleGridKeydown);
-    this.scrollContainer.removeEventListener('dblclick', this.boundHandleCellInputKeydown);
-    this.cellInput.removeEventListener('input', this.boundHandleCellInputKeydown);
-    document.removeEventListener('keydown', this.boundHandleGridKeydown);
-    document.removeEventListener('keydown', this.boundHandleFormulaInputKeydown);
-    document.removeEventListener('keydown', this.boundHandleCellInputKeydown);
-
-    this.resizeObserver.disconnect();
-
+    this.removeAllEventListeners();
     this.sheet = undefined;
     this.container.innerHTML = '';
   }
 
-  public getThemeColor(key: string) {
-    if (this.theme === 'light') {
-      return LightTheme[key];
-    }
-
-    return DarkTheme[key];
+  private addEventListener<K extends keyof HTMLElementEventMap>(
+    element: EventTarget,
+    type: K,
+    handler: (this: typeof element, ev: HTMLElementEventMap[K]) => any,
+    options?: boolean | AddEventListenerOptions,
+  ): void {
+    element.addEventListener(type, handler as any, options);
+    this.listeners.push({ element, type, handler: handler as any });
   }
 
-  /**
-   * `render` renders the spreadsheet in the container.
-   */
-  private render() {
-    this.paintFormulaBar();
-    this.paintSheet();
-    this.paintOverlay();
+  private removeAllEventListeners(): void {
+    for (const { element, type, handler } of this.listeners) {
+      element.removeEventListener(type, handler);
+    }
+    this.listeners = [];
   }
 
   /**
@@ -247,125 +249,52 @@ export class Worksheet {
     }
   }
 
+  private handleKeyDown(e: KeyboardEvent): void {
+    if (this.isFormulaInputFocused()) {
+      this.boundHandleFormulaInputKeydown(e);
+      return;
+    } else if (this.isCellInputFocused()) {
+      this.boundHandleCellInputKeydown(e);
+      return;
+    }
+
+    this.boundHandleGridKeydown(e);
+  }
+
+  private handleKeyUp(): void {
+    if (this.isFormulaInputFocused()) {
+      this.cellInput.innerText = this.formulaInput.value;
+      return;
+    } else if (this.isCellInputFocused()) {
+      this.formulaInput.value = this.cellInput.innerText;
+      return;
+    }
+  }
+
+  private handleDblClick(e: MouseEvent): void {
+    this.showCellInput();
+    e.preventDefault();
+  }
+
   /**
    * `addEventLisnters` adds event listeners to the spreadsheet.
    */
   private addEventListeners() {
-    window.addEventListener('resize', () => {
-      this.render();
-    });
-
-    this.scrollContainer.addEventListener('scroll', () => {
-      this.render();
-    });
-
-    this.scrollContainer.addEventListener('mousedown', async (e) => {
-      await this.finishEditing();
-      this.sheet!.selectStart(this.toRef(e.offsetX, e.offsetY));
-      this.render();
-
-      let scrollInterval: NodeJS.Timeout | null = null;
-      let offsetX: number | null = null;
-      let offsetY: number | null = null;
-      const onMove = (e: MouseEvent) => {
-        offsetX = e.offsetX;
-        offsetY = e.offsetY;
-
-        const viewport = this.viewport;
-        // NOTE(hackerwins): If the mouse is outside the scroll container,
-        // calculate the offset based on the sheet container.
-        if (e.target !== this.scrollContainer) {
-          offsetX = Math.max(
-            0,
-            Math.min(viewport.width, e.clientX - viewport.left),
-          );
-          offsetY = Math.max(
-            0,
-            Math.min(viewport.height, e.clientY - viewport.top),
-          );
-        }
-
-        this.sheet!.selectEnd(
-          this.toRef(offsetX + this.scroll.left, offsetY + this.scroll.top),
-        );
-        this.render();
-
-        const { clientX, clientY } = e;
-        if (scrollInterval) {
-          clearInterval(scrollInterval);
-        }
-
-        // Calculate the scroll offset based on the mouse position.
-        const scrollOffset = { x: 0, y: 0 };
-        if (clientX <= viewport.left) {
-          scrollOffset.x = -ScrollSpeedMS;
-        } else if (clientX >= viewport.width) {
-          scrollOffset.x = ScrollSpeedMS;
-        }
-
-        if (clientY <= viewport.top) {
-          scrollOffset.y = -ScrollSpeedMS;
-        } else if (clientY >= viewport.height) {
-          scrollOffset.y = ScrollSpeedMS;
-        }
-
-        if (scrollOffset.x !== 0 || scrollOffset.y !== 0) {
-          scrollInterval = setInterval(() => {
-            this.scrollContainer.scrollBy(scrollOffset.x, scrollOffset.y);
-            this.sheet!.selectEnd(
-              this.toRef(
-                offsetX! + this.scroll.left,
-                offsetY! + this.scroll.top,
-              ),
-            );
-            this.render();
-          }, ScrollIntervalMS);
-        }
-      };
-
-      const onUp = () => {
-        if (scrollInterval) {
-          clearInterval(scrollInterval);
-        }
-
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      };
-
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    });
-
-    this.scrollContainer.addEventListener('dblclick', (e) => {
-      this.showCellInput();
-      e.preventDefault();
-    });
-
-    this.cellInput.addEventListener('input', () => {
-      this.paintCellInput();
-    });
-
-    document.addEventListener('keydown', (e) => {
-      if (this.isFormulaInputFocused()) {
-        this.boundHandleFormulaInputKeydown(e);
-        return;
-      } else if (this.isCellInputFocused()) {
-        this.boundHandleCellInputKeydown(e);
-        return;
-      }
-
-      this.boundHandleGridKeydown(e);
-    });
-
-    document.addEventListener('keyup', () => {
-      if (this.isFormulaInputFocused()) {
-        this.cellInput.innerText = this.formulaInput.value;
-        return;
-      } else if (this.isCellInputFocused()) {
-        this.formulaInput.value = this.cellInput.innerText;
-        return;
-      }
-    });
+    this.addEventListener(window, 'resize', this.boundRender);
+    this.addEventListener(this.scrollContainer, 'scroll', this.boundRender);
+    this.addEventListener(
+      this.scrollContainer,
+      'mousedown',
+      this.boundHandleMouseDown,
+    );
+    this.addEventListener(
+      this.scrollContainer,
+      'dblclick',
+      this.boundHandleDblClick,
+    );
+    this.addEventListener(this.cellInput, 'input', this.boundHandleCellInput);
+    this.addEventListener(document, 'keydown', this.boundHandleKeyDown);
+    this.addEventListener(document, 'keyup', this.boundHandleKeyUp);
   }
 
   /**
@@ -373,6 +302,80 @@ export class Worksheet {
    */
   private isFormulaInputFocused(): boolean {
     return document.activeElement === this.formulaInput;
+  }
+
+  private async handleMouseDown(e: MouseEvent) {
+    await this.finishEditing();
+    this.sheet!.selectStart(this.toRef(e.offsetX, e.offsetY));
+    this.render();
+
+    let scrollInterval: NodeJS.Timeout | null = null;
+    let offsetX: number | null = null;
+    let offsetY: number | null = null;
+    const onMove = (e: MouseEvent) => {
+      offsetX = e.offsetX;
+      offsetY = e.offsetY;
+
+      const viewport = this.viewport;
+      // NOTE(hackerwins): If the mouse is outside the scroll container,
+      // calculate the offset based on the sheet container.
+      if (e.target !== this.scrollContainer) {
+        offsetX = Math.max(
+          0,
+          Math.min(viewport.width, e.clientX - viewport.left),
+        );
+        offsetY = Math.max(
+          0,
+          Math.min(viewport.height, e.clientY - viewport.top),
+        );
+      }
+
+      this.sheet!.selectEnd(
+        this.toRef(offsetX + this.scroll.left, offsetY + this.scroll.top),
+      );
+      this.render();
+
+      const { clientX, clientY } = e;
+      if (scrollInterval) {
+        clearInterval(scrollInterval);
+      }
+
+      // Calculate the scroll offset based on the mouse position.
+      const scrollOffset = { x: 0, y: 0 };
+      if (clientX <= viewport.left) {
+        scrollOffset.x = -ScrollSpeedMS;
+      } else if (clientX >= viewport.width) {
+        scrollOffset.x = ScrollSpeedMS;
+      }
+
+      if (clientY <= viewport.top) {
+        scrollOffset.y = -ScrollSpeedMS;
+      } else if (clientY >= viewport.height) {
+        scrollOffset.y = ScrollSpeedMS;
+      }
+
+      if (scrollOffset.x !== 0 || scrollOffset.y !== 0) {
+        scrollInterval = setInterval(() => {
+          this.scrollContainer.scrollBy(scrollOffset.x, scrollOffset.y);
+          this.sheet!.selectEnd(
+            this.toRef(offsetX! + this.scroll.left, offsetY! + this.scroll.top),
+          );
+          this.render();
+        }, ScrollIntervalMS);
+      }
+    };
+
+    const onUp = () => {
+      if (scrollInterval) {
+        clearInterval(scrollInterval);
+      }
+
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   /**
@@ -518,6 +521,30 @@ export class Worksheet {
       e.preventDefault();
       await this.paste();
     }
+  }
+
+  public getThemeColor(key: keyof typeof LightTheme): string {
+    if (this.theme === 'system') {
+      const prefersDark = window.matchMedia?.(
+        '(prefers-color-scheme: dark)',
+      ).matches;
+      return (prefersDark ? DarkTheme : LightTheme)[key];
+    }
+
+    if (this.theme === 'light') {
+      return LightTheme[key];
+    }
+
+    return DarkTheme[key];
+  }
+
+  /**
+   * `render` renders the spreadsheet in the container.
+   */
+  private render() {
+    this.paintFormulaBar();
+    this.paintSheet();
+    this.paintOverlay();
   }
 
   /**
@@ -858,7 +885,9 @@ export class Worksheet {
     label: string,
     selected: boolean,
   ) {
-    ctx.fillStyle = selected ? this.getThemeColor('headerActiveBGColor') : this.getThemeColor('headerBGColor');
+    ctx.fillStyle = selected
+      ? this.getThemeColor('headerActiveBGColor')
+      : this.getThemeColor('headerBGColor');
     ctx.fillRect(x, y, width, DefaultCellHeight);
     ctx.strokeStyle = this.getThemeColor('cellBorderColor');
     ctx.lineWidth = CellBorderWidth;

@@ -1,7 +1,7 @@
 {
   "name": "wafflebase",
   "version": "1.0.0",
-  "description": "",
+  "description": "Super Simple Spreadsheet",
   "main": "index.js",
   "scripts": {
     "dev": "concurrently \"pnpm frontend dev\" \"pnpm backend start\"",

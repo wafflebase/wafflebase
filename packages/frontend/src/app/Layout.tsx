@@ -30,17 +30,17 @@ export default function Layout() {
 
   return (
     <SidebarProvider>
-        <AppSidebar variant="inset" items={items} />
-        <SidebarInset>
-          <SiteHeader title={title} />
-          <div className="flex flex-1 flex-col">
-            <div className="@container/main flex flex-1 flex-col gap-2">
-              <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6 h-full">
-                <Outlet />
-              </div>
+      <AppSidebar variant="inset" items={items} />
+      <SidebarInset>
+        <SiteHeader title={title} />
+        <div className="flex flex-1 flex-col">
+          <div className="@container/main flex flex-1 flex-col gap-2">
+            <div className="flex flex-col h-full">
+              <Outlet />
             </div>
           </div>
-        </SidebarInset>
+        </div>
+      </SidebarInset>
     </SidebarProvider>
   );
 }

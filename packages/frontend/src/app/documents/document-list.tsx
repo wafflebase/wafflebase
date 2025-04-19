@@ -102,7 +102,7 @@ export function DataTable({ data }: { data: Document[] }) {
               <DropdownMenuLabel
                 className="cursor-pointer text-red-500"
                 onClick={() => {
-                  deleteDocumentMutation.mutate(row.getValue("id"));
+                  deleteDocumentMutation.mutate(String(row.getValue("id")));
                 }}
               >
                 Delete

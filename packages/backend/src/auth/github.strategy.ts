@@ -18,10 +18,11 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     const { id, username, emails, photos } = profile;
 
     return {
+      authProvider: 'github',
       githubId: id,
       username,
-      email: emails && emails[0].value,
-      photo: photos && photos[0].value,
+      email: emails?.[0]?.value,
+      photo: photos?.[0]?.value,
       accessToken,
     };
   }

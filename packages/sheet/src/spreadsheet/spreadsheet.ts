@@ -4,7 +4,7 @@ import { createStore } from '../store/local';
 
 import { Worksheet } from './worksheet';
 
-export type Theme = 'light' | 'dark';
+export type Theme = 'light' | 'dark' | 'system';
 
 export interface SetupOptions {
   theme?: Theme;

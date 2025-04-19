@@ -1,33 +1,31 @@
-import { useParams } from "react-router-dom";
 import { setup } from "@wafflebase/sheet";
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "@/components/theme-provider";
 
 export function DocumentDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { theme } = useTheme();
   const [didMount, setDidMount] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
 
+  // NOTE(hackerwins): To prevent the setup from being called twice
+  // by React.StrictMode in development mode.
   useEffect(() => {
     setDidMount(true);
   }, []);
 
   useEffect(() => {
-    if (!containerRef.current) {
+    const container = containerRef.current;
+    if (!didMount || !container) {
       return;
     }
 
-    async function setupSpreadsheet() {
-      if (!didMount) {
-        return;
-      }
-
-      const cleanup = await setup(containerRef.current!, {
-        theme: 'dark',
+    (async () => {
+      const cleanup = await setup(container, {
+        theme: theme,
       });
       cleanupRef.current = cleanup;
-    }
-    setupSpreadsheet();
+    })();
 
     return () => {
       if (cleanupRef.current) {
@@ -35,7 +33,7 @@ export function DocumentDetail() {
         cleanupRef.current = null;
       }
     };
-  }, [didMount, containerRef]);
+  }, [didMount]);
 
   return (
     <div className="h-full w-full">
