@@ -4,7 +4,6 @@ import {
   isRangeInRange,
   toRefs,
   toSref,
-  toSrng,
 } from '../../worksheet/coordinates';
 import { Cell, Grid, Range, Ref } from '../../worksheet/types';
 
@@ -72,7 +71,6 @@ export class Cache {
    * `evict` method evicts the cell values in the given range from the cache.
    */
   evict(range: Range) {
-    console.log('evicting', toSrng(range));
     this.grids = this.grids.filter((grid) => !isIntersect(range, grid.range));
   }
 

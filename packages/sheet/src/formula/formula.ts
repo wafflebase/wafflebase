@@ -59,18 +59,44 @@ export function extractTokens(formula: string): Array<Token> {
 
   const tokens: Array<Token> = [];
   for (const token of tokenStream.getTokens()) {
+    if (token.type == FormulaLexer.EOF) {
+      continue;
+    }
+
     tokens.push({
-      type:
-        token.type === -1
-          ? 'EOF'
-          : lexer.vocabulary.getSymbolicName(token.type)!,
+      type: lexer.vocabulary.getSymbolicName(token.type) || 'STRING',
       start: token.startIndex,
       stop: token.stopIndex,
       text: token.text!,
     });
   }
 
-  return tokens;
+  const filledTokens: Array<Token> = [];
+  let currToken: Token | undefined;
+  for (const token of tokens) {
+    if (currToken && currToken.stop + 1 !== token.start) {
+      filledTokens.push({
+        type: 'STRING',
+        start: currToken.stop + 1,
+        stop: token.start - 1,
+        text: formula.slice(currToken.stop + 2, token.start + 1),
+      });
+    }
+    filledTokens.push(token);
+
+    currToken = token;
+  }
+
+  if (currToken && currToken.stop + 2 < formula.length) {
+    filledTokens.push({
+      type: 'STRING',
+      start: currToken.stop + 1,
+      stop: formula.length - 1,
+      text: formula.slice(currToken.stop + 2),
+    });
+  }
+
+  return filledTokens;
 }
 
 /**

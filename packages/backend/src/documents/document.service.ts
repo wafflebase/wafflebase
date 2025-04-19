@@ -35,7 +35,6 @@ export class DocumentService {
     const doc = await this.prisma.document.create({
       data,
     });
-    console.log('doc', doc);
     return doc;
   }
 

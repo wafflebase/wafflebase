@@ -1,5 +1,5 @@
 import { setTextRange, toTextRange } from './textrange';
-import { extractTokens, Token } from '../formula/formula';
+import { extractTokens } from '../formula/formula';
 import { toSref, toColumnLabel } from '../worksheet/coordinates';
 import { Sheet } from '../worksheet/sheet';
 import { Range, Ref, Grid, Cell, Direction } from '../worksheet/types';
@@ -8,9 +8,16 @@ import { Theme } from './spreadsheet';
 
 const FormulaBarHeight = 23;
 const FormulaBarMargin = 10;
+
+const CellBorderWidth = 0.5;
 const DefaultCellWidth = 100;
 const DefaultCellHeight = 23;
-const CellBorderWidth = 0.5;
+
+const HeaderTextAlign = 'center';
+const RowHeaderWidth = 50;
+
+const ScrollIntervalMS = 10;
+const ScrollSpeedMS = 10;
 
 const LightTheme = {
   cellBorderColor: '#D3D3D3',
@@ -20,6 +27,8 @@ const LightTheme = {
   selectionBGColor: 'rgba(230, 199, 70, 0.1)',
   headerBGColor: '#F0F0F0',
   headerActiveBGColor: '#E6C746',
+  ['tokens.REFERENCE']: '#E6C746',
+  ['tokens.NUM']: '#4DA6FF',
 };
 
 const DarkTheme = {
@@ -30,18 +39,9 @@ const DarkTheme = {
   selectionBGColor: 'rgba(212, 183, 62, 0.1)',
   headerBGColor: '#2D2D2D',
   headerActiveBGColor: '#D4B73E',
+  ['tokens.REFERENCE']: '#D4B73E',
+  ['tokens.NUM']: '#4DA6FF',
 };
-
-const HeaderTextAlign = 'center';
-const RowHeaderWidth = 50;
-
-const ScrollIntervalMS = 10;
-const ScrollSpeedMS = 10;
-
-const TokenColorMap = new Map<string, string>([
-  ['REFERENCE', 'green'],
-  ['NUM', 'blue'],
-]);
 
 /**
  * BoundingRect represents the bounding rectangle of a cell.
@@ -524,13 +524,6 @@ export class Worksheet {
   }
 
   public getThemeColor(key: keyof typeof LightTheme): string {
-    if (this.theme === 'system') {
-      const prefersDark = window.matchMedia?.(
-        '(prefers-color-scheme: dark)',
-      ).matches;
-      return (prefersDark ? DarkTheme : LightTheme)[key];
-    }
-
     if (this.theme === 'light') {
       return LightTheme[key];
     }
@@ -658,7 +651,7 @@ export class Worksheet {
    * `isValidCellInput` checks if the key is a valid cell input.
    */
   private isValidCellInput(key: string): boolean {
-    return /^[a-zA-Z0-9 =-]$/.test(key);
+    return /^[a-zA-Z0-9 =:\-]$/.test(key);
   }
 
   /**
@@ -925,37 +918,11 @@ export class Worksheet {
     }
 
     const tokens = extractTokens(text);
-    const filledTokens: Array<Token> = [];
-    let prevToken: Token | null = null;
-    for (const token of tokens) {
-      if (token.type === 'EOF') {
-        break;
-      }
-
-      const prevStop = prevToken ? prevToken.stop : 0;
-      const diff = token.start - prevStop;
-      if (diff > 1) {
-        filledTokens.push({
-          type: 'WHITESPACE',
-          start: prevStop,
-          stop: token.start,
-          text: ' '.repeat(diff - 1),
-        });
-      }
-      filledTokens.push(token);
-
-      prevToken = token;
-    }
-
     const contents: Array<string> = [];
-    for (const token of filledTokens) {
-      if (token.type === 'EOF') {
-        break;
-      }
-
-      if (TokenColorMap.has(token.type)) {
+    for (const token of tokens) {
+      if (token.type === 'REFERENCE' || token.type === 'NUM') {
         contents.push(
-          `<span style="color: ${TokenColorMap.get(token.type)}">${token.text}</span>`,
+          `<span style="color: ${this.getThemeColor(`tokens.${token.type}`)}">${token.text}</span>`,
         );
         continue;
       }

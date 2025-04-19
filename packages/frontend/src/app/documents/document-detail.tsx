@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/theme-provider";
 
 export function DocumentDetail() {
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const [didMount, setDidMount] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -22,7 +22,7 @@ export function DocumentDetail() {
 
     (async () => {
       const cleanup = await setup(container, {
-        theme: theme,
+        theme: resolvedTheme,
       });
       cleanupRef.current = cleanup;
     })();
