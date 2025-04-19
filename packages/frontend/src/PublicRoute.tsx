@@ -1,10 +1,15 @@
 import { ReactElement } from "react";
 import { Navigate, Outlet } from "react-router-dom";
-import { useMe } from "./hooks/useMe";
 import { Loader } from "./components/loader";
+import { useQuery } from "@tanstack/react-query";
+import { fetchMe } from "./api/auth";
 
 export const PublicRoute = (): ReactElement => {
-  const { me, isLoading } = useMe();
+  const { data: me, isLoading } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+  });
 
   if (isLoading) {
     return <Loader />;

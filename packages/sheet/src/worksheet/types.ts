@@ -1,5 +1,3 @@
-import { parseRef } from './coordinates';
-
 /**
  * Reference type represents reference to cells in the sheet.
  */

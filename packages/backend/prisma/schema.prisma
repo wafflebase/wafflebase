@@ -1,0 +1,25 @@
+model User {
+  id    Int     @default(autoincrement()) @id
+  authProvider  String
+  username      String
+  email String  @unique
+  photo String?
+  documents Document[]
+}
+
+model Document {
+  id        Int      @default(autoincrement()) @id
+  title     String
+  authorID  Int?
+  author    User?    @relation(fields: [authorID], references: [id])
+  createdAt DateTime @default(now())
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}

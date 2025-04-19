@@ -4,7 +4,7 @@ import { Cache } from './memory/cache';
 import { MemStore } from './memory/memory';
 import { expandRange, rangeOf } from '../worksheet/coordinates';
 
-export async function createStore(key: string): Promise<LocalStore> {
+export async function createStore(): Promise<LocalStore> {
   const store = new MemStore();
   return new LocalStore(store);
 }

@@ -21,9 +21,9 @@ import { grid2string, string2grid } from './grids';
 /**
  * `Dimensions` represents the dimensions of the sheet.
  * This is used when the sheet is created for the first time.
- * It represents cells from A1 to ZZZ2147483647.
+ * It represents cells from A1 to ZZZ1048576.
  */
-const Dimensions = { rows: 2147483647, columns: 18278 };
+const Dimensions = { rows: 700000, columns: 18278 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -228,8 +228,15 @@ export class Sheet {
   /**
    * `getActiveCell` returns the currently selected cell.
    */
-  getActiveCell(): Ref {
+  public getActiveCell(): Ref {
     return this.activeCell;
+  }
+
+  /**
+   * `setActiveCell` sets the currently selected cell.
+   */
+  public setActiveCell(ref: Ref): void {
+    this.activeCell = ref;
   }
 
   /**

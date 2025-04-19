@@ -4,19 +4,34 @@ import { toSref, toColumnLabel } from '../worksheet/coordinates';
 import { Sheet } from '../worksheet/sheet';
 import { Range, Ref, Grid, Cell, Direction } from '../worksheet/types';
 import { escapeHTML } from './htmlutils';
+import { Theme } from './spreadsheet';
 
 const FormulaBarHeight = 23;
 const FormulaBarMargin = 10;
 const DefaultCellWidth = 100;
 const DefaultCellHeight = 23;
 const CellBorderWidth = 0.5;
-const CellBorderColor = '#D3D3D3';
-const CellBGColor = '#FFFFFF';
-const CellTextColor = '#000000';
-const ActiveCellColor = '#FFD580';
-const SelectionBGColor = 'rgba(255, 213, 128, 0.1)';
-const HeaderBGColor = '#F0F0F0';
-const HeaderActiveBGColor = '#FFD580';
+
+const LightTheme = {
+  cellBorderColor: '#D3D3D3',
+  cellBGColor: '#FFFFFF',
+  cellTextColor: '#000000',
+  activeCellColor: '#FFD580',
+  selectionBGColor: 'rgba(255, 213, 128, 0.1)',
+  headerBGColor: '#F0F0F0',
+  headerActiveBGColor: '#FFD580',
+};
+
+const DarkTheme = {
+  cellBorderColor: '#4A4A4A',
+  cellBGColor: '#1E1E1E',
+  cellTextColor: '#FFFFFF',
+  activeCellColor: '#FFD580',
+  selectionBGColor: 'rgba(255, 213, 128, 0.1)',
+  headerBGColor: '#2D2D2D',
+  headerActiveBGColor: '#FFD580',
+};
+
 const HeaderTextAlign = 'center';
 const RowHeaderWidth = 50;
 
@@ -59,6 +74,7 @@ type Size = {
  */
 export class Worksheet {
   private sheet?: Sheet;
+  private theme: Theme;
 
   private container: HTMLDivElement;
   private formulaBar: HTMLDivElement;
@@ -71,24 +87,30 @@ export class Worksheet {
   private cellInput: HTMLDivElement;
   private gridCanvas: HTMLCanvasElement;
   private overlayCanvas: HTMLCanvasElement;
+  private resizeObserver: ResizeObserver;
+  private boundRender: () => void;
+  private boundHandleGridKeydown: (e: KeyboardEvent) => void;
+  private boundHandleFormulaInputKeydown: (e: KeyboardEvent) => void;
+  private boundHandleCellInputKeydown: (e: KeyboardEvent) => void;
 
-  constructor(container: HTMLDivElement) {
+  constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
+    this.theme = theme;
 
     this.formulaBar = document.createElement('div');
     this.formulaBar.style.height = `${FormulaBarHeight}px`;
     this.formulaBar.style.margin = `${FormulaBarMargin}px 0px`;
     this.formulaBar.style.display = 'flex';
     this.formulaBar.style.alignItems = 'center';
-    this.formulaBar.style.borderTop = `1px solid ${CellBorderColor}`;
-    this.formulaBar.style.borderBottom = `1px solid ${CellBorderColor}`;
+    this.formulaBar.style.borderTop = `1px solid ${this.getThemeColor('cellBorderColor')}`;
+    this.formulaBar.style.borderBottom = `1px solid ${this.getThemeColor('cellBorderColor')}`;
     this.formulaBar.style.justifyContent = 'flex-start';
 
     this.cellLabel = document.createElement('div');
     this.cellLabel.style.width = '120px';
     this.cellLabel.style.textAlign = 'center';
     this.cellLabel.style.font = '12px Arial';
-    this.cellLabel.style.borderRight = `1px solid ${CellBorderColor}`;
+    this.cellLabel.style.borderRight = `1px solid ${this.getThemeColor('cellBorderColor')}`;
     this.formulaBar.appendChild(this.cellLabel);
 
     this.formulaInput = document.createElement('input');
@@ -130,13 +152,13 @@ export class Worksheet {
     this.cellInput.style.width = '100%';
     this.cellInput.style.height = '100%';
     this.cellInput.style.border = 'none';
-    this.cellInput.style.outline = `2px solid ${ActiveCellColor}`;
+    this.cellInput.style.outline = `2px solid ${this.getThemeColor('activeCellColor')}`;
     this.cellInput.style.fontFamily = 'Arial, sans-serif';
     this.cellInput.style.fontSize = '14px';
     this.cellInput.style.fontWeight = 'normal';
     this.cellInput.style.lineHeight = '1.5';
-    this.cellInput.style.color = 'black';
-    this.cellInput.style.backgroundColor = 'white';
+    this.cellInput.style.color = this.getThemeColor('cellTextColor');
+    this.cellInput.style.backgroundColor = this.getThemeColor('cellBGColor');
     this.inputContainer.appendChild(this.cellInput);
 
     this.gridCanvas = this.sheetContainer.appendChild(
@@ -153,12 +175,46 @@ export class Worksheet {
 
     this.container.appendChild(this.formulaBar);
     this.container.appendChild(this.sheetContainer);
+
+    this.resizeObserver = new ResizeObserver(() => {
+      this.render();
+    });
+
+    this.boundRender = this.render.bind(this);
+    this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
+    this.boundHandleFormulaInputKeydown = this.handleFormulaInputKeydown.bind(this);
+    this.boundHandleCellInputKeydown = this.handleCellInputKeydown.bind(this);
   }
 
   public initialize(sheet: Sheet) {
     this.sheet = sheet;
     this.addEventListeners();
+    this.resizeObserver.observe(this.container);
     this.render();
+  }
+
+  public cleanup() {
+    window.removeEventListener('resize', this.boundRender);
+    this.scrollContainer.removeEventListener('scroll', this.boundRender);
+    this.scrollContainer.removeEventListener('mousedown', this.boundHandleGridKeydown);
+    this.scrollContainer.removeEventListener('dblclick', this.boundHandleCellInputKeydown);
+    this.cellInput.removeEventListener('input', this.boundHandleCellInputKeydown);
+    document.removeEventListener('keydown', this.boundHandleGridKeydown);
+    document.removeEventListener('keydown', this.boundHandleFormulaInputKeydown);
+    document.removeEventListener('keydown', this.boundHandleCellInputKeydown);
+
+    this.resizeObserver.disconnect();
+
+    this.sheet = undefined;
+    this.container.innerHTML = '';
+  }
+
+  public getThemeColor(key: string) {
+    if (this.theme === 'light') {
+      return LightTheme[key];
+    }
+
+    return DarkTheme[key];
   }
 
   /**
@@ -291,14 +347,14 @@ export class Worksheet {
 
     document.addEventListener('keydown', (e) => {
       if (this.isFormulaInputFocused()) {
-        this.handleFormulaInputKeydown(e);
+        this.boundHandleFormulaInputKeydown(e);
         return;
       } else if (this.isCellInputFocused()) {
-        this.handleCellInputKeydown(e);
+        this.boundHandleCellInputKeydown(e);
         return;
       }
 
-      this.handleGridKeydown(e);
+      this.boundHandleGridKeydown(e);
     });
 
     document.addEventListener('keyup', () => {
@@ -772,7 +828,7 @@ export class Worksheet {
     const selection = this.sheet!.getActiveCell();
     const rect = this.toBoundingRect(selection);
 
-    ctx.strokeStyle = ActiveCellColor;
+    ctx.strokeStyle = this.getThemeColor('activeCellColor');
     ctx.lineWidth = 2;
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
 
@@ -783,9 +839,9 @@ export class Worksheet {
         this.toBoundingRect(range[1]),
       );
 
-      ctx.fillStyle = SelectionBGColor;
+      ctx.fillStyle = this.getThemeColor('selectionBGColor');
       ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
-      ctx.strokeStyle = ActiveCellColor;
+      ctx.strokeStyle = this.getThemeColor('activeCellColor');
       ctx.lineWidth = 1;
       ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
     }
@@ -802,12 +858,12 @@ export class Worksheet {
     label: string,
     selected: boolean,
   ) {
-    ctx.fillStyle = selected ? HeaderActiveBGColor : HeaderBGColor;
+    ctx.fillStyle = selected ? this.getThemeColor('headerActiveBGColor') : this.getThemeColor('headerBGColor');
     ctx.fillRect(x, y, width, DefaultCellHeight);
-    ctx.strokeStyle = CellBorderColor;
+    ctx.strokeStyle = this.getThemeColor('cellBorderColor');
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(x, y, width, DefaultCellHeight);
-    ctx.fillStyle = CellTextColor;
+    ctx.fillStyle = this.getThemeColor('cellTextColor');
     ctx.textAlign = HeaderTextAlign;
     ctx.font = selected ? 'bold 10px Arial' : '10px Arial';
     ctx.fillText(label, x + width / 2, y + 15);
@@ -819,15 +875,15 @@ export class Worksheet {
   private paintCell(ctx: CanvasRenderingContext2D, id: Ref, cell?: Cell) {
     const rect = this.toBoundingRect(id);
 
-    ctx.strokeStyle = CellTextColor;
+    ctx.strokeStyle = this.getThemeColor('cellTextColor');
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
-    ctx.fillStyle = CellBGColor;
+    ctx.fillStyle = this.getThemeColor('cellBGColor');
     ctx.fillRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
 
     const data = cell?.v || '';
     if (data) {
-      ctx.fillStyle = CellTextColor;
+      ctx.fillStyle = this.getThemeColor('cellTextColor');
       ctx.font = '12px Arial';
       ctx.fillText(data, rect.left + 3, rect.top + 15);
     }

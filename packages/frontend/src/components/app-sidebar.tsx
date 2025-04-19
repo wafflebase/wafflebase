@@ -14,8 +14,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { useMe } from "@/hooks/useMe";
 import { NavItem } from "@/types/nav-items";
+import { useQuery } from "@tanstack/react-query";
+import { fetchMe } from "@/api/auth";
 
 export function AppSidebar({
   items,
@@ -26,7 +27,11 @@ export function AppSidebar({
     secondary: Array<NavItem>;
   };
 }) {
-  const { me, isLoading } = useMe();
+  const { data: me, isLoading } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+  });
 
   if (isLoading) {
     return null;
