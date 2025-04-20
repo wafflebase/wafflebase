@@ -1,13 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-
-export interface User {
-  authProvider: 'github';
-  id: string;
-  username: string;
-  email: string;
-  photo: string;
-}
+import { User } from '@prisma/client';
 
 @Injectable()
 export class AuthService {

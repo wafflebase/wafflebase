@@ -1,20 +1,23 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AuthService, User } from './auth.service';
+import { AuthService } from './auth.service';
+import { UserService } from '../user/user.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
+import { AuthenticatedRequest } from './auth.types';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly userService: UserService,
     private readonly configService: ConfigService,
   ) {}
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  async getMe(@Req() req: Request & { user: User }) {
+  async getMe(@Req() req: AuthenticatedRequest) {
     return req.user;
   }
 
@@ -39,10 +42,22 @@ export class AuthController {
   @Get('github/callback')
   @UseGuards(AuthGuard('github'))
   async githubAuthCallback(
-    @Req() req: Request & { user: User },
+    @Req() req: AuthenticatedRequest,
     @Res() res: Response,
   ) {
-    const { token } = await this.authService.createToken(req.user);
+    const githubUser = req.user;
+
+    const user = await this.userService.findOrCreateUser({
+      authProvider: 'github',
+      username: githubUser.username,
+      email: githubUser.email,
+    });
+
+    if (!user) {
+      throw new Error('User not found or created');
+    }
+
+    const { token } = await this.authService.createToken(user);
 
     res.cookie('wafflebase_session', token, {
       httpOnly: true,

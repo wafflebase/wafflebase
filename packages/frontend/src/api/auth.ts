@@ -19,6 +19,7 @@ export async function logout(): Promise<void> {
   }
 
   toast.success("Logged out successfully");
+  window.location.href = "/login";
 }
 
 /**
@@ -26,14 +27,32 @@ export async function logout(): Promise<void> {
  * Throws an error if the request fails.
  */
 export async function fetchMe(): Promise<User> {
-  const res = await fetch(`${import.meta.env.VITE_BACKEND_API_URL}/auth/me`, {
-    method: "GET",
-    credentials: "include",
-  });
+  const res = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/auth/me`,
+    {
+      method: "GET",
+      credentials: "include",
+    }
+  );
 
   if (!res.ok) {
     throw new Error("Failed to fetch user");
   }
 
   return res.json();
+}
+
+export async function fetchWithAuth(input: RequestInfo, init?: RequestInit) {
+  const response = await fetch(input, {
+    ...init,
+    credentials: "include",
+  });
+
+  if (response.status === 401) {
+    toast.error("Session expired. Logging out...");
+    logout();
+    throw new Error("Unauthorized");
+  }
+
+  return response;
 }

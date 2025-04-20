@@ -3,7 +3,7 @@ import { User, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 
 @Injectable()
-export class UsersService {
+export class UserService {
   constructor(private prisma: PrismaService) {}
 
   async user(
@@ -32,6 +32,20 @@ export class UsersService {
   }
 
   async createUser(data: Prisma.UserCreateInput): Promise<User> {
+    return this.prisma.user.create({
+      data,
+    });
+  }
+
+  async findOrCreateUser(data: Prisma.UserCreateInput): Promise<User | null> {
+    const user = await this.prisma.user.findUnique({
+      where: {
+        email: data.email,
+      },
+    });
+    if (user) {
+      return user;
+    }
     return this.prisma.user.create({
       data,
     });

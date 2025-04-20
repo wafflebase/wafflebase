@@ -22,7 +22,6 @@ export function NavUser({ user }: { user: User }) {
   const { isMobile } = useSidebar();
   const handleLogout = async () => {
     await logout();
-    window.location.href = "/login";
   };
 
   return (
