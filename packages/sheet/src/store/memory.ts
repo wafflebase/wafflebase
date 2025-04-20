@@ -1,11 +1,6 @@
-import { extractReferences } from '../../formula/formula';
-import {
-  inRange,
-  parseRef,
-  toSref,
-  toSrefs,
-} from '../../worksheet/coordinates';
-import { Cell, Grid, Ref, Range, Sref } from '../../worksheet/types';
+import { extractReferences } from '../formula/formula';
+import { inRange, parseRef, toSref, toSrefs } from '../worksheet/coordinates';
+import { Cell, Grid, Ref, Range, Sref } from '../worksheet/types';
 
 /**
  * `MemStore` class represents an in-memory storage.

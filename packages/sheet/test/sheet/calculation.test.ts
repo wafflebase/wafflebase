@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { MemStore } from '../../src/store/memory';
 import { Sheet } from '../../src/worksheet/sheet';
 
 describe('Sheet.Calcuation', () => {
   it('should calculate cells', async () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
     await sheet.setData({ r: 1, c: 2 }, '=A1+20');
     await sheet.setData({ r: 1, c: 3 }, '=B1+30');
@@ -14,7 +15,7 @@ describe('Sheet.Calcuation', () => {
   });
 
   it('should calculate cells recursively', async () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
     await sheet.setData({ r: 1, c: 2 }, '=A1+20');
     await sheet.setData({ r: 1, c: 3 }, '=B1+30');
@@ -33,7 +34,7 @@ describe('Sheet.Calcuation', () => {
   });
 
   it('should handle circular dependencies', async () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '=B1+10');
     await sheet.setData({ r: 1, c: 2 }, '=A1+20');
 
@@ -46,7 +47,7 @@ describe('Sheet.Calcuation', () => {
   });
 
   it('should handle lower case references', async () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
     await sheet.setData({ r: 1, c: 2 }, '=a1+30');
 
@@ -55,7 +56,7 @@ describe('Sheet.Calcuation', () => {
   });
 
   it('should handle string filters in references', async () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
     await sheet.setData({ r: 1, c: 2 }, '20');
     await sheet.setData({ r: 1, c: 3 }, 'hello');
@@ -68,7 +69,7 @@ describe('Sheet.Calcuation', () => {
   });
 
   it('should handle invalid value: range without array function', async () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '1');
     await sheet.setData({ r: 1, c: 2 }, '2');
     await sheet.setData({ r: 1, c: 3 }, '=A1:B1');

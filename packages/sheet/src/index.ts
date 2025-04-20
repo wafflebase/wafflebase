@@ -1,3 +1,4 @@
-import { setup } from './spreadsheet/spreadsheet.ts';
+import { initialize, Spreadsheet } from './spreadsheet/spreadsheet.ts';
+import { type Store } from './store/store.ts';
 
-export { setup };
+export { initialize, Spreadsheet, Store };

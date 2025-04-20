@@ -1,13 +1,13 @@
 import { Sheet } from '../worksheet/sheet';
 import { Store } from '../store/store';
-import { createStore } from '../store/local';
-
+import { MemStore } from '../store/memory';
 import { Worksheet } from './worksheet';
 
 export type Theme = 'light' | 'dark';
 
-export interface SetupOptions {
+export interface Options {
   theme?: Theme;
+  store?: Store;
 }
 
 /**
@@ -16,11 +16,14 @@ export interface SetupOptions {
  * @param options Optional setup options.
  * @returns A function to clean up the spreadsheet.
  */
-export async function setup(container: HTMLDivElement, options?: SetupOptions) {
+export function initialize(
+  container: HTMLDivElement,
+  options?: Options,
+): Spreadsheet {
   const spreadsheet = new Spreadsheet(container, options);
-  const store = await createStore();
+  const store = options?.store || new MemStore();
   spreadsheet.initialize(store);
-  return () => spreadsheet.cleanup();
+  return spreadsheet;
 }
 
 /**
@@ -34,7 +37,7 @@ export class Spreadsheet {
   /**
    * `constructor` initializes the spreadsheet with the given grid.
    */
-  constructor(container: HTMLDivElement, options?: SetupOptions) {
+  constructor(container: HTMLDivElement, options?: Options) {
     this.container = container;
     this.container.style.position = 'relative';
     this.container.style.overflow = 'hidden';

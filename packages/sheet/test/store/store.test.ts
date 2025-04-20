@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Store } from '../../src/store/store';
-import { MemStore } from '../../src/store/memory/memory';
+import { MemStore } from '../../src/store/memory';
 
 describe('MemStore', () => {
   runTests(async () => new MemStore());

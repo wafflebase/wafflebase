@@ -1,4 +1,3 @@
-import { MemStore } from '../store/memory/memory';
 import { Store } from '../store/store';
 import { calculate } from './calculator';
 import {
@@ -23,7 +22,7 @@ import { grid2string, string2grid } from './grids';
  * This is used when the sheet is created for the first time.
  * It represents cells from A1 to ZZZ1048576.
  */
-const Dimensions = { rows: 700000, columns: 18278 };
+const Dimensions = { rows: 1048576, columns: 18278 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -53,8 +52,8 @@ export class Sheet {
    * `constructor` creates a new `Sheet` instance.
    * @param grid optional grid to initialize the sheet.
    */
-  constructor(store?: Store) {
-    this.store = store || new MemStore();
+  constructor(store: Store) {
+    this.store = store;
     this.dimension = { ...Dimensions };
     this.activeCell = { r: 1, c: 1 };
   }

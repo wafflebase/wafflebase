@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { MemStore } from '../../src/store/memory';
 import { Sheet } from '../../src/worksheet/sheet';
 
 describe('Sheet.Data', () => {
   it('should correctly set and get data', async () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
     await sheet.setData({ r: 1, c: 2 }, '20');
     await sheet.setData({ r: 1, c: 3 }, '30');
@@ -16,7 +17,7 @@ describe('Sheet.Data', () => {
 
 describe('Sheet.Selection', () => {
   it('should update selection', () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     sheet.selectStart({ r: 1, c: 1 });
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 1 });
 
@@ -25,7 +26,7 @@ describe('Sheet.Selection', () => {
   });
 
   it('should move selection', () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
 
     sheet.move('down');
     expect(sheet.getActiveCell()).toEqual({ r: 2, c: 1 });
@@ -41,7 +42,7 @@ describe('Sheet.Selection', () => {
   });
 
   it('should not move selection beyond sheet dimensions', () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
 
     sheet.move('up');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 1 });
@@ -54,7 +55,7 @@ describe('Sheet.Selection', () => {
   });
 
   it('should correctly move to content edge', async () => {
-    const sheet = new Sheet();
+    const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
     await sheet.setData({ r: 1, c: 2 }, '20');
 
@@ -74,7 +75,7 @@ describe('Sheet.Selection', () => {
 });
 
 describe('Sheet.SelectAll', async () => {
-  const sheet = new Sheet();
+  const sheet = new Sheet(new MemStore());
   await sheet.setData({ r: 2, c: 2 }, 'B2');
   await sheet.setData({ r: 2, c: 3 }, 'C2');
   await sheet.setData({ r: 3, c: 2 }, 'B3');

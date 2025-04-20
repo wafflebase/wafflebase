@@ -1,15 +1,15 @@
-import { setup } from "@wafflebase/sheet";
+import { initialize, Spreadsheet } from "@wafflebase/sheet";
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/theme-provider";
 
 export function DocumentDetail() {
-  const { resolvedTheme } = useTheme();
-  const [didMount, setDidMount] = useState(false);
+  const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
+  const [didMount, setDidMount] = useState(false);
+  const [spreadsheet, setSpreadsheet] = useState<Spreadsheet | null>(null);
 
-  // NOTE(hackerwins): To prevent the setup from being called twice
-  // by React.StrictMode in development mode.
+  // NOTE(hackerwins): To prevent initialization of the spreadsheet
+  // twice in development.
   useEffect(() => {
     setDidMount(true);
   }, []);
@@ -20,17 +20,12 @@ export function DocumentDetail() {
       return;
     }
 
-    (async () => {
-      const cleanup = await setup(container, {
-        theme: resolvedTheme,
-      });
-      cleanupRef.current = cleanup;
-    })();
+    setSpreadsheet(initialize(container, { theme }));
 
     return () => {
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
+      if (spreadsheet) {
+        spreadsheet.cleanup();
+        setSpreadsheet(null);
       }
     };
   }, [didMount]);
