@@ -1,4 +1,4 @@
-import * as React from "react";
+import { MouseEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -101,7 +101,8 @@ export function DataTable({ data }: { data: Document[] }) {
             <DropdownMenuContent align="end">
               <DropdownMenuLabel
                 className="cursor-pointer text-red-500"
-                onClick={() => {
+                onClick={(e: MouseEvent<HTMLElement>) => {
+                  e.stopPropagation();
                   deleteDocumentMutation.mutate(String(row.getValue("id")));
                 }}
               >
@@ -124,13 +125,10 @@ export function DataTable({ data }: { data: Document[] }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
   });
 
-  const [sorting, setSorting] = React.useState<SortingState>([]);
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    []
-  );
-  const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>({});
-  const [rowSelection, setRowSelection] = React.useState({});
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [rowSelection, setRowSelection] = useState({});
 
   const table = useReactTable({
     data,
@@ -157,8 +155,8 @@ export function DataTable({ data }: { data: Document[] }) {
         <Input
           placeholder="Filter by title..."
           value={(table.getColumn("title")?.getFilterValue() as string) ?? ""}
-          onChange={(event) =>
-            table.getColumn("title")?.setFilterValue(event.target.value)
+          onChange={(e) =>
+            table.getColumn("title")?.setFilterValue(e.target.value)
           }
           className="max-w-sm"
         />
@@ -199,7 +197,7 @@ export function DataTable({ data }: { data: Document[] }) {
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
                   className="cursor-pointer hover:bg-muted"
-                  onClick={(e) => {
+                  onClick={(e: MouseEvent<HTMLElement>) => {
                     if ((e.target as HTMLElement).closest("input, button")) {
                       return;
                     }

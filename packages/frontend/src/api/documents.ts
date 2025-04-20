@@ -30,6 +30,20 @@ export async function fetchDocuments(): Promise<Array<Document>> {
   return await response.json();
 }
 
+export async function fetchDocument(id: string): Promise<Document> {
+  const response = await fetch(
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`
+  );
+  if (!response.ok) {
+    throw new Error("Failed to fetch document");
+  }
+  const document = await response.json();
+  if (!document) {
+    throw new Error("Document not found");
+  }
+  return document;
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   const response = await fetch(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`,
