@@ -24,8 +24,8 @@ const items = {
 export default function Layout() {
   const location = useLocation();
   const title =
-    items.main.find((item) => location.pathname.startsWith(item.url))?.title ||
     items.secondary.find((item) => item.url === location.pathname)?.title ||
+    items.main.find((item) => location.pathname.startsWith(item.url))?.title ||
     "";
 
   return (

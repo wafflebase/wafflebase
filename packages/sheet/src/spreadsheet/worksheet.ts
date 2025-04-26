@@ -534,7 +534,7 @@ export class Worksheet {
   /**
    * `render` renders the spreadsheet in the container.
    */
-  private render() {
+  public render() {
     this.paintFormulaBar();
     this.paintSheet();
     this.paintOverlay();

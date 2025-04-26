@@ -51,6 +51,7 @@ export class AuthController {
       authProvider: 'github',
       username: githubUser.username,
       email: githubUser.email,
+      photo: githubUser.photo,
     });
 
     if (!user) {

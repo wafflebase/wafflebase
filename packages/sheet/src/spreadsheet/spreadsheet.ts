@@ -54,6 +54,13 @@ export class Spreadsheet {
     this.worksheet.initialize(sheet);
   }
 
+  /**
+   * `render` renders the spreadsheet.
+   */
+  public render() {
+    this.worksheet.render();
+  }
+
   public cleanup() {
     this.worksheet.cleanup();
   }

@@ -50,7 +50,7 @@ export async function fetchWithAuth(input: RequestInfo, init?: RequestInit) {
 
   if (response.status === 401) {
     toast.error("Session expired. Logging out...");
-    logout();
+    await logout();
     throw new Error("Unauthorized");
   }
 

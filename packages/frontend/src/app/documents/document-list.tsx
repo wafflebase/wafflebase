@@ -63,8 +63,11 @@ export function DataTable({ data }: { data: Document[] }) {
       enableSorting: false,
       enableHiding: false,
     },
+    // TODO(hackerwins): Remove this column when we find a way to
+    // get the id in removeDocument mutation.
     {
       accessorKey: "id",
+      header: "ID",
       enableHiding: true,
     },
     {

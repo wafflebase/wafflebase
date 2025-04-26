@@ -54,7 +54,6 @@ export class DocumentController {
     @Req() req: AuthenticatedRequest,
     @Body() doc: DocumentModel,
   ): Promise<DocumentModel> {
-    console.log(req.user.id);
     doc.authorID = Number(req.user.id);
     return this.documentService.createDocument(doc);
   }

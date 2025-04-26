@@ -1,39 +1,16 @@
-import { initialize, Spreadsheet } from "@wafflebase/sheet";
-import { useEffect, useRef, useState } from "react";
-import { useTheme } from "@/components/theme-provider";
+import { DocumentProvider } from "@yorkie-js/react";
+import { useParams } from "react-router-dom";
+import SheetView from "@/app/spreadsheet/sheet-view";
+import { initialWorksheet } from "@/types/worksheet";
 
 export function DocumentDetail() {
-  const { resolvedTheme: theme } = useTheme();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [didMount, setDidMount] = useState(false);
-  const [spreadsheet, setSpreadsheet] = useState<Spreadsheet | null>(null);
-
-  // NOTE(hackerwins): To prevent initialization of the spreadsheet
-  // twice in development.
-  useEffect(() => {
-    setDidMount(true);
-  }, []);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!didMount || !container) {
-      return;
-    }
-
-    setSpreadsheet(initialize(container, { theme }));
-
-    return () => {
-      if (spreadsheet) {
-        spreadsheet.cleanup();
-        setSpreadsheet(null);
-      }
-    };
-  }, [didMount]);
-
+  const { id } = useParams();
+  // NOTE(hackerwins): Fetch the document from the server using the id.
+  // NOTE(hackerwins): instead of using the document id, consider using hash-based key.
   return (
-    <div className="h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
-    </div>
+    <DocumentProvider docKey={`sheet-${id}`} initialRoot={initialWorksheet}>
+      <SheetView />
+    </DocumentProvider>
   );
 }
 

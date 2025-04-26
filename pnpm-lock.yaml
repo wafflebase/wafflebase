@@ -74,7 +74,7 @@ importers:
         version: 9.24.0
       '@nestjs/cli':
         specifier: ^11.0.0
-        version: 11.0.6(@swc/cli@0.6.0(@swc/core@1.11.20)(chokidar@4.0.3))(@swc/core@1.11.20)(@types/node@22.14.1)(esbuild@0.25.2)
+        version: 11.0.6(@swc/cli@0.7.3(@swc/core@1.11.20)(chokidar@4.0.3))(@swc/core@1.11.20)(@types/node@22.14.1)(esbuild@0.25.2)
       '@nestjs/schematics':
         specifier: ^11.0.0
         version: 11.0.5(chokidar@4.0.3)(typescript@5.7.3)
@@ -82,8 +82,8 @@ importers:
         specifier: ^11.0.1
         version: 11.0.16(@nestjs/common@11.0.16(file-type@19.6.0)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.0.16)(@nestjs/platform-express@11.0.16)
       '@swc/cli':
-        specifier: ^0.6.0
-        version: 0.6.0(@swc/core@1.11.20)(chokidar@4.0.3)
+        specifier: ^0.7.3
+        version: 0.7.3(@swc/core@1.11.20)(chokidar@4.0.3)
       '@swc/core':
         specifier: ^1.10.7
         version: 1.11.20
@@ -192,6 +192,9 @@ importers:
       '@radix-ui/react-slot':
         specifier: ^1.2.0
         version: 1.2.0(@types/react@19.1.1)(react@19.1.0)
+      '@radix-ui/react-switch':
+        specifier: ^1.2.2
+        version: 1.2.2(@types/react-dom@19.1.2(@types/react@19.1.1))(@types/react@19.1.1)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       '@radix-ui/react-tabs':
         specifier: ^1.1.4
         version: 1.1.4(@types/react-dom@19.1.2(@types/react@19.1.1))(@types/react@19.1.1)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -219,6 +222,9 @@ importers:
       '@wafflebase/sheet':
         specifier: workspace:*
         version: link:../sheet
+      '@yorkie-js/react':
+        specifier: 0.6.8-rc
+        version: 0.6.8-rc(react@19.1.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -229,8 +235,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       lucide-react:
-        specifier: ^0.501.0
-        version: 0.501.0(react@19.1.0)
+        specifier: ^0.503.0
+        version: 0.503.0(react@19.1.0)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
@@ -539,9 +545,23 @@ packages:
   '@bcoe/v8-coverage@0.2.3':
     resolution: {integrity: sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw==}
 
+  '@bufbuild/protobuf@1.10.1':
+    resolution: {integrity: sha512-wJ8ReQbHxsAfXhrf9ixl0aYbZorRuOWpBNzm8pL8ftmSxQx/wnJD5Eg861NwJU/czy2VXFIebCeZnZrI9rktIQ==}
+
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
     engines: {node: '>=0.1.90'}
+
+  '@connectrpc/connect-web@1.6.1':
+    resolution: {integrity: sha512-GVfxQOmt3TtgTaKeXLS/EA2IHa3nHxwe2BCHT7X0Q/0hohM+nP5DDnIItGEjGrGdt3LTTqWqE4s70N4h+qIMlQ==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^1.10.0
+      '@connectrpc/connect': 1.6.1
+
+  '@connectrpc/connect@1.6.1':
+    resolution: {integrity: sha512-KchMDNtU4CDTdkyf0qG7ugJ6qHTOR/aI7XebYn3OTCNagaDYWiZUVKgRgwH79yeMkpNgvEUaXSK7wKjaBK9b/Q==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^1.10.0
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -1521,6 +1541,19 @@ packages:
       '@types/react-dom':
         optional: true
 
+  '@radix-ui/react-primitive@2.1.0':
+    resolution: {integrity: sha512-/J/FhLdK0zVcILOwt5g+dH4KnkonCtkVJsa2G6JmvbbtZfBEI1gMsO3QMjseL4F/SwfAMt1Vc/0XKYKq+xJ1sw==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+
   '@radix-ui/react-roving-focus@1.1.3':
     resolution: {integrity: sha512-ufbpLUjZiOg4iYgb2hQrWXEPYX6jOLBbR27bDyAff5GYMRrCzcze8lukjuXVUQvJ6HZe8+oL+hhswDcjmcgVyg==}
     peerDependencies:
@@ -1567,6 +1600,19 @@ packages:
       react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
     peerDependenciesMeta:
       '@types/react':
+        optional: true
+
+  '@radix-ui/react-switch@1.2.2':
+    resolution: {integrity: sha512-7Z8n6L+ifMIIYZ83f28qWSceUpkXuslI2FJ34+kDMTiyj91ENdpdQ7VCidrzj5JfwfZTeano/BnGBbu/jqa5rQ==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
         optional: true
 
   '@radix-ui/react-tabs@1.1.4':
@@ -1632,6 +1678,24 @@ packages:
 
   '@radix-ui/react-use-controllable-state@1.1.1':
     resolution: {integrity: sha512-YnEXIy8/ga01Y1PN0VfaNH//MhA91JlEGVBDxDzROqwrAtG5Yr2QGEPz8A/rJA3C7ZAHryOYGaUv8fLSW2H/mg==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
+  '@radix-ui/react-use-controllable-state@1.2.2':
+    resolution: {integrity: sha512-BjasUjixPFdS+NKkypcyyN5Pmg83Olst0+c6vGov0diwTEo6mgdqVR6hxcEgFuh4QrAs7Rc+9KuGJ9TVCj0Zzg==}
+    peerDependencies:
+      '@types/react': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+
+  '@radix-ui/react-use-effect-event@0.0.2':
+    resolution: {integrity: sha512-Qp8WbZOBe+blgpuUT+lw2xheLP8q0oatc9UpmiemEICxGvFLYmHm9QowVZGHtJlGbS6A6yJ3iViad/2cVjnOiA==}
     peerDependencies:
       '@types/react': '*'
       react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
@@ -1856,8 +1920,8 @@ packages:
   '@sinonjs/fake-timers@10.3.0':
     resolution: {integrity: sha512-V4BG07kuYSUkTCSBHG8G8TNhM+F19jXFWnQtzj+we8DrkpSBCee9Z3Ms8yiGer/dlmhe35/Xdgyo3/0rQKg7YA==}
 
-  '@swc/cli@0.6.0':
-    resolution: {integrity: sha512-Q5FsI3Cw0fGMXhmsg7c08i4EmXCrcl+WnAxb6LYOLHw4JFFC3yzmx9LaXZ7QMbA+JZXbigU2TirI7RAfO0Qlnw==}
+  '@swc/cli@0.7.3':
+    resolution: {integrity: sha512-rnVXNnlURjdOuPaBIwZ3TmBA44BF/eP0j154LanlgPEYfau74ige7cpKlKkZr1IBqMOG99lAnYNxQipDWA3hdg==}
     engines: {node: '>= 16.14.0'}
     hasBin: true
     peerDependencies:
@@ -2442,6 +2506,15 @@ packages:
 
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
+
+  '@yorkie-js/react@0.6.8-rc':
+    resolution: {integrity: sha512-v265NtlMINtw7bjnUtNIpToNLsBz/41Te6RuU/0yd/cEYT2fr9ylgHFEHtkBLOb4Z565l1JFNhFBqR3ezS+DoA==}
+    peerDependencies:
+      react: ^18 || ^19
+
+  '@yorkie-js/sdk@0.6.7':
+    resolution: {integrity: sha512-dWLLt+16nseKi0MY8ZDKdoVjE65OF4gXo22KmEwVhTV6XaE7BYCQ21S9hmDbGg1qdf1/ZnYg5260RB+rmf9lSg==}
+    engines: {node: '>=18.0.0', npm: '>=7.1.0'}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -4263,6 +4336,9 @@ packages:
     resolution: {integrity: sha512-9ie8ItPR6tjY5uYJh8K/Zrv/RMZ5VOlOWvtZdEHYSTFKZfIBPQa9tOAEeAWhd+AnIneLJ22w5fjOYtoutpWq5w==}
     engines: {node: '>=18'}
 
+  long@5.3.2:
+    resolution: {integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==}
+
   loose-envify@1.4.0:
     resolution: {integrity: sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q==}
     hasBin: true
@@ -4285,8 +4361,8 @@ packages:
     resolution: {integrity: sha512-Jo6dJ04CmSjuznwJSS3pUeWmd/H0ffTlkXXgwZi+eq1UCmqQwCh+eLsYOYCwY991i2Fah4h1BEMCx4qThGbsiA==}
     engines: {node: '>=10'}
 
-  lucide-react@0.501.0:
-    resolution: {integrity: sha512-E2KoyhW59fCb/yUbR3rbDer83fqn7a8NG91ZhIot2yWaPHjPyGzzsNKh40N//GezYShAuycf3TcQksRQznIsRw==}
+  lucide-react@0.503.0:
+    resolution: {integrity: sha512-HGGkdlPWQ0vTF8jJ5TdIqhQXZi6uh3LnNgfZ8MHiuxFfX3RZeA79r2MW2tHAZKlAVfoNE8esm3p+O6VkIvpj6w==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -6084,8 +6160,19 @@ snapshots:
 
   '@bcoe/v8-coverage@0.2.3': {}
 
+  '@bufbuild/protobuf@1.10.1': {}
+
   '@colors/colors@1.5.0':
     optional: true
+
+  '@connectrpc/connect-web@1.6.1(@bufbuild/protobuf@1.10.1)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.1))':
+    dependencies:
+      '@bufbuild/protobuf': 1.10.1
+      '@connectrpc/connect': 1.6.1(@bufbuild/protobuf@1.10.1)
+
+  '@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.1)':
+    dependencies:
+      '@bufbuild/protobuf': 1.10.1
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
@@ -6720,7 +6807,7 @@ snapshots:
       '@napi-rs/nice-win32-x64-msvc': 1.0.1
     optional: true
 
-  '@nestjs/cli@11.0.6(@swc/cli@0.6.0(@swc/core@1.11.20)(chokidar@4.0.3))(@swc/core@1.11.20)(@types/node@22.14.1)(esbuild@0.25.2)':
+  '@nestjs/cli@11.0.6(@swc/cli@0.7.3(@swc/core@1.11.20)(chokidar@4.0.3))(@swc/core@1.11.20)(@types/node@22.14.1)(esbuild@0.25.2)':
     dependencies:
       '@angular-devkit/core': 19.2.6(chokidar@4.0.3)
       '@angular-devkit/schematics': 19.2.6(chokidar@4.0.3)
@@ -6742,7 +6829,7 @@ snapshots:
       webpack: 5.98.0(@swc/core@1.11.20)(esbuild@0.25.2)
       webpack-node-externals: 3.0.0
     optionalDependencies:
-      '@swc/cli': 0.6.0(@swc/core@1.11.20)(chokidar@4.0.3)
+      '@swc/cli': 0.7.3(@swc/core@1.11.20)(chokidar@4.0.3)
       '@swc/core': 1.11.20
     transitivePeerDependencies:
       - '@types/node'
@@ -7101,6 +7188,15 @@ snapshots:
       '@types/react': 19.1.1
       '@types/react-dom': 19.1.2(@types/react@19.1.1)
 
+  '@radix-ui/react-primitive@2.1.0(@types/react-dom@19.1.2(@types/react@19.1.1))(@types/react@19.1.1)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)':
+    dependencies:
+      '@radix-ui/react-slot': 1.2.0(@types/react@19.1.1)(react@19.1.0)
+      react: 19.1.0
+      react-dom: 19.1.0(react@19.1.0)
+    optionalDependencies:
+      '@types/react': 19.1.1
+      '@types/react-dom': 19.1.2(@types/react@19.1.1)
+
   '@radix-ui/react-roving-focus@1.1.3(@types/react-dom@19.1.2(@types/react@19.1.1))(@types/react@19.1.1)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)':
     dependencies:
       '@radix-ui/primitive': 1.1.2
@@ -7162,6 +7258,21 @@ snapshots:
       react: 19.1.0
     optionalDependencies:
       '@types/react': 19.1.1
+
+  '@radix-ui/react-switch@1.2.2(@types/react-dom@19.1.2(@types/react@19.1.1))(@types/react@19.1.1)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.2
+      '@radix-ui/react-compose-refs': 1.1.2(@types/react@19.1.1)(react@19.1.0)
+      '@radix-ui/react-context': 1.1.2(@types/react@19.1.1)(react@19.1.0)
+      '@radix-ui/react-primitive': 2.1.0(@types/react-dom@19.1.2(@types/react@19.1.1))(@types/react@19.1.1)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      '@radix-ui/react-use-controllable-state': 1.2.2(@types/react@19.1.1)(react@19.1.0)
+      '@radix-ui/react-use-previous': 1.1.1(@types/react@19.1.1)(react@19.1.0)
+      '@radix-ui/react-use-size': 1.1.1(@types/react@19.1.1)(react@19.1.0)
+      react: 19.1.0
+      react-dom: 19.1.0(react@19.1.0)
+    optionalDependencies:
+      '@types/react': 19.1.1
+      '@types/react-dom': 19.1.2(@types/react@19.1.1)
 
   '@radix-ui/react-tabs@1.1.4(@types/react-dom@19.1.2(@types/react@19.1.1))(@types/react@19.1.1)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)':
     dependencies:
@@ -7234,6 +7345,21 @@ snapshots:
   '@radix-ui/react-use-controllable-state@1.1.1(@types/react@19.1.1)(react@19.1.0)':
     dependencies:
       '@radix-ui/react-use-callback-ref': 1.1.1(@types/react@19.1.1)(react@19.1.0)
+      react: 19.1.0
+    optionalDependencies:
+      '@types/react': 19.1.1
+
+  '@radix-ui/react-use-controllable-state@1.2.2(@types/react@19.1.1)(react@19.1.0)':
+    dependencies:
+      '@radix-ui/react-use-effect-event': 0.0.2(@types/react@19.1.1)(react@19.1.0)
+      '@radix-ui/react-use-layout-effect': 1.1.1(@types/react@19.1.1)(react@19.1.0)
+      react: 19.1.0
+    optionalDependencies:
+      '@types/react': 19.1.1
+
+  '@radix-ui/react-use-effect-event@0.0.2(@types/react@19.1.1)(react@19.1.0)':
+    dependencies:
+      '@radix-ui/react-use-layout-effect': 1.1.1(@types/react@19.1.1)(react@19.1.0)
       react: 19.1.0
     optionalDependencies:
       '@types/react': 19.1.1
@@ -7406,7 +7532,7 @@ snapshots:
     dependencies:
       '@sinonjs/commons': 3.0.1
 
-  '@swc/cli@0.6.0(@swc/core@1.11.20)(chokidar@4.0.3)':
+  '@swc/cli@0.7.3(@swc/core@1.11.20)(chokidar@4.0.3)':
     dependencies:
       '@swc/core': 1.11.20
       '@swc/counter': 0.1.3
@@ -8169,6 +8295,18 @@ snapshots:
   '@xtuc/ieee754@1.2.0': {}
 
   '@xtuc/long@4.2.2': {}
+
+  '@yorkie-js/react@0.6.8-rc(react@19.1.0)':
+    dependencies:
+      '@yorkie-js/sdk': 0.6.7
+      react: 19.1.0
+
+  '@yorkie-js/sdk@0.6.7':
+    dependencies:
+      '@bufbuild/protobuf': 1.10.1
+      '@connectrpc/connect': 1.6.1(@bufbuild/protobuf@1.10.1)
+      '@connectrpc/connect-web': 1.6.1(@bufbuild/protobuf@1.10.1)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.1))
+      long: 5.3.2
 
   accepts@2.0.0:
     dependencies:
@@ -10256,6 +10394,8 @@ snapshots:
       strip-ansi: 7.1.0
       wrap-ansi: 9.0.0
 
+  long@5.3.2: {}
+
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 4.0.0
@@ -10274,7 +10414,7 @@ snapshots:
     dependencies:
       yallist: 4.0.0
 
-  lucide-react@0.501.0(react@19.1.0):
+  lucide-react@0.503.0(react@19.1.0):
     dependencies:
       react: 19.1.0
 
