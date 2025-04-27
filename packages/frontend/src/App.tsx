@@ -16,7 +16,7 @@ function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
       <QueryClientProvider client={new QueryClient()}>
-        <Router basename={import.meta.env.VITE_SYNCUP_BASENAME}>
+        <Router basename={import.meta.env.VITE_FRONTEND_BASENAME}>
           <Routes>
             <Route element={<PublicRoute />}>
               <Route path="/login" element={<Login />} />

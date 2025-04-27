@@ -1,8 +1,8 @@
 {
   "name": "wafflebase",
-  "version": "1.0.0",
+  "version": "0.1.0",
+  "private": true,
   "description": "Super Simple Spreadsheet",
-  "main": "index.js",
   "scripts": {
     "dev": "concurrently \"pnpm frontend dev\" \"pnpm backend start\"",
     "frontend": "pnpm --filter @wafflebase/frontend",
@@ -10,8 +10,11 @@
     "sheet": "pnpm --filter @wafflebase/sheet"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": {
+    "name": "hackerwins",
+    "email": "susukang98@gmail.com"
+  },
+  "license": "Apache-2.0",
   "packageManager": "pnpm@10.5.2",
   "devDependencies": {
     "concurrently": "^9.1.2"

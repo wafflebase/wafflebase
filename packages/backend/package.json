@@ -1,10 +1,9 @@
 {
   "name": "@wafflebase/backend",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "",
-  "author": "",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "scripts": {
     "build": "nest build",
     "postinstall": "prisma generate",
