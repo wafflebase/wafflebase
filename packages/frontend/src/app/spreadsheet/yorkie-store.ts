@@ -99,6 +99,7 @@ export class YorkieStore implements Store {
     let row = ref.r;
     let col = ref.c;
 
+    const sheet = this.doc.getRoot().sheet;
     const rowDelta = direction === "up" ? -1 : direction === "down" ? 1 : 0;
     const colDelta = direction === "left" ? -1 : direction === "right" ? 1 : 0;
 
@@ -112,8 +113,8 @@ export class YorkieStore implements Store {
         break;
       }
 
-      const curr = await this.has({ r: row, c: col });
-      const next = await this.has({ r: nextRow, c: nextCol });
+      const curr = sheet[toSref({ r: row, c: col })] !== undefined;
+      const next = sheet[toSref({ r: nextRow, c: nextCol })] !== undefined;
 
       if (!prev && curr) {
         break;
