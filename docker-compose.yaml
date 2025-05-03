@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: wafflebase
+      POSTGRES_PASSWORD: wafflebase
+      POSTGRES_DB: wafflebase
+    ports:
+      - "5432:5432"
+
+  yorkie:
+    image: "yorkieteam/yorkie:0.6.8"
+    command: ["server", "--enable-pprof"]
+    restart: always
+    ports:
+      - "8080:8080"
+      - "8081:8081"

@@ -1,0 +1,31 @@
+{
+  "name": "@wafflebase/sheet",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Frontend for Wafflebase",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "vite",
+    "test": "vitest --run",
+    "test:watch": "vitest --watch",
+    "build": "vite --config vite.build.ts build",
+    "build:formula": "antlr4ts -visitor antlr/Formula.g4",
+    "preview": "vite preview",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/papaparse": "^5.3.14",
+    "antlr4ts": "^0.5.0-alpha.4",
+    "antlr4ts-cli": "^0.5.0-alpha.4",
+    "lint-staged": "^15.2.7",
+    "papaparse": "^5.4.1",
+    "prettier": "^3.3.2",
+    "typescript": "^5.5.3",
+    "vite": "^6.3.2",
+    "vite-plugin-node-polyfills": "^0.23.0",
+    "vite-plugin-dts": "^4.5.3",
+    "vitest": "^3.1.1"
+  }
+}

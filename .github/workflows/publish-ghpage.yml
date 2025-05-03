@@ -1,26 +1,37 @@
-name: Publish GitHub Pages
+name: GitHub Page Publish
 
 on:
   push:
     branches:
-      - main
+      - "main"
+    paths-ignore:
+      - "packages/backend/**"
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout 🛎️
+        uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.5.2
+      - name: Setup Node 🔧
+        uses: actions/setup-node@v4
+        with:
+          cache: "pnpm"
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install and Build
+      - name: Install and Build 🔧
         run: |
-          cd frontend
-          npm install
-          npm run build
+          pnpm i
+          pnpm frontend build
 
-      - name: Publish GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Deploy 🚀
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./frontend/dist
+          publish_dir: packages/frontend/dist
+          enable_jekyll: false
           cname: wafflebase.io
