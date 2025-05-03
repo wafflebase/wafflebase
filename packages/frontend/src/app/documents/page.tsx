@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchDocuments } from "@/api/documents";
 import { Document } from "@/types/documents";
-import { DataTable } from "@/app/documents/document-list";
+import { DocumentList } from "@/app/documents/document-list";
 
 export default function Page() {
   const {
@@ -32,7 +32,7 @@ export default function Page() {
 
   return (
     <div className="p-4">
-      <DataTable data={documents} />
+      <DocumentList data={documents} />
     </div>
   );
 }

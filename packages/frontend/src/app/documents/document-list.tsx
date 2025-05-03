@@ -37,7 +37,7 @@ import {
 import { Document } from "@/types/documents";
 import { createDocument, deleteDocument } from "@/api/documents";
 
-export function DataTable({ data }: { data: Document[] }) {
+export function DocumentList({ data }: { data: Document[] }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const columns: Array<ColumnDef<Document>> = [
@@ -63,8 +63,6 @@ export function DataTable({ data }: { data: Document[] }) {
       enableSorting: false,
       enableHiding: false,
     },
-    // TODO(hackerwins): Remove this column when we find a way to
-    // get the id in removeDocument mutation.
     {
       accessorKey: "id",
       header: "ID",
@@ -130,7 +128,9 @@ export function DataTable({ data }: { data: Document[] }) {
 
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    id: false,
+  });
   const [rowSelection, setRowSelection] = useState({});
 
   const table = useReactTable({

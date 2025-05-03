@@ -1,7 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
-import { YorkieProvider } from "@yorkie-js/react";
 
 import Login from "@/app/login/page";
 import Documents from "@/app/documents/page";
@@ -22,13 +21,7 @@ function App() {
               <Route path="/login" element={<Login />} />
             </Route>
             <Route element={<PrivateRoute />}>
-              <Route
-                element={
-                  <YorkieProvider apiKey={import.meta.env.VITE_YORKIE_API_KEY}>
-                    <Layout />
-                  </YorkieProvider>
-                }
-              >
+              <Route element={<Layout />}>
                 <Route path="/" element={<Documents />} />
                 <Route path="/:id" element={<DocumentDetail />} />
                 <Route path="/settings" element={<Settings />} />
