@@ -4,10 +4,8 @@ import { toSref, toColumnLabel } from '../worksheet/coordinates';
 import { Sheet } from '../worksheet/sheet';
 import { Range, Ref, Grid, Cell, Direction } from '../worksheet/types';
 import { escapeHTML } from './htmlutils';
-import { Theme } from './spreadsheet';
-
-const FormulaBarHeight = 23;
-const FormulaBarMargin = 10;
+import { Theme, ThemeKey, getThemeColor } from './theme';
+import { FormulaBar, FormulaBarHeight, FormulaBarMargin } from './formulabar';
 
 const CellBorderWidth = 0.5;
 const DefaultCellWidth = 100;
@@ -18,30 +16,6 @@ const RowHeaderWidth = 50;
 
 const ScrollIntervalMS = 10;
 const ScrollSpeedMS = 10;
-
-const LightTheme = {
-  cellBorderColor: '#D3D3D3',
-  cellBGColor: '#FFFFFF',
-  cellTextColor: '#000000',
-  activeCellColor: '#E6C746',
-  selectionBGColor: 'rgba(230, 199, 70, 0.1)',
-  headerBGColor: '#F0F0F0',
-  headerActiveBGColor: '#E6C746',
-  ['tokens.REFERENCE']: '#E6C746',
-  ['tokens.NUM']: '#4DA6FF',
-};
-
-const DarkTheme = {
-  cellBorderColor: '#4A4A4A',
-  cellBGColor: '#1E1E1E',
-  cellTextColor: '#FFFFFF',
-  activeCellColor: '#D4B73E',
-  selectionBGColor: 'rgba(212, 183, 62, 0.1)',
-  headerBGColor: '#2D2D2D',
-  headerActiveBGColor: '#D4B73E',
-  ['tokens.REFERENCE']: '#D4B73E',
-  ['tokens.NUM']: '#4DA6FF',
-};
 
 /**
  * BoundingRect represents the bounding rectangle of a cell.
@@ -77,9 +51,7 @@ export class Worksheet {
   private theme: Theme;
 
   private container: HTMLDivElement;
-  private formulaBar: HTMLDivElement;
-  private cellLabel: HTMLDivElement;
-  private formulaInput: HTMLInputElement;
+  private formulaBar: FormulaBar;
   private sheetContainer: HTMLDivElement;
   private scrollContainer: HTMLDivElement;
   private dummyContainer: HTMLDivElement;
@@ -108,30 +80,9 @@ export class Worksheet {
     this.container = container;
     this.theme = theme;
 
-    this.formulaBar = document.createElement('div');
-    this.formulaBar.style.height = `${FormulaBarHeight}px`;
-    this.formulaBar.style.margin = `${FormulaBarMargin}px 0px`;
-    this.formulaBar.style.display = 'flex';
-    this.formulaBar.style.alignItems = 'center';
-    this.formulaBar.style.borderTop = `1px solid ${this.getThemeColor('cellBorderColor')}`;
-    this.formulaBar.style.borderBottom = `1px solid ${this.getThemeColor('cellBorderColor')}`;
-    this.formulaBar.style.justifyContent = 'flex-start';
-
-    this.cellLabel = document.createElement('div');
-    this.cellLabel.style.width = '120px';
-    this.cellLabel.style.textAlign = 'center';
-    this.cellLabel.style.font = '12px Arial';
-    this.cellLabel.style.borderRight = `1px solid ${this.getThemeColor('cellBorderColor')}`;
-    this.formulaBar.appendChild(this.cellLabel);
-
-    this.formulaInput = document.createElement('input');
-    this.formulaInput.style.margin = '20px';
-    this.formulaInput.style.width = '100%';
-    this.formulaInput.style.height = '12px';
-    this.formulaInput.style.border = 'none';
-    this.formulaInput.style.font = '12px Arial';
-    this.formulaInput.style.outlineWidth = '0';
-    this.formulaBar.appendChild(this.formulaInput);
+    const formulaBarContainer = document.createElement('div');
+    this.formulaBar = new FormulaBar(formulaBarContainer, theme);
+    this.container.appendChild(formulaBarContainer);
 
     this.sheetContainer = document.createElement('div');
     this.sheetContainer.style.position = 'relative';
@@ -184,7 +135,6 @@ export class Worksheet {
     this.overlayCanvas.style.position = 'absolute';
     this.overlayCanvas.style.zIndex = '1';
 
-    this.container.appendChild(this.formulaBar);
     this.container.appendChild(this.sheetContainer);
 
     this.boundRender = this.render.bind(this);
@@ -201,12 +151,14 @@ export class Worksheet {
 
   public initialize(sheet: Sheet) {
     this.sheet = sheet;
+    this.formulaBar.initialize(sheet);
     this.addEventListeners();
     this.render();
   }
 
   public cleanup() {
     this.removeAllEventListeners();
+    this.formulaBar.cleanup();
     this.sheet = undefined;
     this.container.innerHTML = '';
   }
@@ -232,12 +184,12 @@ export class Worksheet {
    * `finishEditing` finishes the editing of the cell.
    */
   private async finishEditing() {
-    if (this.isFormulaInputFocused()) {
+    if (this.formulaBar.isFocused()) {
       await this.sheet!.setData(
         this.sheet!.getActiveCell(),
-        this.formulaInput.value,
+        this.formulaBar.getValue(),
       );
-      this.formulaInput.blur();
+      this.formulaBar.blur();
       this.hideCellInput();
     } else if (this.isCellInputFocused()) {
       await this.sheet!.setData(
@@ -250,7 +202,7 @@ export class Worksheet {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
-    if (this.isFormulaInputFocused()) {
+    if (this.formulaBar.isFocused()) {
       this.boundHandleFormulaInputKeydown(e);
       return;
     } else if (this.isCellInputFocused()) {
@@ -262,11 +214,11 @@ export class Worksheet {
   }
 
   private handleKeyUp(): void {
-    if (this.isFormulaInputFocused()) {
-      this.cellInput.innerText = this.formulaInput.value;
+    if (this.formulaBar.isFocused()) {
+      this.cellInput.innerText = this.formulaBar.getValue();
       return;
     } else if (this.isCellInputFocused()) {
-      this.formulaInput.value = this.cellInput.innerText;
+      this.formulaBar.setValue(this.cellInput.innerText);
       return;
     }
   }
@@ -295,13 +247,6 @@ export class Worksheet {
     this.addEventListener(this.cellInput, 'input', this.boundHandleCellInput);
     this.addEventListener(document, 'keydown', this.boundHandleKeyDown);
     this.addEventListener(document, 'keyup', this.boundHandleKeyUp);
-  }
-
-  /**
-   * `isFormulaInputFocused` checks if the formula input is focused.
-   */
-  private isFormulaInputFocused(): boolean {
-    return document.activeElement === this.formulaInput;
   }
 
   private async handleMouseDown(e: MouseEvent) {
@@ -388,11 +333,11 @@ export class Worksheet {
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Escape') {
-      this.formulaInput.value = await this.sheet!.toInputString(
+      this.formulaBar.setValue(await this.sheet!.toInputString(
         this.sheet!.getActiveCell(),
-      );
+      ));
       this.hideCellInput();
-      this.formulaInput.blur();
+      this.formulaBar.blur();
       e.preventDefault();
     } else {
       if (!this.isCellInputShown()) {
@@ -523,19 +468,11 @@ export class Worksheet {
     }
   }
 
-  public getThemeColor(key: keyof typeof LightTheme): string {
-    if (this.theme === 'light') {
-      return LightTheme[key];
-    }
-
-    return DarkTheme[key];
-  }
-
   /**
    * `render` renders the spreadsheet in the container.
    */
   public render() {
-    this.paintFormulaBar();
+    this.formulaBar.render();
     this.paintSheet();
     this.paintOverlay();
   }
@@ -702,15 +639,6 @@ export class Worksheet {
       width: Math.abs(start.left - end.left) + DefaultCellWidth,
       height: Math.abs(start.top - end.top) + DefaultCellHeight,
     };
-  }
-
-  /**
-   * `paintFormulaBar` paints the formula bar.
-   */
-  private async paintFormulaBar() {
-    const ref = this.sheet!.getActiveCell();
-    this.cellLabel.textContent = toSref(ref);
-    this.formulaInput.value = await this.sheet!.toInputString(ref);
   }
 
   /**
@@ -935,5 +863,9 @@ export class Worksheet {
     if (textRange) {
       setTextRange(this.cellInput, textRange);
     }
+  }
+
+  private getThemeColor(key: ThemeKey): string {
+    return getThemeColor(this.theme, key);
   }
 }
