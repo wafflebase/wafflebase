@@ -13,9 +13,9 @@ import {
   ReferenceContext,
 } from '../../antlr/FormulaParser';
 import { FunctionMap } from './functions';
-import { Grid, Reference } from '../worksheet/types';
+import { Grid, Reference } from '../model/types';
 import { NumberArgs } from './arguments';
-import { isSrng } from '../worksheet/coordinates';
+import { isSrng } from '../model/coordinates';
 
 /**
  * `Token` represents a token in the formula.

@@ -1,46 +1,24 @@
-import { setTextRange, toTextRange } from './textrange';
-import { extractTokens } from '../formula/formula';
-import { toSref, toColumnLabel } from '../worksheet/coordinates';
-import { Sheet } from '../worksheet/sheet';
-import { Range, Ref, Grid, Cell, Direction } from '../worksheet/types';
-import { escapeHTML } from './htmlutils';
+import { Range, Ref, Grid, Cell, Direction } from '../model/types';
+import { toSref, toColumnLabel } from '../model/coordinates';
+import { Sheet } from '../model/sheet';
 import { Theme, ThemeKey, getThemeColor } from './theme';
 import { FormulaBar, FormulaBarHeight, FormulaBarMargin } from './formulabar';
-
-const CellBorderWidth = 0.5;
-const DefaultCellWidth = 100;
-const DefaultCellHeight = 23;
-
-const HeaderTextAlign = 'center';
-const RowHeaderWidth = 50;
-
-const ScrollIntervalMS = 10;
-const ScrollSpeedMS = 10;
-
-/**
- * BoundingRect represents the bounding rectangle of a cell.
- *
- * TODO(hackerwins): We need to use `bigint` for the coordinates
- * and `number` for the width and height. Because the coordinates
- * can be very large for big dimensions of the grid.
- */
-type BoundingRect = Position & Size;
-
-/**
- * Position represents the position of the rectangle.
- */
-type Position = {
-  left: number;
-  top: number;
-};
-
-/**
- * Size represents the size of the rectangle.
- */
-type Size = {
-  width: number;
-  height: number;
-};
+import { CellInput } from './cellinput';
+import { Overlay } from './overlay';
+import {
+  DefaultCellWidth,
+  DefaultCellHeight,
+  RowHeaderWidth,
+  CellBorderWidth,
+  HeaderTextAlign,
+  ScrollIntervalMS,
+  ScrollSpeedMS,
+  BoundingRect,
+  Position,
+  Size,
+  toBoundingRect,
+  toRef,
+} from './layout';
 
 /**
  * Worksheet represents the worksheet of the spreadsheet. It handles the
@@ -51,14 +29,15 @@ export class Worksheet {
   private theme: Theme;
 
   private container: HTMLDivElement;
+
   private formulaBar: FormulaBar;
+  private cellInput: CellInput;
+  private overlay: Overlay;
+
   private sheetContainer: HTMLDivElement;
   private scrollContainer: HTMLDivElement;
   private dummyContainer: HTMLDivElement;
-  private inputContainer: HTMLDivElement;
-  private cellInput: HTMLDivElement;
   private gridCanvas: HTMLCanvasElement;
-  private overlayCanvas: HTMLCanvasElement;
 
   private listeners: Array<{
     element: EventTarget;
@@ -72,7 +51,6 @@ export class Worksheet {
   private boundHandleCellInputKeydown: (e: KeyboardEvent) => void;
   private boundHandleMouseDown: (e: MouseEvent) => void;
   private boundHandleDblClick: (e: MouseEvent) => void;
-  private boundHandleCellInput: () => void;
   private boundHandleKeyDown: (e: KeyboardEvent) => void;
   private boundHandleKeyUp: () => void;
 
@@ -80,14 +58,16 @@ export class Worksheet {
     this.container = container;
     this.theme = theme;
 
-    const formulaBarContainer = document.createElement('div');
-    this.formulaBar = new FormulaBar(formulaBarContainer, theme);
-    this.container.appendChild(formulaBarContainer);
+    this.formulaBar = new FormulaBar(theme);
+    this.container.appendChild(this.formulaBar.getContainer());
 
     this.sheetContainer = document.createElement('div');
     this.sheetContainer.style.position = 'relative';
     this.sheetContainer.style.width = '100%';
     this.sheetContainer.style.height = `calc(100% - ${FormulaBarHeight + FormulaBarMargin * 2}px)`;
+
+    this.overlay = new Overlay(theme);
+    this.sheetContainer.appendChild(this.overlay.getContainer());
 
     this.scrollContainer = document.createElement('div');
     this.scrollContainer.style.position = 'absolute';
@@ -100,40 +80,15 @@ export class Worksheet {
     this.dummyContainer.style.margin = '0px';
     this.dummyContainer.style.padding = '0px';
     this.scrollContainer.appendChild(this.dummyContainer);
-
-    this.inputContainer = document.createElement('div');
-    this.inputContainer.style.position = 'absolute';
-    this.inputContainer.style.left = '-1000px';
-    this.inputContainer.style.width = DefaultCellWidth + 'px';
-    this.inputContainer.style.height = DefaultCellHeight + 'px';
-    this.inputContainer.style.zIndex = '1';
-    this.inputContainer.style.margin = '0px';
-
-    this.cellInput = document.createElement('div');
-    this.cellInput.contentEditable = 'true';
-    this.cellInput.style.width = '100%';
-    this.cellInput.style.height = '100%';
-    this.cellInput.style.border = 'none';
-    this.cellInput.style.outline = `2px solid ${this.getThemeColor('activeCellColor')}`;
-    this.cellInput.style.fontFamily = 'Arial, sans-serif';
-    this.cellInput.style.fontSize = '14px';
-    this.cellInput.style.fontWeight = 'normal';
-    this.cellInput.style.lineHeight = '1.5';
-    this.cellInput.style.color = this.getThemeColor('cellTextColor');
-    this.cellInput.style.backgroundColor = this.getThemeColor('cellBGColor');
-    this.inputContainer.appendChild(this.cellInput);
+    this.sheetContainer.appendChild(this.scrollContainer);
 
     this.gridCanvas = this.sheetContainer.appendChild(
       document.createElement('canvas'),
     );
-    this.overlayCanvas = this.sheetContainer.appendChild(
-      document.createElement('canvas'),
-    );
-    this.sheetContainer.appendChild(this.scrollContainer);
-    this.sheetContainer.appendChild(this.inputContainer);
     this.gridCanvas.style.position = 'absolute';
-    this.overlayCanvas.style.position = 'absolute';
-    this.overlayCanvas.style.zIndex = '1';
+
+    this.cellInput = new CellInput(theme);
+    this.sheetContainer.appendChild(this.cellInput.getContainer());
 
     this.container.appendChild(this.sheetContainer);
 
@@ -144,7 +99,6 @@ export class Worksheet {
     this.boundHandleCellInputKeydown = this.handleCellInputKeydown.bind(this);
     this.boundHandleMouseDown = this.handleMouseDown.bind(this);
     this.boundHandleDblClick = this.handleDblClick.bind(this);
-    this.boundHandleCellInput = this.paintCellInput.bind(this);
     this.boundHandleKeyDown = this.handleKeyDown.bind(this);
     this.boundHandleKeyUp = this.handleKeyUp.bind(this);
   }
@@ -159,6 +113,8 @@ export class Worksheet {
   public cleanup() {
     this.removeAllEventListeners();
     this.formulaBar.cleanup();
+    this.cellInput.cleanup();
+    this.overlay.cleanup();
     this.sheet = undefined;
     this.container.innerHTML = '';
   }
@@ -190,14 +146,13 @@ export class Worksheet {
         this.formulaBar.getValue(),
       );
       this.formulaBar.blur();
-      this.hideCellInput();
-    } else if (this.isCellInputFocused()) {
+      this.cellInput.hide();
+    } else if (this.cellInput.isFocused()) {
       await this.sheet!.setData(
         this.sheet!.getActiveCell(),
-        this.cellInput.innerText,
+        this.cellInput.getValue(),
       );
-      this.cellInput.blur();
-      this.hideCellInput();
+      this.cellInput.hide();
     }
   }
 
@@ -205,7 +160,7 @@ export class Worksheet {
     if (this.formulaBar.isFocused()) {
       this.boundHandleFormulaInputKeydown(e);
       return;
-    } else if (this.isCellInputFocused()) {
+    } else if (this.cellInput.isFocused()) {
       this.boundHandleCellInputKeydown(e);
       return;
     }
@@ -215,10 +170,10 @@ export class Worksheet {
 
   private handleKeyUp(): void {
     if (this.formulaBar.isFocused()) {
-      this.cellInput.innerText = this.formulaBar.getValue();
+      this.cellInput.setValue(this.formulaBar.getValue());
       return;
-    } else if (this.isCellInputFocused()) {
-      this.formulaBar.setValue(this.cellInput.innerText);
+    } else if (this.cellInput.isFocused()) {
+      this.formulaBar.setValue(this.cellInput.getValue());
       return;
     }
   }
@@ -244,14 +199,13 @@ export class Worksheet {
       'dblclick',
       this.boundHandleDblClick,
     );
-    this.addEventListener(this.cellInput, 'input', this.boundHandleCellInput);
     this.addEventListener(document, 'keydown', this.boundHandleKeyDown);
     this.addEventListener(document, 'keyup', this.boundHandleKeyUp);
   }
 
   private async handleMouseDown(e: MouseEvent) {
     await this.finishEditing();
-    this.sheet!.selectStart(this.toRef(e.offsetX, e.offsetY));
+    this.sheet!.selectStart(toRef(e.offsetX, e.offsetY));
     this.render();
 
     let scrollInterval: NodeJS.Timeout | null = null;
@@ -276,7 +230,7 @@ export class Worksheet {
       }
 
       this.sheet!.selectEnd(
-        this.toRef(offsetX + this.scroll.left, offsetY + this.scroll.top),
+        toRef(offsetX + this.scroll.left, offsetY + this.scroll.top),
       );
       this.render();
 
@@ -303,7 +257,7 @@ export class Worksheet {
         scrollInterval = setInterval(() => {
           this.scrollContainer.scrollBy(scrollOffset.x, scrollOffset.y);
           this.sheet!.selectEnd(
-            this.toRef(offsetX! + this.scroll.left, offsetY! + this.scroll.top),
+            toRef(offsetX! + this.scroll.left, offsetY! + this.scroll.top),
           );
           this.render();
         }, ScrollIntervalMS);
@@ -333,14 +287,14 @@ export class Worksheet {
       this.scrollIntoView();
       e.preventDefault();
     } else if (e.key === 'Escape') {
-      this.formulaBar.setValue(await this.sheet!.toInputString(
-        this.sheet!.getActiveCell(),
-      ));
-      this.hideCellInput();
+      this.formulaBar.setValue(
+        await this.sheet!.toInputString(this.sheet!.getActiveCell()),
+      );
+      this.cellInput.hide();
       this.formulaBar.blur();
       e.preventDefault();
     } else {
-      if (!this.isCellInputShown()) {
+      if (!this.cellInput.isShown()) {
         this.showCellInput(true, true);
       }
     }
@@ -364,7 +318,7 @@ export class Worksheet {
       this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
       this.render();
       this.scrollIntoView();
-    } else if (e.key.startsWith('Arrow') && !this.hasFormulaInCellInput()) {
+    } else if (e.key.startsWith('Arrow') && !this.cellInput.hasFormula()) {
       e.preventDefault();
 
       await this.finishEditing();
@@ -382,7 +336,7 @@ export class Worksheet {
       this.render();
       this.scrollIntoView();
     } else if (e.key === 'Escape') {
-      this.hideCellInput();
+      this.cellInput.hide();
     }
   }
 
@@ -474,7 +428,12 @@ export class Worksheet {
   public render() {
     this.formulaBar.render();
     this.paintSheet();
-    this.paintOverlay();
+    this.overlay.render(
+      this.viewport,
+      this.scroll,
+      this.sheet!.getActiveCell(),
+      this.sheet!.getRange(),
+    );
   }
 
   /**
@@ -502,7 +461,7 @@ export class Worksheet {
    */
   private scrollIntoView(ref: Ref = this.sheet!.getActiveCell()) {
     const scroll = this.scroll;
-    const cell = this.toBoundingRect(ref, true);
+    const cell = toBoundingRect(ref);
     const view = {
       left: scroll.left + RowHeaderWidth,
       top: scroll.top + DefaultCellHeight,
@@ -537,51 +496,18 @@ export class Worksheet {
   }
 
   /**
-   * `isCellInputShown` checks if the cell input is shown.
-   */
-  private isCellInputShown(): boolean {
-    return this.inputContainer.style.left !== '-1000px';
-  }
-
-  /**
-   * `hasFormulaInCellInput` checks if the cell input has a formula.
-   */
-  private hasFormulaInCellInput(): boolean {
-    return this.cellInput.innerText.startsWith('=');
-  }
-
-  /**
    * `showCellInput` shows the cell input.
    */
   private async showCellInput(
     withoutValue: boolean = false,
     withoutFocus: boolean = false,
   ) {
-    const selection = this.sheet!.getActiveCell();
-    const rect = this.toBoundingRect(selection);
-    this.inputContainer.style.left = rect.left + 'px';
-    this.inputContainer.style.top = rect.top + 'px';
-    this.cellInput.innerText = withoutValue
+    const activeCell = this.sheet!.getActiveCell();
+    const rect = toBoundingRect(activeCell, this.scroll);
+    const value = withoutValue
       ? ''
-      : await this.sheet!.toInputString(selection);
-
-    this.paintCellInput();
-    if (!withoutFocus) {
-      setTextRange(this.cellInput, {
-        start: this.cellInput.innerText.length,
-        end: this.cellInput.innerText.length,
-      });
-      this.cellInput.focus();
-    }
-  }
-
-  /**
-   * `hideCellInput` hides the cell input.
-   */
-  private hideCellInput() {
-    this.inputContainer.style.left = '-1000px';
-    this.cellInput.innerText = '';
-    this.cellInput.blur();
+      : await this.sheet!.toInputString(activeCell);
+    this.cellInput.show(rect.left, rect.top, value, !withoutFocus);
   }
 
   /**
@@ -589,56 +515,6 @@ export class Worksheet {
    */
   private isValidCellInput(key: string): boolean {
     return /^[a-zA-Z0-9 =:\-]$/.test(key);
-  }
-
-  /**
-   * `isCellInputFocused` checks if the cell input is focused.
-   */
-  private isCellInputFocused(): boolean {
-    return document.activeElement === this.cellInput;
-  }
-
-  /**
-   * `toRef` returns the Ref for the given x and y coordinates.
-   */
-  private toRef(x: number, y: number): Ref {
-    const row = Math.floor(y / DefaultCellHeight);
-    const col = Math.floor((x + RowHeaderWidth) / DefaultCellWidth);
-    return { r: row, c: col };
-  }
-
-  /**
-   * `toBoundingRect` returns the bounding rectangle for the given Ref.
-   */
-  private toBoundingRect(id: Ref, absolute: boolean = false): BoundingRect {
-    const scroll = this.scroll;
-    return {
-      left:
-        (id.c - 1) * DefaultCellWidth +
-        RowHeaderWidth -
-        (absolute ? 0 : scroll.left),
-      top:
-        (id.r - 1) * DefaultCellHeight +
-        DefaultCellHeight -
-        (absolute ? 0 : scroll.top),
-      width: DefaultCellWidth,
-      height: DefaultCellHeight,
-    };
-  }
-
-  /**
-   * `expandBoundingRect` expands the bounding rectangle to include the end cell.
-   */
-  private expandBoundingRect(
-    start: BoundingRect,
-    end: BoundingRect,
-  ): BoundingRect {
-    return {
-      left: Math.min(start.left, end.left),
-      top: Math.min(start.top, end.top),
-      width: Math.abs(start.left - end.left) + DefaultCellWidth,
-      height: Math.abs(start.top - end.top) + DefaultCellHeight,
-    };
   }
 
   /**
@@ -757,45 +633,6 @@ export class Worksheet {
   }
 
   /**
-   * `paintOverlay` paints the overlay.
-   */
-  private paintOverlay() {
-    this.overlayCanvas.width = 0;
-    this.overlayCanvas.height = 0;
-
-    const ctx = this.overlayCanvas.getContext('2d')!;
-    const ratio = window.devicePixelRatio || 1;
-    const viewport = this.viewport;
-
-    this.overlayCanvas.width = viewport.width * ratio;
-    this.overlayCanvas.height = viewport.height * ratio;
-    this.overlayCanvas.style.width = viewport.width + 'px';
-    this.overlayCanvas.style.height = viewport.height + 'px';
-    ctx.scale(ratio, ratio);
-
-    const selection = this.sheet!.getActiveCell();
-    const rect = this.toBoundingRect(selection);
-
-    ctx.strokeStyle = this.getThemeColor('activeCellColor');
-    ctx.lineWidth = 2;
-    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
-
-    const range = this.sheet!.getRange();
-    if (range) {
-      const rect = this.expandBoundingRect(
-        this.toBoundingRect(range[0]),
-        this.toBoundingRect(range[1]),
-      );
-
-      ctx.fillStyle = this.getThemeColor('selectionBGColor');
-      ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
-      ctx.strokeStyle = this.getThemeColor('activeCellColor');
-      ctx.lineWidth = 1;
-      ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
-    }
-  }
-
-  /**
    * `paintHeader` paints the header.
    */
   private paintHeader(
@@ -823,7 +660,7 @@ export class Worksheet {
    * `paintCell` paints the cell.
    */
   private paintCell(ctx: CanvasRenderingContext2D, id: Ref, cell?: Cell) {
-    const rect = this.toBoundingRect(id);
+    const rect = toBoundingRect(id, this.scroll);
 
     ctx.strokeStyle = this.getThemeColor('cellTextColor');
     ctx.lineWidth = CellBorderWidth;
@@ -836,32 +673,6 @@ export class Worksheet {
       ctx.fillStyle = this.getThemeColor('cellTextColor');
       ctx.font = '12px Arial';
       ctx.fillText(data, rect.left + 3, rect.top + 15);
-    }
-  }
-
-  private paintCellInput() {
-    const text = this.cellInput.innerText;
-    if (!text.startsWith('=')) {
-      return;
-    }
-
-    const tokens = extractTokens(text);
-    const contents: Array<string> = [];
-    for (const token of tokens) {
-      if (token.type === 'REFERENCE' || token.type === 'NUM') {
-        contents.push(
-          `<span style="color: ${this.getThemeColor(`tokens.${token.type}`)}">${token.text}</span>`,
-        );
-        continue;
-      }
-
-      contents.push(escapeHTML(token.text));
-    }
-
-    const textRange = toTextRange(this.cellInput);
-    this.cellInput.innerHTML = '=' + contents.join('');
-    if (textRange) {
-      setTextRange(this.cellInput, textRange);
     }
   }
 

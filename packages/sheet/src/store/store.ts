@@ -1,4 +1,4 @@
-import { Cell, Grid, Ref, Range, Sref, Direction } from '../worksheet/types';
+import { Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
 
 /**
  * `Store` interface represents a storage that stores the cell values.

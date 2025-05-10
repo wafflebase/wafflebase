@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/worksheet/sheet';
+import { Sheet } from '../../src/model/sheet';
 
 describe('Sheet.Calcuation', () => {
   it('should calculate cells', async () => {

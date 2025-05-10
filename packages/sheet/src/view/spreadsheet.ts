@@ -1,4 +1,4 @@
-import { Sheet } from '../worksheet/sheet';
+import { Sheet } from '../model/sheet';
 import { Store } from '../store/store';
 import { MemStore } from '../store/memory';
 import { Worksheet } from './worksheet';

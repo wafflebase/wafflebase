@@ -1,5 +1,5 @@
-import { toSref } from '../worksheet/coordinates';
-import { Sheet } from '../worksheet/sheet';
+import { toSref } from '../model/coordinates';
+import { Sheet } from '../model/sheet';
 import { Theme, getThemeColor } from './theme';
 
 export const FormulaBarHeight = 23;
@@ -13,10 +13,10 @@ export class FormulaBar {
   private cellLabel: HTMLDivElement;
   private formulaInput: HTMLInputElement;
 
-  constructor(container: HTMLDivElement, theme: Theme = 'light') {
-    this.container = container;
+  constructor(theme: Theme = 'light') {
     this.theme = theme;
 
+    this.container = document.createElement('div');
     this.container.style.height = `${FormulaBarHeight}px`;
     this.container.style.margin = `${FormulaBarMargin}px 0px`;
     this.container.style.display = 'flex';
@@ -42,18 +42,22 @@ export class FormulaBar {
     this.container.appendChild(this.formulaInput);
   }
 
+  public getContainer(): HTMLElement {
+    return this.container;
+  }
+
   public initialize(sheet: Sheet) {
     this.sheet = sheet;
   }
 
   public cleanup() {
     this.sheet = undefined;
-    this.container.innerHTML = '';
+    this.container.remove();
   }
 
   public async render() {
     if (!this.sheet) return;
-    
+
     const ref = this.sheet.getActiveCell();
     this.cellLabel.textContent = toSref(ref);
     this.formulaInput.value = await this.sheet.toInputString(ref);
@@ -82,4 +86,4 @@ export class FormulaBar {
   public isFocused(): boolean {
     return document.activeElement === this.formulaInput;
   }
-} 
+}

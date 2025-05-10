@@ -31,4 +31,4 @@ export function getThemeColor(theme: Theme, key: ThemeKey): string {
     return LightTheme[key];
   }
   return DarkTheme[key];
-} 
+}

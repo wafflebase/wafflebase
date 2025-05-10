@@ -1,5 +1,4 @@
-import { initialize, Spreadsheet } from './spreadsheet/spreadsheet';
-import { type Store } from './store/store';
+import { extractReferences } from './formula/formula';
 import {
   type Grid,
   type Cell,
@@ -7,9 +6,10 @@ import {
   type Sref,
   type Range,
   type Direction,
-} from './worksheet/types';
-import { extractReferences } from './formula/formula';
-import { toSref, toSrefs, parseRef, inRange } from './worksheet/coordinates';
+} from './model/types';
+import { toSref, toSrefs, parseRef, inRange } from './model/coordinates';
+import { type Store } from './store/store';
+import { initialize, Spreadsheet } from './view/spreadsheet';
 
 export {
   initialize,
