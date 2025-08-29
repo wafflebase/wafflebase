@@ -20,9 +20,9 @@ import { grid2string, string2grid } from './grids';
 /**
  * `Dimensions` represents the dimensions of the sheet.
  * This is used when the sheet is created for the first time.
- * It represents cells from A1 to ZZZ1048576.
+ * It represents cells from A1 to ZZZ729443.
  */
-const Dimensions = { rows: 1048576, columns: 18278 };
+const Dimensions = { rows: 729443, columns: 18278 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.

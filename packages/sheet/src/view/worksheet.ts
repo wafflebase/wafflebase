@@ -45,6 +45,8 @@ export class Worksheet {
     handler: EventListenerOrEventListenerObject;
   }> = [];
 
+  private resizeObserver?: ResizeObserver;
+
   private boundRender: () => void;
   private boundHandleGridKeydown: (e: KeyboardEvent) => void;
   private boundHandleFormulaInputKeydown: (e: KeyboardEvent) => void;
@@ -101,17 +103,23 @@ export class Worksheet {
     this.boundHandleDblClick = this.handleDblClick.bind(this);
     this.boundHandleKeyDown = this.handleKeyDown.bind(this);
     this.boundHandleKeyUp = this.handleKeyUp.bind(this);
+    this.resizeObserver = new ResizeObserver(() => {
+      this.boundRender();
+    });
   }
 
   public initialize(sheet: Sheet) {
     this.sheet = sheet;
     this.formulaBar.initialize(sheet);
     this.addEventListeners();
+    this.resizeObserver?.observe(this.container);
     this.render();
   }
 
   public cleanup() {
     this.removeAllEventListeners();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = undefined;
     this.formulaBar.cleanup();
     this.cellInput.cleanup();
     this.overlay.cleanup();
