@@ -23,9 +23,9 @@ function App() {
             <Route element={<PrivateRoute />}>
               <Route element={<Layout />}>
                 <Route path="/" element={<Documents />} />
-                <Route path="/:id" element={<DocumentDetail />} />
                 <Route path="/settings" element={<Settings />} />
               </Route>
+              <Route path="/:id" element={<DocumentDetail />} />
             </Route>
           </Routes>
         </Router>

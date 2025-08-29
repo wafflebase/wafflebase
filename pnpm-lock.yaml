@@ -223,8 +223,8 @@ importers:
         specifier: workspace:*
         version: link:../sheet
       '@yorkie-js/react':
-        specifier: 0.6.25
-        version: 0.6.25(react@19.1.0)
+        specifier: 0.6.27
+        version: 0.6.27(react@19.1.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -2507,16 +2507,16 @@ packages:
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
 
-  '@yorkie-js/react@0.6.25':
-    resolution: {integrity: sha512-8vcE9mefrE/VXOXXOZtAV3N/GWHdHGKUa6cfS84x9nDDNL3vsPUZpIIvgj3WhYmFRAJpsBCOXvrsy2YH7xsBEQ==}
+  '@yorkie-js/react@0.6.27':
+    resolution: {integrity: sha512-7lFYjgoPWXWHHqJ86AlRTj4TC3y/BEaSM211ksVVN2tIIUQkS156xrAo2lUSUcO3RCFymiW5rdpTzn5Ucjv9qg==}
     peerDependencies:
       react: ^18 || ^19
 
-  '@yorkie-js/schema@0.6.25':
-    resolution: {integrity: sha512-jAty8EFGDKbDFGludSeohzjT0BqlrhnCx2q6SXq9i5mVmQ+g4Gv6YmKfklKVo6xFOiDJY/rzBpU6GWD+t4Y/LA==}
+  '@yorkie-js/schema@0.6.27':
+    resolution: {integrity: sha512-7JFPSCtWzjYbqA1vwMpXttJutMQSikUXNBqQYlUZar176nRPAsc6NLb/kUVKtsHGZhBkub2izOjO34/J9s/EIA==}
 
-  '@yorkie-js/sdk@0.6.25':
-    resolution: {integrity: sha512-BFyJRLKwVacnivqxU2T/Wblcs9xANRshOVyUYU1KapLs9VPWnuzyP8F73RVbt62sW4zrr8LyMQaxBIzpI0X+wA==}
+  '@yorkie-js/sdk@0.6.27':
+    resolution: {integrity: sha512-WSZMkHbIPrrUsBsBPYilEi7tIw/7Q4KxYanVl8eXYU60gEcF7AkgFVtRBQbA3WbEnGTZX+GGKu+xPhq229A+2g==}
     engines: {node: '>=18.0.0', npm: '>=7.1.0', pnpm: '>=9.6.0'}
 
   accepts@2.0.0:
@@ -8299,19 +8299,19 @@ snapshots:
 
   '@xtuc/long@4.2.2': {}
 
-  '@yorkie-js/react@0.6.25(react@19.1.0)':
+  '@yorkie-js/react@0.6.27(react@19.1.0)':
     dependencies:
-      '@yorkie-js/sdk': 0.6.25
+      '@yorkie-js/sdk': 0.6.27
       react: 19.1.0
 
-  '@yorkie-js/schema@0.6.25': {}
+  '@yorkie-js/schema@0.6.27': {}
 
-  '@yorkie-js/sdk@0.6.25':
+  '@yorkie-js/sdk@0.6.27':
     dependencies:
       '@bufbuild/protobuf': 1.10.1
       '@connectrpc/connect': 1.6.1(@bufbuild/protobuf@1.10.1)
       '@connectrpc/connect-web': 1.6.1(@bufbuild/protobuf@1.10.1)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.1))
-      '@yorkie-js/schema': 0.6.25
+      '@yorkie-js/schema': 0.6.27
       long: 5.3.2
 
   accepts@2.0.0:

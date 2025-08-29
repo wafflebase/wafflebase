@@ -23,10 +23,22 @@ const items = {
 
 export default function Layout() {
   const location = useLocation();
-  const title =
-    items.secondary.find((item) => item.url === location.pathname)?.title ||
-    items.main.find((item) => location.pathname.startsWith(item.url))?.title ||
-    "";
+
+  let title = "";
+  if (location.pathname === "/") {
+    title = "Documents";
+  } else if (location.pathname === "/settings") {
+    title = "Settings";
+  } else if (location.pathname.match(/^\/\d+$/)) {
+    // Document page (e.g., "/123")
+    title = "Spreadsheet";
+  } else {
+    title =
+      items.secondary.find((item) => item.url === location.pathname)?.title ||
+      items.main.find((item) => location.pathname.startsWith(item.url))
+        ?.title ||
+      "";
+  }
 
   return (
     <SidebarProvider>
