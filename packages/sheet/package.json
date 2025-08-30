@@ -11,7 +11,7 @@
     "test": "vitest --run",
     "test:watch": "vitest --watch",
     "build": "vite --config vite.build.ts build",
-    "build:formula": "antlr4ts -visitor antlr/Formula.g4",
+    "build:formula": "antlr4ts -visitor antlr/Formula.g4 && scripts/fix-antlr-ts.sh",
     "preview": "vite preview",
     "format": "prettier --write ."
   },
