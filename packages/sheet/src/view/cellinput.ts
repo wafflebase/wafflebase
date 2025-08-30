@@ -20,6 +20,7 @@ export class CellInput {
     this.container.style.height = DefaultCellHeight + 'px';
     this.container.style.zIndex = '1';
     this.container.style.margin = '0px';
+    this.container.style.pointerEvents = 'none';
 
     this.input = document.createElement('div');
     this.input.contentEditable = 'true';
@@ -60,6 +61,7 @@ export class CellInput {
   ): void {
     this.container.style.left = left + 'px';
     this.container.style.top = top + 'px';
+    this.container.style.pointerEvents = 'auto';
     this.input.innerText = value;
 
     this.paintInput();
@@ -74,6 +76,7 @@ export class CellInput {
 
   public hide(): void {
     this.container.style.left = '-1000px';
+    this.container.style.pointerEvents = 'none';
     this.input.innerText = '';
     this.input.blur();
   }

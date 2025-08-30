@@ -12,6 +12,7 @@ export class Overlay {
     this.canvas = document.createElement('canvas');
     this.canvas.style.position = 'absolute';
     this.canvas.style.zIndex = '1';
+    this.canvas.style.pointerEvents = 'none';
   }
 
   public cleanup() {

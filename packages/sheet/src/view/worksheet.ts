@@ -1,16 +1,15 @@
-import { Range, Ref, Grid, Cell, Direction } from '../model/types';
-import { toSref, toColumnLabel } from '../model/coordinates';
+import { Range, Ref, Grid, Direction } from '../model/types';
 import { Sheet } from '../model/sheet';
-import { Theme, ThemeKey, getThemeColor } from './theme';
-import { FormulaBar, FormulaBarHeight, FormulaBarMargin } from './formulabar';
+import { Theme } from './theme';
+import { FormulaBar } from './formulabar';
 import { CellInput } from './cellinput';
 import { Overlay } from './overlay';
+import { GridContainer } from './gridcontainer';
+import { GridCanvas } from './gridcanvas';
 import {
   DefaultCellWidth,
   DefaultCellHeight,
   RowHeaderWidth,
-  CellBorderWidth,
-  HeaderTextAlign,
   ScrollIntervalMS,
   ScrollSpeedMS,
   BoundingRect,
@@ -26,18 +25,14 @@ import {
  */
 export class Worksheet {
   private sheet?: Sheet;
-  private theme: Theme;
 
   private container: HTMLDivElement;
 
   private formulaBar: FormulaBar;
   private cellInput: CellInput;
   private overlay: Overlay;
-
-  private sheetContainer: HTMLDivElement;
-  private scrollContainer: HTMLDivElement;
-  private dummyContainer: HTMLDivElement;
-  private gridCanvas: HTMLCanvasElement;
+  private gridContainer: GridContainer;
+  private gridCanvas: GridCanvas;
 
   private listeners: Array<{
     element: EventTarget;
@@ -58,41 +53,21 @@ export class Worksheet {
 
   constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
-    this.theme = theme;
 
     this.formulaBar = new FormulaBar(theme);
     this.container.appendChild(this.formulaBar.getContainer());
 
-    this.sheetContainer = document.createElement('div');
-    this.sheetContainer.style.position = 'relative';
-    this.sheetContainer.style.width = '100%';
-    this.sheetContainer.style.height = `calc(100% - ${FormulaBarHeight + FormulaBarMargin * 2}px)`;
-
+    this.gridContainer = new GridContainer(theme);
     this.overlay = new Overlay(theme);
-    this.sheetContainer.appendChild(this.overlay.getContainer());
+    this.gridContainer.appendChild(this.overlay.getContainer());
 
-    this.scrollContainer = document.createElement('div');
-    this.scrollContainer.style.position = 'absolute';
-    this.scrollContainer.style.overflow = 'auto';
-    this.scrollContainer.style.width = '100%';
-    this.scrollContainer.style.height = '100%';
-    this.scrollContainer.style.zIndex = '1';
-
-    this.dummyContainer = document.createElement('div');
-    this.dummyContainer.style.margin = '0px';
-    this.dummyContainer.style.padding = '0px';
-    this.scrollContainer.appendChild(this.dummyContainer);
-    this.sheetContainer.appendChild(this.scrollContainer);
-
-    this.gridCanvas = this.sheetContainer.appendChild(
-      document.createElement('canvas'),
-    );
-    this.gridCanvas.style.position = 'absolute';
+    this.gridCanvas = new GridCanvas(theme);
+    this.gridContainer.appendChild(this.gridCanvas.getCanvas());
 
     this.cellInput = new CellInput(theme);
-    this.sheetContainer.appendChild(this.cellInput.getContainer());
+    this.gridContainer.appendChild(this.cellInput.getContainer());
 
-    this.container.appendChild(this.sheetContainer);
+    this.container.appendChild(this.gridContainer.getContainer());
 
     this.boundRender = this.render.bind(this);
     this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
@@ -123,6 +98,8 @@ export class Worksheet {
     this.formulaBar.cleanup();
     this.cellInput.cleanup();
     this.overlay.cleanup();
+    this.gridCanvas.cleanup();
+    this.gridContainer.cleanup();
     this.sheet = undefined;
     this.container.innerHTML = '';
   }
@@ -196,17 +173,9 @@ export class Worksheet {
    */
   private addEventListeners() {
     this.addEventListener(window, 'resize', this.boundRender);
-    this.addEventListener(this.scrollContainer, 'scroll', this.boundRender);
-    this.addEventListener(
-      this.scrollContainer,
-      'mousedown',
-      this.boundHandleMouseDown,
-    );
-    this.addEventListener(
-      this.scrollContainer,
-      'dblclick',
-      this.boundHandleDblClick,
-    );
+    this.gridContainer.addEventListener('scroll', this.boundRender);
+    this.gridContainer.addEventListener('mousedown', this.boundHandleMouseDown);
+    this.gridContainer.addEventListener('dblclick', this.boundHandleDblClick);
     this.addEventListener(document, 'keydown', this.boundHandleKeyDown);
     this.addEventListener(document, 'keyup', this.boundHandleKeyUp);
   }
@@ -226,7 +195,7 @@ export class Worksheet {
       const viewport = this.viewport;
       // NOTE(hackerwins): If the mouse is outside the scroll container,
       // calculate the offset based on the sheet container.
-      if (e.target !== this.scrollContainer) {
+      if (e.target !== this.gridContainer.getScrollContainer()) {
         offsetX = Math.max(
           0,
           Math.min(viewport.width, e.clientX - viewport.left),
@@ -263,7 +232,7 @@ export class Worksheet {
 
       if (scrollOffset.x !== 0 || scrollOffset.y !== 0) {
         scrollInterval = setInterval(() => {
-          this.scrollContainer.scrollBy(scrollOffset.x, scrollOffset.y);
+          this.gridContainer.scrollBy(scrollOffset.x, scrollOffset.y);
           this.sheet!.selectEnd(
             toRef(offsetX! + this.scroll.left, offsetY! + this.scroll.top),
           );
@@ -551,29 +520,21 @@ export class Worksheet {
    * It returns the position and size of the scroll container.
    */
   private get viewport(): BoundingRect {
-    return this.scrollContainer.getBoundingClientRect();
+    return this.gridContainer.getViewport();
   }
 
   /**
    * `scroll` returns the scroll position of the scroll container.
    */
   private get scroll(): Position {
-    return {
-      left: this.scrollContainer.scrollLeft,
-      top: this.scrollContainer.scrollTop,
-    };
+    return this.gridContainer.getScrollPosition();
   }
 
   /**
    * `scroll` sets the scroll position of the scroll container.
    */
   private set scroll(position: { left?: number; top?: number }) {
-    if (position.left !== undefined) {
-      this.scrollContainer.scrollLeft = position.left;
-    }
-    if (position.top !== undefined) {
-      this.scrollContainer.scrollTop = position.top;
-    }
+    this.gridContainer.setScrollPosition(position);
   }
 
   /**
@@ -581,110 +542,22 @@ export class Worksheet {
    */
   private paintDummy() {
     const gridSize = this.gridSize;
-    this.dummyContainer.style.width = gridSize.width + RowHeaderWidth + 'px';
-    this.dummyContainer.style.height =
-      gridSize.height + DefaultCellHeight + 'px';
+    this.gridContainer.updateDummySize(
+      gridSize.width + RowHeaderWidth,
+      gridSize.height + DefaultCellHeight,
+    );
   }
 
   /**
    * `paintGrid` paints the grid.
    */
   private paintGrid(grid?: Grid) {
-    this.gridCanvas.width = 0;
-    this.gridCanvas.height = 0;
-
-    const ctx = this.gridCanvas.getContext('2d')!;
-    const ratio = window.devicePixelRatio || 1;
-    const viewport = this.viewport;
-    const scroll = this.scroll;
-
-    this.gridCanvas.width = viewport.width * ratio;
-    this.gridCanvas.height = viewport.height * ratio;
-    this.gridCanvas.style.width = viewport.width + 'px';
-    this.gridCanvas.style.height = viewport.height + 'px';
-    ctx.scale(ratio, ratio);
-
-    const [startID, endID] = this.viewRange;
-    const ref = this.sheet!.getActiveCell();
-
-    // Paint cells
-    for (let row = startID.r; row <= endID.r + 1; row++) {
-      for (let col = startID.c; col <= endID.c + 1; col++) {
-        this.paintCell(
-          ctx,
-          { r: row, c: col },
-          grid?.get(toSref({ r: row, c: col })),
-        );
-      }
-    }
-
-    // Paint column header
-    for (let col = startID.c; col <= endID.c; col++) {
-      const x = RowHeaderWidth + DefaultCellWidth * (col - 1) - scroll.left;
-      const y = 0;
-      this.paintHeader(
-        ctx,
-        x,
-        y,
-        DefaultCellWidth,
-        toColumnLabel(col),
-        ref.c === col,
-      );
-    }
-
-    // Paint row header
-    for (let row = startID.r; row <= endID.r; row++) {
-      const x = 0;
-      const y = row * DefaultCellHeight - scroll.top;
-      this.paintHeader(ctx, x, y, RowHeaderWidth, String(row), ref.r === row);
-    }
-  }
-
-  /**
-   * `paintHeader` paints the header.
-   */
-  private paintHeader(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    width: number,
-    label: string,
-    selected: boolean,
-  ) {
-    ctx.fillStyle = selected
-      ? this.getThemeColor('headerActiveBGColor')
-      : this.getThemeColor('headerBGColor');
-    ctx.fillRect(x, y, width, DefaultCellHeight);
-    ctx.strokeStyle = this.getThemeColor('cellBorderColor');
-    ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(x, y, width, DefaultCellHeight);
-    ctx.fillStyle = this.getThemeColor('cellTextColor');
-    ctx.textAlign = HeaderTextAlign;
-    ctx.font = selected ? 'bold 10px Arial' : '10px Arial';
-    ctx.fillText(label, x + width / 2, y + 15);
-  }
-
-  /**
-   * `paintCell` paints the cell.
-   */
-  private paintCell(ctx: CanvasRenderingContext2D, id: Ref, cell?: Cell) {
-    const rect = toBoundingRect(id, this.scroll);
-
-    ctx.strokeStyle = this.getThemeColor('cellTextColor');
-    ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
-    ctx.fillStyle = this.getThemeColor('cellBGColor');
-    ctx.fillRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
-
-    const data = cell?.v || '';
-    if (data) {
-      ctx.fillStyle = this.getThemeColor('cellTextColor');
-      ctx.font = '12px Arial';
-      ctx.fillText(data, rect.left + 3, rect.top + 15);
-    }
-  }
-
-  private getThemeColor(key: ThemeKey): string {
-    return getThemeColor(this.theme, key);
+    this.gridCanvas.render(
+      this.viewport,
+      this.scroll,
+      this.viewRange,
+      this.sheet!.getActiveCell(),
+      grid,
+    );
   }
 }
