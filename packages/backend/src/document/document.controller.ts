@@ -30,7 +30,7 @@ export class DocumentController {
     @Req() req: AuthenticatedRequest,
   ): Promise<DocumentModel | null> {
     const doc = await this.documentService.document({
-      id: Number(id),
+      id: id,
     });
     if (!doc || doc.authorID !== Number(req.user.id)) {
       throw new ForbiddenException('You do not have access to this document');
@@ -64,7 +64,7 @@ export class DocumentController {
     @Param('id') id: string,
   ): Promise<DocumentModel> {
     const doc = await this.documentService.deleteDocument({
-      id: Number(id),
+      id: id,
       authorID: Number(req.user.id),
     });
     if (!doc) {

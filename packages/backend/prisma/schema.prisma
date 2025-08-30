@@ -8,7 +8,7 @@ model User {
 }
 
 model Document {
-  id        Int      @default(autoincrement()) @id
+  id        String   @default(uuid()) @id
   title     String
   authorID  Int?
   author    User?    @relation(fields: [authorID], references: [id])
