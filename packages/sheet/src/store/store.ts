@@ -43,4 +43,14 @@ export interface Store {
    * `buildDependantsMap` method builds a map of dependants.
    */
   buildDependantsMap(srefs: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>>;
+
+  /**
+   * `getPresences` method gets the user presences.
+   */
+  getPresences(): Array<{ clientID: string; presence: { activeCell: string } }>;
+
+  /**
+   * `updateActiveCell` method updates the active cell of the current user.
+   */
+  updateActiveCell(activeCell: Ref): void;
 }

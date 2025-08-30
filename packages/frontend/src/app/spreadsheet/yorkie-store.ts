@@ -14,11 +14,12 @@ import {
   toSrefs,
 } from "@wafflebase/sheet";
 import { Worksheet } from "@/types/worksheet";
+import { UserPresence } from "@/types/users";
 
 export class YorkieStore implements Store {
-  private doc: Document<Worksheet>;
+  private doc: Document<Worksheet, UserPresence>;
 
-  constructor(doc: Document<Worksheet>) {
+  constructor(doc: Document<Worksheet, UserPresence>) {
     this.doc = doc;
   }
 
@@ -149,5 +150,16 @@ export class YorkieStore implements Store {
       }
     }
     return dependantsMap;
+  }
+
+  updateActiveCell(activeCell: Ref) {
+    this.doc.update((_, p) => {
+      p.set({ activeCell: toSref(activeCell) });
+    });
+  }
+
+  getPresences(): Array<{ clientID: string; presence: UserPresence }> {
+    // TODO(hackerwins): Should filter my own presence.
+    return this.doc.getPresences();
   }
 }

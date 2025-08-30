@@ -1,12 +1,13 @@
 import { extractReferences } from '../formula/formula';
 import { inRange, parseRef, toSref, toSrefs } from '../model/coordinates';
-import { Cell, Grid, Ref, Range, Sref } from '../model/types';
+import { Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
+import { Store } from './store';
 
 /**
  * `MemStore` class represents an in-memory storage.
  * It is used in testing and development.
  */
-export class MemStore {
+export class MemStore implements Store {
   private grid: Map<Sref, Cell>;
 
   constructor(grid?: Grid) {
@@ -53,7 +54,7 @@ export class MemStore {
    */
   async findEdge(
     ref: Ref,
-    direction: 'up' | 'down' | 'left' | 'right',
+    direction: Direction,
     dimension: Range,
   ): Promise<Ref> {
     let row = ref.r;
@@ -113,5 +114,24 @@ export class MemStore {
       }
     }
     return dependantsMap;
+  }
+
+  /**
+   * `getPresences` method gets the user presences.
+   * For MemStore, this returns an empty array since it's not connected to real-time collaboration.
+   */
+  getPresences(): Array<{
+    clientID: string;
+    presence: { activeCell: string };
+  }> {
+    return [];
+  }
+
+  /**
+   * `updateActiveCell` method updates the active cell of the current user.
+   * For MemStore, this is a no-op since it's not connected to real-time collaboration.
+   */
+  updateActiveCell(_: Ref): void {
+    // No-op for memory store
   }
 }

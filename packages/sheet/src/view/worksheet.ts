@@ -405,10 +405,25 @@ export class Worksheet {
   public render() {
     this.formulaBar.render();
     this.paintSheet();
+
     this.overlay.render(
       this.viewport,
       this.scroll,
       this.sheet!.getActiveCell(),
+      this.sheet!.getPresences(),
+      this.sheet!.getRange(),
+    );
+  }
+
+  /**
+   * `renderOverlay` renders the overlay on top of the sheet.
+   */
+  public renderOverlay() {
+    this.overlay.render(
+      this.viewport,
+      this.scroll,
+      this.sheet!.getActiveCell(),
+      this.sheet!.getPresences(),
       this.sheet!.getRange(),
     );
   }

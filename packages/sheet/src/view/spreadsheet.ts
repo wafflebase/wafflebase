@@ -61,6 +61,13 @@ export class Spreadsheet {
     this.worksheet.render();
   }
 
+  /**
+   * `renderOverlay` renders the overlay on top of the sheet.
+   */
+  public renderOverlay() {
+    this.worksheet.renderOverlay();
+  }
+
   public cleanup() {
     this.worksheet.cleanup();
   }

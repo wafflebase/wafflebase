@@ -5,12 +5,13 @@ import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
 import { Worksheet } from "@/types/worksheet";
 import { YorkieStore } from "./yorkie-store";
+import { UserPresence } from "@/types/users";
 
 export function SheetView() {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
-  const { doc, loading, error } = useDocument<Worksheet>();
+  const { doc, loading, error } = useDocument<Worksheet, UserPresence>();
 
   // NOTE(hackerwins): To prevent initialization of the spreadsheet
   // twice in development.
@@ -28,18 +29,24 @@ export function SheetView() {
       theme,
       store: new YorkieStore(doc),
     });
-    const unsub = doc.subscribe((e) => {
-      if (e.type === "remote-change") {
-        sheet.render();
-      }
-    });
+
+    // TODO(hackerwins): We need to optimize the rendering performance.
+    const unsubs: Array<Function> = [];
+    unsubs.push(
+      doc.subscribe((e) => {
+        if (e.type === "remote-change") {
+          sheet.render();
+        }
+      })
+    );
+    unsubs.push(doc.subscribe("presence", () => sheet.renderOverlay()));
 
     return () => {
       if (sheet) {
         sheet.cleanup();
       }
 
-      if (unsub) {
+      for (const unsub of unsubs) {
         unsub();
       }
     };

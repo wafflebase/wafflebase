@@ -236,6 +236,7 @@ export class Sheet {
    */
   public setActiveCell(ref: Ref): void {
     this.activeCell = ref;
+    this.store.updateActiveCell(ref);
   }
 
   /**
@@ -243,6 +244,16 @@ export class Sheet {
    */
   getRange(): Range | undefined {
     return this.range;
+  }
+
+  /**
+   * `getPresences` returns the current user presences.
+   */
+  getPresences(): Array<{
+    clientID: string;
+    presence: { activeCell: string };
+  }> {
+    return this.store.getPresences();
   }
 
   /**
@@ -261,7 +272,7 @@ export class Sheet {
       return;
     }
 
-    this.activeCell = ref;
+    this.setActiveCell(ref);
     this.range = undefined;
   }
 
@@ -337,7 +348,7 @@ export class Sheet {
     }
 
     this.range = undefined;
-    this.activeCell = ref;
+    this.setActiveCell(ref);
     return true;
   }
 
@@ -361,7 +372,7 @@ export class Sheet {
     }
 
     this.range = undefined;
-    this.activeCell = { r: row, c: col };
+    this.setActiveCell({ r: row, c: col });
     return true;
   }
 
@@ -433,6 +444,6 @@ export class Sheet {
       }
     }
 
-    this.activeCell = { r: row, c: col };
+    this.setActiveCell({ r: row, c: col });
   }
 }
