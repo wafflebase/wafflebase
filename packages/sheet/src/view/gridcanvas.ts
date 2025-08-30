@@ -51,10 +51,10 @@ export class GridCanvas {
 
     const [startID, endID] = viewRange;
 
-    // Paint cells
+    // Render cells
     for (let row = startID.r; row <= endID.r + 1; row++) {
       for (let col = startID.c; col <= endID.c + 1; col++) {
-        this.paintCell(
+        this.renderCell(
           ctx,
           { r: row, c: col },
           grid?.get(toSref({ r: row, c: col })),
@@ -63,11 +63,11 @@ export class GridCanvas {
       }
     }
 
-    // Paint column headers
+    // Render column headers
     for (let col = startID.c; col <= endID.c; col++) {
       const x = RowHeaderWidth + DefaultCellWidth * (col - 1) - scroll.left;
       const y = 0;
-      this.paintHeader(
+      this.renderHeader(
         ctx,
         x,
         y,
@@ -77,11 +77,11 @@ export class GridCanvas {
       );
     }
 
-    // Paint row headers
+    // Render row headers
     for (let row = startID.r; row <= endID.r; row++) {
       const x = 0;
       const y = row * DefaultCellHeight - scroll.top;
-      this.paintHeader(
+      this.renderHeader(
         ctx,
         x,
         y,
@@ -92,7 +92,7 @@ export class GridCanvas {
     }
   }
 
-  private paintHeader(
+  private renderHeader(
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
@@ -113,7 +113,7 @@ export class GridCanvas {
     ctx.fillText(label, x + width / 2, y + 15);
   }
 
-  private paintCell(
+  private renderCell(
     ctx: CanvasRenderingContext2D,
     id: Ref,
     cell: Cell | undefined,

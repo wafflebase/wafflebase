@@ -1,4 +1,4 @@
-import { Range, Ref, Grid, Direction } from '../model/types';
+import { Range, Ref, Direction } from '../model/types';
 import { Sheet } from '../model/sheet';
 import { Theme } from './theme';
 import { FormulaBar } from './formulabar';
@@ -39,12 +39,11 @@ export class Worksheet {
     type: string;
     handler: EventListenerOrEventListenerObject;
   }> = [];
-
-  private resizeObserver?: ResizeObserver;
+  private resizeObserver: ResizeObserver;
 
   private boundRender: () => void;
   private boundHandleGridKeydown: (e: KeyboardEvent) => void;
-  private boundHandleFormulaInputKeydown: (e: KeyboardEvent) => void;
+  private boundHandleFormulaKeydown: (e: KeyboardEvent) => void;
   private boundHandleCellInputKeydown: (e: KeyboardEvent) => void;
   private boundHandleMouseDown: (e: MouseEvent) => void;
   private boundHandleDblClick: (e: MouseEvent) => void;
@@ -55,51 +54,46 @@ export class Worksheet {
     this.container = container;
 
     this.formulaBar = new FormulaBar(theme);
-    this.container.appendChild(this.formulaBar.getContainer());
-
     this.gridContainer = new GridContainer(theme);
     this.overlay = new Overlay(theme);
-    this.gridContainer.appendChild(this.overlay.getContainer());
-
     this.gridCanvas = new GridCanvas(theme);
-    this.gridContainer.appendChild(this.gridCanvas.getCanvas());
-
     this.cellInput = new CellInput(theme);
-    this.gridContainer.appendChild(this.cellInput.getContainer());
 
+    this.gridContainer.appendChild(this.overlay.getContainer());
+    this.gridContainer.appendChild(this.gridCanvas.getCanvas());
+    this.gridContainer.appendChild(this.cellInput.getContainer());
+    this.container.appendChild(this.formulaBar.getContainer());
     this.container.appendChild(this.gridContainer.getContainer());
 
     this.boundRender = this.render.bind(this);
     this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
-    this.boundHandleFormulaInputKeydown =
-      this.handleFormulaInputKeydown.bind(this);
+    this.boundHandleFormulaKeydown = this.handleFormulaKeydown.bind(this);
     this.boundHandleCellInputKeydown = this.handleCellInputKeydown.bind(this);
     this.boundHandleMouseDown = this.handleMouseDown.bind(this);
     this.boundHandleDblClick = this.handleDblClick.bind(this);
     this.boundHandleKeyDown = this.handleKeyDown.bind(this);
     this.boundHandleKeyUp = this.handleKeyUp.bind(this);
-    this.resizeObserver = new ResizeObserver(() => {
-      this.boundRender();
-    });
+    this.resizeObserver = new ResizeObserver(() => this.boundRender());
   }
 
   public initialize(sheet: Sheet) {
     this.sheet = sheet;
     this.formulaBar.initialize(sheet);
     this.addEventListeners();
-    this.resizeObserver?.observe(this.container);
+    this.resizeObserver.observe(this.container);
     this.render();
   }
 
   public cleanup() {
     this.removeAllEventListeners();
-    this.resizeObserver?.disconnect();
-    this.resizeObserver = undefined;
+    this.resizeObserver.disconnect();
+
     this.formulaBar.cleanup();
     this.cellInput.cleanup();
     this.overlay.cleanup();
     this.gridCanvas.cleanup();
     this.gridContainer.cleanup();
+
     this.sheet = undefined;
     this.container.innerHTML = '';
   }
@@ -143,7 +137,7 @@ export class Worksheet {
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (this.formulaBar.isFocused()) {
-      this.boundHandleFormulaInputKeydown(e);
+      this.boundHandleFormulaKeydown(e);
       return;
     } else if (this.cellInput.isFocused()) {
       this.boundHandleCellInputKeydown(e);
@@ -173,9 +167,11 @@ export class Worksheet {
    */
   private addEventListeners() {
     this.addEventListener(window, 'resize', this.boundRender);
+
     this.gridContainer.addEventListener('scroll', this.boundRender);
     this.gridContainer.addEventListener('mousedown', this.boundHandleMouseDown);
     this.gridContainer.addEventListener('dblclick', this.boundHandleDblClick);
+
     this.addEventListener(document, 'keydown', this.boundHandleKeyDown);
     this.addEventListener(document, 'keyup', this.boundHandleKeyUp);
   }
@@ -185,25 +181,17 @@ export class Worksheet {
     this.sheet!.selectStart(toRef(e.offsetX, e.offsetY));
     this.render();
 
-    let scrollInterval: NodeJS.Timeout | null = null;
-    let offsetX: number | null = null;
-    let offsetY: number | null = null;
+    let interval: NodeJS.Timeout | null = null;
     const onMove = (e: MouseEvent) => {
-      offsetX = e.offsetX;
-      offsetY = e.offsetY;
+      let offsetX = e.offsetX;
+      let offsetY = e.offsetY;
 
-      const viewport = this.viewport;
       // NOTE(hackerwins): If the mouse is outside the scroll container,
       // calculate the offset based on the sheet container.
+      const port = this.viewport;
       if (e.target !== this.gridContainer.getScrollContainer()) {
-        offsetX = Math.max(
-          0,
-          Math.min(viewport.width, e.clientX - viewport.left),
-        );
-        offsetY = Math.max(
-          0,
-          Math.min(viewport.height, e.clientY - viewport.top),
-        );
+        offsetX = Math.max(0, Math.min(port.width, e.clientX - port.left));
+        offsetY = Math.max(0, Math.min(port.height, e.clientY - port.top));
       }
 
       this.sheet!.selectEnd(
@@ -212,27 +200,27 @@ export class Worksheet {
       this.render();
 
       const { clientX, clientY } = e;
-      if (scrollInterval) {
-        clearInterval(scrollInterval);
+      if (interval) {
+        clearInterval(interval);
       }
 
       // Calculate the scroll offset based on the mouse position.
-      const scrollOffset = { x: 0, y: 0 };
-      if (clientX <= viewport.left) {
-        scrollOffset.x = -ScrollSpeedMS;
-      } else if (clientX >= viewport.width) {
-        scrollOffset.x = ScrollSpeedMS;
+      const scroll = { x: 0, y: 0 };
+      if (clientX <= port.left) {
+        scroll.x = -ScrollSpeedMS;
+      } else if (clientX >= port.width) {
+        scroll.x = ScrollSpeedMS;
       }
 
-      if (clientY <= viewport.top) {
-        scrollOffset.y = -ScrollSpeedMS;
-      } else if (clientY >= viewport.height) {
-        scrollOffset.y = ScrollSpeedMS;
+      if (clientY <= port.top) {
+        scroll.y = -ScrollSpeedMS;
+      } else if (clientY >= port.height) {
+        scroll.y = ScrollSpeedMS;
       }
 
-      if (scrollOffset.x !== 0 || scrollOffset.y !== 0) {
-        scrollInterval = setInterval(() => {
-          this.gridContainer.scrollBy(scrollOffset.x, scrollOffset.y);
+      if (scroll.x !== 0 || scroll.y !== 0) {
+        interval = setInterval(() => {
+          this.gridContainer.scrollBy(scroll.x, scroll.y);
           this.sheet!.selectEnd(
             toRef(offsetX! + this.scroll.left, offsetY! + this.scroll.top),
           );
@@ -242,8 +230,8 @@ export class Worksheet {
     };
 
     const onUp = () => {
-      if (scrollInterval) {
-        clearInterval(scrollInterval);
+      if (interval) {
+        clearInterval(interval);
       }
 
       document.removeEventListener('mousemove', onMove);
@@ -257,7 +245,7 @@ export class Worksheet {
   /**
    * `handleFormulaInputKeydown` handles the keydown event for the formula input.
    */
-  private async handleFormulaInputKeydown(e: KeyboardEvent) {
+  private async handleFormulaKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       await this.finishEditing();
       this.sheet!.move('down');
@@ -404,15 +392,8 @@ export class Worksheet {
    */
   public render() {
     this.formulaBar.render();
-    this.paintSheet();
-
-    this.overlay.render(
-      this.viewport,
-      this.scroll,
-      this.sheet!.getActiveCell(),
-      this.sheet!.getPresences(),
-      this.sheet!.getRange(),
-    );
+    this.renderSheet();
+    this.renderOverlay();
   }
 
   /**
@@ -433,14 +414,13 @@ export class Worksheet {
    */
   private get viewRange(): Range {
     const scroll = this.scroll;
-    const viewport = this.viewport;
+    const port = this.viewport;
 
     const startRow = Math.floor(scroll.top / DefaultCellHeight) + 1;
     const endRow =
-      Math.ceil((scroll.top + viewport.height) / DefaultCellHeight) + 1;
+      Math.ceil((scroll.top + port.height) / DefaultCellHeight) + 1;
     const startCol = Math.floor(scroll.left / DefaultCellWidth) + 1;
-    const endCol =
-      Math.ceil((scroll.left + viewport.width) / DefaultCellWidth) + 1;
+    const endCol = Math.ceil((scroll.left + port.width) / DefaultCellWidth) + 1;
 
     return [
       { r: startRow, c: startCol },
@@ -494,11 +474,9 @@ export class Worksheet {
     withoutValue: boolean = false,
     withoutFocus: boolean = false,
   ) {
-    const activeCell = this.sheet!.getActiveCell();
-    const rect = toBoundingRect(activeCell, this.scroll);
-    const value = withoutValue
-      ? ''
-      : await this.sheet!.toInputString(activeCell);
+    const cell = this.sheet!.getActiveCell();
+    const rect = toBoundingRect(cell, this.scroll);
+    const value = withoutValue ? '' : await this.sheet!.toInputString(cell);
     this.cellInput.show(rect.left, rect.top, value, !withoutFocus);
   }
 
@@ -510,16 +488,23 @@ export class Worksheet {
   }
 
   /**
-   * `paintSheet` paints the spreadsheet.
+   * `renderSheet` renders the spreadsheet.
    */
-  private async paintSheet() {
-    this.paintDummy();
-    this.paintGrid();
+  private async renderSheet() {
+    const gridSize = this.gridSize;
+    this.gridContainer.updateDummySize(
+      gridSize.width + RowHeaderWidth,
+      gridSize.height + DefaultCellHeight,
+    );
 
-    // TODO(hackerwins): There is a flickering issue when the grid is painted.
-    // We need to prefetch the grid with buffer and then paint the grid.
     const grid = await this.sheet!.fetchGrid(this.viewRange);
-    this.paintGrid(grid);
+    this.gridCanvas.render(
+      this.viewport,
+      this.scroll,
+      this.viewRange,
+      this.sheet!.getActiveCell(),
+      grid,
+    );
   }
 
   private get gridSize(): Size {
@@ -550,29 +535,5 @@ export class Worksheet {
    */
   private set scroll(position: { left?: number; top?: number }) {
     this.gridContainer.setScrollPosition(position);
-  }
-
-  /**
-   * `paintDummy` paints the dummy container.
-   */
-  private paintDummy() {
-    const gridSize = this.gridSize;
-    this.gridContainer.updateDummySize(
-      gridSize.width + RowHeaderWidth,
-      gridSize.height + DefaultCellHeight,
-    );
-  }
-
-  /**
-   * `paintGrid` paints the grid.
-   */
-  private paintGrid(grid?: Grid) {
-    this.gridCanvas.render(
-      this.viewport,
-      this.scroll,
-      this.viewRange,
-      this.sheet!.getActiveCell(),
-      grid,
-    );
   }
 }

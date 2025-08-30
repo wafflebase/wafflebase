@@ -8,7 +8,7 @@ export class CellInput {
   private container: HTMLDivElement;
   private input: HTMLDivElement;
   private theme: Theme;
-  private boundPaintInput: () => void;
+  private boundRenderInput: () => void;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -36,12 +36,12 @@ export class CellInput {
     this.input.style.backgroundColor = this.getThemeColor('cellBGColor');
     this.container.appendChild(this.input);
 
-    this.boundPaintInput = this.paintInput.bind(this);
-    this.input.addEventListener('input', this.boundPaintInput);
+    this.boundRenderInput = this.renderInput.bind(this);
+    this.input.addEventListener('input', this.boundRenderInput);
   }
 
   public cleanup(): void {
-    this.input.removeEventListener('input', this.boundPaintInput);
+    this.input.removeEventListener('input', this.boundRenderInput);
     this.container.remove();
   }
 
@@ -64,7 +64,7 @@ export class CellInput {
     this.container.style.pointerEvents = 'auto';
     this.input.innerText = value;
 
-    this.paintInput();
+    this.renderInput();
     if (focus) {
       setTextRange(this.input, {
         start: this.input.innerText.length,
@@ -95,14 +95,14 @@ export class CellInput {
 
   public setValue(value: string): void {
     this.input.innerText = value;
-    this.paintInput();
+    this.renderInput();
   }
 
   public hasFormula(): boolean {
     return this.input.innerText.startsWith('=');
   }
 
-  private paintInput(): void {
+  private renderInput(): void {
     const text = this.input.innerText;
     if (!text.startsWith('=')) {
       return;

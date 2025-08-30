@@ -11,7 +11,7 @@ services:
       - "5432:5432"
 
   yorkie:
-    image: "yorkieteam/yorkie:0.6.24"
+    image: "yorkieteam/yorkie:0.6.27"
     command: ["server", "--pprof-enabled"]
     restart: always
     ports:

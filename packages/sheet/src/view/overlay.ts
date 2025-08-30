@@ -46,13 +46,13 @@ export class Overlay {
     this.canvas.style.height = port.height + 'px';
     ctx.scale(ratio, ratio);
 
-    // Paint Active Cell
+    // Render Active Cell
     const rect = toBoundingRect(activeCell, scroll);
     ctx.strokeStyle = this.getThemeColor('activeCellColor');
     ctx.lineWidth = 2;
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
 
-    // Paint Selection Range
+    // Render Selection Range
     if (range) {
       const rect = expandBoundingRect(
         toBoundingRect(range[0], scroll),
