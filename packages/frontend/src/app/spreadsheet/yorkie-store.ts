@@ -159,7 +159,6 @@ export class YorkieStore implements Store {
   }
 
   getPresences(): Array<{ clientID: string; presence: UserPresence }> {
-    // TODO(hackerwins): Should filter my own presence.
-    return this.doc.getPresences();
+    return this.doc.getOthersPresences();
   }
 }
