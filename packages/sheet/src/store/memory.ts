@@ -1,6 +1,7 @@
 import { extractReferences } from '../formula/formula';
 import { inRange, parseRef, toSref, toSrefs } from '../model/coordinates';
-import { Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
+import { shiftGrid } from '../model/shifting';
+import { Axis, Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
 import { Store } from './store';
 
 /**
@@ -91,6 +92,10 @@ export class MemStore implements Store {
     }
 
     return { r: row, c: col };
+  }
+
+  async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
+    this.grid = shiftGrid(this.grid, axis, index, count);
   }
 
   /**

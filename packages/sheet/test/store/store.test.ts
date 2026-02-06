@@ -36,4 +36,41 @@ function runTests(createStore: (key: string) => Promise<Store>) {
     await store.delete({ r: 5, c: 1 });
     expect(await store.has({ r: 5, c: 1 })).toBe(false);
   });
+
+  it('should shift cells down on row insert', async function ({ task }) {
+    const store = await createStore(task.name);
+    await store.set({ r: 1, c: 1 }, { v: '10' });
+    await store.set({ r: 2, c: 1 }, { v: '20' });
+
+    await store.shiftCells('row', 2, 1);
+
+    expect(await store.get({ r: 1, c: 1 })).toEqual({ v: '10' });
+    expect(await store.has({ r: 2, c: 1 })).toBe(false);
+    expect(await store.get({ r: 3, c: 1 })).toEqual({ v: '20' });
+  });
+
+  it('should shift cells up on row delete', async function ({ task }) {
+    const store = await createStore(task.name);
+    await store.set({ r: 1, c: 1 }, { v: '10' });
+    await store.set({ r: 2, c: 1 }, { v: '20' });
+    await store.set({ r: 3, c: 1 }, { v: '30' });
+
+    await store.shiftCells('row', 2, -1);
+
+    expect(await store.get({ r: 1, c: 1 })).toEqual({ v: '10' });
+    expect(await store.get({ r: 2, c: 1 })).toEqual({ v: '30' });
+    expect(await store.has({ r: 3, c: 1 })).toBe(false);
+  });
+
+  it('should shift cells right on column insert', async function ({ task }) {
+    const store = await createStore(task.name);
+    await store.set({ r: 1, c: 1 }, { v: '10' });
+    await store.set({ r: 1, c: 2 }, { v: '20' });
+
+    await store.shiftCells('column', 2, 1);
+
+    expect(await store.get({ r: 1, c: 1 })).toEqual({ v: '10' });
+    expect(await store.has({ r: 1, c: 2 })).toBe(false);
+    expect(await store.get({ r: 1, c: 3 })).toEqual({ v: '20' });
+  });
 }

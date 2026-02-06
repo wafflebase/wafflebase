@@ -7,11 +7,14 @@ import {
   Sref,
   Range,
   Direction,
+  Axis,
   toSref,
   parseRef,
   inRange,
   extractReferences,
   toSrefs,
+  shiftSref,
+  shiftFormula,
 } from "@wafflebase/sheet";
 import { Worksheet } from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
@@ -132,6 +135,38 @@ export class YorkieStore implements Store {
     }
 
     return { r: row, c: col };
+  }
+
+  async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
+    this.doc.update((root) => {
+      // Collect all entries and compute new keys/formulas
+      const entries: Array<[string, Cell]> = [];
+      for (const [sref, cell] of Object.entries(root.sheet)) {
+        entries.push([sref, { v: cell.v, f: cell.f }]);
+      }
+
+      // Delete all old keys
+      for (const [sref] of entries) {
+        delete root.sheet[sref];
+      }
+
+      // Write all new keys with shifted positions and updated formulas
+      for (const [sref, cell] of entries) {
+        const newSref = shiftSref(sref, axis, index, count);
+        if (newSref === null) {
+          continue;
+        }
+
+        if (cell.f) {
+          root.sheet[newSref] = {
+            ...cell,
+            f: shiftFormula(cell.f, axis, index, count),
+          };
+        } else {
+          root.sheet[newSref] = { ...cell };
+        }
+      }
+    });
   }
 
   async buildDependantsMap(_: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>> {

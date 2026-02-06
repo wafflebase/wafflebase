@@ -6,6 +6,7 @@ import { CellInput } from './cellinput';
 import { Overlay } from './overlay';
 import { GridContainer } from './gridcontainer';
 import { GridCanvas } from './gridcanvas';
+import { ContextMenu } from './contextmenu';
 import {
   DefaultCellWidth,
   DefaultCellHeight,
@@ -33,6 +34,7 @@ export class Worksheet {
   private overlay: Overlay;
   private gridContainer: GridContainer;
   private gridCanvas: GridCanvas;
+  private contextMenu: ContextMenu;
 
   private listeners: Array<{
     element: EventTarget;
@@ -49,6 +51,7 @@ export class Worksheet {
   private boundHandleDblClick: (e: MouseEvent) => void;
   private boundHandleKeyDown: (e: KeyboardEvent) => void;
   private boundHandleKeyUp: () => void;
+  private boundHandleContextMenu: (e: MouseEvent) => void;
 
   constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
@@ -58,12 +61,14 @@ export class Worksheet {
     this.overlay = new Overlay(theme);
     this.gridCanvas = new GridCanvas(theme);
     this.cellInput = new CellInput(theme);
+    this.contextMenu = new ContextMenu(theme);
 
     this.gridContainer.appendChild(this.overlay.getContainer());
     this.gridContainer.appendChild(this.gridCanvas.getCanvas());
     this.gridContainer.appendChild(this.cellInput.getContainer());
     this.container.appendChild(this.formulaBar.getContainer());
     this.container.appendChild(this.gridContainer.getContainer());
+    this.container.appendChild(this.contextMenu.getContainer());
 
     this.boundRender = this.render.bind(this);
     this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
@@ -73,6 +78,7 @@ export class Worksheet {
     this.boundHandleDblClick = this.handleDblClick.bind(this);
     this.boundHandleKeyDown = this.handleKeyDown.bind(this);
     this.boundHandleKeyUp = this.handleKeyUp.bind(this);
+    this.boundHandleContextMenu = this.handleContextMenu.bind(this);
     this.resizeObserver = new ResizeObserver(() => this.boundRender());
   }
 
@@ -93,6 +99,7 @@ export class Worksheet {
     this.overlay.cleanup();
     this.gridCanvas.cleanup();
     this.gridContainer.cleanup();
+    this.contextMenu.cleanup();
 
     this.sheet = undefined;
     this.container.innerHTML = '';
@@ -162,6 +169,71 @@ export class Worksheet {
     e.preventDefault();
   }
 
+  private handleContextMenu(e: MouseEvent): void {
+    const scroll = this.scroll;
+    const x = e.offsetX;
+    const y = e.offsetY;
+
+    const isRowHeader = x < RowHeaderWidth;
+    const isColumnHeader = y < DefaultCellHeight;
+
+    if (!isRowHeader && !isColumnHeader) {
+      return;
+    }
+
+    e.preventDefault();
+
+    if (isRowHeader) {
+      const row = Math.floor((y + scroll.top) / DefaultCellHeight);
+      if (row < 1) return;
+
+      this.contextMenu.show(e.clientX, e.clientY, [
+        {
+          label: 'Insert row above',
+          action: () => {
+            this.sheet!.insertRows(row).then(() => this.render());
+          },
+        },
+        {
+          label: 'Insert row below',
+          action: () => {
+            this.sheet!.insertRows(row + 1).then(() => this.render());
+          },
+        },
+        {
+          label: 'Delete row',
+          action: () => {
+            this.sheet!.deleteRows(row).then(() => this.render());
+          },
+        },
+      ]);
+    } else if (isColumnHeader) {
+      const col = Math.floor((x - RowHeaderWidth + scroll.left) / DefaultCellWidth) + 1;
+      if (col < 1) return;
+
+      this.contextMenu.show(e.clientX, e.clientY, [
+        {
+          label: 'Insert column left',
+          action: () => {
+            this.sheet!.insertColumns(col).then(() => this.render());
+          },
+        },
+        {
+          label: 'Insert column right',
+          action: () => {
+            this.sheet!.insertColumns(col + 1).then(() => this.render());
+          },
+        },
+        {
+          label: 'Delete column',
+          action: () => {
+            this.sheet!.deleteColumns(col).then(() => this.render());
+          },
+        },
+      ]);
+    }
+  }
+
   /**
    * `addEventLisnters` adds event listeners to the spreadsheet.
    */
@@ -171,6 +243,10 @@ export class Worksheet {
     this.gridContainer.addEventListener('scroll', this.boundRender);
     this.gridContainer.addEventListener('mousedown', this.boundHandleMouseDown);
     this.gridContainer.addEventListener('dblclick', this.boundHandleDblClick);
+    this.gridContainer.addEventListener(
+      'contextmenu',
+      this.boundHandleContextMenu,
+    );
 
     this.addEventListener(document, 'keydown', this.boundHandleKeyDown);
     this.addEventListener(document, 'keyup', this.boundHandleKeyUp);

@@ -9,6 +9,11 @@ export type Reference = Sref | Srng;
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
 /**
+ * Axis type represents the axis of the sheet.
+ */
+export type Axis = 'row' | 'column';
+
+/**
  * Sref type represents a reference to a cell in the sheet.
  * e.g. A1, B2, C3, etc.
  */

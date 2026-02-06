@@ -14,7 +14,7 @@ import {
   isSameRange,
   mergeRanges,
 } from './coordinates';
-import { Grid, Cell, Ref, Sref, Range, Direction } from './types';
+import { Axis, Grid, Cell, Ref, Sref, Range, Direction } from './types';
 import { grid2string, string2grid } from './grids';
 
 /**
@@ -150,6 +150,94 @@ export class Sheet {
     await calculate(this, dependantsMap, removeds);
 
     return removeds.size > 0;
+  }
+
+  /**
+   * `insertRows` inserts rows at the given index.
+   */
+  async insertRows(index: number, count: number = 1): Promise<void> {
+    await this.shiftCells('row', index, count);
+  }
+
+  /**
+   * `deleteRows` deletes rows at the given index.
+   */
+  async deleteRows(index: number, count: number = 1): Promise<void> {
+    await this.shiftCells('row', index, -count);
+  }
+
+  /**
+   * `insertColumns` inserts columns at the given index.
+   */
+  async insertColumns(index: number, count: number = 1): Promise<void> {
+    await this.shiftCells('column', index, count);
+  }
+
+  /**
+   * `deleteColumns` deletes columns at the given index.
+   */
+  async deleteColumns(index: number, count: number = 1): Promise<void> {
+    await this.shiftCells('column', index, -count);
+  }
+
+  /**
+   * `shiftCells` shifts cells along the given axis, then recalculates all formulas.
+   */
+  private async shiftCells(
+    axis: Axis,
+    index: number,
+    count: number,
+  ): Promise<void> {
+    await this.store.shiftCells(axis, index, count);
+
+    // Adjust activeCell if it's at or beyond the insertion/deletion point
+    const value = axis === 'row' ? this.activeCell.r : this.activeCell.c;
+    if (count > 0 && value >= index) {
+      // Insert: shift active cell forward
+      if (axis === 'row') {
+        this.activeCell = { r: this.activeCell.r + count, c: this.activeCell.c };
+      } else {
+        this.activeCell = { r: this.activeCell.r, c: this.activeCell.c + count };
+      }
+    } else if (count < 0) {
+      const absCount = Math.abs(count);
+      if (value >= index && value < index + absCount) {
+        // Active cell was in deleted zone, move to index (or 1 if index < 1)
+        if (axis === 'row') {
+          this.activeCell = { r: Math.max(1, index), c: this.activeCell.c };
+        } else {
+          this.activeCell = { r: this.activeCell.r, c: Math.max(1, index) };
+        }
+      } else if (value >= index + absCount) {
+        // Active cell is after deleted zone, shift back
+        if (axis === 'row') {
+          this.activeCell = {
+            r: this.activeCell.r + count,
+            c: this.activeCell.c,
+          };
+        } else {
+          this.activeCell = {
+            r: this.activeCell.r,
+            c: this.activeCell.c + count,
+          };
+        }
+      }
+    }
+
+    // Recalculate all formula cells
+    const allSrefs = new Set<Sref>();
+    const fullRange: Range = [{ r: 1, c: 1 }, { r: 1000, c: 100 }];
+    const grid = await this.store.getGrid(fullRange);
+    for (const [sref, cell] of grid) {
+      if (cell.f) {
+        allSrefs.add(sref);
+      }
+    }
+
+    if (allSrefs.size > 0) {
+      const dependantsMap = await this.store.buildDependantsMap(allSrefs);
+      await calculate(this, dependantsMap, allSrefs);
+    }
   }
 
   /**

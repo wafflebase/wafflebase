@@ -1,4 +1,4 @@
-import { Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
+import { Axis, Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
 
 /**
  * `Store` interface represents a storage that stores the cell values.
@@ -48,6 +48,12 @@ export interface Store {
    * `getPresences` method gets the user presences.
    */
   getPresences(): Array<{ clientID: string; presence: { activeCell: string } }>;
+
+  /**
+   * `shiftCells` method shifts cells along the given axis.
+   * Positive count inserts, negative count deletes.
+   */
+  shiftCells(axis: Axis, index: number, count: number): Promise<void>;
 
   /**
    * `updateActiveCell` method updates the active cell of the current user.
