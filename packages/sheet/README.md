@@ -1,8 +1,8 @@
-# Wafflebase Sheet
+# @wafflebase/sheet
 
-## Overview
+Core spreadsheet engine for Wafflebase. Provides the data model, formula evaluation, Canvas-based rendering, and a store abstraction for persistence.
 
-Wafflebase Sheet comprises four main components: Spreadsheet, Worksheet, Store, Formula.
+## Architecture
 
 ```
 ┌─────────────────┐ ┌─────────────────┐ ┌────────────────┐
@@ -19,16 +19,69 @@ Wafflebase Sheet comprises four main components: Spreadsheet, Worksheet, Store, 
 └─────────────────┘ └─────────────────┘ └────────────────┘
 ```
 
-- **Spreadsheet**: component handles the user interface. It manages worksheet operations, cell editing, formatting, and all user interactions. It works closely with the Worksheet component to display data and process user inputs.
-- **Worksheet**: component manages the data model for individual worksheets. It stores cell values, tracks dependencies, and coordinates formula calculations. It collaborates with the Formula component to evaluate formulas and interacts with the Store component to save and load data.
-- **Store**: component is responsible for persistent data storage. It interacts with local storage or server databases to save and retrieve worksheet data. Optionally, it can provide version control or multi-user support features.
-- **Formula**: component acts as the formula processing engine. It parses and evaluates formulas, and manages the supported function library. It works with the Worksheet component to calculate formula-based cell values.
+- **Spreadsheet** — Top-level entry point. Manages the Worksheet, handles initialization, and provides the `initialize()` factory function.
+- **Worksheet** — Orchestrates rendering (GridCanvas, Overlay), scroll management (GridContainer), user input (keyboard, mouse, context menu), and cell editing.
+- **Store** — Interface that decouples the engine from persistence. `MemStore` is the built-in in-memory implementation; `YorkieStore` (in the frontend package) adds real-time collaboration.
+- **Formula** — ANTLR4-based parser and visitor-pattern evaluator. Supports arithmetic, cell/range references, and built-in functions (SUM, etc.).
 
-#### Building Formula
+## Key Concepts
 
-If you make changes to the formula grammar, you need to rebuild the formula parser:
+| Concept | Description |
+|---------|-------------|
+| `Sheet` | Core data model — cell access, selection, navigation, row/column operations, copy/paste |
+| `Cell` | `{ v?: string; f?: string }` — display value and optional formula |
+| `Ref` | `{ r: number; c: number }` — numeric cell coordinate (1-based) |
+| `Sref` | String cell reference, e.g. `"A1"` |
+| `Range` | `[Ref, Ref]` — top-left and bottom-right corners |
+| `Grid` | `Map<Sref, Cell>` — sparse map of cells |
+| `DimensionIndex` | Manages variable row heights / column widths with binary-search lookup |
+| `Calculator` | Topological-sort dependency graph for formula recalculation with cycle detection |
+
+## Public API
+
+Exports from `src/index.ts`:
+
+```typescript
+// View
+initialize, Spreadsheet
+
+// Data model
+Store, Grid, Cell, Ref, Sref, Range, Direction, Axis, DimensionIndex
+
+// Coordinates
+toSref, toSrefs, parseRef, inRange
+
+// Formula
+extractReferences
+
+// Shifting (insert/delete rows/columns)
+shiftSref, shiftFormula, shiftDimensionMap
+```
+
+### Usage
+
+```typescript
+import { initialize } from '@wafflebase/sheet';
+
+const spreadsheet = await initialize(containerElement, {
+  theme: 'light', // or 'dark'
+  store: myStore,  // optional — defaults to MemStore
+});
+```
+
+## Development
 
 ```bash
-cd frontend
-npm run build:formula
+# Build the library
+pnpm sheet build
+
+# Run tests (Vitest)
+pnpm test
+
+# Regenerate ANTLR formula parser (after editing Formula.g4)
+pnpm sheet build:formula
 ```
+
+## Further Reading
+
+See [/design/sheet.md](../../design/sheet.md) for the full design document covering the data model, store interface, formula engine, rendering pipeline, and coordinate system.

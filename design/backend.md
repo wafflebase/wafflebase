@@ -1,0 +1,244 @@
+---
+title: backend
+target-version: 0.1.0
+---
+
+# Backend Package
+
+## Summary
+
+The backend is a NestJS 11 API server that provides authentication (GitHub
+OAuth2 + JWT sessions) and document CRUD operations. It stores user and
+document metadata in PostgreSQL via Prisma. The actual spreadsheet data lives
+in Yorkie (managed by the frontend); the backend only manages document
+ownership and user accounts.
+
+### Goals
+
+- Authenticate users via GitHub OAuth2 and issue JWT session cookies.
+- Provide a REST API for creating, listing, and deleting spreadsheet documents.
+- Enforce document ownership — users can only access their own documents.
+
+### Non-Goals
+
+- Storing or processing spreadsheet cell data — that is handled entirely by
+  Yorkie and the `@wafflebase/sheet` engine in the browser.
+- Real-time communication — Yorkie handles WebSocket-based sync.
+
+## Proposal Details
+
+### Module Architecture
+
+```mermaid
+flowchart TD
+  APP["AppModule"]
+  APP --> CONFIG["ConfigModule (global)"]
+  APP --> AUTH["AuthModule"]
+  APP --> DOC["DocumentModule"]
+
+  AUTH --> JWT_MOD["JwtModule (1h expiry)"]
+  AUTH --> USER_MOD["UserModule"]
+  AUTH --> GH["GitHubStrategy"]
+  AUTH --> JW["JwtStrategy"]
+  AUTH --> AC["AuthController"]
+  AUTH --> AS["AuthService"]
+
+  USER_MOD --> US["UserService"]
+  USER_MOD --> PS1["PrismaService"]
+
+  DOC --> DC["DocumentController"]
+  DOC --> DS["DocumentService"]
+  DOC --> US2["UserService"]
+  DOC --> PS2["PrismaService"]
+```
+
+| Module | Responsibility |
+|--------|---------------|
+| **AppModule** | Root module. Imports ConfigModule (global), AuthModule, DocumentModule. |
+| **AuthModule** | GitHub OAuth + JWT authentication. Provides AuthService, GitHubStrategy, JwtStrategy. Imports UserModule for user lookup/creation. |
+| **UserModule** | User CRUD via Prisma. Exports UserService for use by AuthModule and DocumentModule. |
+| **DocumentModule** | Document REST endpoints. Uses DocumentService + UserService + PrismaService. |
+
+### API Reference
+
+#### Authentication (`/auth`)
+
+**`GET /auth/github`**
+- Guard: `AuthGuard('github')`
+- Initiates GitHub OAuth flow. Redirects to GitHub's authorization page.
+
+**`GET /auth/github/callback`**
+- Guard: `AuthGuard('github')`
+- GitHub redirects here after user consents. The `GitHubStrategy` validates the
+  profile and returns user data. The controller then:
+  1. Calls `UserService.findOrCreateUser()` to upsert the user in the database.
+  2. Calls `AuthService.createToken()` to sign a JWT.
+  3. Sets the JWT as an httpOnly cookie named `wafflebase_session`.
+  4. Redirects to `FRONTEND_URL`.
+
+**`GET /auth/me`**
+- Guard: `JwtAuthGuard`
+- Returns the authenticated user object from the JWT payload.
+
+**`POST /auth/logout`**
+- Guard: `JwtAuthGuard`
+- Clears the `wafflebase_session` cookie.
+
+#### Documents (`/documents`)
+
+All endpoints require `JwtAuthGuard`.
+
+**`GET /documents`**
+- Returns all documents where `authorID` matches the authenticated user.
+
+**`GET /documents/:id`**
+- Returns the document if the authenticated user is the author.
+- Throws `ForbiddenException` if the user is not the owner.
+
+**`POST /documents`**
+- Body: `{ title: string }`
+- Creates a document with `authorID` set to the authenticated user's ID.
+
+**`DELETE /documents/:id`**
+- Deletes the document if the authenticated user is the author.
+- Throws `ForbiddenException` if the user is not the owner.
+
+### Auth System
+
+#### GitHub OAuth2 Strategy
+
+`GitHubStrategy` extends Passport's `passport-github2` strategy:
+
+- **Scopes:** `user:email`, `user:avatar`
+- **Config:** `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`
+  from environment.
+- **Validation:** Extracts `authProvider`, `githubId`, `username`, `email`,
+  `photo`, and `accessToken` from the GitHub profile.
+
+#### JWT Strategy
+
+`JwtStrategy` extends Passport's `passport-jwt` strategy:
+
+- **Token source:** Extracted from the `wafflebase_session` cookie
+  (not the Authorization header).
+- **Secret:** `JWT_SECRET` from environment.
+- **Validation:** Extracts `id` (from `sub`), `username`, `email`, `photo`
+  from the JWT payload and attaches to `req.user`.
+
+#### JWT Token
+
+Created by `AuthService.createToken()`:
+
+```typescript
+{
+  sub: user.id,           // User database ID
+  username: user.username,
+  email: user.email,
+  photo: user.photo       // nullable
+}
+```
+
+Expires in **1 hour** (configured in `AuthModule`'s `JwtModule.registerAsync`).
+
+#### Cookie Configuration
+
+| Property | Production | Development |
+|----------|-----------|-------------|
+| `httpOnly` | `true` | `true` |
+| `secure` | `true` | `false` |
+| `sameSite` | `'none'` | `'lax'` |
+| `maxAge` | 3,600,000 ms (1h) | 3,600,000 ms (1h) |
+
+The cookie name is `wafflebase_session`.
+
+### Database Schema
+
+PostgreSQL managed by Prisma (`prisma/schema.prisma`):
+
+```mermaid
+erDiagram
+    User {
+        Int id PK "autoincrement"
+        String authProvider
+        String username
+        String email UK
+        String photo "nullable"
+    }
+    Document {
+        String id PK "uuid"
+        String title
+        Int authorID FK "nullable"
+        DateTime createdAt "default: now()"
+    }
+    User ||--o{ Document : "author"
+```
+
+**User:**
+- `id` — Auto-increment integer primary key.
+- `authProvider` — OAuth provider name (currently always `"github"`).
+- `email` — Unique constraint; used for `findOrCreateUser` matching.
+- `photo` — Optional profile photo URL.
+
+**Document:**
+- `id` — UUID primary key (auto-generated).
+- `authorID` — Nullable foreign key to User. Nullable so documents can survive
+  user deletion.
+- `createdAt` — Auto-set on creation.
+
+### Environment Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `FRONTEND_URL` | Yes | — | Frontend origin for CORS and OAuth redirect |
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `JWT_SECRET` | Yes | — | Secret for signing JWT tokens |
+| `GITHUB_CLIENT_ID` | Yes | — | GitHub OAuth app client ID |
+| `GITHUB_CLIENT_SECRET` | Yes | — | GitHub OAuth app client secret |
+| `GITHUB_CALLBACK_URL` | No | `http://localhost:3000/auth/github/callback` | OAuth callback URL |
+| `PORT` | No | `3000` | Server listen port |
+| `NODE_ENV` | No | — | Affects cookie `secure` and `sameSite` settings |
+
+### Security
+
+**CORS** — Configured in `main.ts`:
+- `origin`: Only allows requests from `FRONTEND_URL`.
+- `credentials: true`: Required for cookie-based auth.
+- Allowed methods: GET, POST, PUT, DELETE, PATCH, OPTIONS.
+- Allowed headers: Content-Type, Authorization.
+
+**httpOnly cookies** — The JWT is stored in an httpOnly cookie, preventing
+client-side JavaScript from reading the token. This mitigates XSS-based token
+theft.
+
+**SameSite** — Set to `'lax'` in development and `'none'` in production
+(required when frontend and backend are on different origins with HTTPS).
+
+**Authorization checks** — Document endpoints verify that `req.user.id`
+matches the document's `authorID`. Unauthorized access throws
+`ForbiddenException` (HTTP 403).
+
+**Middleware pipeline:**
+
+```
+Request
+  → cookie-parser (parses cookies into req.cookies)
+  → CORS check
+  → Passport JwtStrategy (extracts and validates JWT from cookie)
+  → Route handler
+  → Response
+```
+
+## Risks and Mitigation
+
+**Single OAuth provider** — Currently only GitHub OAuth is supported. Adding
+more providers (Google, email/password) requires adding new Passport
+strategies and updating the `authProvider` field. The architecture supports
+this via Passport's multi-strategy pattern.
+
+**No rate limiting** — API endpoints are not currently rate-limited. For
+production use, NestJS `@nestjs/throttler` should be added to prevent abuse.
+
+**Cookie security in development** — `secure: false` and `sameSite: 'lax'` in
+development means cookies are sent over HTTP and are vulnerable to CSRF in
+certain scenarios. This is acceptable for local development but must not be
+used in production.

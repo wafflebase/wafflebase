@@ -21,6 +21,7 @@ The frontend depends on `@wafflebase/sheet` as a workspace dependency.
 ## Commands
 
 ### Development
+
 ```bash
 pnpm install                # Install all dependencies
 docker compose up -d        # Start PostgreSQL + Yorkie server
@@ -28,6 +29,7 @@ pnpm dev                    # Start frontend (:5173) + backend (:3000)
 ```
 
 ### Testing
+
 ```bash
 pnpm test                           # Run sheet package tests (Vitest)
 pnpm backend test                   # Run backend tests (Jest)
@@ -35,6 +37,7 @@ pnpm backend test:e2e               # Run backend e2e tests
 ```
 
 ### Building
+
 ```bash
 pnpm build                          # Build all packages
 pnpm sheet build                    # Build sheet library only
@@ -43,6 +46,7 @@ pnpm backend build                  # Build backend only
 ```
 
 ### Other
+
 ```bash
 pnpm sheet build:formula            # Regenerate ANTLR formula parser
 pnpm backend migrate                # Run Prisma database migrations
@@ -78,3 +82,23 @@ pnpm backend migrate                # Run Prisma database migrations
 - **Real-time collaboration**: Yorkie CRDT handles conflict-free merging. Presence tracking shows other users' active cells.
 - **Auth flow**: GitHub OAuth redirect → callback → user upsert in DB → JWT token set as cookie.
 - **ANTLR generated files**: Have `@ts-nocheck` at the top — do not remove this or add type fixes to generated files. Regenerate with `pnpm sheet build:formula`.
+
+## Documentation
+
+Each package has a README for getting started, and the `design/` directory has in-depth technical documents.
+
+### Package READMEs
+
+- [`packages/sheet/README.md`](packages/sheet/README.md) — Architecture, key concepts, public API, dev commands
+- [`packages/frontend/README.md`](packages/frontend/README.md) — Tech stack, app structure, routing, features
+- [`packages/backend/README.md`](packages/backend/README.md) — API endpoints, auth flow, database schema
+
+### Design Documents
+
+- [`design/README.md`](design/README.md) — Index of all design documents
+- [`design/sheet.md`](design/sheet.md) — Data model, Store interface, formula engine, rendering pipeline, coordinate system
+- [`design/frontend.md`](design/frontend.md) — Yorkie integration, presence system, auth flow, document management
+- [`design/backend.md`](design/backend.md) — Module architecture, API reference, auth system, security model
+- [`design/scroll-and-rendering.md`](design/scroll-and-rendering.md) — Viewport-based Canvas rendering, proportional scroll remapping
+
+IMPORTANT: Always refer to these documents for architectural context and design decisions. And We should keep them up to date after making changes.

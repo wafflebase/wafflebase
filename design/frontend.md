@@ -1,0 +1,250 @@
+---
+title: frontend
+target-version: 0.1.0
+---
+
+# Frontend Package
+
+## Summary
+
+The frontend is a React 19 single-page application built with Vite. It
+provides the user-facing spreadsheet interface by mounting the
+`@wafflebase/sheet` Canvas engine inside a React component and connecting it
+to a Yorkie CRDT document for real-time collaboration. It also handles
+authentication (GitHub OAuth via the backend), document management, and
+presence (showing other users' active cells).
+
+### Goals
+
+- Provide a responsive spreadsheet UI backed by the `@wafflebase/sheet` engine.
+- Enable real-time collaboration via Yorkie CRDT with live presence indicators.
+- Handle the full auth lifecycle (login, session verification, logout).
+- Support light, dark, and system-detected themes.
+
+### Non-Goals
+
+- Offline support — the app requires a connection to the Yorkie server and
+  backend API.
+- Server-side rendering — the app is a client-only SPA.
+
+## Proposal Details
+
+### App Architecture
+
+#### Routing
+
+React Router 7.5 with route guards:
+
+```mermaid
+flowchart TD
+  BR["BrowserRouter (basename from VITE_FRONTEND_BASENAME)"]
+  BR --> PUB["PublicRoute"]
+  BR --> PRI["PrivateRoute"]
+  PUB --> LOGIN["/login → Login"]
+  PRI --> LAYOUT["Layout (sidebar + header)"]
+  PRI --> DOC["/:id → DocumentDetail"]
+  LAYOUT --> DOCS["/ → Documents"]
+  LAYOUT --> SET["/settings → Settings"]
+```
+
+- **PublicRoute** — Redirects to `/` if already authenticated.
+- **PrivateRoute** — Calls `fetchMe()` to verify the JWT cookie. Wraps
+  children in `YorkieProvider`. Redirects to `/login` on failure.
+
+#### Provider Hierarchy
+
+```
+StrictMode
+└── QueryClientProvider (TanStack React Query)
+    └── ThemeProvider (light / dark / system)
+        └── BrowserRouter
+            └── PrivateRoute
+                └── YorkieProvider (Yorkie client connection)
+                    └── DocumentProvider (per-document CRDT)
+                        └── Page components
+```
+
+### Sheet Integration
+
+`SheetView` (`src/app/spreadsheet/sheet-view.tsx`) is the bridge between
+React and the `@wafflebase/sheet` engine:
+
+1. On mount, it calls `initialize(containerDiv, { theme, store })` where
+   `store` is a `YorkieStore` wrapping the current Yorkie document.
+2. Subscribes to `doc.subscribe("remote-change")` — when a remote peer
+   modifies cells, the spreadsheet re-renders the grid.
+3. Subscribes to `doc.subscribe("presence")` — when a remote peer moves
+   their cursor, the overlay is re-rendered to show updated peer cursors.
+4. On unmount, calls `spreadsheet.cleanup()` to remove event listeners and
+   DOM elements.
+
+A `didMount` ref guards against React 19 StrictMode double-mounting in
+development.
+
+### Yorkie Integration
+
+#### Document Shape
+
+Each spreadsheet document is stored as a Yorkie CRDT document with this root
+structure:
+
+```typescript
+type Worksheet = {
+  sheet: { [sref: Sref]: Cell };      // Cell data keyed by "A1", "B2", etc.
+  rowHeights: { [index: string]: number };
+  colWidths: { [index: string]: number };
+};
+```
+
+The initial (empty) document is `{ sheet: {}, rowHeights: {}, colWidths: {} }`.
+
+#### YorkieStore
+
+`YorkieStore` (`src/app/spreadsheet/yorkie-store.ts`) implements the `Store`
+interface from `@wafflebase/sheet`. Each store method maps to a Yorkie
+`doc.update()` call that mutates the CRDT document:
+
+| Store method | Yorkie operation |
+|-------------|-----------------|
+| `set(ref, cell)` | `root.sheet[sref] = cell` |
+| `get(ref)` | Read `root.sheet[sref]` |
+| `delete(ref)` | `delete root.sheet[sref]` |
+| `setGrid(grid)` | Batch write to `root.sheet` |
+| `getGrid(range)` | Read entries within range |
+| `shiftCells(axis, index, count)` | Rebuild `root.sheet` with shifted refs and formulas |
+| `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
+| `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
+| `updateActiveCell(ref)` | `doc.update((_, presence) => presence.set(...))` |
+| `getPresences()` | `doc.getPresences()` filtered to other clients |
+
+All mutations go through `doc.update()`, which automatically syncs to the
+Yorkie server and broadcasts to all connected peers.
+
+### Presence System
+
+Presence tracks which cell each connected user is viewing:
+
+```mermaid
+flowchart LR
+  A["User moves cursor"] --> B["Sheet.setActiveCell()"]
+  B --> C["YorkieStore.updateActiveCell()"]
+  C --> D["doc.update presence"]
+  D --> E["Yorkie server broadcasts"]
+  E --> F["Remote peers receive presence event"]
+  F --> G["SheetView re-renders overlay"]
+  G --> H["Overlay draws colored cursor borders"]
+```
+
+**UserPresence type:**
+
+```typescript
+type UserPresence = {
+  activeCell: Sref;   // e.g. "C5"
+  username: string;
+  email: string;
+  photo: string;
+};
+```
+
+The `UserPresence` component (`src/components/user-presence.tsx`) displays up
+to 4 user avatars in the header. It uses the `usePresences()` hook from
+`@yorkie-js/react` to reactively track connected users.
+
+The `usePresenceUpdater` hook syncs the current user's profile information
+(username, email, photo) into the Yorkie presence when the document or user
+data changes.
+
+### Auth Flow
+
+Authentication is handled entirely via the backend (GitHub OAuth + JWT
+cookies). The frontend's role is:
+
+1. **Login page** — Renders a link to `VITE_BACKEND_API_URL/auth/github`.
+2. **Session check** — `PrivateRoute` calls `fetchMe()` (GET `/auth/me` with
+   `credentials: "include"`) on mount. If the cookie is valid, the backend
+   returns the user object.
+3. **Logout** — POST `/auth/logout` clears the cookie; frontend redirects to
+   `/login`.
+4. **401 handling** — `fetchWithAuth()` wraps all API calls. If any response
+   returns 401, the user is redirected to `/login`.
+
+### Document Management
+
+Documents are managed via the backend REST API with TanStack React Query for
+caching and mutations.
+
+**API layer** (`src/api/documents.ts`):
+
+| Function | Method | Endpoint |
+|----------|--------|----------|
+| `fetchDocuments()` | GET | `/documents` |
+| `fetchDocument(id)` | GET | `/documents/:id` |
+| `createDocument({ title })` | POST | `/documents` |
+| `deleteDocument(id)` | DELETE | `/documents/:id` |
+
+**Document list** uses TanStack Table with sorting, filtering, and pagination.
+Row click navigates to `/:id`.
+
+**Document detail** wraps `SheetView` in a `DocumentProvider` that connects to
+the Yorkie document with key `sheet-{id}`.
+
+### Type Definitions
+
+```typescript
+// src/types/documents.ts
+type Document = {
+  id: number;
+  title: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// src/types/users.ts
+type User = {
+  authProvider: string;
+  username: string;
+  email: string;
+  photo: string;
+};
+
+// src/types/worksheet.ts
+type Worksheet = {
+  sheet: { [key: Sref]: Cell };
+  rowHeights: { [key: string]: number };
+  colWidths: { [key: string]: number };
+};
+```
+
+### Theme System
+
+The `ThemeProvider` (`src/components/theme-provider.tsx`) manages three modes:
+`"light"`, `"dark"`, and `"system"`.
+
+- Persists the user's choice in `localStorage` under `"vite-ui-theme"`.
+- Applies the resolved theme as a class on `<html>` (either `light` or
+  `dark`).
+- Listens to `matchMedia("prefers-color-scheme: dark")` for system mode.
+- The `useTheme()` hook exposes `{ theme, resolvedTheme, setTheme }`.
+- The resolved theme string is passed to `@wafflebase/sheet`'s `initialize()`
+  so the Canvas renderer uses matching colors.
+
+Styling uses Tailwind CSS v4 with custom CSS variables in OKLch color space
+defined in `src/index.css`. UI components are Radix UI primitives styled with
+Tailwind (shadcn/ui pattern).
+
+## Risks and Mitigation
+
+**React 19 StrictMode double-mount** — `SheetView` uses a `didMount` ref to
+prevent initializing the Canvas engine twice in development. This is necessary
+because `@wafflebase/sheet` manages its own DOM and event listeners outside of
+React's lifecycle.
+
+**Yorkie connection failures** — If the Yorkie server is unreachable, the
+`DocumentProvider` will fail to connect. Currently this surfaces as a loading
+state. A future improvement could add offline fallback to `MemStore`.
+
+**Cookie-based auth and CORS** — All API calls use `credentials: "include"`,
+which requires the backend to set `Access-Control-Allow-Credentials: true`
+and an explicit origin (not `*`). The backend's CORS config handles this, but
+misconfiguration will silently break auth.
