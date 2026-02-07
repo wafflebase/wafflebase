@@ -25,23 +25,34 @@ export function SheetView() {
       return;
     }
 
-    const sheet = initialize(container, {
+    let sheet: Awaited<ReturnType<typeof initialize>> | undefined;
+    let unsubs: Array<Function> = [];
+    let cancelled = false;
+
+    initialize(container, {
       theme,
       store: new YorkieStore(doc),
+    }).then((s) => {
+      if (cancelled) {
+        s.cleanup();
+        return;
+      }
+
+      sheet = s;
+
+      // TODO(hackerwins): We need to optimize the rendering performance.
+      unsubs.push(
+        doc.subscribe((e) => {
+          if (e.type === "remote-change") {
+            sheet!.reloadDimensions().then(() => sheet!.render());
+          }
+        })
+      );
+      unsubs.push(doc.subscribe("presence", () => sheet!.renderOverlay()));
     });
 
-    // TODO(hackerwins): We need to optimize the rendering performance.
-    const unsubs: Array<Function> = [];
-    unsubs.push(
-      doc.subscribe((e) => {
-        if (e.type === "remote-change") {
-          sheet.render();
-        }
-      })
-    );
-    unsubs.push(doc.subscribe("presence", () => sheet.renderOverlay()));
-
     return () => {
+      cancelled = true;
       if (sheet) {
         sheet.cleanup();
       }

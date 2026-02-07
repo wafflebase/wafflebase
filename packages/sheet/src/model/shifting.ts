@@ -109,6 +109,42 @@ export function shiftFormula(
 }
 
 /**
+ * `shiftDimensionMap` shifts keys in a dimension size map (row heights or column widths)
+ * when rows/columns are inserted or deleted.
+ * Uses the same insert/delete logic as shiftRef.
+ */
+export function shiftDimensionMap(
+  map: Map<number, number>,
+  index: number,
+  count: number,
+): Map<number, number> {
+  const newMap = new Map<number, number>();
+
+  for (const [i, size] of map) {
+    if (count > 0) {
+      // Insert: shift keys at or after index
+      if (i >= index) {
+        newMap.set(i + count, size);
+      } else {
+        newMap.set(i, size);
+      }
+    } else {
+      // Delete: count < 0
+      const absCount = Math.abs(count);
+      if (i >= index && i < index + absCount) {
+        // In deleted zone — drop it
+      } else if (i >= index + absCount) {
+        newMap.set(i + count, size);
+      } else {
+        newMap.set(i, size);
+      }
+    }
+  }
+
+  return newMap;
+}
+
+/**
  * `shiftGrid` shifts all cells in a grid along the given axis.
  * Returns a new Map with shifted keys and updated formulas.
  */

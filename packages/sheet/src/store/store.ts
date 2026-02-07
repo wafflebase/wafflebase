@@ -56,6 +56,16 @@ export interface Store {
   shiftCells(axis: Axis, index: number, count: number): Promise<void>;
 
   /**
+   * `setDimensionSize` method sets a custom row height or column width.
+   */
+  setDimensionSize(axis: Axis, index: number, size: number): Promise<void>;
+
+  /**
+   * `getDimensionSizes` method gets all custom row heights or column widths.
+   */
+  getDimensionSizes(axis: Axis): Promise<Map<number, number>>;
+
+  /**
    * `updateActiveCell` method updates the active cell of the current user.
    */
   updateActiveCell(activeCell: Ref): void;

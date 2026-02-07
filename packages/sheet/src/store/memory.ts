@@ -1,6 +1,6 @@
 import { extractReferences } from '../formula/formula';
 import { inRange, parseRef, toSref, toSrefs } from '../model/coordinates';
-import { shiftGrid } from '../model/shifting';
+import { shiftGrid, shiftDimensionMap } from '../model/shifting';
 import { Axis, Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
 import { Store } from './store';
 
@@ -10,6 +10,8 @@ import { Store } from './store';
  */
 export class MemStore implements Store {
   private grid: Map<Sref, Cell>;
+  private rowHeights: Map<number, number> = new Map();
+  private colWidths: Map<number, number> = new Map();
 
   constructor(grid?: Grid) {
     this.grid = grid || new Map();
@@ -96,6 +98,13 @@ export class MemStore implements Store {
 
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
     this.grid = shiftGrid(this.grid, axis, index, count);
+
+    // Shift dimension sizes for the affected axis
+    if (axis === 'row') {
+      this.rowHeights = shiftDimensionMap(this.rowHeights, index, count);
+    } else {
+      this.colWidths = shiftDimensionMap(this.colWidths, index, count);
+    }
   }
 
   /**
@@ -130,6 +139,19 @@ export class MemStore implements Store {
     presence: { activeCell: string };
   }> {
     return [];
+  }
+
+  async setDimensionSize(
+    axis: Axis,
+    index: number,
+    size: number,
+  ): Promise<void> {
+    const map = axis === 'row' ? this.rowHeights : this.colWidths;
+    map.set(index, size);
+  }
+
+  async getDimensionSizes(axis: Axis): Promise<Map<number, number>> {
+    return new Map(axis === 'row' ? this.rowHeights : this.colWidths);
   }
 
   /**

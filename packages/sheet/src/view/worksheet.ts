@@ -1,4 +1,5 @@
 import { Range, Ref, Direction } from '../model/types';
+import { DimensionIndex } from '../model/dimensions';
 import { Sheet } from '../model/sheet';
 import { Theme } from './theme';
 import { FormulaBar } from './formulabar';
@@ -20,6 +21,10 @@ import {
   toRef,
 } from './layout';
 
+const ResizeEdgeThreshold = 4;
+const MinRowHeight = 10;
+const MinColumnWidth = 20;
+
 /**
  * Worksheet represents the worksheet of the spreadsheet. It handles the
  * rendering of the grid, formula bar, and the overlay.
@@ -36,6 +41,9 @@ export class Worksheet {
   private gridCanvas: GridCanvas;
   private contextMenu: ContextMenu;
 
+  private rowDim: DimensionIndex;
+  private colDim: DimensionIndex;
+
   private listeners: Array<{
     element: EventTarget;
     type: string;
@@ -51,7 +59,10 @@ export class Worksheet {
   private boundHandleDblClick: (e: MouseEvent) => void;
   private boundHandleKeyDown: (e: KeyboardEvent) => void;
   private boundHandleKeyUp: () => void;
+  private boundHandleMouseMove: (e: MouseEvent) => void;
   private boundHandleContextMenu: (e: MouseEvent) => void;
+
+  private resizeHover: { axis: 'row' | 'column'; index: number } | null = null;
 
   constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
@@ -62,6 +73,9 @@ export class Worksheet {
     this.gridCanvas = new GridCanvas(theme);
     this.cellInput = new CellInput(theme);
     this.contextMenu = new ContextMenu(theme);
+
+    this.rowDim = new DimensionIndex(DefaultCellHeight);
+    this.colDim = new DimensionIndex(DefaultCellWidth);
 
     this.gridContainer.appendChild(this.overlay.getContainer());
     this.gridContainer.appendChild(this.gridCanvas.getCanvas());
@@ -78,12 +92,15 @@ export class Worksheet {
     this.boundHandleDblClick = this.handleDblClick.bind(this);
     this.boundHandleKeyDown = this.handleKeyDown.bind(this);
     this.boundHandleKeyUp = this.handleKeyUp.bind(this);
+    this.boundHandleMouseMove = this.handleMouseMove.bind(this);
     this.boundHandleContextMenu = this.handleContextMenu.bind(this);
     this.resizeObserver = new ResizeObserver(() => this.boundRender());
   }
 
-  public initialize(sheet: Sheet) {
+  public async initialize(sheet: Sheet) {
     this.sheet = sheet;
+    this.sheet.setDimensions(this.rowDim, this.colDim);
+    await this.sheet.loadDimensions();
     this.formulaBar.initialize(sheet);
     this.addEventListeners();
     this.resizeObserver.observe(this.container);
@@ -184,7 +201,7 @@ export class Worksheet {
     e.preventDefault();
 
     if (isRowHeader) {
-      const row = Math.floor((y + scroll.top) / DefaultCellHeight);
+      const row = this.rowDim.findIndex(y - DefaultCellHeight + scroll.top);
       if (row < 1) return;
 
       this.contextMenu.show(e.clientX, e.clientY, [
@@ -208,7 +225,7 @@ export class Worksheet {
         },
       ]);
     } else if (isColumnHeader) {
-      const col = Math.floor((x - RowHeaderWidth + scroll.left) / DefaultCellWidth) + 1;
+      const col = this.colDim.findIndex(x - RowHeaderWidth + scroll.left);
       if (col < 1) return;
 
       this.contextMenu.show(e.clientX, e.clientY, [
@@ -242,6 +259,7 @@ export class Worksheet {
 
     this.gridContainer.addEventListener('scroll', this.boundRender);
     this.gridContainer.addEventListener('mousedown', this.boundHandleMouseDown);
+    this.gridContainer.addEventListener('mousemove', this.boundHandleMouseMove);
     this.gridContainer.addEventListener('dblclick', this.boundHandleDblClick);
     this.gridContainer.addEventListener(
       'contextmenu',
@@ -252,9 +270,86 @@ export class Worksheet {
     this.addEventListener(document, 'keyup', this.boundHandleKeyUp);
   }
 
+  /**
+   * `detectResizeEdge` checks if the mouse is near a header edge for resizing.
+   * Returns the axis and index if near an edge, null otherwise.
+   */
+  private detectResizeEdge(
+    x: number,
+    y: number,
+  ): { axis: 'row' | 'column'; index: number } | null {
+    const scroll = this.scroll;
+
+    // Check column header right edges
+    if (y < DefaultCellHeight && x > RowHeaderWidth) {
+      const absX = x - RowHeaderWidth + scroll.left;
+      // Find which column edge we're near
+      const col = this.colDim.findIndex(absX);
+      const colRight = this.colDim.getOffset(col) + this.colDim.getSize(col);
+      if (Math.abs(absX - colRight) < ResizeEdgeThreshold) {
+        return { axis: 'column', index: col };
+      }
+      // Also check previous column's right edge
+      if (col > 1) {
+        const prevRight =
+          this.colDim.getOffset(col - 1) + this.colDim.getSize(col - 1);
+        if (Math.abs(absX - prevRight) < ResizeEdgeThreshold) {
+          return { axis: 'column', index: col - 1 };
+        }
+      }
+    }
+
+    // Check row header bottom edges
+    if (x < RowHeaderWidth && y > DefaultCellHeight) {
+      const absY = y - DefaultCellHeight + scroll.top;
+      const row = this.rowDim.findIndex(absY);
+      const rowBottom = this.rowDim.getOffset(row) + this.rowDim.getSize(row);
+      if (Math.abs(absY - rowBottom) < ResizeEdgeThreshold) {
+        return { axis: 'row', index: row };
+      }
+      if (row > 1) {
+        const prevBottom =
+          this.rowDim.getOffset(row - 1) + this.rowDim.getSize(row - 1);
+        if (Math.abs(absY - prevBottom) < ResizeEdgeThreshold) {
+          return { axis: 'row', index: row - 1 };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private handleMouseMove(e: MouseEvent): void {
+    const result = this.detectResizeEdge(e.offsetX, e.offsetY);
+    const changed =
+      result?.axis !== this.resizeHover?.axis ||
+      result?.index !== this.resizeHover?.index;
+    if (!changed) return;
+
+    this.resizeHover = result;
+    const scrollContainer = this.gridContainer.getScrollContainer();
+    if (result) {
+      scrollContainer.style.cursor =
+        result.axis === 'column' ? 'col-resize' : 'row-resize';
+    } else {
+      scrollContainer.style.cursor = '';
+    }
+    this.renderOverlay();
+  }
+
   private async handleMouseDown(e: MouseEvent) {
+    // Check for resize edge first
+    const resizeEdge = this.detectResizeEdge(e.offsetX, e.offsetY);
+    if (resizeEdge) {
+      e.preventDefault();
+      this.startResize(resizeEdge.axis, resizeEdge.index, e);
+      return;
+    }
+
     await this.finishEditing();
-    this.sheet!.selectStart(toRef(e.offsetX, e.offsetY));
+    this.sheet!.selectStart(
+      toRef(e.offsetX, e.offsetY, this.rowDim, this.colDim),
+    );
     this.render();
 
     let interval: NodeJS.Timeout | null = null;
@@ -271,7 +366,12 @@ export class Worksheet {
       }
 
       this.sheet!.selectEnd(
-        toRef(offsetX + this.scroll.left, offsetY + this.scroll.top),
+        toRef(
+          offsetX + this.scroll.left,
+          offsetY + this.scroll.top,
+          this.rowDim,
+          this.colDim,
+        ),
       );
       this.render();
 
@@ -298,7 +398,12 @@ export class Worksheet {
         interval = setInterval(() => {
           this.gridContainer.scrollBy(scroll.x, scroll.y);
           this.sheet!.selectEnd(
-            toRef(offsetX! + this.scroll.left, offsetY! + this.scroll.top),
+            toRef(
+              offsetX! + this.scroll.left,
+              offsetY! + this.scroll.top,
+              this.rowDim,
+              this.colDim,
+            ),
           );
           this.render();
         }, ScrollIntervalMS);
@@ -312,6 +417,56 @@ export class Worksheet {
 
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * `startResize` begins a header drag-to-resize operation.
+   */
+  private startResize(
+    axis: 'row' | 'column',
+    index: number,
+    startEvent: MouseEvent,
+  ): void {
+    const startPos =
+      axis === 'column' ? startEvent.clientX : startEvent.clientY;
+    const startSize =
+      axis === 'column'
+        ? this.colDim.getSize(index)
+        : this.rowDim.getSize(index);
+
+    const scrollContainer = this.gridContainer.getScrollContainer();
+    scrollContainer.style.cursor =
+      axis === 'column' ? 'col-resize' : 'row-resize';
+
+    const dim = axis === 'column' ? this.colDim : this.rowDim;
+
+    const onMove = (e: MouseEvent) => {
+      const currentPos = axis === 'column' ? e.clientX : e.clientY;
+      const delta = currentPos - startPos;
+      const minSize = axis === 'column' ? MinColumnWidth : MinRowHeight;
+      const newSize = Math.max(minSize, startSize + delta);
+
+      // Only update local DimensionIndex for visual feedback during drag
+      dim.setSize(index, newSize);
+      this.render();
+    };
+
+    const onUp = () => {
+      scrollContainer.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+
+      // Persist the final size to the store on mouseup
+      const finalSize = dim.getSize(index);
+      if (axis === 'column') {
+        this.sheet!.setColumnWidth(index, finalSize);
+      } else {
+        this.sheet!.setRowHeight(index, finalSize);
+      }
     };
 
     document.addEventListener('mousemove', onMove);
@@ -464,6 +619,14 @@ export class Worksheet {
   }
 
   /**
+   * `reloadDimensions` reloads dimension sizes from the store into the local
+   * DimensionIndex objects. Call this when a remote change arrives.
+   */
+  public async reloadDimensions() {
+    await this.sheet!.loadDimensions();
+  }
+
+  /**
    * `render` renders the spreadsheet in the container.
    */
   public render() {
@@ -482,6 +645,9 @@ export class Worksheet {
       this.sheet!.getActiveCell(),
       this.sheet!.getPresences(),
       this.sheet!.getRange(),
+      this.rowDim,
+      this.colDim,
+      this.resizeHover,
     );
   }
 
@@ -492,11 +658,10 @@ export class Worksheet {
     const scroll = this.scroll;
     const port = this.viewport;
 
-    const startRow = Math.floor(scroll.top / DefaultCellHeight) + 1;
-    const endRow =
-      Math.ceil((scroll.top + port.height) / DefaultCellHeight) + 1;
-    const startCol = Math.floor(scroll.left / DefaultCellWidth) + 1;
-    const endCol = Math.ceil((scroll.left + port.width) / DefaultCellWidth) + 1;
+    const startRow = this.rowDim.findIndex(scroll.top);
+    const endRow = this.rowDim.findIndex(scroll.top + port.height) + 1;
+    const startCol = this.colDim.findIndex(scroll.left);
+    const endCol = this.colDim.findIndex(scroll.left + port.width) + 1;
 
     return [
       { r: startRow, c: startCol },
@@ -509,7 +674,7 @@ export class Worksheet {
    */
   private scrollIntoView(ref: Ref = this.sheet!.getActiveCell()) {
     const scroll = this.scroll;
-    const cell = toBoundingRect(ref);
+    const cell = toBoundingRect(ref, { left: 0, top: 0 }, this.rowDim, this.colDim);
     const view = {
       left: scroll.left + RowHeaderWidth,
       top: scroll.top + DefaultCellHeight,
@@ -551,9 +716,16 @@ export class Worksheet {
     withoutFocus: boolean = false,
   ) {
     const cell = this.sheet!.getActiveCell();
-    const rect = toBoundingRect(cell, this.scroll);
+    const rect = toBoundingRect(cell, this.scroll, this.rowDim, this.colDim);
     const value = withoutValue ? '' : await this.sheet!.toInputString(cell);
-    this.cellInput.show(rect.left, rect.top, value, !withoutFocus);
+    this.cellInput.show(
+      rect.left,
+      rect.top,
+      value,
+      !withoutFocus,
+      rect.width,
+      rect.height,
+    );
   }
 
   /**
@@ -580,14 +752,16 @@ export class Worksheet {
       this.viewRange,
       this.sheet!.getActiveCell(),
       grid,
+      this.rowDim,
+      this.colDim,
     );
   }
 
   private get gridSize(): Size {
     const dimension = this.sheet!.getDimension();
     return {
-      width: dimension.columns * DefaultCellWidth,
-      height: dimension.rows * DefaultCellHeight,
+      width: this.colDim.getOffset(dimension.columns + 1),
+      height: this.rowDim.getOffset(dimension.rows + 1),
     };
   }
 

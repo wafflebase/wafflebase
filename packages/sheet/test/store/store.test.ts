@@ -73,4 +73,56 @@ function runTests(createStore: (key: string) => Promise<Store>) {
     expect(await store.has({ r: 1, c: 2 })).toBe(false);
     expect(await store.get({ r: 1, c: 3 })).toEqual({ v: '20' });
   });
+
+  it('should shift row dimension sizes on row insert', async function ({ task }) {
+    const store = await createStore(task.name);
+    await store.setDimensionSize('row', 2, 50);
+    await store.setDimensionSize('row', 4, 80);
+
+    await store.shiftCells('row', 2, 1);
+
+    const sizes = await store.getDimensionSizes('row');
+    expect(sizes.has(2)).toBe(false);
+    expect(sizes.get(3)).toBe(50);
+    expect(sizes.get(5)).toBe(80);
+  });
+
+  it('should shift row dimension sizes on row delete', async function ({ task }) {
+    const store = await createStore(task.name);
+    await store.setDimensionSize('row', 2, 50);
+    await store.setDimensionSize('row', 3, 80);
+
+    await store.shiftCells('row', 2, -1);
+
+    const sizes = await store.getDimensionSizes('row');
+    expect(sizes.has(3)).toBe(false);
+    expect(sizes.get(2)).toBe(80);
+  });
+
+  it('should shift column dimension sizes on column insert', async function ({ task }) {
+    const store = await createStore(task.name);
+    await store.setDimensionSize('column', 3, 200);
+
+    await store.shiftCells('column', 2, 1);
+
+    const sizes = await store.getDimensionSizes('column');
+    expect(sizes.has(3)).toBe(false);
+    expect(sizes.get(4)).toBe(200);
+  });
+
+  it('should not shift dimension sizes of unaffected axis', async function ({ task }) {
+    const store = await createStore(task.name);
+    await store.setDimensionSize('row', 2, 50);
+    await store.setDimensionSize('column', 3, 200);
+
+    await store.shiftCells('row', 2, 1);
+
+    // Row sizes should shift
+    const rowSizes = await store.getDimensionSizes('row');
+    expect(rowSizes.get(3)).toBe(50);
+
+    // Column sizes should remain unchanged
+    const colSizes = await store.getDimensionSizes('column');
+    expect(colSizes.get(3)).toBe(200);
+  });
 }

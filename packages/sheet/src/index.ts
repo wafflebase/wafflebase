@@ -9,7 +9,8 @@ import {
   type Axis,
 } from './model/types';
 import { toSref, toSrefs, parseRef, inRange } from './model/coordinates';
-import { shiftSref, shiftFormula } from './model/shifting';
+import { shiftSref, shiftFormula, shiftDimensionMap } from './model/shifting';
+import { DimensionIndex } from './model/dimensions';
 import { type Store } from './store/store';
 import { initialize, Spreadsheet } from './view/spreadsheet';
 
@@ -24,6 +25,7 @@ export {
   Range,
   Direction,
   Axis,
+  DimensionIndex,
   toSref,
   toSrefs,
   parseRef,
@@ -31,4 +33,5 @@ export {
   extractReferences,
   shiftSref,
   shiftFormula,
+  shiftDimensionMap,
 };

@@ -16,13 +16,13 @@ export interface Options {
  * @param options Optional setup options.
  * @returns A function to clean up the spreadsheet.
  */
-export function initialize(
+export async function initialize(
   container: HTMLDivElement,
   options?: Options,
-): Spreadsheet {
+): Promise<Spreadsheet> {
   const spreadsheet = new Spreadsheet(container, options);
   const store = options?.store || new MemStore();
-  spreadsheet.initialize(store);
+  await spreadsheet.initialize(store);
   return spreadsheet;
 }
 
@@ -51,7 +51,15 @@ export class Spreadsheet {
    */
   public async initialize(store: Store) {
     const sheet = new Sheet(store);
-    this.worksheet.initialize(sheet);
+    await this.worksheet.initialize(sheet);
+  }
+
+  /**
+   * `reloadDimensions` reloads dimension sizes from the store and re-renders.
+   * Call this when a remote change arrives to sync local DimensionIndex state.
+   */
+  public async reloadDimensions() {
+    await this.worksheet.reloadDimensions();
   }
 
   /**

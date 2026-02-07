@@ -1,4 +1,5 @@
 import { Grid, Cell, Ref, Range } from '../model/types';
+import { DimensionIndex } from '../model/dimensions';
 import { Theme, ThemeKey, getThemeColor } from './theme';
 import { toColumnLabel, toSref } from '../model/coordinates';
 import {
@@ -36,6 +37,8 @@ export class GridCanvas {
     viewRange: Range,
     activeCell: Ref,
     grid?: Grid,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -59,19 +62,24 @@ export class GridCanvas {
           { r: row, c: col },
           grid?.get(toSref({ r: row, c: col })),
           scroll,
+          rowDim,
+          colDim,
         );
       }
     }
 
     // Render column headers
     for (let col = startID.c; col <= endID.c; col++) {
-      const x = RowHeaderWidth + DefaultCellWidth * (col - 1) - scroll.left;
+      const colOffset = colDim ? colDim.getOffset(col) : DefaultCellWidth * (col - 1);
+      const colWidth = colDim ? colDim.getSize(col) : DefaultCellWidth;
+      const x = RowHeaderWidth + colOffset - scroll.left;
       const y = 0;
       this.renderHeader(
         ctx,
         x,
         y,
-        DefaultCellWidth,
+        colWidth,
+        DefaultCellHeight,
         toColumnLabel(col),
         activeCell.c === col,
       );
@@ -79,13 +87,16 @@ export class GridCanvas {
 
     // Render row headers
     for (let row = startID.r; row <= endID.r; row++) {
+      const rowOffset = rowDim ? rowDim.getOffset(row) : DefaultCellHeight * (row - 1);
+      const rowHeight = rowDim ? rowDim.getSize(row) : DefaultCellHeight;
       const x = 0;
-      const y = row * DefaultCellHeight - scroll.top;
+      const y = rowOffset + DefaultCellHeight - scroll.top;
       this.renderHeader(
         ctx,
         x,
         y,
         RowHeaderWidth,
+        rowHeight,
         String(row),
         activeCell.r === row,
       );
@@ -97,20 +108,21 @@ export class GridCanvas {
     x: number,
     y: number,
     width: number,
+    height: number,
     label: string,
     selected: boolean,
   ): void {
     ctx.fillStyle = selected
       ? this.getThemeColor('headerActiveBGColor')
       : this.getThemeColor('headerBGColor');
-    ctx.fillRect(x, y, width, DefaultCellHeight);
+    ctx.fillRect(x, y, width, height);
     ctx.strokeStyle = this.getThemeColor('cellBorderColor');
     ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(x, y, width, DefaultCellHeight);
+    ctx.strokeRect(x, y, width, height);
     ctx.fillStyle = this.getThemeColor('cellTextColor');
     ctx.textAlign = HeaderTextAlign;
     ctx.font = selected ? 'bold 10px Arial' : '10px Arial';
-    ctx.fillText(label, x + width / 2, y + 15);
+    ctx.fillText(label, x + width / 2, y + Math.min(15, height - 4));
   }
 
   private renderCell(
@@ -118,14 +130,16 @@ export class GridCanvas {
     id: Ref,
     cell: Cell | undefined,
     scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
   ): void {
-    const rect = toBoundingRect(id, scroll);
+    const rect = toBoundingRect(id, scroll, rowDim, colDim);
 
     ctx.strokeStyle = this.getThemeColor('cellTextColor');
     ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
+    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
     ctx.fillStyle = this.getThemeColor('cellBGColor');
-    ctx.fillRect(rect.left, rect.top, DefaultCellWidth, DefaultCellHeight);
+    ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
 
     const data = cell?.v || '';
     if (data) {

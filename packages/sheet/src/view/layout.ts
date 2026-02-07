@@ -1,4 +1,5 @@
 import { Ref } from '../model/types';
+import { DimensionIndex } from '../model/dimensions';
 
 // Cell dimensions
 export const DefaultCellWidth = 100;
@@ -39,17 +40,30 @@ export type BoundingRect = Position & Size;
  * Calculates the bounding rectangle for a cell reference with scroll position
  * @param id The cell reference
  * @param scroll The scroll position
+ * @param rowDim Optional row dimension index for variable heights
+ * @param colDim Optional column dimension index for variable widths
  * @returns The bounding rectangle
  */
 export function toBoundingRect(
   id: Ref,
   scroll = { left: 0, top: 0 },
+  rowDim?: DimensionIndex,
+  colDim?: DimensionIndex,
 ): BoundingRect {
+  const colOffset = colDim
+    ? colDim.getOffset(id.c)
+    : (id.c - 1) * DefaultCellWidth;
+  const rowOffset = rowDim
+    ? rowDim.getOffset(id.r)
+    : (id.r - 1) * DefaultCellHeight;
+  const width = colDim ? colDim.getSize(id.c) : DefaultCellWidth;
+  const height = rowDim ? rowDim.getSize(id.r) : DefaultCellHeight;
+
   return {
-    left: (id.c - 1) * DefaultCellWidth + RowHeaderWidth - scroll.left,
-    top: (id.r - 1) * DefaultCellHeight + DefaultCellHeight - scroll.top,
-    width: DefaultCellWidth,
-    height: DefaultCellHeight,
+    left: colOffset + RowHeaderWidth - scroll.left,
+    top: rowOffset + DefaultCellHeight - scroll.top,
+    width,
+    height,
   };
 }
 
@@ -63,19 +77,37 @@ export function expandBoundingRect(
   start: BoundingRect,
   end: BoundingRect,
 ): BoundingRect {
+  const left = Math.min(start.left, end.left);
+  const top = Math.min(start.top, end.top);
+  const right = Math.max(start.left + start.width, end.left + end.width);
+  const bottom = Math.max(start.top + start.height, end.top + end.height);
+
   return {
-    left: Math.min(start.left, end.left),
-    top: Math.min(start.top, end.top),
-    width: Math.abs(start.left - end.left) + DefaultCellWidth,
-    height: Math.abs(start.top - end.top) + DefaultCellHeight,
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
   };
 }
 
 /**
  * `toRef` returns the Ref for the given x and y coordinates.
+ * @param x The x coordinate (includes scroll offset)
+ * @param y The y coordinate (includes scroll offset)
+ * @param rowDim Optional row dimension index for variable heights
+ * @param colDim Optional column dimension index for variable widths
  */
-export function toRef(x: number, y: number): Ref {
-  const row = Math.floor(y / DefaultCellHeight);
-  const col = Math.floor((x + RowHeaderWidth) / DefaultCellWidth);
+export function toRef(
+  x: number,
+  y: number,
+  rowDim?: DimensionIndex,
+  colDim?: DimensionIndex,
+): Ref {
+  const row = rowDim
+    ? rowDim.findIndex(y - DefaultCellHeight)
+    : Math.floor(y / DefaultCellHeight);
+  const col = colDim
+    ? colDim.findIndex(x - RowHeaderWidth)
+    : Math.floor((x + RowHeaderWidth) / DefaultCellWidth);
   return { r: row, c: col };
 }

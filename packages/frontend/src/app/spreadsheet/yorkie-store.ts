@@ -166,6 +166,35 @@ export class YorkieStore implements Store {
           root.sheet[newSref] = { ...cell };
         }
       }
+
+      // Shift dimension sizes for the affected axis
+      const dimObj = axis === "row" ? root.rowHeights : root.colWidths;
+      const dimEntries: Array<[string, number]> = [];
+      for (const [key, value] of Object.entries(dimObj)) {
+        dimEntries.push([key, value]);
+      }
+      for (const [key] of dimEntries) {
+        delete dimObj[key];
+      }
+      for (const [key, value] of dimEntries) {
+        const idx = Number(key);
+        if (count > 0) {
+          if (idx >= index) {
+            dimObj[String(idx + count)] = value;
+          } else {
+            dimObj[key] = value;
+          }
+        } else {
+          const absCount = Math.abs(count);
+          if (idx >= index && idx < index + absCount) {
+            // In deleted zone — drop it
+          } else if (idx >= index + absCount) {
+            dimObj[String(idx + count)] = value;
+          } else {
+            dimObj[key] = value;
+          }
+        }
+      }
     });
   }
 
@@ -185,6 +214,29 @@ export class YorkieStore implements Store {
       }
     }
     return dependantsMap;
+  }
+
+  async setDimensionSize(
+    axis: Axis,
+    index: number,
+    size: number
+  ): Promise<void> {
+    this.doc.update((root) => {
+      const map = axis === "row" ? root.rowHeights : root.colWidths;
+      map[String(index)] = size;
+    });
+  }
+
+  async getDimensionSizes(axis: Axis): Promise<Map<number, number>> {
+    const root = this.doc.getRoot();
+    const obj = axis === "row" ? root.rowHeights : root.colWidths;
+    const result = new Map<number, number>();
+    if (obj) {
+      for (const [key, value] of Object.entries(obj)) {
+        result.set(Number(key), value);
+      }
+    }
+    return result;
   }
 
   updateActiveCell(activeCell: Ref) {

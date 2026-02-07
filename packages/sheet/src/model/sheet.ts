@@ -16,6 +16,7 @@ import {
 } from './coordinates';
 import { Axis, Grid, Cell, Ref, Sref, Range, Direction } from './types';
 import { grid2string, string2grid } from './grids';
+import { DimensionIndex } from './dimensions';
 
 /**
  * `Dimensions` represents the dimensions of the sheet.
@@ -49,6 +50,16 @@ export class Sheet {
   private range?: [Ref, Ref];
 
   /**
+   * `rowDimensions` manages variable row heights.
+   */
+  private rowDimensions?: DimensionIndex;
+
+  /**
+   * `colDimensions` manages variable column widths.
+   */
+  private colDimensions?: DimensionIndex;
+
+  /**
    * `constructor` creates a new `Sheet` instance.
    * @param grid optional grid to initialize the sheet.
    */
@@ -73,6 +84,64 @@ export class Sheet {
    */
   getDimension(): { rows: number; columns: number } {
     return this.dimension;
+  }
+
+  /**
+   * `setDimensions` sets the dimension indices for variable row/column sizes.
+   */
+  setDimensions(rowDim: DimensionIndex, colDim: DimensionIndex): void {
+    this.rowDimensions = rowDim;
+    this.colDimensions = colDim;
+  }
+
+  /**
+   * `getRowDimensions` returns the row dimension index.
+   */
+  getRowDimensions(): DimensionIndex | undefined {
+    return this.rowDimensions;
+  }
+
+  /**
+   * `getColDimensions` returns the column dimension index.
+   */
+  getColDimensions(): DimensionIndex | undefined {
+    return this.colDimensions;
+  }
+
+  /**
+   * `setRowHeight` sets the height of a row.
+   */
+  setRowHeight(row: number, height: number): void {
+    this.rowDimensions?.setSize(row, height);
+    this.store.setDimensionSize('row', row, height);
+  }
+
+  /**
+   * `setColumnWidth` sets the width of a column.
+   */
+  setColumnWidth(col: number, width: number): void {
+    this.colDimensions?.setSize(col, width);
+    this.store.setDimensionSize('column', col, width);
+  }
+
+  /**
+   * `loadDimensions` loads saved dimension sizes from the store into the DimensionIndex.
+   */
+  async loadDimensions(): Promise<void> {
+    if (this.rowDimensions) {
+      this.rowDimensions.clear();
+      const rowHeights = await this.store.getDimensionSizes('row');
+      for (const [index, size] of rowHeights) {
+        this.rowDimensions.setSize(index, size);
+      }
+    }
+    if (this.colDimensions) {
+      this.colDimensions.clear();
+      const colWidths = await this.store.getDimensionSizes('column');
+      for (const [index, size] of colWidths) {
+        this.colDimensions.setSize(index, size);
+      }
+    }
   }
 
   /**
@@ -189,6 +258,13 @@ export class Sheet {
     count: number,
   ): Promise<void> {
     await this.store.shiftCells(axis, index, count);
+
+    // Shift dimension custom sizes
+    if (axis === 'row') {
+      this.rowDimensions?.shift(index, count);
+    } else {
+      this.colDimensions?.shift(index, count);
+    }
 
     // Adjust activeCell if it's at or beyond the insertion/deletion point
     const value = axis === 'row' ? this.activeCell.r : this.activeCell.c;

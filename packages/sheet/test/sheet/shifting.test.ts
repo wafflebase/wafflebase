@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { shiftRef, shiftSref, shiftFormula, shiftGrid } from '../../src/model/shifting';
-import { Ref, Cell, Grid } from '../../src/model/types';
+import { shiftRef, shiftSref, shiftFormula, shiftGrid, shiftDimensionMap } from '../../src/model/shifting';
+import { Grid } from '../../src/model/types';
 
 describe('shiftRef', () => {
   describe('insert (count > 0)', () => {
@@ -158,5 +158,60 @@ describe('shiftGrid', () => {
     expect(result.get('D1')).toEqual({ v: '30' });
     expect(result.has('B1')).toBe(false);
     expect(result.size).toBe(3);
+  });
+});
+
+describe('shiftDimensionMap', () => {
+  it('should shift keys at or after index on insert', () => {
+    const map = new Map([[1, 50], [3, 80], [5, 120]]);
+    const result = shiftDimensionMap(map, 3, 1);
+
+    expect(result.get(1)).toBe(50);
+    expect(result.has(3)).toBe(false);
+    expect(result.get(4)).toBe(80);
+    expect(result.get(6)).toBe(120);
+    expect(result.size).toBe(3);
+  });
+
+  it('should not shift keys before index on insert', () => {
+    const map = new Map([[1, 50], [2, 80]]);
+    const result = shiftDimensionMap(map, 3, 1);
+
+    expect(result.get(1)).toBe(50);
+    expect(result.get(2)).toBe(80);
+    expect(result.size).toBe(2);
+  });
+
+  it('should drop keys in deleted zone on delete', () => {
+    const map = new Map([[1, 50], [2, 80], [3, 120]]);
+    const result = shiftDimensionMap(map, 2, -1);
+
+    expect(result.get(1)).toBe(50);
+    expect(result.get(2)).toBe(120); // key 3 shifted to 2
+    expect(result.has(3)).toBe(false);
+    expect(result.size).toBe(2);
+  });
+
+  it('should drop multiple keys in deleted zone', () => {
+    const map = new Map([[2, 80], [3, 90], [5, 120]]);
+    const result = shiftDimensionMap(map, 2, -2);
+
+    expect(result.has(2)).toBe(false);
+    expect(result.get(3)).toBe(120); // key 5 shifted to 3
+    expect(result.size).toBe(1);
+  });
+
+  it('should return empty map when all keys are in deleted zone', () => {
+    const map = new Map([[2, 80]]);
+    const result = shiftDimensionMap(map, 2, -1);
+
+    expect(result.size).toBe(0);
+  });
+
+  it('should handle empty map', () => {
+    const map = new Map<number, number>();
+    const result = shiftDimensionMap(map, 2, 1);
+
+    expect(result.size).toBe(0);
   });
 });

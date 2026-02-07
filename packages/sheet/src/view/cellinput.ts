@@ -58,9 +58,13 @@ export class CellInput {
     top: number,
     value: string = '',
     focus: boolean = true,
+    width?: number,
+    height?: number,
   ): void {
     this.container.style.left = left + 'px';
     this.container.style.top = top + 'px';
+    this.container.style.width = (width ?? DefaultCellWidth) + 'px';
+    this.container.style.height = (height ?? DefaultCellHeight) + 'px';
     this.container.style.pointerEvents = 'auto';
     this.input.innerText = value;
 
