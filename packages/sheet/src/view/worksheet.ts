@@ -64,6 +64,7 @@ export class Worksheet {
 
   private resizeHover: { axis: 'row' | 'column'; index: number } | null = null;
   private dragMove: { axis: 'row' | 'column'; srcIndex: number; count: number; dropIndex: number } | null = null;
+  private editMode: boolean = false;
 
   constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
@@ -679,18 +680,27 @@ export class Worksheet {
    * `handleFormulaInputKeydown` handles the keydown event for the formula input.
    */
   private async handleFormulaKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && e.altKey) {
+      e.preventDefault();
+      document.execCommand('insertLineBreak');
+      return;
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
       await this.finishEditing();
       this.sheet!.move('down');
+      this.render();
       this.scrollIntoView();
+    } else if (e.key === 'Tab') {
       e.preventDefault();
+      await this.finishEditing();
+      this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
+      this.render();
+      this.scrollIntoView();
     } else if (e.key === 'Escape') {
-      this.formulaBar.setValue(
-        await this.sheet!.toInputString(this.sheet!.getActiveCell()),
-      );
+      e.preventDefault();
       this.cellInput.hide();
       this.formulaBar.blur();
-      e.preventDefault();
+      this.render();
     } else {
       if (!this.cellInput.isShown()) {
         this.showCellInput(true, true);
@@ -702,7 +712,11 @@ export class Worksheet {
    * `handleCellInputKeydown` handles the keydown event for the cell input.
    */
   private async handleCellInputKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && e.altKey) {
+      e.preventDefault();
+      document.execCommand('insertLineBreak');
+      return;
+    } else if (e.key === 'Enter') {
       e.preventDefault();
 
       await this.finishEditing();
@@ -716,7 +730,11 @@ export class Worksheet {
       this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
       this.render();
       this.scrollIntoView();
-    } else if (e.key.startsWith('Arrow') && !this.cellInput.hasFormula()) {
+    } else if (
+      e.key.startsWith('Arrow') &&
+      !this.cellInput.hasFormula() &&
+      !this.editMode
+    ) {
       e.preventDefault();
 
       await this.finishEditing();
@@ -734,7 +752,9 @@ export class Worksheet {
       this.render();
       this.scrollIntoView();
     } else if (e.key === 'Escape') {
+      e.preventDefault();
       this.cellInput.hide();
+      this.render();
     }
   }
 
@@ -919,9 +939,15 @@ export class Worksheet {
     withoutValue: boolean = false,
     withoutFocus: boolean = false,
   ) {
+    if (!withoutFocus) {
+      this.editMode = !withoutValue;
+    }
+
     const cell = this.sheet!.getActiveCell();
     const rect = toBoundingRect(cell, this.scroll, this.rowDim, this.colDim);
     const value = withoutValue ? '' : await this.sheet!.toInputString(cell);
+    const maxWidth = Math.max(rect.width, this.viewport.width - rect.left);
+    const maxHeight = Math.max(rect.height, this.viewport.height - rect.top);
     this.cellInput.show(
       rect.left,
       rect.top,
@@ -929,6 +955,8 @@ export class Worksheet {
       !withoutFocus,
       rect.width,
       rect.height,
+      maxWidth,
+      maxHeight,
     );
   }
 
