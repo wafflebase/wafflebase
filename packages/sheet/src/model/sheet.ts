@@ -22,9 +22,9 @@ import { DimensionIndex } from './dimensions';
 /**
  * `Dimensions` represents the dimensions of the sheet.
  * This is used when the sheet is created for the first time.
- * It represents cells from A1 to ZZZ729443.
+ * It represents cells from A1 to ZZZ1000000.
  */
-const Dimensions = { rows: 1000000, columns: 182780 };
+const Dimensions = { rows: 1000000, columns: 18278 };
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
