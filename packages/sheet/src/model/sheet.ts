@@ -558,10 +558,20 @@ export class Sheet {
   }
 
   /**
+   * `selectAllCells` selects the entire sheet.
+   */
+  selectAllCells(): void {
+    this.selectionType = 'all';
+    this.activeCell = { r: 1, c: 1 };
+    this.range = cloneRange(this.dimensionRange);
+    this.store.updateActiveCell(this.activeCell);
+  }
+
+  /**
    * `getSelectedIndices` returns the selected row/column range, or null for cell selections.
    */
   getSelectedIndices(): { axis: Axis; from: number; to: number } | null {
-    if (this.selectionType === 'cell' || !this.range) {
+    if (this.selectionType === 'cell' || this.selectionType === 'all' || !this.range) {
       return null;
     }
 

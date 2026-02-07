@@ -378,6 +378,17 @@ export class Worksheet {
     const scroll = this.scroll;
     const x = e.offsetX;
     const y = e.offsetY;
+
+    // Handle corner button click (select all)
+    const isCorner = x < RowHeaderWidth && y < DefaultCellHeight;
+    if (isCorner) {
+      e.preventDefault();
+      await this.finishEditing();
+      this.sheet!.selectAllCells();
+      this.render();
+      return;
+    }
+
     const isColumnHeader = y < DefaultCellHeight && x > RowHeaderWidth;
     const isRowHeader = x < RowHeaderWidth && y > DefaultCellHeight;
 

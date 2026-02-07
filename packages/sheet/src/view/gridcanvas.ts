@@ -76,8 +76,8 @@ export class GridCanvas {
       const colWidth = colDim ? colDim.getSize(col) : DefaultCellWidth;
       const x = RowHeaderWidth + colOffset - scroll.left;
       const y = 0;
-      const isColSelected = selectionType === 'column' && selectionRange &&
-        col >= selectionRange[0].c && col <= selectionRange[1].c;
+      const isColSelected = selectionType === 'all' || (selectionType === 'column' && selectionRange &&
+        col >= selectionRange[0].c && col <= selectionRange[1].c);
       this.renderHeader(
         ctx,
         x,
@@ -96,8 +96,8 @@ export class GridCanvas {
       const rowHeight = rowDim ? rowDim.getSize(row) : DefaultCellHeight;
       const x = 0;
       const y = rowOffset + DefaultCellHeight - scroll.top;
-      const isRowSelected = selectionType === 'row' && selectionRange &&
-        row >= selectionRange[0].r && row <= selectionRange[1].r;
+      const isRowSelected = selectionType === 'all' || (selectionType === 'row' && selectionRange &&
+        row >= selectionRange[0].r && row <= selectionRange[1].r);
       this.renderHeader(
         ctx,
         x,
@@ -109,6 +109,16 @@ export class GridCanvas {
         isRowSelected || false,
       );
     }
+
+    // Render corner button (top-left intersection of row/column headers)
+    const isAllSelected = selectionType === 'all';
+    ctx.fillStyle = isAllSelected
+      ? this.getThemeColor('headerSelectedBGColor')
+      : this.getThemeColor('headerBGColor');
+    ctx.fillRect(0, 0, RowHeaderWidth, DefaultCellHeight);
+    ctx.strokeStyle = this.getThemeColor('cellBorderColor');
+    ctx.lineWidth = CellBorderWidth;
+    ctx.strokeRect(0, 0, RowHeaderWidth, DefaultCellHeight);
   }
 
   private renderHeader(

@@ -54,4 +54,4 @@ export type Grid = Map<Sref, Cell>;
 /**
  * SelectionType represents the type of selection.
  */
-export type SelectionType = 'cell' | 'row' | 'column';
+export type SelectionType = 'cell' | 'row' | 'column' | 'all';

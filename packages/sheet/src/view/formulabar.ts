@@ -1,4 +1,4 @@
-import { toSref } from '../model/coordinates';
+import { toSref, toSrng, toColumnLabel } from '../model/coordinates';
 import { Sheet } from '../model/sheet';
 import { extractTokens } from '../formula/formula';
 import { Theme, ThemeKey, getThemeColor } from './theme';
@@ -71,7 +71,22 @@ export class FormulaBar {
     if (!this.sheet) return;
 
     const ref = this.sheet.getActiveCell();
-    this.cellLabel.textContent = toSref(ref);
+    const selectionType = this.sheet.getSelectionType();
+    const indices = this.sheet.getSelectedIndices();
+
+    let label: string;
+    if (selectionType === 'row' && indices) {
+      label = `${indices.from}:${indices.to}`;
+    } else if (selectionType === 'column' && indices) {
+      const fromLabel = toColumnLabel(indices.from);
+      const toLabel = toColumnLabel(indices.to);
+      label = `${fromLabel}:${toLabel}`;
+    } else {
+      const range = this.sheet.getRange();
+      label = range ? toSrng(range) : toSref(ref);
+    }
+
+    this.cellLabel.textContent = label;
     this.formulaInput.innerText = await this.sheet.toInputString(ref);
     this.renderInput();
   }

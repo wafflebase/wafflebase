@@ -65,7 +65,10 @@ export class Overlay {
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
 
     // Render Selection Range
-    if (range) {
+    if (selectionType === 'all') {
+      ctx.fillStyle = this.getThemeColor('selectionBGColor');
+      ctx.fillRect(RowHeaderWidth, DefaultCellHeight, port.width - RowHeaderWidth, port.height - DefaultCellHeight);
+    } else if (range) {
       if (selectionType === 'row') {
         // Full-width row selection
         const topRect = toBoundingRect(range[0], scroll, rowDim, colDim);
