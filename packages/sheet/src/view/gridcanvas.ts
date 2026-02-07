@@ -1,4 +1,4 @@
-import { Grid, Cell, Ref, Range } from '../model/types';
+import { Grid, Cell, Ref, Range, SelectionType } from '../model/types';
 import { DimensionIndex } from '../model/dimensions';
 import { Theme, ThemeKey, getThemeColor } from './theme';
 import { toColumnLabel, toSref } from '../model/coordinates';
@@ -39,6 +39,8 @@ export class GridCanvas {
     grid?: Grid,
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
+    selectionType?: SelectionType,
+    selectionRange?: Range,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -74,6 +76,8 @@ export class GridCanvas {
       const colWidth = colDim ? colDim.getSize(col) : DefaultCellWidth;
       const x = RowHeaderWidth + colOffset - scroll.left;
       const y = 0;
+      const isColSelected = selectionType === 'column' && selectionRange &&
+        col >= selectionRange[0].c && col <= selectionRange[1].c;
       this.renderHeader(
         ctx,
         x,
@@ -82,6 +86,7 @@ export class GridCanvas {
         DefaultCellHeight,
         toColumnLabel(col),
         activeCell.c === col,
+        isColSelected || false,
       );
     }
 
@@ -91,6 +96,8 @@ export class GridCanvas {
       const rowHeight = rowDim ? rowDim.getSize(row) : DefaultCellHeight;
       const x = 0;
       const y = rowOffset + DefaultCellHeight - scroll.top;
+      const isRowSelected = selectionType === 'row' && selectionRange &&
+        row >= selectionRange[0].r && row <= selectionRange[1].r;
       this.renderHeader(
         ctx,
         x,
@@ -99,6 +106,7 @@ export class GridCanvas {
         rowHeight,
         String(row),
         activeCell.r === row,
+        isRowSelected || false,
       );
     }
   }
@@ -111,17 +119,20 @@ export class GridCanvas {
     height: number,
     label: string,
     selected: boolean,
+    fullSelected: boolean = false,
   ): void {
-    ctx.fillStyle = selected
-      ? this.getThemeColor('headerActiveBGColor')
-      : this.getThemeColor('headerBGColor');
+    ctx.fillStyle = fullSelected
+      ? this.getThemeColor('headerSelectedBGColor')
+      : selected
+        ? this.getThemeColor('headerActiveBGColor')
+        : this.getThemeColor('headerBGColor');
     ctx.fillRect(x, y, width, height);
     ctx.strokeStyle = this.getThemeColor('cellBorderColor');
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(x, y, width, height);
     ctx.fillStyle = this.getThemeColor('cellTextColor');
     ctx.textAlign = HeaderTextAlign;
-    ctx.font = selected ? 'bold 10px Arial' : '10px Arial';
+    ctx.font = (selected || fullSelected) ? 'bold 10px Arial' : '10px Arial';
     ctx.fillText(label, x + width / 2, y + Math.min(15, height - 4));
   }
 

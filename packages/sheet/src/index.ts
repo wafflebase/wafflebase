@@ -7,9 +7,19 @@ import {
   type Range,
   type Direction,
   type Axis,
+  type SelectionType,
 } from './model/types';
 import { toSref, toSrefs, parseRef, inRange } from './model/coordinates';
-import { shiftSref, shiftFormula, shiftDimensionMap } from './model/shifting';
+import {
+  shiftSref,
+  shiftFormula,
+  shiftDimensionMap,
+  remapIndex,
+  moveRef,
+  moveFormula,
+  moveGrid,
+  moveDimensionMap,
+} from './model/shifting';
 import { DimensionIndex } from './model/dimensions';
 import { type Store } from './store/store';
 import { initialize, Spreadsheet } from './view/spreadsheet';
@@ -25,6 +35,7 @@ export {
   Range,
   Direction,
   Axis,
+  SelectionType,
   DimensionIndex,
   toSref,
   toSrefs,
@@ -34,4 +45,9 @@ export {
   shiftSref,
   shiftFormula,
   shiftDimensionMap,
+  remapIndex,
+  moveRef,
+  moveFormula,
+  moveGrid,
+  moveDimensionMap,
 };

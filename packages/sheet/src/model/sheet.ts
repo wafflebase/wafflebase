@@ -14,7 +14,8 @@ import {
   isSameRange,
   mergeRanges,
 } from './coordinates';
-import { Axis, Grid, Cell, Ref, Sref, Range, Direction } from './types';
+import { Axis, Grid, Cell, Ref, Sref, Range, Direction, SelectionType } from './types';
+import { remapIndex, moveRef } from './shifting';
 import { grid2string, string2grid } from './grids';
 import { DimensionIndex } from './dimensions';
 
@@ -48,6 +49,11 @@ export class Sheet {
    * `range` is the range of cells that are currently selected.
    */
   private range?: [Ref, Ref];
+
+  /**
+   * `selectionType` indicates whether whole rows/columns or individual cells are selected.
+   */
+  private selectionType: SelectionType = 'cell';
 
   /**
    * `rowDimensions` manages variable row heights.
@@ -250,6 +256,20 @@ export class Sheet {
   }
 
   /**
+   * `moveRows` moves `count` rows starting at `src` to before `dst`.
+   */
+  async moveRows(src: number, count: number, dst: number): Promise<void> {
+    await this.moveCells('row', src, count, dst);
+  }
+
+  /**
+   * `moveColumns` moves `count` columns starting at `src` to before `dst`.
+   */
+  async moveColumns(src: number, count: number, dst: number): Promise<void> {
+    await this.moveCells('column', src, count, dst);
+  }
+
+  /**
    * `shiftCells` shifts cells along the given axis, then recalculates all formulas.
    */
   private async shiftCells(
@@ -298,6 +318,56 @@ export class Sheet {
           };
         }
       }
+    }
+
+    // Recalculate all formula cells
+    const allSrefs = new Set<Sref>();
+    const fullRange: Range = [{ r: 1, c: 1 }, { r: 1000, c: 100 }];
+    const grid = await this.store.getGrid(fullRange);
+    for (const [sref, cell] of grid) {
+      if (cell.f) {
+        allSrefs.add(sref);
+      }
+    }
+
+    if (allSrefs.size > 0) {
+      const dependantsMap = await this.store.buildDependantsMap(allSrefs);
+      await calculate(this, dependantsMap, allSrefs);
+    }
+  }
+
+  /**
+   * `moveCells` moves cells along the given axis, then recalculates all formulas.
+   */
+  private async moveCells(
+    axis: Axis,
+    src: number,
+    count: number,
+    dst: number,
+  ): Promise<void> {
+    // No-op if source and destination are the same
+    if (dst >= src && dst <= src + count) {
+      return;
+    }
+
+    await this.store.moveCells(axis, src, count, dst);
+
+    // Move dimension custom sizes
+    if (axis === 'row') {
+      this.rowDimensions?.move(src, count, dst);
+    } else {
+      this.colDimensions?.move(src, count, dst);
+    }
+
+    // Remap activeCell
+    this.activeCell = moveRef(this.activeCell, axis, src, count, dst);
+
+    // Remap range
+    if (this.range) {
+      this.range = [
+        moveRef(this.range[0], axis, src, count, dst),
+        moveRef(this.range[1], axis, src, count, dst),
+      ];
     }
 
     // Recalculate all formula cells
@@ -429,6 +499,80 @@ export class Sheet {
   }
 
   /**
+   * `getSelectionType` returns the current selection type.
+   */
+  getSelectionType(): SelectionType {
+    return this.selectionType;
+  }
+
+  /**
+   * `selectRow` selects an entire row.
+   */
+  selectRow(row: number): void {
+    this.selectionType = 'row';
+    this.activeCell = { r: row, c: 1 };
+    this.range = [
+      { r: row, c: 1 },
+      { r: row, c: this.dimension.columns },
+    ];
+    this.store.updateActiveCell(this.activeCell);
+  }
+
+  /**
+   * `selectColumn` selects an entire column.
+   */
+  selectColumn(col: number): void {
+    this.selectionType = 'column';
+    this.activeCell = { r: 1, c: col };
+    this.range = [
+      { r: 1, c: col },
+      { r: this.dimension.rows, c: col },
+    ];
+    this.store.updateActiveCell(this.activeCell);
+  }
+
+  /**
+   * `selectRowRange` extends the row selection to include rows from `from` to `to`.
+   */
+  selectRowRange(from: number, to: number): void {
+    this.selectionType = 'row';
+    const minRow = Math.min(from, to);
+    const maxRow = Math.max(from, to);
+    this.range = [
+      { r: minRow, c: 1 },
+      { r: maxRow, c: this.dimension.columns },
+    ];
+  }
+
+  /**
+   * `selectColumnRange` extends the column selection to include columns from `from` to `to`.
+   */
+  selectColumnRange(from: number, to: number): void {
+    this.selectionType = 'column';
+    const minCol = Math.min(from, to);
+    const maxCol = Math.max(from, to);
+    this.range = [
+      { r: 1, c: minCol },
+      { r: this.dimension.rows, c: maxCol },
+    ];
+  }
+
+  /**
+   * `getSelectedIndices` returns the selected row/column range, or null for cell selections.
+   */
+  getSelectedIndices(): { axis: Axis; from: number; to: number } | null {
+    if (this.selectionType === 'cell' || !this.range) {
+      return null;
+    }
+
+    if (this.selectionType === 'row') {
+      return { axis: 'row', from: this.range[0].r, to: this.range[1].r };
+    }
+
+    return { axis: 'column', from: this.range[0].c, to: this.range[1].c };
+  }
+
+  /**
    * `selectStart` sets the start cell of the selection.
    */
   selectStart(ref: Ref): void {
@@ -436,6 +580,7 @@ export class Sheet {
       return;
     }
 
+    this.selectionType = 'cell';
     this.setActiveCell(ref);
     this.range = undefined;
   }

@@ -50,3 +50,8 @@ export type Cell = {
  * Grid type represents a grid of rows and columns.
  */
 export type Grid = Map<Sref, Cell>;
+
+/**
+ * SelectionType represents the type of selection.
+ */
+export type SelectionType = 'cell' | 'row' | 'column';

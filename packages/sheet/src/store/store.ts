@@ -56,6 +56,12 @@ export interface Store {
   shiftCells(axis: Axis, index: number, count: number): Promise<void>;
 
   /**
+   * `moveCells` method moves cells along the given axis.
+   * Moves `count` rows/columns starting at `srcIndex` to before `dstIndex`.
+   */
+  moveCells(axis: Axis, srcIndex: number, count: number, dstIndex: number): Promise<void>;
+
+  /**
    * `setDimensionSize` method sets a custom row height or column width.
    */
   setDimensionSize(axis: Axis, index: number, size: number): Promise<void>;

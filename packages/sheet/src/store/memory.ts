@@ -1,6 +1,6 @@
 import { extractReferences } from '../formula/formula';
 import { inRange, parseRef, toSref, toSrefs } from '../model/coordinates';
-import { shiftGrid, shiftDimensionMap } from '../model/shifting';
+import { shiftGrid, shiftDimensionMap, moveGrid, moveDimensionMap } from '../model/shifting';
 import { Axis, Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
 import { Store } from './store';
 
@@ -104,6 +104,16 @@ export class MemStore implements Store {
       this.rowHeights = shiftDimensionMap(this.rowHeights, index, count);
     } else {
       this.colWidths = shiftDimensionMap(this.colWidths, index, count);
+    }
+  }
+
+  async moveCells(axis: Axis, srcIndex: number, count: number, dstIndex: number): Promise<void> {
+    this.grid = moveGrid(this.grid, axis, srcIndex, count, dstIndex);
+
+    if (axis === 'row') {
+      this.rowHeights = moveDimensionMap(this.rowHeights, srcIndex, count, dstIndex);
+    } else {
+      this.colWidths = moveDimensionMap(this.colWidths, srcIndex, count, dstIndex);
     }
   }
 

@@ -3,6 +3,144 @@ import { parseRef, toSref } from './coordinates';
 import { Axis, Cell, Grid, Ref, Sref } from './types';
 
 /**
+ * `remapIndex` maps an old 1-based index to its new position after moving
+ * `count` items starting at `src` to before `dst`.
+ *
+ * - Items in [src, src+count) → destination block
+ * - Items between shift forward or backward to fill the gap
+ * - Items outside the affected range are unchanged
+ */
+export function remapIndex(i: number, src: number, count: number, dst: number): number {
+  const srcEnd = src + count;
+
+  if (dst <= src) {
+    // Moving backward: source block goes to dst, items in [dst, src) shift forward
+    if (i >= src && i < srcEnd) {
+      return dst + (i - src);
+    }
+    if (i >= dst && i < src) {
+      return i + count;
+    }
+    return i;
+  }
+
+  // Moving forward: source block goes to dst-count, items in [srcEnd, dst) shift backward
+  if (i >= src && i < srcEnd) {
+    return dst - count + (i - src);
+  }
+  if (i >= srcEnd && i < dst) {
+    return i - count;
+  }
+  return i;
+}
+
+/**
+ * `moveRef` remaps a Ref using `remapIndex` for the given axis.
+ */
+export function moveRef(
+  ref: Ref,
+  axis: Axis,
+  src: number,
+  count: number,
+  dst: number,
+): Ref {
+  if (axis === 'row') {
+    return { r: remapIndex(ref.r, src, count, dst), c: ref.c };
+  }
+  return { r: ref.r, c: remapIndex(ref.c, src, count, dst) };
+}
+
+/**
+ * `moveFormula` remaps all cell references in a formula string
+ * after moving `count` rows/columns from `src` to before `dst`.
+ */
+export function moveFormula(
+  formula: string,
+  axis: Axis,
+  src: number,
+  count: number,
+  dst: number,
+): string {
+  const tokens = extractTokens(formula);
+
+  let result = '=';
+  for (const token of tokens) {
+    if (token.type === 'REFERENCE') {
+      const text = token.text;
+      if (text.includes(':')) {
+        const [startStr, endStr] = text.split(':');
+        const startRef = parseRef(startStr.toUpperCase());
+        const endRef = parseRef(endStr.toUpperCase());
+        const newStart = moveRef(startRef, axis, src, count, dst);
+        const newEnd = moveRef(endRef, axis, src, count, dst);
+        result += toSref(newStart) + ':' + toSref(newEnd);
+      } else {
+        const ref = parseRef(text.toUpperCase());
+        const moved = moveRef(ref, axis, src, count, dst);
+        result += toSref(moved);
+      }
+    } else {
+      result += token.text;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * `moveGrid` remaps all cell keys and their formulas after moving
+ * `count` rows/columns from `src` to before `dst`.
+ */
+export function moveGrid(
+  grid: Grid,
+  axis: Axis,
+  src: number,
+  count: number,
+  dst: number,
+): Grid {
+  const newGrid: Grid = new Map();
+
+  for (const [sref, cell] of grid) {
+    const ref = parseRef(sref);
+    const newRef = moveRef(ref, axis, src, count, dst);
+    const newSref = toSref(newRef);
+
+    let newCell: Cell;
+    if (cell.f) {
+      newCell = {
+        ...cell,
+        f: moveFormula(cell.f, axis, src, count, dst),
+      };
+    } else {
+      newCell = { ...cell };
+    }
+
+    newGrid.set(newSref, newCell);
+  }
+
+  return newGrid;
+}
+
+/**
+ * `moveDimensionMap` remaps dimension size keys after moving
+ * `count` items from `src` to before `dst`.
+ */
+export function moveDimensionMap(
+  map: Map<number, number>,
+  src: number,
+  count: number,
+  dst: number,
+): Map<number, number> {
+  const newMap = new Map<number, number>();
+
+  for (const [i, size] of map) {
+    newMap.set(remapIndex(i, src, count, dst), size);
+  }
+
+  return newMap;
+}
+
+/**
  * `shiftRef` shifts a Ref along the given axis.
  * Returns `null` if the ref falls in a deleted zone.
  *

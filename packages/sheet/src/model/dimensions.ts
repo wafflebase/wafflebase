@@ -1,3 +1,5 @@
+import { remapIndex } from './shifting';
+
 /**
  * `DimensionIndex` manages variable row or column sizes.
  * Stores custom sizes in a Map (1-based index → pixels).
@@ -115,6 +117,19 @@ export class DimensionIndex {
           newSizes.set(i, size);
         }
       }
+    }
+
+    this.customSizes = newSizes;
+  }
+
+  /**
+   * `move` remaps custom size keys after moving `count` items from `src` to before `dst`.
+   */
+  move(src: number, count: number, dst: number): void {
+    const newSizes = new Map<number, number>();
+
+    for (const [i, size] of this.customSizes) {
+      newSizes.set(remapIndex(i, src, count, dst), size);
     }
 
     this.customSizes = newSizes;

@@ -15,6 +15,9 @@ import {
   toSrefs,
   shiftSref,
   shiftFormula,
+  moveRef,
+  moveFormula,
+  remapIndex,
 } from "@wafflebase/sheet";
 import { Worksheet } from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
@@ -194,6 +197,57 @@ export class YorkieStore implements Store {
             dimObj[key] = value;
           }
         }
+      }
+    });
+  }
+
+  async moveCells(
+    axis: Axis,
+    srcIndex: number,
+    count: number,
+    dstIndex: number
+  ): Promise<void> {
+    this.doc.update((root) => {
+      // Collect all entries
+      const entries: Array<[string, Cell]> = [];
+      for (const [sref, cell] of Object.entries(root.sheet)) {
+        entries.push([sref, { v: cell.v, f: cell.f }]);
+      }
+
+      // Delete all old keys
+      for (const [sref] of entries) {
+        delete root.sheet[sref];
+      }
+
+      // Write new keys with remapped positions and formulas
+      for (const [sref, cell] of entries) {
+        const ref = parseRef(sref);
+        const newRef = moveRef(ref, axis, srcIndex, count, dstIndex);
+        const newSref = toSref(newRef);
+
+        if (cell.f) {
+          root.sheet[newSref] = {
+            ...cell,
+            f: moveFormula(cell.f, axis, srcIndex, count, dstIndex),
+          };
+        } else {
+          root.sheet[newSref] = { ...cell };
+        }
+      }
+
+      // Remap dimension sizes
+      const dimObj = axis === "row" ? root.rowHeights : root.colWidths;
+      const dimEntries: Array<[string, number]> = [];
+      for (const [key, value] of Object.entries(dimObj)) {
+        dimEntries.push([key, value]);
+      }
+      for (const [key] of dimEntries) {
+        delete dimObj[key];
+      }
+      for (const [key, value] of dimEntries) {
+        const idx = Number(key);
+        const newIdx = remapIndex(idx, srcIndex, count, dstIndex);
+        dimObj[String(newIdx)] = value;
       }
     });
   }

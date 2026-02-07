@@ -66,7 +66,12 @@ all cell, selection, and navigation operations.
   (Tab/Enter within selection, wraps around)
 - **Row/column operations** — `insertRows`, `deleteRows`, `insertColumns`,
   `deleteColumns`. These delegate to the store and then recalculate shifted
-  formulas.
+  formulas. `moveRows` and `moveColumns` reorder rows/columns by remapping
+  all cell positions and formula references.
+- **Selection model** — `selectRow`, `selectColumn`, `selectRowRange`,
+  `selectColumnRange` support whole-row/column selection.
+  `getSelectionType()` returns `'cell' | 'row' | 'column'`.
+  `getSelectedIndices()` returns the selected range for row/column selections.
 - **Copy/paste** — `copy` serializes the selection as a tab/newline string;
   `paste` parses it back.
 - **Dimensions** — `setRowHeight`, `setColumnWidth`, persisted to the store.
@@ -104,6 +109,9 @@ interface Store {
 
   // Row/column insert/delete
   shiftCells(axis: Axis, index: number, count: number): Promise<void>;
+
+  // Row/column move
+  moveCells(axis: Axis, srcIndex: number, count: number, dstIndex: number): Promise<void>;
 
   // Presence (sync, not async)
   getPresences(): Array<{ clientID: string; presence: { activeCell: string } }>;
@@ -201,6 +209,41 @@ The `Sheet.shiftCells` method orchestrates: it calls `store.shiftCells` (which
 handles the actual data movement), then shifts the local `DimensionIndex`,
 and finally recalculates all formulas that contain shifted references.
 
+### Moving (Reorder Rows and Columns)
+
+When rows or columns are moved to a new position, all affected data is
+remapped rather than shifted:
+
+- **`remapIndex(i, src, count, dst)`** — Pure function mapping an old 1-based
+  index to its new position after moving `count` items from `src` to before
+  `dst`. Moving forward: source goes to `dst-count`, items between shift back.
+  Moving backward: source goes to `dst`, items between shift forward.
+- **`moveRef`** — Remaps a `Ref` using `remapIndex` for a given axis.
+- **`moveFormula`** — Tokenizes a formula, remaps each `REFERENCE` token.
+- **`moveGrid`** — Remaps all cell keys and their formulas.
+- **`moveDimensionMap`** — Remaps dimension size map keys.
+
+The `Sheet.moveCells` method orchestrates: it calls `store.moveCells`, then
+moves the local `DimensionIndex`, remaps `activeCell` and `range`, and
+recalculates all formulas.
+
+### Selection Model
+
+`SelectionType = 'cell' | 'row' | 'column'` tracks whether individual cells
+or entire rows/columns are selected.
+
+- **`selectRow(row)`** / **`selectColumn(col)`** — Selects a single row/column.
+- **`selectRowRange(from, to)`** / **`selectColumnRange(from, to)`** — Extends
+  to multi-row/column selection (for drag-select on headers).
+- **`getSelectedIndices()`** — Returns `{ axis, from, to }` or `null` for cell
+  selections.
+- **`selectStart()`** — Resets `selectionType` to `'cell'`.
+
+The view layer uses selection state for:
+- Header highlighting (blue tint on selected row/column headers)
+- Full-viewport-width/height selection rectangles in the overlay
+- Drag-to-move interaction (grab cursor on selected headers, drop indicator line)
+
 ### Rendering Pipeline
 
 See also [scroll-and-rendering.md](scroll-and-rendering.md) for the scroll
@@ -242,9 +285,11 @@ column headers are drawn separately.
 **Overlay** — A second `<canvas>` (z-index: 1, pointer-events: none) that
 draws:
 - Active cell border (2px stroke)
-- Selection range (semi-transparent fill + border)
+- Selection range (semi-transparent fill + border; full-width for row
+  selections, full-height for column selections)
 - Peer cursors (colored borders, one per remote user)
 - Resize hover indicator (line on header edge during drag-to-resize)
+- Move drop indicator (bold blue line at drop position during drag-to-move)
 
 ### DimensionIndex
 
@@ -258,6 +303,7 @@ non-default sizes in a `Map<number, number>` and provides:
   falls into. Used by `viewRange` calculation.
 - `shift(index, count)` — Adjusts keys when rows/columns are inserted or
   deleted.
+- `move(src, count, dst)` — Remaps keys when rows/columns are moved.
 
 Default sizes: **24px** row height, **100px** column width.
 

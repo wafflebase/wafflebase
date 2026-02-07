@@ -20,6 +20,8 @@ export const LightTheme = {
   peerCursor7: '#98D8C8',
   peerCursor8: '#F7DC6F',
   resizeHandleColor: '#1A73E8',
+  headerSelectedBGColor: 'rgba(26, 115, 232, 0.3)',
+  dropIndicatorColor: '#1A73E8',
 };
 
 export const DarkTheme = {
@@ -42,6 +44,8 @@ export const DarkTheme = {
   peerCursor7: '#81ECEC',
   peerCursor8: '#F8D84F',
   resizeHandleColor: '#8AB4F8',
+  headerSelectedBGColor: 'rgba(138, 180, 248, 0.3)',
+  dropIndicatorColor: '#8AB4F8',
 };
 
 export type ThemeKey = keyof typeof LightTheme;

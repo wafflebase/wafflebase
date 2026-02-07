@@ -1,4 +1,4 @@
-import { Ref, Range } from '../model/types';
+import { Ref, Range, SelectionType } from '../model/types';
 import { DimensionIndex } from '../model/dimensions';
 import { parseRef } from '../model/coordinates';
 import { Theme, ThemeKey, getThemeColor, getPeerCursorColor } from './theme';
@@ -43,6 +43,8 @@ export class Overlay {
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
     resizeHover?: { axis: 'row' | 'column'; index: number } | null,
+    selectionType?: SelectionType,
+    dragMove?: { axis: 'row' | 'column'; dropIndex: number } | null,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -64,15 +66,39 @@ export class Overlay {
 
     // Render Selection Range
     if (range) {
-      const rect = expandBoundingRect(
-        toBoundingRect(range[0], scroll, rowDim, colDim),
-        toBoundingRect(range[1], scroll, rowDim, colDim),
-      );
-      ctx.fillStyle = this.getThemeColor('selectionBGColor');
-      ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
-      ctx.strokeStyle = this.getThemeColor('activeCellColor');
-      ctx.lineWidth = 1;
-      ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+      if (selectionType === 'row') {
+        // Full-width row selection
+        const topRect = toBoundingRect(range[0], scroll, rowDim, colDim);
+        const bottomRect = toBoundingRect(range[1], scroll, rowDim, colDim);
+        const y = topRect.top;
+        const height = bottomRect.top + bottomRect.height - topRect.top;
+        ctx.fillStyle = this.getThemeColor('selectionBGColor');
+        ctx.fillRect(RowHeaderWidth, y, port.width - RowHeaderWidth, height);
+        ctx.strokeStyle = this.getThemeColor('activeCellColor');
+        ctx.lineWidth = 1;
+        ctx.strokeRect(RowHeaderWidth, y, port.width - RowHeaderWidth, height);
+      } else if (selectionType === 'column') {
+        // Full-height column selection
+        const leftRect = toBoundingRect(range[0], scroll, rowDim, colDim);
+        const rightRect = toBoundingRect(range[1], scroll, rowDim, colDim);
+        const x = leftRect.left;
+        const width = rightRect.left + rightRect.width - leftRect.left;
+        ctx.fillStyle = this.getThemeColor('selectionBGColor');
+        ctx.fillRect(x, DefaultCellHeight, width, port.height - DefaultCellHeight);
+        ctx.strokeStyle = this.getThemeColor('activeCellColor');
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, DefaultCellHeight, width, port.height - DefaultCellHeight);
+      } else {
+        const rect = expandBoundingRect(
+          toBoundingRect(range[0], scroll, rowDim, colDim),
+          toBoundingRect(range[1], scroll, rowDim, colDim),
+        );
+        ctx.fillStyle = this.getThemeColor('selectionBGColor');
+        ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+        ctx.strokeStyle = this.getThemeColor('activeCellColor');
+        ctx.lineWidth = 1;
+        ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+      }
     }
 
     for (const { clientID, presence } of peerPresences) {
@@ -116,6 +142,26 @@ export class Overlay {
           rowDim.getOffset(resizeHover.index) +
           rowDim.getSize(resizeHover.index) -
           scroll.top;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(port.width, y);
+        ctx.stroke();
+      }
+    }
+
+    // Render drag-move drop indicator
+    if (dragMove && colDim && rowDim) {
+      ctx.strokeStyle = this.getThemeColor('dropIndicatorColor');
+      ctx.lineWidth = 3;
+
+      if (dragMove.axis === 'column') {
+        const x = RowHeaderWidth + colDim.getOffset(dragMove.dropIndex) - scroll.left;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, port.height);
+        ctx.stroke();
+      } else {
+        const y = DefaultCellHeight + rowDim.getOffset(dragMove.dropIndex) - scroll.top;
         ctx.beginPath();
         ctx.moveTo(0, y);
         ctx.lineTo(port.width, y);

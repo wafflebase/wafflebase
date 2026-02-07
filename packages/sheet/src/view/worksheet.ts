@@ -63,6 +63,7 @@ export class Worksheet {
   private boundHandleContextMenu: (e: MouseEvent) => void;
 
   private resizeHover: { axis: 'row' | 'column'; index: number } | null = null;
+  private dragMove: { axis: 'row' | 'column'; srcIndex: number; count: number; dropIndex: number } | null = null;
 
   constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
@@ -324,17 +325,44 @@ export class Worksheet {
     const changed =
       result?.axis !== this.resizeHover?.axis ||
       result?.index !== this.resizeHover?.index;
-    if (!changed) return;
 
-    this.resizeHover = result;
+    if (changed) {
+      this.resizeHover = result;
+    }
+
     const scrollContainer = this.gridContainer.getScrollContainer();
     if (result) {
       scrollContainer.style.cursor =
         result.axis === 'column' ? 'col-resize' : 'row-resize';
     } else {
-      scrollContainer.style.cursor = '';
+      // Check if hovering over a selected header → show grab cursor
+      const scroll = this.scroll;
+      const x = e.offsetX;
+      const y = e.offsetY;
+      const selected = this.sheet?.getSelectedIndices();
+
+      if (selected) {
+        const isOverSelectedHeader = selected.axis === 'column'
+          ? (y < DefaultCellHeight && x > RowHeaderWidth &&
+            (() => {
+              const col = this.colDim.findIndex(x - RowHeaderWidth + scroll.left);
+              return col >= selected.from && col <= selected.to;
+            })())
+          : (x < RowHeaderWidth && y > DefaultCellHeight &&
+            (() => {
+              const row = this.rowDim.findIndex(y - DefaultCellHeight + scroll.top);
+              return row >= selected.from && row <= selected.to;
+            })());
+
+        scrollContainer.style.cursor = isOverSelectedHeader ? 'grab' : '';
+      } else {
+        scrollContainer.style.cursor = '';
+      }
     }
-    this.renderOverlay();
+
+    if (changed) {
+      this.renderOverlay();
+    }
   }
 
   private async handleMouseDown(e: MouseEvent) {
@@ -343,6 +371,88 @@ export class Worksheet {
     if (resizeEdge) {
       e.preventDefault();
       this.startResize(resizeEdge.axis, resizeEdge.index, e);
+      return;
+    }
+
+    const scroll = this.scroll;
+    const x = e.offsetX;
+    const y = e.offsetY;
+    const isColumnHeader = y < DefaultCellHeight && x > RowHeaderWidth;
+    const isRowHeader = x < RowHeaderWidth && y > DefaultCellHeight;
+
+    // Handle column header click
+    if (isColumnHeader) {
+      e.preventDefault();
+      await this.finishEditing();
+      const col = this.colDim.findIndex(x - RowHeaderWidth + scroll.left);
+      if (col < 1) return;
+
+      // Check if clicking on already-selected column header → start drag-move
+      const selected = this.sheet!.getSelectedIndices();
+      if (selected && selected.axis === 'column' && col >= selected.from && col <= selected.to) {
+        this.startDragMove('column', selected.from, selected.to - selected.from + 1, e);
+        return;
+      }
+
+      this.sheet!.selectColumn(col);
+      this.render();
+
+      const startCol = col;
+      const onMove = (e: MouseEvent) => {
+        const port = this.viewport;
+        const moveX = e.target !== this.gridContainer.getScrollContainer()
+          ? Math.max(0, Math.min(port.width, e.clientX - port.left))
+          : e.offsetX;
+        const endCol = this.colDim.findIndex(moveX - RowHeaderWidth + this.scroll.left);
+        if (endCol >= 1) {
+          this.sheet!.selectColumnRange(startCol, endCol);
+          this.render();
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      return;
+    }
+
+    // Handle row header click
+    if (isRowHeader) {
+      e.preventDefault();
+      await this.finishEditing();
+      const row = this.rowDim.findIndex(y - DefaultCellHeight + scroll.top);
+      if (row < 1) return;
+
+      // Check if clicking on already-selected row header → start drag-move
+      const selected = this.sheet!.getSelectedIndices();
+      if (selected && selected.axis === 'row' && row >= selected.from && row <= selected.to) {
+        this.startDragMove('row', selected.from, selected.to - selected.from + 1, e);
+        return;
+      }
+
+      this.sheet!.selectRow(row);
+      this.render();
+
+      const startRow = row;
+      const onMove = (e: MouseEvent) => {
+        const port = this.viewport;
+        const moveY = e.target !== this.gridContainer.getScrollContainer()
+          ? Math.max(0, Math.min(port.height, e.clientY - port.top))
+          : e.offsetY;
+        const endRow = this.rowDim.findIndex(moveY - DefaultCellHeight + this.scroll.top);
+        if (endRow >= 1) {
+          this.sheet!.selectRowRange(startRow, endRow);
+          this.render();
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
       return;
     }
 
@@ -471,6 +581,93 @@ export class Worksheet {
         this.sheet!.setColumnWidth(index, finalSize);
       } else {
         this.sheet!.setRowHeight(index, finalSize);
+      }
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * `startDragMove` begins a drag-to-move operation for selected rows/columns.
+   */
+  private startDragMove(
+    axis: 'row' | 'column',
+    srcIndex: number,
+    count: number,
+    startEvent: MouseEvent,
+  ): void {
+    const scrollContainer = this.gridContainer.getScrollContainer();
+    scrollContainer.style.cursor = 'grabbing';
+
+    const dim = axis === 'column' ? this.colDim : this.rowDim;
+
+    const computeDropIndex = (e: MouseEvent): number => {
+      const port = this.viewport;
+      if (axis === 'column') {
+        const moveX = e.target !== scrollContainer
+          ? Math.max(0, Math.min(port.width, e.clientX - port.left))
+          : e.offsetX;
+        const absX = moveX - RowHeaderWidth + this.scroll.left;
+        const col = dim.findIndex(absX);
+        // Snap to nearest edge
+        const colOffset = dim.getOffset(col);
+        const colMid = colOffset + dim.getSize(col) / 2;
+        return absX < colMid ? col : col + 1;
+      } else {
+        const moveY = e.target !== scrollContainer
+          ? Math.max(0, Math.min(port.height, e.clientY - port.top))
+          : e.offsetY;
+        const absY = moveY - DefaultCellHeight + this.scroll.top;
+        const row = dim.findIndex(absY);
+        const rowOffset = dim.getOffset(row);
+        const rowMid = rowOffset + dim.getSize(row) / 2;
+        return absY < rowMid ? row : row + 1;
+      }
+    };
+
+    this.dragMove = { axis, srcIndex, count, dropIndex: computeDropIndex(startEvent) };
+    this.renderOverlay();
+
+    const onMove = (e: MouseEvent) => {
+      const dropIndex = computeDropIndex(e);
+      if (this.dragMove && this.dragMove.dropIndex !== dropIndex) {
+        this.dragMove = { axis, srcIndex, count, dropIndex };
+        this.renderOverlay();
+      }
+    };
+
+    const onUp = () => {
+      scrollContainer.style.cursor = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+
+      const dropIndex = this.dragMove?.dropIndex;
+      this.dragMove = null;
+
+      if (dropIndex !== undefined && !(dropIndex >= srcIndex && dropIndex <= srcIndex + count)) {
+        const movePromise = axis === 'row'
+          ? this.sheet!.moveRows(srcIndex, count, dropIndex)
+          : this.sheet!.moveColumns(srcIndex, count, dropIndex);
+
+        movePromise.then(() => {
+          // Update selection to new position
+          const newStart = dropIndex < srcIndex ? dropIndex : dropIndex - count;
+          if (axis === 'row') {
+            this.sheet!.selectRow(newStart);
+            if (count > 1) {
+              this.sheet!.selectRowRange(newStart, newStart + count - 1);
+            }
+          } else {
+            this.sheet!.selectColumn(newStart);
+            if (count > 1) {
+              this.sheet!.selectColumnRange(newStart, newStart + count - 1);
+            }
+          }
+          this.render();
+        });
+      } else {
+        this.renderOverlay();
       }
     };
 
@@ -653,6 +850,8 @@ export class Worksheet {
       this.rowDim,
       this.colDim,
       this.resizeHover,
+      this.sheet!.getSelectionType(),
+      this.dragMove ? { axis: this.dragMove.axis, dropIndex: this.dragMove.dropIndex } : null,
     );
   }
 
@@ -759,6 +958,8 @@ export class Worksheet {
       grid,
       this.rowDim,
       this.colDim,
+      this.sheet!.getSelectionType(),
+      this.sheet!.getRange(),
     );
   }
 
