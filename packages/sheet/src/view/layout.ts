@@ -15,12 +15,6 @@ export const ScrollIntervalMS = 10;
 export const ScrollSpeedMS = 10;
 
 /**
- * TODO(hackerwins): We need to use `bigint` for the coordinates
- * and `number` for the width and height. Because the coordinates
- * can be very large for big dimensions of the grid.
- */
-
-/**
  * Position represents the position of a rectangle.
  */
 export type Position = { left: number; top: number };

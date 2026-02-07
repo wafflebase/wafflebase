@@ -348,7 +348,12 @@ export class Worksheet {
 
     await this.finishEditing();
     this.sheet!.selectStart(
-      toRef(e.offsetX, e.offsetY, this.rowDim, this.colDim),
+      toRef(
+        e.offsetX + this.scroll.left,
+        e.offsetY + this.scroll.top,
+        this.rowDim,
+        this.colDim,
+      ),
     );
     this.render();
 
