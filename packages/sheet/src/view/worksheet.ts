@@ -1,4 +1,6 @@
 import { Range, Ref, Direction } from '../model/types';
+import { toColumnLabel } from '../model/coordinates';
+import { extractFormulaRanges } from '../formula/formula';
 import { DimensionIndex } from '../model/dimensions';
 import { Sheet } from '../model/sheet';
 import { Theme } from './theme';
@@ -14,10 +16,14 @@ import {
   RowHeaderWidth,
   ScrollIntervalMS,
   ScrollSpeedMS,
+  CellFontSize,
+  CellLineHeight,
+  CellPaddingY,
   BoundingRect,
   Position,
   Size,
   toBoundingRect,
+  expandBoundingRect,
   toRef,
 } from './layout';
 
@@ -65,6 +71,8 @@ export class Worksheet {
   private resizeHover: { axis: 'row' | 'column'; index: number } | null = null;
   private dragMove: { axis: 'row' | 'column'; srcIndex: number; count: number; dropIndex: number } | null = null;
   private editMode: boolean = false;
+  private manuallyResizedRows: Set<number> = new Set();
+  private formulaRanges: Array<Range> = [];
 
   constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
@@ -142,23 +150,34 @@ export class Worksheet {
   }
 
   /**
+   * `focusGrid` blurs formula bar and cell input, and clears any lingering
+   * contentEditable selection so that grid keyboard events work immediately.
+   */
+  private focusGrid(): void {
+    this.formulaBar.blur();
+    this.cellInput.hide();
+    this.formulaRanges = [];
+    window.getSelection()?.removeAllRanges();
+  }
+
+  /**
    * `finishEditing` finishes the editing of the cell.
    */
   private async finishEditing() {
+    const activeCell = this.sheet!.getActiveCell();
     if (this.formulaBar.isFocused()) {
-      await this.sheet!.setData(
-        this.sheet!.getActiveCell(),
-        this.formulaBar.getValue(),
-      );
+      await this.sheet!.setData(activeCell, this.formulaBar.getValue());
       this.formulaBar.blur();
       this.cellInput.hide();
     } else if (this.cellInput.isFocused()) {
-      await this.sheet!.setData(
-        this.sheet!.getActiveCell(),
-        this.cellInput.getValue(),
-      );
+      await this.sheet!.setData(activeCell, this.cellInput.getValue());
       this.cellInput.hide();
+    } else {
+      return;
     }
+
+    this.formulaRanges = [];
+    await this.autoResizeRow(activeCell.r);
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
@@ -174,16 +193,32 @@ export class Worksheet {
   }
 
   private handleKeyUp(): void {
+    let value: string | undefined;
     if (this.formulaBar.isFocused()) {
-      this.cellInput.setValue(this.formulaBar.getValue());
-      return;
+      value = this.formulaBar.getValue();
+      this.cellInput.setValue(value);
     } else if (this.cellInput.isFocused()) {
-      this.formulaBar.setValue(this.cellInput.getValue());
-      return;
+      value = this.cellInput.getValue();
+      this.formulaBar.setValue(value);
+    }
+
+    if (value !== undefined && value.startsWith('=')) {
+      this.formulaRanges = extractFormulaRanges(value).map((r) => r.range);
+      this.renderOverlay();
+    } else if (value !== undefined) {
+      this.formulaRanges = [];
+      this.renderOverlay();
     }
   }
 
   private handleDblClick(e: MouseEvent): void {
+    const resizeEdge = this.detectResizeEdge(e.offsetX, e.offsetY);
+    if (resizeEdge) {
+      e.preventDefault();
+      this.autoFitSize(resizeEdge.axis, resizeEdge.index);
+      return;
+    }
+
     this.showCellInput();
     e.preventDefault();
   }
@@ -206,23 +241,30 @@ export class Worksheet {
       const row = this.rowDim.findIndex(y - DefaultCellHeight + scroll.top);
       if (row < 1) return;
 
+      // Use multi-selection range if the right-clicked row is within the selection
+      const selected = this.sheet!.getSelectedIndices();
+      const useMulti = selected && selected.axis === 'row' && row >= selected.from && row <= selected.to;
+      const from = useMulti ? selected!.from : row;
+      const count = useMulti ? selected!.to - selected!.from + 1 : 1;
+      const rowLabel = count > 1 ? `${count} rows` : 'row';
+
       this.contextMenu.show(e.clientX, e.clientY, [
         {
-          label: 'Insert row above',
+          label: `Insert ${rowLabel} above`,
           action: () => {
-            this.sheet!.insertRows(row).then(() => this.render());
+            this.sheet!.insertRows(from, count).then(() => this.render());
           },
         },
         {
-          label: 'Insert row below',
+          label: `Insert ${rowLabel} below`,
           action: () => {
-            this.sheet!.insertRows(row + 1).then(() => this.render());
+            this.sheet!.insertRows(from + count, count).then(() => this.render());
           },
         },
         {
-          label: 'Delete row',
+          label: `Delete ${rowLabel}`,
           action: () => {
-            this.sheet!.deleteRows(row).then(() => this.render());
+            this.sheet!.deleteRows(from, count).then(() => this.render());
           },
         },
       ]);
@@ -230,23 +272,30 @@ export class Worksheet {
       const col = this.colDim.findIndex(x - RowHeaderWidth + scroll.left);
       if (col < 1) return;
 
+      // Use multi-selection range if the right-clicked column is within the selection
+      const selected = this.sheet!.getSelectedIndices();
+      const useMulti = selected && selected.axis === 'column' && col >= selected.from && col <= selected.to;
+      const from = useMulti ? selected!.from : col;
+      const count = useMulti ? selected!.to - selected!.from + 1 : 1;
+      const colLabel = count > 1 ? `${count} columns` : 'column';
+
       this.contextMenu.show(e.clientX, e.clientY, [
         {
-          label: 'Insert column left',
+          label: `Insert ${colLabel} left`,
           action: () => {
-            this.sheet!.insertColumns(col).then(() => this.render());
+            this.sheet!.insertColumns(from, count).then(() => this.render());
           },
         },
         {
-          label: 'Insert column right',
+          label: `Insert ${colLabel} right`,
           action: () => {
-            this.sheet!.insertColumns(col + 1).then(() => this.render());
+            this.sheet!.insertColumns(from + count, count).then(() => this.render());
           },
         },
         {
-          label: 'Delete column',
+          label: `Delete ${colLabel}`,
           action: () => {
-            this.sheet!.deleteColumns(col).then(() => this.render());
+            this.sheet!.deleteColumns(from, count).then(() => this.render());
           },
         },
       ]);
@@ -399,6 +448,13 @@ export class Worksheet {
       const col = this.colDim.findIndex(x - RowHeaderWidth + scroll.left);
       if (col < 1) return;
 
+      // Shift+click extends column selection from active cell's column
+      if (e.shiftKey) {
+        this.sheet!.selectColumnRange(this.sheet!.getActiveCell().c, col);
+        this.render();
+        return;
+      }
+
       // Check if clicking on already-selected column header → start drag-move
       const selected = this.sheet!.getSelectedIndices();
       if (selected && selected.axis === 'column' && col >= selected.from && col <= selected.to) {
@@ -437,6 +493,13 @@ export class Worksheet {
       const row = this.rowDim.findIndex(y - DefaultCellHeight + scroll.top);
       if (row < 1) return;
 
+      // Shift+click extends row selection from active cell's row
+      if (e.shiftKey) {
+        this.sheet!.selectRowRange(this.sheet!.getActiveCell().r, row);
+        this.render();
+        return;
+      }
+
       // Check if clicking on already-selected row header → start drag-move
       const selected = this.sheet!.getSelectedIndices();
       if (selected && selected.axis === 'row' && row >= selected.from && row <= selected.to) {
@@ -469,6 +532,20 @@ export class Worksheet {
     }
 
     await this.finishEditing();
+
+    // Shift+click extends selection from active cell to clicked cell
+    if (e.shiftKey) {
+      const ref = toRef(
+        e.offsetX + this.scroll.left,
+        e.offsetY + this.scroll.top,
+        this.rowDim,
+        this.colDim,
+      );
+      this.sheet!.selectEnd(ref);
+      this.render();
+      return;
+    }
+
     this.sheet!.selectStart(
       toRef(
         e.offsetX + this.scroll.left,
@@ -592,12 +669,93 @@ export class Worksheet {
       if (axis === 'column') {
         this.sheet!.setColumnWidth(index, finalSize);
       } else {
+        this.manuallyResizedRows.add(index);
         this.sheet!.setRowHeight(index, finalSize);
       }
     };
 
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * `autoFitSize` auto-fits a column width or row height to its content.
+   */
+  private async autoFitSize(axis: 'row' | 'column', index: number): Promise<void> {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d')!;
+    const padding = 6;
+
+    if (axis === 'column') {
+      ctx.font = `${CellFontSize}px Arial`;
+
+      // Measure header label
+      const headerLabel = toColumnLabel(index);
+      let maxWidth = ctx.measureText(headerLabel).width + padding;
+
+      // Measure cell content in the visible range
+      const [start, end] = this.viewRange;
+      const range: Range = [{ r: start.r, c: index }, { r: end.r, c: index }];
+      const grid = await this.sheet!.fetchGrid(range);
+      for (const [, cell] of grid) {
+        if (cell.v) {
+          const w = ctx.measureText(cell.v).width + padding;
+          if (w > maxWidth) maxWidth = w;
+        }
+      }
+
+      const newWidth = Math.max(MinColumnWidth, Math.ceil(maxWidth));
+      this.sheet!.setColumnWidth(index, newWidth);
+    } else {
+      // For rows, compute content-based height
+      this.manuallyResizedRows.delete(index);
+      const newHeight = await this.computeContentHeight(index);
+      this.sheet!.setRowHeight(index, newHeight);
+    }
+
+    this.render();
+  }
+
+  /**
+   * `computeContentHeight` measures the max number of lines across cells
+   * in the given row (visible columns) and returns the appropriate height.
+   */
+  private async computeContentHeight(row: number): Promise<number> {
+    const [start, end] = this.viewRange;
+    const range: Range = [{ r: row, c: start.c }, { r: row, c: end.c }];
+    const grid = await this.sheet!.fetchGrid(range);
+
+    let maxLines = 1;
+    for (const [, cell] of grid) {
+      if (cell.v) {
+        const lines = cell.v.split('\n').length;
+        if (lines > maxLines) maxLines = lines;
+      }
+    }
+
+    if (maxLines <= 1) {
+      return DefaultCellHeight;
+    }
+
+    return Math.max(
+      DefaultCellHeight,
+      Math.ceil(maxLines * CellFontSize * CellLineHeight + 2 * CellPaddingY),
+    );
+  }
+
+  /**
+   * `autoResizeRow` auto-resizes a row to fit its content, unless it
+   * has been manually resized by the user.
+   */
+  private async autoResizeRow(row: number): Promise<void> {
+    if (this.manuallyResizedRows.has(row)) return;
+
+    const newHeight = await this.computeContentHeight(row);
+    const currentHeight = this.rowDim.getSize(row);
+    if (newHeight !== currentHeight) {
+      this.sheet!.setRowHeight(row, newHeight);
+      this.render();
+    }
   }
 
   /**
@@ -698,19 +856,20 @@ export class Worksheet {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       await this.finishEditing();
+      this.focusGrid();
       this.sheet!.move('down');
       this.render();
       this.scrollIntoView();
     } else if (e.key === 'Tab') {
       e.preventDefault();
       await this.finishEditing();
+      this.focusGrid();
       this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
       this.render();
       this.scrollIntoView();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      this.cellInput.hide();
-      this.formulaBar.blur();
+      this.focusGrid();
       this.render();
     } else {
       if (!this.cellInput.isShown()) {
@@ -764,7 +923,7 @@ export class Worksheet {
       this.scrollIntoView();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      this.cellInput.hide();
+      this.focusGrid();
       this.render();
     }
   }
@@ -883,6 +1042,7 @@ export class Worksheet {
       this.resizeHover,
       this.sheet!.getSelectionType(),
       this.dragMove ? { axis: this.dragMove.axis, dropIndex: this.dragMove.dropIndex } : null,
+      this.formulaRanges,
     );
   }
 
@@ -969,13 +1129,18 @@ export class Worksheet {
       maxWidth,
       maxHeight,
     );
+
+    if (value.startsWith('=')) {
+      this.formulaRanges = extractFormulaRanges(value).map((r) => r.range);
+      this.renderOverlay();
+    }
   }
 
   /**
    * `isValidCellInput` checks if the key is a valid cell input.
    */
   private isValidCellInput(key: string): boolean {
-    return /^[a-zA-Z0-9 =:\-]$/.test(key);
+    return key.length === 1 || key === 'Process';
   }
 
   /**

@@ -13,9 +13,9 @@ import {
   ReferenceContext,
 } from '../../antlr/FormulaParser';
 import { FunctionMap } from './functions';
-import { Grid, Reference } from '../model/types';
+import { Grid, Range, Reference } from '../model/types';
 import { NumberArgs } from './arguments';
-import { isSrng } from '../model/coordinates';
+import { isSrng, parseRef, parseRange } from '../model/coordinates';
 
 /**
  * `Token` represents a token in the formula.
@@ -74,7 +74,15 @@ export function extractTokens(formula: string): Array<Token> {
   const filledTokens: Array<Token> = [];
   let currToken: Token | undefined;
   for (const token of tokens) {
-    if (currToken && currToken.stop + 1 !== token.start) {
+    if (!currToken && token.start > 0) {
+      // Leading gap: space(s) between '=' and the first token
+      filledTokens.push({
+        type: 'STRING',
+        start: 0,
+        stop: token.start - 1,
+        text: formula.slice(1, token.start + 1),
+      });
+    } else if (currToken && currToken.stop + 1 !== token.start) {
       filledTokens.push({
         type: 'STRING',
         start: currToken.stop + 1,
@@ -97,6 +105,35 @@ export function extractTokens(formula: string): Array<Token> {
   }
 
   return filledTokens;
+}
+
+/**
+ * `extractFormulaRanges` returns ranges referenced in the formula expression.
+ * Each REFERENCE token is parsed into a Range (single refs become collapsed ranges).
+ */
+export function extractFormulaRanges(
+  formula: string,
+): Array<{ text: string; range: Range }> {
+  const tokens = extractTokens(formula);
+  const results: Array<{ text: string; range: Range }> = [];
+
+  for (const token of tokens) {
+    if (token.type !== 'REFERENCE') continue;
+
+    try {
+      const text = token.text.toUpperCase();
+      if (text.includes(':')) {
+        results.push({ text, range: parseRange(text) });
+      } else {
+        const ref = parseRef(text);
+        results.push({ text, range: [ref, ref] });
+      }
+    } catch {
+      // Skip invalid references
+    }
+  }
+
+  return results;
 }
 
 /**

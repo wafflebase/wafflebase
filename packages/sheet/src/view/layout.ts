@@ -8,6 +8,12 @@ export const DefaultCellHeight = 23;
 // Header dimensions
 export const RowHeaderWidth = 50;
 
+// Cell font and padding
+export const CellFontSize = 13;
+export const CellLineHeight = 1.5;
+export const CellPaddingX = 4;
+export const CellPaddingY = 5;
+
 // Other constants
 export const CellBorderWidth = 0.5;
 export const HeaderTextAlign = 'center';

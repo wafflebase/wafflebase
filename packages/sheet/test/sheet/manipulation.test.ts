@@ -3,6 +3,22 @@ import { MemStore } from '../../src/store/memory';
 import { Sheet } from '../../src/model/sheet';
 
 describe('Sheet.insertRows', () => {
+  it('should insert multiple rows at once', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 2, c: 1 }, '20');
+    await sheet.setData({ r: 3, c: 1 }, '30');
+
+    await sheet.insertRows(2, 3);
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('20');
+    expect(await sheet.toDisplayString({ r: 6, c: 1 })).toBe('30');
+  });
+
   it('should shift data down when inserting a row', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
@@ -32,6 +48,21 @@ describe('Sheet.insertRows', () => {
 });
 
 describe('Sheet.deleteRows', () => {
+  it('should delete multiple rows at once', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 2, c: 1 }, '20');
+    await sheet.setData({ r: 3, c: 1 }, '30');
+    await sheet.setData({ r: 4, c: 1 }, '40');
+    await sheet.setData({ r: 5, c: 1 }, '50');
+
+    await sheet.deleteRows(2, 3);
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('50');
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('');
+  });
+
   it('should shift data up when deleting a row', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
@@ -60,6 +91,22 @@ describe('Sheet.deleteRows', () => {
 });
 
 describe('Sheet.insertColumns', () => {
+  it('should insert multiple columns at once', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 1, c: 2 }, '20');
+    await sheet.setData({ r: 1, c: 3 }, '30');
+
+    await sheet.insertColumns(2, 3);
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 5 })).toBe('20');
+    expect(await sheet.toDisplayString({ r: 1, c: 6 })).toBe('30');
+  });
+
   it('should shift data right when inserting a column', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');
@@ -89,6 +136,21 @@ describe('Sheet.insertColumns', () => {
 });
 
 describe('Sheet.deleteColumns', () => {
+  it('should delete multiple columns at once', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 1, c: 2 }, '20');
+    await sheet.setData({ r: 1, c: 3 }, '30');
+    await sheet.setData({ r: 1, c: 4 }, '40');
+    await sheet.setData({ r: 1, c: 5 }, '50');
+
+    await sheet.deleteColumns(2, 3);
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('50');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('');
+  });
+
   it('should shift data left when deleting a column', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');

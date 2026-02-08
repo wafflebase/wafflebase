@@ -1,8 +1,8 @@
 import { extractTokens } from '../formula/formula';
-import { Theme, ThemeKey, getThemeColor } from './theme';
+import { Theme, ThemeKey, getThemeColor, getFormulaRangeColor } from './theme';
 import { setTextRange, toTextRange } from './utils/textrange';
 import { escapeHTML } from './utils/html';
-import { DefaultCellWidth, DefaultCellHeight } from './layout';
+import { DefaultCellWidth, DefaultCellHeight, CellFontSize, CellLineHeight } from './layout';
 
 export class CellInput {
   private container: HTMLDivElement;
@@ -31,9 +31,9 @@ export class CellInput {
     this.input.style.border = 'none';
     this.input.style.outline = `2px solid ${this.getThemeColor('activeCellColor')}`;
     this.input.style.fontFamily = 'Arial, sans-serif';
-    this.input.style.fontSize = '14px';
+    this.input.style.fontSize = CellFontSize + 'px';
     this.input.style.fontWeight = 'normal';
-    this.input.style.lineHeight = '1.5';
+    this.input.style.lineHeight = String(CellLineHeight);
     this.input.style.color = this.getThemeColor('cellTextColor');
     this.input.style.backgroundColor = this.getThemeColor('cellBGColor');
     this.input.style.whiteSpace = 'pre';
@@ -152,10 +152,18 @@ export class CellInput {
 
     const tokens = extractTokens(text);
     const contents: Array<string> = [];
+    let refIndex = 0;
     for (const token of tokens) {
-      if (token.type === 'REFERENCE' || token.type === 'NUM') {
+      if (token.type === 'REFERENCE') {
         contents.push(
-          `<span style="color: ${this.getThemeColor(`tokens.${token.type}`)}">${token.text}</span>`,
+          `<span style="color: ${getFormulaRangeColor(this.theme, refIndex)}">${token.text}</span>`,
+        );
+        refIndex++;
+        continue;
+      }
+      if (token.type === 'NUM') {
+        contents.push(
+          `<span style="color: ${this.getThemeColor('tokens.NUM')}">${token.text}</span>`,
         );
         continue;
       }

@@ -1,7 +1,7 @@
 import { Ref, Range, SelectionType } from '../model/types';
 import { DimensionIndex } from '../model/dimensions';
 import { parseRef } from '../model/coordinates';
-import { Theme, ThemeKey, getThemeColor, getPeerCursorColor } from './theme';
+import { Theme, ThemeKey, getThemeColor, getPeerCursorColor, getFormulaRangeColor } from './theme';
 import {
   BoundingRect,
   toBoundingRect,
@@ -45,6 +45,7 @@ export class Overlay {
     resizeHover?: { axis: 'row' | 'column'; index: number } | null,
     selectionType?: SelectionType,
     dragMove?: { axis: 'row' | 'column'; dropIndex: number } | null,
+    formulaRanges?: Array<Range>,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -121,6 +122,23 @@ export class Overlay {
         ctx.strokeStyle = peerColor;
         ctx.lineWidth = 2;
         ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+      }
+    }
+
+    // Render formula range highlights
+    if (formulaRanges && formulaRanges.length > 0) {
+      for (let i = 0; i < formulaRanges.length; i++) {
+        const fRange = formulaRanges[i];
+        const rangeRect = expandBoundingRect(
+          toBoundingRect(fRange[0], scroll, rowDim, colDim),
+          toBoundingRect(fRange[1], scroll, rowDim, colDim),
+        );
+        const color = getFormulaRangeColor(this.theme, i);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(rangeRect.left, rangeRect.top, rangeRect.width, rangeRect.height);
+        ctx.fillStyle = color + '20';
+        ctx.fillRect(rangeRect.left, rangeRect.top, rangeRect.width, rangeRect.height);
       }
     }
 

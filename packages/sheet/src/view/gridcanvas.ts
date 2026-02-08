@@ -7,6 +7,10 @@ import {
   DefaultCellHeight,
   RowHeaderWidth,
   CellBorderWidth,
+  CellFontSize,
+  CellLineHeight,
+  CellPaddingX,
+  CellPaddingY,
   HeaderTextAlign,
   BoundingRect,
   Position,
@@ -164,9 +168,22 @@ export class GridCanvas {
 
     const data = cell?.v || '';
     if (data) {
+      const lines = data.split('\n');
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rect.left, rect.top, rect.width, rect.height);
+      ctx.clip();
       ctx.fillStyle = this.getThemeColor('cellTextColor');
-      ctx.font = '12px Arial';
-      ctx.fillText(data, rect.left + 3, rect.top + 15);
+      ctx.font = `${CellFontSize}px Arial`;
+      ctx.textBaseline = 'top';
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillText(
+          lines[i],
+          rect.left + CellPaddingX,
+          rect.top + CellPaddingY + i * (CellFontSize * CellLineHeight),
+        );
+      }
+      ctx.restore();
     }
   }
 

@@ -1,7 +1,7 @@
 import { toSref, toSrng, toColumnLabel } from '../model/coordinates';
 import { Sheet } from '../model/sheet';
 import { extractTokens } from '../formula/formula';
-import { Theme, ThemeKey, getThemeColor } from './theme';
+import { Theme, ThemeKey, getThemeColor, getFormulaRangeColor } from './theme';
 import { setTextRange, toTextRange } from './utils/textrange';
 import { escapeHTML } from './utils/html';
 
@@ -124,10 +124,18 @@ export class FormulaBar {
 
     const tokens = extractTokens(text);
     const contents: Array<string> = [];
+    let refIndex = 0;
     for (const token of tokens) {
-      if (token.type === 'REFERENCE' || token.type === 'NUM') {
+      if (token.type === 'REFERENCE') {
         contents.push(
-          `<span style="color: ${this.getThemeColor(`tokens.${token.type}`)}">${token.text}</span>`,
+          `<span style="color: ${getFormulaRangeColor(this.theme, refIndex)}">${token.text}</span>`,
+        );
+        refIndex++;
+        continue;
+      }
+      if (token.type === 'NUM') {
+        contents.push(
+          `<span style="color: ${this.getThemeColor('tokens.NUM')}">${token.text}</span>`,
         );
         continue;
       }

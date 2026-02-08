@@ -22,6 +22,12 @@ export const LightTheme = {
   resizeHandleColor: '#1A73E8',
   headerSelectedBGColor: 'rgba(26, 115, 232, 0.3)',
   dropIndicatorColor: '#1A73E8',
+  formulaRange1: '#1A73E8',
+  formulaRange2: '#E84C3D',
+  formulaRange3: '#9B59B6',
+  formulaRange4: '#27AE60',
+  formulaRange5: '#F39C12',
+  formulaRange6: '#00ACC1',
 };
 
 export const DarkTheme = {
@@ -46,6 +52,12 @@ export const DarkTheme = {
   resizeHandleColor: '#8AB4F8',
   headerSelectedBGColor: 'rgba(138, 180, 248, 0.3)',
   dropIndicatorColor: '#8AB4F8',
+  formulaRange1: '#8AB4F8',
+  formulaRange2: '#FF7979',
+  formulaRange3: '#BB86FC',
+  formulaRange4: '#66BB6A',
+  formulaRange5: '#FFB74D',
+  formulaRange6: '#4DD0E1',
 };
 
 export type ThemeKey = keyof typeof LightTheme;
@@ -55,6 +67,25 @@ export function getThemeColor(theme: Theme, key: ThemeKey): string {
     return LightTheme[key];
   }
   return DarkTheme[key];
+}
+
+const formulaRangeColorKeys: ThemeKey[] = [
+  'formulaRange1',
+  'formulaRange2',
+  'formulaRange3',
+  'formulaRange4',
+  'formulaRange5',
+  'formulaRange6',
+];
+
+/**
+ * Get a formula range color by index (cycles through available colors).
+ */
+export function getFormulaRangeColor(theme: Theme, index: number): string {
+  return getThemeColor(
+    theme,
+    formulaRangeColorKeys[index % formulaRangeColorKeys.length],
+  );
 }
 
 /**
