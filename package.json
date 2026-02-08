@@ -19,6 +19,6 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.5.2",
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.2.1"
   }
 }
