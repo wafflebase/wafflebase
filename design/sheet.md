@@ -123,7 +123,64 @@ interface Store {
 **MemStore** is the built-in in-memory implementation. It stores cells in a
 `Map<Sref, Cell>`, dimension overrides in separate maps, and implements
 `buildDependantsMap` by scanning all formulas in the grid to extract
-references.
+references. It maintains a `CellIndex` for efficient range queries and
+navigation (see below).
+
+#### CellIndex
+
+`CellIndex` (`src/store/cell-index.ts`) is a spatial index that tracks which
+cells are populated using two `Map<number, Set<number>>`:
+
+- **`rowIndex`**: row → set of occupied columns
+- **`colIndex`**: col → set of occupied rows
+
+This enables range queries and navigation that scale with the number of
+populated cells rather than the total grid size.
+
+**Key methods:**
+
+| Method | Complexity | Description |
+|--------|-----------|-------------|
+| `add(row, col)` | O(1) | Register a cell |
+| `remove(row, col)` | O(1) | Unregister a cell, clean up empty sets |
+| `has(row, col)` | O(1) | Existence check |
+| `cellsInRange(range)` | O(populated rows in range × cols per row) | Generator yielding `[row, col]` pairs |
+| `getOccupiedColsInRow(row)` | O(1) | Returns the set of columns with data in a row |
+| `getOccupiedRowsInCol(col)` | O(1) | Returns the set of rows with data in a column |
+| `rebuild(entries)` | O(N) | Rebuild from an iterable of `[row, col]` pairs |
+
+`cellsInRange` only iterates `rowIndex` entries (rows that have data), not
+every row number in the range. On a 1M-row sheet with 50 populated cells,
+this checks ~50 row entries, not 1M.
+
+**Store integration:**
+
+- **MemStore** — Maintains the index incrementally: `set` calls `add`,
+  `delete` calls `remove`, `shiftCells`/`moveCells` call `rebuild` after
+  grid replacement.
+- **YorkieStore** — Uses a dirty flag with lazy rebuild. Remote changes set
+  `dirty = true`; queries call `ensureIndex()` which rebuilds if dirty. Local
+  mutations update the index incrementally when not dirty.
+
+#### findEdgeWithIndex
+
+`findEdgeWithIndex` (`src/store/find-edge.ts`) replaces the O(distance)
+step-by-step `findEdge` algorithm with O(k) jumps using sorted occupied
+positions from the `CellIndex`.
+
+**Algorithm** (preserves standard Ctrl+Arrow behavior):
+
+1. Get sorted occupied positions along the movement axis from the index.
+2. If current and next cells are both occupied (inside a data block): walk to
+   end of the consecutive run.
+3. Otherwise (at edge of data or in empty space): jump to the start of the
+   next data block, or to the boundary if there is no more data.
+
+| Scenario | Before (step-by-step) | After (index) |
+|----------|----------------------|---------------|
+| Empty row/col | O(distance to boundary), up to 1M | O(1) |
+| Sparse data | O(distance) | O(k) where k = cells in row/col |
+| Dense block | O(block length) | O(block length) |
 
 ### Formula Engine
 
@@ -331,7 +388,9 @@ functions are added to `FunctionMap` following the same pattern: accept a
 **Large grid performance** — The rendering pipeline only draws visible cells,
 and `DimensionIndex.findIndex` uses binary search, so performance is O(visible
 cells) per frame regardless of total grid size. Scroll remapping handles
-browser element-size limits.
+browser element-size limits. The `CellIndex` spatial index ensures that range
+queries (`getGrid`, `deleteRange`) and navigation (`findEdge`) scale with the
+number of populated cells, not the total grid size or query range span.
 
 **Circular references** — The calculator's topological sort detects cycles and
 marks affected cells with `#REF!` rather than entering an infinite loop.
