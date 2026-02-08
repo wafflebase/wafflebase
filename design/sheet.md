@@ -61,7 +61,7 @@ all cell, selection, and navigation operations.
   builds a dependants map from the store and invokes the `Calculator` to
   recalculate all affected cells in topological order.
 - **Selection** — `activeCell`, `range`, `selectStart`/`selectEnd`,
-  `selectAll` (expands until empty border), `toSelecteds` (iterate selection)
+  `selectAll` (expands until empty border)
 - **Navigation** — `move`, `moveToEdge` (Ctrl+Arrow), `moveInRange`
   (Tab/Enter within selection, wraps around)
 - **Row/column operations** — `insertRows`, `deleteRows`, `insertColumns`,
@@ -96,6 +96,7 @@ interface Store {
   // Bulk operations
   setGrid(grid: Grid): Promise<void>;
   getGrid(range: Range): Promise<Grid>;
+  deleteRange(range: Range): Promise<Set<Sref>>;
 
   // Navigation
   findEdge(ref: Ref, direction: Direction, dimension: Range): Promise<Ref>;

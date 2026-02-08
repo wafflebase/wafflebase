@@ -25,6 +25,12 @@ export interface Store {
   delete(ref: Ref): Promise<boolean>;
 
   /**
+   * `deleteRange` method deletes all cells within the given range.
+   * Returns the set of Srefs that were actually deleted.
+   */
+  deleteRange(range: Range): Promise<Set<Sref>>;
+
+  /**
    * `setGrid` method sets the grid.
    */
   setGrid(grid: Grid): Promise<void>;

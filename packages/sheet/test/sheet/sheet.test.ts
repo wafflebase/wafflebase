@@ -15,6 +15,53 @@ describe('Sheet.Data', () => {
   });
 });
 
+describe('Sheet.RemoveData', () => {
+  it('should remove data in selected range', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 1, c: 2 }, '20');
+    await sheet.setData({ r: 2, c: 1 }, '30');
+    await sheet.setData({ r: 3, c: 3 }, '40');
+
+    // Select range A1:B2
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+
+    const removed = await sheet.removeData();
+    expect(removed).toBe(true);
+
+    // Cells inside range should be deleted
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
+
+    // Cell outside range should remain
+    expect(await sheet.toDisplayString({ r: 3, c: 3 })).toBe('40');
+  });
+
+  it('should remove active cell data when no range is selected', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 1, c: 2 }, '20');
+
+    sheet.selectStart({ r: 1, c: 1 });
+
+    const removed = await sheet.removeData();
+    expect(removed).toBe(true);
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('20');
+  });
+
+  it('should return false when no data to remove', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 5, c: 5 });
+
+    const removed = await sheet.removeData();
+    expect(removed).toBe(false);
+  });
+});
+
 describe('Sheet.Selection', () => {
   it('should update selection', () => {
     const sheet = new Sheet(new MemStore());

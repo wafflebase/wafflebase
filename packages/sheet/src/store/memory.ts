@@ -1,7 +1,9 @@
 import { extractReferences } from '../formula/formula';
-import { inRange, parseRef, toSref, toSrefs } from '../model/coordinates';
+import { parseRef, toSref, toSrefs } from '../model/coordinates';
 import { shiftGrid, shiftDimensionMap, moveGrid, moveDimensionMap } from '../model/shifting';
 import { Axis, Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
+import { CellIndex } from './cell-index';
+import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
 
 /**
@@ -10,15 +12,18 @@ import { Store } from './store';
  */
 export class MemStore implements Store {
   private grid: Map<Sref, Cell>;
+  private cellIndex: CellIndex = new CellIndex();
   private rowHeights: Map<number, number> = new Map();
   private colWidths: Map<number, number> = new Map();
 
   constructor(grid?: Grid) {
     this.grid = grid || new Map();
+    this.rebuildIndex();
   }
 
   async set(ref: Ref, value: Cell) {
     this.grid.set(toSref(ref), value);
+    this.cellIndex.add(ref.r, ref.c);
   }
 
   async get(ref: Ref): Promise<Cell | undefined> {
@@ -30,26 +35,52 @@ export class MemStore implements Store {
   }
 
   async delete(ref: Ref): Promise<boolean> {
-    return this.grid.delete(toSref(ref));
+    const deleted = this.grid.delete(toSref(ref));
+    if (deleted) {
+      this.cellIndex.remove(ref.r, ref.c);
+    }
+    return deleted;
+  }
+
+  async deleteRange(range: Range): Promise<Set<Sref>> {
+    const deleted = new Set<Sref>();
+    const toRemove: Array<[number, number]> = [];
+
+    for (const [row, col] of this.cellIndex.cellsInRange(range)) {
+      const sref = toSref({ r: row, c: col });
+      this.grid.delete(sref);
+      deleted.add(sref);
+      toRemove.push([row, col]);
+    }
+
+    // Remove from index after iteration to avoid mutating during iteration
+    for (const [row, col] of toRemove) {
+      this.cellIndex.remove(row, col);
+    }
+
+    return deleted;
   }
 
   async setGrid(grid: Grid): Promise<void> {
     for (const [sref, cell] of grid) {
       this.grid.set(sref, cell);
+      const ref = parseRef(sref);
+      this.cellIndex.add(ref.r, ref.c);
     }
   }
 
   async getGrid(range: Range): Promise<Grid> {
-    const entries = this.grid.entries();
     const grid: Grid = new Map();
 
-    for (const [sref, value] of entries) {
-      const ref = parseRef(sref);
-      if (inRange(ref, range)) {
+    for (const [row, col] of this.cellIndex.cellsInRange(range)) {
+      const sref = toSref({ r: row, c: col });
+      const value = this.grid.get(sref);
+      if (value !== undefined) {
         grid.set(sref, value);
       }
     }
-    return Promise.resolve(grid);
+
+    return grid;
   }
 
   /**
@@ -60,44 +91,12 @@ export class MemStore implements Store {
     direction: Direction,
     dimension: Range,
   ): Promise<Ref> {
-    let row = ref.r;
-    let col = ref.c;
-
-    const rowDelta = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
-    const colDelta = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
-
-    let first = true;
-    let prev = true;
-    while (true) {
-      const nextRow = row + rowDelta;
-      const nextCol = col + colDelta;
-
-      if (!inRange({ r: nextRow, c: nextCol }, dimension)) {
-        break;
-      }
-
-      const curr = await this.has({ r: row, c: col });
-      const next = await this.has({ r: nextRow, c: nextCol });
-
-      if (!prev && curr) {
-        break;
-      }
-      if (!first && curr && !next) {
-        break;
-      }
-
-      prev = curr;
-      first = false;
-
-      row = nextRow;
-      col = nextCol;
-    }
-
-    return { r: row, c: col };
+    return findEdgeWithIndex(this.cellIndex, ref, direction, dimension);
   }
 
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
     this.grid = shiftGrid(this.grid, axis, index, count);
+    this.rebuildIndex();
 
     // Shift dimension sizes for the affected axis
     if (axis === 'row') {
@@ -109,6 +108,7 @@ export class MemStore implements Store {
 
   async moveCells(axis: Axis, srcIndex: number, count: number, dstIndex: number): Promise<void> {
     this.grid = moveGrid(this.grid, axis, srcIndex, count, dstIndex);
+    this.rebuildIndex();
 
     if (axis === 'row') {
       this.rowHeights = moveDimensionMap(this.rowHeights, srcIndex, count, dstIndex);
@@ -170,5 +170,14 @@ export class MemStore implements Store {
    */
   updateActiveCell(_: Ref): void {
     // No-op for memory store
+  }
+
+  private rebuildIndex(): void {
+    this.cellIndex.rebuild(
+      Array.from(this.grid.keys()).map((sref) => {
+        const ref = parseRef(sref);
+        return [ref.r, ref.c];
+      }),
+    );
   }
 }

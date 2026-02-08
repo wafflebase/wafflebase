@@ -5,7 +5,6 @@ import {
   inRange,
   isRangeInRange,
   isSameRef,
-  toRefs,
   toRange,
   toSref,
   toSrefs,
@@ -214,17 +213,18 @@ export class Sheet {
    * `removeData` removes the data at the given row and column.
    */
   async removeData(): Promise<boolean> {
-    const removeds = new Set<Sref>();
-    for (const ref of this.toSelecteds()) {
-      if (await this.store.delete(ref)) {
-        removeds.add(toSref(ref));
-      }
+    const range: Range = this.range
+      ? this.range
+      : [this.activeCell, this.activeCell];
+    const removeds = await this.store.deleteRange(range);
+
+    if (removeds.size === 0) {
+      return false;
     }
 
     const dependantsMap = await this.store.buildDependantsMap(removeds);
     await calculate(this, dependantsMap, removeds);
-
-    return removeds.size > 0;
+    return true;
   }
 
   /**
@@ -417,14 +417,8 @@ export class Sheet {
    * `hasContents` checks if the given range has contents.
    */
   async hasContents(range: Range): Promise<boolean> {
-    // TODO(hackerwins): Optimize this to check with the store.
-    for (const ref of toRefs(range)) {
-      if (await this.store.get(ref)) {
-        return true;
-      }
-    }
-
-    return false;
+    const grid = await this.store.getGrid(range);
+    return grid.size > 0;
   }
 
   /**
@@ -442,20 +436,6 @@ export class Sheet {
     }
 
     return grid;
-  }
-
-  /**
-   * `toSelecteds` returns the selected refs.
-   */
-  *toSelecteds(): Generator<Ref> {
-    if (!this.range) {
-      yield this.activeCell;
-      return;
-    }
-
-    for (const ref of toRefs(this.range)) {
-      yield ref;
-    }
   }
 
   /**

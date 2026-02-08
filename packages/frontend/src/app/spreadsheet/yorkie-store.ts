@@ -8,9 +8,10 @@ import {
   Range,
   Direction,
   Axis,
+  CellIndex,
+  findEdgeWithIndex,
   toSref,
   parseRef,
-  inRange,
   extractReferences,
   toSrefs,
   shiftSref,
@@ -24,9 +25,31 @@ import { UserPresence } from "@/types/users";
 
 export class YorkieStore implements Store {
   private doc: Document<Worksheet, UserPresence>;
+  private cellIndex: CellIndex = new CellIndex();
+  private dirty = true;
 
   constructor(doc: Document<Worksheet, UserPresence>) {
     this.doc = doc;
+
+    // Mark index as dirty on remote changes so it gets rebuilt lazily.
+    doc.subscribe((e) => {
+      if (e.type === "remote-change") {
+        this.dirty = true;
+      }
+    });
+  }
+
+  private ensureIndex(): void {
+    if (!this.dirty) return;
+
+    const sheet = this.doc.getRoot().sheet;
+    const entries: Array<[number, number]> = [];
+    for (const sref of Object.keys(sheet)) {
+      const ref = parseRef(sref);
+      entries.push([ref.r, ref.c]);
+    }
+    this.cellIndex.rebuild(entries);
+    this.dirty = false;
   }
 
   /**
@@ -36,6 +59,9 @@ export class YorkieStore implements Store {
     this.doc.update((root) => {
       root.sheet[toSref(ref)] = value;
     });
+    if (!this.dirty) {
+      this.cellIndex.add(ref.r, ref.c);
+    }
   }
 
   /**
@@ -64,6 +90,33 @@ export class YorkieStore implements Store {
         deleted = true;
       }
     });
+    if (deleted && !this.dirty) {
+      this.cellIndex.remove(ref.r, ref.c);
+    }
+    return deleted;
+  }
+
+  /**
+   * `deleteRange` method deletes all cells within the given range in a single transaction.
+   */
+  async deleteRange(range: Range): Promise<Set<Sref>> {
+    this.ensureIndex();
+
+    const cellsToDelete = Array.from(this.cellIndex.cellsInRange(range));
+    const deleted = new Set<Sref>();
+
+    this.doc.update((root) => {
+      for (const [row, col] of cellsToDelete) {
+        const sref = toSref({ r: row, c: col });
+        delete root.sheet[sref];
+        deleted.add(sref);
+      }
+    });
+
+    for (const [row, col] of cellsToDelete) {
+      this.cellIndex.remove(row, col);
+    }
+
     return deleted;
   }
 
@@ -76,18 +129,27 @@ export class YorkieStore implements Store {
         root.sheet[sref] = cell;
       }
     });
+    if (!this.dirty) {
+      for (const [sref] of grid) {
+        const ref = parseRef(sref);
+        this.cellIndex.add(ref.r, ref.c);
+      }
+    }
   }
 
   /**
    * `getGrid` method gets the grid.
    */
   async getGrid(range: Range): Promise<Grid> {
+    this.ensureIndex();
+
     const sheet = this.doc.getRoot().sheet;
     const grid: Grid = new Map();
 
-    for (const [sref, value] of Object.entries(sheet)) {
-      const ref = parseRef(sref);
-      if (inRange(ref, range)) {
+    for (const [row, col] of this.cellIndex.cellsInRange(range)) {
+      const sref = toSref({ r: row, c: col });
+      const value = sheet[sref];
+      if (value !== undefined) {
         grid.set(sref, value);
       }
     }
@@ -103,41 +165,8 @@ export class YorkieStore implements Store {
     direction: Direction,
     dimension: Range
   ): Promise<Ref> {
-    let row = ref.r;
-    let col = ref.c;
-
-    const sheet = this.doc.getRoot().sheet;
-    const rowDelta = direction === "up" ? -1 : direction === "down" ? 1 : 0;
-    const colDelta = direction === "left" ? -1 : direction === "right" ? 1 : 0;
-
-    let first = true;
-    let prev = true;
-    while (true) {
-      const nextRow = row + rowDelta;
-      const nextCol = col + colDelta;
-
-      if (!inRange({ r: nextRow, c: nextCol }, dimension)) {
-        break;
-      }
-
-      const curr = sheet[toSref({ r: row, c: col })] !== undefined;
-      const next = sheet[toSref({ r: nextRow, c: nextCol })] !== undefined;
-
-      if (!prev && curr) {
-        break;
-      }
-      if (!first && curr && !next) {
-        break;
-      }
-
-      prev = curr;
-      first = false;
-
-      row = nextRow;
-      col = nextCol;
-    }
-
-    return { r: row, c: col };
+    this.ensureIndex();
+    return findEdgeWithIndex(this.cellIndex, ref, direction, dimension);
   }
 
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
@@ -199,6 +228,8 @@ export class YorkieStore implements Store {
         }
       }
     });
+
+    this.dirty = true;
   }
 
   async moveCells(
@@ -250,6 +281,8 @@ export class YorkieStore implements Store {
         dimObj[String(newIdx)] = value;
       }
     });
+
+    this.dirty = true;
   }
 
   async buildDependantsMap(_: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>> {
