@@ -65,6 +65,16 @@ export class Sheet {
   private colDimensions?: DimensionIndex;
 
   /**
+   * `frozenRows` is the number of frozen rows from the top.
+   */
+  private frozenRows = 0;
+
+  /**
+   * `frozenCols` is the number of frozen columns from the left.
+   */
+  private frozenCols = 0;
+
+  /**
    * `constructor` creates a new `Sheet` instance.
    * @param grid optional grid to initialize the sheet.
    */
@@ -147,6 +157,31 @@ export class Sheet {
         this.colDimensions.setSize(index, size);
       }
     }
+  }
+
+  /**
+   * `getFreezePane` returns the current freeze pane position.
+   */
+  getFreezePane(): { frozenRows: number; frozenCols: number } {
+    return { frozenRows: this.frozenRows, frozenCols: this.frozenCols };
+  }
+
+  /**
+   * `setFreezePane` sets the freeze pane position.
+   */
+  async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
+    this.frozenRows = frozenRows;
+    this.frozenCols = frozenCols;
+    await this.store.setFreezePane(frozenRows, frozenCols);
+  }
+
+  /**
+   * `loadFreezePane` loads the freeze pane position from the store.
+   */
+  async loadFreezePane(): Promise<void> {
+    const { frozenRows, frozenCols } = await this.store.getFreezePane();
+    this.frozenRows = frozenRows;
+    this.frozenCols = frozenCols;
   }
 
   /**
@@ -316,6 +351,34 @@ export class Sheet {
             r: this.activeCell.r,
             c: this.activeCell.c + count,
           };
+        }
+      }
+    }
+
+    // Adjust freeze pane when inserting/deleting near the freeze boundary
+    const frozen = axis === 'row' ? this.frozenRows : this.frozenCols;
+    if (frozen > 0) {
+      if (count > 0 && index <= frozen) {
+        // Insert within frozen area: expand frozen region
+        const newFrozen = frozen + count;
+        if (axis === 'row') {
+          this.frozenRows = newFrozen;
+        } else {
+          this.frozenCols = newFrozen;
+        }
+        await this.store.setFreezePane(this.frozenRows, this.frozenCols);
+      } else if (count < 0) {
+        const absCount = Math.abs(count);
+        // Delete within frozen area: shrink frozen region
+        if (index <= frozen) {
+          const deletedInFrozen = Math.min(absCount, frozen - index + 1);
+          const newFrozen = Math.max(0, frozen - deletedInFrozen);
+          if (axis === 'row') {
+            this.frozenRows = newFrozen;
+          } else {
+            this.frozenCols = newFrozen;
+          }
+          await this.store.setFreezePane(this.frozenRows, this.frozenCols);
         }
       }
     }

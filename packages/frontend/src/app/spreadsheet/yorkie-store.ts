@@ -335,4 +335,19 @@ export class YorkieStore implements Store {
   getPresences(): Array<{ clientID: string; presence: UserPresence }> {
     return this.doc.getOthersPresences();
   }
+
+  async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
+    this.doc.update((root) => {
+      root.frozenRows = frozenRows;
+      root.frozenCols = frozenCols;
+    });
+  }
+
+  async getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }> {
+    const root = this.doc.getRoot();
+    return {
+      frozenRows: root.frozenRows ?? 0,
+      frozenCols: root.frozenCols ?? 0,
+    };
+  }
 }

@@ -14,6 +14,10 @@ import {
   HeaderTextAlign,
   BoundingRect,
   Position,
+  FreezeState,
+  NoFreeze,
+  FreezeHandleSize,
+  FreezeHandleThickness,
   toBoundingRect,
 } from './layout';
 
@@ -45,6 +49,8 @@ export class GridCanvas {
     colDim?: DimensionIndex,
     selectionType?: SelectionType,
     selectionRange?: Range,
+    freeze: FreezeState = NoFreeze,
+    freezeHandleHover: 'row' | 'column' | null = null,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -59,59 +65,81 @@ export class GridCanvas {
     ctx.scale(ratio, ratio);
 
     const [startID, endID] = viewRange;
+    const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
 
-    // Render cells
-    for (let row = startID.r; row <= endID.r + 1; row++) {
-      for (let col = startID.c; col <= endID.c + 1; col++) {
-        this.renderCell(
-          ctx,
-          { r: row, c: col },
-          grid?.get(toSref({ r: row, c: col })),
-          scroll,
-          rowDim,
-          colDim,
-        );
+    if (!hasFrozen) {
+      // No freeze: render everything as before
+      this.renderQuadrantCells(ctx, startID.r, endID.r + 1, startID.c, endID.c + 1, grid, scroll, rowDim, colDim);
+      this.renderColumnHeaders(ctx, startID.c, endID.c, scroll.left, RowHeaderWidth, viewport.width, activeCell, selectionType, selectionRange, rowDim, colDim);
+      this.renderRowHeaders(ctx, startID.r, endID.r, scroll.top, DefaultCellHeight, viewport.height, activeCell, selectionType, selectionRange, rowDim, colDim);
+    } else {
+      const fw = freeze.frozenWidth;
+      const fh = freeze.frozenHeight;
+      const fr = freeze.frozenRows;
+      const fc = freeze.frozenCols;
+
+      // Compute scroll for unfrozen area: offset relative to first unfrozen row/col
+      const unfrozenRowStart = rowDim ? rowDim.getOffset(fr + 1) : fr * DefaultCellHeight;
+      const unfrozenColStart = colDim ? colDim.getOffset(fc + 1) : fc * DefaultCellWidth;
+
+      // Quadrant D (bottom-right): scrolled H + V — draw first (background)
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(RowHeaderWidth + fw, DefaultCellHeight + fh, viewport.width - RowHeaderWidth - fw, viewport.height - DefaultCellHeight - fh);
+      ctx.clip();
+      this.renderQuadrantCells(ctx, startID.r, endID.r + 1, startID.c, endID.c + 1, grid,
+        { left: scroll.left + unfrozenColStart - fw, top: scroll.top + unfrozenRowStart - fh }, rowDim, colDim);
+      ctx.restore();
+
+      // Quadrant B (top-right): frozen rows, scrolled H
+      if (fr > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(RowHeaderWidth + fw, DefaultCellHeight, viewport.width - RowHeaderWidth - fw, fh);
+        ctx.clip();
+        this.renderQuadrantCells(ctx, 1, fr + 1, startID.c, endID.c + 1, grid,
+          { left: scroll.left + unfrozenColStart - fw, top: 0 }, rowDim, colDim);
+        ctx.restore();
       }
-    }
 
-    // Render column headers
-    for (let col = startID.c; col <= endID.c; col++) {
-      const colOffset = colDim ? colDim.getOffset(col) : DefaultCellWidth * (col - 1);
-      const colWidth = colDim ? colDim.getSize(col) : DefaultCellWidth;
-      const x = RowHeaderWidth + colOffset - scroll.left;
-      const y = 0;
-      const isColSelected = selectionType === 'all' || (selectionType === 'column' && selectionRange &&
-        col >= selectionRange[0].c && col <= selectionRange[1].c);
-      this.renderHeader(
-        ctx,
-        x,
-        y,
-        colWidth,
-        DefaultCellHeight,
-        toColumnLabel(col),
-        activeCell.c === col,
-        isColSelected || false,
-      );
-    }
+      // Quadrant C (bottom-left): scrolled rows, frozen cols
+      if (fc > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(RowHeaderWidth, DefaultCellHeight + fh, fw, viewport.height - DefaultCellHeight - fh);
+        ctx.clip();
+        this.renderQuadrantCells(ctx, startID.r, endID.r + 1, 1, fc + 1, grid,
+          { left: 0, top: scroll.top + unfrozenRowStart - fh }, rowDim, colDim);
+        ctx.restore();
+      }
 
-    // Render row headers
-    for (let row = startID.r; row <= endID.r; row++) {
-      const rowOffset = rowDim ? rowDim.getOffset(row) : DefaultCellHeight * (row - 1);
-      const rowHeight = rowDim ? rowDim.getSize(row) : DefaultCellHeight;
-      const x = 0;
-      const y = rowOffset + DefaultCellHeight - scroll.top;
-      const isRowSelected = selectionType === 'all' || (selectionType === 'row' && selectionRange &&
-        row >= selectionRange[0].r && row <= selectionRange[1].r);
-      this.renderHeader(
-        ctx,
-        x,
-        y,
-        RowHeaderWidth,
-        rowHeight,
-        String(row),
-        activeCell.r === row,
-        isRowSelected || false,
-      );
+      // Quadrant A (top-left): frozen R + C — draw last (foreground)
+      if (fr > 0 && fc > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(RowHeaderWidth, DefaultCellHeight, fw, fh);
+        ctx.clip();
+        this.renderQuadrantCells(ctx, 1, fr + 1, 1, fc + 1, grid,
+          { left: 0, top: 0 }, rowDim, colDim);
+        ctx.restore();
+      }
+
+      // Column headers — frozen columns (no scroll)
+      if (fc > 0) {
+        this.renderColumnHeaders(ctx, 1, fc, 0, RowHeaderWidth, RowHeaderWidth + fw, activeCell, selectionType, selectionRange, rowDim, colDim);
+      }
+      // Column headers — unfrozen columns (scrolled)
+      this.renderColumnHeaders(ctx, startID.c, endID.c, scroll.left + unfrozenColStart - fw, RowHeaderWidth + fw, viewport.width, activeCell, selectionType, selectionRange, rowDim, colDim);
+
+      // Row headers — frozen rows (no scroll)
+      if (fr > 0) {
+        this.renderRowHeaders(ctx, 1, fr, 0, DefaultCellHeight, DefaultCellHeight + fh, activeCell, selectionType, selectionRange, rowDim, colDim);
+      }
+      // Row headers — unfrozen rows (scrolled)
+      this.renderRowHeaders(ctx, startID.r, endID.r, scroll.top + unfrozenRowStart - fh, DefaultCellHeight + fh, viewport.height, activeCell, selectionType, selectionRange, rowDim, colDim);
+
+      // Freeze line separators
+      this.renderFreezeLines(ctx, viewport, fw, fh);
     }
 
     // Render corner button (top-left intersection of row/column headers)
@@ -123,6 +151,162 @@ export class GridCanvas {
     ctx.strokeStyle = this.getThemeColor('cellBorderColor');
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(0, 0, RowHeaderWidth, DefaultCellHeight);
+
+    // Render freeze drag handles
+    this.renderFreezeHandles(ctx, freeze, freezeHandleHover);
+  }
+
+  /**
+   * Renders cells within a row/col range with the given scroll offset.
+   */
+  private renderQuadrantCells(
+    ctx: CanvasRenderingContext2D,
+    rowStart: number,
+    rowEnd: number,
+    colStart: number,
+    colEnd: number,
+    grid: Grid | undefined,
+    scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+  ): void {
+    for (let row = rowStart; row <= rowEnd; row++) {
+      for (let col = colStart; col <= colEnd; col++) {
+        this.renderCell(ctx, { r: row, c: col }, grid?.get(toSref({ r: row, c: col })), scroll, rowDim, colDim);
+      }
+    }
+  }
+
+  /**
+   * Renders column headers within a clip range.
+   */
+  private renderColumnHeaders(
+    ctx: CanvasRenderingContext2D,
+    colStart: number,
+    colEnd: number,
+    scrollLeft: number,
+    clipLeft: number,
+    clipRight: number,
+    activeCell: Ref,
+    selectionType?: SelectionType,
+    selectionRange?: Range,
+    _rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(clipLeft, 0, clipRight - clipLeft, DefaultCellHeight);
+    ctx.clip();
+
+    for (let col = colStart; col <= colEnd; col++) {
+      const colOffset = colDim ? colDim.getOffset(col) : DefaultCellWidth * (col - 1);
+      const colWidth = colDim ? colDim.getSize(col) : DefaultCellWidth;
+      const x = RowHeaderWidth + colOffset - scrollLeft;
+      const y = 0;
+      const isColSelected = selectionType === 'all' || (selectionType === 'column' && selectionRange &&
+        col >= selectionRange[0].c && col <= selectionRange[1].c);
+      this.renderHeader(ctx, x, y, colWidth, DefaultCellHeight, toColumnLabel(col), activeCell.c === col, isColSelected || false);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Renders row headers within a clip range.
+   */
+  private renderRowHeaders(
+    ctx: CanvasRenderingContext2D,
+    rowStart: number,
+    rowEnd: number,
+    scrollTop: number,
+    clipTop: number,
+    clipBottom: number,
+    activeCell: Ref,
+    selectionType?: SelectionType,
+    selectionRange?: Range,
+    rowDim?: DimensionIndex,
+    _colDim?: DimensionIndex,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, clipTop, RowHeaderWidth, clipBottom - clipTop);
+    ctx.clip();
+
+    for (let row = rowStart; row <= rowEnd; row++) {
+      const rowOffset = rowDim ? rowDim.getOffset(row) : DefaultCellHeight * (row - 1);
+      const rowHeight = rowDim ? rowDim.getSize(row) : DefaultCellHeight;
+      const x = 0;
+      const y = rowOffset + DefaultCellHeight - scrollTop;
+      const isRowSelected = selectionType === 'all' || (selectionType === 'row' && selectionRange &&
+        row >= selectionRange[0].r && row <= selectionRange[1].r);
+      this.renderHeader(ctx, x, y, RowHeaderWidth, rowHeight, String(row), activeCell.r === row, isRowSelected || false);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Renders the freeze line separators.
+   */
+  private renderFreezeLines(
+    ctx: CanvasRenderingContext2D,
+    viewport: BoundingRect,
+    frozenWidth: number,
+    frozenHeight: number,
+  ): void {
+    ctx.strokeStyle = this.getThemeColor('freezeLineColor');
+    ctx.lineWidth = 2;
+
+    if (frozenHeight > 0) {
+      const y = DefaultCellHeight + frozenHeight;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(viewport.width, y);
+      ctx.stroke();
+    }
+
+    if (frozenWidth > 0) {
+      const x = RowHeaderWidth + frozenWidth;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, viewport.height);
+      ctx.stroke();
+    }
+  }
+
+  /**
+   * Renders the freeze drag handles at the corner header or at freeze line positions.
+   */
+  private renderFreezeHandles(
+    ctx: CanvasRenderingContext2D,
+    freeze: FreezeState,
+    hoverHandle: 'row' | 'column' | null,
+  ): void {
+    const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
+
+    // Row freeze handle (horizontal bar) — drag down to freeze rows
+    const rowHandleX = RowHeaderWidth - FreezeHandleSize - 2;
+    const rowHandleY = hasFrozen && freeze.frozenRows > 0
+      ? DefaultCellHeight + freeze.frozenHeight - FreezeHandleThickness / 2
+      : DefaultCellHeight - FreezeHandleThickness / 2 - 2;
+    const isRowHover = hoverHandle === 'row';
+    const rowThickness = isRowHover ? FreezeHandleThickness + 2 : FreezeHandleThickness;
+    ctx.fillStyle = isRowHover
+      ? this.getThemeColor('freezeHandleHoverColor')
+      : this.getThemeColor('freezeHandleColor');
+    ctx.fillRect(rowHandleX, rowHandleY - (isRowHover ? 1 : 0), FreezeHandleSize, rowThickness);
+
+    // Column freeze handle (vertical bar) — drag right to freeze columns
+    const colHandleX = hasFrozen && freeze.frozenCols > 0
+      ? RowHeaderWidth + freeze.frozenWidth - FreezeHandleThickness / 2
+      : RowHeaderWidth - FreezeHandleThickness / 2 - 2;
+    const colHandleY = DefaultCellHeight - FreezeHandleSize - 2;
+    const isColHover = hoverHandle === 'column';
+    const colThickness = isColHover ? FreezeHandleThickness + 2 : FreezeHandleThickness;
+    ctx.fillStyle = isColHover
+      ? this.getThemeColor('freezeHandleHoverColor')
+      : this.getThemeColor('freezeHandleColor');
+    ctx.fillRect(colHandleX - (isColHover ? 1 : 0), colHandleY, colThickness, FreezeHandleSize);
   }
 
   private renderHeader(

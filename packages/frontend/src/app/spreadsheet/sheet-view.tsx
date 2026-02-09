@@ -1,4 +1,4 @@
-import { initialize } from "@wafflebase/sheet";
+import { initialize, Spreadsheet } from "@wafflebase/sheet";
 import { useEffect, useRef, useState } from "react";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
@@ -11,6 +11,7 @@ export function SheetView() {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
+  const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const { doc, loading, error } = useDocument<Worksheet, UserPresence>();
 
   // NOTE(hackerwins): To prevent initialization of the spreadsheet
@@ -39,6 +40,7 @@ export function SheetView() {
       }
 
       sheet = s;
+      sheetRef.current = s;
 
       // TODO(hackerwins): We need to optimize the rendering performance.
       unsubs.push(
@@ -56,6 +58,7 @@ export function SheetView() {
       if (sheet) {
         sheet.cleanup();
       }
+      sheetRef.current = undefined;
 
       for (const unsub of unsubs) {
         unsub();

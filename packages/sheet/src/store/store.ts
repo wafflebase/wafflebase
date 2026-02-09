@@ -81,4 +81,14 @@ export interface Store {
    * `updateActiveCell` method updates the active cell of the current user.
    */
   updateActiveCell(activeCell: Ref): void;
+
+  /**
+   * `setFreezePane` method sets the freeze pane position.
+   */
+  setFreezePane(frozenRows: number, frozenCols: number): Promise<void>;
+
+  /**
+   * `getFreezePane` method gets the freeze pane position.
+   */
+  getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }>;
 }

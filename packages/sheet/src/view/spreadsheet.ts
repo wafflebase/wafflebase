@@ -63,6 +63,13 @@ export class Spreadsheet {
   }
 
   /**
+   * `setFreezePane` sets the freeze pane position and re-renders.
+   */
+  public async setFreezePane(frozenRows: number, frozenCols: number) {
+    await this.worksheet.setFreezePane(frozenRows, frozenCols);
+  }
+
+  /**
    * `render` renders the spreadsheet.
    */
   public render() {

@@ -20,6 +20,11 @@ export const HeaderTextAlign = 'center';
 export const ScrollIntervalMS = 10;
 export const ScrollSpeedMS = 10;
 
+// Freeze handle constants
+export const FreezeHandleSize = 6;       // length of the handle bar
+export const FreezeHandleThickness = 3;  // thickness of the handle bar
+export const FreezeHandleHitArea = 8;    // hover detection area (larger for usability)
+
 /**
  * Position represents the position of a rectangle.
  */
@@ -91,6 +96,46 @@ export function expandBoundingRect(
 }
 
 /**
+ * FreezeState represents the freeze pane configuration.
+ */
+export type FreezeState = {
+  frozenRows: number;
+  frozenCols: number;
+  frozenWidth: number;
+  frozenHeight: number;
+};
+
+/**
+ * NoFreeze is the default freeze state with no frozen rows or columns.
+ */
+export const NoFreeze: FreezeState = {
+  frozenRows: 0,
+  frozenCols: 0,
+  frozenWidth: 0,
+  frozenHeight: 0,
+};
+
+/**
+ * `buildFreezeState` creates a FreezeState from freeze pane configuration.
+ */
+export function buildFreezeState(
+  frozenRows: number,
+  frozenCols: number,
+  rowDim: DimensionIndex,
+  colDim: DimensionIndex,
+): FreezeState {
+  if (frozenRows === 0 && frozenCols === 0) {
+    return NoFreeze;
+  }
+  return {
+    frozenRows,
+    frozenCols,
+    frozenWidth: frozenCols > 0 ? colDim.getOffset(frozenCols + 1) : 0,
+    frozenHeight: frozenRows > 0 ? rowDim.getOffset(frozenRows + 1) : 0,
+  };
+}
+
+/**
  * `toRef` returns the Ref for the given x and y coordinates.
  * @param x The x coordinate (includes scroll offset)
  * @param y The y coordinate (includes scroll offset)
@@ -110,4 +155,60 @@ export function toRef(
     ? colDim.findIndex(x - RowHeaderWidth)
     : Math.floor((x + RowHeaderWidth) / DefaultCellWidth);
   return { r: row, c: col };
+}
+
+/**
+ * `toRefWithFreeze` converts mouse coordinates to a cell Ref, accounting for freeze panes.
+ * Points in frozen regions use scroll=0 for that axis; unfrozen regions use scroll offset.
+ */
+export function toRefWithFreeze(
+  x: number,
+  y: number,
+  scroll: Position,
+  rowDim: DimensionIndex,
+  colDim: DimensionIndex,
+  freeze: FreezeState,
+): Ref {
+  const inFrozenCols = freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+  const inFrozenRows = freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+
+  const absX = inFrozenCols
+    ? x - RowHeaderWidth
+    : (x - RowHeaderWidth - freeze.frozenWidth) + colDim.getOffset(freeze.frozenCols + 1) + scroll.left;
+  const absY = inFrozenRows
+    ? y - DefaultCellHeight
+    : (y - DefaultCellHeight - freeze.frozenHeight) + rowDim.getOffset(freeze.frozenRows + 1) + scroll.top;
+
+  const col = colDim.findIndex(absX);
+  const row = rowDim.findIndex(absY);
+  return { r: Math.max(1, row), c: Math.max(1, col) };
+}
+
+/**
+ * `toBoundingRectWithFreeze` computes the bounding rectangle for a cell,
+ * accounting for freeze panes. Returns the screen position of the cell.
+ */
+export function toBoundingRectWithFreeze(
+  ref: Ref,
+  scroll: Position,
+  rowDim: DimensionIndex,
+  colDim: DimensionIndex,
+  freeze: FreezeState,
+): BoundingRect {
+  const colOffset = colDim.getOffset(ref.c);
+  const rowOffset = rowDim.getOffset(ref.r);
+  const width = colDim.getSize(ref.c);
+  const height = rowDim.getSize(ref.r);
+
+  const inFrozenCols = freeze.frozenCols > 0 && ref.c <= freeze.frozenCols;
+  const inFrozenRows = freeze.frozenRows > 0 && ref.r <= freeze.frozenRows;
+
+  const left = inFrozenCols
+    ? colOffset + RowHeaderWidth
+    : colOffset + RowHeaderWidth - scroll.left - colDim.getOffset(freeze.frozenCols + 1) + freeze.frozenWidth;
+  const top = inFrozenRows
+    ? rowOffset + DefaultCellHeight
+    : rowOffset + DefaultCellHeight - scroll.top - rowDim.getOffset(freeze.frozenRows + 1) + freeze.frozenHeight;
+
+  return { left, top, width, height };
 }

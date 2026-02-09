@@ -10,10 +10,14 @@ export type Worksheet = {
   colWidths: {
     [key: string]: number;
   };
+  frozenRows: number;
+  frozenCols: number;
 };
 
 export const initialWorksheet: Worksheet = {
   sheet: {},
   rowHeights: {},
   colWidths: {},
+  frozenRows: 0,
+  frozenCols: 0,
 };

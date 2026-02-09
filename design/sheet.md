@@ -114,6 +114,10 @@ interface Store {
   // Row/column move
   moveCells(axis: Axis, srcIndex: number, count: number, dstIndex: number): Promise<void>;
 
+  // Freeze panes
+  setFreezePane(frozenRows: number, frozenCols: number): Promise<void>;
+  getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }>;
+
   // Presence (sync, not async)
   getPresences(): Array<{ clientID: string; presence: { activeCell: string } }>;
   updateActiveCell(activeCell: Ref): void;
@@ -364,6 +368,37 @@ non-default sizes in a `Map<number, number>` and provides:
 - `move(src, count, dst)` — Remaps keys when rows/columns are moved.
 
 Default sizes: **24px** row height, **100px** column width.
+
+### Freeze Panes
+
+Freeze panes lock header rows/columns in place while scrolling. The Sheet class
+stores `frozenRows` and `frozenCols` (both default to 0). When enabled, the
+viewport splits into four quadrants:
+
+| Quadrant | Rows | Columns | Scrolls H | Scrolls V |
+|----------|------|---------|-----------|-----------|
+| A (top-left) | `1..frozenRows` | `1..frozenCols` | No | No |
+| B (top-right) | `1..frozenRows` | `frozenCols+1..` | Yes | No |
+| C (bottom-left) | `frozenRows+1..` | `1..frozenCols` | No | Yes |
+| D (bottom-right) | `frozenRows+1..` | `frozenCols+1..` | Yes | Yes |
+
+**Rendering**: Uses `ctx.save()`/`ctx.clip()`/`ctx.restore()` per quadrant on
+the single GridCanvas and Overlay canvases. Draw order: D → B → C → A
+(frozen regions overlay scrollable content). Freeze line separators drawn last.
+
+**Scroll**: `scroll.left`/`scroll.top` are relative to the first unfrozen
+row/column. The scroll container dummy size excludes the frozen region.
+
+**Mouse events**: `toRefWithFreeze()` determines which quadrant a click is in
+and applies scroll=0 for frozen axes, `scroll.left`/`scroll.top` for unfrozen.
+
+**Insert/delete near boundary**: Inserting within frozen area expands the frozen
+count. Deleting within frozen area shrinks it. Operations outside the frozen
+area leave the freeze count unchanged. Matches Excel behavior.
+
+**Store**: `setFreezePane(frozenRows, frozenCols)` and `getFreezePane()` on the
+Store interface. Yorkie document stores `frozenRows` and `frozenCols` as
+top-level fields with `?? 0` fallback for backward compatibility.
 
 ### Coordinate System
 

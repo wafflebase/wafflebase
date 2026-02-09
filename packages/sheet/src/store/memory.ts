@@ -15,6 +15,8 @@ export class MemStore implements Store {
   private cellIndex: CellIndex = new CellIndex();
   private rowHeights: Map<number, number> = new Map();
   private colWidths: Map<number, number> = new Map();
+  private frozenRows = 0;
+  private frozenCols = 0;
 
   constructor(grid?: Grid) {
     this.grid = grid || new Map();
@@ -170,6 +172,15 @@ export class MemStore implements Store {
    */
   updateActiveCell(_: Ref): void {
     // No-op for memory store
+  }
+
+  async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
+    this.frozenRows = frozenRows;
+    this.frozenCols = frozenCols;
+  }
+
+  async getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }> {
+    return { frozenRows: this.frozenRows, frozenCols: this.frozenCols };
   }
 
   private rebuildIndex(): void {
