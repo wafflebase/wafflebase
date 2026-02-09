@@ -16,7 +16,6 @@ import {
   Position,
   FreezeState,
   NoFreeze,
-  FreezeHandleSize,
   FreezeHandleThickness,
   toBoundingRect,
 } from './layout';
@@ -69,9 +68,43 @@ export class GridCanvas {
 
     if (!hasFrozen) {
       // No freeze: render everything as before
-      this.renderQuadrantCells(ctx, startID.r, endID.r + 1, startID.c, endID.c + 1, grid, scroll, rowDim, colDim);
-      this.renderColumnHeaders(ctx, startID.c, endID.c, scroll.left, RowHeaderWidth, viewport.width, activeCell, selectionType, selectionRange, rowDim, colDim);
-      this.renderRowHeaders(ctx, startID.r, endID.r, scroll.top, DefaultCellHeight, viewport.height, activeCell, selectionType, selectionRange, rowDim, colDim);
+      this.renderQuadrantCells(
+        ctx,
+        startID.r,
+        endID.r + 1,
+        startID.c,
+        endID.c + 1,
+        grid,
+        scroll,
+        rowDim,
+        colDim,
+      );
+      this.renderColumnHeaders(
+        ctx,
+        startID.c,
+        endID.c,
+        scroll.left,
+        RowHeaderWidth,
+        viewport.width,
+        activeCell,
+        selectionType,
+        selectionRange,
+        rowDim,
+        colDim,
+      );
+      this.renderRowHeaders(
+        ctx,
+        startID.r,
+        endID.r,
+        scroll.top,
+        DefaultCellHeight,
+        viewport.height,
+        activeCell,
+        selectionType,
+        selectionRange,
+        rowDim,
+        colDim,
+      );
     } else {
       const fw = freeze.frozenWidth;
       const fh = freeze.frozenHeight;
@@ -79,26 +112,61 @@ export class GridCanvas {
       const fc = freeze.frozenCols;
 
       // Compute scroll for unfrozen area: offset relative to first unfrozen row/col
-      const unfrozenRowStart = rowDim ? rowDim.getOffset(fr + 1) : fr * DefaultCellHeight;
-      const unfrozenColStart = colDim ? colDim.getOffset(fc + 1) : fc * DefaultCellWidth;
+      const unfrozenRowStart = rowDim
+        ? rowDim.getOffset(fr + 1)
+        : fr * DefaultCellHeight;
+      const unfrozenColStart = colDim
+        ? colDim.getOffset(fc + 1)
+        : fc * DefaultCellWidth;
 
       // Quadrant D (bottom-right): scrolled H + V — draw first (background)
       ctx.save();
       ctx.beginPath();
-      ctx.rect(RowHeaderWidth + fw, DefaultCellHeight + fh, viewport.width - RowHeaderWidth - fw, viewport.height - DefaultCellHeight - fh);
+      ctx.rect(
+        RowHeaderWidth + fw,
+        DefaultCellHeight + fh,
+        viewport.width - RowHeaderWidth - fw,
+        viewport.height - DefaultCellHeight - fh,
+      );
       ctx.clip();
-      this.renderQuadrantCells(ctx, startID.r, endID.r + 1, startID.c, endID.c + 1, grid,
-        { left: scroll.left + unfrozenColStart - fw, top: scroll.top + unfrozenRowStart - fh }, rowDim, colDim);
+      this.renderQuadrantCells(
+        ctx,
+        startID.r,
+        endID.r + 1,
+        startID.c,
+        endID.c + 1,
+        grid,
+        {
+          left: scroll.left + unfrozenColStart - fw,
+          top: scroll.top + unfrozenRowStart - fh,
+        },
+        rowDim,
+        colDim,
+      );
       ctx.restore();
 
       // Quadrant B (top-right): frozen rows, scrolled H
       if (fr > 0) {
         ctx.save();
         ctx.beginPath();
-        ctx.rect(RowHeaderWidth + fw, DefaultCellHeight, viewport.width - RowHeaderWidth - fw, fh);
+        ctx.rect(
+          RowHeaderWidth + fw,
+          DefaultCellHeight,
+          viewport.width - RowHeaderWidth - fw,
+          fh,
+        );
         ctx.clip();
-        this.renderQuadrantCells(ctx, 1, fr + 1, startID.c, endID.c + 1, grid,
-          { left: scroll.left + unfrozenColStart - fw, top: 0 }, rowDim, colDim);
+        this.renderQuadrantCells(
+          ctx,
+          1,
+          fr + 1,
+          startID.c,
+          endID.c + 1,
+          grid,
+          { left: scroll.left + unfrozenColStart - fw, top: 0 },
+          rowDim,
+          colDim,
+        );
         ctx.restore();
       }
 
@@ -106,10 +174,24 @@ export class GridCanvas {
       if (fc > 0) {
         ctx.save();
         ctx.beginPath();
-        ctx.rect(RowHeaderWidth, DefaultCellHeight + fh, fw, viewport.height - DefaultCellHeight - fh);
+        ctx.rect(
+          RowHeaderWidth,
+          DefaultCellHeight + fh,
+          fw,
+          viewport.height - DefaultCellHeight - fh,
+        );
         ctx.clip();
-        this.renderQuadrantCells(ctx, startID.r, endID.r + 1, 1, fc + 1, grid,
-          { left: 0, top: scroll.top + unfrozenRowStart - fh }, rowDim, colDim);
+        this.renderQuadrantCells(
+          ctx,
+          startID.r,
+          endID.r + 1,
+          1,
+          fc + 1,
+          grid,
+          { left: 0, top: scroll.top + unfrozenRowStart - fh },
+          rowDim,
+          colDim,
+        );
         ctx.restore();
       }
 
@@ -119,24 +201,81 @@ export class GridCanvas {
         ctx.beginPath();
         ctx.rect(RowHeaderWidth, DefaultCellHeight, fw, fh);
         ctx.clip();
-        this.renderQuadrantCells(ctx, 1, fr + 1, 1, fc + 1, grid,
-          { left: 0, top: 0 }, rowDim, colDim);
+        this.renderQuadrantCells(
+          ctx,
+          1,
+          fr + 1,
+          1,
+          fc + 1,
+          grid,
+          { left: 0, top: 0 },
+          rowDim,
+          colDim,
+        );
         ctx.restore();
       }
 
       // Column headers — frozen columns (no scroll)
       if (fc > 0) {
-        this.renderColumnHeaders(ctx, 1, fc, 0, RowHeaderWidth, RowHeaderWidth + fw, activeCell, selectionType, selectionRange, rowDim, colDim);
+        this.renderColumnHeaders(
+          ctx,
+          1,
+          fc,
+          0,
+          RowHeaderWidth,
+          RowHeaderWidth + fw,
+          activeCell,
+          selectionType,
+          selectionRange,
+          rowDim,
+          colDim,
+        );
       }
       // Column headers — unfrozen columns (scrolled)
-      this.renderColumnHeaders(ctx, startID.c, endID.c, scroll.left + unfrozenColStart - fw, RowHeaderWidth + fw, viewport.width, activeCell, selectionType, selectionRange, rowDim, colDim);
+      this.renderColumnHeaders(
+        ctx,
+        startID.c,
+        endID.c,
+        scroll.left + unfrozenColStart - fw,
+        RowHeaderWidth + fw,
+        viewport.width,
+        activeCell,
+        selectionType,
+        selectionRange,
+        rowDim,
+        colDim,
+      );
 
       // Row headers — frozen rows (no scroll)
       if (fr > 0) {
-        this.renderRowHeaders(ctx, 1, fr, 0, DefaultCellHeight, DefaultCellHeight + fh, activeCell, selectionType, selectionRange, rowDim, colDim);
+        this.renderRowHeaders(
+          ctx,
+          1,
+          fr,
+          0,
+          DefaultCellHeight,
+          DefaultCellHeight + fh,
+          activeCell,
+          selectionType,
+          selectionRange,
+          rowDim,
+          colDim,
+        );
       }
       // Row headers — unfrozen rows (scrolled)
-      this.renderRowHeaders(ctx, startID.r, endID.r, scroll.top + unfrozenRowStart - fh, DefaultCellHeight + fh, viewport.height, activeCell, selectionType, selectionRange, rowDim, colDim);
+      this.renderRowHeaders(
+        ctx,
+        startID.r,
+        endID.r,
+        scroll.top + unfrozenRowStart - fh,
+        DefaultCellHeight + fh,
+        viewport.height,
+        activeCell,
+        selectionType,
+        selectionRange,
+        rowDim,
+        colDim,
+      );
 
       // Freeze line separators
       this.renderFreezeLines(ctx, viewport, fw, fh);
@@ -172,7 +311,14 @@ export class GridCanvas {
   ): void {
     for (let row = rowStart; row <= rowEnd; row++) {
       for (let col = colStart; col <= colEnd; col++) {
-        this.renderCell(ctx, { r: row, c: col }, grid?.get(toSref({ r: row, c: col })), scroll, rowDim, colDim);
+        this.renderCell(
+          ctx,
+          { r: row, c: col },
+          grid?.get(toSref({ r: row, c: col })),
+          scroll,
+          rowDim,
+          colDim,
+        );
       }
     }
   }
@@ -199,13 +345,28 @@ export class GridCanvas {
     ctx.clip();
 
     for (let col = colStart; col <= colEnd; col++) {
-      const colOffset = colDim ? colDim.getOffset(col) : DefaultCellWidth * (col - 1);
+      const colOffset = colDim
+        ? colDim.getOffset(col)
+        : DefaultCellWidth * (col - 1);
       const colWidth = colDim ? colDim.getSize(col) : DefaultCellWidth;
       const x = RowHeaderWidth + colOffset - scrollLeft;
       const y = 0;
-      const isColSelected = selectionType === 'all' || (selectionType === 'column' && selectionRange &&
-        col >= selectionRange[0].c && col <= selectionRange[1].c);
-      this.renderHeader(ctx, x, y, colWidth, DefaultCellHeight, toColumnLabel(col), activeCell.c === col, isColSelected || false);
+      const isColSelected =
+        selectionType === 'all' ||
+        (selectionType === 'column' &&
+          selectionRange &&
+          col >= selectionRange[0].c &&
+          col <= selectionRange[1].c);
+      this.renderHeader(
+        ctx,
+        x,
+        y,
+        colWidth,
+        DefaultCellHeight,
+        toColumnLabel(col),
+        activeCell.c === col,
+        isColSelected || false,
+      );
     }
 
     ctx.restore();
@@ -233,13 +394,28 @@ export class GridCanvas {
     ctx.clip();
 
     for (let row = rowStart; row <= rowEnd; row++) {
-      const rowOffset = rowDim ? rowDim.getOffset(row) : DefaultCellHeight * (row - 1);
+      const rowOffset = rowDim
+        ? rowDim.getOffset(row)
+        : DefaultCellHeight * (row - 1);
       const rowHeight = rowDim ? rowDim.getSize(row) : DefaultCellHeight;
       const x = 0;
       const y = rowOffset + DefaultCellHeight - scrollTop;
-      const isRowSelected = selectionType === 'all' || (selectionType === 'row' && selectionRange &&
-        row >= selectionRange[0].r && row <= selectionRange[1].r);
-      this.renderHeader(ctx, x, y, RowHeaderWidth, rowHeight, String(row), activeCell.r === row, isRowSelected || false);
+      const isRowSelected =
+        selectionType === 'all' ||
+        (selectionType === 'row' &&
+          selectionRange &&
+          row >= selectionRange[0].r &&
+          row <= selectionRange[1].r);
+      this.renderHeader(
+        ctx,
+        x,
+        y,
+        RowHeaderWidth,
+        rowHeight,
+        String(row),
+        activeCell.r === row,
+        isRowSelected || false,
+      );
     }
 
     ctx.restore();
@@ -283,30 +459,33 @@ export class GridCanvas {
     hoverHandle: 'row' | 'column' | null,
   ): void {
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
+    const t = FreezeHandleThickness;
 
-    // Row freeze handle (horizontal bar) — drag down to freeze rows
-    const rowHandleX = RowHeaderWidth - FreezeHandleSize - 2;
-    const rowHandleY = hasFrozen && freeze.frozenRows > 0
-      ? DefaultCellHeight + freeze.frozenHeight - FreezeHandleThickness / 2
-      : DefaultCellHeight - FreezeHandleThickness / 2 - 2;
+    // --- Row freeze handle (horizontal bar spanning full row-header width) ---
+    // Sits at the bottom edge of the header row (or at the freeze boundary)
+    const rowBarY =
+      hasFrozen && freeze.frozenRows > 0
+        ? DefaultCellHeight + freeze.frozenHeight - t / 2
+        : DefaultCellHeight - t;
     const isRowHover = hoverHandle === 'row';
-    const rowThickness = isRowHover ? FreezeHandleThickness + 2 : FreezeHandleThickness;
+
     ctx.fillStyle = isRowHover
       ? this.getThemeColor('freezeHandleHoverColor')
       : this.getThemeColor('freezeHandleColor');
-    ctx.fillRect(rowHandleX, rowHandleY - (isRowHover ? 1 : 0), FreezeHandleSize, rowThickness);
+    ctx.fillRect(0, rowBarY, RowHeaderWidth, t);
 
-    // Column freeze handle (vertical bar) — drag right to freeze columns
-    const colHandleX = hasFrozen && freeze.frozenCols > 0
-      ? RowHeaderWidth + freeze.frozenWidth - FreezeHandleThickness / 2
-      : RowHeaderWidth - FreezeHandleThickness / 2 - 2;
-    const colHandleY = DefaultCellHeight - FreezeHandleSize - 2;
+    // --- Column freeze handle (vertical bar spanning full column-header height) ---
+    // Sits at the right edge of the row-header column (or at the freeze boundary)
+    const colBarX =
+      hasFrozen && freeze.frozenCols > 0
+        ? RowHeaderWidth + freeze.frozenWidth - t / 2
+        : RowHeaderWidth - t;
     const isColHover = hoverHandle === 'column';
-    const colThickness = isColHover ? FreezeHandleThickness + 2 : FreezeHandleThickness;
+
     ctx.fillStyle = isColHover
       ? this.getThemeColor('freezeHandleHoverColor')
       : this.getThemeColor('freezeHandleColor');
-    ctx.fillRect(colHandleX - (isColHover ? 1 : 0), colHandleY, colThickness, FreezeHandleSize);
+    ctx.fillRect(colBarX, 0, t, DefaultCellHeight);
   }
 
   private renderHeader(
@@ -330,7 +509,7 @@ export class GridCanvas {
     ctx.strokeRect(x, y, width, height);
     ctx.fillStyle = this.getThemeColor('cellTextColor');
     ctx.textAlign = HeaderTextAlign;
-    ctx.font = (selected || fullSelected) ? 'bold 10px Arial' : '10px Arial';
+    ctx.font = selected || fullSelected ? 'bold 10px Arial' : '10px Arial';
     ctx.fillText(label, x + width / 2, y + Math.min(15, height - 4));
   }
 

@@ -24,7 +24,6 @@ import {
   Size,
   FreezeState,
   NoFreeze,
-  FreezeHandleSize,
   FreezeHandleThickness,
   FreezeHandleHitArea,
   buildFreezeState,
@@ -76,13 +75,19 @@ export class Worksheet {
   private boundHandleContextMenu: (e: MouseEvent) => void;
 
   private resizeHover: { axis: 'row' | 'column'; index: number } | null = null;
-  private dragMove: { axis: 'row' | 'column'; srcIndex: number; count: number; dropIndex: number } | null = null;
+  private dragMove: {
+    axis: 'row' | 'column';
+    srcIndex: number;
+    count: number;
+    dropIndex: number;
+  } | null = null;
   private editMode: boolean = false;
   private manuallyResizedRows: Set<number> = new Set();
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
-  private freezeDrag: { axis: 'row' | 'column'; targetIndex: number } | null = null;
+  private freezeDrag: { axis: 'row' | 'column'; targetIndex: number } | null =
+    null;
 
   constructor(container: HTMLDivElement, theme: Theme = 'light') {
     this.container = container;
@@ -134,13 +139,21 @@ export class Worksheet {
    */
   private updateFreezeState(): void {
     const { frozenRows, frozenCols } = this.sheet!.getFreezePane();
-    this.freezeState = buildFreezeState(frozenRows, frozenCols, this.rowDim, this.colDim);
+    this.freezeState = buildFreezeState(
+      frozenRows,
+      frozenCols,
+      this.rowDim,
+      this.colDim,
+    );
   }
 
   /**
    * `setFreezePane` sets the freeze pane and re-renders.
    */
-  public async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
+  public async setFreezePane(
+    frozenRows: number,
+    frozenCols: number,
+  ): Promise<void> {
     await this.sheet!.setFreezePane(frozenRows, frozenCols);
     this.updateFreezeState();
     this.render();
@@ -255,9 +268,15 @@ export class Worksheet {
       e.preventDefault();
       const currentFreeze = this.sheet!.getFreezePane();
       if (freezeHandle === 'row') {
-        this.setFreezePane(currentFreeze.frozenRows > 0 ? 0 : 1, currentFreeze.frozenCols);
+        this.setFreezePane(
+          currentFreeze.frozenRows > 0 ? 0 : 1,
+          currentFreeze.frozenCols,
+        );
       } else {
-        this.setFreezePane(currentFreeze.frozenRows, currentFreeze.frozenCols > 0 ? 0 : 1);
+        this.setFreezePane(
+          currentFreeze.frozenRows,
+          currentFreeze.frozenCols > 0 ? 0 : 1,
+        );
       }
       return;
     }
@@ -292,7 +311,11 @@ export class Worksheet {
 
       // Use multi-selection range if the right-clicked row is within the selection
       const selected = this.sheet!.getSelectedIndices();
-      const useMulti = selected && selected.axis === 'row' && row >= selected.from && row <= selected.to;
+      const useMulti =
+        selected &&
+        selected.axis === 'row' &&
+        row >= selected.from &&
+        row <= selected.to;
       const from = useMulti ? selected!.from : row;
       const count = useMulti ? selected!.to - selected!.from + 1 : 1;
       const rowLabel = count > 1 ? `${count} rows` : 'row';
@@ -307,7 +330,9 @@ export class Worksheet {
         {
           label: `Insert ${rowLabel} below`,
           action: () => {
-            this.sheet!.insertRows(from + count, count).then(() => this.render());
+            this.sheet!.insertRows(from + count, count).then(() =>
+              this.render(),
+            );
           },
         },
         {
@@ -323,7 +348,11 @@ export class Worksheet {
 
       // Use multi-selection range if the right-clicked column is within the selection
       const selected = this.sheet!.getSelectedIndices();
-      const useMulti = selected && selected.axis === 'column' && col >= selected.from && col <= selected.to;
+      const useMulti =
+        selected &&
+        selected.axis === 'column' &&
+        col >= selected.from &&
+        col <= selected.to;
       const from = useMulti ? selected!.from : col;
       const count = useMulti ? selected!.to - selected!.from + 1 : 1;
       const colLabel = count > 1 ? `${count} columns` : 'column';
@@ -338,7 +367,9 @@ export class Worksheet {
         {
           label: `Insert ${colLabel} right`,
           action: () => {
-            this.sheet!.insertColumns(from + count, count).then(() => this.render());
+            this.sheet!.insertColumns(from + count, count).then(() =>
+              this.render(),
+            );
           },
         },
         {
@@ -383,10 +414,15 @@ export class Worksheet {
 
     // Check column header right edges
     if (y < DefaultCellHeight && x > RowHeaderWidth) {
-      const inFrozenCols = freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+      const inFrozenCols =
+        freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
       const absX = inFrozenCols
         ? x - RowHeaderWidth
-        : (x - RowHeaderWidth - freeze.frozenWidth) + this.colDim.getOffset(freeze.frozenCols + 1) + scroll.left;
+        : x -
+          RowHeaderWidth -
+          freeze.frozenWidth +
+          this.colDim.getOffset(freeze.frozenCols + 1) +
+          scroll.left;
       // Find which column edge we're near
       const col = this.colDim.findIndex(absX);
       const colRight = this.colDim.getOffset(col) + this.colDim.getSize(col);
@@ -405,10 +441,15 @@ export class Worksheet {
 
     // Check row header bottom edges
     if (x < RowHeaderWidth && y > DefaultCellHeight) {
-      const inFrozenRows = freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+      const inFrozenRows =
+        freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
       const absY = inFrozenRows
         ? y - DefaultCellHeight
-        : (y - DefaultCellHeight - freeze.frozenHeight) + this.rowDim.getOffset(freeze.frozenRows + 1) + scroll.top;
+        : y -
+          DefaultCellHeight -
+          freeze.frozenHeight +
+          this.rowDim.getOffset(freeze.frozenRows + 1) +
+          scroll.top;
       const row = this.rowDim.findIndex(absY);
       const rowBottom = this.rowDim.getOffset(row) + this.rowDim.getSize(row);
       if (Math.abs(absY - rowBottom) < ResizeEdgeThreshold) {
@@ -433,33 +474,35 @@ export class Worksheet {
   private detectFreezeHandle(x: number, y: number): 'row' | 'column' | null {
     const freeze = this.freezeState;
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
+    const t = FreezeHandleThickness;
+    const pad = FreezeHandleHitArea;
 
-    // Row handle position
-    const rowHandleX = RowHeaderWidth - FreezeHandleSize - 2;
-    const rowHandleY = hasFrozen && freeze.frozenRows > 0
-      ? DefaultCellHeight + freeze.frozenHeight - FreezeHandleThickness / 2
-      : DefaultCellHeight - FreezeHandleThickness / 2 - 2;
+    // Row handle — horizontal bar spanning row-header width
+    const rowBarY =
+      hasFrozen && freeze.frozenRows > 0
+        ? DefaultCellHeight + freeze.frozenHeight - t / 2
+        : DefaultCellHeight - t;
 
     if (
-      x >= rowHandleX - FreezeHandleHitArea / 2 &&
-      x <= rowHandleX + FreezeHandleSize + FreezeHandleHitArea / 2 &&
-      y >= rowHandleY - FreezeHandleHitArea / 2 &&
-      y <= rowHandleY + FreezeHandleThickness + FreezeHandleHitArea / 2
+      x >= 0 &&
+      x <= RowHeaderWidth &&
+      y >= rowBarY - pad &&
+      y <= rowBarY + t + pad
     ) {
       return 'row';
     }
 
-    // Column handle position
-    const colHandleX = hasFrozen && freeze.frozenCols > 0
-      ? RowHeaderWidth + freeze.frozenWidth - FreezeHandleThickness / 2
-      : RowHeaderWidth - FreezeHandleThickness / 2 - 2;
-    const colHandleY = DefaultCellHeight - FreezeHandleSize - 2;
+    // Column handle — vertical bar spanning column-header height
+    const colBarX =
+      hasFrozen && freeze.frozenCols > 0
+        ? RowHeaderWidth + freeze.frozenWidth - t / 2
+        : RowHeaderWidth - t;
 
     if (
-      x >= colHandleX - FreezeHandleHitArea / 2 &&
-      x <= colHandleX + FreezeHandleThickness + FreezeHandleHitArea / 2 &&
-      y >= colHandleY - FreezeHandleHitArea / 2 &&
-      y <= colHandleY + FreezeHandleSize + FreezeHandleHitArea / 2
+      x >= colBarX - pad &&
+      x <= colBarX + t + pad &&
+      y >= 0 &&
+      y <= DefaultCellHeight
     ) {
       return 'column';
     }
@@ -470,16 +513,20 @@ export class Worksheet {
   /**
    * `startFreezeDrag` begins a freeze handle drag operation.
    */
-  private startFreezeDrag(axis: 'row' | 'column', startEvent: MouseEvent): void {
+  private startFreezeDrag(
+    axis: 'row' | 'column',
+    startEvent: MouseEvent,
+  ): void {
     const scrollContainer = this.gridContainer.getScrollContainer();
     scrollContainer.style.cursor = 'grabbing';
 
     const computeTarget = (e: MouseEvent): number => {
       const port = this.viewport;
       if (axis === 'row') {
-        const moveY = e.target !== scrollContainer
-          ? Math.max(0, Math.min(port.height, e.clientY - port.top))
-          : e.offsetY;
+        const moveY =
+          e.target !== scrollContainer
+            ? Math.max(0, Math.min(port.height, e.clientY - port.top))
+            : e.offsetY;
         if (moveY <= DefaultCellHeight) return 0;
         const absY = moveY - DefaultCellHeight;
         const row = this.rowDim.findIndex(absY);
@@ -488,9 +535,10 @@ export class Worksheet {
         const rowMid = rowOffset + this.rowDim.getSize(row) / 2;
         return absY < rowMid ? Math.max(0, row - 1) : row;
       } else {
-        const moveX = e.target !== scrollContainer
-          ? Math.max(0, Math.min(port.width, e.clientX - port.left))
-          : e.offsetX;
+        const moveX =
+          e.target !== scrollContainer
+            ? Math.max(0, Math.min(port.width, e.clientX - port.left))
+            : e.offsetX;
         if (moveX <= RowHeaderWidth) return 0;
         const absX = moveX - RowHeaderWidth;
         const col = this.colDim.findIndex(absX);
@@ -539,9 +587,21 @@ export class Worksheet {
   private toRefFromMouse(x: number, y: number): Ref {
     const freeze = this.freezeState;
     if (freeze.frozenRows > 0 || freeze.frozenCols > 0) {
-      return toRefWithFreeze(x, y, this.scroll, this.rowDim, this.colDim, freeze);
+      return toRefWithFreeze(
+        x,
+        y,
+        this.scroll,
+        this.rowDim,
+        this.colDim,
+        freeze,
+      );
     }
-    return toRef(x + this.scroll.left, y + this.scroll.top, this.rowDim, this.colDim);
+    return toRef(
+      x + this.scroll.left,
+      y + this.scroll.top,
+      this.rowDim,
+      this.colDim,
+    );
   }
 
   /**
@@ -549,10 +609,15 @@ export class Worksheet {
    */
   private toRowFromMouse(y: number): number {
     const freeze = this.freezeState;
-    const inFrozenRows = freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+    const inFrozenRows =
+      freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
     const absY = inFrozenRows
       ? y - DefaultCellHeight
-      : (y - DefaultCellHeight - freeze.frozenHeight) + this.rowDim.getOffset(freeze.frozenRows + 1) + this.scroll.top;
+      : y -
+        DefaultCellHeight -
+        freeze.frozenHeight +
+        this.rowDim.getOffset(freeze.frozenRows + 1) +
+        this.scroll.top;
     return this.rowDim.findIndex(absY);
   }
 
@@ -561,10 +626,15 @@ export class Worksheet {
    */
   private toColFromMouse(x: number): number {
     const freeze = this.freezeState;
-    const inFrozenCols = freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+    const inFrozenCols =
+      freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
     const absX = inFrozenCols
       ? x - RowHeaderWidth
-      : (x - RowHeaderWidth - freeze.frozenWidth) + this.colDim.getOffset(freeze.frozenCols + 1) + this.scroll.left;
+      : x -
+        RowHeaderWidth -
+        freeze.frozenWidth +
+        this.colDim.getOffset(freeze.frozenCols + 1) +
+        this.scroll.left;
     return this.colDim.findIndex(absX);
   }
 
@@ -605,17 +675,20 @@ export class Worksheet {
       const selected = this.sheet?.getSelectedIndices();
 
       if (selected) {
-        const isOverSelectedHeader = selected.axis === 'column'
-          ? (y < DefaultCellHeight && x > RowHeaderWidth &&
-            (() => {
-              const col = this.toColFromMouse(x);
-              return col >= selected.from && col <= selected.to;
-            })())
-          : (x < RowHeaderWidth && y > DefaultCellHeight &&
-            (() => {
-              const row = this.toRowFromMouse(y);
-              return row >= selected.from && row <= selected.to;
-            })());
+        const isOverSelectedHeader =
+          selected.axis === 'column'
+            ? y < DefaultCellHeight &&
+              x > RowHeaderWidth &&
+              (() => {
+                const col = this.toColFromMouse(x);
+                return col >= selected.from && col <= selected.to;
+              })()
+            : x < RowHeaderWidth &&
+              y > DefaultCellHeight &&
+              (() => {
+                const row = this.toRowFromMouse(y);
+                return row >= selected.from && row <= selected.to;
+              })();
 
         scrollContainer.style.cursor = isOverSelectedHeader ? 'grab' : '';
       } else {
@@ -677,8 +750,18 @@ export class Worksheet {
 
       // Check if clicking on already-selected column header → start drag-move
       const selected = this.sheet!.getSelectedIndices();
-      if (selected && selected.axis === 'column' && col >= selected.from && col <= selected.to) {
-        this.startDragMove('column', selected.from, selected.to - selected.from + 1, e);
+      if (
+        selected &&
+        selected.axis === 'column' &&
+        col >= selected.from &&
+        col <= selected.to
+      ) {
+        this.startDragMove(
+          'column',
+          selected.from,
+          selected.to - selected.from + 1,
+          e,
+        );
         return;
       }
 
@@ -688,9 +771,10 @@ export class Worksheet {
       const startCol = col;
       const onMove = (e: MouseEvent) => {
         const port = this.viewport;
-        const moveX = e.target !== this.gridContainer.getScrollContainer()
-          ? Math.max(0, Math.min(port.width, e.clientX - port.left))
-          : e.offsetX;
+        const moveX =
+          e.target !== this.gridContainer.getScrollContainer()
+            ? Math.max(0, Math.min(port.width, e.clientX - port.left))
+            : e.offsetX;
         const endCol = this.toColFromMouse(moveX);
         if (endCol >= 1) {
           this.sheet!.selectColumnRange(startCol, endCol);
@@ -722,8 +806,18 @@ export class Worksheet {
 
       // Check if clicking on already-selected row header → start drag-move
       const selected = this.sheet!.getSelectedIndices();
-      if (selected && selected.axis === 'row' && row >= selected.from && row <= selected.to) {
-        this.startDragMove('row', selected.from, selected.to - selected.from + 1, e);
+      if (
+        selected &&
+        selected.axis === 'row' &&
+        row >= selected.from &&
+        row <= selected.to
+      ) {
+        this.startDragMove(
+          'row',
+          selected.from,
+          selected.to - selected.from + 1,
+          e,
+        );
         return;
       }
 
@@ -733,9 +827,10 @@ export class Worksheet {
       const startRow = row;
       const onMove = (e: MouseEvent) => {
         const port = this.viewport;
-        const moveY = e.target !== this.gridContainer.getScrollContainer()
-          ? Math.max(0, Math.min(port.height, e.clientY - port.top))
-          : e.offsetY;
+        const moveY =
+          e.target !== this.gridContainer.getScrollContainer()
+            ? Math.max(0, Math.min(port.height, e.clientY - port.top))
+            : e.offsetY;
         const endRow = this.toRowFromMouse(moveY);
         if (endRow >= 1) {
           this.sheet!.selectRowRange(startRow, endRow);
@@ -875,7 +970,10 @@ export class Worksheet {
   /**
    * `autoFitSize` auto-fits a column width or row height to its content.
    */
-  private async autoFitSize(axis: 'row' | 'column', index: number): Promise<void> {
+  private async autoFitSize(
+    axis: 'row' | 'column',
+    index: number,
+  ): Promise<void> {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d')!;
     const padding = 6;
@@ -889,7 +987,10 @@ export class Worksheet {
 
       // Measure cell content in the visible range
       const [start, end] = this.viewRange;
-      const range: Range = [{ r: start.r, c: index }, { r: end.r, c: index }];
+      const range: Range = [
+        { r: start.r, c: index },
+        { r: end.r, c: index },
+      ];
       const grid = await this.sheet!.fetchGrid(range);
       for (const [, cell] of grid) {
         if (cell.v) {
@@ -916,7 +1017,10 @@ export class Worksheet {
    */
   private async computeContentHeight(row: number): Promise<number> {
     const [start, end] = this.viewRange;
-    const range: Range = [{ r: row, c: start.c }, { r: row, c: end.c }];
+    const range: Range = [
+      { r: row, c: start.c },
+      { r: row, c: end.c },
+    ];
     const grid = await this.sheet!.fetchGrid(range);
 
     let maxLines = 1;
@@ -969,36 +1073,54 @@ export class Worksheet {
     const computeDropIndex = (e: MouseEvent): number => {
       const port = this.viewport;
       if (axis === 'column') {
-        const moveX = e.target !== scrollContainer
-          ? Math.max(0, Math.min(port.width, e.clientX - port.left))
-          : e.offsetX;
+        const moveX =
+          e.target !== scrollContainer
+            ? Math.max(0, Math.min(port.width, e.clientX - port.left))
+            : e.offsetX;
         const col = this.toColFromMouse(moveX);
         // Snap to nearest edge
         const freeze = this.freezeState;
-        const inFrozenCols = freeze.frozenCols > 0 && moveX < RowHeaderWidth + freeze.frozenWidth;
+        const inFrozenCols =
+          freeze.frozenCols > 0 && moveX < RowHeaderWidth + freeze.frozenWidth;
         const absX = inFrozenCols
           ? moveX - RowHeaderWidth
-          : (moveX - RowHeaderWidth - freeze.frozenWidth) + this.colDim.getOffset(freeze.frozenCols + 1) + this.scroll.left;
+          : moveX -
+            RowHeaderWidth -
+            freeze.frozenWidth +
+            this.colDim.getOffset(freeze.frozenCols + 1) +
+            this.scroll.left;
         const colOffset = dim.getOffset(col);
         const colMid = colOffset + dim.getSize(col) / 2;
         return absX < colMid ? col : col + 1;
       } else {
-        const moveY = e.target !== scrollContainer
-          ? Math.max(0, Math.min(port.height, e.clientY - port.top))
-          : e.offsetY;
+        const moveY =
+          e.target !== scrollContainer
+            ? Math.max(0, Math.min(port.height, e.clientY - port.top))
+            : e.offsetY;
         const row = this.toRowFromMouse(moveY);
         const freeze = this.freezeState;
-        const inFrozenRows = freeze.frozenRows > 0 && moveY < DefaultCellHeight + freeze.frozenHeight;
+        const inFrozenRows =
+          freeze.frozenRows > 0 &&
+          moveY < DefaultCellHeight + freeze.frozenHeight;
         const absY = inFrozenRows
           ? moveY - DefaultCellHeight
-          : (moveY - DefaultCellHeight - freeze.frozenHeight) + this.rowDim.getOffset(freeze.frozenRows + 1) + this.scroll.top;
+          : moveY -
+            DefaultCellHeight -
+            freeze.frozenHeight +
+            this.rowDim.getOffset(freeze.frozenRows + 1) +
+            this.scroll.top;
         const rowOffset = dim.getOffset(row);
         const rowMid = rowOffset + dim.getSize(row) / 2;
         return absY < rowMid ? row : row + 1;
       }
     };
 
-    this.dragMove = { axis, srcIndex, count, dropIndex: computeDropIndex(startEvent) };
+    this.dragMove = {
+      axis,
+      srcIndex,
+      count,
+      dropIndex: computeDropIndex(startEvent),
+    };
     this.renderOverlay();
 
     const onMove = (e: MouseEvent) => {
@@ -1017,10 +1139,14 @@ export class Worksheet {
       const dropIndex = this.dragMove?.dropIndex;
       this.dragMove = null;
 
-      if (dropIndex !== undefined && !(dropIndex >= srcIndex && dropIndex <= srcIndex + count)) {
-        const movePromise = axis === 'row'
-          ? this.sheet!.moveRows(srcIndex, count, dropIndex)
-          : this.sheet!.moveColumns(srcIndex, count, dropIndex);
+      if (
+        dropIndex !== undefined &&
+        !(dropIndex >= srcIndex && dropIndex <= srcIndex + count)
+      ) {
+        const movePromise =
+          axis === 'row'
+            ? this.sheet!.moveRows(srcIndex, count, dropIndex)
+            : this.sheet!.moveColumns(srcIndex, count, dropIndex);
 
         movePromise.then(() => {
           // Update selection to new position
@@ -1245,7 +1371,9 @@ export class Worksheet {
       this.colDim,
       this.resizeHover,
       this.sheet!.getSelectionType(),
-      this.dragMove ? { axis: this.dragMove.axis, dropIndex: this.dragMove.dropIndex } : null,
+      this.dragMove
+        ? { axis: this.dragMove.axis, dropIndex: this.dragMove.dropIndex }
+        : null,
       this.formulaRanges,
       this.freezeState,
       this.freezeDrag,
@@ -1265,16 +1393,17 @@ export class Worksheet {
     const unfrozenColStart = this.colDim.getOffset(freeze.frozenCols + 1);
 
     const startRow = this.rowDim.findIndex(unfrozenRowStart + scroll.top);
-    const endRow = this.rowDim.findIndex(unfrozenRowStart + scroll.top + port.height) + 1;
+    const endRow =
+      this.rowDim.findIndex(unfrozenRowStart + scroll.top + port.height) + 1;
     const startCol = this.colDim.findIndex(unfrozenColStart + scroll.left);
-    const endCol = this.colDim.findIndex(unfrozenColStart + scroll.left + port.width) + 1;
+    const endCol =
+      this.colDim.findIndex(unfrozenColStart + scroll.left + port.width) + 1;
 
     return [
       { r: startRow, c: startCol },
       { r: endRow, c: endCol },
     ];
   }
-
 
   /**
    * `scrollIntoView` scrolls the active cell into view, accounting for freeze panes.
@@ -1288,13 +1417,19 @@ export class Worksheet {
     const inFrozenCols = freeze.frozenCols > 0 && ref.c <= freeze.frozenCols;
 
     // Cell absolute position (no scroll applied)
-    const cell = toBoundingRect(ref, { left: 0, top: 0 }, this.rowDim, this.colDim);
+    const cell = toBoundingRect(
+      ref,
+      { left: 0, top: 0 },
+      this.rowDim,
+      this.colDim,
+    );
 
     // The unfrozen viewport area
     const unfrozenColStart = this.colDim.getOffset(freeze.frozenCols + 1);
     const unfrozenRowStart = this.rowDim.getOffset(freeze.frozenRows + 1);
     const availW = this.viewport.width - RowHeaderWidth - freeze.frozenWidth;
-    const availH = this.viewport.height - DefaultCellHeight - freeze.frozenHeight;
+    const availH =
+      this.viewport.height - DefaultCellHeight - freeze.frozenHeight;
 
     let changed = false;
 
@@ -1346,9 +1481,16 @@ export class Worksheet {
 
     const cell = this.sheet!.getActiveCell();
     const freeze = this.freezeState;
-    const rect = (freeze.frozenRows > 0 || freeze.frozenCols > 0)
-      ? toBoundingRectWithFreeze(cell, this.scroll, this.rowDim, this.colDim, freeze)
-      : toBoundingRect(cell, this.scroll, this.rowDim, this.colDim);
+    const rect =
+      freeze.frozenRows > 0 || freeze.frozenCols > 0
+        ? toBoundingRectWithFreeze(
+            cell,
+            this.scroll,
+            this.rowDim,
+            this.colDim,
+            freeze,
+          )
+        : toBoundingRect(cell, this.scroll, this.rowDim, this.colDim);
     const value = withoutValue ? '' : await this.sheet!.toInputString(cell);
     const maxWidth = Math.max(rect.width, this.viewport.width - rect.left);
     const maxHeight = Math.max(rect.height, this.viewport.height - rect.top);
@@ -1383,10 +1525,12 @@ export class Worksheet {
     const gridSize = this.gridSize;
     const freeze = this.freezeState;
 
-    // Scroll container represents only unfrozen content
+    // Scroll container represents only unfrozen content, but we must add
+    // the frozen pixel size back so the user can scroll far enough to reveal
+    // the last rows/columns that would otherwise be hidden behind the frozen area.
     this.gridContainer.updateDummySize(
-      gridSize.width - freeze.frozenWidth + RowHeaderWidth,
-      gridSize.height - freeze.frozenHeight + DefaultCellHeight,
+      gridSize.width + RowHeaderWidth,
+      gridSize.height + DefaultCellHeight,
     );
 
     // Fetch grid for all visible quadrants

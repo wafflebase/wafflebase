@@ -21,9 +21,8 @@ export const ScrollIntervalMS = 10;
 export const ScrollSpeedMS = 10;
 
 // Freeze handle constants
-export const FreezeHandleSize = 6;       // length of the handle bar
-export const FreezeHandleThickness = 3;  // thickness of the handle bar
-export const FreezeHandleHitArea = 8;    // hover detection area (larger for usability)
+export const FreezeHandleThickness = 4; // thickness of the rectangular bar handle
+export const FreezeHandleHitArea = 10; // hover detection padding beyond the bar
 
 /**
  * Position represents the position of a rectangle.
@@ -169,15 +168,25 @@ export function toRefWithFreeze(
   colDim: DimensionIndex,
   freeze: FreezeState,
 ): Ref {
-  const inFrozenCols = freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
-  const inFrozenRows = freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+  const inFrozenCols =
+    freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+  const inFrozenRows =
+    freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
 
   const absX = inFrozenCols
     ? x - RowHeaderWidth
-    : (x - RowHeaderWidth - freeze.frozenWidth) + colDim.getOffset(freeze.frozenCols + 1) + scroll.left;
+    : x -
+      RowHeaderWidth -
+      freeze.frozenWidth +
+      colDim.getOffset(freeze.frozenCols + 1) +
+      scroll.left;
   const absY = inFrozenRows
     ? y - DefaultCellHeight
-    : (y - DefaultCellHeight - freeze.frozenHeight) + rowDim.getOffset(freeze.frozenRows + 1) + scroll.top;
+    : y -
+      DefaultCellHeight -
+      freeze.frozenHeight +
+      rowDim.getOffset(freeze.frozenRows + 1) +
+      scroll.top;
 
   const col = colDim.findIndex(absX);
   const row = rowDim.findIndex(absY);
@@ -205,10 +214,18 @@ export function toBoundingRectWithFreeze(
 
   const left = inFrozenCols
     ? colOffset + RowHeaderWidth
-    : colOffset + RowHeaderWidth - scroll.left - colDim.getOffset(freeze.frozenCols + 1) + freeze.frozenWidth;
+    : colOffset +
+      RowHeaderWidth -
+      scroll.left -
+      colDim.getOffset(freeze.frozenCols + 1) +
+      freeze.frozenWidth;
   const top = inFrozenRows
     ? rowOffset + DefaultCellHeight
-    : rowOffset + DefaultCellHeight - scroll.top - rowDim.getOffset(freeze.frozenRows + 1) + freeze.frozenHeight;
+    : rowOffset +
+      DefaultCellHeight -
+      scroll.top -
+      rowDim.getOffset(freeze.frozenRows + 1) +
+      freeze.frozenHeight;
 
   return { left, top, width, height };
 }
