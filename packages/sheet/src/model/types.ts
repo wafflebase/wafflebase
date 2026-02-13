@@ -39,11 +39,42 @@ export type Ref = {
 export type Range = [Ref, Ref];
 
 /**
+ * TextAlign represents the horizontal text alignment of a cell.
+ */
+export type TextAlign = 'left' | 'center' | 'right';
+
+/**
+ * VerticalAlign represents the vertical text alignment of a cell.
+ */
+export type VerticalAlign = 'top' | 'middle' | 'bottom';
+
+/**
+ * NumberFormat represents the number format of a cell.
+ */
+export type NumberFormat = 'plain' | 'number' | 'currency' | 'percent';
+
+/**
+ * CellStyle represents the formatting style of a cell.
+ */
+export type CellStyle = {
+  b?: boolean; // bold
+  i?: boolean; // italic
+  u?: boolean; // underline
+  st?: boolean; // strikethrough
+  tc?: string; // text color (#hex)
+  bg?: string; // background color (#hex)
+  al?: TextAlign; // horizontal alignment
+  va?: VerticalAlign; // vertical alignment
+  nf?: NumberFormat; // number format
+};
+
+/**
  * Cell type represents a cell in the sheet.
  */
 export type Cell = {
   v?: string;
   f?: string;
+  s?: CellStyle;
 };
 
 /**

@@ -174,7 +174,7 @@ export class YorkieStore implements Store {
       // Collect all entries and compute new keys/formulas
       const entries: Array<[string, Cell]> = [];
       for (const [sref, cell] of Object.entries(root.sheet)) {
-        entries.push([sref, { v: cell.v, f: cell.f }]);
+        entries.push([sref, { v: cell.v, f: cell.f, s: cell.s }]);
       }
 
       // Delete all old keys
@@ -242,7 +242,7 @@ export class YorkieStore implements Store {
       // Collect all entries
       const entries: Array<[string, Cell]> = [];
       for (const [sref, cell] of Object.entries(root.sheet)) {
-        entries.push([sref, { v: cell.v, f: cell.f }]);
+        entries.push([sref, { v: cell.v, f: cell.f, s: cell.s }]);
       }
 
       // Delete all old keys

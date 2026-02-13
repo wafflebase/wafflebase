@@ -1,3 +1,4 @@
+import { CellStyle } from '../model/types';
 import { Sheet } from '../model/sheet';
 import { Store } from '../store/store';
 import { MemStore } from '../store/memory';
@@ -29,10 +30,14 @@ export async function initialize(
 /**
  * Spreadsheet is a class that represents a spreadsheet.
  */
+export type SelectionChangeCallback = () => void;
+
 export class Spreadsheet {
   private container: HTMLDivElement;
   private worksheet: Worksheet;
+  private sheet?: Sheet;
   private theme: Theme;
+  private selectionChangeCallbacks: SelectionChangeCallback[] = [];
 
   /**
    * `constructor` initializes the spreadsheet with the given grid.
@@ -50,8 +55,8 @@ export class Spreadsheet {
    * `initialize` initializes the spreadsheet with the given store.
    */
   public async initialize(store: Store) {
-    const sheet = new Sheet(store);
-    await this.worksheet.initialize(sheet);
+    this.sheet = new Sheet(store);
+    await this.worksheet.initialize(this.sheet);
   }
 
   /**
@@ -74,6 +79,7 @@ export class Spreadsheet {
    */
   public render() {
     this.worksheet.render();
+    this.notifySelectionChange();
   }
 
   /**
@@ -83,7 +89,58 @@ export class Spreadsheet {
     this.worksheet.renderOverlay();
   }
 
+  /**
+   * `applyStyle` applies the given style to the current selection and re-renders.
+   */
+  public async applyStyle(style: Partial<CellStyle>) {
+    if (!this.sheet) return;
+    await this.sheet.setRangeStyle(style);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `toggleStyle` toggles a boolean style property on the current selection and re-renders.
+   */
+  public async toggleStyle(prop: 'b' | 'i' | 'u' | 'st') {
+    if (!this.sheet) return;
+    await this.sheet.toggleRangeStyle(prop);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `getActiveStyle` returns the style of the active cell.
+   */
+  public async getActiveStyle(): Promise<CellStyle | undefined> {
+    if (!this.sheet) return undefined;
+    return this.sheet.getStyle(this.sheet.getActiveCell());
+  }
+
+  /**
+   * `onSelectionChange` registers a callback that fires when the selection changes.
+   * Returns an unsubscribe function.
+   */
+  public onSelectionChange(callback: SelectionChangeCallback): () => void {
+    this.selectionChangeCallbacks.push(callback);
+    return () => {
+      this.selectionChangeCallbacks = this.selectionChangeCallbacks.filter(
+        (cb) => cb !== callback,
+      );
+    };
+  }
+
+  /**
+   * `notifySelectionChange` notifies all selection change callbacks.
+   */
+  public notifySelectionChange() {
+    for (const cb of this.selectionChangeCallbacks) {
+      cb();
+    }
+  }
+
   public cleanup() {
     this.worksheet.cleanup();
+    this.selectionChangeCallbacks = [];
   }
 }

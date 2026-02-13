@@ -1,6 +1,7 @@
 import { initialize, Spreadsheet } from "@wafflebase/sheet";
 import { useEffect, useRef, useState } from "react";
 import { Loader } from "@/components/loader";
+import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
 import { Worksheet } from "@/types/worksheet";
@@ -79,8 +80,9 @@ export function SheetView() {
   }
 
   return (
-    <div className="h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
+    <div className="flex h-full w-full flex-col">
+      <FormattingToolbar spreadsheet={sheetRef.current} />
+      <div ref={containerRef} className="flex-1 w-full" />
     </div>
   );
 }

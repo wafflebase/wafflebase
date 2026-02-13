@@ -1335,6 +1335,27 @@ export class Worksheet {
     } else if (e.key === 'v' && e.metaKey) {
       e.preventDefault();
       await this.paste();
+    } else if (
+      e.key === 'b' &&
+      (e.metaKey || e.ctrlKey)
+    ) {
+      e.preventDefault();
+      await this.sheet!.toggleRangeStyle('b');
+      this.render();
+    } else if (
+      e.key === 'i' &&
+      (e.metaKey || e.ctrlKey)
+    ) {
+      e.preventDefault();
+      await this.sheet!.toggleRangeStyle('i');
+      this.render();
+    } else if (
+      e.key === 'u' &&
+      (e.metaKey || e.ctrlKey)
+    ) {
+      e.preventDefault();
+      await this.sheet!.toggleRangeStyle('u');
+      this.render();
     }
   }
 
@@ -1504,6 +1525,9 @@ export class Worksheet {
       maxWidth,
       maxHeight,
     );
+
+    const style = await this.sheet!.getStyle(cell);
+    this.cellInput.applyStyle(style);
 
     if (value.startsWith('=')) {
       this.formulaRanges = extractFormulaRanges(value).map((r) => r.range);

@@ -1,3 +1,4 @@
+import { CellStyle } from '../model/types';
 import { extractTokens } from '../formula/formula';
 import { Theme, ThemeKey, getThemeColor, getFormulaRangeColor } from './theme';
 import { setTextRange, toTextRange } from './utils/textrange';
@@ -115,6 +116,29 @@ export class CellInput {
 
   public hasFormula(): boolean {
     return this.input.innerText.startsWith('=');
+  }
+
+  public applyStyle(style?: CellStyle): void {
+    this.input.style.fontWeight = style?.b ? 'bold' : 'normal';
+    this.input.style.fontStyle = style?.i ? 'italic' : 'normal';
+
+    const decorations: string[] = [];
+    if (style?.u) decorations.push('underline');
+    if (style?.st) decorations.push('line-through');
+    this.input.style.textDecoration = decorations.length
+      ? decorations.join(' ')
+      : 'none';
+
+    this.input.style.color = style?.tc || this.getThemeColor('cellTextColor');
+    this.input.style.backgroundColor =
+      style?.bg || this.getThemeColor('cellBGColor');
+    this.input.style.textAlign = style?.al || 'left';
+
+    // Vertical alignment via flexbox on the container
+    const va = style?.va || 'top';
+    this.container.style.display = 'flex';
+    this.container.style.alignItems =
+      va === 'middle' ? 'center' : va === 'bottom' ? 'flex-end' : 'flex-start';
   }
 
   private handleInput(): void {

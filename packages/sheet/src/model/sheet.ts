@@ -13,10 +13,11 @@ import {
   isSameRange,
   mergeRanges,
 } from './coordinates';
-import { Axis, Grid, Cell, Ref, Sref, Range, Direction, SelectionType } from './types';
+import { Axis, Grid, Cell, CellStyle, Ref, Sref, Range, Direction, SelectionType } from './types';
 import { remapIndex, moveRef } from './shifting';
 import { grid2string, string2grid } from './grids';
 import { DimensionIndex } from './dimensions';
+import { formatValue } from './format';
 
 /**
  * `Dimensions` represents the dimensions of the sheet.
@@ -226,15 +227,18 @@ export class Sheet {
    */
   async toDisplayString(ref: Ref): Promise<string> {
     const cell = await this.store.get(ref);
-    return (cell && cell.v) || '';
+    if (!cell || !cell.v) return '';
+    return formatValue(cell.v, cell.s?.nf);
   }
 
   /**
    * `setData` sets the data at the given row and column.
    */
   async setData(ref: Ref, value: string): Promise<void> {
-    // 01. Update the cell with the new value.
-    const cell = value.startsWith('=') ? { f: value } : { v: value };
+    // 01. Update the cell with the new value, preserving existing style.
+    const existing = await this.store.get(ref);
+    const base = value.startsWith('=') ? { f: value } : { v: value };
+    const cell = existing?.s ? { ...base, s: existing.s } : base;
     await this.store.set(ref, cell);
 
     // 02. Update the dependencies.
@@ -768,6 +772,57 @@ export class Sheet {
 
     this.range = range;
     return true;
+  }
+
+  /**
+   * `getStyle` returns the style of the cell at the given ref.
+   */
+  async getStyle(ref: Ref): Promise<CellStyle | undefined> {
+    const cell = await this.store.get(ref);
+    return cell?.s;
+  }
+
+  /**
+   * `setStyle` merges the given style into the cell at the given ref.
+   * Creates the cell if it doesn't exist. Removes falsy keys.
+   */
+  async setStyle(ref: Ref, style: Partial<CellStyle>): Promise<void> {
+    const cell = (await this.store.get(ref)) || {};
+    const merged = { ...cell.s, ...style };
+
+    // Remove falsy keys (false, undefined, empty string)
+    for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
+      if (!merged[key] && merged[key] !== 0) {
+        delete merged[key];
+      }
+    }
+
+    const newCell: Cell =
+      Object.keys(merged).length > 0
+        ? { ...cell, s: merged }
+        : { v: cell.v, f: cell.f };
+    await this.store.set(ref, newCell);
+  }
+
+  /**
+   * `setRangeStyle` applies the given style to all cells in the current selection range.
+   */
+  async setRangeStyle(style: Partial<CellStyle>): Promise<void> {
+    const range = this.getRangeOrActiveCell();
+    for (let r = range[0].r; r <= range[1].r; r++) {
+      for (let c = range[0].c; c <= range[1].c; c++) {
+        await this.setStyle({ r, c }, style);
+      }
+    }
+  }
+
+  /**
+   * `toggleRangeStyle` toggles a boolean style property based on the active cell state.
+   */
+  async toggleRangeStyle(prop: 'b' | 'i' | 'u' | 'st'): Promise<void> {
+    const activeStyle = await this.getStyle(this.activeCell);
+    const newValue = !activeStyle?.[prop];
+    await this.setRangeStyle({ [prop]: newValue });
   }
 
   /**

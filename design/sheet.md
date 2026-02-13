@@ -41,7 +41,7 @@ type Reference = Sref | Srng;
 type Ref = { r: number; c: number };       // 1-based numeric coordinate
 type Range = [Ref, Ref];                   // [topLeft, bottomRight]
 
-type Cell = { v?: string; f?: string };    // v = display value, f = formula
+type Cell = { v?: string; f?: string; s?: CellStyle }; // v = value, f = formula, s = style
 type Grid = Map<Sref, Cell>;              // Sparse cell map
 
 type Direction = 'up' | 'down' | 'left' | 'right';
@@ -413,6 +413,61 @@ Key functions in `src/model/coordinates.ts`:
 - `toRefs(range)` — Generator yielding all `Ref`s in a range
 - `inRange(ref, range)` — Check if a ref is within a range
 - `toRange(ref1, ref2)` — Normalize two refs into a `[min, max]` range
+
+### Cell Formatting (CellStyle)
+
+Each cell can carry an optional `s` property of type `CellStyle` that controls
+its visual formatting. The style travels with the cell through copy, shift, and
+move operations because it's embedded directly in the `Cell` type — no separate
+style store is needed.
+
+```typescript
+type TextAlign = 'left' | 'center' | 'right';
+type VerticalAlign = 'top' | 'middle' | 'bottom';
+type NumberFormat = 'plain' | 'number' | 'currency' | 'percent';
+
+type CellStyle = {
+  b?: boolean;         // bold
+  i?: boolean;         // italic
+  u?: boolean;         // underline
+  st?: boolean;        // strikethrough
+  tc?: string;         // text color (#hex)
+  bg?: string;         // background color (#hex)
+  al?: TextAlign;      // horizontal alignment
+  va?: VerticalAlign;  // vertical alignment
+  nf?: NumberFormat;   // number format
+};
+```
+
+**Sheet methods:**
+
+- `getStyle(ref)` — Returns the style of a cell.
+- `setStyle(ref, style)` — Merges style into the cell, creating it if needed.
+  Falsy values are cleaned from the style object.
+- `setRangeStyle(style)` — Applies style to all cells in the current selection.
+- `toggleRangeStyle(prop)` — Toggles a boolean style (`b`, `i`, `u`, `st`) based
+  on the active cell's state.
+
+**Rendering:** The `GridCanvas.renderCell` method reads `cell.s` to determine
+background color, font weight/style, text color, alignment (horizontal and
+vertical), underline/strikethrough decorations, and number formatting. The
+`CellInput.applyStyle` method mirrors these styles on the inline editing
+`<div>`.
+
+**Number formatting:** The `formatValue(value, format)` utility converts raw
+values to display strings: `'number'` → `1,234.00`, `'currency'` → `$1,234.50`,
+`'percent'` → `15.00%`. Applied in `toDisplayString` and `renderCell`.
+
+**Data preservation:** `setData` preserves the existing `s` property when
+updating a cell's value or formula.
+
+**Keyboard shortcuts:** `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, `Cmd/Ctrl+U` toggle bold,
+italic, and underline on the current selection.
+
+**Toolbar:** The frontend `FormattingToolbar` component provides controls for
+all style properties and calls `Spreadsheet.applyStyle()` /
+`Spreadsheet.toggleStyle()`. It refreshes its state via the
+`onSelectionChange` callback.
 
 ## Risks and Mitigation
 

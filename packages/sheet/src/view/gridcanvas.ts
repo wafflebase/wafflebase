@@ -1,5 +1,6 @@
-import { Grid, Cell, Ref, Range, SelectionType } from '../model/types';
+import { Grid, Cell, Ref, Range, SelectionType, CellStyle } from '../model/types';
 import { DimensionIndex } from '../model/dimensions';
+import { formatValue } from '../model/format';
 import { Theme, ThemeKey, getThemeColor } from './theme';
 import { toColumnLabel, toSref } from '../model/coordinates';
 import {
@@ -522,29 +523,103 @@ export class GridCanvas {
     colDim?: DimensionIndex,
   ): void {
     const rect = toBoundingRect(id, scroll, rowDim, colDim);
+    const style = cell?.s;
 
     ctx.strokeStyle = this.getThemeColor('cellTextColor');
     ctx.lineWidth = CellBorderWidth;
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
-    ctx.fillStyle = this.getThemeColor('cellBGColor');
+    ctx.fillStyle = style?.bg || this.getThemeColor('cellBGColor');
     ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
 
-    const data = cell?.v || '';
-    if (data) {
+    const rawData = cell?.v || '';
+    if (rawData) {
+      const data = formatValue(rawData, style?.nf);
       const lines = data.split('\n');
       ctx.save();
       ctx.beginPath();
       ctx.rect(rect.left, rect.top, rect.width, rect.height);
       ctx.clip();
-      ctx.fillStyle = this.getThemeColor('cellTextColor');
-      ctx.font = `${CellFontSize}px Arial`;
+      ctx.fillStyle = style?.tc || this.getThemeColor('cellTextColor');
+
+      // Build font string
+      const fontParts: string[] = [];
+      if (style?.b) fontParts.push('bold');
+      if (style?.i) fontParts.push('italic');
+      fontParts.push(`${CellFontSize}px Arial`);
+      ctx.font = fontParts.join(' ');
+
       ctx.textBaseline = 'top';
+
+      // Compute text alignment
+      const align = style?.al || 'left';
+      let textX: number;
+      if (align === 'center') {
+        ctx.textAlign = 'center';
+        textX = rect.left + rect.width / 2;
+      } else if (align === 'right') {
+        ctx.textAlign = 'right';
+        textX = rect.left + rect.width - CellPaddingX;
+      } else {
+        ctx.textAlign = 'left';
+        textX = rect.left + CellPaddingX;
+      }
+
+      // Compute vertical alignment offset
+      const vAlign = style?.va || 'top';
+      const totalTextHeight =
+        lines.length * CellFontSize * CellLineHeight;
+      let baseY: number;
+      if (vAlign === 'middle') {
+        baseY = rect.top + (rect.height - totalTextHeight) / 2;
+      } else if (vAlign === 'bottom') {
+        baseY = rect.top + rect.height - totalTextHeight - CellPaddingY;
+      } else {
+        baseY = rect.top + CellPaddingY;
+      }
+
       for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(
-          lines[i],
-          rect.left + CellPaddingX,
-          rect.top + CellPaddingY + i * (CellFontSize * CellLineHeight),
-        );
+        const textY = baseY + i * (CellFontSize * CellLineHeight);
+        ctx.fillText(lines[i], textX, textY);
+
+        // Underline
+        if (style?.u) {
+          const metrics = ctx.measureText(lines[i]);
+          const lineY = textY + CellFontSize + 1;
+          let lineStartX: number;
+          if (align === 'center') {
+            lineStartX = textX - metrics.width / 2;
+          } else if (align === 'right') {
+            lineStartX = textX - metrics.width;
+          } else {
+            lineStartX = textX;
+          }
+          ctx.beginPath();
+          ctx.strokeStyle = style?.tc || this.getThemeColor('cellTextColor');
+          ctx.lineWidth = 1;
+          ctx.moveTo(lineStartX, lineY);
+          ctx.lineTo(lineStartX + metrics.width, lineY);
+          ctx.stroke();
+        }
+
+        // Strikethrough
+        if (style?.st) {
+          const metrics = ctx.measureText(lines[i]);
+          const lineY = textY + CellFontSize / 2;
+          let lineStartX: number;
+          if (align === 'center') {
+            lineStartX = textX - metrics.width / 2;
+          } else if (align === 'right') {
+            lineStartX = textX - metrics.width;
+          } else {
+            lineStartX = textX;
+          }
+          ctx.beginPath();
+          ctx.strokeStyle = style?.tc || this.getThemeColor('cellTextColor');
+          ctx.lineWidth = 1;
+          ctx.moveTo(lineStartX, lineY);
+          ctx.lineTo(lineStartX + metrics.width, lineY);
+          ctx.stroke();
+        }
       }
       ctx.restore();
     }
