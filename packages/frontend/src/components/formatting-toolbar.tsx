@@ -286,7 +286,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         <TooltipContent>Increase decimal places</TooltipContent>
       </Tooltip>
 
-      {/* Number Format Dropdown */}
+      {/* More Format Dropdown */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -297,7 +297,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Number format</TooltipContent>
+          <TooltipContent>More format</TooltipContent>
         </Tooltip>
         <DropdownMenuContent>
           <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>

@@ -959,10 +959,8 @@ export class Worksheet {
       const minSize = axis === 'column' ? MinColumnWidth : MinRowHeight;
       const newSize = Math.max(minSize, startSize + delta);
 
-      // Update all selected indices for visual feedback during drag
-      for (const idx of indices) {
-        dim.setSize(idx, newSize);
-      }
+      // During drag, only resize the handle being dragged (single index)
+      dim.setSize(index, newSize);
       this.render();
     };
 
@@ -971,9 +969,10 @@ export class Worksheet {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
 
-      // Persist the final size to the store on mouseup for all indices
+      // On mouseup, apply the final size to all selected indices
       const finalSize = dim.getSize(index);
       for (const idx of indices) {
+        dim.setSize(idx, finalSize);
         if (axis === 'column') {
           this.sheet!.setColumnWidth(idx, finalSize);
         } else {
@@ -981,6 +980,7 @@ export class Worksheet {
           this.sheet!.setRowHeight(idx, finalSize);
         }
       }
+      this.render();
     };
 
     document.addEventListener('mousemove', onMove);
