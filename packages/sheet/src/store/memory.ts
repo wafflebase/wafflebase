@@ -222,12 +222,12 @@ export class MemStore implements Store {
     // No-op for memory store (no history tracking)
   }
 
-  async undo(): Promise<boolean> {
-    return false;
+  async undo(): Promise<{ success: boolean }> {
+    return { success: false };
   }
 
-  async redo(): Promise<boolean> {
-    return false;
+  async redo(): Promise<{ success: boolean }> {
+    return { success: false };
   }
 
   canUndo(): boolean {

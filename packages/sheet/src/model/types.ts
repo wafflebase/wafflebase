@@ -66,6 +66,7 @@ export type CellStyle = {
   al?: TextAlign; // horizontal alignment
   va?: VerticalAlign; // vertical alignment
   nf?: NumberFormat; // number format
+  dp?: number; // decimal places (for number/currency/percent formats)
 };
 
 /**

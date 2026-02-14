@@ -632,18 +632,56 @@ export class YorkieStore implements Store {
     this.dirty = true;
   }
 
-  async undo(): Promise<boolean> {
-    if (!this.doc.history.canUndo()) return false;
+  async undo(): Promise<{ success: boolean; affectedRange?: Range }> {
+    if (!this.doc.history.canUndo()) return { success: false };
+
+    const beforeKeys = new Set(Object.keys(this.doc.getRoot().sheet));
     this.doc.history.undo();
     this.dirty = true;
-    return true;
+
+    const affectedRange = this.computeAffectedRange(beforeKeys);
+    return { success: true, affectedRange };
   }
 
-  async redo(): Promise<boolean> {
-    if (!this.doc.history.canRedo()) return false;
+  async redo(): Promise<{ success: boolean; affectedRange?: Range }> {
+    if (!this.doc.history.canRedo()) return { success: false };
+
+    const beforeKeys = new Set(Object.keys(this.doc.getRoot().sheet));
     this.doc.history.redo();
     this.dirty = true;
-    return true;
+
+    const affectedRange = this.computeAffectedRange(beforeKeys);
+    return { success: true, affectedRange };
+  }
+
+  /**
+   * Computes the bounding range of cells that changed between beforeKeys and current state.
+   */
+  private computeAffectedRange(beforeKeys: Set<string>): Range | undefined {
+    const afterKeys = new Set(Object.keys(this.doc.getRoot().sheet));
+
+    // Find all changed srefs (added, removed, or modified)
+    const changedSrefs = new Set<string>();
+    for (const sref of afterKeys) {
+      if (!beforeKeys.has(sref)) changedSrefs.add(sref);
+    }
+    for (const sref of beforeKeys) {
+      if (!afterKeys.has(sref)) changedSrefs.add(sref);
+    }
+
+    if (changedSrefs.size === 0) return undefined;
+
+    let minR = Infinity, maxR = -Infinity;
+    let minC = Infinity, maxC = -Infinity;
+    for (const sref of changedSrefs) {
+      const ref = parseRef(sref);
+      if (ref.r < minR) minR = ref.r;
+      if (ref.r > maxR) maxR = ref.r;
+      if (ref.c < minC) minC = ref.c;
+      if (ref.c > maxC) maxC = ref.c;
+    }
+
+    return [{ r: minR, c: minC }, { r: maxR, c: maxC }];
   }
 
   canUndo(): boolean {

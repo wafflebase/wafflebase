@@ -292,7 +292,7 @@ export class Sheet {
     const cell = await this.store.get(ref);
     if (!cell || !cell.v) return '';
     const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
-    return formatValue(cell.v, effective?.nf);
+    return formatValue(cell.v, effective?.nf, effective?.dp);
   }
 
   /**
@@ -305,7 +305,13 @@ export class Sheet {
       const existing = await this.store.get(ref);
       const base = value.startsWith('=') ? { f: value } : { v: value };
       const cell = existing?.s ? { ...base, s: existing.s } : base;
-      await this.store.set(ref, cell);
+
+      // If the cell is effectively empty (no value, no formula, no style), delete it.
+      if (this.isEmptyCell(cell)) {
+        await this.store.delete(ref);
+      } else {
+        await this.store.set(ref, cell);
+      }
 
       // 02. Update the dependencies.
       const dependantsMap = await this.store.buildDependantsMap([toSref(ref)]);
@@ -551,6 +557,32 @@ export class Sheet {
   }
 
   /**
+   * `isEmptyCell` checks if a cell has no meaningful data.
+   * A cell is empty if it has no value (or empty string), no formula, and no style.
+   */
+  private isEmptyCell(cell: Cell): boolean {
+    const hasValue = cell.v !== undefined && cell.v !== '' && cell.v !== null;
+    const hasFormula = !!cell.f;
+    const hasStyle = cell.s !== undefined && Object.keys(cell.s).length > 0;
+    return !hasValue && !hasFormula && !hasStyle;
+  }
+
+  /**
+   * `getCopyRange` returns the source range from the last copy operation,
+   * or undefined if no copy buffer exists.
+   */
+  public getCopyRange(): Range | undefined {
+    return this.copyBuffer?.sourceRange;
+  }
+
+  /**
+   * `clearCopyBuffer` clears the internal copy buffer.
+   */
+  public clearCopyBuffer(): void {
+    this.copyBuffer = undefined;
+  }
+
+  /**
    * `copy` copies the selected range and returns the TSV text for the system clipboard.
    * Also stores the full grid (with formulas and styles) in an internal buffer
    * for formula-aware paste.
@@ -607,6 +639,36 @@ export class Sheet {
       }
     } finally {
       this.store.endBatch();
+    }
+
+    // Select the pasted range
+    this.selectPastedRange(grid);
+  }
+
+  /**
+   * `selectPastedRange` computes the bounding box of a pasted grid and selects it.
+   */
+  private selectPastedRange(grid: Grid): void {
+    if (grid.size === 0) return;
+
+    let minR = Infinity, maxR = -Infinity;
+    let minC = Infinity, maxC = -Infinity;
+    for (const sref of grid.keys()) {
+      const ref = parseRef(sref);
+      if (ref.r < minR) minR = ref.r;
+      if (ref.r > maxR) maxR = ref.r;
+      if (ref.c < minC) minC = ref.c;
+      if (ref.c > maxC) maxC = ref.c;
+    }
+
+    if (minR === maxR && minC === maxC) {
+      // Single cell pasted — just move active cell there
+      this.selectStart({ r: minR, c: minC });
+    } else {
+      this.selectionType = 'cell';
+      this.activeCell = { r: minR, c: minC };
+      this.range = [{ r: minR, c: minC }, { r: maxR, c: maxC }];
+      this.store.updateActiveCell(this.activeCell);
     }
   }
 
@@ -1039,29 +1101,62 @@ export class Sheet {
   }
 
   /**
+   * `getActiveDecimalPlaces` returns the current decimal places of the active cell.
+   * Returns 2 as default if no decimal places are set.
+   */
+  async getActiveDecimalPlaces(): Promise<number> {
+    const style = await this.getStyle(this.activeCell);
+    return style?.dp ?? 2;
+  }
+
+  /**
    * `undo` undoes the last local change and reloads cached state.
    */
   async undo(): Promise<boolean> {
-    const success = await this.store.undo();
-    if (success) {
+    const result = await this.store.undo();
+    if (result.success) {
       await this.loadDimensions();
       await this.loadStyles();
       await this.loadFreezePane();
+
+      if (result.affectedRange) {
+        const [start, end] = result.affectedRange;
+        this.selectionType = 'cell';
+        this.activeCell = start;
+        if (start.r === end.r && start.c === end.c) {
+          this.range = undefined;
+        } else {
+          this.range = result.affectedRange;
+        }
+        this.store.updateActiveCell(this.activeCell);
+      }
     }
-    return success;
+    return result.success;
   }
 
   /**
    * `redo` redoes the last undone change and reloads cached state.
    */
   async redo(): Promise<boolean> {
-    const success = await this.store.redo();
-    if (success) {
+    const result = await this.store.redo();
+    if (result.success) {
       await this.loadDimensions();
       await this.loadStyles();
       await this.loadFreezePane();
+
+      if (result.affectedRange) {
+        const [start, end] = result.affectedRange;
+        this.selectionType = 'cell';
+        this.activeCell = start;
+        if (start.r === end.r && start.c === end.c) {
+          this.range = undefined;
+        } else {
+          this.range = result.affectedRange;
+        }
+        this.store.updateActiveCell(this.activeCell);
+      }
     }
-    return success;
+    return result.success;
   }
 
   /**

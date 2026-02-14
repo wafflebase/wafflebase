@@ -349,6 +349,8 @@ export class GridCanvas {
           rowDim,
           colDim,
           effectiveStyle,
+          grid,
+          colEnd,
         );
       }
     }
@@ -552,6 +554,8 @@ export class GridCanvas {
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
     effectiveStyle?: CellStyle,
+    grid?: Grid,
+    colEnd?: number,
   ): void {
     const rect = toBoundingRect(id, scroll, rowDim, colDim);
     const style = effectiveStyle ?? cell?.s;
@@ -564,25 +568,48 @@ export class GridCanvas {
 
     const rawData = cell?.v || '';
     if (rawData) {
-      const data = formatValue(rawData, style?.nf);
+      const data = formatValue(rawData, style?.nf, style?.dp);
       const lines = data.split('\n');
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(rect.left, rect.top, rect.width, rect.height);
-      ctx.clip();
-      ctx.fillStyle = style?.tc || this.getThemeColor('cellTextColor');
 
-      // Build font string
+      // Build font string (needed for measuring text width)
       const fontParts: string[] = [];
       if (style?.b) fontParts.push('bold');
       if (style?.i) fontParts.push('italic');
       fontParts.push(`${CellFontSize}px Arial`);
-      ctx.font = fontParts.join(' ');
+      const fontStr = fontParts.join(' ');
 
+      // Compute overflow clip width for single-line, left-aligned text
+      let clipWidth = rect.width;
+      const align = style?.al || 'left';
+      if (lines.length === 1 && align === 'left' && grid && colDim && colEnd) {
+        ctx.save();
+        ctx.font = fontStr;
+        const textWidth = ctx.measureText(data).width + CellPaddingX * 2;
+        ctx.restore();
+
+        if (textWidth > rect.width) {
+          let extraWidth = 0;
+          for (let nextCol = id.c + 1; nextCol <= colEnd; nextCol++) {
+            const neighborCell = grid.get(toSref({ r: id.r, c: nextCol }));
+            if (neighborCell && (neighborCell.v || neighborCell.f)) break;
+            const neighborWidth = colDim.getSize(nextCol);
+            extraWidth += neighborWidth;
+            if (rect.width + extraWidth >= textWidth) break;
+          }
+          clipWidth = rect.width + extraWidth;
+        }
+      }
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rect.left, rect.top, clipWidth, rect.height);
+      ctx.clip();
+      ctx.fillStyle = style?.tc || this.getThemeColor('cellTextColor');
+
+      ctx.font = fontStr;
       ctx.textBaseline = 'top';
 
       // Compute text alignment
-      const align = style?.al || 'left';
       let textX: number;
       if (align === 'center') {
         ctx.textAlign = 'center';

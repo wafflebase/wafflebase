@@ -62,6 +62,7 @@ export class Overlay {
     formulaRanges?: Array<Range>,
     freeze: FreezeState = NoFreeze,
     freezeDrag?: { axis: 'row' | 'column'; targetIndex: number } | null,
+    copyRange?: Range,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -83,6 +84,7 @@ export class Overlay {
       this.renderSelectionSimple(ctx, port, scroll, range, selectionType, rowDim, colDim);
       this.renderPeerCursorsSimple(ctx, port, peerPresences, scroll, rowDim, colDim);
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
+      this.renderCopyRangeSimple(ctx, copyRange, scroll, rowDim, colDim);
     } else {
       // Freeze: render per-quadrant with clipping
       const quadrants = this.buildQuadrants(port, scroll, freeze, rowDim, colDim);
@@ -154,6 +156,21 @@ export class Overlay {
 
             ctx.restore();
           }
+        }
+      }
+
+      // Render copy range per quadrant
+      if (copyRange) {
+        for (const q of quadrants) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(q.x, q.y, q.width, q.height);
+          ctx.clip();
+
+          const qScroll = { left: q.scrollLeft, top: q.scrollTop };
+          this.drawCopyRangeBorder(ctx, copyRange, qScroll, rowDim, colDim);
+
+          ctx.restore();
         }
       }
     }
@@ -348,6 +365,35 @@ export class Overlay {
       ctx.fillStyle = color + '20';
       ctx.fillRect(rangeRect.left, rangeRect.top, rangeRect.width, rangeRect.height);
     }
+  }
+
+  private renderCopyRangeSimple(
+    ctx: CanvasRenderingContext2D,
+    copyRange: Range | undefined,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+  ): void {
+    if (!copyRange) return;
+    this.drawCopyRangeBorder(ctx, copyRange, scroll, rowDim, colDim);
+  }
+
+  private drawCopyRangeBorder(
+    ctx: CanvasRenderingContext2D,
+    copyRange: Range,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+  ): void {
+    const rect = expandBoundingRect(
+      toBoundingRect(copyRange[0], scroll, rowDim, colDim),
+      toBoundingRect(copyRange[1], scroll, rowDim, colDim),
+    );
+    ctx.strokeStyle = this.getThemeColor('activeCellColor');
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+    ctx.setLineDash([]);
   }
 
   // ---- Freeze-aware selection rendering ----

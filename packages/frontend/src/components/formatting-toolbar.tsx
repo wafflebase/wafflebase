@@ -12,22 +12,16 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
+  DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import {
   IconBold,
   IconItalic,
-  IconUnderline,
   IconStrikethrough,
   IconAlignLeft,
   IconAlignCenter,
@@ -40,21 +34,78 @@ import {
   IconDropletOff,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconCurrencyDollar,
+  IconPercentage,
+  IconDecimal,
+  IconChevronDown,
+  IconHash,
+  IconAbc,
 } from "@tabler/icons-react";
 
 const TEXT_COLORS = [
-  "#000000", "#434343", "#666666", "#999999", "#cccccc",
-  "#d50000", "#e67c73", "#f4511e", "#ef6c00", "#f09300",
-  "#0b8043", "#33b679", "#039be5", "#3f51b5", "#7986cb",
-  "#8e24aa", "#d81b60", "#ad1457", "#6a1b9a", "#4a148c",
+  "#000000",
+  "#434343",
+  "#666666",
+  "#999999",
+  "#cccccc",
+  "#d50000",
+  "#e67c73",
+  "#f4511e",
+  "#ef6c00",
+  "#f09300",
+  "#0b8043",
+  "#33b679",
+  "#039be5",
+  "#3f51b5",
+  "#7986cb",
+  "#8e24aa",
+  "#d81b60",
+  "#ad1457",
+  "#6a1b9a",
+  "#4a148c",
 ];
 
 const BG_COLORS = [
-  "#ffffff", "#f3f3f3", "#e8e8e8", "#d9d9d9", "#cccccc",
-  "#fce4ec", "#fff3e0", "#fff9c4", "#e8f5e9", "#e0f7fa",
-  "#e3f2fd", "#ede7f6", "#fce4ec", "#f3e5f5", "#e8eaf6",
-  "#ffcdd2", "#ffe0b2", "#fff59d", "#c8e6c9", "#b2dfdb",
+  "#ffffff",
+  "#f3f3f3",
+  "#e8e8e8",
+  "#d9d9d9",
+  "#cccccc",
+  "#fce4ec",
+  "#fff3e0",
+  "#fff9c4",
+  "#e8f5e9",
+  "#e0f7fa",
+  "#e3f2fd",
+  "#ede7f6",
+  "#fce4ec",
+  "#f3e5f5",
+  "#e8eaf6",
+  "#ffcdd2",
+  "#ffe0b2",
+  "#fff59d",
+  "#c8e6c9",
+  "#b2dfdb",
 ];
+
+const ALIGN_ICONS = {
+  left: IconAlignLeft,
+  center: IconAlignCenter,
+  right: IconAlignRight,
+} as const;
+
+const VALIGN_ICONS = {
+  top: IconAlignBoxTopCenter,
+  middle: IconAlignBoxCenterMiddle,
+  bottom: IconAlignBoxBottomCenter,
+} as const;
+
+const FORMAT_ICONS = {
+  plain: IconAbc,
+  number: IconHash,
+  currency: IconCurrencyDollar,
+  percent: IconPercentage,
+} as const;
 
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
@@ -79,28 +130,28 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
     (prop: "b" | "i" | "u" | "st") => {
       spreadsheet?.toggleStyle(prop);
     },
-    [spreadsheet]
+    [spreadsheet],
   );
 
   const handleAlign = useCallback(
     (align: "left" | "center" | "right") => {
       spreadsheet?.applyStyle({ al: align });
     },
-    [spreadsheet]
+    [spreadsheet],
   );
 
   const handleVerticalAlign = useCallback(
     (va: VerticalAlign) => {
       spreadsheet?.applyStyle({ va });
     },
-    [spreadsheet]
+    [spreadsheet],
   );
 
   const handleTextColor = useCallback(
     (color: string) => {
       spreadsheet?.applyStyle({ tc: color });
     },
-    [spreadsheet]
+    [spreadsheet],
   );
 
   const handleResetTextColor = useCallback(() => {
@@ -111,7 +162,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
     (color: string) => {
       spreadsheet?.applyStyle({ bg: color });
     },
-    [spreadsheet]
+    [spreadsheet],
   );
 
   const handleResetBgColor = useCallback(() => {
@@ -130,8 +181,23 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
     (format: string) => {
       spreadsheet?.applyStyle({ nf: format as NumberFormat });
     },
-    [spreadsheet]
+    [spreadsheet],
   );
+
+  const handleIncreaseDecimals = useCallback(() => {
+    spreadsheet?.increaseDecimals();
+  }, [spreadsheet]);
+
+  const handleDecreaseDecimals = useCallback(() => {
+    spreadsheet?.decreaseDecimals();
+  }, [spreadsheet]);
+
+  const currentAlign = style?.al || "left";
+  const CurrentAlignIcon = ALIGN_ICONS[currentAlign];
+  const currentVAlign = style?.va || "top";
+  const CurrentVAlignIcon = VALIGN_ICONS[currentVAlign];
+  const currentFormat = (style?.nf || "plain") as keyof typeof FORMAT_ICONS;
+  const CurrentFormatIcon = FORMAT_ICONS[currentFormat];
 
   return (
     <div className="flex items-center gap-0.5 border-b px-2 py-1 bg-background">
@@ -162,21 +228,96 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Number Format */}
-      <Select
-        value={style?.nf || "plain"}
-        onValueChange={handleNumberFormat}
-      >
-        <SelectTrigger size="sm" className="w-[100px] h-7 text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="plain">Plain</SelectItem>
-          <SelectItem value="number">Number</SelectItem>
-          <SelectItem value="currency">Currency</SelectItem>
-          <SelectItem value="percent">Percent</SelectItem>
-        </SelectContent>
-      </Select>
+      {/* Currency shortcut */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => handleNumberFormat("currency")}
+          >
+            <IconCurrencyDollar size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Format as currency</TooltipContent>
+      </Tooltip>
+
+      {/* Percent shortcut */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => handleNumberFormat("percent")}
+          >
+            <IconPercentage size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Format as percent</TooltipContent>
+      </Tooltip>
+
+      {/* Decrease decimals */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={handleDecreaseDecimals}
+          >
+            <IconDecimal size={16} />
+            <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
+              -
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Decrease decimal places</TooltipContent>
+      </Tooltip>
+
+      {/* Increase decimals */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={handleIncreaseDecimals}
+          >
+            <IconDecimal size={16} />
+            <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
+              +
+            </span>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Increase decimal places</TooltipContent>
+      </Tooltip>
+
+      {/* Number Format Dropdown */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button className="inline-flex h-7 items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                <CurrentFormatIcon size={16} />
+                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Number format</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
+          <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>
+            <IconAbc size={16} className="mr-2" />
+            Plain text
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
+            <IconHash size={16} className="mr-2" />
+            Number
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
+            <IconCurrencyDollar size={16} className="mr-2" />
+            Currency
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
+            <IconPercentage size={16} className="mr-2" />
+            Percent
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
@@ -213,20 +354,6 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={style?.u || false}
-            onPressedChange={() => handleToggle("u")}
-            className="h-7 w-7"
-          >
-            <IconUnderline size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Underline</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
             pressed={style?.st || false}
             onPressedChange={() => handleToggle("st")}
             className="h-7 w-7"
@@ -236,8 +363,6 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         </TooltipTrigger>
         <TooltipContent>Strikethrough</TooltipContent>
       </Tooltip>
-
-      <Separator orientation="vertical" className="mx-1 h-6" />
 
       {/* Text Color */}
       <DropdownMenu>
@@ -275,6 +400,8 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Separator orientation="vertical" className="mx-1 h-6" />
 
       {/* Background Color */}
       <DropdownMenu>
@@ -318,93 +445,63 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Horizontal Alignment */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={!style?.al || style?.al === "left"}
-            onPressedChange={() => handleAlign("left")}
-            className="h-7 w-7"
-          >
-            <IconAlignLeft size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Align left</TooltipContent>
-      </Tooltip>
+      {/* Horizontal Alignment Dropdown */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button className="inline-flex h-7 items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                <CurrentAlignIcon size={16} />
+                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Horizontal align</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
+          <DropdownMenuItem onClick={() => handleAlign("left")}>
+            <IconAlignLeft size={16} className="mr-2" />
+            Left
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleAlign("center")}>
+            <IconAlignCenter size={16} className="mr-2" />
+            Center
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleAlign("right")}>
+            <IconAlignRight size={16} className="mr-2" />
+            Right
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={style?.al === "center"}
-            onPressedChange={() => handleAlign("center")}
-            className="h-7 w-7"
-          >
-            <IconAlignCenter size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Align center</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={style?.al === "right"}
-            onPressedChange={() => handleAlign("right")}
-            className="h-7 w-7"
-          >
-            <IconAlignRight size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Align right</TooltipContent>
-      </Tooltip>
-
-      <Separator orientation="vertical" className="mx-1 h-6" />
-
-      {/* Vertical Alignment */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={!style?.va || style?.va === "top"}
-            onPressedChange={() => handleVerticalAlign("top")}
-            className="h-7 w-7"
-          >
-            <IconAlignBoxTopCenter size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Align top</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={style?.va === "middle"}
-            onPressedChange={() => handleVerticalAlign("middle")}
-            className="h-7 w-7"
-          >
-            <IconAlignBoxCenterMiddle size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Align middle</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={style?.va === "bottom"}
-            onPressedChange={() => handleVerticalAlign("bottom")}
-            className="h-7 w-7"
-          >
-            <IconAlignBoxBottomCenter size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Align bottom</TooltipContent>
-      </Tooltip>
+      {/* Vertical Alignment Dropdown */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button className="inline-flex h-7 items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                <CurrentVAlignIcon size={16} />
+                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Vertical align</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
+          <DropdownMenuItem onClick={() => handleVerticalAlign("top")}>
+            <IconAlignBoxTopCenter size={16} className="mr-2" />
+            Top
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleVerticalAlign("middle")}>
+            <IconAlignBoxCenterMiddle size={16} className="mr-2" />
+            Middle
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleVerticalAlign("bottom")}>
+            <IconAlignBoxBottomCenter size={16} className="mr-2" />
+            Bottom
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

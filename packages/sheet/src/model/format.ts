@@ -3,8 +3,9 @@ import { NumberFormat } from './types';
 /**
  * `formatValue` converts a raw value to a display string based on the number format.
  * Returns the original value for non-numeric inputs or 'plain'/undefined format.
+ * @param dp decimal places override (undefined uses format default of 2)
  */
-export function formatValue(value: string, format?: NumberFormat): string {
+export function formatValue(value: string, format?: NumberFormat, dp?: number): string {
   if (!format || format === 'plain') {
     return value;
   }
@@ -18,22 +19,26 @@ export function formatValue(value: string, format?: NumberFormat): string {
     return value;
   }
 
+  const decimals = dp ?? 2;
+
   switch (format) {
     case 'number':
       return num.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
       });
     case 'currency':
       return num.toLocaleString('en-US', {
         style: 'currency',
         currency: 'USD',
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
       });
     case 'percent':
       return (num / 100).toLocaleString('en-US', {
         style: 'percent',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
       });
     default:
       return value;

@@ -135,14 +135,16 @@ export interface Store {
   endBatch(): void;
 
   /**
-   * `undo` method undoes the last local change. Returns true if undo was performed.
+   * `undo` method undoes the last local change.
+   * Returns an object with `success` and optionally `affectedRange`.
    */
-  undo(): Promise<boolean>;
+  undo(): Promise<{ success: boolean; affectedRange?: Range }>;
 
   /**
-   * `redo` method redoes the last undone change. Returns true if redo was performed.
+   * `redo` method redoes the last undone change.
+   * Returns an object with `success` and optionally `affectedRange`.
    */
-  redo(): Promise<boolean>;
+  redo(): Promise<{ success: boolean; affectedRange?: Range }>;
 
   /**
    * `canUndo` method returns true if there is a change to undo.

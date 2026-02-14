@@ -140,6 +140,28 @@ export class Spreadsheet {
   }
 
   /**
+   * `increaseDecimals` increases the decimal places for the current selection.
+   */
+  public async increaseDecimals() {
+    if (!this.sheet) return;
+    const dp = await this.sheet.getActiveDecimalPlaces();
+    await this.sheet.setRangeStyle({ dp: dp + 1 });
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `decreaseDecimals` decreases the decimal places for the current selection.
+   */
+  public async decreaseDecimals() {
+    if (!this.sheet) return;
+    const dp = await this.sheet.getActiveDecimalPlaces();
+    await this.sheet.setRangeStyle({ dp: Math.max(0, dp - 1) });
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
    * `undo` undoes the last local change and re-renders.
    */
   public async undo() {

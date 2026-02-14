@@ -938,14 +938,30 @@ export class Worksheet {
 
     const dim = axis === 'column' ? this.colDim : this.rowDim;
 
+    // Determine if the resized index is part of a multi-selection
+    const selected = this.sheet!.getSelectedIndices();
+    const isMulti =
+      selected &&
+      selected.axis === axis &&
+      index >= selected.from &&
+      index <= selected.to;
+    const indices = isMulti
+      ? Array.from(
+          { length: selected!.to - selected!.from + 1 },
+          (_, i) => selected!.from + i,
+        )
+      : [index];
+
     const onMove = (e: MouseEvent) => {
       const currentPos = axis === 'column' ? e.clientX : e.clientY;
       const delta = currentPos - startPos;
       const minSize = axis === 'column' ? MinColumnWidth : MinRowHeight;
       const newSize = Math.max(minSize, startSize + delta);
 
-      // Only update local DimensionIndex for visual feedback during drag
-      dim.setSize(index, newSize);
+      // Update all selected indices for visual feedback during drag
+      for (const idx of indices) {
+        dim.setSize(idx, newSize);
+      }
       this.render();
     };
 
@@ -954,13 +970,15 @@ export class Worksheet {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
 
-      // Persist the final size to the store on mouseup
+      // Persist the final size to the store on mouseup for all indices
       const finalSize = dim.getSize(index);
-      if (axis === 'column') {
-        this.sheet!.setColumnWidth(index, finalSize);
-      } else {
-        this.manuallyResizedRows.add(index);
-        this.sheet!.setRowHeight(index, finalSize);
+      for (const idx of indices) {
+        if (axis === 'column') {
+          this.sheet!.setColumnWidth(idx, finalSize);
+        } else {
+          this.manuallyResizedRows.add(idx);
+          this.sheet!.setRowHeight(idx, finalSize);
+        }
       }
     };
 
@@ -1290,6 +1308,7 @@ export class Worksheet {
       }
 
       await this.sheet!.paste({ text, html });
+      this.sheet!.clearCopyBuffer();
       this.render();
     } catch (err) {
       console.error('Failed to paste cell content: ', err);
@@ -1369,6 +1388,12 @@ export class Worksheet {
         this.render();
         this.scrollIntoView();
       }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (this.sheet!.getCopyRange()) {
+        this.sheet!.clearCopyBuffer();
+        this.renderOverlay();
+      }
     } else if (e.key === 'c' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       await this.copy();
@@ -1439,6 +1464,7 @@ export class Worksheet {
       this.formulaRanges,
       this.freezeState,
       this.freezeDrag,
+      this.sheet!.getCopyRange(),
     );
   }
 
