@@ -123,6 +123,18 @@ export interface Store {
   getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }>;
 
   /**
+   * `beginBatch` starts a batch transaction. All mutations between
+   * `beginBatch()` and `endBatch()` are grouped into a single undo step.
+   */
+  beginBatch(): void;
+
+  /**
+   * `endBatch` ends the batch transaction, flushing all buffered mutations
+   * in a single store update.
+   */
+  endBatch(): void;
+
+  /**
    * `undo` method undoes the last local change. Returns true if undo was performed.
    */
   undo(): Promise<boolean>;

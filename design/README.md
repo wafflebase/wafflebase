@@ -10,6 +10,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [frontend.md](frontend.md) | Frontend package — app architecture, Yorkie integration, presence system, auth flow |
 | [backend.md](backend.md) | Backend package — NestJS modules, API reference, auth system, database schema, security |
 | [scroll-and-rendering.md](scroll-and-rendering.md) | Viewport-based Canvas rendering and proportional scroll remapping for large grids |
+| [batch-transactions.md](batch-transactions.md) | Store-level batch transactions for atomic undo/redo grouping |
 
 ## Template
 

@@ -118,11 +118,27 @@ interface Store {
   setFreezePane(frozenRows: number, frozenCols: number): Promise<void>;
   getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }>;
 
+  // Batch transactions
+  beginBatch(): void;
+  endBatch(): void;
+
+  // Undo/Redo
+  undo(): Promise<boolean>;
+  redo(): Promise<boolean>;
+  canUndo(): boolean;
+  canRedo(): boolean;
+
   // Presence (sync, not async)
   getPresences(): Array<{ clientID: string; presence: { activeCell: string } }>;
   updateActiveCell(activeCell: Ref): void;
 }
 ```
+
+**Batch transactions** — `beginBatch()` / `endBatch()` group multiple store
+mutations into a single undo step. The `Sheet` class wraps user-facing methods
+(`setData`, `removeData`, `paste`, `setRangeStyle`, and the post-shift part of
+`shiftCells`/`moveCells`) in batch calls. See
+[batch-transactions.md](batch-transactions.md) for the full design.
 
 **MemStore** is the built-in in-memory implementation. It stores cells in a
 `Map<Sref, Cell>`, dimension overrides in separate maps, and implements

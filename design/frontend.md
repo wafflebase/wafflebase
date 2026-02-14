@@ -123,6 +123,14 @@ interface from `@wafflebase/sheet`. Each store method maps to a Yorkie
 All mutations go through `doc.update()`, which automatically syncs to the
 Yorkie server and broadcasts to all connected peers.
 
+**Batch transactions** — YorkieStore implements `beginBatch()` / `endBatch()`
+to group multiple mutations into a single `doc.update()` call, creating one
+undo step. Cell mutations are buffered in an overlay `Map<Sref, Cell | null>`
+that also serves as a read-through cache for intermediate reads during formula
+recalculation. Non-cell mutations (styles, dimensions, freeze pane) are
+buffered as deferred functions. See
+[batch-transactions.md](batch-transactions.md) for the full design.
+
 #### CellIndex (Dirty Flag + Lazy Rebuild)
 
 YorkieStore maintains a `CellIndex` (from `@wafflebase/sheet`) for efficient

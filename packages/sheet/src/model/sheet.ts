@@ -299,35 +299,45 @@ export class Sheet {
    * `setData` sets the data at the given row and column.
    */
   async setData(ref: Ref, value: string): Promise<void> {
-    // 01. Update the cell with the new value, preserving existing style.
-    const existing = await this.store.get(ref);
-    const base = value.startsWith('=') ? { f: value } : { v: value };
-    const cell = existing?.s ? { ...base, s: existing.s } : base;
-    await this.store.set(ref, cell);
+    this.store.beginBatch();
+    try {
+      // 01. Update the cell with the new value, preserving existing style.
+      const existing = await this.store.get(ref);
+      const base = value.startsWith('=') ? { f: value } : { v: value };
+      const cell = existing?.s ? { ...base, s: existing.s } : base;
+      await this.store.set(ref, cell);
 
-    // 02. Update the dependencies.
-    const dependantsMap = await this.store.buildDependantsMap([toSref(ref)]);
+      // 02. Update the dependencies.
+      const dependantsMap = await this.store.buildDependantsMap([toSref(ref)]);
 
-    // 03. Calculate the cell and its dependencies.
-    await calculate(this, dependantsMap, [toSref(ref)]);
+      // 03. Calculate the cell and its dependencies.
+      await calculate(this, dependantsMap, [toSref(ref)]);
+    } finally {
+      this.store.endBatch();
+    }
   }
 
   /**
    * `removeData` removes the data at the given row and column.
    */
   async removeData(): Promise<boolean> {
-    const range: Range = this.range
-      ? this.range
-      : [this.activeCell, this.activeCell];
-    const removeds = await this.store.deleteRange(range);
+    this.store.beginBatch();
+    try {
+      const range: Range = this.range
+        ? this.range
+        : [this.activeCell, this.activeCell];
+      const removeds = await this.store.deleteRange(range);
 
-    if (removeds.size === 0) {
-      return false;
+      if (removeds.size === 0) {
+        return false;
+      }
+
+      const dependantsMap = await this.store.buildDependantsMap(removeds);
+      await calculate(this, dependantsMap, removeds);
+      return true;
+    } finally {
+      this.store.endBatch();
     }
-
-    const dependantsMap = await this.store.buildDependantsMap(removeds);
-    await calculate(this, dependantsMap, removeds);
-    return true;
   }
 
   /**
@@ -425,47 +435,53 @@ export class Sheet {
       }
     }
 
-    // Adjust freeze pane when inserting/deleting near the freeze boundary
-    const frozen = axis === 'row' ? this.frozenRows : this.frozenCols;
-    if (frozen > 0) {
-      if (count > 0 && index <= frozen) {
-        // Insert within frozen area: expand frozen region
-        const newFrozen = frozen + count;
-        if (axis === 'row') {
-          this.frozenRows = newFrozen;
-        } else {
-          this.frozenCols = newFrozen;
-        }
-        await this.store.setFreezePane(this.frozenRows, this.frozenCols);
-      } else if (count < 0) {
-        const absCount = Math.abs(count);
-        // Delete within frozen area: shrink frozen region
-        if (index <= frozen) {
-          const deletedInFrozen = Math.min(absCount, frozen - index + 1);
-          const newFrozen = Math.max(0, frozen - deletedInFrozen);
+    // Batch the freeze pane adjustment and formula recalculation together
+    this.store.beginBatch();
+    try {
+      // Adjust freeze pane when inserting/deleting near the freeze boundary
+      const frozen = axis === 'row' ? this.frozenRows : this.frozenCols;
+      if (frozen > 0) {
+        if (count > 0 && index <= frozen) {
+          // Insert within frozen area: expand frozen region
+          const newFrozen = frozen + count;
           if (axis === 'row') {
             this.frozenRows = newFrozen;
           } else {
             this.frozenCols = newFrozen;
           }
           await this.store.setFreezePane(this.frozenRows, this.frozenCols);
+        } else if (count < 0) {
+          const absCount = Math.abs(count);
+          // Delete within frozen area: shrink frozen region
+          if (index <= frozen) {
+            const deletedInFrozen = Math.min(absCount, frozen - index + 1);
+            const newFrozen = Math.max(0, frozen - deletedInFrozen);
+            if (axis === 'row') {
+              this.frozenRows = newFrozen;
+            } else {
+              this.frozenCols = newFrozen;
+            }
+            await this.store.setFreezePane(this.frozenRows, this.frozenCols);
+          }
         }
       }
-    }
 
-    // Recalculate all formula cells
-    const allSrefs = new Set<Sref>();
-    const fullRange: Range = [{ r: 1, c: 1 }, { r: 1000, c: 100 }];
-    const grid = await this.store.getGrid(fullRange);
-    for (const [sref, cell] of grid) {
-      if (cell.f) {
-        allSrefs.add(sref);
+      // Recalculate all formula cells
+      const allSrefs = new Set<Sref>();
+      const fullRange: Range = [{ r: 1, c: 1 }, { r: 1000, c: 100 }];
+      const grid = await this.store.getGrid(fullRange);
+      for (const [sref, cell] of grid) {
+        if (cell.f) {
+          allSrefs.add(sref);
+        }
       }
-    }
 
-    if (allSrefs.size > 0) {
-      const dependantsMap = await this.store.buildDependantsMap(allSrefs);
-      await calculate(this, dependantsMap, allSrefs);
+      if (allSrefs.size > 0) {
+        const dependantsMap = await this.store.buildDependantsMap(allSrefs);
+        await calculate(this, dependantsMap, allSrefs);
+      }
+    } finally {
+      this.store.endBatch();
     }
   }
 
@@ -505,19 +521,25 @@ export class Sheet {
       ];
     }
 
-    // Recalculate all formula cells
-    const allSrefs = new Set<Sref>();
-    const fullRange: Range = [{ r: 1, c: 1 }, { r: 1000, c: 100 }];
-    const grid = await this.store.getGrid(fullRange);
-    for (const [sref, cell] of grid) {
-      if (cell.f) {
-        allSrefs.add(sref);
+    // Batch the formula recalculation
+    this.store.beginBatch();
+    try {
+      // Recalculate all formula cells
+      const allSrefs = new Set<Sref>();
+      const fullRange: Range = [{ r: 1, c: 1 }, { r: 1000, c: 100 }];
+      const grid = await this.store.getGrid(fullRange);
+      for (const [sref, cell] of grid) {
+        if (cell.f) {
+          allSrefs.add(sref);
+        }
       }
-    }
 
-    if (allSrefs.size > 0) {
-      const dependantsMap = await this.store.buildDependantsMap(allSrefs);
-      await calculate(this, dependantsMap, allSrefs);
+      if (allSrefs.size > 0) {
+        const dependantsMap = await this.store.buildDependantsMap(allSrefs);
+        await calculate(this, dependantsMap, allSrefs);
+      }
+    } finally {
+      this.store.endBatch();
     }
   }
 
@@ -568,18 +590,23 @@ export class Sheet {
       return;
     }
 
-    await this.setGrid(grid);
+    this.store.beginBatch();
+    try {
+      await this.setGrid(grid);
 
-    // Recalculate formulas after paste
-    const formulaSrefs = new Set<Sref>();
-    for (const [sref, cell] of grid) {
-      if (cell.f) {
-        formulaSrefs.add(sref);
+      // Recalculate formulas after paste
+      const formulaSrefs = new Set<Sref>();
+      for (const [sref, cell] of grid) {
+        if (cell.f) {
+          formulaSrefs.add(sref);
+        }
       }
-    }
-    if (formulaSrefs.size > 0) {
-      const dependantsMap = await this.store.buildDependantsMap(formulaSrefs);
-      await calculate(this, dependantsMap, formulaSrefs);
+      if (formulaSrefs.size > 0) {
+        const dependantsMap = await this.store.buildDependantsMap(formulaSrefs);
+        await calculate(this, dependantsMap, formulaSrefs);
+      }
+    } finally {
+      this.store.endBatch();
     }
   }
 
@@ -942,57 +969,62 @@ export class Sheet {
    * instead of iterating every cell.
    */
   async setRangeStyle(style: Partial<CellStyle>): Promise<void> {
-    if (this.selectionType === 'column') {
-      const range = this.getRangeOrActiveCell();
-      for (let c = range[0].c; c <= range[1].c; c++) {
-        const existing = this.colStyles.get(c) || {};
+    this.store.beginBatch();
+    try {
+      if (this.selectionType === 'column') {
+        const range = this.getRangeOrActiveCell();
+        for (let c = range[0].c; c <= range[1].c; c++) {
+          const existing = this.colStyles.get(c) || {};
+          const merged = { ...existing, ...style };
+          for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
+            if (!merged[key] && merged[key] !== 0) {
+              delete merged[key];
+            }
+          }
+          this.colStyles.set(c, merged);
+          await this.store.setColumnStyle(c, merged);
+        }
+        return;
+      }
+
+      if (this.selectionType === 'row') {
+        const range = this.getRangeOrActiveCell();
+        for (let r = range[0].r; r <= range[1].r; r++) {
+          const existing = this.rowStyles.get(r) || {};
+          const merged = { ...existing, ...style };
+          for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
+            if (!merged[key] && merged[key] !== 0) {
+              delete merged[key];
+            }
+          }
+          this.rowStyles.set(r, merged);
+          await this.store.setRowStyle(r, merged);
+        }
+        return;
+      }
+
+      if (this.selectionType === 'all') {
+        const existing = this.sheetStyle || {};
         const merged = { ...existing, ...style };
         for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
           if (!merged[key] && merged[key] !== 0) {
             delete merged[key];
           }
         }
-        this.colStyles.set(c, merged);
-        await this.store.setColumnStyle(c, merged);
+        this.sheetStyle = merged;
+        await this.store.setSheetStyle(merged);
+        return;
       }
-      return;
-    }
 
-    if (this.selectionType === 'row') {
+      // Default: cell-level styling
       const range = this.getRangeOrActiveCell();
       for (let r = range[0].r; r <= range[1].r; r++) {
-        const existing = this.rowStyles.get(r) || {};
-        const merged = { ...existing, ...style };
-        for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
-          if (!merged[key] && merged[key] !== 0) {
-            delete merged[key];
-          }
-        }
-        this.rowStyles.set(r, merged);
-        await this.store.setRowStyle(r, merged);
-      }
-      return;
-    }
-
-    if (this.selectionType === 'all') {
-      const existing = this.sheetStyle || {};
-      const merged = { ...existing, ...style };
-      for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
-        if (!merged[key] && merged[key] !== 0) {
-          delete merged[key];
+        for (let c = range[0].c; c <= range[1].c; c++) {
+          await this.setStyle({ r, c }, style);
         }
       }
-      this.sheetStyle = merged;
-      await this.store.setSheetStyle(merged);
-      return;
-    }
-
-    // Default: cell-level styling
-    const range = this.getRangeOrActiveCell();
-    for (let r = range[0].r; r <= range[1].r; r++) {
-      for (let c = range[0].c; c <= range[1].c; c++) {
-        await this.setStyle({ r, c }, style);
-      }
+    } finally {
+      this.store.endBatch();
     }
   }
 

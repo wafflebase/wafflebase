@@ -29,6 +29,11 @@ export class YorkieStore implements Store {
   private cellIndex: CellIndex = new CellIndex();
   private dirty = true;
 
+  // Batch state: when non-null, mutations are buffered instead of immediately
+  // flushed to doc.update(). endBatch() flushes all ops in a single update.
+  private batchOverlay: Map<Sref, Cell | null> | null = null;
+  private batchOps: Array<(root: Worksheet) => void> | null = null;
+
   constructor(doc: Document<Worksheet, UserPresence>) {
     this.doc = doc;
 
@@ -57,8 +62,17 @@ export class YorkieStore implements Store {
    * `set` method sets the value of a cell.
    */
   async set(ref: Ref, value: Cell): Promise<void> {
+    const sref = toSref(ref);
+    if (this.batchOverlay) {
+      this.batchOverlay.set(sref, value);
+      if (!this.dirty) {
+        this.cellIndex.add(ref.r, ref.c);
+      }
+      return;
+    }
+
     this.doc.update((root) => {
-      root.sheet[toSref(ref)] = value;
+      root.sheet[sref] = value;
     });
     if (!this.dirty) {
       this.cellIndex.add(ref.r, ref.c);
@@ -69,25 +83,52 @@ export class YorkieStore implements Store {
    * `get` method gets the value of a cell.
    */
   async get(ref: Ref): Promise<Cell | undefined> {
-    return this.doc.getRoot().sheet[toSref(ref)];
+    const sref = toSref(ref);
+    if (this.batchOverlay && this.batchOverlay.has(sref)) {
+      const val = this.batchOverlay.get(sref);
+      return val === null ? undefined : val;
+    }
+    return this.doc.getRoot().sheet[sref];
   }
 
   /**
    * `has` method checks if a cell exists.
    */
   async has(ref: Ref): Promise<boolean> {
+    const sref = toSref(ref);
+    if (this.batchOverlay && this.batchOverlay.has(sref)) {
+      return this.batchOverlay.get(sref) !== null;
+    }
     const sheet = this.doc.getRoot().sheet;
-    return sheet[toSref(ref)] !== undefined;
+    return sheet[sref] !== undefined;
   }
 
   /**
    * `delete` method deletes a cell.
    */
   async delete(ref: Ref): Promise<boolean> {
+    const sref = toSref(ref);
+    if (this.batchOverlay) {
+      // Check if cell exists (in overlay or document)
+      let exists = false;
+      if (this.batchOverlay.has(sref)) {
+        exists = this.batchOverlay.get(sref) !== null;
+      } else {
+        exists = this.doc.getRoot().sheet[sref] !== undefined;
+      }
+      if (!exists) return false;
+
+      this.batchOverlay.set(sref, null);
+      if (!this.dirty) {
+        this.cellIndex.remove(ref.r, ref.c);
+      }
+      return true;
+    }
+
     let deleted = false;
     this.doc.update((root) => {
-      if (root.sheet[toSref(ref)] !== undefined) {
-        delete root.sheet[toSref(ref)];
+      if (root.sheet[sref] !== undefined) {
+        delete root.sheet[sref];
         deleted = true;
       }
     });
@@ -105,6 +146,22 @@ export class YorkieStore implements Store {
 
     const cellsToDelete = Array.from(this.cellIndex.cellsInRange(range));
     const deleted = new Set<Sref>();
+
+    if (this.batchOverlay) {
+      for (const [row, col] of cellsToDelete) {
+        const sref = toSref({ r: row, c: col });
+        // Skip cells already deleted in overlay
+        if (this.batchOverlay.has(sref) && this.batchOverlay.get(sref) === null) {
+          continue;
+        }
+        this.batchOverlay.set(sref, null);
+        deleted.add(sref);
+      }
+      for (const [row, col] of cellsToDelete) {
+        this.cellIndex.remove(row, col);
+      }
+      return deleted;
+    }
 
     this.doc.update((root) => {
       for (const [row, col] of cellsToDelete) {
@@ -125,6 +182,19 @@ export class YorkieStore implements Store {
    * `setGrid` method sets the grid.
    */
   async setGrid(grid: Grid): Promise<void> {
+    if (this.batchOverlay) {
+      for (const [sref, cell] of grid) {
+        this.batchOverlay.set(sref, cell);
+      }
+      if (!this.dirty) {
+        for (const [sref] of grid) {
+          const ref = parseRef(sref);
+          this.cellIndex.add(ref.r, ref.c);
+        }
+      }
+      return;
+    }
+
     this.doc.update((root) => {
       for (const [sref, cell] of grid) {
         root.sheet[sref] = cell;
@@ -149,6 +219,13 @@ export class YorkieStore implements Store {
 
     for (const [row, col] of this.cellIndex.cellsInRange(range)) {
       const sref = toSref({ r: row, c: col });
+      if (this.batchOverlay && this.batchOverlay.has(sref)) {
+        const val = this.batchOverlay.get(sref);
+        if (val !== null) {
+          grid.set(sref, val);
+        }
+        continue;
+      }
       const value = sheet[sref];
       if (value !== undefined) {
         grid.set(sref, value);
@@ -337,6 +414,28 @@ export class YorkieStore implements Store {
   async buildDependantsMap(_: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>> {
     const dependantsMap = new Map<Sref, Set<Sref>>();
     const sheet = this.doc.getRoot().sheet;
+
+    if (this.batchOverlay) {
+      // Iterate document cells, skipping those deleted in overlay
+      for (const [sref, cell] of Object.entries(sheet)) {
+        if (this.batchOverlay.has(sref)) continue;
+        if (!cell.f) continue;
+        for (const r of toSrefs(extractReferences(cell.f))) {
+          if (!dependantsMap.has(r)) dependantsMap.set(r, new Set());
+          dependantsMap.get(r)!.add(sref);
+        }
+      }
+      // Iterate overlay cells (skip deleted ones)
+      for (const [sref, cell] of this.batchOverlay) {
+        if (cell === null || !cell.f) continue;
+        for (const r of toSrefs(extractReferences(cell.f))) {
+          if (!dependantsMap.has(r)) dependantsMap.set(r, new Set());
+          dependantsMap.get(r)!.add(sref);
+        }
+      }
+      return dependantsMap;
+    }
+
     for (const [sref, cell] of Object.entries(sheet)) {
       if (!cell.f) {
         continue;
@@ -357,6 +456,14 @@ export class YorkieStore implements Store {
     index: number,
     size: number
   ): Promise<void> {
+    if (this.batchOps) {
+      this.batchOps.push((root) => {
+        const map = axis === "row" ? root.rowHeights : root.colWidths;
+        map[String(index)] = size;
+      });
+      return;
+    }
+
     this.doc.update((root) => {
       const map = axis === "row" ? root.rowHeights : root.colWidths;
       map[String(index)] = size;
@@ -386,6 +493,16 @@ export class YorkieStore implements Store {
   }
 
   async setColumnStyle(col: number, style: CellStyle): Promise<void> {
+    if (this.batchOps) {
+      this.batchOps.push((root) => {
+        if (!root.colStyles) {
+          root.colStyles = {};
+        }
+        root.colStyles[String(col)] = style;
+      });
+      return;
+    }
+
     this.doc.update((root) => {
       if (!root.colStyles) {
         root.colStyles = {};
@@ -406,6 +523,16 @@ export class YorkieStore implements Store {
   }
 
   async setRowStyle(row: number, style: CellStyle): Promise<void> {
+    if (this.batchOps) {
+      this.batchOps.push((root) => {
+        if (!root.rowStyles) {
+          root.rowStyles = {};
+        }
+        root.rowStyles[String(row)] = style;
+      });
+      return;
+    }
+
     this.doc.update((root) => {
       if (!root.rowStyles) {
         root.rowStyles = {};
@@ -426,6 +553,13 @@ export class YorkieStore implements Store {
   }
 
   async setSheetStyle(style: CellStyle): Promise<void> {
+    if (this.batchOps) {
+      this.batchOps.push((root) => {
+        root.sheetStyle = style;
+      });
+      return;
+    }
+
     this.doc.update((root) => {
       root.sheetStyle = style;
     });
@@ -437,6 +571,14 @@ export class YorkieStore implements Store {
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
+    if (this.batchOps) {
+      this.batchOps.push((root) => {
+        root.frozenRows = frozenRows;
+        root.frozenCols = frozenCols;
+      });
+      return;
+    }
+
     this.doc.update((root) => {
       root.frozenRows = frozenRows;
       root.frozenCols = frozenCols;
@@ -449,6 +591,45 @@ export class YorkieStore implements Store {
       frozenRows: root.frozenRows ?? 0,
       frozenCols: root.frozenCols ?? 0,
     };
+  }
+
+  beginBatch(): void {
+    this.batchOverlay = new Map();
+    this.batchOps = [];
+  }
+
+  endBatch(): void {
+    const overlay = this.batchOverlay;
+    const ops = this.batchOps;
+    this.batchOverlay = null;
+    this.batchOps = null;
+
+    const hasOverlay = overlay && overlay.size > 0;
+    const hasOps = ops && ops.length > 0;
+    if (!hasOverlay && !hasOps) return;
+
+    this.doc.update((root) => {
+      // Apply cell overlay: deletes first, then sets
+      if (overlay) {
+        for (const [sref, cell] of overlay) {
+          if (cell === null) {
+            if (root.sheet[sref] !== undefined) {
+              delete root.sheet[sref];
+            }
+          } else {
+            root.sheet[sref] = cell;
+          }
+        }
+      }
+
+      // Apply non-cell ops (styles, freeze pane, dimensions)
+      if (ops) {
+        for (const op of ops) {
+          op(root);
+        }
+      }
+    });
+    this.dirty = true;
   }
 
   async undo(): Promise<boolean> {

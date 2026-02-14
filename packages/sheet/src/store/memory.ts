@@ -214,6 +214,14 @@ export class MemStore implements Store {
     return { frozenRows: this.frozenRows, frozenCols: this.frozenCols };
   }
 
+  beginBatch(): void {
+    // No-op for memory store (no history tracking)
+  }
+
+  endBatch(): void {
+    // No-op for memory store (no history tracking)
+  }
+
   async undo(): Promise<boolean> {
     return false;
   }

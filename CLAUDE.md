@@ -100,5 +100,6 @@ Each package has a README for getting started, and the `design/` directory has i
 - [`design/frontend.md`](design/frontend.md) — Yorkie integration, presence system, auth flow, document management
 - [`design/backend.md`](design/backend.md) — Module architecture, API reference, auth system, security model
 - [`design/scroll-and-rendering.md`](design/scroll-and-rendering.md) — Viewport-based Canvas rendering, proportional scroll remapping
+- [`design/batch-transactions.md`](design/batch-transactions.md) — Store-level batch transactions for atomic undo/redo
 
 IMPORTANT: Always refer to these documents for architectural context and design decisions. And We should keep them up to date after making changes.
