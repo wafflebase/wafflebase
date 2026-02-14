@@ -1,4 +1,4 @@
-import { MouseEvent, useState } from "react";
+import { FormEvent, MouseEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,14 +14,23 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -35,7 +44,7 @@ import {
 } from "@/components/ui/table";
 
 import { Document } from "@/types/documents";
-import { createDocument, deleteDocument } from "@/api/documents";
+import { createDocument, deleteDocument, renameDocument } from "@/api/documents";
 
 export function DocumentList({ data }: { data: Document[] }) {
   const queryClient = useQueryClient();
@@ -100,15 +109,29 @@ export function DocumentList({ data }: { data: Document[] }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel
-                className="cursor-pointer text-red-500"
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={(e: MouseEvent<HTMLElement>) => {
+                  e.stopPropagation();
+                  setRenamingDoc({
+                    id: String(row.getValue("id")),
+                    title: row.getValue("title"),
+                  });
+                }}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-red-500 focus:text-red-500"
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
                   deleteDocumentMutation.mutate(String(row.getValue("id")));
                 }}
               >
                 Delete
-              </DropdownMenuLabel>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -116,14 +139,28 @@ export function DocumentList({ data }: { data: Document[] }) {
     },
   ];
 
+  const [renamingDoc, setRenamingDoc] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+
   const createDocumentMutation = useMutation({
     mutationFn: async (data: { title: string }) => await createDocument(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
+    onSuccess: (doc) => navigate(`/${doc.id}`),
   });
 
   const deleteDocumentMutation = useMutation({
     mutationFn: async (id: string) => await deleteDocument(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
+  });
+
+  const renameDocumentMutation = useMutation({
+    mutationFn: async ({ id, title }: { id: string; title: string }) =>
+      await renameDocument(id, title),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      setRenamingDoc(null);
+    },
   });
 
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -254,6 +291,55 @@ export function DocumentList({ data }: { data: Document[] }) {
           </Button>
         </div>
       </div>
+
+      <Dialog
+        open={renamingDoc !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenamingDoc(null);
+        }}
+      >
+        <DialogContent>
+          <form
+            onSubmit={(e: FormEvent) => {
+              e.preventDefault();
+              if (!renamingDoc) return;
+              const formData = new FormData(e.target as HTMLFormElement);
+              const title = formData.get("title") as string;
+              if (title.trim()) {
+                renameDocumentMutation.mutate({
+                  id: renamingDoc.id,
+                  title: title.trim(),
+                });
+              }
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Rename Document</DialogTitle>
+            </DialogHeader>
+            <Input
+              name="title"
+              defaultValue={renamingDoc?.title ?? ""}
+              key={renamingDoc?.id}
+              autoFocus
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRenamingDoc(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={renameDocumentMutation.isPending}
+              >
+                Rename
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

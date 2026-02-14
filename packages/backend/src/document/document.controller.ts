@@ -6,6 +6,7 @@ import {
   Get,
   NotFoundException,
   Param,
+  Patch,
   Post,
   UseGuards,
   ForbiddenException,
@@ -56,6 +57,22 @@ export class DocumentController {
   ): Promise<DocumentModel> {
     doc.authorID = Number(req.user.id);
     return this.documentService.createDocument(doc);
+  }
+
+  @Patch('/:id')
+  async updateDocument(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: { title: string },
+  ): Promise<DocumentModel> {
+    const doc = await this.documentService.document({ id });
+    if (!doc || doc.authorID !== Number(req.user.id)) {
+      throw new ForbiddenException('You do not have access to this document');
+    }
+    return this.documentService.updateDocument({
+      where: { id },
+      data: { title: body.title },
+    });
   }
 
   @Delete('/:id')

@@ -45,6 +45,26 @@ export async function fetchDocument(id: string): Promise<Document> {
   return document;
 }
 
+export async function renameDocument(
+  id: string,
+  title: string
+): Promise<Document> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to rename document");
+  }
+
+  return response.json();
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`,
