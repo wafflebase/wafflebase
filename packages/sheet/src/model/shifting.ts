@@ -125,13 +125,13 @@ export function moveGrid(
  * `moveDimensionMap` remaps dimension size keys after moving
  * `count` items from `src` to before `dst`.
  */
-export function moveDimensionMap(
-  map: Map<number, number>,
+export function moveDimensionMap<T = number>(
+  map: Map<number, T>,
   src: number,
   count: number,
   dst: number,
-): Map<number, number> {
-  const newMap = new Map<number, number>();
+): Map<number, T> {
+  const newMap = new Map<number, T>();
 
   for (const [i, size] of map) {
     newMap.set(remapIndex(i, src, count, dst), size);
@@ -251,12 +251,12 @@ export function shiftFormula(
  * when rows/columns are inserted or deleted.
  * Uses the same insert/delete logic as shiftRef.
  */
-export function shiftDimensionMap(
-  map: Map<number, number>,
+export function shiftDimensionMap<T = number>(
+  map: Map<number, T>,
   index: number,
   count: number,
-): Map<number, number> {
-  const newMap = new Map<number, number>();
+): Map<number, T> {
+  const newMap = new Map<number, T>();
 
   for (const [i, size] of map) {
     if (count > 0) {

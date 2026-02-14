@@ -3,6 +3,7 @@ import {
   Store,
   Grid,
   Cell,
+  CellStyle,
   Ref,
   Sref,
   Range,
@@ -227,6 +228,37 @@ export class YorkieStore implements Store {
           }
         }
       }
+
+      // Shift style maps for the affected axis
+      const styleObj = axis === "row" ? root.rowStyles : root.colStyles;
+      if (styleObj) {
+        const styleEntries: Array<[string, CellStyle]> = [];
+        for (const [key, value] of Object.entries(styleObj)) {
+          styleEntries.push([key, value]);
+        }
+        for (const [key] of styleEntries) {
+          delete styleObj[key];
+        }
+        for (const [key, value] of styleEntries) {
+          const idx = Number(key);
+          if (count > 0) {
+            if (idx >= index) {
+              styleObj[String(idx + count)] = value;
+            } else {
+              styleObj[key] = value;
+            }
+          } else {
+            const absCount = Math.abs(count);
+            if (idx >= index && idx < index + absCount) {
+              // In deleted zone — drop it
+            } else if (idx >= index + absCount) {
+              styleObj[String(idx + count)] = value;
+            } else {
+              styleObj[key] = value;
+            }
+          }
+        }
+      }
     });
 
     this.dirty = true;
@@ -279,6 +311,23 @@ export class YorkieStore implements Store {
         const idx = Number(key);
         const newIdx = remapIndex(idx, srcIndex, count, dstIndex);
         dimObj[String(newIdx)] = value;
+      }
+
+      // Remap style maps
+      const styleObj = axis === "row" ? root.rowStyles : root.colStyles;
+      if (styleObj) {
+        const styleEntries: Array<[string, CellStyle]> = [];
+        for (const [key, value] of Object.entries(styleObj)) {
+          styleEntries.push([key, value]);
+        }
+        for (const [key] of styleEntries) {
+          delete styleObj[key];
+        }
+        for (const [key, value] of styleEntries) {
+          const idx = Number(key);
+          const newIdx = remapIndex(idx, srcIndex, count, dstIndex);
+          styleObj[String(newIdx)] = value;
+        }
       }
     });
 
@@ -334,6 +383,57 @@ export class YorkieStore implements Store {
 
   getPresences(): Array<{ clientID: string; presence: UserPresence }> {
     return this.doc.getOthersPresences();
+  }
+
+  async setColumnStyle(col: number, style: CellStyle): Promise<void> {
+    this.doc.update((root) => {
+      if (!root.colStyles) {
+        root.colStyles = {};
+      }
+      root.colStyles[String(col)] = style;
+    });
+  }
+
+  async getColumnStyles(): Promise<Map<number, CellStyle>> {
+    const root = this.doc.getRoot();
+    const result = new Map<number, CellStyle>();
+    if (root.colStyles) {
+      for (const [key, value] of Object.entries(root.colStyles)) {
+        result.set(Number(key), value);
+      }
+    }
+    return result;
+  }
+
+  async setRowStyle(row: number, style: CellStyle): Promise<void> {
+    this.doc.update((root) => {
+      if (!root.rowStyles) {
+        root.rowStyles = {};
+      }
+      root.rowStyles[String(row)] = style;
+    });
+  }
+
+  async getRowStyles(): Promise<Map<number, CellStyle>> {
+    const root = this.doc.getRoot();
+    const result = new Map<number, CellStyle>();
+    if (root.rowStyles) {
+      for (const [key, value] of Object.entries(root.rowStyles)) {
+        result.set(Number(key), value);
+      }
+    }
+    return result;
+  }
+
+  async setSheetStyle(style: CellStyle): Promise<void> {
+    this.doc.update((root) => {
+      root.sheetStyle = style;
+    });
+  }
+
+  async getSheetStyle(): Promise<CellStyle | undefined> {
+    const root = this.doc.getRoot();
+    return root.sheetStyle ? { ...root.sheetStyle } : undefined;
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {

@@ -1,4 +1,4 @@
-import { Axis, Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
+import { Axis, Cell, CellStyle, Grid, Ref, Range, Sref, Direction } from '../model/types';
 
 /**
  * `Store` interface represents a storage that stores the cell values.
@@ -76,6 +76,36 @@ export interface Store {
    * `getDimensionSizes` method gets all custom row heights or column widths.
    */
   getDimensionSizes(axis: Axis): Promise<Map<number, number>>;
+
+  /**
+   * `setColumnStyle` method sets the style for an entire column.
+   */
+  setColumnStyle(col: number, style: CellStyle): Promise<void>;
+
+  /**
+   * `getColumnStyles` method gets all column-level styles.
+   */
+  getColumnStyles(): Promise<Map<number, CellStyle>>;
+
+  /**
+   * `setRowStyle` method sets the style for an entire row.
+   */
+  setRowStyle(row: number, style: CellStyle): Promise<void>;
+
+  /**
+   * `getRowStyles` method gets all row-level styles.
+   */
+  getRowStyles(): Promise<Map<number, CellStyle>>;
+
+  /**
+   * `setSheetStyle` method sets the default style for the entire sheet.
+   */
+  setSheetStyle(style: CellStyle): Promise<void>;
+
+  /**
+   * `getSheetStyle` method gets the sheet-level default style.
+   */
+  getSheetStyle(): Promise<CellStyle | undefined>;
 
   /**
    * `updateActiveCell` method updates the active cell of the current user.

@@ -126,6 +126,7 @@ export class Worksheet {
     this.sheet = sheet;
     this.sheet.setDimensions(this.rowDim, this.colDim);
     await this.sheet.loadDimensions();
+    await this.sheet.loadStyles();
     await this.sheet.loadFreezePane();
     this.updateFreezeState();
     this.formulaBar.initialize(sheet);
@@ -1365,6 +1366,7 @@ export class Worksheet {
    */
   public async reloadDimensions() {
     await this.sheet!.loadDimensions();
+    await this.sheet!.loadStyles();
     await this.sheet!.loadFreezePane();
     this.updateFreezeState();
   }
@@ -1577,6 +1579,9 @@ export class Worksheet {
       this.sheet!.getRange(),
       freeze,
       this.freezeHandleHover,
+      this.sheet!.getColStyles(),
+      this.sheet!.getRowStyles(),
+      this.sheet!.getSheetStyle(),
     );
   }
 

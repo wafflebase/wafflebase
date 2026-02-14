@@ -14,7 +14,7 @@ import {
   mergeRanges,
 } from './coordinates';
 import { Axis, Grid, Cell, CellStyle, Ref, Sref, Range, Direction, SelectionType } from './types';
-import { remapIndex, moveRef } from './shifting';
+import { remapIndex, moveRef, shiftDimensionMap, moveDimensionMap } from './shifting';
 import { grid2string, string2grid } from './grids';
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
@@ -74,6 +74,21 @@ export class Sheet {
    * `frozenCols` is the number of frozen columns from the left.
    */
   private frozenCols = 0;
+
+  /**
+   * `colStyles` caches column-level styles.
+   */
+  private colStyles: Map<number, CellStyle> = new Map();
+
+  /**
+   * `rowStyles` caches row-level styles.
+   */
+  private rowStyles: Map<number, CellStyle> = new Map();
+
+  /**
+   * `sheetStyle` caches the sheet-level default style.
+   */
+  private sheetStyle: CellStyle | undefined;
 
   /**
    * `constructor` creates a new `Sheet` instance.
@@ -186,6 +201,48 @@ export class Sheet {
   }
 
   /**
+   * `loadStyles` loads column/row/sheet styles from the store into local caches.
+   */
+  async loadStyles(): Promise<void> {
+    this.colStyles = await this.store.getColumnStyles();
+    this.rowStyles = await this.store.getRowStyles();
+    this.sheetStyle = await this.store.getSheetStyle();
+  }
+
+  /**
+   * `getColStyles` returns the column-level style map for rendering.
+   */
+  getColStyles(): Map<number, CellStyle> {
+    return this.colStyles;
+  }
+
+  /**
+   * `getRowStyles` returns the row-level style map for rendering.
+   */
+  getRowStyles(): Map<number, CellStyle> {
+    return this.rowStyles;
+  }
+
+  /**
+   * `getSheetStyle` returns the sheet-level default style for rendering.
+   */
+  getSheetStyle(): CellStyle | undefined {
+    return this.sheetStyle;
+  }
+
+  /**
+   * `resolveEffectiveStyle` merges sheet → column → row → cell styles.
+   * Later levels override earlier ones.
+   */
+  resolveEffectiveStyle(row: number, col: number, cellStyle?: CellStyle): CellStyle | undefined {
+    const s = this.sheetStyle;
+    const c = this.colStyles.get(col);
+    const r = this.rowStyles.get(row);
+    if (!s && !c && !r && !cellStyle) return undefined;
+    return { ...s, ...c, ...r, ...cellStyle };
+  }
+
+  /**
    * `getCell` returns the cell at the given row and column.
    */
   async getCell(ref: Ref): Promise<Cell | undefined> {
@@ -228,7 +285,8 @@ export class Sheet {
   async toDisplayString(ref: Ref): Promise<string> {
     const cell = await this.store.get(ref);
     if (!cell || !cell.v) return '';
-    return formatValue(cell.v, cell.s?.nf);
+    const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
+    return formatValue(cell.v, effective?.nf);
   }
 
   /**
@@ -321,8 +379,10 @@ export class Sheet {
     // Shift dimension custom sizes
     if (axis === 'row') {
       this.rowDimensions?.shift(index, count);
+      this.rowStyles = shiftDimensionMap(this.rowStyles, index, count);
     } else {
       this.colDimensions?.shift(index, count);
+      this.colStyles = shiftDimensionMap(this.colStyles, index, count);
     }
 
     // Adjust activeCell if it's at or beyond the insertion/deletion point
@@ -422,8 +482,10 @@ export class Sheet {
     // Move dimension custom sizes
     if (axis === 'row') {
       this.rowDimensions?.move(src, count, dst);
+      this.rowStyles = moveDimensionMap(this.rowStyles, src, count, dst);
     } else {
       this.colDimensions?.move(src, count, dst);
+      this.colStyles = moveDimensionMap(this.colStyles, src, count, dst);
     }
 
     // Remap activeCell
@@ -775,24 +837,27 @@ export class Sheet {
   }
 
   /**
-   * `getStyle` returns the style of the cell at the given ref.
+   * `getStyle` returns the effective style of the cell at the given ref,
+   * merging sheet → column → row → cell styles.
    */
   async getStyle(ref: Ref): Promise<CellStyle | undefined> {
     const cell = await this.store.get(ref);
-    return cell?.s;
+    return this.resolveEffectiveStyle(ref.r, ref.c, cell?.s);
   }
 
   /**
    * `setStyle` merges the given style into the cell at the given ref.
-   * Creates the cell if it doesn't exist. Removes falsy keys.
+   * Creates the cell if it doesn't exist.
+   * Keeps `false` values so they can override inherited column/row/sheet styles.
+   * Removes `undefined` and empty string keys.
    */
   async setStyle(ref: Ref, style: Partial<CellStyle>): Promise<void> {
     const cell = (await this.store.get(ref)) || {};
     const merged = { ...cell.s, ...style };
 
-    // Remove falsy keys (false, undefined, empty string)
+    // Remove undefined and empty string keys, but keep false (needed for style overrides)
     for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
-      if (!merged[key] && merged[key] !== 0) {
+      if (merged[key] === undefined || merged[key] === '') {
         delete merged[key];
       }
     }
@@ -806,8 +871,56 @@ export class Sheet {
 
   /**
    * `setRangeStyle` applies the given style to all cells in the current selection range.
+   * For column/row/all selections, stores styles at the column/row/sheet level
+   * instead of iterating every cell.
    */
   async setRangeStyle(style: Partial<CellStyle>): Promise<void> {
+    if (this.selectionType === 'column') {
+      const range = this.getRangeOrActiveCell();
+      for (let c = range[0].c; c <= range[1].c; c++) {
+        const existing = this.colStyles.get(c) || {};
+        const merged = { ...existing, ...style };
+        for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
+          if (!merged[key] && merged[key] !== 0) {
+            delete merged[key];
+          }
+        }
+        this.colStyles.set(c, merged);
+        await this.store.setColumnStyle(c, merged);
+      }
+      return;
+    }
+
+    if (this.selectionType === 'row') {
+      const range = this.getRangeOrActiveCell();
+      for (let r = range[0].r; r <= range[1].r; r++) {
+        const existing = this.rowStyles.get(r) || {};
+        const merged = { ...existing, ...style };
+        for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
+          if (!merged[key] && merged[key] !== 0) {
+            delete merged[key];
+          }
+        }
+        this.rowStyles.set(r, merged);
+        await this.store.setRowStyle(r, merged);
+      }
+      return;
+    }
+
+    if (this.selectionType === 'all') {
+      const existing = this.sheetStyle || {};
+      const merged = { ...existing, ...style };
+      for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
+        if (!merged[key] && merged[key] !== 0) {
+          delete merged[key];
+        }
+      }
+      this.sheetStyle = merged;
+      await this.store.setSheetStyle(merged);
+      return;
+    }
+
+    // Default: cell-level styling
     const range = this.getRangeOrActiveCell();
     for (let r = range[0].r; r <= range[1].r; r++) {
       for (let c = range[0].c; c <= range[1].c; c++) {
@@ -817,11 +930,12 @@ export class Sheet {
   }
 
   /**
-   * `toggleRangeStyle` toggles a boolean style property based on the active cell state.
+   * `toggleRangeStyle` toggles a boolean style property based on the active cell's
+   * effective style (including inherited column/row/sheet styles).
    */
   async toggleRangeStyle(prop: 'b' | 'i' | 'u' | 'st'): Promise<void> {
-    const activeStyle = await this.getStyle(this.activeCell);
-    const newValue = !activeStyle?.[prop];
+    const effectiveStyle = await this.getStyle(this.activeCell);
+    const newValue = !effectiveStyle?.[prop];
     await this.setRangeStyle({ [prop]: newValue });
   }
 

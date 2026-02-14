@@ -1,7 +1,7 @@
 import { extractReferences } from '../formula/formula';
 import { parseRef, toSref, toSrefs } from '../model/coordinates';
 import { shiftGrid, shiftDimensionMap, moveGrid, moveDimensionMap } from '../model/shifting';
-import { Axis, Cell, Grid, Ref, Range, Sref, Direction } from '../model/types';
+import { Axis, Cell, CellStyle, Grid, Ref, Range, Sref, Direction } from '../model/types';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
@@ -15,6 +15,9 @@ export class MemStore implements Store {
   private cellIndex: CellIndex = new CellIndex();
   private rowHeights: Map<number, number> = new Map();
   private colWidths: Map<number, number> = new Map();
+  private colStyles: Map<number, CellStyle> = new Map();
+  private rowStyles: Map<number, CellStyle> = new Map();
+  private sheetStyle?: CellStyle;
   private frozenRows = 0;
   private frozenCols = 0;
 
@@ -103,8 +106,10 @@ export class MemStore implements Store {
     // Shift dimension sizes for the affected axis
     if (axis === 'row') {
       this.rowHeights = shiftDimensionMap(this.rowHeights, index, count);
+      this.rowStyles = shiftDimensionMap(this.rowStyles, index, count);
     } else {
       this.colWidths = shiftDimensionMap(this.colWidths, index, count);
+      this.colStyles = shiftDimensionMap(this.colStyles, index, count);
     }
   }
 
@@ -114,8 +119,10 @@ export class MemStore implements Store {
 
     if (axis === 'row') {
       this.rowHeights = moveDimensionMap(this.rowHeights, srcIndex, count, dstIndex);
+      this.rowStyles = moveDimensionMap(this.rowStyles, srcIndex, count, dstIndex);
     } else {
       this.colWidths = moveDimensionMap(this.colWidths, srcIndex, count, dstIndex);
+      this.colStyles = moveDimensionMap(this.colStyles, srcIndex, count, dstIndex);
     }
   }
 
@@ -172,6 +179,30 @@ export class MemStore implements Store {
    */
   updateActiveCell(_: Ref): void {
     // No-op for memory store
+  }
+
+  async setColumnStyle(col: number, style: CellStyle): Promise<void> {
+    this.colStyles.set(col, style);
+  }
+
+  async getColumnStyles(): Promise<Map<number, CellStyle>> {
+    return new Map(this.colStyles);
+  }
+
+  async setRowStyle(row: number, style: CellStyle): Promise<void> {
+    this.rowStyles.set(row, style);
+  }
+
+  async getRowStyles(): Promise<Map<number, CellStyle>> {
+    return new Map(this.rowStyles);
+  }
+
+  async setSheetStyle(style: CellStyle): Promise<void> {
+    this.sheetStyle = style;
+  }
+
+  async getSheetStyle(): Promise<CellStyle | undefined> {
+    return this.sheetStyle ? { ...this.sheetStyle } : undefined;
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {

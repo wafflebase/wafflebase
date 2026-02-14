@@ -51,6 +51,9 @@ export class GridCanvas {
     selectionRange?: Range,
     freeze: FreezeState = NoFreeze,
     freezeHandleHover: 'row' | 'column' | null = null,
+    colStyles?: Map<number, CellStyle>,
+    rowStyles?: Map<number, CellStyle>,
+    sheetStyle?: CellStyle,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -79,6 +82,9 @@ export class GridCanvas {
         scroll,
         rowDim,
         colDim,
+        colStyles,
+        rowStyles,
+        sheetStyle,
       );
       this.renderColumnHeaders(
         ctx,
@@ -143,6 +149,9 @@ export class GridCanvas {
         },
         rowDim,
         colDim,
+        colStyles,
+        rowStyles,
+        sheetStyle,
       );
       ctx.restore();
 
@@ -167,6 +176,9 @@ export class GridCanvas {
           { left: scroll.left + unfrozenColStart - fw, top: 0 },
           rowDim,
           colDim,
+          colStyles,
+          rowStyles,
+          sheetStyle,
         );
         ctx.restore();
       }
@@ -192,6 +204,9 @@ export class GridCanvas {
           { left: 0, top: scroll.top + unfrozenRowStart - fh },
           rowDim,
           colDim,
+          colStyles,
+          rowStyles,
+          sheetStyle,
         );
         ctx.restore();
       }
@@ -212,6 +227,9 @@ export class GridCanvas {
           { left: 0, top: 0 },
           rowDim,
           colDim,
+          colStyles,
+          rowStyles,
+          sheetStyle,
         );
         ctx.restore();
       }
@@ -309,16 +327,28 @@ export class GridCanvas {
     scroll: Position,
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
+    colStyles?: Map<number, CellStyle>,
+    rowStyles?: Map<number, CellStyle>,
+    sheetStyle?: CellStyle,
   ): void {
     for (let row = rowStart; row <= rowEnd; row++) {
+      const rStyle = rowStyles?.get(row);
       for (let col = colStart; col <= colEnd; col++) {
+        const cell = grid?.get(toSref({ r: row, c: col }));
+        const cStyle = colStyles?.get(col);
+        // Merge styles: sheet → column → row → cell
+        let effectiveStyle: CellStyle | undefined;
+        if (sheetStyle || cStyle || rStyle || cell?.s) {
+          effectiveStyle = { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
+        }
         this.renderCell(
           ctx,
           { r: row, c: col },
-          grid?.get(toSref({ r: row, c: col })),
+          cell,
           scroll,
           rowDim,
           colDim,
+          effectiveStyle,
         );
       }
     }
@@ -521,9 +551,10 @@ export class GridCanvas {
     scroll: Position,
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
+    effectiveStyle?: CellStyle,
   ): void {
     const rect = toBoundingRect(id, scroll, rowDim, colDim);
-    const style = cell?.s;
+    const style = effectiveStyle ?? cell?.s;
 
     ctx.strokeStyle = this.getThemeColor('cellTextColor');
     ctx.lineWidth = CellBorderWidth;
