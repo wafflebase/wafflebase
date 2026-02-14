@@ -121,4 +121,24 @@ export interface Store {
    * `getFreezePane` method gets the freeze pane position.
    */
   getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }>;
+
+  /**
+   * `undo` method undoes the last local change. Returns true if undo was performed.
+   */
+  undo(): Promise<boolean>;
+
+  /**
+   * `redo` method redoes the last undone change. Returns true if redo was performed.
+   */
+  redo(): Promise<boolean>;
+
+  /**
+   * `canUndo` method returns true if there is a change to undo.
+   */
+  canUndo(): boolean;
+
+  /**
+   * `canRedo` method returns true if there is a change to redo.
+   */
+  canRedo(): boolean;
 }

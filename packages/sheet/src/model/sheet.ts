@@ -1007,6 +1007,32 @@ export class Sheet {
   }
 
   /**
+   * `undo` undoes the last local change and reloads cached state.
+   */
+  async undo(): Promise<boolean> {
+    const success = await this.store.undo();
+    if (success) {
+      await this.loadDimensions();
+      await this.loadStyles();
+      await this.loadFreezePane();
+    }
+    return success;
+  }
+
+  /**
+   * `redo` redoes the last undone change and reloads cached state.
+   */
+  async redo(): Promise<boolean> {
+    const success = await this.store.redo();
+    if (success) {
+      await this.loadDimensions();
+      await this.loadStyles();
+      await this.loadFreezePane();
+    }
+    return success;
+  }
+
+  /**
    * `moveInRange` moves the id within the given range.
    * @param rowDelta Delta to move the activeCell in the row direction.
    * @param colDelta Delta to move the activeCell in the column direction.

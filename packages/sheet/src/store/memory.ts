@@ -214,6 +214,22 @@ export class MemStore implements Store {
     return { frozenRows: this.frozenRows, frozenCols: this.frozenCols };
   }
 
+  async undo(): Promise<boolean> {
+    return false;
+  }
+
+  async redo(): Promise<boolean> {
+    return false;
+  }
+
+  canUndo(): boolean {
+    return false;
+  }
+
+  canRedo(): boolean {
+    return false;
+  }
+
   private rebuildIndex(): void {
     this.cellIndex.rebuild(
       Array.from(this.grid.keys()).map((sref) => {

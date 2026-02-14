@@ -450,4 +450,26 @@ export class YorkieStore implements Store {
       frozenCols: root.frozenCols ?? 0,
     };
   }
+
+  async undo(): Promise<boolean> {
+    if (!this.doc.history.canUndo()) return false;
+    this.doc.history.undo();
+    this.dirty = true;
+    return true;
+  }
+
+  async redo(): Promise<boolean> {
+    if (!this.doc.history.canRedo()) return false;
+    this.doc.history.redo();
+    this.dirty = true;
+    return true;
+  }
+
+  canUndo(): boolean {
+    return this.doc.history.canUndo();
+  }
+
+  canRedo(): boolean {
+    return this.doc.history.canRedo();
+  }
 }

@@ -1354,6 +1354,21 @@ export class Worksheet {
       }
     } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
       this.showCellInput(true);
+    } else if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+      e.preventDefault();
+      if (await this.sheet!.undo()) {
+        this.render();
+        this.scrollIntoView();
+      }
+    } else if (
+      ((e.key === 'z' && e.shiftKey) || e.key === 'y') &&
+      (e.metaKey || e.ctrlKey)
+    ) {
+      e.preventDefault();
+      if (await this.sheet!.redo()) {
+        this.render();
+        this.scrollIntoView();
+      }
     } else if (e.key === 'c' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       await this.copy();

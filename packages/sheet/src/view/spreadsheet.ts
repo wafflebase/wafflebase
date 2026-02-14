@@ -139,6 +139,28 @@ export class Spreadsheet {
     }
   }
 
+  /**
+   * `undo` undoes the last local change and re-renders.
+   */
+  public async undo() {
+    if (!this.sheet) return;
+    if (await this.sheet.undo()) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
+  }
+
+  /**
+   * `redo` redoes the last undone change and re-renders.
+   */
+  public async redo() {
+    if (!this.sheet) return;
+    if (await this.sheet.redo()) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
+  }
+
   public cleanup() {
     this.worksheet.cleanup();
     this.selectionChangeCallbacks = [];

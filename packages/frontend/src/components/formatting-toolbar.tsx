@@ -38,6 +38,8 @@ import {
   IconTypography,
   IconPaint,
   IconDropletOff,
+  IconArrowBackUp,
+  IconArrowForwardUp,
 } from "@tabler/icons-react";
 
 const TEXT_COLORS = [
@@ -116,6 +118,14 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
     spreadsheet?.applyStyle({ bg: "" });
   }, [spreadsheet]);
 
+  const handleUndo = useCallback(() => {
+    spreadsheet?.undo();
+  }, [spreadsheet]);
+
+  const handleRedo = useCallback(() => {
+    spreadsheet?.redo();
+  }, [spreadsheet]);
+
   const handleNumberFormat = useCallback(
     (format: string) => {
       spreadsheet?.applyStyle({ nf: format as NumberFormat });
@@ -125,6 +135,33 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
 
   return (
     <div className="flex items-center gap-0.5 border-b px-2 py-1 bg-background">
+      {/* Undo / Redo */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={handleUndo}
+          >
+            <IconArrowBackUp size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Undo</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={handleRedo}
+          >
+            <IconArrowForwardUp size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Redo</TooltipContent>
+      </Tooltip>
+
+      <Separator orientation="vertical" className="mx-1 h-6" />
+
       {/* Number Format */}
       <Select
         value={style?.nf || "plain"}
