@@ -27,11 +27,11 @@ export async function initialize(
   return spreadsheet;
 }
 
+export type SelectionChangeCallback = () => void;
+
 /**
  * Spreadsheet is a class that represents a spreadsheet.
  */
-export type SelectionChangeCallback = () => void;
-
 export class Spreadsheet {
   private container: HTMLDivElement;
   private worksheet: Worksheet;
@@ -56,6 +56,7 @@ export class Spreadsheet {
    */
   public async initialize(store: Store) {
     this.sheet = new Sheet(store);
+    this.worksheet.setOnRender(() => this.notifySelectionChange());
     await this.worksheet.initialize(this.sheet);
   }
 
@@ -79,7 +80,6 @@ export class Spreadsheet {
    */
   public render() {
     this.worksheet.render();
-    this.notifySelectionChange();
   }
 
   /**
