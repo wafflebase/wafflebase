@@ -1258,14 +1258,38 @@ export class Worksheet {
   }
 
   private async copy(): Promise<void> {
-    const data = await this.sheet!.copy();
-    await navigator.clipboard.writeText(data);
+    const { text } = await this.sheet!.copy();
+    await navigator.clipboard.writeText(text);
   }
 
   private async paste(): Promise<void> {
     try {
-      const text = await navigator.clipboard.readText();
-      await this.sheet!.paste(text);
+      let text: string | undefined;
+      let html: string | undefined;
+
+      // Try reading both text/html and text/plain from clipboard
+      if (navigator.clipboard.read) {
+        try {
+          const items = await navigator.clipboard.read();
+          for (const item of items) {
+            if (item.types.includes('text/html')) {
+              const blob = await item.getType('text/html');
+              html = await blob.text();
+            }
+            if (item.types.includes('text/plain')) {
+              const blob = await item.getType('text/plain');
+              text = await blob.text();
+            }
+          }
+        } catch {
+          // Fall back to readText if read() is not permitted
+          text = await navigator.clipboard.readText();
+        }
+      } else {
+        text = await navigator.clipboard.readText();
+      }
+
+      await this.sheet!.paste({ text, html });
       this.render();
     } catch (err) {
       console.error('Failed to paste cell content: ', err);
@@ -1330,10 +1354,10 @@ export class Worksheet {
       }
     } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
       this.showCellInput(true);
-    } else if (e.key === 'c' && e.metaKey) {
+    } else if (e.key === 'c' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       await this.copy();
-    } else if (e.key === 'v' && e.metaKey) {
+    } else if (e.key === 'v' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       await this.paste();
     } else if (

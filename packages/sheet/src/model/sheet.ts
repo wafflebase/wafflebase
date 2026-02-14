@@ -14,8 +14,8 @@ import {
   mergeRanges,
 } from './coordinates';
 import { Axis, Grid, Cell, CellStyle, Ref, Sref, Range, Direction, SelectionType } from './types';
-import { remapIndex, moveRef, shiftDimensionMap, moveDimensionMap } from './shifting';
-import { grid2string, string2grid } from './grids';
+import { remapIndex, moveRef, shiftDimensionMap, moveDimensionMap, relocateFormula } from './shifting';
+import { grid2string, string2grid, html2grid, isSpreadsheetHtml } from './grids';
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
 
@@ -89,6 +89,12 @@ export class Sheet {
    * `sheetStyle` caches the sheet-level default style.
    */
   private sheetStyle: CellStyle | undefined;
+
+  /**
+   * `copyBuffer` stores the source range and grid from the last copy operation.
+   * Used for internal formula-aware paste with reference relocation.
+   */
+  private copyBuffer?: { sourceRange: Range; grid: Grid; text: string };
 
   /**
    * `constructor` creates a new `Sheet` instance.
@@ -523,23 +529,84 @@ export class Sheet {
   }
 
   /**
-   * `copy` returns the copied content.
+   * `copy` copies the selected range and returns the TSV text for the system clipboard.
+   * Also stores the full grid (with formulas and styles) in an internal buffer
+   * for formula-aware paste.
    */
-  public async copy(): Promise<string> {
-    if (!this.range) {
-      return '';
-    }
-
-    const grid = await this.fetchGrid(this.range);
-    return grid2string(grid);
+  public async copy(): Promise<{ text: string }> {
+    const range: Range = this.range || [this.activeCell, this.activeCell];
+    const grid = await this.fetchGrid(range);
+    const text = grid2string(grid);
+    this.copyBuffer = { sourceRange: range, grid, text };
+    return { text };
   }
 
   /**
-   * `paste` pastes the copied content.
+   * `paste` pastes content with three-tier logic:
+   * 1. Internal paste (copyBuffer matches clipboard text) — relocates formula references
+   * 2. Spreadsheet HTML paste (Google Sheets / Excel) — parses HTML table with styles
+   * 3. Plain TSV paste — existing behavior
    */
-  public async paste(value: string): Promise<void> {
-    const grid = string2grid(this.activeCell, value);
+  public async paste(options: { text?: string; html?: string }): Promise<void> {
+    const { text, html } = options;
+    let grid: Grid;
+
+    if (this.copyBuffer && text === this.copyBuffer.text) {
+      // Internal paste: relocate formulas based on position delta
+      grid = this.relocateGrid(
+        this.copyBuffer.grid,
+        this.copyBuffer.sourceRange,
+        this.activeCell,
+      );
+    } else if (html && isSpreadsheetHtml(html)) {
+      // Spreadsheet HTML paste (Google Sheets / Excel)
+      grid = html2grid(html, this.activeCell);
+    } else if (text) {
+      // Plain TSV paste
+      grid = string2grid(this.activeCell, text);
+    } else {
+      return;
+    }
+
     await this.setGrid(grid);
+
+    // Recalculate formulas after paste
+    const formulaSrefs = new Set<Sref>();
+    for (const [sref, cell] of grid) {
+      if (cell.f) {
+        formulaSrefs.add(sref);
+      }
+    }
+    if (formulaSrefs.size > 0) {
+      const dependantsMap = await this.store.buildDependantsMap(formulaSrefs);
+      await calculate(this, dependantsMap, formulaSrefs);
+    }
+  }
+
+  /**
+   * `relocateGrid` clones a grid with formula references adjusted by the
+   * position delta between sourceRange and destRef. For formula cells,
+   * recalculated values are cleared (they'll be recalculated after paste).
+   */
+  private relocateGrid(grid: Grid, sourceRange: Range, destRef: Ref): Grid {
+    const deltaRow = destRef.r - sourceRange[0].r;
+    const deltaCol = destRef.c - sourceRange[0].c;
+    const newGrid: Grid = new Map();
+
+    for (const [sref, cell] of grid) {
+      const ref = parseRef(sref);
+      const newRef = { r: ref.r + deltaRow, c: ref.c + deltaCol };
+      const newSref = toSref(newRef);
+
+      if (cell.f) {
+        const newFormula = relocateFormula(cell.f, deltaRow, deltaCol);
+        newGrid.set(newSref, { f: newFormula, s: cell.s });
+      } else {
+        newGrid.set(newSref, { ...cell });
+      }
+    }
+
+    return newGrid;
   }
 
   /**

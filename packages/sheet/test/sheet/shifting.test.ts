@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shiftRef, shiftSref, shiftFormula, shiftGrid, shiftDimensionMap } from '../../src/model/shifting';
+import { shiftRef, shiftSref, shiftFormula, shiftGrid, shiftDimensionMap, relocateFormula } from '../../src/model/shifting';
 import { Grid } from '../../src/model/types';
 
 describe('shiftRef', () => {
@@ -158,6 +158,40 @@ describe('shiftGrid', () => {
     expect(result.get('D1')).toEqual({ v: '30' });
     expect(result.has('B1')).toBe(false);
     expect(result.size).toBe(3);
+  });
+});
+
+describe('relocateFormula', () => {
+  it('should shift references by positive delta', () => {
+    expect(relocateFormula('=A1+B2', 2, 1)).toBe('=B3+C4');
+  });
+
+  it('should shift range references', () => {
+    expect(relocateFormula('=SUM(A1:B3)', 1, 1)).toBe('=SUM(B2:C4)');
+  });
+
+  it('should return #REF! when row goes below 1', () => {
+    expect(relocateFormula('=A1+B2', -1, 0)).toBe('=#REF!+B1');
+  });
+
+  it('should return #REF! when column goes below 1', () => {
+    expect(relocateFormula('=A1+B2', 0, -1)).toBe('=#REF!+A2');
+  });
+
+  it('should return #REF! for range when endpoint goes below 1', () => {
+    expect(relocateFormula('=SUM(A1:B3)', -1, 0)).toBe('=SUM(#REF!)');
+  });
+
+  it('should be identity when delta is zero', () => {
+    expect(relocateFormula('=A1+B2', 0, 0)).toBe('=A1+B2');
+  });
+
+  it('should shift negative deltas correctly', () => {
+    expect(relocateFormula('=C3+D4', -1, -1)).toBe('=B2+C3');
+  });
+
+  it('should handle function calls with references', () => {
+    expect(relocateFormula('=SUM(A1,B2,C3)', 1, 0)).toBe('=SUM(A2,B3,C4)');
   });
 });
 

@@ -141,6 +141,50 @@ export function moveDimensionMap<T = number>(
 }
 
 /**
+ * `relocateFormula` adjusts all cell references in a formula by the given
+ * row and column deltas. Used when copy-pasting formulas to a new location.
+ * Returns a formula with `#REF!` if any reference goes below row 1 or column 1.
+ */
+export function relocateFormula(
+  formula: string,
+  deltaRow: number,
+  deltaCol: number,
+): string {
+  const tokens = extractTokens(formula);
+
+  let result = '=';
+  for (const token of tokens) {
+    if (token.type === 'REFERENCE') {
+      const text = token.text;
+      if (text.includes(':')) {
+        const [startStr, endStr] = text.split(':');
+        const startRef = parseRef(startStr.toUpperCase());
+        const endRef = parseRef(endStr.toUpperCase());
+        const newStart = { r: startRef.r + deltaRow, c: startRef.c + deltaCol };
+        const newEnd = { r: endRef.r + deltaRow, c: endRef.c + deltaCol };
+        if (newStart.r < 1 || newStart.c < 1 || newEnd.r < 1 || newEnd.c < 1) {
+          result += '#REF!';
+        } else {
+          result += toSref(newStart) + ':' + toSref(newEnd);
+        }
+      } else {
+        const ref = parseRef(text.toUpperCase());
+        const newRef = { r: ref.r + deltaRow, c: ref.c + deltaCol };
+        if (newRef.r < 1 || newRef.c < 1) {
+          result += '#REF!';
+        } else {
+          result += toSref(newRef);
+        }
+      }
+    } else {
+      result += token.text;
+    }
+  }
+
+  return result;
+}
+
+/**
  * `shiftRef` shifts a Ref along the given axis.
  * Returns `null` if the ref falls in a deleted zone.
  *

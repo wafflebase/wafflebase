@@ -23,6 +23,7 @@ import {
   moveFormula,
   moveGrid,
   moveDimensionMap,
+  relocateFormula,
 } from './model/shifting';
 import { DimensionIndex } from './model/dimensions';
 import { type Store } from './store/store';
@@ -62,4 +63,5 @@ export {
   moveFormula,
   moveGrid,
   moveDimensionMap,
+  relocateFormula,
 };
