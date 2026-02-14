@@ -1,4 +1,11 @@
-import { Grid, Cell, Ref, Range, SelectionType, CellStyle } from '../model/types';
+import {
+  Grid,
+  Cell,
+  Ref,
+  Range,
+  SelectionType,
+  CellStyle,
+} from '../model/types';
 import { DimensionIndex } from '../model/dimensions';
 import { formatValue } from '../model/format';
 import { Theme, ThemeKey, getThemeColor } from './theme';
@@ -331,17 +338,43 @@ export class GridCanvas {
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
   ): void {
+    // Two-pass rendering: backgrounds first, then text content.
+    // This ensures text overflow into empty neighbor cells is not
+    // overwritten by the neighbor's background fill.
+
+    // Pass 1: Render all cell backgrounds and borders.
     for (let row = rowStart; row <= rowEnd; row++) {
       const rStyle = rowStyles?.get(row);
       for (let col = colStart; col <= colEnd; col++) {
         const cell = grid?.get(toSref({ r: row, c: col }));
         const cStyle = colStyles?.get(col);
-        // Merge styles: sheet → column → row → cell
         let effectiveStyle: CellStyle | undefined;
         if (sheetStyle || cStyle || rStyle || cell?.s) {
           effectiveStyle = { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
         }
-        this.renderCell(
+        this.renderCellBackground(
+          ctx,
+          { r: row, c: col },
+          cell,
+          scroll,
+          rowDim,
+          colDim,
+          effectiveStyle,
+        );
+      }
+    }
+
+    // Pass 2: Render all cell text content (with overflow clipping).
+    for (let row = rowStart; row <= rowEnd; row++) {
+      const rStyle = rowStyles?.get(row);
+      for (let col = colStart; col <= colEnd; col++) {
+        const cell = grid?.get(toSref({ r: row, c: col }));
+        const cStyle = colStyles?.get(col);
+        let effectiveStyle: CellStyle | undefined;
+        if (sheetStyle || cStyle || rStyle || cell?.s) {
+          effectiveStyle = { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
+        }
+        this.renderCellContent(
           ctx,
           { r: row, c: col },
           cell,
@@ -546,7 +579,26 @@ export class GridCanvas {
     ctx.fillText(label, x + width / 2, y + Math.min(15, height - 4));
   }
 
-  private renderCell(
+  private renderCellBackground(
+    ctx: CanvasRenderingContext2D,
+    id: Ref,
+    cell: Cell | undefined,
+    scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    effectiveStyle?: CellStyle,
+  ): void {
+    const rect = toBoundingRect(id, scroll, rowDim, colDim);
+    const style = effectiveStyle ?? cell?.s;
+
+    ctx.strokeStyle = this.getThemeColor('cellTextColor');
+    ctx.lineWidth = CellBorderWidth;
+    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+    ctx.fillStyle = style?.bg || this.getThemeColor('cellBGColor');
+    ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+  }
+
+  private renderCellContent(
     ctx: CanvasRenderingContext2D,
     id: Ref,
     cell: Cell | undefined,
@@ -559,12 +611,6 @@ export class GridCanvas {
   ): void {
     const rect = toBoundingRect(id, scroll, rowDim, colDim);
     const style = effectiveStyle ?? cell?.s;
-
-    ctx.strokeStyle = this.getThemeColor('cellTextColor');
-    ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
-    ctx.fillStyle = style?.bg || this.getThemeColor('cellBGColor');
-    ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
 
     const rawData = cell?.v || '';
     if (rawData) {
@@ -624,8 +670,7 @@ export class GridCanvas {
 
       // Compute vertical alignment offset
       const vAlign = style?.va || 'top';
-      const totalTextHeight =
-        lines.length * CellFontSize * CellLineHeight;
+      const totalTextHeight = lines.length * CellFontSize * CellLineHeight;
       let baseY: number;
       if (vAlign === 'middle') {
         baseY = rect.top + (rect.height - totalTextHeight) / 2;
