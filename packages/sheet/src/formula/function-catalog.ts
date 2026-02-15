@@ -55,6 +55,110 @@ export const FunctionCatalog: FunctionInfo[] = [
     description: 'Returns the opposite of a logical value',
     args: [{ name: 'logical' }],
   },
+  {
+    name: 'AVERAGE',
+    description: 'Returns the average of a series of numbers',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'MIN',
+    description: 'Returns the smallest value in a set of numbers',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'MAX',
+    description: 'Returns the largest value in a set of numbers',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'COUNT',
+    description: 'Counts the number of numeric values',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'COUNTA',
+    description: 'Counts the number of non-empty values',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'TRIM',
+    description: 'Removes leading and trailing whitespace from text',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'LEN',
+    description: 'Returns the number of characters in a text string',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'LEFT',
+    description: 'Returns the leftmost characters from a text string',
+    args: [{ name: 'text' }, { name: 'num_chars', optional: true }],
+  },
+  {
+    name: 'RIGHT',
+    description: 'Returns the rightmost characters from a text string',
+    args: [{ name: 'text' }, { name: 'num_chars', optional: true }],
+  },
+  {
+    name: 'MID',
+    description: 'Returns characters from the middle of a text string',
+    args: [{ name: 'text' }, { name: 'start_num' }, { name: 'num_chars' }],
+  },
+  {
+    name: 'CONCATENATE',
+    description: 'Joins two or more text strings into one',
+    args: [
+      { name: 'text1' },
+      { name: 'text2' },
+      { name: 'text3', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'TODAY',
+    description: 'Returns the current date',
+    args: [],
+  },
+  {
+    name: 'NOW',
+    description: 'Returns the current date and time',
+    args: [],
+  },
+  {
+    name: 'YEAR',
+    description: 'Returns the year from a date',
+    args: [{ name: 'date' }],
+  },
+  {
+    name: 'MONTH',
+    description: 'Returns the month from a date (1-12)',
+    args: [{ name: 'date' }],
+  },
+  {
+    name: 'DAY',
+    description: 'Returns the day of the month from a date (1-31)',
+    args: [{ name: 'date' }],
+  },
+  {
+    name: 'IFERROR',
+    description: 'Returns a value if no error, otherwise returns an alternate value',
+    args: [{ name: 'value' }, { name: 'value_if_error' }],
+  },
 ];
 
 /**

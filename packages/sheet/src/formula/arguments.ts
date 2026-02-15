@@ -175,3 +175,37 @@ export const BoolArgs = Arguments.create<BoolNode>()
   .setRef(ref2bool)
   .setNum(num2bool)
   .setStr(() => ({ t: 'err' as const, v: '#VALUE!' as const }));
+
+/**
+ * `num2str` converts a number result to a string result.
+ */
+function num2str(result: NumNode): StrNode {
+  return { t: 'str', v: result.v.toString() };
+}
+
+/**
+ * `bool2str` converts a boolean result to a string result.
+ */
+function bool2str(result: BoolNode): StrNode {
+  return { t: 'str', v: result.v ? 'TRUE' : 'FALSE' };
+}
+
+/**
+ * `ref2str` converts a reference result to a string result.
+ */
+export function ref2str(result: RefNode, grid: Grid): StrNode | ErrNode {
+  if (isSrng(result.v)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const val = grid.get(result.v)?.v || '';
+  return { t: 'str', v: val };
+}
+
+/**
+ * `StringArgs` is a helper to build arguments for a string function.
+ */
+export const StringArgs = Arguments.create<StrNode>()
+  .setRef(ref2str)
+  .setNum(num2str)
+  .setBool(bool2str);

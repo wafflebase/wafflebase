@@ -14,7 +14,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { MoreHorizontal, Pencil, Plus } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -44,7 +44,11 @@ import {
 } from "@/components/ui/table";
 
 import { Document } from "@/types/documents";
-import { createDocument, deleteDocument, renameDocument } from "@/api/documents";
+import {
+  createDocument,
+  deleteDocument,
+  renameDocument,
+} from "@/api/documents";
 
 export function DocumentList({ data }: { data: Document[] }) {
   const queryClient = useQueryClient();
@@ -109,8 +113,6 @@ export function DocumentList({ data }: { data: Document[] }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
@@ -130,6 +132,7 @@ export function DocumentList({ data }: { data: Document[] }) {
                   deleteDocumentMutation.mutate(String(row.getValue("id")));
                 }}
               >
+                <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -222,7 +225,7 @@ export function DocumentList({ data }: { data: Document[] }) {
                         ? null
                         : flexRender(
                             header.column.columnDef.header,
-                            header.getContext()
+                            header.getContext(),
                           )}
                     </TableHead>
                   );
@@ -248,7 +251,7 @@ export function DocumentList({ data }: { data: Document[] }) {
                     <TableCell key={cell.id}>
                       {flexRender(
                         cell.column.columnDef.cell,
-                        cell.getContext()
+                        cell.getContext(),
                       )}
                     </TableCell>
                   ))}
@@ -330,10 +333,7 @@ export function DocumentList({ data }: { data: Document[] }) {
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                disabled={renameDocumentMutation.isPending}
-              >
+              <Button type="submit" disabled={renameDocumentMutation.isPending}>
                 Rename
               </Button>
             </DialogFooter>

@@ -117,6 +117,109 @@ describe('Formula', () => {
     expect(evaluate('=SUM()')).toBe('#N/A!');
   });
 
+  it('should correctly evaluate AVERAGE function', () => {
+    expect(evaluate('=AVERAGE(1,2,3)')).toBe('2');
+    expect(evaluate('=AVERAGE(10,20)')).toBe('15');
+    expect(evaluate('=AVERAGE(5)')).toBe('5');
+    expect(evaluate('=AVERAGE(1,2,3,4,5)')).toBe('3');
+    expect(evaluate('=AVERAGE(0,0,0)')).toBe('0');
+  });
+
+  it('should correctly evaluate MIN function', () => {
+    expect(evaluate('=MIN(1,2,3)')).toBe('1');
+    expect(evaluate('=MIN(5,3,8,1,9)')).toBe('1');
+    expect(evaluate('=MIN(0-5,0,5)')).toBe('-5');
+    expect(evaluate('=MIN(42)')).toBe('42');
+  });
+
+  it('should correctly evaluate MAX function', () => {
+    expect(evaluate('=MAX(1,2,3)')).toBe('3');
+    expect(evaluate('=MAX(5,3,8,1,9)')).toBe('9');
+    expect(evaluate('=MAX(0-5,0,5)')).toBe('5');
+    expect(evaluate('=MAX(42)')).toBe('42');
+  });
+
+  it('should correctly evaluate COUNT function', () => {
+    expect(evaluate('=COUNT(1,2,3)')).toBe('3');
+    expect(evaluate('=COUNT(1,"hello",TRUE)')).toBe('2');
+    expect(evaluate('=COUNT(TRUE,FALSE)')).toBe('2');
+  });
+
+  it('should correctly evaluate COUNTA function', () => {
+    expect(evaluate('=COUNTA(1,"hello",TRUE)')).toBe('3');
+    expect(evaluate('=COUNTA(1,2,3)')).toBe('3');
+  });
+
+  it('should correctly evaluate TRIM function', () => {
+    expect(evaluate('=TRIM("  hello  ")')).toBe('hello');
+    expect(evaluate('=TRIM("hello")')).toBe('hello');
+    expect(evaluate('=TRIM("  spaces  ")')).toBe('spaces');
+  });
+
+  it('should correctly evaluate LEN function', () => {
+    expect(evaluate('=LEN("hello")')).toBe('5');
+    expect(evaluate('=LEN("")')).toBe('0');
+    expect(evaluate('=LEN("hello world")')).toBe('11');
+  });
+
+  it('should correctly evaluate LEFT function', () => {
+    expect(evaluate('=LEFT("hello",3)')).toBe('hel');
+    expect(evaluate('=LEFT("hello",1)')).toBe('h');
+    expect(evaluate('=LEFT("hello")')).toBe('h');
+    expect(evaluate('=LEFT("hello",10)')).toBe('hello');
+  });
+
+  it('should correctly evaluate RIGHT function', () => {
+    expect(evaluate('=RIGHT("hello",3)')).toBe('llo');
+    expect(evaluate('=RIGHT("hello",1)')).toBe('o');
+    expect(evaluate('=RIGHT("hello")')).toBe('o');
+    expect(evaluate('=RIGHT("hello",10)')).toBe('hello');
+  });
+
+  it('should correctly evaluate MID function', () => {
+    expect(evaluate('=MID("hello",2,3)')).toBe('ell');
+    expect(evaluate('=MID("hello",1,5)')).toBe('hello');
+    expect(evaluate('=MID("hello",3,1)')).toBe('l');
+  });
+
+  it('should correctly evaluate CONCATENATE function', () => {
+    expect(evaluate('=CONCATENATE("hello"," ","world")')).toBe('hello world');
+    expect(evaluate('=CONCATENATE("a","b")')).toBe('ab');
+    expect(evaluate('=CONCATENATE("x","y","z")')).toBe('xyz');
+  });
+
+  it('should correctly evaluate TODAY function', () => {
+    const result = evaluate('=TODAY()');
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('should correctly evaluate NOW function', () => {
+    const result = evaluate('=NOW()');
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+
+  it('should correctly evaluate YEAR function', () => {
+    expect(evaluate('=YEAR("2024-03-15")')).toBe('2024');
+    expect(evaluate('=YEAR("invalid")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate MONTH function', () => {
+    expect(evaluate('=MONTH("2024-03-15")')).toBe('3');
+    expect(evaluate('=MONTH("invalid")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate DAY function', () => {
+    expect(evaluate('=DAY("2024-03-15")')).toBe('15');
+    expect(evaluate('=DAY("invalid")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate IFERROR function', () => {
+    expect(evaluate('=IFERROR(10,"error")')).toBe('10');
+    expect(evaluate('=IFERROR("hello","error")')).toBe('hello');
+    expect(evaluate('=IFERROR(1+2,"error")')).toBe('3');
+    expect(evaluate('=IFERROR(SUM(),"fallback")')).toBe('fallback');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

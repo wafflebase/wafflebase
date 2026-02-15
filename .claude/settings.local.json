@@ -12,7 +12,8 @@
       "Bash(npx tsc:*)",
       "Bash(git -C /Users/hackerwins/Development/wafflebase/wafflebase diff --stat)",
       "Bash(git -C /Users/hackerwins/Development/wafflebase/wafflebase add design/sheet.md packages/frontend/src/app/spreadsheet/sheet-view.tsx packages/frontend/src/app/spreadsheet/yorkie-store.ts packages/frontend/src/components/formatting-toolbar.tsx packages/sheet/src/index.ts packages/sheet/src/model/format.ts packages/sheet/src/model/sheet.ts packages/sheet/src/model/types.ts packages/sheet/src/view/cellinput.ts packages/sheet/src/view/gridcanvas.ts packages/sheet/src/view/spreadsheet.ts packages/sheet/src/view/worksheet.ts packages/sheet/test/model/format.test.ts packages/sheet/test/sheet/formatting.test.ts)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(pnpm sheet build:formula:*)"
     ]
   }
 }

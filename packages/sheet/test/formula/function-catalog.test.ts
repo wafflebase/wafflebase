@@ -36,10 +36,11 @@ describe('FunctionCatalog', () => {
       expect(results[0].name).toBe('OR');
     });
 
-    it('should find AND with "A"', () => {
+    it('should find AND and AVERAGE with "A"', () => {
       const results = searchFunctions('A');
-      expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('AND');
+      const names = results.map((r) => r.name);
+      expect(names).toContain('AND');
+      expect(names).toContain('AVERAGE');
     });
   });
 

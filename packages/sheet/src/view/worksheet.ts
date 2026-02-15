@@ -73,7 +73,7 @@ export class Worksheet {
   private boundHandleMouseDown: (e: MouseEvent) => void;
   private boundHandleDblClick: (e: MouseEvent) => void;
   private boundHandleKeyDown: (e: KeyboardEvent) => void;
-  private boundHandleKeyUp: () => void;
+  private boundHandleKeyUp: (e: KeyboardEvent) => void;
   private boundHandleMouseMove: (e: MouseEvent) => void;
   private boundHandleContextMenu: (e: MouseEvent) => void;
 
@@ -94,7 +94,11 @@ export class Worksheet {
   private onRenderCallback?: () => void;
   private readOnly: boolean;
 
-  constructor(container: HTMLDivElement, theme: Theme = 'light', readOnly: boolean = false) {
+  constructor(
+    container: HTMLDivElement,
+    theme: Theme = 'light',
+    readOnly: boolean = false,
+  ) {
     this.container = container;
     this.readOnly = readOnly;
 
@@ -255,7 +259,21 @@ export class Worksheet {
     this.boundHandleGridKeydown(e);
   }
 
-  private handleKeyUp(): void {
+  private handleKeyUp(e: KeyboardEvent): void {
+    // Skip autocomplete update for arrow/navigation keys when autocomplete is
+    // visible. The keydown handler already adjusted the selection index and
+    // re-triggering updateAutocomplete here would reset selectedIndex to 0,
+    // causing the flickering/jump-back behaviour.
+    const isNavKey =
+      e.key === 'ArrowDown' ||
+      e.key === 'ArrowUp' ||
+      e.key === 'Escape' ||
+      e.key === 'Enter' ||
+      e.key === 'Tab';
+    const skipAutocomplete =
+      isNavKey &&
+      (this.autocomplete.isListVisible() || this.autocomplete.isHintVisible());
+
     let value: string | undefined;
     let activeInput: HTMLDivElement | undefined;
     if (this.formulaBar.isFocused()) {
@@ -276,6 +294,10 @@ export class Worksheet {
       this.renderOverlay();
     }
 
+    if (skipAutocomplete) {
+      return;
+    }
+
     if (activeInput && value !== undefined) {
       this.updateAutocomplete(value, activeInput);
     } else {
@@ -287,10 +309,7 @@ export class Worksheet {
    * `updateAutocomplete` reads the formula text and cursor position to
    * show or hide the autocomplete dropdown.
    */
-  private updateAutocomplete(
-    value: string,
-    inputEl: HTMLDivElement,
-  ): void {
+  private updateAutocomplete(value: string, inputEl: HTMLDivElement): void {
     if (!value.startsWith('=')) {
       this.autocomplete.hide();
       return;
