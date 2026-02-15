@@ -13,9 +13,30 @@ import {
   isSameRange,
   mergeRanges,
 } from './coordinates';
-import { Axis, Grid, Cell, CellStyle, Ref, Sref, Range, Direction, SelectionType } from './types';
-import { remapIndex, moveRef, shiftDimensionMap, moveDimensionMap, relocateFormula } from './shifting';
-import { grid2string, string2grid, html2grid, isSpreadsheetHtml } from './grids';
+import {
+  Axis,
+  Grid,
+  Cell,
+  CellStyle,
+  Ref,
+  Sref,
+  Range,
+  Direction,
+  SelectionType,
+} from './types';
+import {
+  remapIndex,
+  moveRef,
+  shiftDimensionMap,
+  moveDimensionMap,
+  relocateFormula,
+} from './shifting';
+import {
+  grid2string,
+  string2grid,
+  html2grid,
+  isSpreadsheetHtml,
+} from './grids';
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
 
@@ -240,7 +261,11 @@ export class Sheet {
    * `resolveEffectiveStyle` merges sheet → column → row → cell styles.
    * Later levels override earlier ones.
    */
-  resolveEffectiveStyle(row: number, col: number, cellStyle?: CellStyle): CellStyle | undefined {
+  resolveEffectiveStyle(
+    row: number,
+    col: number,
+    cellStyle?: CellStyle,
+  ): CellStyle | undefined {
     const s = this.sheetStyle;
     const c = this.colStyles.get(col);
     const r = this.rowStyles.get(row);
@@ -324,7 +349,9 @@ export class Sheet {
   }
 
   /**
-   * `removeData` removes the data at the given row and column.
+   * `removeData` removes the data (value/formula) at the given range,
+   * but preserves cell styles. If a cell has no style, it is deleted entirely.
+   * Uses getGrid() to iterate only over populated cells for efficiency.
    */
   async removeData(): Promise<boolean> {
     this.store.beginBatch();
@@ -332,7 +359,20 @@ export class Sheet {
       const range: Range = this.range
         ? this.range
         : [this.activeCell, this.activeCell];
-      const removeds = await this.store.deleteRange(range);
+
+      const grid = await this.store.getGrid(range);
+      const removeds = new Set<Sref>();
+
+      for (const [sref, cell] of grid) {
+        const ref = parseRef(sref);
+        if (cell.s && Object.keys(cell.s).length > 0) {
+          // Preserve style, clear value and formula.
+          await this.store.set(ref, { s: cell.s });
+        } else {
+          await this.store.delete(ref);
+        }
+        removeds.add(sref);
+      }
 
       if (removeds.size === 0) {
         return false;
@@ -412,9 +452,15 @@ export class Sheet {
     if (count > 0 && value >= index) {
       // Insert: shift active cell forward
       if (axis === 'row') {
-        this.activeCell = { r: this.activeCell.r + count, c: this.activeCell.c };
+        this.activeCell = {
+          r: this.activeCell.r + count,
+          c: this.activeCell.c,
+        };
       } else {
-        this.activeCell = { r: this.activeCell.r, c: this.activeCell.c + count };
+        this.activeCell = {
+          r: this.activeCell.r,
+          c: this.activeCell.c + count,
+        };
       }
     } else if (count < 0) {
       const absCount = Math.abs(count);
@@ -474,7 +520,10 @@ export class Sheet {
 
       // Recalculate all formula cells
       const allSrefs = new Set<Sref>();
-      const fullRange: Range = [{ r: 1, c: 1 }, { r: 1000, c: 100 }];
+      const fullRange: Range = [
+        { r: 1, c: 1 },
+        { r: 1000, c: 100 },
+      ];
       const grid = await this.store.getGrid(fullRange);
       for (const [sref, cell] of grid) {
         if (cell.f) {
@@ -532,7 +581,10 @@ export class Sheet {
     try {
       // Recalculate all formula cells
       const allSrefs = new Set<Sref>();
-      const fullRange: Range = [{ r: 1, c: 1 }, { r: 1000, c: 100 }];
+      const fullRange: Range = [
+        { r: 1, c: 1 },
+        { r: 1000, c: 100 },
+      ];
       const grid = await this.store.getGrid(fullRange);
       for (const [sref, cell] of grid) {
         if (cell.f) {
@@ -651,8 +703,10 @@ export class Sheet {
   private selectPastedRange(grid: Grid): void {
     if (grid.size === 0) return;
 
-    let minR = Infinity, maxR = -Infinity;
-    let minC = Infinity, maxC = -Infinity;
+    let minR = Infinity,
+      maxR = -Infinity;
+    let minC = Infinity,
+      maxC = -Infinity;
     for (const sref of grid.keys()) {
       const ref = parseRef(sref);
       if (ref.r < minR) minR = ref.r;
@@ -667,7 +721,10 @@ export class Sheet {
     } else {
       this.selectionType = 'cell';
       this.activeCell = { r: minR, c: minC };
-      this.range = [{ r: minR, c: minC }, { r: maxR, c: maxC }];
+      this.range = [
+        { r: minR, c: minC },
+        { r: maxR, c: maxC },
+      ];
       this.store.updateActiveCell(this.activeCell);
     }
   }
@@ -836,7 +893,11 @@ export class Sheet {
    * `getSelectedIndices` returns the selected row/column range, or null for cell selections.
    */
   getSelectedIndices(): { axis: Axis; from: number; to: number } | null {
-    if (this.selectionType === 'cell' || this.selectionType === 'all' || !this.range) {
+    if (
+      this.selectionType === 'cell' ||
+      this.selectionType === 'all' ||
+      !this.range
+    ) {
       return null;
     }
 

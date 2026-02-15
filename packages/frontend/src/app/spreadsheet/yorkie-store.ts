@@ -151,7 +151,10 @@ export class YorkieStore implements Store {
       for (const [row, col] of cellsToDelete) {
         const sref = toSref({ r: row, c: col });
         // Skip cells already deleted in overlay
-        if (this.batchOverlay.has(sref) && this.batchOverlay.get(sref) === null) {
+        if (
+          this.batchOverlay.has(sref) &&
+          this.batchOverlay.get(sref) === null
+        ) {
           continue;
         }
         this.batchOverlay.set(sref, null);
@@ -237,14 +240,25 @@ export class YorkieStore implements Store {
 
   /**
    * `findEdge` method finds the edge of the grid.
+   * Style-only cells are excluded from navigation.
    */
   async findEdge(
     ref: Ref,
     direction: Direction,
-    dimension: Range
+    dimension: Range,
   ): Promise<Ref> {
     this.ensureIndex();
-    return findEdgeWithIndex(this.cellIndex, ref, direction, dimension);
+    return findEdgeWithIndex(
+      this.cellIndex,
+      ref,
+      direction,
+      dimension,
+      (r, c) => {
+        const sref = toSref({ r, c });
+        const cell = this.doc.getRoot().sheet[sref];
+        return cell !== undefined && (!!cell.v || !!cell.f);
+      },
+    );
   }
 
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
@@ -345,7 +359,7 @@ export class YorkieStore implements Store {
     axis: Axis,
     srcIndex: number,
     count: number,
-    dstIndex: number
+    dstIndex: number,
   ): Promise<void> {
     this.doc.update((root) => {
       // Collect all entries
@@ -454,7 +468,7 @@ export class YorkieStore implements Store {
   async setDimensionSize(
     axis: Axis,
     index: number,
-    size: number
+    size: number,
   ): Promise<void> {
     if (this.batchOps) {
       this.batchOps.push((root) => {
@@ -671,8 +685,10 @@ export class YorkieStore implements Store {
 
     if (changedSrefs.size === 0) return undefined;
 
-    let minR = Infinity, maxR = -Infinity;
-    let minC = Infinity, maxC = -Infinity;
+    let minR = Infinity,
+      maxR = -Infinity;
+    let minC = Infinity,
+      maxC = -Infinity;
     for (const sref of changedSrefs) {
       const ref = parseRef(sref);
       if (ref.r < minR) minR = ref.r;
@@ -681,7 +697,10 @@ export class YorkieStore implements Store {
       if (ref.c > maxC) maxC = ref.c;
     }
 
-    return [{ r: minR, c: minC }, { r: maxR, c: maxC }];
+    return [
+      { r: minR, c: minC },
+      { r: maxR, c: maxC },
+    ];
   }
 
   canUndo(): boolean {

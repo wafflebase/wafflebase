@@ -1,7 +1,21 @@
 import { extractReferences } from '../formula/formula';
 import { parseRef, toSref, toSrefs } from '../model/coordinates';
-import { shiftGrid, shiftDimensionMap, moveGrid, moveDimensionMap } from '../model/shifting';
-import { Axis, Cell, CellStyle, Grid, Ref, Range, Sref, Direction } from '../model/types';
+import {
+  shiftGrid,
+  shiftDimensionMap,
+  moveGrid,
+  moveDimensionMap,
+} from '../model/shifting';
+import {
+  Axis,
+  Cell,
+  CellStyle,
+  Grid,
+  Ref,
+  Range,
+  Sref,
+  Direction,
+} from '../model/types';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
@@ -90,13 +104,23 @@ export class MemStore implements Store {
 
   /**
    * `findEdge` method finds the edge of the grid.
+   * Style-only cells are excluded from navigation.
    */
   async findEdge(
     ref: Ref,
     direction: Direction,
     dimension: Range,
   ): Promise<Ref> {
-    return findEdgeWithIndex(this.cellIndex, ref, direction, dimension);
+    return findEdgeWithIndex(
+      this.cellIndex,
+      ref,
+      direction,
+      dimension,
+      (r, c) => {
+        const cell = this.grid.get(toSref({ r, c }));
+        return cell !== undefined && (!!cell.v || !!cell.f);
+      },
+    );
   }
 
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
@@ -113,16 +137,41 @@ export class MemStore implements Store {
     }
   }
 
-  async moveCells(axis: Axis, srcIndex: number, count: number, dstIndex: number): Promise<void> {
+  async moveCells(
+    axis: Axis,
+    srcIndex: number,
+    count: number,
+    dstIndex: number,
+  ): Promise<void> {
     this.grid = moveGrid(this.grid, axis, srcIndex, count, dstIndex);
     this.rebuildIndex();
 
     if (axis === 'row') {
-      this.rowHeights = moveDimensionMap(this.rowHeights, srcIndex, count, dstIndex);
-      this.rowStyles = moveDimensionMap(this.rowStyles, srcIndex, count, dstIndex);
+      this.rowHeights = moveDimensionMap(
+        this.rowHeights,
+        srcIndex,
+        count,
+        dstIndex,
+      );
+      this.rowStyles = moveDimensionMap(
+        this.rowStyles,
+        srcIndex,
+        count,
+        dstIndex,
+      );
     } else {
-      this.colWidths = moveDimensionMap(this.colWidths, srcIndex, count, dstIndex);
-      this.colStyles = moveDimensionMap(this.colStyles, srcIndex, count, dstIndex);
+      this.colWidths = moveDimensionMap(
+        this.colWidths,
+        srcIndex,
+        count,
+        dstIndex,
+      );
+      this.colStyles = moveDimensionMap(
+        this.colStyles,
+        srcIndex,
+        count,
+        dstIndex,
+      );
     }
   }
 

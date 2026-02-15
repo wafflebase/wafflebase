@@ -11,12 +11,17 @@ import { CellIndex } from './cell-index';
  * - If current and next are occupied: walk to end of consecutive run
  * - If current is occupied but next is empty (or current is empty):
  *   jump to start of next data block, or boundary if none
+ *
+ * @param hasContent Optional filter that returns true if the cell at (row, col)
+ *   has actual content (value or formula). When provided, style-only cells are
+ *   excluded from navigation so Ctrl+Arrow skips over them.
  */
 export function findEdgeWithIndex(
   index: CellIndex,
   ref: Ref,
   direction: Direction,
   dimension: Range,
+  hasContent?: (row: number, col: number) => boolean,
 ): Ref {
   const isHorizontal = direction === 'left' || direction === 'right';
   const isForward = direction === 'down' || direction === 'right';
@@ -25,10 +30,26 @@ export function findEdgeWithIndex(
   const minPos = isHorizontal ? dimension[0].c : dimension[0].r;
   const maxPos = isHorizontal ? dimension[1].c : dimension[1].r;
 
-  // Get all occupied positions along the movement axis
-  const occupiedSet = isHorizontal
+  // Get all occupied positions along the movement axis,
+  // filtering out style-only cells when a content checker is provided.
+  const rawSet = isHorizontal
     ? index.getOccupiedColsInRow(ref.r)
     : index.getOccupiedRowsInCol(ref.c);
+
+  let occupiedSet: Set<number> | undefined;
+  if (rawSet && hasContent) {
+    const filtered = new Set<number>();
+    for (const p of rawSet) {
+      const row = isHorizontal ? ref.r : p;
+      const col = isHorizontal ? p : ref.c;
+      if (hasContent(row, col)) {
+        filtered.add(p);
+      }
+    }
+    occupiedSet = filtered.size > 0 ? filtered : undefined;
+  } else {
+    occupiedSet = rawSet;
+  }
 
   if (!occupiedSet || occupiedSet.size === 0) {
     // No data in this row/col at all — go to boundary
@@ -48,10 +69,11 @@ export function findEdgeWithIndex(
 
   const hasCurrent = occupiedSet.has(pos);
   const nextPos = isForward ? pos + 1 : pos - 1;
-  const hasNext = inRange(
-    isHorizontal ? { r: ref.r, c: nextPos } : { r: nextPos, c: ref.c },
-    dimension,
-  ) && occupiedSet.has(nextPos);
+  const hasNext =
+    inRange(
+      isHorizontal ? { r: ref.r, c: nextPos } : { r: nextPos, c: ref.c },
+      dimension,
+    ) && occupiedSet.has(nextPos);
 
   if (hasCurrent && hasNext) {
     // Inside a data block — walk to end of consecutive run
