@@ -7,6 +7,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { UserPresence } from "@/components/user-presence";
+import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings } from "@tabler/icons-react";
 import SheetView from "@/app/spreadsheet/sheet-view";
@@ -29,7 +30,7 @@ const items = {
   ],
 };
 
-function DocumentLayout() {
+function DocumentLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
 
   return (
@@ -37,7 +38,10 @@ function DocumentLayout() {
       <AppSidebar variant="inset" items={items} />
       <SidebarInset>
         <SiteHeader title="Spreadsheet">
-          <UserPresence />
+          <div className="flex items-center gap-2">
+            <ShareDialog documentId={documentId} />
+            <UserPresence />
+          </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-2">
@@ -90,7 +94,7 @@ export function DocumentDetail() {
         photo: currentUser.photo || "",
       }}
     >
-      <DocumentLayout />
+      <DocumentLayout documentId={id!} />
     </DocumentProvider>
   );
 }

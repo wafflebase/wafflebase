@@ -9,6 +9,7 @@ export type Theme = 'light' | 'dark';
 export interface Options {
   theme?: Theme;
   store?: Store;
+  readOnly?: boolean;
 }
 
 /**
@@ -37,6 +38,7 @@ export class Spreadsheet {
   private worksheet: Worksheet;
   private sheet?: Sheet;
   private theme: Theme;
+  private _readOnly: boolean;
   private selectionChangeCallbacks: SelectionChangeCallback[] = [];
 
   /**
@@ -47,8 +49,16 @@ export class Spreadsheet {
     this.container.style.position = 'relative';
     this.container.style.overflow = 'hidden';
     this.theme = options?.theme || 'light';
+    this._readOnly = options?.readOnly || false;
 
-    this.worksheet = new Worksheet(this.container, this.theme);
+    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly);
+  }
+
+  /**
+   * `isReadOnly` returns whether the spreadsheet is in read-only mode.
+   */
+  public get readOnly(): boolean {
+    return this._readOnly;
   }
 
   /**
@@ -72,6 +82,7 @@ export class Spreadsheet {
    * `setFreezePane` sets the freeze pane position and re-renders.
    */
   public async setFreezePane(frozenRows: number, frozenCols: number) {
+    if (this._readOnly) return;
     await this.worksheet.setFreezePane(frozenRows, frozenCols);
   }
 
@@ -93,7 +104,7 @@ export class Spreadsheet {
    * `applyStyle` applies the given style to the current selection and re-renders.
    */
   public async applyStyle(style: Partial<CellStyle>) {
-    if (!this.sheet) return;
+    if (!this.sheet || this._readOnly) return;
     await this.sheet.setRangeStyle(style);
     this.worksheet.render();
     this.notifySelectionChange();
@@ -103,7 +114,7 @@ export class Spreadsheet {
    * `toggleStyle` toggles a boolean style property on the current selection and re-renders.
    */
   public async toggleStyle(prop: 'b' | 'i' | 'u' | 'st') {
-    if (!this.sheet) return;
+    if (!this.sheet || this._readOnly) return;
     await this.sheet.toggleRangeStyle(prop);
     this.worksheet.render();
     this.notifySelectionChange();
@@ -143,7 +154,7 @@ export class Spreadsheet {
    * `increaseDecimals` increases the decimal places for the current selection.
    */
   public async increaseDecimals() {
-    if (!this.sheet) return;
+    if (!this.sheet || this._readOnly) return;
     const dp = await this.sheet.getActiveDecimalPlaces();
     await this.sheet.setRangeStyle({ dp: dp + 1 });
     this.worksheet.render();
@@ -154,7 +165,7 @@ export class Spreadsheet {
    * `decreaseDecimals` decreases the decimal places for the current selection.
    */
   public async decreaseDecimals() {
-    if (!this.sheet) return;
+    if (!this.sheet || this._readOnly) return;
     const dp = await this.sheet.getActiveDecimalPlaces();
     await this.sheet.setRangeStyle({ dp: Math.max(0, dp - 1) });
     this.worksheet.render();
@@ -165,7 +176,7 @@ export class Spreadsheet {
    * `undo` undoes the last local change and re-renders.
    */
   public async undo() {
-    if (!this.sheet) return;
+    if (!this.sheet || this._readOnly) return;
     if (await this.sheet.undo()) {
       this.worksheet.render();
       this.notifySelectionChange();
@@ -176,7 +187,7 @@ export class Spreadsheet {
    * `redo` redoes the last undone change and re-renders.
    */
   public async redo() {
-    if (!this.sheet) return;
+    if (!this.sheet || this._readOnly) return;
     if (await this.sheet.redo()) {
       this.worksheet.render();
       this.notifySelectionChange();

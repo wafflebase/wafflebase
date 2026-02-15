@@ -8,7 +8,7 @@ import { Worksheet } from "@/types/worksheet";
 import { YorkieStore } from "./yorkie-store";
 import { UserPresence } from "@/types/users";
 
-export function SheetView() {
+export function SheetView({ readOnly = false }: { readOnly?: boolean }) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
@@ -34,6 +34,7 @@ export function SheetView() {
     initialize(container, {
       theme,
       store: new YorkieStore(doc),
+      readOnly,
     }).then((s) => {
       if (cancelled) {
         s.cleanup();
@@ -65,7 +66,7 @@ export function SheetView() {
         unsub();
       }
     };
-  }, [didMount, containerRef, doc]);
+  }, [didMount, containerRef, doc, readOnly]);
 
   if (loading) {
     return <Loader />;
@@ -81,7 +82,7 @@ export function SheetView() {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <FormattingToolbar spreadsheet={sheetRef.current} />
+      {!readOnly && <FormattingToolbar spreadsheet={sheetRef.current} />}
       <div ref={containerRef} className="flex-1 w-full" />
     </div>
   );

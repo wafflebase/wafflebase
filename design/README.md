@@ -11,6 +11,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [backend.md](backend.md) | Backend package — NestJS modules, API reference, auth system, database schema, security |
 | [scroll-and-rendering.md](scroll-and-rendering.md) | Viewport-based Canvas rendering and proportional scroll remapping for large grids |
 | [batch-transactions.md](batch-transactions.md) | Store-level batch transactions for atomic undo/redo grouping |
+| [sharing.md](sharing.md) | URL-based token sharing with anonymous access and role-based permissions |
 
 ## Template
 

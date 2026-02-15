@@ -1,0 +1,73 @@
+import { fetchWithAuth } from "./auth";
+
+export type ShareLink = {
+  id: string;
+  token: string;
+  role: string;
+  documentId: string;
+  createdBy: number;
+  createdAt: string;
+  expiresAt: string | null;
+};
+
+export type ResolvedShareLink = {
+  documentId: string;
+  role: string;
+  title: string;
+};
+
+export async function createShareLink(
+  documentId: string,
+  role: string,
+  expiration: string | null
+): Promise<ShareLink> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${documentId}/share-links`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role, expiration }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to create share link");
+  }
+  return response.json();
+}
+
+export async function getShareLinks(
+  documentId: string
+): Promise<ShareLink[]> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${documentId}/share-links`
+  );
+  if (!response.ok) {
+    throw new Error("Failed to fetch share links");
+  }
+  return response.json();
+}
+
+export async function deleteShareLink(id: string): Promise<void> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${id}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to delete share link");
+  }
+}
+
+export async function resolveShareLink(
+  token: string
+): Promise<ResolvedShareLink> {
+  const response = await fetch(
+    `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${token}/resolve`
+  );
+  if (response.status === 410) {
+    throw new Error("Share link has expired");
+  }
+  if (!response.ok) {
+    throw new Error("Invalid share link");
+  }
+  return response.json();
+}

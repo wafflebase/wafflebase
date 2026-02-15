@@ -5,6 +5,7 @@ model User {
   email String  @unique
   photo String?
   documents Document[]
+  shareLinks ShareLink[]
 }
 
 model Document {
@@ -13,6 +14,19 @@ model Document {
   authorID  Int?
   author    User?    @relation(fields: [authorID], references: [id])
   createdAt DateTime @default(now())
+  shareLinks ShareLink[]
+}
+
+model ShareLink {
+  id         String    @id @default(uuid())
+  token      String    @unique @default(uuid())
+  role       String    @default("viewer")
+  documentId String
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdBy  Int
+  creator    User      @relation(fields: [createdBy], references: [id])
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
 }
 
 datasource db {

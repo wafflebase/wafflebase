@@ -89,9 +89,11 @@ export class Worksheet {
   private freezeDrag: { axis: 'row' | 'column'; targetIndex: number } | null =
     null;
   private onRenderCallback?: () => void;
+  private readOnly: boolean;
 
-  constructor(container: HTMLDivElement, theme: Theme = 'light') {
+  constructor(container: HTMLDivElement, theme: Theme = 'light', readOnly: boolean = false) {
     this.container = container;
+    this.readOnly = readOnly;
 
     this.formulaBar = new FormulaBar(theme);
     this.gridContainer = new GridContainer(theme);
@@ -264,6 +266,8 @@ export class Worksheet {
   }
 
   private handleDblClick(e: MouseEvent): void {
+    if (this.readOnly) return;
+
     // Double-click on freeze handle → quick freeze top row / first column
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
     if (freezeHandle) {
@@ -295,6 +299,8 @@ export class Worksheet {
   }
 
   private handleContextMenu(e: MouseEvent): void {
+    if (this.readOnly) return;
+
     const x = e.offsetX;
     const y = e.offsetY;
 
@@ -706,7 +712,7 @@ export class Worksheet {
   private async handleMouseDown(e: MouseEvent) {
     // Check for freeze handle first (highest priority)
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
-    if (freezeHandle) {
+    if (freezeHandle && !this.readOnly) {
       e.preventDefault();
       this.startFreezeDrag(freezeHandle, e);
       return;
@@ -714,7 +720,7 @@ export class Worksheet {
 
     // Check for resize edge
     const resizeEdge = this.detectResizeEdge(e.offsetX, e.offsetY);
-    if (resizeEdge) {
+    if (resizeEdge && !this.readOnly) {
       e.preventDefault();
       this.startResize(resizeEdge.axis, resizeEdge.index, e);
       return;
@@ -753,6 +759,7 @@ export class Worksheet {
       // Check if clicking on already-selected column header → start drag-move
       const selected = this.sheet!.getSelectedIndices();
       if (
+        !this.readOnly &&
         selected &&
         selected.axis === 'column' &&
         col >= selected.from &&
@@ -809,6 +816,7 @@ export class Worksheet {
       // Check if clicking on already-selected row header → start drag-move
       const selected = this.sheet!.getSelectedIndices();
       if (
+        !this.readOnly &&
         selected &&
         selected.axis === 'row' &&
         row >= selected.from &&
@@ -1363,18 +1371,21 @@ export class Worksheet {
         this.sheet!.moveInRange(e.shiftKey ? -1 : 1, 0);
         this.render();
         this.scrollIntoView();
-      } else {
+      } else if (!this.readOnly) {
         this.showCellInput();
       }
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (this.readOnly) return;
       e.preventDefault();
 
       if (await this.sheet!.removeData()) {
         this.render();
       }
     } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
+      if (this.readOnly) return;
       this.showCellInput(true);
     } else if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+      if (this.readOnly) return;
       e.preventDefault();
       if (await this.sheet!.undo()) {
         this.render();
@@ -1384,6 +1395,7 @@ export class Worksheet {
       ((e.key === 'z' && e.shiftKey) || e.key === 'y') &&
       (e.metaKey || e.ctrlKey)
     ) {
+      if (this.readOnly) return;
       e.preventDefault();
       if (await this.sheet!.redo()) {
         this.render();
@@ -1399,17 +1411,21 @@ export class Worksheet {
       e.preventDefault();
       await this.copy();
     } else if (e.key === 'v' && (e.metaKey || e.ctrlKey)) {
+      if (this.readOnly) return;
       e.preventDefault();
       await this.paste();
     } else if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
+      if (this.readOnly) return;
       e.preventDefault();
       await this.sheet!.toggleRangeStyle('b');
       this.render();
     } else if (e.key === 'i' && (e.metaKey || e.ctrlKey)) {
+      if (this.readOnly) return;
       e.preventDefault();
       await this.sheet!.toggleRangeStyle('i');
       this.render();
     } else if (e.key === 'u' && (e.metaKey || e.ctrlKey)) {
+      if (this.readOnly) return;
       e.preventDefault();
       await this.sheet!.toggleRangeStyle('u');
       this.render();

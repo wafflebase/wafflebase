@@ -35,6 +35,7 @@ flowchart TD
   APP --> CONFIG["ConfigModule (global)"]
   APP --> AUTH["AuthModule"]
   APP --> DOC["DocumentModule"]
+  APP --> SHARE["ShareLinkModule"]
 
   AUTH --> JWT_MOD["JwtModule (1h expiry)"]
   AUTH --> USER_MOD["UserModule"]
@@ -50,14 +51,19 @@ flowchart TD
   DOC --> DS["DocumentService"]
   DOC --> US2["UserService"]
   DOC --> PS2["PrismaService"]
+
+  SHARE --> SLC["ShareLinkController"]
+  SHARE --> SLS["ShareLinkService"]
+  SHARE --> PS3["PrismaService"]
 ```
 
 | Module | Responsibility |
 |--------|---------------|
-| **AppModule** | Root module. Imports ConfigModule (global), AuthModule, DocumentModule. |
+| **AppModule** | Root module. Imports ConfigModule (global), AuthModule, DocumentModule, ShareLinkModule. |
 | **AuthModule** | GitHub OAuth + JWT authentication. Provides AuthService, GitHubStrategy, JwtStrategy. Imports UserModule for user lookup/creation. |
 | **UserModule** | User CRUD via Prisma. Exports UserService for use by AuthModule and DocumentModule. |
 | **DocumentModule** | Document REST endpoints. Uses DocumentService + UserService + PrismaService. |
+| **ShareLinkModule** | URL-based document sharing with token-based access. Manages share link CRUD and public token resolution for anonymous access. |
 
 ### API Reference
 
@@ -102,6 +108,28 @@ All endpoints require `JwtAuthGuard`.
 **`DELETE /documents/:id`**
 - Deletes the document if the authenticated user is the author.
 - Throws `ForbiddenException` if the user is not the owner.
+
+#### Share Links (`/documents/:id/share-links`, `/share-links`)
+
+**`POST /documents/:id/share-links`**
+- Guard: `JwtAuthGuard`
+- Body: `{ role: "viewer" | "editor", expiration: "1h" | "8h" | "24h" | "7d" | null }`
+- Creates a share link for the document. Only the document owner can create links.
+- Returns the created ShareLink (including `token`).
+
+**`GET /documents/:id/share-links`**
+- Guard: `JwtAuthGuard`
+- Returns all share links for the document. Only the document owner can list links.
+
+**`DELETE /share-links/:id`**
+- Guard: `JwtAuthGuard`
+- Revokes (deletes) a share link. Only the link creator can delete it.
+
+**`GET /share-links/:token/resolve`** *(public — no auth required)*
+- Resolves a share token to document info.
+- Returns `{ documentId, role, title }` if the token is valid and not expired.
+- Returns `410 Gone` if the token has expired.
+- Returns `404 Not Found` if the token is invalid.
 
 ### Auth System
 
@@ -170,7 +198,18 @@ erDiagram
         Int authorID FK "nullable"
         DateTime createdAt "default: now()"
     }
+    ShareLink {
+        String id PK "uuid"
+        String token UK "uuid"
+        String role "viewer or editor"
+        String documentId FK
+        Int createdBy FK
+        DateTime createdAt "default: now()"
+        DateTime expiresAt "nullable"
+    }
     User ||--o{ Document : "author"
+    User ||--o{ ShareLink : "creator"
+    Document ||--o{ ShareLink : "shareLinks"
 ```
 
 **User:**
@@ -184,6 +223,14 @@ erDiagram
 - `authorID` — Nullable foreign key to User. Nullable so documents can survive
   user deletion.
 - `createdAt` — Auto-set on creation.
+
+**ShareLink:**
+- `id` — UUID primary key (auto-generated).
+- `token` — Unique UUID used in shareable URLs. Unguessable (122 bits of entropy).
+- `role` — Access level: `"viewer"` (read-only) or `"editor"` (full access).
+- `documentId` — Foreign key to Document. Cascade-deletes when document is deleted.
+- `createdBy` — Foreign key to User (the document owner who created the link).
+- `expiresAt` — Optional expiration timestamp. `null` means no expiration.
 
 ### Environment Configuration
 
