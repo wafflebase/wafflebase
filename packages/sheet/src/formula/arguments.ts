@@ -136,3 +136,42 @@ export const NumberArgs = Arguments.create<NumNode>()
   .setRef(ref2num)
   .setBool(bool2num)
   .setStr(str2num);
+
+/**
+ * `num2bool` converts a number result to a boolean result.
+ */
+function num2bool(result: NumNode): BoolNode {
+  return { t: 'bool', v: result.v !== 0 };
+}
+
+/**
+ * `ref2bool` converts a reference result to a boolean result.
+ */
+function ref2bool(result: RefNode, grid: Grid): BoolNode | ErrNode {
+  if (isSrng(result.v)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const val = grid.get(result.v)?.v || '';
+  if (val === 'TRUE' || val === 'true') {
+    return { t: 'bool', v: true };
+  }
+  if (val === 'FALSE' || val === 'false' || val === '') {
+    return { t: 'bool', v: false };
+  }
+
+  const num = Number(val);
+  if (!isNaN(num)) {
+    return { t: 'bool', v: num !== 0 };
+  }
+
+  return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * `BoolArgs` is a helper to build arguments for a boolean function.
+ */
+export const BoolArgs = Arguments.create<BoolNode>()
+  .setRef(ref2bool)
+  .setNum(num2bool)
+  .setStr(() => ({ t: 'err' as const, v: '#VALUE!' as const }));

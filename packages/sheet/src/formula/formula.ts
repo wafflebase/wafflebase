@@ -5,12 +5,14 @@ import { FormulaVisitor } from '../../antlr/FormulaVisitor';
 import {
   AddSubContext,
   BooleanContext,
+  ComparisonContext,
   FormulaParser,
   FunctionContext,
   MulDivContext,
   NumberContext,
   ParenthesesContext,
   ReferenceContext,
+  StrContext,
 } from '../../antlr/FormulaParser';
 import { FunctionMap } from './functions';
 import { Grid, Range, Reference } from '../model/types';
@@ -283,5 +285,39 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     return { t: 'num', v: left.v / right.v };
+  }
+
+  visitComparison(ctx: ComparisonContext): EvalNode {
+    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
+    if (left.t === 'err') {
+      return left;
+    }
+
+    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
+    if (right.t === 'err') {
+      return right;
+    }
+
+    switch (ctx._op.type) {
+      case FormulaParser.EQ:
+        return { t: 'bool', v: left.v === right.v };
+      case FormulaParser.NEQ:
+        return { t: 'bool', v: left.v !== right.v };
+      case FormulaParser.LT:
+        return { t: 'bool', v: left.v < right.v };
+      case FormulaParser.GT:
+        return { t: 'bool', v: left.v > right.v };
+      case FormulaParser.LTE:
+        return { t: 'bool', v: left.v <= right.v };
+      case FormulaParser.GTE:
+        return { t: 'bool', v: left.v >= right.v };
+      default:
+        return { t: 'err', v: '#ERROR!' };
+    }
+  }
+
+  visitStr(ctx: StrContext): EvalNode {
+    const text = ctx.text;
+    return { t: 'str', v: text.slice(1, -1) };
   }
 }

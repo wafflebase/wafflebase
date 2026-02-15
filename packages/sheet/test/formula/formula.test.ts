@@ -43,6 +43,71 @@ describe('Formula', () => {
     expect(evaluate('=SUM(true,false,true)')).toBe('2');
   });
 
+  it('should correctly evaluate comparison operators', () => {
+    expect(evaluate('=1=1')).toBe('true');
+    expect(evaluate('=1=2')).toBe('false');
+    expect(evaluate('=1<>2')).toBe('true');
+    expect(evaluate('=1<>1')).toBe('false');
+    expect(evaluate('=1<2')).toBe('true');
+    expect(evaluate('=2<1')).toBe('false');
+    expect(evaluate('=2>1')).toBe('true');
+    expect(evaluate('=1>2')).toBe('false');
+    expect(evaluate('=1<=1')).toBe('true');
+    expect(evaluate('=1<=2')).toBe('true');
+    expect(evaluate('=2<=1')).toBe('false');
+    expect(evaluate('=1>=1')).toBe('true');
+    expect(evaluate('=2>=1')).toBe('true');
+    expect(evaluate('=1>=2')).toBe('false');
+  });
+
+  it('should correctly evaluate string literals', () => {
+    expect(evaluate('="hello"')).toBe('hello');
+    expect(evaluate('="hello world"')).toBe('hello world');
+  });
+
+  it('should correctly evaluate IF function', () => {
+    expect(evaluate('=IF(TRUE,1,2)')).toBe('1');
+    expect(evaluate('=IF(FALSE,1,2)')).toBe('2');
+    expect(evaluate('=IF(TRUE,"yes","no")')).toBe('yes');
+    expect(evaluate('=IF(FALSE,"yes","no")')).toBe('no');
+    expect(evaluate('=IF(1>0,10,20)')).toBe('10');
+    expect(evaluate('=IF(1<0,10,20)')).toBe('20');
+    expect(evaluate('=IF(TRUE,1)')).toBe('1');
+    expect(evaluate('=IF(FALSE,1)')).toBe('false');
+  });
+
+  it('should correctly evaluate AND function', () => {
+    expect(evaluate('=AND(TRUE,TRUE)')).toBe('true');
+    expect(evaluate('=AND(TRUE,FALSE)')).toBe('false');
+    expect(evaluate('=AND(FALSE,FALSE)')).toBe('false');
+    expect(evaluate('=AND(TRUE,TRUE,TRUE)')).toBe('true');
+    expect(evaluate('=AND(TRUE,TRUE,FALSE)')).toBe('false');
+    expect(evaluate('=AND(1,1)')).toBe('true');
+    expect(evaluate('=AND(1,0)')).toBe('false');
+  });
+
+  it('should correctly evaluate OR function', () => {
+    expect(evaluate('=OR(TRUE,TRUE)')).toBe('true');
+    expect(evaluate('=OR(TRUE,FALSE)')).toBe('true');
+    expect(evaluate('=OR(FALSE,FALSE)')).toBe('false');
+    expect(evaluate('=OR(FALSE,FALSE,TRUE)')).toBe('true');
+    expect(evaluate('=OR(0,0)')).toBe('false');
+    expect(evaluate('=OR(0,1)')).toBe('true');
+  });
+
+  it('should correctly evaluate NOT function', () => {
+    expect(evaluate('=NOT(TRUE)')).toBe('false');
+    expect(evaluate('=NOT(FALSE)')).toBe('true');
+    expect(evaluate('=NOT(1)')).toBe('false');
+    expect(evaluate('=NOT(0)')).toBe('true');
+  });
+
+  it('should correctly evaluate combined logical formulas', () => {
+    expect(evaluate('=IF(AND(1>0,2>1),"yes","no")')).toBe('yes');
+    expect(evaluate('=IF(OR(1>2,2>1),"yes","no")')).toBe('yes');
+    expect(evaluate('=IF(NOT(FALSE),1,2)')).toBe('1');
+  });
+
   it('should display #ERROR! for invalid formulas', () => {
     expect(evaluate('abc')).toBe('#ERROR!');
     expect(evaluate('=1+')).toBe('#ERROR!');

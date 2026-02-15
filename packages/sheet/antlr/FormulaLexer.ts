@@ -1,213 +1,187 @@
 // @ts-nocheck
 // Generated from antlr/Formula.g4 by ANTLR 4.9.0-SNAPSHOT
 
-import { ATN } from 'antlr4ts/atn/ATN';
-import { ATNDeserializer } from 'antlr4ts/atn/ATNDeserializer';
-import { CharStream } from 'antlr4ts/CharStream';
-import { Lexer } from 'antlr4ts/Lexer';
-import { LexerATNSimulator } from 'antlr4ts/atn/LexerATNSimulator';
-import { NotNull } from 'antlr4ts/Decorators';
-import { Override } from 'antlr4ts/Decorators';
-import { RuleContext } from 'antlr4ts/RuleContext';
-import { Vocabulary } from 'antlr4ts/Vocabulary';
-import { VocabularyImpl } from 'antlr4ts/VocabularyImpl';
 
-import * as Utils from 'antlr4ts/misc/Utils';
+import { ATN } from "antlr4ts/atn/ATN";
+import { ATNDeserializer } from "antlr4ts/atn/ATNDeserializer";
+import { CharStream } from "antlr4ts/CharStream";
+import { Lexer } from "antlr4ts/Lexer";
+import { LexerATNSimulator } from "antlr4ts/atn/LexerATNSimulator";
+import { NotNull } from "antlr4ts/Decorators";
+import { Override } from "antlr4ts/Decorators";
+import { RuleContext } from "antlr4ts/RuleContext";
+import { Vocabulary } from "antlr4ts/Vocabulary";
+import { VocabularyImpl } from "antlr4ts/VocabularyImpl";
+
+import * as Utils from "antlr4ts/misc/Utils";
+
 
 export class FormulaLexer extends Lexer {
-  public static readonly T__0 = 1;
-  public static readonly T__1 = 2;
-  public static readonly T__2 = 3;
-  public static readonly REFERENCE = 4;
-  public static readonly REF = 5;
-  public static readonly REFRANGE = 6;
-  public static readonly BOOL = 7;
-  public static readonly NUM = 8;
-  public static readonly FUNCNAME = 9;
-  public static readonly WS = 10;
-  public static readonly MUL = 11;
-  public static readonly DIV = 12;
-  public static readonly ADD = 13;
-  public static readonly SUB = 14;
+	public static readonly T__0 = 1;
+	public static readonly T__1 = 2;
+	public static readonly T__2 = 3;
+	public static readonly REFERENCE = 4;
+	public static readonly REF = 5;
+	public static readonly REFRANGE = 6;
+	public static readonly BOOL = 7;
+	public static readonly STRING = 8;
+	public static readonly NUM = 9;
+	public static readonly FUNCNAME = 10;
+	public static readonly WS = 11;
+	public static readonly MUL = 12;
+	public static readonly DIV = 13;
+	public static readonly ADD = 14;
+	public static readonly SUB = 15;
+	public static readonly EQ = 16;
+	public static readonly NEQ = 17;
+	public static readonly LTE = 18;
+	public static readonly GTE = 19;
+	public static readonly LT = 20;
+	public static readonly GT = 21;
 
-  // tslint:disable:no-trailing-whitespace
-  public static readonly channelNames: string[] = [
-    'DEFAULT_TOKEN_CHANNEL',
-    'HIDDEN',
-  ];
+	// tslint:disable:no-trailing-whitespace
+	public static readonly channelNames: string[] = [
+		"DEFAULT_TOKEN_CHANNEL", "HIDDEN",
+	];
 
-  // tslint:disable:no-trailing-whitespace
-  public static readonly modeNames: string[] = ['DEFAULT_MODE'];
+	// tslint:disable:no-trailing-whitespace
+	public static readonly modeNames: string[] = [
+		"DEFAULT_MODE",
+	];
 
-  public static readonly ruleNames: string[] = [
-    'T__0',
-    'T__1',
-    'T__2',
-    'REFERENCE',
-    'REF',
-    'REFRANGE',
-    'BOOL',
-    'NUM',
-    'FUNCNAME',
-    'WS',
-    'MUL',
-    'DIV',
-    'ADD',
-    'SUB',
-  ];
+	public static readonly ruleNames: string[] = [
+		"T__0", "T__1", "T__2", "REFERENCE", "REF", "REFRANGE", "BOOL", "STRING", 
+		"NUM", "FUNCNAME", "WS", "MUL", "DIV", "ADD", "SUB", "EQ", "NEQ", "LTE", 
+		"GTE", "LT", "GT",
+	];
 
-  private static readonly _LITERAL_NAMES: Array<string | undefined> = [
-    undefined,
-    "'('",
-    "')'",
-    "','",
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    "'*'",
-    "'/'",
-    "'+'",
-    "'-'",
-  ];
-  private static readonly _SYMBOLIC_NAMES: Array<string | undefined> = [
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    'REFERENCE',
-    'REF',
-    'REFRANGE',
-    'BOOL',
-    'NUM',
-    'FUNCNAME',
-    'WS',
-    'MUL',
-    'DIV',
-    'ADD',
-    'SUB',
-  ];
-  public static readonly VOCABULARY: Vocabulary = new VocabularyImpl(
-    FormulaLexer._LITERAL_NAMES,
-    FormulaLexer._SYMBOLIC_NAMES,
-    [],
-  );
+	private static readonly _LITERAL_NAMES: Array<string | undefined> = [
+		undefined, "'('", "')'", "','", undefined, undefined, undefined, undefined, 
+		undefined, undefined, undefined, undefined, "'*'", "'/'", "'+'", "'-'", 
+		"'='", "'<>'", "'<='", "'>='", "'<'", "'>'",
+	];
+	private static readonly _SYMBOLIC_NAMES: Array<string | undefined> = [
+		undefined, undefined, undefined, undefined, "REFERENCE", "REF", "REFRANGE", 
+		"BOOL", "STRING", "NUM", "FUNCNAME", "WS", "MUL", "DIV", "ADD", "SUB", 
+		"EQ", "NEQ", "LTE", "GTE", "LT", "GT",
+	];
+	public static readonly VOCABULARY: Vocabulary = new VocabularyImpl(FormulaLexer._LITERAL_NAMES, FormulaLexer._SYMBOLIC_NAMES, []);
 
-  // @Override
-  // @NotNull
-  public get vocabulary(): Vocabulary {
-    return FormulaLexer.VOCABULARY;
-  }
-  // tslint:enable:no-trailing-whitespace
+	// @Override
+	// @NotNull
+	public get vocabulary(): Vocabulary {
+		return FormulaLexer.VOCABULARY;
+	}
+	// tslint:enable:no-trailing-whitespace
 
-  constructor(input: CharStream) {
-    super(input);
-    this._interp = new LexerATNSimulator(FormulaLexer._ATN, this);
-  }
 
-  // @Override
-  public get grammarFileName(): string {
-    return 'Formula.g4';
-  }
+	constructor(input: CharStream) {
+		super(input);
+		this._interp = new LexerATNSimulator(FormulaLexer._ATN, this);
+	}
 
-  // @Override
-  public get ruleNames(): string[] {
-    return FormulaLexer.ruleNames;
-  }
+	// @Override
+	public get grammarFileName(): string { return "Formula.g4"; }
 
-  // @Override
-  public get serializedATN(): string {
-    return FormulaLexer._serializedATN;
-  }
+	// @Override
+	public get ruleNames(): string[] { return FormulaLexer.ruleNames; }
 
-  // @Override
-  public get channelNames(): string[] {
-    return FormulaLexer.channelNames;
-  }
+	// @Override
+	public get serializedATN(): string { return FormulaLexer._serializedATN; }
 
-  // @Override
-  public get modeNames(): string[] {
-    return FormulaLexer.modeNames;
-  }
+	// @Override
+	public get channelNames(): string[] { return FormulaLexer.channelNames; }
 
-  // @Override
-  public action(
-    _localctx: RuleContext,
-    ruleIndex: number,
-    actionIndex: number,
-  ): void {
-    switch (ruleIndex) {
-      case 4:
-        this.REF_action(_localctx, actionIndex);
-        break;
-    }
-  }
-  private REF_action(_localctx: RuleContext, actionIndex: number): void {
-    switch (actionIndex) {
-      case 0:
-        1, 3;
-        break;
-    }
-  }
+	// @Override
+	public get modeNames(): string[] { return FormulaLexer.modeNames; }
 
-  public static readonly _serializedATN: string =
-    '\x03\uC91D\uCABA\u058D\uAFBA\u4F53\u0607\uEA8B\uC241\x02\x10m\b\x01\x04' +
-    '\x02\t\x02\x04\x03\t\x03\x04\x04\t\x04\x04\x05\t\x05\x04\x06\t\x06\x04' +
-    '\x07\t\x07\x04\b\t\b\x04\t\t\t\x04\n\t\n\x04\v\t\v\x04\f\t\f\x04\r\t\r' +
-    '\x04\x0E\t\x0E\x04\x0F\t\x0F\x03\x02\x03\x02\x03\x03\x03\x03\x03\x04\x03' +
-    '\x04\x03\x05\x03\x05\x05\x05(\n\x05\x03\x06\x03\x06\x03\x06\x03\x06\x07' +
-    '\x06.\n\x06\f\x06\x0E\x061\v\x06\x03\x07\x03\x07\x03\x07\x03\x07\x03\b' +
-    '\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03' +
-    '\b\x03\b\x03\b\x03\b\x03\b\x03\b\x05\bI\n\b\x03\t\x06\tL\n\t\r\t\x0E\t' +
-    'M\x03\t\x03\t\x06\tR\n\t\r\t\x0E\tS\x05\tV\n\t\x03\n\x03\n\x07\nZ\n\n' +
-    '\f\n\x0E\n]\v\n\x03\v\x06\v`\n\v\r\v\x0E\va\x03\v\x03\v\x03\f\x03\f\x03' +
-    '\r\x03\r\x03\x0E\x03\x0E\x03\x0F\x03\x0F\x02\x02\x02\x10\x03\x02\x03\x05' +
-    '\x02\x04\x07\x02\x05\t\x02\x06\v\x02\x07\r\x02\b\x0F\x02\t\x11\x02\n\x13' +
-    '\x02\v\x15\x02\f\x17\x02\r\x19\x02\x0E\x1B\x02\x0F\x1D\x02\x10\x03\x02' +
-    '\x07\x04\x02C\\c|\x03\x023;\x03\x022;\x05\x022;C\\c|\x04\x02\v\v""\x02' +
-    'v\x02\x03\x03\x02\x02\x02\x02\x05\x03\x02\x02\x02\x02\x07\x03\x02\x02' +
-    '\x02\x02\t\x03\x02\x02\x02\x02\v\x03\x02\x02\x02\x02\r\x03\x02\x02\x02' +
-    '\x02\x0F\x03\x02\x02\x02\x02\x11\x03\x02\x02\x02\x02\x13\x03\x02\x02\x02' +
-    '\x02\x15\x03\x02\x02\x02\x02\x17\x03\x02\x02\x02\x02\x19\x03\x02\x02\x02' +
-    '\x02\x1B\x03\x02\x02\x02\x02\x1D\x03\x02\x02\x02\x03\x1F\x03\x02\x02\x02' +
-    "\x05!\x03\x02\x02\x02\x07#\x03\x02\x02\x02\t'\x03\x02\x02\x02\v)\x03" +
-    '\x02\x02\x02\r2\x03\x02\x02\x02\x0FH\x03\x02\x02\x02\x11K\x03\x02\x02' +
-    '\x02\x13W\x03\x02\x02\x02\x15_\x03\x02\x02\x02\x17e\x03\x02\x02\x02\x19' +
-    'g\x03\x02\x02\x02\x1Bi\x03\x02\x02\x02\x1Dk\x03\x02\x02\x02\x1F \x07*' +
-    '\x02\x02 \x04\x03\x02\x02\x02!"\x07+\x02\x02"\x06\x03\x02\x02\x02#$' +
-    "\x07.\x02\x02$\b\x03\x02\x02\x02%(\x05\v\x06\x02&(\x05\r\x07\x02'%\x03" +
-    "\x02\x02\x02'&\x03\x02\x02\x02(\n\x03\x02\x02\x02)*\t\x02\x02\x02*+\b" +
-    '\x06\x02\x02+/\t\x03\x02\x02,.\t\x04\x02\x02-,\x03\x02\x02\x02.1\x03\x02' +
-    '\x02\x02/-\x03\x02\x02\x02/0\x03\x02\x02\x020\f\x03\x02\x02\x021/\x03' +
-    '\x02\x02\x0223\x05\v\x06\x0234\x07<\x02\x0245\x05\v\x06\x025\x0E\x03\x02' +
-    '\x02\x0267\x07V\x02\x0278\x07T\x02\x0289\x07W\x02\x029I\x07G\x02\x02:' +
-    ';\x07H\x02\x02;<\x07C\x02\x02<=\x07N\x02\x02=>\x07U\x02\x02>I\x07G\x02' +
-    '\x02?@\x07v\x02\x02@A\x07t\x02\x02AB\x07w\x02\x02BI\x07g\x02\x02CD\x07' +
-    'h\x02\x02DE\x07c\x02\x02EF\x07n\x02\x02FG\x07u\x02\x02GI\x07g\x02\x02' +
-    'H6\x03\x02\x02\x02H:\x03\x02\x02\x02H?\x03\x02\x02\x02HC\x03\x02\x02\x02' +
-    'I\x10\x03\x02\x02\x02JL\t\x04\x02\x02KJ\x03\x02\x02\x02LM\x03\x02\x02' +
-    '\x02MK\x03\x02\x02\x02MN\x03\x02\x02\x02NU\x03\x02\x02\x02OQ\x070\x02' +
-    '\x02PR\t\x04\x02\x02QP\x03\x02\x02\x02RS\x03\x02\x02\x02SQ\x03\x02\x02' +
-    '\x02ST\x03\x02\x02\x02TV\x03\x02\x02\x02UO\x03\x02\x02\x02UV\x03\x02\x02' +
-    '\x02V\x12\x03\x02\x02\x02W[\t\x02\x02\x02XZ\t\x05\x02\x02YX\x03\x02\x02' +
-    '\x02Z]\x03\x02\x02\x02[Y\x03\x02\x02\x02[\\\x03\x02\x02\x02\\\x14\x03' +
-    '\x02\x02\x02][\x03\x02\x02\x02^`\t\x06\x02\x02_^\x03\x02\x02\x02`a\x03' +
-    '\x02\x02\x02a_\x03\x02\x02\x02ab\x03\x02\x02\x02bc\x03\x02\x02\x02cd\b' +
-    '\v\x03\x02d\x16\x03\x02\x02\x02ef\x07,\x02\x02f\x18\x03\x02\x02\x02gh' +
-    '\x071\x02\x02h\x1A\x03\x02\x02\x02ij\x07-\x02\x02j\x1C\x03\x02\x02\x02' +
-    "kl\x07/\x02\x02l\x1E\x03\x02\x02\x02\v\x02'/HMSU[a\x04\x03\x06\x02\b" +
-    '\x02\x02';
-  public static __ATN: ATN;
-  public static get _ATN(): ATN {
-    if (!FormulaLexer.__ATN) {
-      FormulaLexer.__ATN = new ATNDeserializer().deserialize(
-        Utils.toCharArray(FormulaLexer._serializedATN),
-      );
-    }
+	// @Override
+	public action(_localctx: RuleContext, ruleIndex: number, actionIndex: number): void {
+		switch (ruleIndex) {
+		case 4:
+			this.REF_action(_localctx, actionIndex);
+			break;
+		}
+	}
+	private REF_action(_localctx: RuleContext, actionIndex: number): void {
+		switch (actionIndex) {
+		case 0:
+			1,3
+			break;
+		}
+	}
 
-    return FormulaLexer.__ATN;
-  }
+	public static readonly _serializedATN: string =
+		"\x03\uC91D\uCABA\u058D\uAFBA\u4F53\u0607\uEA8B\uC241\x02\x17\x93\b\x01" +
+		"\x04\x02\t\x02\x04\x03\t\x03\x04\x04\t\x04\x04\x05\t\x05\x04\x06\t\x06" +
+		"\x04\x07\t\x07\x04\b\t\b\x04\t\t\t\x04\n\t\n\x04\v\t\v\x04\f\t\f\x04\r" +
+		"\t\r\x04\x0E\t\x0E\x04\x0F\t\x0F\x04\x10\t\x10\x04\x11\t\x11\x04\x12\t" +
+		"\x12\x04\x13\t\x13\x04\x14\t\x14\x04\x15\t\x15\x04\x16\t\x16\x03\x02\x03" +
+		"\x02\x03\x03\x03\x03\x03\x04\x03\x04\x03\x05\x03\x05\x05\x056\n\x05\x03" +
+		"\x06\x03\x06\x03\x06\x03\x06\x07\x06<\n\x06\f\x06\x0E\x06?\v\x06\x03\x07" +
+		"\x03\x07\x03\x07\x03\x07\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03" +
+		"\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x03\b\x05\bW" +
+		"\n\b\x03\t\x03\t\x07\t[\n\t\f\t\x0E\t^\v\t\x03\t\x03\t\x03\n\x06\nc\n" +
+		"\n\r\n\x0E\nd\x03\n\x03\n\x06\ni\n\n\r\n\x0E\nj\x05\nm\n\n\x03\v\x03\v" +
+		"\x07\vq\n\v\f\v\x0E\vt\v\v\x03\f\x06\fw\n\f\r\f\x0E\fx\x03\f\x03\f\x03" +
+		"\r\x03\r\x03\x0E\x03\x0E\x03\x0F\x03\x0F\x03\x10\x03\x10\x03\x11\x03\x11" +
+		"\x03\x12\x03\x12\x03\x12\x03\x13\x03\x13\x03\x13\x03\x14\x03\x14\x03\x14" +
+		"\x03\x15\x03\x15\x03\x16\x03\x16\x02\x02\x02\x17\x03\x02\x03\x05\x02\x04" +
+		"\x07\x02\x05\t\x02\x06\v\x02\x07\r\x02\b\x0F\x02\t\x11\x02\n\x13\x02\v" +
+		"\x15\x02\f\x17\x02\r\x19\x02\x0E\x1B\x02\x0F\x1D\x02\x10\x1F\x02\x11!" +
+		"\x02\x12#\x02\x13%\x02\x14\'\x02\x15)\x02\x16+\x02\x17\x03\x02\b\x04\x02" +
+		"C\\c|\x03\x023;\x03\x022;\x03\x02$$\x05\x022;C\\c|\x04\x02\v\v\"\"\x02" +
+		"\x9D\x02\x03\x03\x02\x02\x02\x02\x05\x03\x02\x02\x02\x02\x07\x03\x02\x02" +
+		"\x02\x02\t\x03\x02\x02\x02\x02\v\x03\x02\x02\x02\x02\r\x03\x02\x02\x02" +
+		"\x02\x0F\x03\x02\x02\x02\x02\x11\x03\x02\x02\x02\x02\x13\x03\x02\x02\x02" +
+		"\x02\x15\x03\x02\x02\x02\x02\x17\x03\x02\x02\x02\x02\x19\x03\x02\x02\x02" +
+		"\x02\x1B\x03\x02\x02\x02\x02\x1D\x03\x02\x02\x02\x02\x1F\x03\x02\x02\x02" +
+		"\x02!\x03\x02\x02\x02\x02#\x03\x02\x02\x02\x02%\x03\x02\x02\x02\x02\'" +
+		"\x03\x02\x02\x02\x02)\x03\x02\x02\x02\x02+\x03\x02\x02\x02\x03-\x03\x02" +
+		"\x02\x02\x05/\x03\x02\x02\x02\x071\x03\x02\x02\x02\t5\x03\x02\x02\x02" +
+		"\v7\x03\x02\x02\x02\r@\x03\x02\x02\x02\x0FV\x03\x02\x02\x02\x11X\x03\x02" +
+		"\x02\x02\x13b\x03\x02\x02\x02\x15n\x03\x02\x02\x02\x17v\x03\x02\x02\x02" +
+		"\x19|\x03\x02\x02\x02\x1B~\x03\x02\x02\x02\x1D\x80\x03\x02\x02\x02\x1F" +
+		"\x82\x03\x02\x02\x02!\x84\x03\x02\x02\x02#\x86\x03\x02\x02\x02%\x89\x03" +
+		"\x02\x02\x02\'\x8C\x03\x02\x02\x02)\x8F\x03\x02\x02\x02+\x91\x03\x02\x02" +
+		"\x02-.\x07*\x02\x02.\x04\x03\x02\x02\x02/0\x07+\x02\x020\x06\x03\x02\x02" +
+		"\x0212\x07.\x02\x022\b\x03\x02\x02\x0236\x05\v\x06\x0246\x05\r\x07\x02" +
+		"53\x03\x02\x02\x0254\x03\x02\x02\x026\n\x03\x02\x02\x0278\t\x02\x02\x02" +
+		"89\b\x06\x02\x029=\t\x03\x02\x02:<\t\x04\x02\x02;:\x03\x02\x02\x02<?\x03" +
+		"\x02\x02\x02=;\x03\x02\x02\x02=>\x03\x02\x02\x02>\f\x03\x02\x02\x02?=" +
+		"\x03\x02\x02\x02@A\x05\v\x06\x02AB\x07<\x02\x02BC\x05\v\x06\x02C\x0E\x03" +
+		"\x02\x02\x02DE\x07V\x02\x02EF\x07T\x02\x02FG\x07W\x02\x02GW\x07G\x02\x02" +
+		"HI\x07H\x02\x02IJ\x07C\x02\x02JK\x07N\x02\x02KL\x07U\x02\x02LW\x07G\x02" +
+		"\x02MN\x07v\x02\x02NO\x07t\x02\x02OP\x07w\x02\x02PW\x07g\x02\x02QR\x07" +
+		"h\x02\x02RS\x07c\x02\x02ST\x07n\x02\x02TU\x07u\x02\x02UW\x07g\x02\x02" +
+		"VD\x03\x02\x02\x02VH\x03\x02\x02\x02VM\x03\x02\x02\x02VQ\x03\x02\x02\x02" +
+		"W\x10\x03\x02\x02\x02X\\\x07$\x02\x02Y[\n\x05\x02\x02ZY\x03\x02\x02\x02" +
+		"[^\x03\x02\x02\x02\\Z\x03\x02\x02\x02\\]\x03\x02\x02\x02]_\x03\x02\x02" +
+		"\x02^\\\x03\x02\x02\x02_`\x07$\x02\x02`\x12\x03\x02\x02\x02ac\t\x04\x02" +
+		"\x02ba\x03\x02\x02\x02cd\x03\x02\x02\x02db\x03\x02\x02\x02de\x03\x02\x02" +
+		"\x02el\x03\x02\x02\x02fh\x070\x02\x02gi\t\x04\x02\x02hg\x03\x02\x02\x02" +
+		"ij\x03\x02\x02\x02jh\x03\x02\x02\x02jk\x03\x02\x02\x02km\x03\x02\x02\x02" +
+		"lf\x03\x02\x02\x02lm\x03\x02\x02\x02m\x14\x03\x02\x02\x02nr\t\x02\x02" +
+		"\x02oq\t\x06\x02\x02po\x03\x02\x02\x02qt\x03\x02\x02\x02rp\x03\x02\x02" +
+		"\x02rs\x03\x02\x02\x02s\x16\x03\x02\x02\x02tr\x03\x02\x02\x02uw\t\x07" +
+		"\x02\x02vu\x03\x02\x02\x02wx\x03\x02\x02\x02xv\x03\x02\x02\x02xy\x03\x02" +
+		"\x02\x02yz\x03\x02\x02\x02z{\b\f\x03\x02{\x18\x03\x02\x02\x02|}\x07,\x02" +
+		"\x02}\x1A\x03\x02\x02\x02~\x7F\x071\x02\x02\x7F\x1C\x03\x02\x02\x02\x80" +
+		"\x81\x07-\x02\x02\x81\x1E\x03\x02\x02\x02\x82\x83\x07/\x02\x02\x83 \x03" +
+		"\x02\x02\x02\x84\x85\x07?\x02\x02\x85\"\x03\x02\x02\x02\x86\x87\x07>\x02" +
+		"\x02\x87\x88\x07@\x02\x02\x88$\x03\x02\x02\x02\x89\x8A\x07>\x02\x02\x8A" +
+		"\x8B\x07?\x02\x02\x8B&\x03\x02\x02\x02\x8C\x8D\x07@\x02\x02\x8D\x8E\x07" +
+		"?\x02\x02\x8E(\x03\x02\x02\x02\x8F\x90\x07>\x02\x02\x90*\x03\x02\x02\x02" +
+		"\x91\x92\x07@\x02\x02\x92,\x03\x02\x02\x02\f\x025=V\\djlrx\x04\x03\x06" +
+		"\x02\b\x02\x02";
+	public static __ATN: ATN;
+	public static get _ATN(): ATN {
+		if (!FormulaLexer.__ATN) {
+			FormulaLexer.__ATN = new ATNDeserializer().deserialize(Utils.toCharArray(FormulaLexer._serializedATN));
+		}
+
+		return FormulaLexer.__ATN;
+	}
+
 }
+
