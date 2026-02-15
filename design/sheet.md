@@ -500,3 +500,32 @@ number of populated cells, not the total grid size or query range span.
 
 **Circular references** — The calculator's topological sort detects cycles and
 marks affected cells with `#REF!` rather than entering an infinite loop.
+
+### Interactive Formula Range Selection
+
+When editing a formula (value starts with `=`), clicking or dragging on the
+grid inserts cell references at the cursor position instead of navigating. This
+mirrors the behavior of Google Sheets and Excel.
+
+**Entry conditions** — The system enters "formula range mode" when all of:
+1. CellInput or FormulaBar is focused
+2. The value starts with `=`
+3. The cursor is at a valid insertion position (after `=`, `(`, `,`, an
+   operator, or on an existing REFERENCE token)
+
+**Mouse interaction** — Clicking a grid cell inserts a reference (e.g. `A1`).
+Dragging expands it to a range (e.g. `A1:B5`). The insertion replaces any
+existing reference at the cursor, or inserts at the cursor position.
+
+**Arrow keys** — When in formula range mode and not in edit mode, arrow keys
+insert/update a cell reference based on the last referenced cell rather than
+moving the active cell.
+
+**F4 absolute toggle** — Pressing F4 while the cursor is on a reference cycles
+through absolute modes: `A1` → `$A$1` → `A$1` → `$A1` → `A1`. The ANTLR
+grammar's `REF` rule supports optional `$` prefixes.
+
+**State management** — `Worksheet` tracks `formulaRangeAnchor` (drag origin),
+`activeFormulaInput`, `formulaRefInsertPos` (current insertion span for drag
+updates), and `lastFormulaRefTarget` (for arrow key navigation). All state is
+reset in `finishEditing()` and `focusGrid()`.

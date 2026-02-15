@@ -1,6 +1,10 @@
 import { Range, Ref, Direction } from '../model/types';
-import { toColumnLabel } from '../model/coordinates';
-import { extractFormulaRanges } from '../formula/formula';
+import { toColumnLabel, toSref } from '../model/coordinates';
+import {
+  extractFormulaRanges,
+  isReferenceInsertPosition,
+  findReferenceTokenAtCursor,
+} from '../formula/formula';
 import { DimensionIndex } from '../model/dimensions';
 import { Sheet } from '../model/sheet';
 import { Theme } from './theme';
@@ -93,6 +97,12 @@ export class Worksheet {
     null;
   private onRenderCallback?: () => void;
   private readOnly: boolean;
+
+  // Formula range selection state
+  private formulaRangeAnchor: Ref | null = null;
+  private activeFormulaInput: 'cellInput' | 'formulaBar' | null = null;
+  private formulaRefInsertPos: { start: number; end: number } | null = null;
+  private lastFormulaRefTarget: Ref | null = null;
 
   constructor(
     container: HTMLDivElement,
@@ -222,6 +232,7 @@ export class Worksheet {
     this.cellInput.hide();
     this.autocomplete.hide();
     this.formulaRanges = [];
+    this.resetFormulaRangeState();
     window.getSelection()?.removeAllRanges();
   }
 
@@ -244,6 +255,7 @@ export class Worksheet {
     }
 
     this.formulaRanges = [];
+    this.resetFormulaRangeState();
     await this.autoResizeRow(activeCell.r);
   }
 
@@ -372,6 +384,188 @@ export class Worksheet {
 
     // Trigger autocomplete update for the new context (now inside function args)
     this.updateAutocomplete(newText, inputEl);
+  }
+
+  /**
+   * `isInFormulaRangeMode` returns true when an input is focused with a formula
+   * and the cursor is at a position where a cell reference can be inserted.
+   */
+  private isInFormulaRangeMode(): boolean {
+    let value: string | undefined;
+    let inputEl: HTMLDivElement | undefined;
+
+    if (this.cellInput.isFocused()) {
+      value = this.cellInput.getValue();
+      inputEl = this.cellInput.getInput();
+    } else if (this.formulaBar.isFocused()) {
+      value = this.formulaBar.getValue();
+      inputEl = this.formulaBar.getFormulaInput();
+    }
+
+    if (!value || !inputEl || !value.startsWith('=')) return false;
+
+    const textRange = toTextRange(inputEl);
+    if (!textRange) return false;
+
+    return isReferenceInsertPosition(value, textRange.end);
+  }
+
+  /**
+   * `insertReferenceAtCursor` inserts or replaces a cell reference in the
+   * active formula input at the current cursor position.
+   */
+  private insertReferenceAtCursor(startRef: Ref, endRef?: Ref): void {
+    const isCellInput = this.cellInput.isFocused();
+    const isFormulaBarInput = this.formulaBar.isFocused();
+    if (!isCellInput && !isFormulaBarInput) return;
+
+    const inputEl = isCellInput
+      ? this.cellInput.getInput()
+      : this.formulaBar.getFormulaInput();
+    const text = inputEl.innerText;
+    const textRange = toTextRange(inputEl);
+    if (!textRange) return;
+
+    // Build the reference string
+    const refStr =
+      endRef && (startRef.r !== endRef.r || startRef.c !== endRef.c)
+        ? toSref(startRef) + ':' + toSref(endRef)
+        : toSref(startRef);
+
+    let newText: string;
+    let newCursorPos: number;
+
+    if (this.formulaRefInsertPos) {
+      // Drag update: replace the previously inserted span
+      const { start, end } = this.formulaRefInsertPos;
+      newText = text.slice(0, start) + refStr + text.slice(end);
+      newCursorPos = start + refStr.length;
+      this.formulaRefInsertPos = { start, end: newCursorPos };
+    } else {
+      const existingRef = findReferenceTokenAtCursor(text, textRange.end);
+      if (existingRef) {
+        // Replace existing reference at cursor
+        newText =
+          text.slice(0, existingRef.start) +
+          refStr +
+          text.slice(existingRef.end);
+        newCursorPos = existingRef.start + refStr.length;
+        this.formulaRefInsertPos = {
+          start: existingRef.start,
+          end: newCursorPos,
+        };
+      } else if (textRange.start !== textRange.end) {
+        // Replace selection
+        newText =
+          text.slice(0, textRange.start) + refStr + text.slice(textRange.end);
+        newCursorPos = textRange.start + refStr.length;
+        this.formulaRefInsertPos = {
+          start: textRange.start,
+          end: newCursorPos,
+        };
+      } else {
+        // Insert at cursor
+        newText =
+          text.slice(0, textRange.end) + refStr + text.slice(textRange.end);
+        newCursorPos = textRange.end + refStr.length;
+        this.formulaRefInsertPos = {
+          start: textRange.end,
+          end: newCursorPos,
+        };
+      }
+    }
+
+    // Update both inputs
+    this.formulaBar.setValue(newText);
+    this.cellInput.setValue(newText);
+
+    // Restore cursor in the active input
+    setTextRange(inputEl, { start: newCursorPos, end: newCursorPos });
+
+    // Update formula ranges overlay
+    if (newText.startsWith('=')) {
+      this.formulaRanges = extractFormulaRanges(newText).map((r) => r.range);
+      this.renderOverlay();
+    }
+
+    // Track last reference target for arrow key navigation
+    this.lastFormulaRefTarget = endRef || startRef;
+  }
+
+  /**
+   * `toggleAbsoluteReference` cycles the reference at the cursor through
+   * absolute reference modes: A1 -> $A$1 -> A$1 -> $A1 -> A1
+   */
+  private toggleAbsoluteReference(inputEl: HTMLDivElement): void {
+    const text = inputEl.innerText;
+    if (!text.startsWith('=')) return;
+
+    const textRange = toTextRange(inputEl);
+    if (!textRange) return;
+
+    const ref = findReferenceTokenAtCursor(text, textRange.end);
+    if (!ref) return;
+
+    const refText = ref.text;
+
+    // Parse current $ state
+    const hasColDollar = refText.startsWith('$');
+    const inner = refText.replace(/\$/g, '');
+    // Find where the row number starts in the clean reference
+    let rowStart = 0;
+    for (let i = 0; i < inner.length; i++) {
+      if (inner.charCodeAt(i) >= 48 && inner.charCodeAt(i) <= 57) {
+        rowStart = i;
+        break;
+      }
+    }
+    const colPart = inner.slice(0, rowStart);
+    const rowPart = inner.slice(rowStart);
+
+    // Detect if row part had $ by checking the character before the row digits
+    const rowDigitIdx = refText.indexOf(
+      rowPart,
+      refText.lastIndexOf(colPart) + colPart.length,
+    );
+    const hasRowDollar = rowDigitIdx > 0 && refText[rowDigitIdx - 1] === '$';
+
+    // Cycle: A1 -> $A$1 -> A$1 -> $A1 -> A1
+    let newRef: string;
+    if (!hasColDollar && !hasRowDollar) {
+      // A1 -> $A$1
+      newRef = '$' + colPart + '$' + rowPart;
+    } else if (hasColDollar && hasRowDollar) {
+      // $A$1 -> A$1
+      newRef = colPart + '$' + rowPart;
+    } else if (!hasColDollar && hasRowDollar) {
+      // A$1 -> $A1
+      newRef = '$' + colPart + rowPart;
+    } else {
+      // $A1 -> A1
+      newRef = colPart + rowPart;
+    }
+
+    const newText = text.slice(0, ref.start) + newRef + text.slice(ref.end);
+    const newCursorPos = ref.start + newRef.length;
+
+    this.formulaBar.setValue(newText);
+    this.cellInput.setValue(newText);
+    setTextRange(inputEl, { start: newCursorPos, end: newCursorPos });
+
+    if (newText.startsWith('=')) {
+      this.formulaRanges = extractFormulaRanges(newText).map((r) => r.range);
+      this.renderOverlay();
+    }
+  }
+
+  /**
+   * `resetFormulaRangeState` clears all formula range selection state.
+   */
+  private resetFormulaRangeState(): void {
+    this.formulaRangeAnchor = null;
+    this.activeFormulaInput = null;
+    this.formulaRefInsertPos = null;
+    this.lastFormulaRefTarget = null;
   }
 
   private handleDblClick(e: MouseEvent): void {
@@ -965,6 +1159,73 @@ export class Worksheet {
       return;
     }
 
+    // Formula range mode: clicking on grid inserts a cell reference
+    if (this.isInFormulaRangeMode()) {
+      e.preventDefault();
+      const clickedRef = this.toRefFromMouse(e.offsetX, e.offsetY);
+      this.activeFormulaInput = this.cellInput.isFocused()
+        ? 'cellInput'
+        : 'formulaBar';
+
+      if (e.shiftKey && this.formulaRangeAnchor) {
+        // Shift+click: extend the last reference to a range
+        const startRef: Ref = {
+          r: Math.min(this.formulaRangeAnchor.r, clickedRef.r),
+          c: Math.min(this.formulaRangeAnchor.c, clickedRef.c),
+        };
+        const endRef: Ref = {
+          r: Math.max(this.formulaRangeAnchor.r, clickedRef.r),
+          c: Math.max(this.formulaRangeAnchor.c, clickedRef.c),
+        };
+        this.insertReferenceAtCursor(startRef, endRef);
+      } else {
+        // Normal click: insert a new single-cell reference
+        this.formulaRangeAnchor = clickedRef;
+        this.formulaRefInsertPos = null;
+        this.insertReferenceAtCursor(clickedRef);
+      }
+
+      const scrollContainer = this.gridContainer.getScrollContainer();
+      const onMove = (e: MouseEvent) => {
+        const port = this.viewport;
+        const moveX =
+          e.target !== scrollContainer
+            ? Math.max(0, Math.min(port.width, e.clientX - port.left))
+            : e.offsetX;
+        const moveY =
+          e.target !== scrollContainer
+            ? Math.max(0, Math.min(port.height, e.clientY - port.top))
+            : e.offsetY;
+        const endRef = this.toRefFromMouse(moveX, moveY);
+        // Normalize range so start <= end
+        const startRef: Ref = {
+          r: Math.min(this.formulaRangeAnchor!.r, endRef.r),
+          c: Math.min(this.formulaRangeAnchor!.c, endRef.c),
+        };
+        const rangeEnd: Ref = {
+          r: Math.max(this.formulaRangeAnchor!.r, endRef.r),
+          c: Math.max(this.formulaRangeAnchor!.c, endRef.c),
+        };
+        this.insertReferenceAtCursor(startRef, rangeEnd);
+      };
+
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        // Refocus the active input
+        if (this.activeFormulaInput === 'cellInput') {
+          this.cellInput.getInput().focus();
+        } else if (this.activeFormulaInput === 'formulaBar') {
+          this.formulaBar.getFormulaInput().focus();
+        }
+        this.formulaRefInsertPos = null;
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      return;
+    }
+
     await this.finishEditing();
 
     // Shift+click extends selection from active cell to clicked cell
@@ -1335,15 +1596,11 @@ export class Worksheet {
           return;
         }
       } else if (e.key === 'Escape') {
-        e.preventDefault();
         this.autocomplete.hide();
-        return;
       }
     } else if (this.autocomplete.isHintVisible()) {
       if (e.key === 'Escape') {
-        e.preventDefault();
         this.autocomplete.hide();
-        return;
       }
     }
 
@@ -1365,6 +1622,43 @@ export class Worksheet {
       this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
       this.render();
       this.scrollIntoView();
+    } else if (
+      e.key.startsWith('Arrow') &&
+      !this.editMode &&
+      this.isInFormulaRangeMode()
+    ) {
+      // Arrow keys in formula range mode from formula bar
+      e.preventDefault();
+      const base = this.lastFormulaRefTarget || this.sheet!.getActiveCell();
+      const targetRef = { ...base };
+      if (e.key === 'ArrowDown') targetRef.r = Math.max(1, targetRef.r + 1);
+      else if (e.key === 'ArrowUp') targetRef.r = Math.max(1, targetRef.r - 1);
+      else if (e.key === 'ArrowLeft')
+        targetRef.c = Math.max(1, targetRef.c - 1);
+      else if (e.key === 'ArrowRight') targetRef.c = targetRef.c + 1;
+
+      if (e.shiftKey && this.formulaRangeAnchor) {
+        // Shift+Arrow: extend range from anchor to target
+        const startRef: Ref = {
+          r: Math.min(this.formulaRangeAnchor.r, targetRef.r),
+          c: Math.min(this.formulaRangeAnchor.c, targetRef.c),
+        };
+        const endRef: Ref = {
+          r: Math.max(this.formulaRangeAnchor.r, targetRef.r),
+          c: Math.max(this.formulaRangeAnchor.c, targetRef.c),
+        };
+        this.insertReferenceAtCursor(startRef, endRef);
+        // Override with actual target so navigation tracks the moving end,
+        // not the normalized max corner of the range.
+        this.lastFormulaRefTarget = targetRef;
+      } else {
+        this.formulaRangeAnchor = targetRef;
+        this.formulaRefInsertPos = null;
+        this.insertReferenceAtCursor(targetRef);
+      }
+    } else if (e.key === 'F4') {
+      e.preventDefault();
+      this.toggleAbsoluteReference(this.formulaBar.getFormulaInput());
     } else if (e.key === 'Escape') {
       e.preventDefault();
       this.focusGrid();
@@ -1401,15 +1695,11 @@ export class Worksheet {
           return;
         }
       } else if (e.key === 'Escape') {
-        e.preventDefault();
         this.autocomplete.hide();
-        return;
       }
     } else if (this.autocomplete.isHintVisible()) {
       if (e.key === 'Escape') {
-        e.preventDefault();
         this.autocomplete.hide();
-        return;
       }
     }
 
@@ -1433,6 +1723,41 @@ export class Worksheet {
       this.scrollIntoView();
     } else if (
       e.key.startsWith('Arrow') &&
+      this.cellInput.hasFormula() &&
+      !this.editMode &&
+      this.isInFormulaRangeMode()
+    ) {
+      // Arrow keys in formula range mode: insert reference by navigating
+      e.preventDefault();
+      const base = this.lastFormulaRefTarget || this.sheet!.getActiveCell();
+      const targetRef = { ...base };
+      if (e.key === 'ArrowDown') targetRef.r = Math.max(1, targetRef.r + 1);
+      else if (e.key === 'ArrowUp') targetRef.r = Math.max(1, targetRef.r - 1);
+      else if (e.key === 'ArrowLeft')
+        targetRef.c = Math.max(1, targetRef.c - 1);
+      else if (e.key === 'ArrowRight') targetRef.c = targetRef.c + 1;
+
+      if (e.shiftKey && this.formulaRangeAnchor) {
+        // Shift+Arrow: extend range from anchor to target
+        const startRef: Ref = {
+          r: Math.min(this.formulaRangeAnchor.r, targetRef.r),
+          c: Math.min(this.formulaRangeAnchor.c, targetRef.c),
+        };
+        const endRef: Ref = {
+          r: Math.max(this.formulaRangeAnchor.r, targetRef.r),
+          c: Math.max(this.formulaRangeAnchor.c, targetRef.c),
+        };
+        this.insertReferenceAtCursor(startRef, endRef);
+        // Override with actual target so navigation tracks the moving end,
+        // not the normalized max corner of the range.
+        this.lastFormulaRefTarget = targetRef;
+      } else {
+        this.formulaRangeAnchor = targetRef;
+        this.formulaRefInsertPos = null;
+        this.insertReferenceAtCursor(targetRef);
+      }
+    } else if (
+      e.key.startsWith('Arrow') &&
       !this.cellInput.hasFormula() &&
       !this.editMode
     ) {
@@ -1452,6 +1777,9 @@ export class Worksheet {
 
       this.render();
       this.scrollIntoView();
+    } else if (e.key === 'F4') {
+      e.preventDefault();
+      this.toggleAbsoluteReference(this.cellInput.getInput());
     } else if (e.key === 'Escape') {
       e.preventDefault();
       this.focusGrid();

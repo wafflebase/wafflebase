@@ -15,7 +15,7 @@ expr: FUNCNAME '(' args? ')'         # Function
 args: expr (',' expr)* ;
 
 REFERENCE: REF | REFRANGE ;
-REF: [A-Za-z]{1,3}[1-9][0-9]* ;
+REF: '$'? [A-Za-z]{1,3} '$'? [1-9][0-9]* ;
 REFRANGE: REF ':' REF ;
 
 BOOL: 'TRUE' | 'FALSE' | 'true' | 'false';

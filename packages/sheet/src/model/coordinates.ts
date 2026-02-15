@@ -261,9 +261,12 @@ export function toColumnLabel(col: number): string {
  * @returns
  */
 export function parseRef(ref: Sref): Ref {
+  // Strip '$' signs for absolute reference support (e.g., $A$1 -> A1)
+  const cleaned = ref.replace(/\$/g, '');
+
   let startRow = 0;
-  for (let i = 0; i < ref.length; i++) {
-    const charCode = ref.charCodeAt(i);
+  for (let i = 0; i < cleaned.length; i++) {
+    const charCode = cleaned.charCodeAt(i);
     if (48 <= charCode && charCode <= 57) {
       startRow = i;
       break;
@@ -274,8 +277,8 @@ export function parseRef(ref: Sref): Ref {
     throw new Error('Invalid Reference');
   }
 
-  const row = parseInt(ref.substring(startRow));
-  const col = ref
+  const row = parseInt(cleaned.substring(startRow));
+  const col = cleaned
     .substring(0, startRow)
     .split('')
     .reverse()

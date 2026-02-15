@@ -139,6 +139,91 @@ export function extractFormulaRanges(
 }
 
 /**
+ * `isReferenceInsertPosition` returns true when the cursor is at a position
+ * in a formula where a cell reference can be inserted (e.g., after `=`, `(`,
+ * `,`, or an operator). Also returns true if the cursor is within an existing
+ * REFERENCE token (for replacement).
+ *
+ * @param formula - The full formula string including the leading `=`
+ * @param cursorPos - The cursor position in the full formula string
+ */
+export function isReferenceInsertPosition(
+  formula: string,
+  cursorPos: number,
+): boolean {
+  if (!formula.startsWith('=')) return false;
+  if (cursorPos <= 0) return false;
+
+  // Cursor right after `=`
+  if (cursorPos === 1) return true;
+
+  const tokens = extractTokens(formula);
+
+  // Check if cursor is within an existing REFERENCE token (for replacement)
+  for (const token of tokens) {
+    // Token positions are relative to post-`=` string, so add 1 for full string
+    const tokenStart = token.start + 1;
+    const tokenEnd = token.stop + 2; // stop is inclusive, +1 for post-`=` offset
+    if (
+      token.type === 'REFERENCE' &&
+      cursorPos >= tokenStart &&
+      cursorPos <= tokenEnd
+    ) {
+      return true;
+    }
+  }
+
+  // Find the character before the cursor, skipping whitespace
+  const beforeCursor = formula.slice(0, cursorPos);
+  const trimmed = beforeCursor.trimEnd();
+  if (trimmed.length === 0) return false;
+
+  const lastChar = trimmed[trimmed.length - 1];
+  const insertChars = new Set([
+    '=',
+    '(',
+    ',',
+    '+',
+    '-',
+    '*',
+    '/',
+    '<',
+    '>',
+    ':',
+  ]);
+  return insertChars.has(lastChar);
+}
+
+/**
+ * `findReferenceTokenAtCursor` returns the REFERENCE token at the given cursor
+ * position, with start/end positions in the full formula string, or undefined
+ * if the cursor is not on a reference.
+ *
+ * @param formula - The full formula string including the leading `=`
+ * @param cursorPos - The cursor position in the full formula string
+ */
+export function findReferenceTokenAtCursor(
+  formula: string,
+  cursorPos: number,
+): { start: number; end: number; text: string } | undefined {
+  if (!formula.startsWith('=')) return undefined;
+
+  const tokens = extractTokens(formula);
+  for (const token of tokens) {
+    if (token.type !== 'REFERENCE') continue;
+
+    // Token positions are relative to post-`=` string, so add 1 for full string
+    const tokenStart = token.start + 1;
+    const tokenEnd = token.stop + 2; // stop is inclusive, +1 for offset
+    if (cursorPos >= tokenStart && cursorPos <= tokenEnd) {
+      return { start: tokenStart, end: tokenEnd, text: token.text };
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * `evaluate` returns the result of the expression.
  */
 export function evaluate(formula: string, grid?: Grid): string {

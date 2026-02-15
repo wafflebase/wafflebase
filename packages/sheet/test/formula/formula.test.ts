@@ -3,6 +3,8 @@ import {
   evaluate,
   extractReferences,
   extractTokens,
+  isReferenceInsertPosition,
+  findReferenceTokenAtCursor,
 } from '../../src/formula/formula';
 
 describe('Formula', () => {
@@ -229,6 +231,97 @@ describe('Formula', () => {
 
   it('should convert lowercase references to uppercase', () => {
     expect(extractReferences('=a1+b1')).toEqual(new Set(['A1', 'B1']));
+  });
+});
+
+describe('Formula.isReferenceInsertPosition', () => {
+  it('should return true after =', () => {
+    expect(isReferenceInsertPosition('=', 1)).toBe(true);
+  });
+
+  it('should return true after (', () => {
+    expect(isReferenceInsertPosition('=SUM(', 5)).toBe(true);
+  });
+
+  it('should return true after ,', () => {
+    expect(isReferenceInsertPosition('=SUM(A1,', 9)).toBe(true);
+  });
+
+  it('should return true after operators', () => {
+    expect(isReferenceInsertPosition('=A1+', 4)).toBe(true);
+    expect(isReferenceInsertPosition('=A1-', 4)).toBe(true);
+    expect(isReferenceInsertPosition('=A1*', 4)).toBe(true);
+    expect(isReferenceInsertPosition('=A1/', 4)).toBe(true);
+  });
+
+  it('should return true after comparison operators', () => {
+    expect(isReferenceInsertPosition('=A1>', 4)).toBe(true);
+    expect(isReferenceInsertPosition('=A1<', 4)).toBe(true);
+  });
+
+  it('should return true on existing reference', () => {
+    // Cursor at position 3 is within "A1" (positions 1-3 in full string)
+    expect(isReferenceInsertPosition('=A1+B2', 2)).toBe(true);
+    expect(isReferenceInsertPosition('=A1+B2', 3)).toBe(true);
+  });
+
+  it('should return false after )', () => {
+    expect(isReferenceInsertPosition('=SUM(A1)', 9)).toBe(false);
+  });
+
+  it('should return false for non-formula strings', () => {
+    expect(isReferenceInsertPosition('hello', 3)).toBe(false);
+  });
+
+  it('should return false at position 0', () => {
+    expect(isReferenceInsertPosition('=A1', 0)).toBe(false);
+  });
+
+  it('should return true after = with spaces', () => {
+    expect(isReferenceInsertPosition('= ', 2)).toBe(true);
+  });
+
+  it('should return true after : for range building', () => {
+    expect(isReferenceInsertPosition('=A1:', 4)).toBe(true);
+  });
+});
+
+describe('Formula.findReferenceTokenAtCursor', () => {
+  it('should find reference at cursor', () => {
+    const result = findReferenceTokenAtCursor('=A1+B2', 2);
+    expect(result).toBeDefined();
+    expect(result!.text).toBe('A1');
+    expect(result!.start).toBe(1);
+    expect(result!.end).toBe(3);
+  });
+
+  it('should find reference at cursor end', () => {
+    const result = findReferenceTokenAtCursor('=A1+B2', 3);
+    expect(result).toBeDefined();
+    expect(result!.text).toBe('A1');
+  });
+
+  it('should find second reference', () => {
+    const result = findReferenceTokenAtCursor('=A1+B2', 5);
+    expect(result).toBeDefined();
+    expect(result!.text).toBe('B2');
+    expect(result!.start).toBe(4);
+    expect(result!.end).toBe(6);
+  });
+
+  it('should return undefined when not on a reference', () => {
+    // Position 4 in =1+2 is after the +, but there's no reference there
+    expect(findReferenceTokenAtCursor('=1+2', 2)).toBeUndefined();
+  });
+
+  it('should return undefined for non-formula', () => {
+    expect(findReferenceTokenAtCursor('hello', 2)).toBeUndefined();
+  });
+
+  it('should find range reference', () => {
+    const result = findReferenceTokenAtCursor('=SUM(A1:B5)', 7);
+    expect(result).toBeDefined();
+    expect(result!.text).toBe('A1:B5');
   });
 });
 
