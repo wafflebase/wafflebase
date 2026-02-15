@@ -10,6 +10,8 @@ import { Overlay } from './overlay';
 import { GridContainer } from './gridcontainer';
 import { GridCanvas } from './gridcanvas';
 import { ContextMenu } from './contextmenu';
+import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
+import { toTextRange, setTextRange } from './utils/textrange';
 import {
   DefaultCellWidth,
   DefaultCellHeight,
@@ -52,6 +54,7 @@ export class Worksheet {
   private gridContainer: GridContainer;
   private gridCanvas: GridCanvas;
   private contextMenu: ContextMenu;
+  private autocomplete: FormulaAutocomplete;
 
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
@@ -101,6 +104,7 @@ export class Worksheet {
     this.gridCanvas = new GridCanvas(theme);
     this.cellInput = new CellInput(theme);
     this.contextMenu = new ContextMenu(theme);
+    this.autocomplete = new FormulaAutocomplete(theme);
 
     this.rowDim = new DimensionIndex(DefaultCellHeight);
     this.colDim = new DimensionIndex(DefaultCellWidth);
@@ -111,6 +115,7 @@ export class Worksheet {
     this.container.appendChild(this.formulaBar.getContainer());
     this.container.appendChild(this.gridContainer.getContainer());
     this.container.appendChild(this.contextMenu.getContainer());
+    this.container.appendChild(this.autocomplete.getContainer());
 
     this.boundRender = this.render.bind(this);
     this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
@@ -181,6 +186,7 @@ export class Worksheet {
     this.gridCanvas.cleanup();
     this.gridContainer.cleanup();
     this.contextMenu.cleanup();
+    this.autocomplete.cleanup();
 
     this.sheet = undefined;
     this.container.innerHTML = '';
@@ -210,6 +216,7 @@ export class Worksheet {
   private focusGrid(): void {
     this.formulaBar.blur();
     this.cellInput.hide();
+    this.autocomplete.hide();
     this.formulaRanges = [];
     window.getSelection()?.removeAllRanges();
   }
@@ -218,6 +225,8 @@ export class Worksheet {
    * `finishEditing` finishes the editing of the cell.
    */
   private async finishEditing() {
+    this.autocomplete.hide();
+
     const activeCell = this.sheet!.getActiveCell();
     if (this.formulaBar.isFocused()) {
       await this.sheet!.setData(activeCell, this.formulaBar.getValue());
@@ -248,11 +257,14 @@ export class Worksheet {
 
   private handleKeyUp(): void {
     let value: string | undefined;
+    let activeInput: HTMLDivElement | undefined;
     if (this.formulaBar.isFocused()) {
       value = this.formulaBar.getValue();
+      activeInput = this.formulaBar.getFormulaInput();
       this.cellInput.setValue(value);
     } else if (this.cellInput.isFocused()) {
       value = this.cellInput.getValue();
+      activeInput = this.cellInput.getInput();
       this.formulaBar.setValue(value);
     }
 
@@ -263,6 +275,84 @@ export class Worksheet {
       this.formulaRanges = [];
       this.renderOverlay();
     }
+
+    if (activeInput && value !== undefined) {
+      this.updateAutocomplete(value, activeInput);
+    } else {
+      this.autocomplete.hide();
+    }
+  }
+
+  /**
+   * `updateAutocomplete` reads the formula text and cursor position to
+   * show or hide the autocomplete dropdown.
+   */
+  private updateAutocomplete(
+    value: string,
+    inputEl: HTMLDivElement,
+  ): void {
+    if (!value.startsWith('=')) {
+      this.autocomplete.hide();
+      return;
+    }
+
+    const textRange = toTextRange(inputEl);
+    if (!textRange) {
+      this.autocomplete.hide();
+      return;
+    }
+
+    const cursorPos = textRange.end;
+    const ctx = getAutocompleteContext(value, cursorPos);
+
+    // Compute anchor position below the input element
+    const rect = inputEl.getBoundingClientRect();
+    const anchor = { left: rect.left, top: rect.bottom + 2 };
+
+    if (ctx.type === 'function-name') {
+      this.autocomplete.showList(ctx.prefix, anchor);
+    } else if (ctx.type === 'argument') {
+      this.autocomplete.showHint(ctx.funcName, ctx.argIndex, anchor);
+    } else {
+      this.autocomplete.hide();
+    }
+  }
+
+  /**
+   * `insertFunctionCompletion` replaces the typed prefix with the completed
+   * function name and opening parenthesis, then updates both inputs.
+   */
+  private insertFunctionCompletion(
+    funcName: string,
+    inputEl: HTMLDivElement,
+  ): void {
+    const text = inputEl.innerText;
+    const textRange = toTextRange(inputEl);
+    if (!textRange) return;
+
+    const cursorPos = textRange.end;
+    const before = text.slice(0, cursorPos);
+
+    // Find the prefix being typed (the partial function name)
+    const prefixMatch = before.match(/([A-Za-z_]\w*)$/);
+    if (!prefixMatch) return;
+
+    const prefixStart = cursorPos - prefixMatch[1].length;
+    const after = text.slice(cursorPos);
+    const newText = text.slice(0, prefixStart) + funcName + '(' + after;
+
+    // Update both inputs
+    this.formulaBar.setValue(newText);
+    this.cellInput.setValue(newText);
+
+    // Set cursor position after the opening parenthesis
+    const newCursorPos = prefixStart + funcName.length + 1;
+    setTextRange(inputEl, { start: newCursorPos, end: newCursorPos });
+
+    this.autocomplete.hide();
+
+    // Trigger autocomplete update for the new context (now inside function args)
+    this.updateAutocomplete(newText, inputEl);
   }
 
   private handleDblClick(e: MouseEvent): void {
@@ -1205,6 +1295,39 @@ export class Worksheet {
    * `handleFormulaInputKeydown` handles the keydown event for the formula input.
    */
   private async handleFormulaKeydown(e: KeyboardEvent) {
+    // Autocomplete interception
+    if (this.autocomplete.isListVisible()) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.autocomplete.moveDown();
+        return;
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.autocomplete.moveUp();
+        return;
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        const selected = this.autocomplete.getSelectedFunction();
+        if (selected) {
+          e.preventDefault();
+          this.insertFunctionCompletion(
+            selected.name,
+            this.formulaBar.getFormulaInput(),
+          );
+          return;
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.autocomplete.hide();
+        return;
+      }
+    } else if (this.autocomplete.isHintVisible()) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.autocomplete.hide();
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && e.altKey) {
       e.preventDefault();
       document.execCommand('insertLineBreak');
@@ -1238,6 +1361,39 @@ export class Worksheet {
    * `handleCellInputKeydown` handles the keydown event for the cell input.
    */
   private async handleCellInputKeydown(e: KeyboardEvent) {
+    // Autocomplete interception
+    if (this.autocomplete.isListVisible()) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.autocomplete.moveDown();
+        return;
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.autocomplete.moveUp();
+        return;
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        const selected = this.autocomplete.getSelectedFunction();
+        if (selected) {
+          e.preventDefault();
+          this.insertFunctionCompletion(
+            selected.name,
+            this.cellInput.getInput(),
+          );
+          return;
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.autocomplete.hide();
+        return;
+      }
+    } else if (this.autocomplete.isHintVisible()) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.autocomplete.hide();
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && e.altKey) {
       e.preventDefault();
       document.execCommand('insertLineBreak');
