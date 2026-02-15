@@ -1575,6 +1575,9 @@ export class Worksheet {
    * `handleFormulaInputKeydown` handles the keydown event for the formula input.
    */
   private async handleFormulaKeydown(e: KeyboardEvent) {
+    // Ignore keydown events during IME composition.
+    if (e.isComposing) return;
+
     // Autocomplete interception
     if (this.autocomplete.isListVisible()) {
       if (e.key === 'ArrowDown') {
@@ -1674,6 +1677,10 @@ export class Worksheet {
    * `handleCellInputKeydown` handles the keydown event for the cell input.
    */
   private async handleCellInputKeydown(e: KeyboardEvent) {
+    // Ignore keydown events during IME composition to prevent
+    // duplicate characters (e.g. Korean input commit + Enter).
+    if (e.isComposing) return;
+
     // Autocomplete interception
     if (this.autocomplete.isListVisible()) {
       if (e.key === 'ArrowDown') {

@@ -3,7 +3,12 @@ import { extractTokens } from '../formula/formula';
 import { Theme, ThemeKey, getThemeColor, getFormulaRangeColor } from './theme';
 import { setTextRange, toTextRange } from './utils/textrange';
 import { escapeHTML } from './utils/html';
-import { DefaultCellWidth, DefaultCellHeight, CellFontSize, CellLineHeight } from './layout';
+import {
+  DefaultCellWidth,
+  DefaultCellHeight,
+  CellFontSize,
+  CellLineHeight,
+} from './layout';
 
 export class CellInput {
   private container: HTMLDivElement;
@@ -14,6 +19,7 @@ export class CellInput {
   private minHeight: number = DefaultCellHeight;
   private maxWidth: number = Infinity;
   private maxHeight: number = Infinity;
+  private composing: boolean = false;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -43,6 +49,13 @@ export class CellInput {
 
     this.boundHandleInput = this.handleInput.bind(this);
     this.input.addEventListener('input', this.boundHandleInput);
+    this.input.addEventListener('compositionstart', () => {
+      this.composing = true;
+    });
+    this.input.addEventListener('compositionend', () => {
+      this.composing = false;
+      this.adjustSize();
+    });
   }
 
   public cleanup(): void {
@@ -143,7 +156,9 @@ export class CellInput {
 
   private handleInput(): void {
     this.renderInput();
-    this.adjustSize();
+    if (!this.composing) {
+      this.adjustSize();
+    }
   }
 
   private adjustSize(): void {
