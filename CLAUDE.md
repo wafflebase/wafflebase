@@ -101,5 +101,7 @@ Each package has a README for getting started, and the `design/` directory has i
 - [`design/backend.md`](design/backend.md) — Module architecture, API reference, auth system, security model
 - [`design/scroll-and-rendering.md`](design/scroll-and-rendering.md) — Viewport-based Canvas rendering, proportional scroll remapping
 - [`design/batch-transactions.md`](design/batch-transactions.md) — Store-level batch transactions for atomic undo/redo
+- [`design/sharing.md`](design/sharing.md) — URL-based token sharing with anonymous access and role-based permissions
+- [`design/datasource.md`](design/datasource.md) — External PostgreSQL datasources, multi-tab documents, SQL editor, ReadOnlyStore
 
 IMPORTANT: Always refer to these documents for architectural context and design decisions. And We should keep them up to date after making changes.
