@@ -71,7 +71,6 @@ export function SheetView({
         }
 
         recalcInFlight = true;
-        sheet.invalidateCrossSheetFormulaIndex();
         sheet
           .reloadDimensions()
           .then(() => {

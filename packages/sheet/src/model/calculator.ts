@@ -23,6 +23,7 @@ export async function calculate(
       await sheet.setCell(ref, {
         v: '#REF!',
         f: cell.f,
+        s: cell.s,
       });
       continue;
     }
@@ -33,6 +34,7 @@ export async function calculate(
     await sheet.setCell(ref, {
       v: value,
       f: cell.f,
+      s: cell.s,
     });
   }
 }
