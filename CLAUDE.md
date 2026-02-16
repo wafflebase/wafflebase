@@ -97,6 +97,7 @@ Each package has a README for getting started, and the `design/` directory has i
 
 - [`design/README.md`](design/README.md) — Index of all design documents
 - [`design/sheet.md`](design/sheet.md) — Data model, Store interface, formula engine, rendering pipeline, coordinate system
+- [`design/formula-and-calculator.md`](design/formula-and-calculator.md) — Formula parsing/evaluation, dependency recalculation, and cross-sheet reference behavior
 - [`design/frontend.md`](design/frontend.md) — Yorkie integration, presence system, auth flow, document management
 - [`design/backend.md`](design/backend.md) — Module architecture, API reference, auth system, security model
 - [`design/scroll-and-rendering.md`](design/scroll-and-rendering.md) — Viewport-based Canvas rendering, proportional scroll remapping

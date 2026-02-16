@@ -209,6 +209,16 @@ export class Spreadsheet {
   }
 
   /**
+   * `invalidateCrossSheetFormulaIndex` marks cross-sheet formula index stale.
+   * Call this before recalculation when external sheet data may have changed.
+   */
+  public invalidateCrossSheetFormulaIndex(): void {
+    if (this.sheet) {
+      this.sheet.invalidateCrossSheetFormulaIndex();
+    }
+  }
+
+  /**
    * `recalculateCrossSheetFormulas` re-evaluates all formulas that reference
    * other sheets and re-renders. Call when another sheet's data may have changed.
    */

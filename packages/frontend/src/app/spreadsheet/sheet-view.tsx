@@ -47,6 +47,8 @@ export function SheetView({
     let sheet: Awaited<ReturnType<typeof initialize>> | undefined;
     let unsubs: Array<Function> = [];
     let cancelled = false;
+    let recalcInFlight = false;
+    let recalcPending = false;
 
     initialize(container, {
       theme,
@@ -60,6 +62,30 @@ export function SheetView({
 
       sheet = s;
       sheetRef.current = s;
+
+      const runCrossSheetRecalc = () => {
+        if (cancelled || !sheet) return;
+        if (recalcInFlight) {
+          recalcPending = true;
+          return;
+        }
+
+        recalcInFlight = true;
+        sheet.invalidateCrossSheetFormulaIndex();
+        sheet
+          .reloadDimensions()
+          .then(() => {
+            if (cancelled || !sheet) return;
+            return sheet.recalculateCrossSheetFormulas();
+          })
+          .finally(() => {
+            recalcInFlight = false;
+            if (recalcPending) {
+              recalcPending = false;
+              queueMicrotask(runCrossSheetRecalc);
+            }
+          });
+      };
 
       // Wire up cross-sheet formula resolver
       s.setGridResolver(
@@ -89,16 +115,13 @@ export function SheetView({
 
       // Recalculate cross-sheet formulas on initial load (tab switch)
       // so that any changes made in other sheets are reflected immediately.
-      sheet!.recalculateCrossSheetFormulas().then(() => sheet!.render());
+      runCrossSheetRecalc();
 
       // TODO(hackerwins): We need to optimize the rendering performance.
       unsubs.push(
         doc.subscribe((e) => {
           if (e.type === "remote-change") {
-            sheet!
-              .reloadDimensions()
-              .then(() => sheet!.recalculateCrossSheetFormulas())
-              .then(() => sheet!.render());
+            runCrossSheetRecalc();
           }
         }),
       );

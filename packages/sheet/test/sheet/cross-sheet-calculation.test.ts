@@ -180,4 +180,38 @@ describe('Cross-Sheet Calculation', () => {
     expect(cell?.f).toBe('=Sheet2!A1');
     expect(cell?.s?.b).toBe(true);
   });
+
+  it('should recalculate local dependant chains after cross-sheet update', async () => {
+    const sheet = new Sheet(new MemStore());
+
+    let externalValue = '1';
+    const resolver: GridResolver = (
+      sheetName: string,
+      refs: Set<Sref>,
+    ): Grid | undefined => {
+      if (sheetName !== 'SHEET2') return undefined;
+      const grid: Grid = new Map<Sref, Cell>();
+      for (const ref of refs) {
+        if (ref === 'A1') {
+          grid.set(ref, { v: externalValue });
+        }
+      }
+      return grid;
+    };
+
+    sheet.setGridResolver(resolver);
+    await sheet.setData({ r: 1, c: 1 }, '=Sheet2!A1'); // A1 = 1
+    await sheet.setData({ r: 2, c: 1 }, '2'); // A2 = 2
+    await sheet.setData({ r: 1, c: 2 }, '=SUM(A1:A2)'); // B1 = 3
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('3');
+
+    // Simulate Sheet2!A1 update and force cross-sheet recalculation.
+    externalValue = '2';
+    await sheet.recalculateCrossSheetFormulas();
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('2');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('4');
+  });
 });

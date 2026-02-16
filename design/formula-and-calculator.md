@@ -281,7 +281,11 @@ Instead, cross-sheet recalculation is handled explicitly:
 
 - **`Sheet.recalculateCrossSheetFormulas()`** — Scans all formula cells, finds
   those with cross-sheet references, re-evaluates them using the current
-  `gridResolver`, and updates the stored values.
+  `gridResolver`, and updates the stored values. To reduce repeated scan cost,
+  Sheet maintains an invalidatable in-memory index of cross-sheet formula cells
+  and reuses it across recalculations. After cross-sheet formula values are
+  updated, local dependant chains are recalculated via the existing dependants
+  map/topological calculation path.
 
 - **`Spreadsheet.recalculateCrossSheetFormulas()`** — Calls the Sheet method
   and then re-renders.
@@ -294,9 +298,10 @@ Source: `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
    looks up other tabs in the Yorkie document by name (case-insensitive) and
    returns their cell data.
 
-2. **Remote changes** — `doc.subscribe("remote-change")` triggers
-   `recalculateCrossSheetFormulas()` followed by `render()`, so changes from
-   other users are reflected.
+2. **Remote changes** — `doc.subscribe("remote-change")` invalidates the
+   cross-sheet formula index, then triggers a coalesced recalculation flow.
+   If multiple remote-change events arrive while recalculation is running,
+   they are merged into one additional follow-up pass.
 
 3. **Tab switch** — When the user switches tabs, the `SheetView` component
    re-mounts and calls `recalculateCrossSheetFormulas()` on initialization, so
@@ -325,6 +330,13 @@ local dependants map, values can become stale until
 `recalculateCrossSheetFormulas()` is called. The frontend mitigates this by
 calling it on tab switch and remote changes.
 
-**Performance** — `recalculateCrossSheetFormulas` scans all formula cells,
-which could be slow for sheets with many formulas. Future optimization could
-maintain a separate index of cross-sheet formula cells.
+**Performance** — Cross-sheet recalculation now uses three mitigations:
+
+1. A cached cross-sheet formula index (invalidated on formula-affecting local
+   edits and on remote changes).
+2. Batched store writes during recalculation to avoid one transaction per cell.
+3. Coalesced remote-change triggers in the frontend to avoid overlapping
+   recalculation runs.
+
+Residual risk: the first recalculation after invalidation still rebuilds the
+index, and expensive formulas can still dominate runtime in very large sheets.

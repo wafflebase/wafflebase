@@ -126,6 +126,24 @@ export class Sheet {
   private gridResolver?: GridResolver;
 
   /**
+   * `crossSheetFormulaSrefs` caches formula cells that reference other sheets.
+   * Rebuilt lazily when invalidated.
+   */
+  private crossSheetFormulaSrefs: Set<Sref> = new Set();
+
+  /**
+   * `crossSheetFormulaIndexDirty` indicates whether the cross-sheet formula index
+   * must be rebuilt from store data.
+   */
+  private crossSheetFormulaIndexDirty = true;
+
+  /**
+   * `referenceCache` memoizes parsed references by formula text to avoid
+   * repeatedly lexing/parsing identical formulas during recalculation.
+   */
+  private referenceCache: Map<string, Set<string>> = new Map();
+
+  /**
    * `constructor` creates a new `Sheet` instance.
    * @param grid optional grid to initialize the sheet.
    */
@@ -299,6 +317,7 @@ export class Sheet {
    * `setGrid` sets the grid of cells.
    */
   async setGrid(grid: Grid): Promise<void> {
+    this.markCrossSheetFormulaIndexDirty();
     await this.store.setGrid(grid);
   }
 
@@ -332,6 +351,7 @@ export class Sheet {
    * `setData` sets the data at the given row and column.
    */
   async setData(ref: Ref, value: string): Promise<void> {
+    this.markCrossSheetFormulaIndexDirty();
     this.store.beginBatch();
     try {
       // 01. Update the cell with the new value, preserving existing style.
@@ -362,6 +382,7 @@ export class Sheet {
    * Uses getGrid() to iterate only over populated cells for efficiency.
    */
   async removeData(): Promise<boolean> {
+    this.markCrossSheetFormulaIndexDirty();
     this.store.beginBatch();
     try {
       const range: Range = this.range
@@ -444,6 +465,7 @@ export class Sheet {
     index: number,
     count: number,
   ): Promise<void> {
+    this.markCrossSheetFormulaIndexDirty();
     await this.store.shiftCells(axis, index, count);
 
     // Shift dimension custom sizes
@@ -557,6 +579,7 @@ export class Sheet {
     count: number,
     dst: number,
   ): Promise<void> {
+    this.markCrossSheetFormulaIndexDirty();
     // No-op if source and destination are the same
     if (dst >= src && dst <= src + count) {
       return;
@@ -662,6 +685,7 @@ export class Sheet {
    * 3. Plain TSV paste — existing behavior
    */
   public async paste(options: { text?: string; html?: string }): Promise<void> {
+    this.markCrossSheetFormulaIndexDirty();
     const { text, html } = options;
     let grid: Grid;
 
@@ -818,24 +842,123 @@ export class Sheet {
   }
 
   /**
+   * `invalidateCrossSheetFormulaIndex` marks the cached cross-sheet formula index
+   * as stale so it will be rebuilt on next recalculation.
+   */
+  public invalidateCrossSheetFormulaIndex(): void {
+    this.markCrossSheetFormulaIndexDirty();
+  }
+
+  /**
    * `recalculateCrossSheetFormulas` re-evaluates all formula cells that
    * reference other sheets. Call this when another sheet's data changes
    * so that cross-sheet references reflect the latest values.
    */
   public async recalculateCrossSheetFormulas(): Promise<void> {
+    await this.ensureCrossSheetFormulaIndex();
+    if (this.crossSheetFormulaSrefs.size === 0) {
+      return;
+    }
+
+    const changedCrossSheetRefs = new Set<Sref>();
+    this.store.beginBatch();
+    try {
+      for (const sref of Array.from(this.crossSheetFormulaSrefs)) {
+        const ref = parseRef(sref);
+        const cell = await this.store.get(ref);
+        if (!cell?.f) {
+          this.crossSheetFormulaSrefs.delete(sref);
+          continue;
+        }
+
+        const references = this.getReferences(cell.f);
+        if (!this.hasCrossSheetReference(references)) {
+          this.crossSheetFormulaSrefs.delete(sref);
+          continue;
+        }
+
+        const grid = await this.fetchGridByReferences(references as Set<Sref>);
+        const value = evaluate(cell.f, grid);
+        if (value === cell.v) {
+          continue;
+        }
+
+        changedCrossSheetRefs.add(sref);
+        await this.store.set(ref, { v: value, f: cell.f, s: cell.s });
+      }
+
+      // Propagate updates through local dependency chains
+      // (e.g., A1 = Sheet2!A1, B1 = SUM(A1:A2)).
+      if (changedCrossSheetRefs.size > 0) {
+        const dependantsMap =
+          await this.store.buildDependantsMap(changedCrossSheetRefs);
+        const dependantRoots = new Set<Sref>();
+        for (const changedRef of changedCrossSheetRefs) {
+          for (const dependant of dependantsMap.get(changedRef) || []) {
+            dependantRoots.add(dependant);
+          }
+        }
+
+        if (dependantRoots.size > 0) {
+          await calculate(this, dependantsMap, dependantRoots);
+        }
+      }
+    } finally {
+      this.store.endBatch();
+    }
+  }
+
+  /**
+   * Marks the cross-sheet formula index as stale.
+   */
+  private markCrossSheetFormulaIndexDirty(): void {
+    this.crossSheetFormulaIndexDirty = true;
+  }
+
+  /**
+   * Returns cached references for a formula text.
+   */
+  private getReferences(formula: string): Set<string> {
+    let references = this.referenceCache.get(formula);
+    if (!references) {
+      references = extractReferences(formula) as Set<string>;
+      this.referenceCache.set(formula, references);
+    }
+    return references;
+  }
+
+  /**
+   * Rebuilds cross-sheet formula index when invalidated.
+   */
+  private async ensureCrossSheetFormulaIndex(): Promise<void> {
+    if (!this.crossSheetFormulaIndexDirty) {
+      return;
+    }
+
+    const next = new Set<Sref>();
     const formulaGrid = await this.store.getFormulaGrid();
     for (const [sref, cell] of formulaGrid) {
       if (!cell.f) continue;
-
-      const references = extractReferences(cell.f);
-      const hasCrossSheet = [...references].some((r) => isCrossSheetRef(r));
-      if (!hasCrossSheet) continue;
-
-      const grid = await this.fetchGridByReferences(references);
-      const value = evaluate(cell.f, grid);
-      const ref = parseRef(sref);
-      await this.store.set(ref, { v: value, f: cell.f, s: cell.s });
+      const references = this.getReferences(cell.f);
+      if (this.hasCrossSheetReference(references)) {
+        next.add(sref);
+      }
     }
+
+    this.crossSheetFormulaSrefs = next;
+    this.crossSheetFormulaIndexDirty = false;
+  }
+
+  /**
+   * Returns true if any reference targets another sheet.
+   */
+  private hasCrossSheetReference(references: Iterable<string>): boolean {
+    for (const reference of references) {
+      if (isCrossSheetRef(reference)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -1234,6 +1357,7 @@ export class Sheet {
   async undo(): Promise<boolean> {
     const result = await this.store.undo();
     if (result.success) {
+      this.markCrossSheetFormulaIndexDirty();
       await this.loadDimensions();
       await this.loadStyles();
       await this.loadFreezePane();
@@ -1259,6 +1383,7 @@ export class Sheet {
   async redo(): Promise<boolean> {
     const result = await this.store.redo();
     if (result.success) {
+      this.markCrossSheetFormulaIndexDirty();
       await this.loadDimensions();
       await this.loadStyles();
       await this.loadFreezePane();
