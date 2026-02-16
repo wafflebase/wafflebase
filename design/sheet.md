@@ -73,7 +73,8 @@ all cell, selection, and navigation operations.
   `getSelectionType()` returns `'cell' | 'row' | 'column'`.
   `getSelectedIndices()` returns the selected range for row/column selections.
 - **Copy/paste** — `copy` serializes the selection as a tab/newline string;
-  `paste` parses it back.
+  `paste` parses it back and recalculates dependants from all changed refs
+  (including plain-value pastes).
 - **Dimensions** — `setRowHeight`, `setColumnWidth`, persisted to the store.
 
 **Grid dimensions:** `1,000,000 rows x 182,780 columns` (constants in the

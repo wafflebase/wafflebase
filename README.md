@@ -21,6 +21,25 @@ Currently, Wafflebase supports the following core capabilities:
 
 We welcome contributions! If you're interested in helping build the next generation of data analysis tools, please check out the below or look for open issues.
 
+### Commit Message Format
+
+We follow a rough convention for commit messages that is designed to answer
+two questions: what changed and why. The subject line should feature the what
+and the body of the commit should describe the why.
+
+```
+Remove the synced seq when detaching the document
+
+To collect garbage like CRDT tombstones left on the document, all
+the changes should be applied to other replicas before GC. For this,
+if the document is no longer used by this client, it should be
+detached.
+```
+
+The first line is the subject and should be no longer than 70 characters. The
+second line is always blank, and other lines should be wrapped at 80
+characters.
+
 ### Setting Development Environment
 
 Follow these instructions to set up your development environment.

@@ -685,16 +685,15 @@ export class Sheet {
     try {
       await this.setGrid(grid);
 
-      // Recalculate formulas after paste
-      const formulaSrefs = new Set<Sref>();
-      for (const [sref, cell] of grid) {
-        if (cell.f) {
-          formulaSrefs.add(sref);
-        }
+      // Recalculate from all changed refs, not only pasted formulas.
+      // This ensures pasting plain values triggers dependant formula chains.
+      const changedSrefs = new Set<Sref>();
+      for (const [sref] of grid) {
+        changedSrefs.add(sref);
       }
-      if (formulaSrefs.size > 0) {
-        const dependantsMap = await this.store.buildDependantsMap(formulaSrefs);
-        await calculate(this, dependantsMap, formulaSrefs);
+      if (changedSrefs.size > 0) {
+        const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
+        await calculate(this, dependantsMap, changedSrefs);
       }
     } finally {
       this.store.endBatch();

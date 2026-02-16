@@ -82,21 +82,6 @@ pnpm test
 pnpm sheet build:formula
 ```
 
-## Format of the commit message
+## Further Reading
 
-We follow a rough convention for commit messages that is designed to answer two questions: what changed and why. The
-subject line should feature the what and the body of the commit should describe the why.
-
-```
-Remove the synced seq when detaching the document
-
-To collect garbage like CRDT tombstones left on the document, all
-the changes should be applied to other replicas before GC. For this
-, if the document is no longer used by this client, it should be
-detached.
-```
-
-The first line is the subject and should be no longer than 70 characters, the second line is always blank, and other
-lines should be wrapped at 80 characters. This allows the message to be easier to read on GitHub as well as in various
-git tools.
-
+See [/design/sheet.md](../../design/sheet.md) for the full design document covering the data model, store interface, formula engine, rendering pipeline, and coordinate system.

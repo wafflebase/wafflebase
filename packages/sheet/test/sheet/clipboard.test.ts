@@ -148,4 +148,22 @@ describe('Sheet.paste - formula recalculation', () => {
     expect(await sheet.toInputString({ r: 4, c: 1 })).toBe('=A3+B3');
     expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('300');
   });
+
+  it('should recalculate dependant formula chain when pasting plain values', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '=A1*2');
+    await sheet.setData({ r: 1, c: 3 }, '=B1*2');
+
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('2');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('4');
+
+    // Paste plain value into A1 (not a formula cell)
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.paste({ text: '5' });
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('5');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('20');
+  });
 });
