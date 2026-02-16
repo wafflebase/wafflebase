@@ -25,7 +25,6 @@ import {
   SelectionType,
 } from './types';
 import {
-  remapIndex,
   moveRef,
   shiftDimensionMap,
   moveDimensionMap,

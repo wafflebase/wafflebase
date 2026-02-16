@@ -37,7 +37,7 @@ export class ReadOnlyStore implements Store {
       const sref = toSref({ r: 1, c: c + 1 });
       this.grid.set(sref, {
         v: columns[c].name,
-        s: { bold: true },
+        s: { b: true },
       });
     }
 

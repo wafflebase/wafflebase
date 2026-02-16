@@ -107,6 +107,11 @@ const FORMAT_ICONS = {
   percent: IconPercentage,
 } as const;
 
+const isMac =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+const modKey = isMac ? "⌘" : "Ctrl";
+
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
 }
@@ -205,25 +210,27 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={handleUndo}
           >
             <IconArrowBackUp size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Undo</TooltipContent>
+        <TooltipContent>Undo ({modKey}+Z)</TooltipContent>
       </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={handleRedo}
           >
             <IconArrowForwardUp size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Redo</TooltipContent>
+        <TooltipContent>
+          Redo ({modKey}+{isMac ? "⇧Z" : "Y"})
+        </TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="mx-1 h-6" />
@@ -232,7 +239,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={() => handleNumberFormat("currency")}
           >
             <IconCurrencyDollar size={16} />
@@ -245,7 +252,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={() => handleNumberFormat("percent")}
           >
             <IconPercentage size={16} />
@@ -258,7 +265,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={handleDecreaseDecimals}
           >
             <IconDecimal size={16} />
@@ -274,7 +281,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted"
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={handleIncreaseDecimals}
           >
             <IconDecimal size={16} />
@@ -291,7 +298,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+              <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
                 <CurrentFormatIcon size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
               </button>
@@ -328,12 +335,12 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
             size="sm"
             pressed={style?.b || false}
             onPressedChange={() => handleToggle("b")}
-            className="h-7 w-7"
+            className="h-7 w-7 cursor-pointer"
           >
             <IconBold size={16} />
           </Toggle>
         </TooltipTrigger>
-        <TooltipContent>Bold</TooltipContent>
+        <TooltipContent>Bold ({modKey}+B)</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -342,12 +349,12 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
             size="sm"
             pressed={style?.i || false}
             onPressedChange={() => handleToggle("i")}
-            className="h-7 w-7"
+            className="h-7 w-7 cursor-pointer"
           >
             <IconItalic size={16} />
           </Toggle>
         </TooltipTrigger>
-        <TooltipContent>Italic</TooltipContent>
+        <TooltipContent>Italic ({modKey}+I)</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -356,7 +363,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
             size="sm"
             pressed={style?.st || false}
             onPressedChange={() => handleToggle("st")}
-            className="h-7 w-7"
+            className="h-7 w-7 cursor-pointer"
           >
             <IconStrikethrough size={16} />
           </Toggle>
@@ -369,7 +376,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted">
+              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted">
                 <IconTypography size={16} />
                 <span
                   className="absolute mt-5 h-0.5 w-3.5 rounded"
@@ -408,7 +415,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 w-7 items-center justify-center rounded-md text-sm hover:bg-muted">
+              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted">
                 <IconPaint size={16} />
                 <span
                   className="absolute mt-5 h-0.5 w-3.5 rounded"
@@ -450,7 +457,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+              <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
                 <CurrentAlignIcon size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
               </button>
@@ -479,7 +486,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+              <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
                 <CurrentVAlignIcon size={16} />
                 <IconChevronDown size={12} className="ml-0.5 opacity-50" />
               </button>

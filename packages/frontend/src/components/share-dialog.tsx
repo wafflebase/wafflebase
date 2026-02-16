@@ -10,6 +10,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -68,7 +69,7 @@ export function ShareDialog({ documentId }: { documentId: string }) {
       const link = await createShareLink(
         documentId,
         role,
-        expiration === "none" ? null : expiration
+        expiration === "none" ? null : expiration,
       );
       setLinks((prev) => [link, ...prev]);
       const url = `${window.location.origin}/shared/${link.token}`;
@@ -105,90 +106,92 @@ export function ShareDialog({ documentId }: { documentId: string }) {
           Share
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Share document</DialogTitle>
+          <DialogTitle>Share Document</DialogTitle>
           <DialogDescription>
             Create a link to share this document with others.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="flex items-end gap-2">
-          <div className="flex-1 space-y-1">
-            <label className="text-sm font-medium">Permission</label>
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="viewer">Viewer</SelectItem>
-                <SelectItem value="editor">Editor</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="grid gap-4 py-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-2">
+              <Label htmlFor="share-role">Permission</Label>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger id="share-role" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                  <SelectItem value="editor">Editor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="share-expiration">Expiration</Label>
+              <Select value={expiration} onValueChange={setExpiration}>
+                <SelectTrigger id="share-expiration" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {EXPIRATION_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="flex-1 space-y-1">
-            <label className="text-sm font-medium">Expiration</label>
-            <Select value={expiration} onValueChange={setExpiration}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {EXPIRATION_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {links.length > 0 && (
+            <>
+              <Separator />
+              <div className="grid gap-2">
+                <Label>Active links</Label>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {links.map((link) => (
+                    <div
+                      key={link.id}
+                      className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="capitalize font-medium">
+                          {link.role}
+                        </span>
+                        <span className="text-muted-foreground text-xs">
+                          {formatExpiration(link.expiresAt)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleCopy(link.token)}
+                        >
+                          <IconCopy className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          onClick={() => handleDelete(link.id)}
+                        >
+                          <IconTrash className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex justify-end">
           <Button onClick={handleCreate} disabled={loading}>
-            Create Link
+            {loading ? "Creating..." : "Create Link"}
           </Button>
         </div>
-
-        {links.length > 0 && (
-          <>
-            <Separator />
-            <div className="space-y-2">
-              <h4 className="text-sm font-medium">Active links</h4>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {links.map((link) => (
-                  <div
-                    key={link.id}
-                    className="flex items-center justify-between rounded-md border px-3 py-2 text-sm"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="capitalize font-medium">
-                        {link.role}
-                      </span>
-                      <span className="text-muted-foreground text-xs">
-                        {formatExpiration(link.expiresAt)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleCopy(link.token)}
-                      >
-                        <IconCopy className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
-                        onClick={() => handleDelete(link.id)}
-                      >
-                        <IconTrash className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
       </DialogContent>
     </Dialog>
   );

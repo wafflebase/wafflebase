@@ -17,10 +17,10 @@ import { formatDistanceToNow } from "date-fns";
 import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -29,11 +29,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -54,28 +53,6 @@ export function DocumentList({ data }: { data: Document[] }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const columns: Array<ColumnDef<Document>> = [
-    {
-      id: "select",
-      header: ({ table }) => (
-        <Checkbox
-          checked={
-            table.getIsAllPageRowsSelected() ||
-            (table.getIsSomePageRowsSelected() && "indeterminate")
-          }
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
-        />
-      ),
-      enableSorting: false,
-      enableHiding: false,
-    },
     {
       accessorKey: "id",
       header: "ID",
@@ -271,10 +248,7 @@ export function DocumentList({ data }: { data: Document[] }) {
         </Table>
       </div>
       <div className="flex items-center justify-end space-x-2 py-4">
-        <div className="flex-1 text-sm text-muted-foreground">
-          {table.getFilteredSelectedRowModel().rows.length} of{" "}
-          {table.getFilteredRowModel().rows.length} row(s) selected.
-        </div>
+        <div className="flex-1" />
         <div className="space-x-2">
           <Button
             variant="outline"
@@ -301,7 +275,7 @@ export function DocumentList({ data }: { data: Document[] }) {
           if (!open) setRenamingDoc(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <form
             onSubmit={(e: FormEvent) => {
               e.preventDefault();
@@ -318,13 +292,22 @@ export function DocumentList({ data }: { data: Document[] }) {
           >
             <DialogHeader>
               <DialogTitle>Rename Document</DialogTitle>
+              <DialogDescription>
+                Enter a new name for this document.
+              </DialogDescription>
             </DialogHeader>
-            <Input
-              name="title"
-              defaultValue={renamingDoc?.title ?? ""}
-              key={renamingDoc?.id}
-              autoFocus
-            />
+            <div className="grid gap-4 py-2">
+              <div className="grid gap-2">
+                <Label htmlFor="rename-title">Title</Label>
+                <Input
+                  id="rename-title"
+                  name="title"
+                  defaultValue={renamingDoc?.title ?? ""}
+                  key={renamingDoc?.id}
+                  autoFocus
+                />
+              </div>
+            </div>
             <DialogFooter>
               <Button
                 type="button"

@@ -1,7 +1,7 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
 import { EvalNode } from './formula';
-import { NumberArgs, BoolArgs, StringArgs, ref2str } from './arguments';
+import { NumberArgs, BoolArgs, ref2str } from './arguments';
 import { Grid } from '../model/types';
 import { isSrng, toSrefs } from '../model/coordinates';
 
@@ -353,7 +353,9 @@ export function countaFunc(
 function toStr(
   node: EvalNode,
   grid?: Grid,
-): { t: 'str'; v: string } | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+):
+  | { t: 'str'; v: string }
+  | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
   if (node.t === 'err') return node;
   if (node.t === 'str') return node;
   if (node.t === 'num') return { t: 'str', v: node.v.toString() };
