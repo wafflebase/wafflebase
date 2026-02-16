@@ -195,11 +195,54 @@ export function isSrng(reference: Reference): boolean {
 }
 
 /**
+ * `isCrossSheetRef` returns whether the given reference contains a sheet prefix.
+ */
+export function isCrossSheetRef(reference: string): boolean {
+  return reference.includes('!');
+}
+
+/**
+ * `parseCrossSheetRef` splits a cross-sheet reference like "Sheet2!A1" or "'My Sheet'!A1"
+ * into { sheetName, localRef }.
+ */
+export function parseCrossSheetRef(ref: string): {
+  sheetName: string;
+  localRef: string;
+} {
+  const idx = ref.indexOf('!');
+  if (idx === -1) {
+    throw new Error(`Not a cross-sheet reference: ${ref}`);
+  }
+  let sheetName = ref.substring(0, idx);
+  // Strip surrounding quotes if present
+  if (sheetName.startsWith("'") && sheetName.endsWith("'")) {
+    sheetName = sheetName.slice(1, -1);
+  }
+  const localRef = ref.substring(idx + 1);
+  return { sheetName, localRef };
+}
+
+/**
  * `toSrefs` converts the references to Refs. If the reference is a range,
  *  it decomposes the range into individual references.
  */
 export function* toSrefs(references: Iterable<Reference>): Generator<Sref> {
   for (const reference of references) {
+    // Handle cross-sheet references (e.g., "SHEET2!A1:B2" or "SHEET2!A1")
+    if (isCrossSheetRef(reference)) {
+      const { sheetName, localRef } = parseCrossSheetRef(reference);
+      if (localRef.includes(':')) {
+        // Cross-sheet range: decompose and re-prefix each cell
+        const range = parseRange(localRef);
+        for (const ref of toRefs(range)) {
+          yield `${sheetName}!${toSref(ref)}`;
+        }
+      } else {
+        yield reference;
+      }
+      continue;
+    }
+
     if (isSrng(reference)) {
       const range = parseRange(reference);
       for (const ref of toRefs(range)) {

@@ -14,7 +14,15 @@ expr: FUNCNAME '(' args? ')'         # Function
 
 args: expr (',' expr)* ;
 
-REFERENCE: REF | REFRANGE ;
+REFERENCE: QUOTED_SHEET_NAME '!' REFRANGE
+         | QUOTED_SHEET_NAME '!' REF
+         | SHEET_NAME '!' REFRANGE
+         | SHEET_NAME '!' REF
+         | REFRANGE
+         | REF
+         ;
+fragment SHEET_NAME: [A-Za-z][A-Za-z0-9]* ;
+fragment QUOTED_SHEET_NAME: '\'' (~['])+ '\'' ;
 REF: '$'? [A-Za-z]{1,3} '$'? [1-9][0-9]* ;
 REFRANGE: REF ':' REF ;
 

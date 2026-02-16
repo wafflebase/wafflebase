@@ -1,5 +1,10 @@
 import { extractReferences } from '../formula/formula';
-import { parseRef, toSref, toSrefs } from '../model/coordinates';
+import {
+  isCrossSheetRef,
+  parseRef,
+  toSref,
+  toSrefs,
+} from '../model/coordinates';
 import {
   shiftGrid,
   shiftDimensionMap,
@@ -176,6 +181,19 @@ export class MemStore implements Store {
   }
 
   /**
+   * `getFormulaGrid` returns all cells that have formulas.
+   */
+  async getFormulaGrid(): Promise<Grid> {
+    const grid: Grid = new Map();
+    for (const [sref, cell] of this.grid) {
+      if (cell.f) {
+        grid.set(sref, cell);
+      }
+    }
+    return grid;
+  }
+
+  /**
    * `buildDependantsMap` method builds a map of dependants. Unlike the
    * `IDBStore` implementation, this builds the map from the entire grid.
    */
@@ -189,6 +207,7 @@ export class MemStore implements Store {
       }
 
       for (const r of toSrefs(extractReferences(cell.f))) {
+        if (isCrossSheetRef(r)) continue; // skip cross-sheet deps
         if (!dependantsMap.has(r)) {
           dependantsMap.set(r, new Set());
         }

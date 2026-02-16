@@ -1,4 +1,12 @@
-import { initialize, Spreadsheet } from "@wafflebase/sheet";
+import {
+  initialize,
+  Spreadsheet,
+  Grid,
+  Cell,
+  Sref,
+  parseRef,
+  toSref,
+} from "@wafflebase/sheet";
 import { useEffect, useRef, useState } from "react";
 import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
@@ -19,8 +27,10 @@ export function SheetView({
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
-  const { doc, loading, error } =
-    useDocument<SpreadsheetDocument, UserPresence>();
+  const { doc, loading, error } = useDocument<
+    SpreadsheetDocument,
+    UserPresence
+  >();
 
   // NOTE(hackerwins): To prevent initialization of the spreadsheet
   // twice in development.
@@ -51,13 +61,46 @@ export function SheetView({
       sheet = s;
       sheetRef.current = s;
 
+      // Wire up cross-sheet formula resolver
+      s.setGridResolver(
+        (sheetName: string, refs: Set<Sref>): Grid | undefined => {
+          const root = doc.getRoot();
+          // Find tab by name (case-insensitive)
+          const targetTab = Object.values(root.tabs).find(
+            (tab) => tab.name.toUpperCase() === sheetName,
+          );
+          if (!targetTab) return undefined;
+
+          const ws = root.sheets[targetTab.id];
+          if (!ws) return undefined;
+
+          const grid: Grid = new Map();
+          for (const localRef of refs) {
+            const ref = parseRef(localRef);
+            const sref = toSref(ref);
+            const cellData = ws.sheet[sref];
+            if (cellData) {
+              grid.set(localRef, cellData as Cell);
+            }
+          }
+          return grid;
+        },
+      );
+
+      // Recalculate cross-sheet formulas on initial load (tab switch)
+      // so that any changes made in other sheets are reflected immediately.
+      sheet!.recalculateCrossSheetFormulas().then(() => sheet!.render());
+
       // TODO(hackerwins): We need to optimize the rendering performance.
       unsubs.push(
         doc.subscribe((e) => {
           if (e.type === "remote-change") {
-            sheet!.reloadDimensions().then(() => sheet!.render());
+            sheet!
+              .reloadDimensions()
+              .then(() => sheet!.recalculateCrossSheetFormulas())
+              .then(() => sheet!.render());
           }
-        })
+        }),
       );
       unsubs.push(doc.subscribe("presence", () => sheet!.renderOverlay()));
     });

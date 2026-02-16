@@ -12,8 +12,16 @@ import {
   type Direction,
   type Axis,
   type SelectionType,
+  type GridResolver,
 } from './model/types';
-import { toSref, toSrefs, parseRef, inRange } from './model/coordinates';
+import {
+  toSref,
+  toSrefs,
+  parseRef,
+  inRange,
+  isCrossSheetRef,
+  parseCrossSheetRef,
+} from './model/coordinates';
 import {
   shiftSref,
   shiftFormula,
@@ -51,11 +59,14 @@ export {
   Direction,
   Axis,
   SelectionType,
+  GridResolver,
   DimensionIndex,
   toSref,
   toSrefs,
   parseRef,
   inRange,
+  isCrossSheetRef,
+  parseCrossSheetRef,
   extractReferences,
   shiftSref,
   shiftFormula,

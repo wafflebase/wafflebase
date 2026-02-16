@@ -1,5 +1,6 @@
 import { Store } from '../store/store';
 import { calculate } from './calculator';
+import { evaluate, extractReferences } from '../formula/formula';
 import {
   cloneRange,
   inRange,
@@ -12,10 +13,13 @@ import {
   toBorderRanges,
   isSameRange,
   mergeRanges,
+  isCrossSheetRef,
+  parseCrossSheetRef,
 } from './coordinates';
 import {
   Axis,
   Grid,
+  GridResolver,
   Cell,
   CellStyle,
   Ref,
@@ -115,6 +119,11 @@ export class Sheet {
    * Used for internal formula-aware paste with reference relocation.
    */
   private copyBuffer?: { sourceRange: Range; grid: Grid; text: string };
+
+  /**
+   * `gridResolver` resolves cell data from other sheets for cross-sheet formula references.
+   */
+  private gridResolver?: GridResolver;
 
   /**
    * `constructor` creates a new `Sheet` instance.
@@ -767,16 +776,66 @@ export class Sheet {
    */
   async fetchGridByReferences(references: Set<Sref>): Promise<Grid> {
     const grid = new Map<Sref, Cell>();
-    for (const sref of toSrefs(references)) {
-      const cell = await this.store.get(parseRef(sref));
-      if (!cell) {
-        continue;
-      }
+    const crossSheetRefs = new Map<string, Set<Sref>>();
 
-      grid.set(sref, cell);
+    for (const sref of toSrefs(references)) {
+      if (isCrossSheetRef(sref)) {
+        // Group cross-sheet refs by sheet name
+        const { sheetName, localRef } = parseCrossSheetRef(sref);
+        if (!crossSheetRefs.has(sheetName.toUpperCase())) {
+          crossSheetRefs.set(sheetName.toUpperCase(), new Set());
+        }
+        crossSheetRefs.get(sheetName.toUpperCase())!.add(localRef);
+      } else {
+        // Local ref
+        const cell = await this.store.get(parseRef(sref));
+        if (cell) {
+          grid.set(sref, cell);
+        }
+      }
+    }
+
+    // Resolve cross-sheet refs via gridResolver
+    if (this.gridResolver && crossSheetRefs.size > 0) {
+      for (const [sheetName, refs] of crossSheetRefs) {
+        const resolved = this.gridResolver(sheetName, refs);
+        if (resolved) {
+          for (const [localRef, cell] of resolved) {
+            grid.set(`${sheetName}!${localRef}`, cell);
+          }
+        }
+      }
     }
 
     return grid;
+  }
+
+  /**
+   * `setGridResolver` sets the resolver for cross-sheet formula references.
+   */
+  public setGridResolver(resolver: GridResolver): void {
+    this.gridResolver = resolver;
+  }
+
+  /**
+   * `recalculateCrossSheetFormulas` re-evaluates all formula cells that
+   * reference other sheets. Call this when another sheet's data changes
+   * so that cross-sheet references reflect the latest values.
+   */
+  public async recalculateCrossSheetFormulas(): Promise<void> {
+    const formulaGrid = await this.store.getFormulaGrid();
+    for (const [sref, cell] of formulaGrid) {
+      if (!cell.f) continue;
+
+      const references = extractReferences(cell.f);
+      const hasCrossSheet = [...references].some((r) => isCrossSheetRef(r));
+      if (!hasCrossSheet) continue;
+
+      const grid = await this.fetchGridByReferences(references);
+      const value = evaluate(cell.f, grid);
+      const ref = parseRef(sref);
+      await this.store.set(ref, { v: value, f: cell.f, s: cell.s });
+    }
   }
 
   /**

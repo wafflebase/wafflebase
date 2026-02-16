@@ -17,7 +17,12 @@ import {
 import { FunctionMap } from './functions';
 import { Grid, Range, Reference } from '../model/types';
 import { NumberArgs } from './arguments';
-import { isSrng, parseRef, parseRange } from '../model/coordinates';
+import {
+  isSrng,
+  parseRef,
+  parseRange,
+  isCrossSheetRef,
+} from '../model/coordinates';
 
 /**
  * `Token` represents a token in the formula.
@@ -124,6 +129,9 @@ export function extractFormulaRanges(
 
     try {
       const text = token.text.toUpperCase();
+      // Skip cross-sheet refs — highlighting them locally doesn't make sense
+      if (isCrossSheetRef(text)) continue;
+
       if (text.includes(':')) {
         results.push({ text, range: parseRange(text) });
       } else {

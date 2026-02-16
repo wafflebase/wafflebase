@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { shiftRef, shiftSref, shiftFormula, shiftGrid, shiftDimensionMap, relocateFormula } from '../../src/model/shifting';
+import {
+  shiftRef,
+  shiftSref,
+  shiftFormula,
+  shiftGrid,
+  shiftDimensionMap,
+  relocateFormula,
+} from '../../src/model/shifting';
 import { Grid } from '../../src/model/types';
 
 describe('shiftRef', () => {
@@ -197,7 +204,11 @@ describe('relocateFormula', () => {
 
 describe('shiftDimensionMap', () => {
   it('should shift keys at or after index on insert', () => {
-    const map = new Map([[1, 50], [3, 80], [5, 120]]);
+    const map = new Map([
+      [1, 50],
+      [3, 80],
+      [5, 120],
+    ]);
     const result = shiftDimensionMap(map, 3, 1);
 
     expect(result.get(1)).toBe(50);
@@ -208,7 +219,10 @@ describe('shiftDimensionMap', () => {
   });
 
   it('should not shift keys before index on insert', () => {
-    const map = new Map([[1, 50], [2, 80]]);
+    const map = new Map([
+      [1, 50],
+      [2, 80],
+    ]);
     const result = shiftDimensionMap(map, 3, 1);
 
     expect(result.get(1)).toBe(50);
@@ -217,7 +231,11 @@ describe('shiftDimensionMap', () => {
   });
 
   it('should drop keys in deleted zone on delete', () => {
-    const map = new Map([[1, 50], [2, 80], [3, 120]]);
+    const map = new Map([
+      [1, 50],
+      [2, 80],
+      [3, 120],
+    ]);
     const result = shiftDimensionMap(map, 2, -1);
 
     expect(result.get(1)).toBe(50);
@@ -227,7 +245,11 @@ describe('shiftDimensionMap', () => {
   });
 
   it('should drop multiple keys in deleted zone', () => {
-    const map = new Map([[2, 80], [3, 90], [5, 120]]);
+    const map = new Map([
+      [2, 80],
+      [3, 90],
+      [5, 120],
+    ]);
     const result = shiftDimensionMap(map, 2, -2);
 
     expect(result.has(2)).toBe(false);
@@ -247,5 +269,27 @@ describe('shiftDimensionMap', () => {
     const result = shiftDimensionMap(map, 2, 1);
 
     expect(result.size).toBe(0);
+  });
+});
+
+describe('cross-sheet refs in shift/move/relocate', () => {
+  it('should NOT shift cross-sheet refs in shiftFormula', () => {
+    expect(shiftFormula('=Sheet2!A1+A2', 'row', 2, 1)).toBe('=Sheet2!A1+A3');
+  });
+
+  it('should NOT shift cross-sheet range refs in shiftFormula', () => {
+    expect(shiftFormula('=SUM(Sheet2!A1:A3)', 'row', 1, 1)).toBe(
+      '=SUM(Sheet2!A1:A3)',
+    );
+  });
+
+  it('should NOT relocate cross-sheet refs in relocateFormula', () => {
+    expect(relocateFormula('=Sheet2!A1+A1', 1, 0)).toBe('=Sheet2!A1+A2');
+  });
+
+  it('should NOT relocate cross-sheet range refs in relocateFormula', () => {
+    expect(relocateFormula('=SUM(Sheet2!A1:A3)+A1', 1, 0)).toBe(
+      '=SUM(Sheet2!A1:A3)+A2',
+    );
   });
 });

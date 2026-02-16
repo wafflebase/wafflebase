@@ -1,4 +1,4 @@
-import { CellStyle } from '../model/types';
+import { CellStyle, GridResolver } from '../model/types';
 import { Sheet } from '../model/sheet';
 import { Store } from '../store/store';
 import { MemStore } from '../store/memory';
@@ -197,5 +197,24 @@ export class Spreadsheet {
   public cleanup() {
     this.worksheet.cleanup();
     this.selectionChangeCallbacks = [];
+  }
+
+  /**
+   * `setGridResolver` sets the resolver for cross-sheet formula references.
+   */
+  public setGridResolver(resolver: GridResolver): void {
+    if (this.sheet) {
+      this.sheet.setGridResolver(resolver);
+    }
+  }
+
+  /**
+   * `recalculateCrossSheetFormulas` re-evaluates all formulas that reference
+   * other sheets and re-renders. Call when another sheet's data may have changed.
+   */
+  public async recalculateCrossSheetFormulas(): Promise<void> {
+    if (!this.sheet) return;
+    await this.sheet.recalculateCrossSheetFormulas();
+    this.worksheet.render();
   }
 }

@@ -20,6 +20,7 @@ import {
   moveRef,
   moveFormula,
   remapIndex,
+  isCrossSheetRef,
 } from "@wafflebase/sheet";
 import { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
@@ -439,6 +440,17 @@ export class YorkieStore implements Store {
     this.dirty = true;
   }
 
+  async getFormulaGrid(): Promise<Map<Sref, Cell>> {
+    const grid = new Map<Sref, Cell>();
+    const sheet = this.getSheet().sheet;
+    for (const [sref, cell] of Object.entries(sheet)) {
+      if (cell.f) {
+        grid.set(sref, cell as Cell);
+      }
+    }
+    return grid;
+  }
+
   async buildDependantsMap(_: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>> {
     const dependantsMap = new Map<Sref, Set<Sref>>();
     const sheet = this.getSheet().sheet;
@@ -449,6 +461,7 @@ export class YorkieStore implements Store {
         if (this.batchOverlay.has(sref)) continue;
         if (!cell.f) continue;
         for (const r of toSrefs(extractReferences(cell.f))) {
+          if (isCrossSheetRef(r)) continue;
           if (!dependantsMap.has(r)) dependantsMap.set(r, new Set());
           dependantsMap.get(r)!.add(sref);
         }
@@ -457,6 +470,7 @@ export class YorkieStore implements Store {
       for (const [sref, cell] of this.batchOverlay) {
         if (cell === null || !cell.f) continue;
         for (const r of toSrefs(extractReferences(cell.f))) {
+          if (isCrossSheetRef(r)) continue;
           if (!dependantsMap.has(r)) dependantsMap.set(r, new Set());
           dependantsMap.get(r)!.add(sref);
         }
@@ -470,6 +484,7 @@ export class YorkieStore implements Store {
       }
 
       for (const r of toSrefs(extractReferences(cell.f))) {
+        if (isCrossSheetRef(r)) continue;
         if (!dependantsMap.has(r)) {
           dependantsMap.set(r, new Set());
         }

@@ -127,6 +127,10 @@ export class ReadOnlyStore implements Store {
     return new Map();
   }
 
+  async getFormulaGrid(): Promise<Grid> {
+    return new Map();
+  }
+
   getPresences(): Array<{
     clientID: string;
     presence: { activeCell: string };

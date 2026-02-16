@@ -1,4 +1,13 @@
-import { Axis, Cell, CellStyle, Grid, Ref, Range, Sref, Direction } from '../model/types';
+import {
+  Axis,
+  Cell,
+  CellStyle,
+  Grid,
+  Ref,
+  Range,
+  Sref,
+  Direction,
+} from '../model/types';
 
 /**
  * `Store` interface represents a storage that stores the cell values.
@@ -46,6 +55,11 @@ export interface Store {
   findEdge(ref: Ref, direction: Direction, dimension: Range): Promise<Ref>;
 
   /**
+   * `getFormulaGrid` method returns all cells that have formulas.
+   */
+  getFormulaGrid(): Promise<Grid>;
+
+  /**
    * `buildDependantsMap` method builds a map of dependants.
    */
   buildDependantsMap(srefs: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>>;
@@ -65,7 +79,12 @@ export interface Store {
    * `moveCells` method moves cells along the given axis.
    * Moves `count` rows/columns starting at `srcIndex` to before `dstIndex`.
    */
-  moveCells(axis: Axis, srcIndex: number, count: number, dstIndex: number): Promise<void>;
+  moveCells(
+    axis: Axis,
+    srcIndex: number,
+    count: number,
+    dstIndex: number,
+  ): Promise<void>;
 
   /**
    * `setDimensionSize` method sets a custom row height or column width.

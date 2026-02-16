@@ -87,3 +87,13 @@ export type Grid = Map<Sref, Cell>;
  * SelectionType represents the type of selection.
  */
 export type SelectionType = 'cell' | 'row' | 'column' | 'all';
+
+/**
+ * GridResolver resolves cell data from other sheets.
+ * Takes a sheet name + set of cell refs, returns a Grid with those cells' data,
+ * or undefined if the sheet doesn't exist.
+ */
+export type GridResolver = (
+  sheetName: string,
+  refs: Set<Sref>,
+) => Grid | undefined;

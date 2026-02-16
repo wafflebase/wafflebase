@@ -10,7 +10,12 @@ import { Axis, Cell, Grid, Ref, Sref } from './types';
  * - Items between shift forward or backward to fill the gap
  * - Items outside the affected range are unchanged
  */
-export function remapIndex(i: number, src: number, count: number, dst: number): number {
+export function remapIndex(
+  i: number,
+  src: number,
+  count: number,
+  dst: number,
+): number {
   const srcEnd = src + count;
 
   if (dst <= src) {
@@ -67,7 +72,10 @@ export function moveFormula(
   for (const token of tokens) {
     if (token.type === 'REFERENCE') {
       const text = token.text;
-      if (text.includes(':')) {
+      if (text.includes('!')) {
+        // Cross-sheet ref — don't shift
+        result += text;
+      } else if (text.includes(':')) {
         const [startStr, endStr] = text.split(':');
         const startRef = parseRef(startStr.toUpperCase());
         const endRef = parseRef(endStr.toUpperCase());
@@ -156,7 +164,10 @@ export function relocateFormula(
   for (const token of tokens) {
     if (token.type === 'REFERENCE') {
       const text = token.text;
-      if (text.includes(':')) {
+      if (text.includes('!')) {
+        // Cross-sheet ref — don't relocate
+        result += text;
+      } else if (text.includes(':')) {
         const [startStr, endStr] = text.split(':');
         const startRef = parseRef(startStr.toUpperCase());
         const endRef = parseRef(endStr.toUpperCase());
@@ -260,7 +271,10 @@ export function shiftFormula(
   for (const token of tokens) {
     if (token.type === 'REFERENCE') {
       const text = token.text;
-      if (text.includes(':')) {
+      if (text.includes('!')) {
+        // Cross-sheet ref — don't shift
+        result += text;
+      } else if (text.includes(':')) {
         // Range reference: shift each endpoint
         const [startStr, endStr] = text.split(':');
         const startRef = parseRef(startStr.toUpperCase());
