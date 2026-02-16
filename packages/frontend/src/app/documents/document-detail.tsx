@@ -1,8 +1,9 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useEffect } from "react";
 import { fetchMe } from "@/api/auth";
+import { fetchDocument, renameDocument } from "@/api/documents";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -108,10 +109,25 @@ function generateTabId(): string {
 
 function DocumentLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
+  const queryClient = useQueryClient();
   const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [migrated, setMigrated] = useState(false);
   const [showDsSelector, setShowDsSelector] = useState(false);
+
+  const { data: documentData } = useQuery({
+    queryKey: ["document", documentId],
+    queryFn: () => fetchDocument(documentId),
+  });
+
+  const handleRenameDocument = useCallback(
+    async (newTitle: string) => {
+      await renameDocument(documentId, newTitle);
+      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    [documentId, queryClient],
+  );
 
   // Perform migration on first load
   useEffect(() => {
@@ -233,6 +249,17 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc, activeTabId],
   );
 
+  const handleMoveTab = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (!doc) return;
+      doc.update((r) => {
+        const [moved] = r.tabOrder.splice(fromIndex, 1);
+        r.tabOrder.splice(toIndex, 0, moved);
+      });
+    },
+    [doc],
+  );
+
   if (!doc || !migrated || !activeTabId) {
     return <Loader />;
   }
@@ -247,7 +274,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     <SidebarProvider>
       <AppSidebar variant="inset" items={items} />
       <SidebarInset>
-        <SiteHeader title="Spreadsheet">
+        <SiteHeader
+          title={documentData?.title ?? "Loading..."}
+          editable
+          onRename={handleRenameDocument}
+        >
           <div className="flex items-center gap-2">
             <ShareDialog documentId={documentId} />
             <UserPresence />
@@ -270,6 +301,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             onAddTab={handleAddTab}
             onRenameTab={handleRenameTab}
             onDeleteTab={handleDeleteTab}
+            onMoveTab={handleMoveTab}
           />
         </div>
       </SidebarInset>

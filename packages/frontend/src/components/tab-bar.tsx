@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { IconPlus, IconTable, IconDatabase } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -7,6 +7,21 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import type { TabMeta, TabType } from "@/types/worksheet";
 
@@ -17,7 +32,94 @@ type TabBarProps = {
   onAddTab: (type: TabType) => void;
   onRenameTab: (tabId: string, name: string) => void;
   onDeleteTab: (tabId: string) => void;
+  onMoveTab?: (fromIndex: number, toIndex: number) => void;
 };
+
+function SortableTab({
+  tab,
+  isActive,
+  isEditing,
+  editValue,
+  onEditValueChange,
+  onSelect,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
+  onContextMenu,
+  inputRef,
+}: {
+  tab: TabMeta;
+  isActive: boolean;
+  isEditing: boolean;
+  editValue: string;
+  onEditValueChange: (v: string) => void;
+  onSelect: () => void;
+  onStartRename: () => void;
+  onCommitRename: () => void;
+  onCancelRename: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: tab.id, disabled: isEditing });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+    opacity: isDragging ? 0.5 : undefined,
+  };
+
+  return (
+    <button
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-t border-b-2 cursor-pointer select-none",
+        "hover:bg-muted/50 transition-colors",
+        isActive
+          ? "border-primary bg-background text-foreground font-medium"
+          : "border-transparent text-muted-foreground",
+      )}
+      onClick={onSelect}
+      onDoubleClick={onStartRename}
+      onContextMenu={onContextMenu}
+      {...attributes}
+      {...listeners}
+    >
+      {tab.type === "datasource" ? (
+        <IconDatabase className="size-3.5" />
+      ) : (
+        <IconTable className="size-3.5" />
+      )}
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          className="w-20 bg-transparent border-b border-primary text-sm outline-none"
+          value={editValue}
+          onChange={(e) => onEditValueChange(e.target.value)}
+          onBlur={onCommitRename}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onCommitRename();
+            if (e.key === "Escape") onCancelRename();
+            e.stopPropagation();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span>{tab.name}</span>
+      )}
+    </button>
+  );
+}
 
 export function TabBar({
   tabs,
@@ -26,100 +128,130 @@ export function TabBar({
   onAddTab,
   onRenameTab,
   onDeleteTab,
+  onMoveTab,
 }: TabBarProps) {
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [contextTabId, setContextTabId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+  );
+
+  // Focus the rename input — use a small delay to ensure the dropdown
+  // has fully closed and won't steal focus back.
   useEffect(() => {
-    if (editingTabId && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
+    if (!editingTabId) return;
+    const timer = setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
+    }, 50);
+    return () => clearTimeout(timer);
   }, [editingTabId]);
 
-  const handleDoubleClick = (tab: TabMeta) => {
+  const startRename = useCallback((tab: TabMeta) => {
     setEditingTabId(tab.id);
     setEditValue(tab.name);
-  };
+  }, []);
 
-  const commitRename = () => {
+  const commitRename = useCallback(() => {
     if (editingTabId && editValue.trim()) {
       onRenameTab(editingTabId, editValue.trim());
     }
     setEditingTabId(null);
-  };
+  }, [editingTabId, editValue, onRenameTab]);
+
+  const cancelRename = useCallback(() => {
+    setEditingTabId(null);
+  }, []);
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id || !onMoveTab) return;
+
+      const fromIndex = tabs.findIndex((t) => t.id === active.id);
+      const toIndex = tabs.findIndex((t) => t.id === over.id);
+      if (fromIndex !== -1 && toIndex !== -1) {
+        onMoveTab(fromIndex, toIndex);
+      }
+    },
+    [tabs, onMoveTab],
+  );
 
   return (
     <div className="flex items-center border-t bg-muted/30 px-1 h-9 shrink-0">
-      {tabs.map((tab) => (
-        <DropdownMenu
-          key={tab.id}
-          open={contextTabId === tab.id}
-          onOpenChange={(open) => {
-            if (!open) setContextTabId(null);
-          }}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToHorizontalAxis]}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={tabs.map((t) => t.id)}
+          strategy={horizontalListSortingStrategy}
         >
-          <DropdownMenuTrigger asChild>
-            <button
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1 text-sm rounded-t border-b-2 cursor-pointer select-none",
-                "hover:bg-muted/50 transition-colors",
-                tab.id === activeTabId
-                  ? "border-primary bg-background text-foreground font-medium"
-                  : "border-transparent text-muted-foreground",
-              )}
-              onClick={() => {
-                onSelectTab(tab.id);
-              }}
-              onDoubleClick={() => handleDoubleClick(tab)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextTabId(tab.id);
+          {tabs.map((tab) => (
+            <DropdownMenu
+              key={tab.id}
+              open={contextTabId === tab.id}
+              onOpenChange={(open) => {
+                if (!open) setContextTabId(null);
               }}
             >
-              {tab.type === "datasource" ? (
-                <IconDatabase className="size-3.5" />
-              ) : (
-                <IconTable className="size-3.5" />
-              )}
-              {editingTabId === tab.id ? (
-                <input
-                  ref={inputRef}
-                  className="w-20 bg-transparent border-b border-primary text-sm outline-none"
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onBlur={commitRename}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitRename();
-                    if (e.key === "Escape") setEditingTabId(null);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : (
-                <span>{tab.name}</span>
-              )}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={() => handleDoubleClick(tab)}>
-              Rename
-            </DropdownMenuItem>
-            {tabs.length > 1 && (
-              <>
-                <DropdownMenuSeparator />
+              <DropdownMenuTrigger asChild>
+                <div>
+                  <SortableTab
+                    tab={tab}
+                    isActive={tab.id === activeTabId}
+                    isEditing={editingTabId === tab.id}
+                    editValue={editValue}
+                    onEditValueChange={setEditValue}
+                    onSelect={() => onSelectTab(tab.id)}
+                    onStartRename={() => startRename(tab)}
+                    onCommitRename={commitRename}
+                    onCancelRename={cancelRename}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextTabId(tab.id);
+                    }}
+                    inputRef={inputRef}
+                  />
+                </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
                 <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => onDeleteTab(tab.id)}
+                  onClick={() => {
+                    setContextTabId(null);
+                    // Delay so the dropdown fully unmounts before we try to focus the input
+                    setTimeout(() => startRename(tab), 0);
+                  }}
                 >
-                  Delete
+                  Rename
                 </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ))}
+                {tabs.length > 1 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => onDeleteTab(tab.id)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ))}
+        </SortableContext>
+      </DndContext>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
