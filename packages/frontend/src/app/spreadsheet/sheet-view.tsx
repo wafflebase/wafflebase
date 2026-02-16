@@ -4,16 +4,23 @@ import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
-import { Worksheet } from "@/types/worksheet";
+import { SpreadsheetDocument } from "@/types/worksheet";
 import { YorkieStore } from "./yorkie-store";
 import { UserPresence } from "@/types/users";
 
-export function SheetView({ readOnly = false }: { readOnly?: boolean }) {
+export function SheetView({
+  tabId,
+  readOnly = false,
+}: {
+  tabId: string;
+  readOnly?: boolean;
+}) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
-  const { doc, loading, error } = useDocument<Worksheet, UserPresence>();
+  const { doc, loading, error } =
+    useDocument<SpreadsheetDocument, UserPresence>();
 
   // NOTE(hackerwins): To prevent initialization of the spreadsheet
   // twice in development.
@@ -33,7 +40,7 @@ export function SheetView({ readOnly = false }: { readOnly?: boolean }) {
 
     initialize(container, {
       theme,
-      store: new YorkieStore(doc),
+      store: new YorkieStore(doc, tabId),
       readOnly,
     }).then((s) => {
       if (cancelled) {
@@ -66,7 +73,7 @@ export function SheetView({ readOnly = false }: { readOnly?: boolean }) {
         unsub();
       }
     };
-  }, [didMount, containerRef, doc, readOnly]);
+  }, [didMount, containerRef, doc, tabId, readOnly]);
 
   if (loading) {
     return <Loader />;

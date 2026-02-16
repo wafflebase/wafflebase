@@ -146,6 +146,11 @@ mutations into a single undo step. The `Sheet` class wraps user-facing methods
 references. It maintains a `CellIndex` for efficient range queries and
 navigation (see below).
 
+**ReadOnlyStore** (`src/store/readonly.ts`) is a read-only Store implementation
+for displaying external data (e.g., SQL query results). Data is loaded via
+`loadQueryResults(columns, rows)` which populates row 0 with bold column
+headers and subsequent rows with data. All write operations are no-ops.
+
 #### CellIndex
 
 `CellIndex` (`src/store/cell-index.ts`) is a spatial index that tracks which

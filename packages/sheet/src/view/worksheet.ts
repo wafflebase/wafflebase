@@ -259,7 +259,30 @@ export class Worksheet {
     await this.autoResizeRow(activeCell.r);
   }
 
+  /**
+   * `isExternalInput` returns true when the event target is an interactive
+   * input element (input, textarea, select, or contentEditable) that lives
+   * outside the sheet container. This lets us skip handling keyboard events
+   * that belong to dialogs or other UI without blocking normal grid usage.
+   */
+  private isExternalInput(target: Element | null): boolean {
+    if (!target) return false;
+    if (this.container.contains(target)) return false;
+
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if ((target as HTMLElement).isContentEditable) return true;
+
+    return false;
+  }
+
   private handleKeyDown(e: KeyboardEvent): void {
+    // Ignore key events originating from interactive elements outside the
+    // sheet container (e.g. dialog inputs) so they can type normally.
+    if (this.isExternalInput(e.target as Element | null)) {
+      return;
+    }
+
     if (this.formulaBar.isFocused()) {
       this.boundHandleFormulaKeydown(e);
       return;
@@ -272,6 +295,12 @@ export class Worksheet {
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
+    // Ignore key events originating from interactive elements outside the
+    // sheet container (e.g. dialog inputs) so they can type normally.
+    if (this.isExternalInput(e.target as Element | null)) {
+      return;
+    }
+
     // Skip autocomplete update for arrow/navigation keys when autocomplete is
     // visible. The keydown handler already adjusted the selection index and
     // re-triggering updateAutocomplete here would reset selectedIndex to 0,

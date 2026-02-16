@@ -6,6 +6,22 @@ model User {
   photo String?
   documents Document[]
   shareLinks ShareLink[]
+  datasources DataSource[]
+}
+
+model DataSource {
+  id         String   @id @default(uuid())
+  name       String
+  host       String
+  port       Int      @default(5432)
+  database   String
+  username   String
+  password   String
+  sslEnabled Boolean  @default(false)
+  authorID   Int
+  author     User     @relation(fields: [authorID], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Document {

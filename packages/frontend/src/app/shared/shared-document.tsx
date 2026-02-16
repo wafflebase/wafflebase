@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { YorkieProvider, DocumentProvider } from "@yorkie-js/react";
+import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
 import { resolveShareLink, ResolvedShareLink } from "@/api/share-links";
 import { fetchMe } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import SheetView from "@/app/spreadsheet/sheet-view";
-import { initialWorksheet } from "@/types/worksheet";
+import {
+  SpreadsheetDocument,
+  initialSpreadsheetDocument,
+} from "@/types/worksheet";
+import type { UserPresence as UserPresenceType } from "@/types/users";
 
 function SharedDocumentLayout({
   resolved,
@@ -14,6 +18,16 @@ function SharedDocumentLayout({
   resolved: ResolvedShareLink;
 }) {
   const readOnly = resolved.role === "viewer";
+  const { doc } =
+    useDocument<SpreadsheetDocument, UserPresenceType>();
+
+  if (!doc) {
+    return <Loader />;
+  }
+
+  const root = doc.getRoot();
+  const tabId =
+    root.tabOrder && root.tabOrder.length > 0 ? root.tabOrder[0] : "tab-1";
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -26,7 +40,7 @@ function SharedDocumentLayout({
         )}
       </header>
       <div className="flex flex-1 flex-col">
-        <SheetView readOnly={readOnly} />
+        <SheetView tabId={tabId} readOnly={readOnly} />
       </div>
     </div>
   );
@@ -56,7 +70,7 @@ function SharedDocumentInner({
     >
       <DocumentProvider
         docKey={`sheet-${resolved.documentId}`}
-        initialRoot={initialWorksheet}
+        initialRoot={initialSpreadsheetDocument}
         initialPresence={presence}
       >
         <SharedDocumentLayout resolved={resolved} />

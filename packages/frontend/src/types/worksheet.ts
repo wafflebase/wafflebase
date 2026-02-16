@@ -21,12 +21,42 @@ export type Worksheet = {
   frozenCols: number;
 };
 
-export const initialWorksheet: Worksheet = {
-  sheet: {},
-  rowHeights: {},
-  colWidths: {},
-  colStyles: {},
-  rowStyles: {},
-  frozenRows: 0,
-  frozenCols: 0,
+export type TabType = "sheet" | "datasource";
+
+export type TabMeta = {
+  id: string;
+  name: string;
+  type: TabType;
+  datasourceId?: string;
+  query?: string;
+};
+
+export type SpreadsheetDocument = {
+  tabs: { [id: string]: TabMeta };
+  tabOrder: string[];
+  sheets: { [tabId: string]: Worksheet };
+};
+
+const DEFAULT_TAB_ID = "tab-1";
+
+export const initialSpreadsheetDocument: SpreadsheetDocument = {
+  tabs: {
+    [DEFAULT_TAB_ID]: {
+      id: DEFAULT_TAB_ID,
+      name: "Sheet1",
+      type: "sheet",
+    },
+  },
+  tabOrder: [DEFAULT_TAB_ID],
+  sheets: {
+    [DEFAULT_TAB_ID]: {
+      sheet: {},
+      rowHeights: {},
+      colWidths: {},
+      colStyles: {},
+      rowStyles: {},
+      frozenRows: 0,
+      frozenCols: 0,
+    },
+  },
 };

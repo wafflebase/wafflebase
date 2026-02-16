@@ -2,7 +2,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { Outlet, useLocation } from "react-router-dom";
-import { IconFolder, IconSettings } from "@tabler/icons-react";
+import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 
 const items = {
   main: [
@@ -10,6 +10,11 @@ const items = {
       title: "Documents",
       url: "/",
       icon: IconFolder,
+    },
+    {
+      title: "Data Sources",
+      url: "/datasources",
+      icon: IconDatabase,
     },
   ],
   secondary: [
@@ -27,6 +32,8 @@ export default function Layout() {
   let title = "";
   if (location.pathname === "/") {
     title = "Documents";
+  } else if (location.pathname === "/datasources") {
+    title = "Data Sources";
   } else if (location.pathname === "/settings") {
     title = "Settings";
   } else if (location.pathname.match(/^\/\d+$/)) {

@@ -36,6 +36,7 @@ flowchart TD
   APP --> AUTH["AuthModule"]
   APP --> DOC["DocumentModule"]
   APP --> SHARE["ShareLinkModule"]
+  APP --> DSRC["DataSourceModule"]
 
   AUTH --> JWT_MOD["JwtModule (1h expiry)"]
   AUTH --> USER_MOD["UserModule"]
@@ -55,15 +56,20 @@ flowchart TD
   SHARE --> SLC["ShareLinkController"]
   SHARE --> SLS["ShareLinkService"]
   SHARE --> PS3["PrismaService"]
+
+  DSRC --> DSC["DataSourceController"]
+  DSRC --> DSS["DataSourceService"]
+  DSRC --> PS4["PrismaService"]
 ```
 
 | Module | Responsibility |
 |--------|---------------|
-| **AppModule** | Root module. Imports ConfigModule (global), AuthModule, DocumentModule, ShareLinkModule. |
+| **AppModule** | Root module. Imports ConfigModule (global), AuthModule, DocumentModule, ShareLinkModule, DataSourceModule. |
 | **AuthModule** | GitHub OAuth + JWT authentication. Provides AuthService, GitHubStrategy, JwtStrategy. Imports UserModule for user lookup/creation. |
 | **UserModule** | User CRUD via Prisma. Exports UserService for use by AuthModule and DocumentModule. |
 | **DocumentModule** | Document REST endpoints. Uses DocumentService + UserService + PrismaService. |
 | **ShareLinkModule** | URL-based document sharing with token-based access. Manages share link CRUD and public token resolution for anonymous access. |
+| **DataSourceModule** | External PostgreSQL connection management. CRUD for connection configs, test connection, execute SELECT queries. Passwords encrypted at rest with AES-256-GCM. |
 
 ### API Reference
 
@@ -130,6 +136,38 @@ All endpoints require `JwtAuthGuard`.
 - Returns `{ documentId, role, title }` if the token is valid and not expired.
 - Returns `410 Gone` if the token has expired.
 - Returns `404 Not Found` if the token is invalid.
+
+#### DataSources (`/datasources`)
+
+All endpoints require `JwtAuthGuard`. Ownership is enforced on every request.
+
+**`POST /datasources`**
+- Body: `{ name, host, port?, database, username, password, sslEnabled? }`
+- Creates a datasource connection. Password is encrypted with AES-256-GCM.
+
+**`GET /datasources`**
+- Returns all datasources owned by the authenticated user. Passwords are masked.
+
+**`GET /datasources/:id`**
+- Returns a single datasource. Password is masked.
+
+**`PATCH /datasources/:id`**
+- Body: Partial update of connection fields.
+- If `password` is provided, it is re-encrypted.
+
+**`DELETE /datasources/:id`**
+- Deletes the datasource connection.
+
+**`POST /datasources/:id/test`**
+- Tests the connection by running `SELECT 1`.
+- Returns `{ success: boolean, error?: string }`.
+
+**`POST /datasources/:id/query`**
+- Body: `{ query: string }`
+- Validates that the query is SELECT-only (rejects INSERT/UPDATE/DELETE/DROP etc.).
+- Executes the query with a 30-second timeout and 10,000 row limit.
+- Returns `{ columns, rows, rowCount, truncated, executionTime }`.
+- Uses an ephemeral `pg.Client` (not the app's Prisma connection).
 
 ### Auth System
 
@@ -207,8 +245,22 @@ erDiagram
         DateTime createdAt "default: now()"
         DateTime expiresAt "nullable"
     }
+    DataSource {
+        String id PK "uuid"
+        String name
+        String host
+        Int port "default: 5432"
+        String database
+        String username
+        String password "AES-256-GCM encrypted"
+        Boolean sslEnabled "default: false"
+        Int authorID FK
+        DateTime createdAt "default: now()"
+        DateTime updatedAt
+    }
     User ||--o{ Document : "author"
     User ||--o{ ShareLink : "creator"
+    User ||--o{ DataSource : "author"
     Document ||--o{ ShareLink : "shareLinks"
 ```
 
@@ -244,6 +296,7 @@ erDiagram
 | `GITHUB_CALLBACK_URL` | No | `http://localhost:3000/auth/github/callback` | OAuth callback URL |
 | `PORT` | No | `3000` | Server listen port |
 | `NODE_ENV` | No | — | Affects cookie `secure` and `sameSite` settings |
+| `DATASOURCE_ENCRYPTION_KEY` | No* | — | 64-char hex string (32 bytes) for AES-256-GCM password encryption. *Required if DataSource feature is used. |
 
 ### Security
 

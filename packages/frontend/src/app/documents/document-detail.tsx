@@ -1,6 +1,7 @@
-import { DocumentProvider } from "@yorkie-js/react";
+import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { useState, useCallback, useEffect } from "react";
 import { fetchMe } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -9,9 +10,20 @@ import { SiteHeader } from "@/components/site-header";
 import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconFolder, IconSettings } from "@tabler/icons-react";
+import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import SheetView from "@/app/spreadsheet/sheet-view";
-import { initialWorksheet } from "@/types/worksheet";
+import { TabBar } from "@/components/tab-bar";
+import { DataSourceView } from "@/app/spreadsheet/datasource-view";
+import { DataSourceSelector } from "@/components/datasource-selector";
+import {
+  SpreadsheetDocument,
+  Worksheet,
+  TabType,
+  TabMeta,
+  initialSpreadsheetDocument,
+} from "@/types/worksheet";
+import type { UserPresence as UserPresenceType } from "@/types/users";
+import type { DataSource } from "@/types/datasource";
 
 const items = {
   main: [
@@ -19,6 +31,11 @@ const items = {
       title: "Documents",
       url: "/",
       icon: IconFolder,
+    },
+    {
+      title: "Data Sources",
+      url: "/datasources",
+      icon: IconDatabase,
     },
   ],
   secondary: [
@@ -30,8 +47,201 @@ const items = {
   ],
 };
 
+/**
+ * Detects old flat Worksheet format and migrates to SpreadsheetDocument.
+ */
+function migrateDocument(
+  doc: ReturnType<
+    typeof useDocument<SpreadsheetDocument, UserPresenceType>
+  >["doc"],
+) {
+  if (!doc) return;
+
+  const root = doc.getRoot();
+
+  // If `tabs` already exists, no migration needed.
+  if (root.tabs) return;
+
+  // Old format detected: root has `sheet` but no `tabs`.
+  const oldRoot = root as unknown as Record<string, unknown>;
+  if (!oldRoot.sheet) return;
+
+  const tabId = "tab-1";
+  doc.update((r: Record<string, unknown>) => {
+    // Build the new structure, preserving existing data
+    r.tabs = {
+      [tabId]: {
+        id: tabId,
+        name: "Sheet1",
+        type: "sheet" as const,
+      },
+    };
+    r.tabOrder = [tabId];
+    r.sheets = {
+      [tabId]: {
+        sheet: r.sheet || {},
+        rowHeights: r.rowHeights || {},
+        colWidths: r.colWidths || {},
+        colStyles: r.colStyles || {},
+        rowStyles: r.rowStyles || {},
+        sheetStyle: r.sheetStyle,
+        frozenRows: r.frozenRows || 0,
+        frozenCols: r.frozenCols || 0,
+      },
+    };
+
+    // Remove old flat keys
+    delete r.sheet;
+    delete r.rowHeights;
+    delete r.colWidths;
+    delete r.colStyles;
+    delete r.rowStyles;
+    delete r.sheetStyle;
+    delete r.frozenRows;
+    delete r.frozenCols;
+  });
+}
+
+function generateTabId(): string {
+  return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 function DocumentLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
+  const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [migrated, setMigrated] = useState(false);
+  const [showDsSelector, setShowDsSelector] = useState(false);
+
+  // Perform migration on first load
+  useEffect(() => {
+    if (!doc) return;
+    migrateDocument(doc);
+    setMigrated(true);
+  }, [doc]);
+
+  // Set initial active tab after migration
+  useEffect(() => {
+    if (!doc || !migrated) return;
+    const root = doc.getRoot();
+    if (root.tabOrder && root.tabOrder.length > 0 && !activeTabId) {
+      setActiveTabId(root.tabOrder[0]);
+    }
+  }, [doc, migrated, activeTabId]);
+
+  const addSheetTab = useCallback(() => {
+    if (!doc) return;
+    const root = doc.getRoot();
+    const tabId = generateTabId();
+    const count =
+      root.tabOrder.filter((id: string) => root.tabs[id]?.type === "sheet")
+        .length + 1;
+
+    doc.update((r) => {
+      r.tabs[tabId] = {
+        id: tabId,
+        name: `Sheet${count}`,
+        type: "sheet",
+      } as TabMeta;
+      r.tabOrder.push(tabId);
+      r.sheets[tabId] = {
+        sheet: {},
+        rowHeights: {},
+        colWidths: {},
+        colStyles: {},
+        rowStyles: {},
+        frozenRows: 0,
+        frozenCols: 0,
+      } as Worksheet;
+    });
+    setActiveTabId(tabId);
+  }, [doc]);
+
+  const addDataSourceTab = useCallback(
+    (ds: DataSource) => {
+      if (!doc) return;
+      const root = doc.getRoot();
+      const tabId = generateTabId();
+      const count =
+        root.tabOrder.filter(
+          (id: string) => root.tabs[id]?.type === "datasource",
+        ).length + 1;
+
+      doc.update((r) => {
+        r.tabs[tabId] = {
+          id: tabId,
+          name: ds.name || `DataSource${count}`,
+          type: "datasource",
+          datasourceId: ds.id,
+          query: "",
+        } as TabMeta;
+        r.tabOrder.push(tabId);
+      });
+      setActiveTabId(tabId);
+    },
+    [doc],
+  );
+
+  const handleAddTab = useCallback(
+    (type: TabType) => {
+      if (type === "datasource") {
+        setShowDsSelector(true);
+      } else {
+        addSheetTab();
+      }
+    },
+    [addSheetTab],
+  );
+
+  const handleRenameTab = useCallback(
+    (tabId: string, name: string) => {
+      if (!doc) return;
+      doc.update((r) => {
+        if (r.tabs[tabId]) {
+          r.tabs[tabId].name = name;
+        }
+      });
+    },
+    [doc],
+  );
+
+  const handleDeleteTab = useCallback(
+    (tabId: string) => {
+      if (!doc) return;
+      const root = doc.getRoot();
+      if (root.tabOrder.length <= 1) return;
+
+      const idx = root.tabOrder.indexOf(tabId);
+      doc.update((r) => {
+        delete r.tabs[tabId];
+        if (r.sheets[tabId]) {
+          delete r.sheets[tabId];
+        }
+        const orderIdx = r.tabOrder.indexOf(tabId);
+        if (orderIdx !== -1) {
+          r.tabOrder.splice(orderIdx, 1);
+        }
+      });
+
+      // Switch to an adjacent tab
+      if (activeTabId === tabId) {
+        const newRoot = doc.getRoot();
+        const newIdx = Math.min(idx, newRoot.tabOrder.length - 1);
+        setActiveTabId(newRoot.tabOrder[newIdx]);
+      }
+    },
+    [doc, activeTabId],
+  );
+
+  if (!doc || !migrated || !activeTabId) {
+    return <Loader />;
+  }
+
+  const root = doc.getRoot();
+  const tabs: TabMeta[] = root.tabOrder
+    .map((id: string) => root.tabs[id])
+    .filter(Boolean);
+  const activeTab = root.tabs[activeTabId];
 
   return (
     <SidebarProvider>
@@ -46,11 +256,29 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-2">
             <div className="flex flex-col h-full">
-              <SheetView />
+              {activeTab?.type === "datasource" ? (
+                <DataSourceView tabId={activeTabId} />
+              ) : (
+                <SheetView tabId={activeTabId} />
+              )}
             </div>
           </div>
+          <TabBar
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelectTab={setActiveTabId}
+            onAddTab={handleAddTab}
+            onRenameTab={handleRenameTab}
+            onDeleteTab={handleDeleteTab}
+          />
         </div>
       </SidebarInset>
+
+      <DataSourceSelector
+        open={showDsSelector}
+        onOpenChange={setShowDsSelector}
+        onSelect={addDataSourceTab}
+      />
     </SidebarProvider>
   );
 }
@@ -87,7 +315,7 @@ export function DocumentDetail() {
   return (
     <DocumentProvider
       docKey={`sheet-${id}`}
-      initialRoot={initialWorksheet}
+      initialRoot={initialSpreadsheetDocument}
       initialPresence={{
         username: currentUser.username,
         email: currentUser.email,

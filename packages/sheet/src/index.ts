@@ -29,6 +29,7 @@ import { DimensionIndex } from './model/dimensions';
 import { type Store } from './store/store';
 import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
+import { ReadOnlyStore } from './store/readonly';
 import { initialize, Spreadsheet } from './view/spreadsheet';
 
 export {
@@ -36,6 +37,7 @@ export {
   Spreadsheet,
   Store,
   CellIndex,
+  ReadOnlyStore,
   findEdgeWithIndex,
   Grid,
   Cell,

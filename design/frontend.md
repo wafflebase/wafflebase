@@ -85,23 +85,50 @@ development.
 
 #### Document Shape
 
-Each spreadsheet document is stored as a Yorkie CRDT document with this root
+Each spreadsheet document is stored as a Yorkie CRDT document with a multi-tab
 structure:
 
 ```typescript
+type TabType = 'sheet' | 'datasource';
+
+type TabMeta = {
+  id: string;           // e.g., "tab-1"
+  name: string;         // e.g., "Sheet1", "Users DB"
+  type: TabType;
+  datasourceId?: string; // Backend DataSource ID (datasource tabs only)
+  query?: string;        // SQL query (datasource tabs only)
+};
+
 type Worksheet = {
-  sheet: { [sref: Sref]: Cell };      // Cell data keyed by "A1", "B2", etc.
+  sheet: { [sref: Sref]: Cell };
   rowHeights: { [index: string]: number };
   colWidths: { [index: string]: number };
+  colStyles: { [index: string]: CellStyle };
+  rowStyles: { [index: string]: CellStyle };
+  sheetStyle?: CellStyle;
+  frozenRows: number;
+  frozenCols: number;
+};
+
+type SpreadsheetDocument = {
+  tabs: { [id: string]: TabMeta };
+  tabOrder: string[];
+  sheets: { [tabId: string]: Worksheet };
 };
 ```
 
-The initial (empty) document is `{ sheet: {}, rowHeights: {}, colWidths: {} }`.
+Tab metadata and sheet data are synced via Yorkie. Datasource query results
+are fetched from the backend on demand and displayed using `ReadOnlyStore`.
+
+**Migration:** Old documents (flat `Worksheet` format with `root.sheet`) are
+automatically migrated to the new `SpreadsheetDocument` structure on load,
+wrapping existing data into a single tab.
 
 #### YorkieStore
 
 `YorkieStore` (`src/app/spreadsheet/yorkie-store.ts`) implements the `Store`
-interface from `@wafflebase/sheet`. Each store method maps to a Yorkie
+interface from `@wafflebase/sheet`. It accepts a `tabId` parameter and scopes
+all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 `doc.update()` call that mutates the CRDT document:
 
 | Store method | Yorkie operation |
@@ -236,11 +263,29 @@ type User = {
   photo: string;
 };
 
-// src/types/worksheet.ts
-type Worksheet = {
-  sheet: { [key: Sref]: Cell };
-  rowHeights: { [key: string]: number };
-  colWidths: { [key: string]: number };
+// src/types/worksheet.ts — See Document Shape section above for full types
+
+// src/types/datasource.ts
+type DataSource = {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password: string;  // Always masked from API
+  sslEnabled: boolean;
+  authorID: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type QueryResult = {
+  columns: QueryColumn[];
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  truncated: boolean;
+  executionTime: number;
 };
 ```
 

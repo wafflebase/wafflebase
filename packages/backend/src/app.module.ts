@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { DocumentModule } from './document/document.module';
 import { ShareLinkModule } from './share-link/share-link.module';
+import { DataSourceModule } from './datasource/datasource.module';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { ShareLinkModule } from './share-link/share-link.module';
     AuthModule,
     DocumentModule,
     ShareLinkModule,
+    DataSourceModule,
   ],
   controllers: [],
   providers: [],

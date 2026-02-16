@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import Login from "@/app/login/page";
 import Documents from "@/app/documents/page";
 import DocumentDetail from "@/app/documents/document-detail";
+import DataSourcesPage from "@/app/datasources/page";
 import SharedDocument from "@/app/shared/shared-document";
 import Settings from "@/app/settings/page";
 import { PrivateRoute } from "./PrivateRoute";
@@ -25,6 +26,7 @@ function App() {
             <Route element={<PrivateRoute />}>
               <Route element={<Layout />}>
                 <Route path="/" element={<Documents />} />
+                <Route path="/datasources" element={<DataSourcesPage />} />
                 <Route path="/settings" element={<Settings />} />
               </Route>
               <Route path="/:id" element={<DocumentDetail />} />

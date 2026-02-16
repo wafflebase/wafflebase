@@ -21,21 +21,23 @@ import {
   moveFormula,
   remapIndex,
 } from "@wafflebase/sheet";
-import { Worksheet } from "@/types/worksheet";
+import { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
 
 export class YorkieStore implements Store {
-  private doc: Document<Worksheet, UserPresence>;
+  private doc: Document<SpreadsheetDocument, UserPresence>;
+  private tabId: string;
   private cellIndex: CellIndex = new CellIndex();
   private dirty = true;
 
   // Batch state: when non-null, mutations are buffered instead of immediately
   // flushed to doc.update(). endBatch() flushes all ops in a single update.
   private batchOverlay: Map<Sref, Cell | null> | null = null;
-  private batchOps: Array<(root: Worksheet) => void> | null = null;
+  private batchOps: Array<(root: SpreadsheetDocument) => void> | null = null;
 
-  constructor(doc: Document<Worksheet, UserPresence>) {
+  constructor(doc: Document<SpreadsheetDocument, UserPresence>, tabId: string) {
     this.doc = doc;
+    this.tabId = tabId;
 
     // Mark index as dirty on remote changes so it gets rebuilt lazily.
     doc.subscribe((e) => {
@@ -45,10 +47,14 @@ export class YorkieStore implements Store {
     });
   }
 
+  private getSheet(): Worksheet {
+    return this.doc.getRoot().sheets[this.tabId];
+  }
+
   private ensureIndex(): void {
     if (!this.dirty) return;
 
-    const sheet = this.doc.getRoot().sheet;
+    const sheet = this.getSheet().sheet;
     const entries: Array<[number, number]> = [];
     for (const sref of Object.keys(sheet)) {
       const ref = parseRef(sref);
@@ -71,8 +77,9 @@ export class YorkieStore implements Store {
       return;
     }
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
-      root.sheet[sref] = value;
+      root.sheets[tabId].sheet[sref] = value;
     });
     if (!this.dirty) {
       this.cellIndex.add(ref.r, ref.c);
@@ -88,7 +95,7 @@ export class YorkieStore implements Store {
       const val = this.batchOverlay.get(sref);
       return val === null ? undefined : val;
     }
-    return this.doc.getRoot().sheet[sref];
+    return this.getSheet().sheet[sref];
   }
 
   /**
@@ -99,7 +106,7 @@ export class YorkieStore implements Store {
     if (this.batchOverlay && this.batchOverlay.has(sref)) {
       return this.batchOverlay.get(sref) !== null;
     }
-    const sheet = this.doc.getRoot().sheet;
+    const sheet = this.getSheet().sheet;
     return sheet[sref] !== undefined;
   }
 
@@ -114,7 +121,7 @@ export class YorkieStore implements Store {
       if (this.batchOverlay.has(sref)) {
         exists = this.batchOverlay.get(sref) !== null;
       } else {
-        exists = this.doc.getRoot().sheet[sref] !== undefined;
+        exists = this.getSheet().sheet[sref] !== undefined;
       }
       if (!exists) return false;
 
@@ -126,9 +133,10 @@ export class YorkieStore implements Store {
     }
 
     let deleted = false;
+    const tabId = this.tabId;
     this.doc.update((root) => {
-      if (root.sheet[sref] !== undefined) {
-        delete root.sheet[sref];
+      if (root.sheets[tabId].sheet[sref] !== undefined) {
+        delete root.sheets[tabId].sheet[sref];
         deleted = true;
       }
     });
@@ -166,10 +174,11 @@ export class YorkieStore implements Store {
       return deleted;
     }
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
       for (const [row, col] of cellsToDelete) {
         const sref = toSref({ r: row, c: col });
-        delete root.sheet[sref];
+        delete root.sheets[tabId].sheet[sref];
         deleted.add(sref);
       }
     });
@@ -198,9 +207,10 @@ export class YorkieStore implements Store {
       return;
     }
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
       for (const [sref, cell] of grid) {
-        root.sheet[sref] = cell;
+        root.sheets[tabId].sheet[sref] = cell;
       }
     });
     if (!this.dirty) {
@@ -217,7 +227,7 @@ export class YorkieStore implements Store {
   async getGrid(range: Range): Promise<Grid> {
     this.ensureIndex();
 
-    const sheet = this.doc.getRoot().sheet;
+    const sheet = this.getSheet().sheet;
     const grid: Grid = new Map();
 
     for (const [row, col] of this.cellIndex.cellsInRange(range)) {
@@ -255,23 +265,25 @@ export class YorkieStore implements Store {
       dimension,
       (r, c) => {
         const sref = toSref({ r, c });
-        const cell = this.doc.getRoot().sheet[sref];
+        const cell = this.getSheet().sheet[sref];
         return cell !== undefined && (!!cell.v || !!cell.f);
       },
     );
   }
 
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
+    const tabId = this.tabId;
     this.doc.update((root) => {
+      const ws = root.sheets[tabId];
       // Collect all entries and compute new keys/formulas
       const entries: Array<[string, Cell]> = [];
-      for (const [sref, cell] of Object.entries(root.sheet)) {
+      for (const [sref, cell] of Object.entries(ws.sheet)) {
         entries.push([sref, { v: cell.v, f: cell.f, s: cell.s }]);
       }
 
       // Delete all old keys
       for (const [sref] of entries) {
-        delete root.sheet[sref];
+        delete ws.sheet[sref];
       }
 
       // Write all new keys with shifted positions and updated formulas
@@ -282,17 +294,17 @@ export class YorkieStore implements Store {
         }
 
         if (cell.f) {
-          root.sheet[newSref] = {
+          ws.sheet[newSref] = {
             ...cell,
             f: shiftFormula(cell.f, axis, index, count),
           };
         } else {
-          root.sheet[newSref] = { ...cell };
+          ws.sheet[newSref] = { ...cell };
         }
       }
 
       // Shift dimension sizes for the affected axis
-      const dimObj = axis === "row" ? root.rowHeights : root.colWidths;
+      const dimObj = axis === "row" ? ws.rowHeights : ws.colWidths;
       const dimEntries: Array<[string, number]> = [];
       for (const [key, value] of Object.entries(dimObj)) {
         dimEntries.push([key, value]);
@@ -321,7 +333,7 @@ export class YorkieStore implements Store {
       }
 
       // Shift style maps for the affected axis
-      const styleObj = axis === "row" ? root.rowStyles : root.colStyles;
+      const styleObj = axis === "row" ? ws.rowStyles : ws.colStyles;
       if (styleObj) {
         const styleEntries: Array<[string, CellStyle]> = [];
         for (const [key, value] of Object.entries(styleObj)) {
@@ -361,16 +373,18 @@ export class YorkieStore implements Store {
     count: number,
     dstIndex: number,
   ): Promise<void> {
+    const tabId = this.tabId;
     this.doc.update((root) => {
+      const ws = root.sheets[tabId];
       // Collect all entries
       const entries: Array<[string, Cell]> = [];
-      for (const [sref, cell] of Object.entries(root.sheet)) {
+      for (const [sref, cell] of Object.entries(ws.sheet)) {
         entries.push([sref, { v: cell.v, f: cell.f, s: cell.s }]);
       }
 
       // Delete all old keys
       for (const [sref] of entries) {
-        delete root.sheet[sref];
+        delete ws.sheet[sref];
       }
 
       // Write new keys with remapped positions and formulas
@@ -380,17 +394,17 @@ export class YorkieStore implements Store {
         const newSref = toSref(newRef);
 
         if (cell.f) {
-          root.sheet[newSref] = {
+          ws.sheet[newSref] = {
             ...cell,
             f: moveFormula(cell.f, axis, srcIndex, count, dstIndex),
           };
         } else {
-          root.sheet[newSref] = { ...cell };
+          ws.sheet[newSref] = { ...cell };
         }
       }
 
       // Remap dimension sizes
-      const dimObj = axis === "row" ? root.rowHeights : root.colWidths;
+      const dimObj = axis === "row" ? ws.rowHeights : ws.colWidths;
       const dimEntries: Array<[string, number]> = [];
       for (const [key, value] of Object.entries(dimObj)) {
         dimEntries.push([key, value]);
@@ -405,7 +419,7 @@ export class YorkieStore implements Store {
       }
 
       // Remap style maps
-      const styleObj = axis === "row" ? root.rowStyles : root.colStyles;
+      const styleObj = axis === "row" ? ws.rowStyles : ws.colStyles;
       if (styleObj) {
         const styleEntries: Array<[string, CellStyle]> = [];
         for (const [key, value] of Object.entries(styleObj)) {
@@ -427,7 +441,7 @@ export class YorkieStore implements Store {
 
   async buildDependantsMap(_: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>> {
     const dependantsMap = new Map<Sref, Set<Sref>>();
-    const sheet = this.doc.getRoot().sheet;
+    const sheet = this.getSheet().sheet;
 
     if (this.batchOverlay) {
       // Iterate document cells, skipping those deleted in overlay
@@ -471,22 +485,30 @@ export class YorkieStore implements Store {
     size: number,
   ): Promise<void> {
     if (this.batchOps) {
+      const tabId = this.tabId;
       this.batchOps.push((root) => {
-        const map = axis === "row" ? root.rowHeights : root.colWidths;
+        const map =
+          axis === "row"
+            ? root.sheets[tabId].rowHeights
+            : root.sheets[tabId].colWidths;
         map[String(index)] = size;
       });
       return;
     }
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
-      const map = axis === "row" ? root.rowHeights : root.colWidths;
+      const map =
+        axis === "row"
+          ? root.sheets[tabId].rowHeights
+          : root.sheets[tabId].colWidths;
       map[String(index)] = size;
     });
   }
 
   async getDimensionSizes(axis: Axis): Promise<Map<number, number>> {
-    const root = this.doc.getRoot();
-    const obj = axis === "row" ? root.rowHeights : root.colWidths;
+    const ws = this.getSheet();
+    const obj = axis === "row" ? ws.rowHeights : ws.colWidths;
     const result = new Map<number, number>();
     if (obj) {
       for (const [key, value] of Object.entries(obj)) {
@@ -508,28 +530,30 @@ export class YorkieStore implements Store {
 
   async setColumnStyle(col: number, style: CellStyle): Promise<void> {
     if (this.batchOps) {
+      const tabId = this.tabId;
       this.batchOps.push((root) => {
-        if (!root.colStyles) {
-          root.colStyles = {};
+        if (!root.sheets[tabId].colStyles) {
+          root.sheets[tabId].colStyles = {};
         }
-        root.colStyles[String(col)] = style;
+        root.sheets[tabId].colStyles[String(col)] = style;
       });
       return;
     }
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
-      if (!root.colStyles) {
-        root.colStyles = {};
+      if (!root.sheets[tabId].colStyles) {
+        root.sheets[tabId].colStyles = {};
       }
-      root.colStyles[String(col)] = style;
+      root.sheets[tabId].colStyles[String(col)] = style;
     });
   }
 
   async getColumnStyles(): Promise<Map<number, CellStyle>> {
-    const root = this.doc.getRoot();
+    const ws = this.getSheet();
     const result = new Map<number, CellStyle>();
-    if (root.colStyles) {
-      for (const [key, value] of Object.entries(root.colStyles)) {
+    if (ws.colStyles) {
+      for (const [key, value] of Object.entries(ws.colStyles)) {
         result.set(Number(key), value);
       }
     }
@@ -538,28 +562,30 @@ export class YorkieStore implements Store {
 
   async setRowStyle(row: number, style: CellStyle): Promise<void> {
     if (this.batchOps) {
+      const tabId = this.tabId;
       this.batchOps.push((root) => {
-        if (!root.rowStyles) {
-          root.rowStyles = {};
+        if (!root.sheets[tabId].rowStyles) {
+          root.sheets[tabId].rowStyles = {};
         }
-        root.rowStyles[String(row)] = style;
+        root.sheets[tabId].rowStyles[String(row)] = style;
       });
       return;
     }
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
-      if (!root.rowStyles) {
-        root.rowStyles = {};
+      if (!root.sheets[tabId].rowStyles) {
+        root.sheets[tabId].rowStyles = {};
       }
-      root.rowStyles[String(row)] = style;
+      root.sheets[tabId].rowStyles[String(row)] = style;
     });
   }
 
   async getRowStyles(): Promise<Map<number, CellStyle>> {
-    const root = this.doc.getRoot();
+    const ws = this.getSheet();
     const result = new Map<number, CellStyle>();
-    if (root.rowStyles) {
-      for (const [key, value] of Object.entries(root.rowStyles)) {
+    if (ws.rowStyles) {
+      for (const [key, value] of Object.entries(ws.rowStyles)) {
         result.set(Number(key), value);
       }
     }
@@ -568,42 +594,46 @@ export class YorkieStore implements Store {
 
   async setSheetStyle(style: CellStyle): Promise<void> {
     if (this.batchOps) {
+      const tabId = this.tabId;
       this.batchOps.push((root) => {
-        root.sheetStyle = style;
+        root.sheets[tabId].sheetStyle = style;
       });
       return;
     }
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
-      root.sheetStyle = style;
+      root.sheets[tabId].sheetStyle = style;
     });
   }
 
   async getSheetStyle(): Promise<CellStyle | undefined> {
-    const root = this.doc.getRoot();
-    return root.sheetStyle ? { ...root.sheetStyle } : undefined;
+    const ws = this.getSheet();
+    return ws.sheetStyle ? { ...ws.sheetStyle } : undefined;
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
     if (this.batchOps) {
+      const tabId = this.tabId;
       this.batchOps.push((root) => {
-        root.frozenRows = frozenRows;
-        root.frozenCols = frozenCols;
+        root.sheets[tabId].frozenRows = frozenRows;
+        root.sheets[tabId].frozenCols = frozenCols;
       });
       return;
     }
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
-      root.frozenRows = frozenRows;
-      root.frozenCols = frozenCols;
+      root.sheets[tabId].frozenRows = frozenRows;
+      root.sheets[tabId].frozenCols = frozenCols;
     });
   }
 
   async getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }> {
-    const root = this.doc.getRoot();
+    const ws = this.getSheet();
     return {
-      frozenRows: root.frozenRows ?? 0,
-      frozenCols: root.frozenCols ?? 0,
+      frozenRows: ws.frozenRows ?? 0,
+      frozenCols: ws.frozenCols ?? 0,
     };
   }
 
@@ -622,16 +652,18 @@ export class YorkieStore implements Store {
     const hasOps = ops && ops.length > 0;
     if (!hasOverlay && !hasOps) return;
 
+    const tabId = this.tabId;
     this.doc.update((root) => {
+      const ws = root.sheets[tabId];
       // Apply cell overlay: deletes first, then sets
       if (overlay) {
         for (const [sref, cell] of overlay) {
           if (cell === null) {
-            if (root.sheet[sref] !== undefined) {
-              delete root.sheet[sref];
+            if (ws.sheet[sref] !== undefined) {
+              delete ws.sheet[sref];
             }
           } else {
-            root.sheet[sref] = cell;
+            ws.sheet[sref] = cell;
           }
         }
       }
@@ -649,7 +681,7 @@ export class YorkieStore implements Store {
   async undo(): Promise<{ success: boolean; affectedRange?: Range }> {
     if (!this.doc.history.canUndo()) return { success: false };
 
-    const beforeKeys = new Set(Object.keys(this.doc.getRoot().sheet));
+    const beforeKeys = new Set(Object.keys(this.getSheet().sheet));
     this.doc.history.undo();
     this.dirty = true;
 
@@ -660,7 +692,7 @@ export class YorkieStore implements Store {
   async redo(): Promise<{ success: boolean; affectedRange?: Range }> {
     if (!this.doc.history.canRedo()) return { success: false };
 
-    const beforeKeys = new Set(Object.keys(this.doc.getRoot().sheet));
+    const beforeKeys = new Set(Object.keys(this.getSheet().sheet));
     this.doc.history.redo();
     this.dirty = true;
 
@@ -672,7 +704,7 @@ export class YorkieStore implements Store {
    * Computes the bounding range of cells that changed between beforeKeys and current state.
    */
   private computeAffectedRange(beforeKeys: Set<string>): Range | undefined {
-    const afterKeys = new Set(Object.keys(this.doc.getRoot().sheet));
+    const afterKeys = new Set(Object.keys(this.getSheet().sheet));
 
     // Find all changed srefs (added, removed, or modified)
     const changedSrefs = new Set<string>();
