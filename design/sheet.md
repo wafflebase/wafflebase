@@ -395,6 +395,10 @@ draws:
   selections, full-height for column selections)
 - Peer cursors (colored borders, one per remote user)
 - Resize hover indicator (line on header edge during drag-to-resize)
+- Resize drag UX:
+  - Wider header-edge hit tolerance for easier grabbing
+  - Live width/height tooltip during drag (includes multi-selection count)
+  - `requestAnimationFrame`-coalesced resize rendering for smoother feedback
 - Move drop indicator (bold blue line at drop position during drag-to-move)
 
 ### DimensionIndex

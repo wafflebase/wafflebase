@@ -7,7 +7,7 @@ import {
 } from '../formula/formula';
 import { DimensionIndex } from '../model/dimensions';
 import { Sheet } from '../model/sheet';
-import { Theme } from './theme';
+import { Theme, getThemeColor } from './theme';
 import { FormulaBar } from './formulabar';
 import { CellInput } from './cellinput';
 import { Overlay } from './overlay';
@@ -37,7 +37,7 @@ import {
   toRefWithFreeze,
 } from './layout';
 
-const ResizeEdgeThreshold = 4;
+const ResizeEdgeThreshold = 6;
 const MinRowHeight = 10;
 const MinColumnWidth = 20;
 const AutoScrollDistanceForMaxSpeed = 120;
@@ -60,6 +60,7 @@ export class Worksheet {
   private gridCanvas: GridCanvas;
   private contextMenu: ContextMenu;
   private autocomplete: FormulaAutocomplete;
+  private resizeTooltip: HTMLDivElement;
 
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
@@ -124,6 +125,7 @@ export class Worksheet {
     this.cellInput = new CellInput(theme);
     this.contextMenu = new ContextMenu(theme);
     this.autocomplete = new FormulaAutocomplete(theme);
+    this.resizeTooltip = document.createElement('div');
 
     this.rowDim = new DimensionIndex(DefaultCellHeight);
     this.colDim = new DimensionIndex(DefaultCellWidth);
@@ -135,6 +137,20 @@ export class Worksheet {
     this.container.appendChild(this.gridContainer.getContainer());
     this.container.appendChild(this.contextMenu.getContainer());
     this.container.appendChild(this.autocomplete.getContainer());
+    this.resizeTooltip.style.position = 'fixed';
+    this.resizeTooltip.style.display = 'none';
+    this.resizeTooltip.style.pointerEvents = 'none';
+    this.resizeTooltip.style.zIndex = '1001';
+    this.resizeTooltip.style.padding = '4px 8px';
+    this.resizeTooltip.style.borderRadius = '4px';
+    this.resizeTooltip.style.border = `1px solid ${getThemeColor(theme, 'cellBorderColor')}`;
+    this.resizeTooltip.style.backgroundColor = getThemeColor(theme, 'cellBGColor');
+    this.resizeTooltip.style.color = getThemeColor(theme, 'cellTextColor');
+    this.resizeTooltip.style.fontSize = '11px';
+    this.resizeTooltip.style.fontFamily =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.resizeTooltip.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+    document.body.appendChild(this.resizeTooltip);
 
     this.boundRender = this.render.bind(this);
     this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
@@ -211,6 +227,7 @@ export class Worksheet {
     this.gridContainer.cleanup();
     this.contextMenu.cleanup();
     this.autocomplete.cleanup();
+    this.resizeTooltip.remove();
 
     this.sheet = undefined;
     this.container.innerHTML = '';
@@ -255,6 +272,28 @@ export class Worksheet {
     }
     this.nativeSelectionBlockDepth = 1;
     this.endNativeSelectionBlock();
+  }
+
+  private showResizeTooltip(
+    axis: 'row' | 'column',
+    size: number,
+    clientX: number,
+    clientY: number,
+    selectedCount: number,
+  ): void {
+    const dimension = axis === 'column' ? 'Width' : 'Height';
+    const selectionLabel =
+      selectedCount > 1
+        ? ` (${selectedCount} ${axis === 'column' ? 'columns' : 'rows'})`
+        : '';
+    this.resizeTooltip.textContent = `${dimension}: ${Math.round(size)}px${selectionLabel}`;
+    this.resizeTooltip.style.left = `${clientX + 12}px`;
+    this.resizeTooltip.style.top = `${clientY + 12}px`;
+    this.resizeTooltip.style.display = 'block';
+  }
+
+  private hideResizeTooltip(): void {
+    this.resizeTooltip.style.display = 'none';
   }
 
   private addEventListener<K extends keyof HTMLElementEventMap>(
@@ -1599,25 +1638,56 @@ export class Worksheet {
           (_, i) => selected!.from + i,
         )
       : [index];
+    const selectedCount = indices.length;
+    let pendingSize = startSize;
+    let frameId: number | null = null;
+
+    this.beginNativeSelectionBlock();
+    this.showResizeTooltip(
+      axis,
+      startSize,
+      startEvent.clientX,
+      startEvent.clientY,
+      selectedCount,
+    );
 
     const onMove = (e: MouseEvent) => {
       const currentPos = axis === 'column' ? e.clientX : e.clientY;
       const delta = currentPos - startPos;
       const minSize = axis === 'column' ? MinColumnWidth : MinRowHeight;
-      const newSize = Math.max(minSize, startSize + delta);
+      pendingSize = Math.max(minSize, startSize + delta);
 
-      // During drag, only resize the handle being dragged (single index)
-      dim.setSize(index, newSize);
-      this.render();
+      if (frameId === null) {
+        frameId = requestAnimationFrame(() => {
+          frameId = null;
+          // During drag, only resize the handle being dragged (single index)
+          dim.setSize(index, pendingSize);
+          this.render();
+        });
+      }
+      this.showResizeTooltip(
+        axis,
+        pendingSize,
+        e.clientX,
+        e.clientY,
+        selectedCount,
+      );
     };
 
     const onUp = () => {
       scrollContainer.style.cursor = '';
+      this.hideResizeTooltip();
+      this.endNativeSelectionBlock();
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+        frameId = null;
+      }
 
       // On mouseup, apply the final size to all selected indices
-      const finalSize = dim.getSize(index);
+      const finalSize = pendingSize;
+      dim.setSize(index, finalSize);
       for (const idx of indices) {
         dim.setSize(idx, finalSize);
         if (axis === 'column') {
