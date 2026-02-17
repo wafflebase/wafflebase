@@ -74,6 +74,26 @@ pnpm backend migrate                # Run Prisma database migrations
 - **Frontend pages**: `src/app/` directory, reusable UI in `src/components/ui/`
 - **Environment variables**: backend uses `.env`, frontend uses `VITE_*` prefix
 
+### Commit Message Format
+
+Use commit messages that answer two questions: what changed and why.
+
+- Subject line: describe what changed, max 70 characters.
+- Body: describe why the change was needed.
+- Keep line 2 blank.
+- Wrap body lines at 80 characters.
+
+Example:
+
+```text
+Remove the synced seq when detaching the document
+
+To collect garbage like CRDT tombstones left on the document, all
+the changes should be applied to other replicas before GC. For this,
+if the document is no longer used by this client, it should be
+detached.
+```
+
 ## Architecture Notes
 
 - **Store abstraction**: The `Store` interface decouples the spreadsheet engine from persistence. `MemStore` is for dev/testing, `YorkieStore` is for production with real-time sync.
