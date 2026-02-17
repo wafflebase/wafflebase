@@ -24,20 +24,20 @@ describe('Sheet.Formatting', () => {
     expect(style).toEqual({ b: true, i: true });
   });
 
-  it('should keep false values to support style overrides', async () => {
+  it('should remove default false values that are not needed as overrides', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setStyle({ r: 1, c: 1 }, { b: true, i: true });
     await sheet.setStyle({ r: 1, c: 1 }, { b: false });
     const style = await sheet.getStyle({ r: 1, c: 1 });
-    expect(style).toEqual({ b: false, i: true });
+    expect(style).toEqual({ i: true });
   });
 
-  it('should keep false in style object', async () => {
+  it('should drop style when only default values remain', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setStyle({ r: 1, c: 1 }, { b: true });
     await sheet.setStyle({ r: 1, c: 1 }, { b: false });
     const style = await sheet.getStyle({ r: 1, c: 1 });
-    expect(style).toEqual({ b: false });
+    expect(style).toBeUndefined();
   });
 
   it('should preserve style when setting data', async () => {
@@ -58,7 +58,20 @@ describe('Sheet.Formatting', () => {
 
     await sheet.toggleRangeStyle('b');
     const style = await sheet.getStyle({ r: 1, c: 1 });
-    expect(style).toEqual({ b: false });
+    expect(style).toBeUndefined();
+  });
+
+  it('should remove default style after toggling bold twice on a value cell', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 2, c: 2 }, '1');
+    sheet.selectStart({ r: 2, c: 2 });
+
+    await sheet.toggleRangeStyle('b');
+    await sheet.toggleRangeStyle('b');
+
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toBeUndefined();
+    expect(await store.get({ r: 2, c: 2 })).toEqual({ v: '1' });
   });
 
   it('should apply style to range', async () => {

@@ -55,6 +55,16 @@ import { formatValue } from './format';
  * It represents cells from A1 to ZZZ1000000.
  */
 const Dimensions = { rows: 1000000, columns: 18278 };
+const DefaultStyleValues: Partial<CellStyle> = {
+  b: false,
+  i: false,
+  u: false,
+  st: false,
+  al: 'left',
+  va: 'top',
+  nf: 'plain',
+  dp: 2,
+};
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -810,6 +820,33 @@ export class Sheet {
   }
 
   /**
+   * `isDefaultStyleValue` checks if a style value equals the global default.
+   */
+  private isDefaultStyleValue<K extends keyof CellStyle>(
+    key: K,
+    value: CellStyle[K],
+  ): boolean {
+    return DefaultStyleValues[key] === value;
+  }
+
+  /**
+   * `compactCell` removes undefined fields to keep persisted cell payload minimal.
+   */
+  private compactCell(base: Cell, style?: CellStyle): Cell {
+    const cell: Cell = {};
+    if (base.v !== undefined) {
+      cell.v = base.v;
+    }
+    if (base.f !== undefined) {
+      cell.f = base.f;
+    }
+    if (style && Object.keys(style).length > 0) {
+      cell.s = style;
+    }
+    return cell;
+  }
+
+  /**
    * `getCopyRange` returns the source range from the last copy operation,
    * or undefined if no copy buffer exists.
    */
@@ -1346,25 +1383,41 @@ export class Sheet {
   /**
    * `setStyle` merges the given style into the cell at the given ref.
    * Creates the cell if it doesn't exist.
-   * Keeps `false` values so they can override inherited column/row/sheet styles.
-   * Removes `undefined` and empty string keys.
+   * Keeps only meaningful overrides by pruning inherited/default values.
    */
   async setStyle(ref: Ref, style: Partial<CellStyle>): Promise<void> {
     const anchor = this.normalizeRefToAnchor(ref);
     const cell = (await this.store.get(anchor)) || {};
     const merged = { ...cell.s, ...style };
+    const inherited = this.resolveEffectiveStyle(anchor.r, anchor.c);
 
-    // Remove undefined and empty string keys, but keep false (needed for style overrides)
+    // Remove undefined and empty string keys.
     for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
       if (merged[key] === undefined || merged[key] === '') {
         delete merged[key];
       }
     }
 
-    const newCell: Cell =
-      Object.keys(merged).length > 0
-        ? { ...cell, s: merged }
-        : { v: cell.v, f: cell.f };
+    // Remove keys that match inherited/default values (they do not need explicit storage).
+    for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
+      const value = merged[key];
+      if (value === inherited?.[key]) {
+        delete merged[key];
+        continue;
+      }
+      if (inherited?.[key] === undefined && this.isDefaultStyleValue(key, value)) {
+        delete merged[key];
+      }
+    }
+
+    const newCell = this.compactCell(
+      cell,
+      Object.keys(merged).length > 0 ? merged : undefined,
+    );
+    if (this.isEmptyCell(newCell)) {
+      await this.store.delete(anchor);
+      return;
+    }
     await this.store.set(anchor, newCell);
   }
 

@@ -487,7 +487,9 @@ type CellStyle = {
 
 - `getStyle(ref)` — Returns the style of a cell.
 - `setStyle(ref, style)` — Merges style into the cell, creating it if needed.
-  Falsy values are cleaned from the style object.
+  Undefined/empty keys are removed, and redundant inherited/default values are
+  pruned (for example, `b: false` is only kept when needed to override an
+  inherited bold style).
 - `setRangeStyle(style)` — Applies style to all cells in the current selection.
 - `toggleRangeStyle(prop)` — Toggles a boolean style (`b`, `i`, `u`, `st`) based
   on the active cell's state.
