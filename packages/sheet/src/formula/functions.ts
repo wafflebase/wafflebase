@@ -29,6 +29,10 @@ export const FunctionMap = new Map([
   ['MAX', maxFunc],
   ['COUNT', countFunc],
   ['COUNTA', countaFunc],
+  ['COUNTIF', countifFunc],
+  ['SUMIF', sumifFunc],
+  ['COUNTIFS', countifsFunc],
+  ['SUMIFS', sumifsFunc],
   ['TRIM', trimFunc],
   ['LEN', lenFunc],
   ['LEFT', leftFunc],
@@ -128,6 +132,130 @@ function parsePlaces(
   }
 
   return { t: 'num', v: Math.trunc(places.v) };
+}
+
+type FormulaError = {
+  t: 'err';
+  v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!';
+};
+
+type ParsedCriterion = {
+  op: '=' | '<>' | '<' | '<=' | '>' | '>=';
+  value: string;
+  numericValue?: number;
+  boolValue?: boolean;
+  wildcardPattern?: RegExp;
+};
+
+function isFormulaError(
+  value: FormulaError | ParsedCriterion,
+): value is FormulaError {
+  return (value as FormulaError).t === 'err';
+}
+
+function getRefsFromExpression(
+  expr: ParseTree,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): { t: 'refs'; v: string[] } | FormulaError {
+  const node = visit(expr);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t !== 'ref' || !grid) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'refs', v: Array.from(toSrefs([node.v])) };
+}
+
+function toNumberOrZero(value: string): number {
+  const num = Number(value);
+  return isNaN(num) ? 0 : num;
+}
+
+function parseCriterion(
+  node: EvalNode,
+  grid?: Grid,
+): ParsedCriterion | FormulaError {
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t === 'num') {
+    return { op: '=', value: node.v.toString(), numericValue: node.v };
+  }
+  if (node.t === 'bool') {
+    return { op: '=', value: node.v ? 'TRUE' : 'FALSE', boolValue: node.v };
+  }
+
+  const str = toStr(node, grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  const match = /^(<=|>=|<>|=|<|>)(.*)$/.exec(str.v);
+  const op: ParsedCriterion['op'] = (match?.[1] as ParsedCriterion['op']) || '=';
+  const value = match ? match[2] : str.v;
+
+  let numericValue: number | undefined;
+  let boolValue: boolean | undefined;
+  if (value !== '') {
+    const num = Number(value);
+    if (!isNaN(num)) {
+      numericValue = num;
+    } else if (value.toUpperCase() === 'TRUE') {
+      boolValue = true;
+    } else if (value.toUpperCase() === 'FALSE') {
+      boolValue = false;
+    }
+  }
+
+  let wildcardPattern: RegExp | undefined;
+  if ((op === '=' || op === '<>') && /(^|[^~])[*?]/.test(value)) {
+    wildcardPattern = new RegExp(`^${wildcardToRegex(value)}$`, 'i');
+  }
+
+  return { op, value, numericValue, boolValue, wildcardPattern };
+}
+
+function matchesCriterion(value: string, criterion: ParsedCriterion): boolean {
+  const numericValue = value === '' ? undefined : Number(value);
+  const hasNumericValue = numericValue !== undefined && !isNaN(numericValue);
+  const upper = value.toUpperCase();
+  const boolValue =
+    upper === 'TRUE' ? true : upper === 'FALSE' ? false : undefined;
+  const normalized = value.toLowerCase();
+  const criterionText = criterion.value.toLowerCase();
+
+  if (criterion.op === '<' || criterion.op === '<=' || criterion.op === '>' || criterion.op === '>=') {
+    if (criterion.numericValue !== undefined) {
+      if (!hasNumericValue) {
+        return false;
+      }
+      if (criterion.op === '<') return numericValue < criterion.numericValue;
+      if (criterion.op === '<=') return numericValue <= criterion.numericValue;
+      if (criterion.op === '>') return numericValue > criterion.numericValue;
+      return numericValue >= criterion.numericValue;
+    }
+
+    if (criterion.op === '<') return normalized < criterionText;
+    if (criterion.op === '<=') return normalized <= criterionText;
+    if (criterion.op === '>') return normalized > criterionText;
+    return normalized >= criterionText;
+  }
+
+  let equals = false;
+  if (criterion.wildcardPattern) {
+    equals = criterion.wildcardPattern.test(value);
+  } else if (criterion.numericValue !== undefined && hasNumericValue) {
+    equals = numericValue === criterion.numericValue;
+  } else if (criterion.boolValue !== undefined && boolValue !== undefined) {
+    equals = boolValue === criterion.boolValue;
+  } else {
+    equals = normalized === criterionText;
+  }
+
+  return criterion.op === '=' ? equals : !equals;
 }
 
 /**
@@ -728,6 +856,223 @@ export function countaFunc(
   }
 
   return { t: 'num', v: count };
+}
+
+/**
+ * `countifFunc` is the implementation of the COUNTIF function.
+ * COUNTIF(range, criterion) — counts cells that satisfy a criterion.
+ */
+export function countifFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const refs = getRefsFromExpression(exprs[0], visit, grid);
+  if (refs.t === 'err') {
+    return refs;
+  }
+
+  const criterion = parseCriterion(visit(exprs[1]), grid);
+  if (isFormulaError(criterion)) {
+    return criterion;
+  }
+
+  let count = 0;
+  for (const ref of refs.v) {
+    const value = grid?.get(ref)?.v || '';
+    if (matchesCriterion(value, criterion)) {
+      count++;
+    }
+  }
+
+  return { t: 'num', v: count };
+}
+
+/**
+ * `sumifFunc` is the implementation of the SUMIF function.
+ * SUMIF(range, criterion, [sum_range]) — sums values matching a criterion.
+ */
+export function sumifFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const criteriaRefs = getRefsFromExpression(exprs[0], visit, grid);
+  if (criteriaRefs.t === 'err') {
+    return criteriaRefs;
+  }
+
+  const criterion = parseCriterion(visit(exprs[1]), grid);
+  if (isFormulaError(criterion)) {
+    return criterion;
+  }
+
+  const sumRefs =
+    exprs.length === 3
+      ? getRefsFromExpression(exprs[2], visit, grid)
+      : criteriaRefs;
+  if (sumRefs.t === 'err') {
+    return sumRefs;
+  }
+
+  if (criteriaRefs.v.length !== sumRefs.v.length) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let total = 0;
+  for (let i = 0; i < criteriaRefs.v.length; i++) {
+    const criteriaValue = grid?.get(criteriaRefs.v[i])?.v || '';
+    if (!matchesCriterion(criteriaValue, criterion)) {
+      continue;
+    }
+
+    const sumValue = grid?.get(sumRefs.v[i])?.v || '';
+    total += toNumberOrZero(sumValue);
+  }
+
+  return { t: 'num', v: total };
+}
+
+/**
+ * `countifsFunc` is the implementation of the COUNTIFS function.
+ * COUNTIFS(criteria_range1, criterion1, ...) — counts rows matching all criteria.
+ */
+export function countifsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length % 2 !== 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const ranges: string[][] = [];
+  const criteria: ParsedCriterion[] = [];
+  for (let i = 0; i < exprs.length; i += 2) {
+    const refs = getRefsFromExpression(exprs[i], visit, grid);
+    if (refs.t === 'err') {
+      return refs;
+    }
+    ranges.push(refs.v);
+
+    const criterion = parseCriterion(visit(exprs[i + 1]), grid);
+    if (isFormulaError(criterion)) {
+      return criterion;
+    }
+    criteria.push(criterion);
+  }
+
+  const expectedLength = ranges[0].length;
+  if (ranges.some((r) => r.length !== expectedLength)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let count = 0;
+  for (let i = 0; i < expectedLength; i++) {
+    let matched = true;
+    for (let j = 0; j < ranges.length; j++) {
+      const value = grid?.get(ranges[j][i])?.v || '';
+      if (!matchesCriterion(value, criteria[j])) {
+        matched = false;
+        break;
+      }
+    }
+
+    if (matched) {
+      count++;
+    }
+  }
+
+  return { t: 'num', v: count };
+}
+
+/**
+ * `sumifsFunc` is the implementation of the SUMIFS function.
+ * SUMIFS(sum_range, criteria_range1, criterion1, ...) — sums rows matching all criteria.
+ */
+export function sumifsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || (exprs.length - 1) % 2 !== 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const sumRefs = getRefsFromExpression(exprs[0], visit, grid);
+  if (sumRefs.t === 'err') {
+    return sumRefs;
+  }
+
+  const ranges: string[][] = [];
+  const criteria: ParsedCriterion[] = [];
+  for (let i = 1; i < exprs.length; i += 2) {
+    const refs = getRefsFromExpression(exprs[i], visit, grid);
+    if (refs.t === 'err') {
+      return refs;
+    }
+    ranges.push(refs.v);
+
+    const criterion = parseCriterion(visit(exprs[i + 1]), grid);
+    if (isFormulaError(criterion)) {
+      return criterion;
+    }
+    criteria.push(criterion);
+  }
+
+  if (ranges.some((r) => r.length !== sumRefs.v.length)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let total = 0;
+  for (let i = 0; i < sumRefs.v.length; i++) {
+    let matched = true;
+    for (let j = 0; j < ranges.length; j++) {
+      const value = grid?.get(ranges[j][i])?.v || '';
+      if (!matchesCriterion(value, criteria[j])) {
+        matched = false;
+        break;
+      }
+    }
+
+    if (matched) {
+      total += toNumberOrZero(grid?.get(sumRefs.v[i])?.v || '');
+    }
+  }
+
+  return { t: 'num', v: total };
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   isReferenceInsertPosition,
   findReferenceTokenAtCursor,
 } from '../../src/formula/formula';
+import { Grid, Cell } from '../../src/model/types';
 
 describe('Formula', () => {
   it('should correctly evaluate addition', () => {
@@ -209,6 +210,65 @@ describe('Formula', () => {
   it('should correctly evaluate COUNTA function', () => {
     expect(evaluate('=COUNTA(1,"hello",TRUE)')).toBe('3');
     expect(evaluate('=COUNTA(1,2,3)')).toBe('3');
+  });
+
+  it('should correctly evaluate COUNTIF function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '5' });
+    grid.set('A3', { v: '15' });
+    grid.set('A4', { v: 'apple' });
+    grid.set('A5', { v: 'Apricot' });
+
+    expect(evaluate('=COUNTIF(A1:A5,">=10")', grid)).toBe('2');
+    expect(evaluate('=COUNTIF(A1:A5,"a*")', grid)).toBe('2');
+    expect(evaluate('=COUNTIF(A1:A5,"<>5")', grid)).toBe('4');
+  });
+
+  it('should correctly evaluate SUMIF function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'east' });
+    grid.set('A2', { v: 'west' });
+    grid.set('A3', { v: 'east' });
+    grid.set('B1', { v: '10' });
+    grid.set('B2', { v: '20' });
+    grid.set('B3', { v: '30' });
+
+    expect(evaluate('=SUMIF(A1:A3,"east",B1:B3)', grid)).toBe('40');
+    expect(evaluate('=SUMIF(B1:B3,">15")', grid)).toBe('50');
+  });
+
+  it('should correctly evaluate COUNTIFS function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'north' });
+    grid.set('A2', { v: 'north' });
+    grid.set('A3', { v: 'south' });
+    grid.set('B1', { v: '10' });
+    grid.set('B2', { v: '20' });
+    grid.set('B3', { v: '30' });
+
+    expect(evaluate('=COUNTIFS(A1:A3,"north",B1:B3,">15")', grid)).toBe('1');
+    expect(evaluate('=COUNTIFS(A1:A3,"south",B1:B3,">15")', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate SUMIFS function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'north' });
+    grid.set('A2', { v: 'north' });
+    grid.set('A3', { v: 'south' });
+    grid.set('B1', { v: '10' });
+    grid.set('B2', { v: '20' });
+    grid.set('B3', { v: '30' });
+    grid.set('C1', { v: '1' });
+    grid.set('C2', { v: '2' });
+    grid.set('C3', { v: '3' });
+
+    expect(evaluate('=SUMIFS(B1:B3,A1:A3,"north",C1:C3,">1")', grid)).toBe(
+      '20',
+    );
+    expect(evaluate('=SUMIFS(B1:B3,A1:A3,"south",C1:C3,">1")', grid)).toBe(
+      '30',
+    );
   });
 
   it('should correctly evaluate TRIM function', () => {

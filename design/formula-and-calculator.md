@@ -142,6 +142,8 @@ Functions are registered in `FunctionMap`. Each function receives a
 | `MIN` / `MAX`            | Minimum / maximum value                             |
 | `COUNT`                  | Count of numeric values                             |
 | `COUNTA`                 | Count of non-empty values                           |
+| `COUNTIF` / `SUMIF`      | Single-criterion conditional count/sum              |
+| `COUNTIFS` / `SUMIFS`    | Multi-criteria conditional count/sum                |
 | `IF`                     | Conditional: `IF(condition, true_val, [false_val])` |
 | `IFS` / `SWITCH`         | Multi-branch conditional selection                  |
 | `AND` / `OR` / `NOT`     | Logical operators                                   |
@@ -325,7 +327,7 @@ changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — Currently 35+ functions are implemented. New
+**Formula function coverage** — Currently 39+ functions are implemented. New
 functions are added to `FunctionMap` and `FunctionCatalog` following the same
 pattern: accept `(ctx, visit, grid?)`, return an `EvalNode`.
 

@@ -158,6 +158,41 @@ export const FunctionCatalog: FunctionInfo[] = [
     ],
   },
   {
+    name: 'COUNTIF',
+    description: 'Counts values in a range that meet a criterion',
+    args: [{ name: 'range' }, { name: 'criterion' }],
+  },
+  {
+    name: 'SUMIF',
+    description: 'Sums values in a range that meet a criterion',
+    args: [
+      { name: 'range' },
+      { name: 'criterion' },
+      { name: 'sum_range', optional: true },
+    ],
+  },
+  {
+    name: 'COUNTIFS',
+    description: 'Counts values that meet multiple criteria',
+    args: [
+      { name: 'criteria_range1' },
+      { name: 'criterion1' },
+      { name: 'criteria_range2', optional: true, repeating: true },
+      { name: 'criterion2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'SUMIFS',
+    description: 'Sums values that meet multiple criteria',
+    args: [
+      { name: 'sum_range' },
+      { name: 'criteria_range1' },
+      { name: 'criterion1' },
+      { name: 'criteria_range2', optional: true, repeating: true },
+      { name: 'criterion2', optional: true, repeating: true },
+    ],
+  },
+  {
     name: 'TRIM',
     description: 'Removes leading and trailing whitespace from text',
     args: [{ name: 'text' }],

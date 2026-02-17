@@ -26,9 +26,9 @@ describe('FunctionCatalog', () => {
     });
 
     it('should match case-insensitively', () => {
-      expect(searchFunctions('sum')).toHaveLength(1);
-      expect(searchFunctions('Sum')).toHaveLength(1);
-      expect(searchFunctions('SUM')).toHaveLength(1);
+      expect(searchFunctions('sum').map((f) => f.name)).toContain('SUM');
+      expect(searchFunctions('Sum').map((f) => f.name)).toContain('SUM');
+      expect(searchFunctions('SUM').map((f) => f.name)).toContain('SUM');
     });
 
     it('should find OR and NOT but not AND with "O"', () => {
@@ -65,6 +65,10 @@ describe('FunctionCatalog', () => {
       expect(findFunction('IFS')!.name).toBe('IFS');
       expect(findFunction('SWITCH')!.name).toBe('SWITCH');
       expect(findFunction('TEXTJOIN')!.name).toBe('TEXTJOIN');
+      expect(findFunction('COUNTIF')!.name).toBe('COUNTIF');
+      expect(findFunction('SUMIF')!.name).toBe('SUMIF');
+      expect(findFunction('COUNTIFS')!.name).toBe('COUNTIFS');
+      expect(findFunction('SUMIFS')!.name).toBe('SUMIFS');
     });
 
     it('should return undefined for unknown function', () => {
@@ -106,6 +110,13 @@ describe('FunctionCatalog', () => {
       const info = findFunction('TEXTJOIN')!;
       expect(formatSignature(info)).toBe(
         'TEXTJOIN(delimiter, ignore_empty, text1, [text2], ...)',
+      );
+    });
+
+    it('should format SUMIFS signature', () => {
+      const info = findFunction('SUMIFS')!;
+      expect(formatSignature(info)).toBe(
+        'SUMIFS(sum_range, criteria_range1, criterion1, [criteria_range2], ..., [criterion2], ...)',
       );
     });
   });

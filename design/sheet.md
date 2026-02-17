@@ -269,7 +269,8 @@ up to 3 letters and arbitrary row numbers (e.g., `ZZZ729443`).
 Functions are registered in `FunctionMap`. Currently implemented:
 
 - **Math** — `SUM`, `ABS`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `INT`, `MOD`,
-  `SQRT`, `POWER`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`.
+  `SQRT`, `POWER`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`, `COUNTIF`,
+  `SUMIF`, `COUNTIFS`, `SUMIFS`.
 - **Logical** — `IF`, `IFS`, `SWITCH`, `AND`, `OR`, `NOT`, `IFERROR`.
 - **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `FIND`,
   `SEARCH`, `TEXTJOIN`, `LOWER`, `UPPER`, `PROPER`, `SUBSTITUTE`.
@@ -528,7 +529,7 @@ all style properties and calls `Spreadsheet.applyStyle()` /
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 35+ functions are implemented. New functions
+**Formula function coverage** — 39+ functions are implemented. New functions
 are added to `FunctionMap` following the same pattern: accept a
 `FunctionContext`, visitor, and optional grid; return an `EvalNode`.
 
