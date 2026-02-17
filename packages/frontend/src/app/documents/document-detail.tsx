@@ -356,6 +356,7 @@ export function DocumentDetail() {
         email: currentUser.email,
         photo: currentUser.photo || "",
       }}
+      enableDevtools={import.meta.env.DEV}
     >
       <DocumentLayout documentId={id!} />
     </DocumentProvider>
