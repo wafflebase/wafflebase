@@ -79,6 +79,15 @@ export type Cell = {
 };
 
 /**
+ * MergeSpan represents a merged cell block size from an anchor cell.
+ * `rs` = row span, `cs` = column span.
+ */
+export type MergeSpan = {
+  rs: number;
+  cs: number;
+};
+
+/**
  * Grid type represents a grid of rows and columns.
  */
 export type Grid = Map<Sref, Cell>;

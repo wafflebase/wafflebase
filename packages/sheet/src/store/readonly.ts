@@ -4,6 +4,7 @@ import {
   Cell,
   CellStyle,
   Grid,
+  MergeSpan,
   Ref,
   Range,
   Sref,
@@ -176,6 +177,18 @@ export class ReadOnlyStore implements Store {
 
   async getSheetStyle(): Promise<CellStyle | undefined> {
     return undefined;
+  }
+
+  async setMerge(_anchor: Ref, _span: MergeSpan): Promise<void> {
+    // no-op
+  }
+
+  async deleteMerge(_anchor: Ref): Promise<boolean> {
+    return false;
+  }
+
+  async getMerges(): Promise<Map<Sref, MergeSpan>> {
+    return new Map();
   }
 
   async setFreezePane(_frozenRows: number, _frozenCols: number): Promise<void> {

@@ -21,6 +21,7 @@ import {
   GridResolver,
   Cell,
   CellStyle,
+  MergeSpan,
   Ref,
   Sref,
   Range,
@@ -33,6 +34,12 @@ import {
   moveDimensionMap,
   relocateFormula,
 } from './shifting';
+import {
+  isMergeSplitByMove,
+  moveMergeMap,
+  shiftMergeMap,
+  toMergeRange,
+} from './merging';
 import {
   grid2string,
   string2grid,
@@ -112,6 +119,16 @@ export class Sheet {
    * `sheetStyle` caches the sheet-level default style.
    */
   private sheetStyle: CellStyle | undefined;
+
+  /**
+   * `merges` stores merged range spans keyed by anchor sref.
+   */
+  private merges: Map<Sref, MergeSpan> = new Map();
+
+  /**
+   * `mergeCoverMap` maps covered non-anchor srefs to their anchor sref.
+   */
+  private mergeCoverMap: Map<Sref, Sref> = new Map();
 
   /**
    * `copyBuffer` stores the source range and grid from the last copy operation.
@@ -244,6 +261,14 @@ export class Sheet {
   }
 
   /**
+   * `loadMerges` loads merged range metadata from the store into local caches.
+   */
+  async loadMerges(): Promise<void> {
+    this.merges = await this.store.getMerges();
+    this.rebuildMergeCoverMap();
+  }
+
+  /**
    * `getColStyles` returns the column-level style map for rendering.
    */
   getColStyles(): Map<number, CellStyle> {
@@ -262,6 +287,146 @@ export class Sheet {
    */
   getSheetStyle(): CellStyle | undefined {
     return this.sheetStyle;
+  }
+
+  /**
+   * `getMerges` returns merged range metadata for rendering.
+   */
+  getMerges(): Map<Sref, MergeSpan> {
+    return this.merges;
+  }
+
+  /**
+   * `rebuildMergeCoverMap` rebuilds covered-cell -> anchor lookup.
+   */
+  private rebuildMergeCoverMap(): void {
+    this.mergeCoverMap.clear();
+    for (const [anchorSref, span] of this.merges) {
+      const anchor = parseRef(anchorSref);
+      for (let r = anchor.r; r < anchor.r + span.rs; r++) {
+        for (let c = anchor.c; c < anchor.c + span.cs; c++) {
+          const sref = toSref({ r, c });
+          if (sref === anchorSref) continue;
+          this.mergeCoverMap.set(sref, anchorSref);
+        }
+      }
+    }
+  }
+
+  /**
+   * `getAnchorSrefForRef` returns anchor sref if ref is in a merge.
+   */
+  private getAnchorSrefForRef(ref: Ref): Sref {
+    const sref = toSref(ref);
+    if (this.merges.has(sref)) return sref;
+    return this.mergeCoverMap.get(sref) || sref;
+  }
+
+  /**
+   * `normalizeRefToAnchor` maps covered refs to their merge anchor ref.
+   */
+  private normalizeRefToAnchor(ref: Ref): Ref {
+    return parseRef(this.getAnchorSrefForRef(ref));
+  }
+
+  /**
+   * `getMergeForRef` returns merge metadata if `ref` is in a merged block.
+   */
+  private getMergeForRef(
+    ref: Ref,
+  ): { anchorSref: Sref; anchor: Ref; span: MergeSpan; range: Range } | undefined {
+    const anchorSref = this.getAnchorSrefForRef(ref);
+    const span = this.merges.get(anchorSref);
+    if (!span) return undefined;
+    const anchor = parseRef(anchorSref);
+    return { anchorSref, anchor, span, range: toMergeRange(anchor, span) };
+  }
+
+  /**
+   * `expandRangeToMergedBoundaries` expands a range to include full intersecting merges.
+   */
+  private expandRangeToMergedBoundaries(range: Range): Range {
+    let expanded = cloneRange(range);
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+      for (const [anchorSref, span] of this.merges) {
+        const mergeRange = toMergeRange(parseRef(anchorSref), span);
+        if (!inRange(mergeRange[0], expanded) && !inRange(mergeRange[1], expanded)) {
+          const intersects =
+            mergeRange[0].r <= expanded[1].r &&
+            mergeRange[1].r >= expanded[0].r &&
+            mergeRange[0].c <= expanded[1].c &&
+            mergeRange[1].c >= expanded[0].c;
+          if (!intersects) continue;
+        }
+        const next = mergeRanges(expanded, mergeRange);
+        if (!isSameRange(next, expanded)) {
+          expanded = next;
+          changed = true;
+        }
+      }
+    }
+
+    return expanded;
+  }
+
+  /**
+   * `mergeCoveredSrefs` yields all srefs in the given merged block (including anchor).
+   */
+  private *mergeCoveredSrefs(anchor: Ref, span: MergeSpan): Generator<Sref> {
+    for (let r = anchor.r; r < anchor.r + span.rs; r++) {
+      for (let c = anchor.c; c < anchor.c + span.cs; c++) {
+        yield toSref({ r, c });
+      }
+    }
+  }
+
+  /**
+   * `expandChangedSrefsWithMergeAliases` expands refs to include merge aliases.
+   */
+  private expandChangedSrefsWithMergeAliases(srefs: Iterable<Sref>): Set<Sref> {
+    const changed = new Set<Sref>();
+    for (const sref of srefs) {
+      const anchorSref = this.getAnchorSrefForRef(parseRef(sref));
+      const span = this.merges.get(anchorSref);
+      if (!span) {
+        changed.add(sref);
+        continue;
+      }
+      const anchor = parseRef(anchorSref);
+      for (const covered of this.mergeCoveredSrefs(anchor, span)) {
+        changed.add(covered);
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * `getMergesIntersecting` returns merged blocks intersecting `range`.
+   */
+  private getMergesIntersecting(
+    range: Range,
+  ): Array<{ anchorSref: Sref; anchor: Ref; span: MergeSpan; range: Range }> {
+    const result: Array<{
+      anchorSref: Sref;
+      anchor: Ref;
+      span: MergeSpan;
+      range: Range;
+    }> = [];
+    for (const [anchorSref, span] of this.merges) {
+      const anchor = parseRef(anchorSref);
+      const mergeRange = toMergeRange(anchor, span);
+      const intersects =
+        mergeRange[0].r <= range[1].r &&
+        mergeRange[1].r >= range[0].r &&
+        mergeRange[0].c <= range[1].c &&
+        mergeRange[1].c >= range[0].c;
+      if (!intersects) continue;
+      result.push({ anchorSref, anchor, span, range: mergeRange });
+    }
+    return result;
   }
 
   /**
@@ -284,14 +449,14 @@ export class Sheet {
    * `getCell` returns the cell at the given row and column.
    */
   async getCell(ref: Ref): Promise<Cell | undefined> {
-    return this.store.get(ref);
+    return this.store.get(this.normalizeRefToAnchor(ref));
   }
 
   /**
    * `setCell` sets the cell at the given row and column.
    */
   async setCell(ref: Ref, cell: Cell): Promise<void> {
-    await this.store.set(ref, cell);
+    await this.store.set(this.normalizeRefToAnchor(ref), cell);
   }
 
   /**
@@ -305,7 +470,7 @@ export class Sheet {
    * `hasFormula` checks if the given row and column has a formula.
    */
   async hasFormula(ref: Ref): Promise<boolean> {
-    const cell = await this.store.get(ref);
+    const cell = await this.getCell(ref);
     return cell && cell.f ? true : false;
   }
 
@@ -313,7 +478,7 @@ export class Sheet {
    * `toInputString` returns the input string at the given row and column.
    */
   async toInputString(ref: Ref): Promise<string> {
-    const cell = await this.store.get(ref);
+    const cell = await this.getCell(ref);
     return !cell ? '' : cell.f ? cell.f : cell.v || '';
   }
 
@@ -321,9 +486,10 @@ export class Sheet {
    * `toDisplayString` returns the display string at the given row and column.
    */
   async toDisplayString(ref: Ref): Promise<string> {
-    const cell = await this.store.get(ref);
+    const anchor = this.normalizeRefToAnchor(ref);
+    const cell = await this.store.get(anchor);
     if (!cell || !cell.v) return '';
-    const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
+    const effective = this.resolveEffectiveStyle(anchor.r, anchor.c, cell.s);
     return formatValue(cell.v, effective?.nf, effective?.dp);
   }
 
@@ -331,25 +497,29 @@ export class Sheet {
    * `setData` sets the data at the given row and column.
    */
   async setData(ref: Ref, value: string): Promise<void> {
+    const target = this.normalizeRefToAnchor(ref);
     this.store.beginBatch();
     try {
       // 01. Update the cell with the new value, preserving existing style.
-      const existing = await this.store.get(ref);
+      const existing = await this.store.get(target);
       const base = value.startsWith('=') ? { f: value } : { v: value };
       const cell = existing?.s ? { ...base, s: existing.s } : base;
 
       // If the cell is effectively empty (no value, no formula, no style), delete it.
       if (this.isEmptyCell(cell)) {
-        await this.store.delete(ref);
+        await this.store.delete(target);
       } else {
-        await this.store.set(ref, cell);
+        await this.store.set(target, cell);
       }
 
       // 02. Update the dependencies.
-      const dependantsMap = await this.store.buildDependantsMap([toSref(ref)]);
+      const changedSrefs = this.expandChangedSrefsWithMergeAliases([
+        toSref(target),
+      ]);
+      const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
 
       // 03. Calculate the cell and its dependencies.
-      await calculate(this, dependantsMap, [toSref(ref)]);
+      await calculate(this, dependantsMap, changedSrefs);
     } finally {
       this.store.endBatch();
     }
@@ -363,9 +533,7 @@ export class Sheet {
   async removeData(): Promise<boolean> {
     this.store.beginBatch();
     try {
-      const range: Range = this.range
-        ? this.range
-        : [this.activeCell, this.activeCell];
+      const range: Range = this.getRangeOrActiveCell();
 
       const grid = await this.store.getGrid(range);
       const removeds = new Set<Sref>();
@@ -385,8 +553,9 @@ export class Sheet {
         return false;
       }
 
-      const dependantsMap = await this.store.buildDependantsMap(removeds);
-      await calculate(this, dependantsMap, removeds);
+      const changedSrefs = this.expandChangedSrefsWithMergeAliases(removeds);
+      const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
+      await calculate(this, dependantsMap, changedSrefs);
       return true;
     } finally {
       this.store.endBatch();
@@ -453,6 +622,8 @@ export class Sheet {
       this.colDimensions?.shift(index, count);
       this.colStyles = shiftDimensionMap(this.colStyles, index, count);
     }
+    this.merges = shiftMergeMap(this.merges, axis, index, count);
+    this.rebuildMergeCoverMap();
 
     // Adjust activeCell if it's at or beyond the insertion/deletion point
     const value = axis === 'row' ? this.activeCell.r : this.activeCell.c;
@@ -493,6 +664,7 @@ export class Sheet {
         }
       }
     }
+    this.activeCell = this.normalizeRefToAnchor(this.activeCell);
 
     // Batch the freeze pane adjustment and formula recalculation together
     this.store.beginBatch();
@@ -561,6 +733,13 @@ export class Sheet {
       return;
     }
 
+    for (const [anchorSref, span] of this.merges) {
+      const anchor = parseRef(anchorSref);
+      if (isMergeSplitByMove(anchor, span, axis, src, count)) {
+        return;
+      }
+    }
+
     await this.store.moveCells(axis, src, count, dst);
 
     // Move dimension custom sizes
@@ -571,16 +750,20 @@ export class Sheet {
       this.colDimensions?.move(src, count, dst);
       this.colStyles = moveDimensionMap(this.colStyles, src, count, dst);
     }
+    this.merges = moveMergeMap(this.merges, axis, src, count, dst);
+    this.rebuildMergeCoverMap();
 
     // Remap activeCell
-    this.activeCell = moveRef(this.activeCell, axis, src, count, dst);
+    this.activeCell = this.normalizeRefToAnchor(
+      moveRef(this.activeCell, axis, src, count, dst),
+    );
 
     // Remap range
     if (this.range) {
-      this.range = [
+      this.range = this.expandRangeToMergedBoundaries([
         moveRef(this.range[0], axis, src, count, dst),
         moveRef(this.range[1], axis, src, count, dst),
-      ];
+      ]);
     }
 
     // Batch the formula recalculation
@@ -647,7 +830,7 @@ export class Sheet {
    * for formula-aware paste.
    */
   public async copy(): Promise<{ text: string }> {
-    const range: Range = this.range || [this.activeCell, this.activeCell];
+    const range: Range = this.getRangeOrActiveCell();
     const grid = await this.fetchGrid(range);
     const text = grid2string(grid);
     this.copyBuffer = { sourceRange: range, grid, text };
@@ -692,8 +875,9 @@ export class Sheet {
         changedSrefs.add(sref);
       }
       if (changedSrefs.size > 0) {
-        const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
-        await calculate(this, dependantsMap, changedSrefs);
+        const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+        const dependantsMap = await this.store.buildDependantsMap(expanded);
+        await calculate(this, dependantsMap, expanded);
       }
     } finally {
       this.store.endBatch();
@@ -786,7 +970,8 @@ export class Sheet {
         crossSheetRefs.get(sheetName.toUpperCase())!.add(localRef);
       } else {
         // Local ref
-        const cell = await this.store.get(parseRef(sref));
+        const anchor = this.normalizeRefToAnchor(parseRef(sref));
+        const cell = await this.store.get(anchor);
         if (cell) {
           grid.set(sref, cell);
         }
@@ -851,8 +1036,9 @@ export class Sheet {
    * `setActiveCell` sets the currently selected cell.
    */
   public setActiveCell(ref: Ref): void {
-    this.activeCell = ref;
-    this.store.updateActiveCell(ref);
+    const anchor = this.normalizeRefToAnchor(ref);
+    this.activeCell = anchor;
+    this.store.updateActiveCell(anchor);
   }
 
   /**
@@ -877,7 +1063,11 @@ export class Sheet {
    * selected. It returns the active cell as a range if the range is not set.
    */
   getRangeOrActiveCell(): Range {
-    return this.range || [this.activeCell, this.activeCell];
+    if (this.range) {
+      return this.expandRangeToMergedBoundaries(this.range);
+    }
+    const merged = this.getMergeForRef(this.activeCell);
+    return merged ? merged.range : [this.activeCell, this.activeCell];
   }
 
   /**
@@ -977,7 +1167,7 @@ export class Sheet {
     }
 
     this.selectionType = 'cell';
-    this.setActiveCell(ref);
+    this.setActiveCell(this.normalizeRefToAnchor(ref));
     this.range = undefined;
   }
 
@@ -989,12 +1179,15 @@ export class Sheet {
       return;
     }
 
-    if (isSameRef(this.activeCell, ref)) {
+    const target = this.normalizeRefToAnchor(ref);
+    if (isSameRef(this.activeCell, target)) {
       this.range = undefined;
       return;
     }
 
-    this.range = toRange(this.activeCell, ref);
+    this.range = this.expandRangeToMergedBoundaries(
+      toRange(this.activeCell, target),
+    );
   }
 
   /**
@@ -1039,21 +1232,32 @@ export class Sheet {
    * @return boolean if the selection was moved.
    */
   async moveToEdge(direction: Direction): Promise<boolean> {
+    const activeMerge = this.getMergeForRef(this.activeCell);
+    const startRef = { ...this.activeCell };
+    if (activeMerge) {
+      if (direction === 'right') {
+        startRef.c = activeMerge.range[1].c;
+      } else if (direction === 'down') {
+        startRef.r = activeMerge.range[1].r;
+      }
+    }
+
     // Move to the edge of the content.
     // If the cell is empty, move to the first non-empty cell.
     // If the cell is non-empty, move to the last non-empty cell.
     const ref = await this.store.findEdge(
-      this.activeCell,
+      startRef,
       direction,
       this.dimensionRange,
     );
+    const normalized = this.normalizeRefToAnchor(ref);
 
-    if (isSameRef(this.activeCell, ref)) {
+    if (isSameRef(this.activeCell, normalized)) {
       return false;
     }
 
     this.range = undefined;
-    this.setActiveCell(ref);
+    this.setActiveCell(normalized);
     return true;
   }
 
@@ -1065,19 +1269,35 @@ export class Sheet {
     const rowDelta = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
     const colDelta = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
 
-    let row = this.activeCell.r + rowDelta;
-    let col = this.activeCell.c + colDelta;
+    let row = this.activeCell.r;
+    let col = this.activeCell.c;
+    const activeMerge = this.getMergeForRef(this.activeCell);
+    if (activeMerge) {
+      if (direction === 'right') {
+        col = activeMerge.range[1].c + 1;
+      } else if (direction === 'down') {
+        row = activeMerge.range[1].r + 1;
+      } else if (direction === 'left') {
+        col -= 1;
+      } else {
+        row -= 1;
+      }
+    } else {
+      row += rowDelta;
+      col += colDelta;
+    }
 
     if (!inRange({ r: row, c: col }, this.dimensionRange)) {
       return false;
     }
 
-    if (isSameRef(this.activeCell, { r: row, c: col })) {
+    const target = this.normalizeRefToAnchor({ r: row, c: col });
+    if (isSameRef(this.activeCell, target)) {
       return false;
     }
 
     this.range = undefined;
-    this.setActiveCell({ r: row, c: col });
+    this.setActiveCell(target);
     return true;
   }
 
@@ -1090,7 +1310,7 @@ export class Sheet {
   resizeRange(direction: Direction): boolean {
     const rowDelta = direction === 'up' ? -1 : direction === 'down' ? 1 : 0;
     const colDelta = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
-    let range = cloneRange(this.range || [this.activeCell, this.activeCell]);
+    let range = cloneRange(this.getRangeOrActiveCell());
 
     if (this.activeCell.r === range[1].r) {
       range[0].r += rowDelta;
@@ -1109,7 +1329,7 @@ export class Sheet {
       return false;
     }
 
-    this.range = range;
+    this.range = this.expandRangeToMergedBoundaries(range);
     return true;
   }
 
@@ -1118,8 +1338,9 @@ export class Sheet {
    * merging sheet → column → row → cell styles.
    */
   async getStyle(ref: Ref): Promise<CellStyle | undefined> {
-    const cell = await this.store.get(ref);
-    return this.resolveEffectiveStyle(ref.r, ref.c, cell?.s);
+    const anchor = this.normalizeRefToAnchor(ref);
+    const cell = await this.store.get(anchor);
+    return this.resolveEffectiveStyle(anchor.r, anchor.c, cell?.s);
   }
 
   /**
@@ -1129,7 +1350,8 @@ export class Sheet {
    * Removes `undefined` and empty string keys.
    */
   async setStyle(ref: Ref, style: Partial<CellStyle>): Promise<void> {
-    const cell = (await this.store.get(ref)) || {};
+    const anchor = this.normalizeRefToAnchor(ref);
+    const cell = (await this.store.get(anchor)) || {};
     const merged = { ...cell.s, ...style };
 
     // Remove undefined and empty string keys, but keep false (needed for style overrides)
@@ -1143,7 +1365,7 @@ export class Sheet {
       Object.keys(merged).length > 0
         ? { ...cell, s: merged }
         : { v: cell.v, f: cell.f };
-    await this.store.set(ref, newCell);
+    await this.store.set(anchor, newCell);
   }
 
   /**
@@ -1222,6 +1444,134 @@ export class Sheet {
   }
 
   /**
+   * `isSelectionMerged` returns true when current cell selection matches one merged block.
+   */
+  isSelectionMerged(): boolean {
+    if (this.selectionType !== 'cell') return false;
+    const selection = this.getRangeOrActiveCell();
+    const merges = this.getMergesIntersecting(selection);
+    return merges.length === 1 && isSameRange(merges[0].range, selection);
+  }
+
+  /**
+   * `canMergeSelection` returns whether current selection can be merged.
+   */
+  canMergeSelection(): boolean {
+    if (this.selectionType !== 'cell') return false;
+    const selection = this.getRangeOrActiveCell();
+    const isCollapsed =
+      selection[0].r === selection[1].r && selection[0].c === selection[1].c;
+    if (isCollapsed) return false;
+    const crossesFrozenRows =
+      this.frozenRows > 0 &&
+      selection[0].r <= this.frozenRows &&
+      selection[1].r > this.frozenRows;
+    const crossesFrozenCols =
+      this.frozenCols > 0 &&
+      selection[0].c <= this.frozenCols &&
+      selection[1].c > this.frozenCols;
+    if (crossesFrozenRows || crossesFrozenCols) return false;
+    return this.getMergesIntersecting(selection).length === 0;
+  }
+
+  /**
+   * `toggleMergeSelection` merges/unmerges current selection.
+   */
+  async toggleMergeSelection(): Promise<boolean> {
+    if (this.isSelectionMerged()) {
+      return this.unmergeSelection();
+    }
+    return this.mergeSelection();
+  }
+
+  /**
+   * `mergeSelection` merges the current cell selection.
+   */
+  async mergeSelection(): Promise<boolean> {
+    if (!this.canMergeSelection()) return false;
+
+    const range = this.getRangeOrActiveCell();
+    const anchor = range[0];
+    const span: MergeSpan = {
+      rs: range[1].r - range[0].r + 1,
+      cs: range[1].c - range[0].c + 1,
+    };
+    const changedSrefs = new Set<Sref>();
+    for (const sref of this.mergeCoveredSrefs(anchor, span)) {
+      changedSrefs.add(sref);
+    }
+
+    this.store.beginBatch();
+    try {
+      for (let r = range[0].r; r <= range[1].r; r++) {
+        for (let c = range[0].c; c <= range[1].c; c++) {
+          if (r === anchor.r && c === anchor.c) continue;
+          const ref = { r, c };
+          const cell = await this.store.get(ref);
+          if (!cell) continue;
+          if (cell.s && Object.keys(cell.s).length > 0) {
+            await this.store.set(ref, { s: cell.s });
+          } else {
+            await this.store.delete(ref);
+          }
+        }
+      }
+
+      await this.store.setMerge(anchor, span);
+      this.merges.set(toSref(anchor), span);
+      this.rebuildMergeCoverMap();
+
+      const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+      const dependantsMap = await this.store.buildDependantsMap(expanded);
+      await calculate(this, dependantsMap, expanded);
+    } finally {
+      this.store.endBatch();
+    }
+
+    this.selectionType = 'cell';
+    this.setActiveCell(anchor);
+    this.range = toMergeRange(anchor, span);
+    return true;
+  }
+
+  /**
+   * `unmergeSelection` removes merged blocks intersecting current selection.
+   */
+  async unmergeSelection(): Promise<boolean> {
+    if (this.selectionType !== 'cell') return false;
+
+    const selection = this.getRangeOrActiveCell();
+    const merges = this.getMergesIntersecting(selection);
+    if (merges.length === 0) return false;
+
+    const changedSrefs = new Set<Sref>();
+    for (const merge of merges) {
+      for (const sref of this.mergeCoveredSrefs(merge.anchor, merge.span)) {
+        changedSrefs.add(sref);
+      }
+    }
+
+    this.store.beginBatch();
+    try {
+      for (const merge of merges) {
+        await this.store.deleteMerge(merge.anchor);
+        this.merges.delete(merge.anchorSref);
+      }
+      this.rebuildMergeCoverMap();
+
+      const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+      const dependantsMap = await this.store.buildDependantsMap(expanded);
+      await calculate(this, dependantsMap, expanded);
+    } finally {
+      this.store.endBatch();
+    }
+
+    this.selectionType = 'cell';
+    this.range = undefined;
+    return true;
+  }
+
+  /**
    * `getActiveDecimalPlaces` returns the current decimal places of the active cell.
    * Returns 2 as default if no decimal places are set.
    */
@@ -1238,6 +1588,7 @@ export class Sheet {
     if (result.success) {
       await this.loadDimensions();
       await this.loadStyles();
+      await this.loadMerges();
       await this.loadFreezePane();
 
       if (result.affectedRange) {
@@ -1263,6 +1614,7 @@ export class Sheet {
     if (result.success) {
       await this.loadDimensions();
       await this.loadStyles();
+      await this.loadMerges();
       await this.loadFreezePane();
 
       if (result.affectedRange) {
@@ -1290,32 +1642,49 @@ export class Sheet {
 
     let row = this.activeCell.r;
     let col = this.activeCell.c;
+    const activeMerge = this.getMergeForRef(this.activeCell);
     const rows = range[1].r - range[0].r + 1;
     const cols = range[1].c - range[0].c + 1;
     if (rowDelta !== 0) {
-      if (row + rowDelta > range[1].r) {
+      const step =
+        rowDelta > 0
+          ? activeMerge
+            ? activeMerge.span.rs
+            : rowDelta
+          : rowDelta < 0
+            ? -1
+            : 0;
+      if (row + step > range[1].r) {
         row = range[0].r;
         col = ((col + 1 - range[0].c + cols) % cols) + range[0].c;
-      } else if (row + rowDelta < range[0].r) {
+      } else if (row + step < range[0].r) {
         row = range[1].r;
         col = ((col - 1 - range[0].c + cols) % cols) + range[0].c;
       } else {
-        row += rowDelta;
+        row += step;
       }
     }
 
     if (colDelta !== 0) {
-      if (col + colDelta > range[1].c) {
+      const step =
+        colDelta > 0
+          ? activeMerge
+            ? activeMerge.span.cs
+            : colDelta
+          : colDelta < 0
+            ? -1
+            : 0;
+      if (col + step > range[1].c) {
         col = range[0].c;
         row = ((row + 1 - range[0].r + rows) % rows) + range[0].r;
-      } else if (col + colDelta < range[0].c) {
+      } else if (col + step < range[0].c) {
         col = range[1].c;
         row = ((row - 1 - range[0].r + rows) % rows) + range[0].r;
       } else {
-        col += colDelta;
+        col += step;
       }
     }
 
-    this.setActiveCell({ r: row, c: col });
+    this.setActiveCell(this.normalizeRefToAnchor({ r: row, c: col }));
   }
 }

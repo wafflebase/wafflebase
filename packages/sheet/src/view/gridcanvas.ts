@@ -5,11 +5,12 @@ import {
   Range,
   SelectionType,
   CellStyle,
+  MergeSpan,
 } from '../model/types';
 import { DimensionIndex } from '../model/dimensions';
 import { formatValue } from '../model/format';
 import { Theme, ThemeKey, getThemeColor } from './theme';
-import { toColumnLabel, toSref } from '../model/coordinates';
+import { parseRef, toColumnLabel, toSref } from '../model/coordinates';
 import {
   DefaultCellWidth,
   DefaultCellHeight,
@@ -61,6 +62,7 @@ export class GridCanvas {
     colStyles?: Map<number, CellStyle>,
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
+    merges?: Map<string, MergeSpan>,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -75,6 +77,7 @@ export class GridCanvas {
     ctx.scale(ratio, ratio);
 
     const [startID, endID] = viewRange;
+    const mergeData = this.buildMergeRenderData(merges);
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
 
     if (!hasFrozen) {
@@ -92,6 +95,7 @@ export class GridCanvas {
         colStyles,
         rowStyles,
         sheetStyle,
+        mergeData,
       );
       this.renderColumnHeaders(
         ctx,
@@ -190,6 +194,7 @@ export class GridCanvas {
           colStyles,
           rowStyles,
           sheetStyle,
+          mergeData,
         );
         ctx.restore();
       }
@@ -218,6 +223,7 @@ export class GridCanvas {
           colStyles,
           rowStyles,
           sheetStyle,
+          mergeData,
         );
         ctx.restore();
       }
@@ -241,6 +247,7 @@ export class GridCanvas {
           colStyles,
           rowStyles,
           sheetStyle,
+          mergeData,
         );
         ctx.restore();
       }
@@ -341,6 +348,10 @@ export class GridCanvas {
     colStyles?: Map<number, CellStyle>,
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
+    mergeData?: {
+      anchors: Map<string, MergeSpan>;
+      coverToAnchor: Map<string, string>;
+    },
   ): void {
     // Two-pass rendering: backgrounds first, then text content.
     // This ensures text overflow into empty neighbor cells is not
@@ -350,7 +361,12 @@ export class GridCanvas {
     for (let row = rowStart; row <= rowEnd; row++) {
       const rStyle = rowStyles?.get(row);
       for (let col = colStart; col <= colEnd; col++) {
+        const sref = toSref({ r: row, c: col });
+        if (mergeData?.coverToAnchor.has(sref)) {
+          continue;
+        }
         const cell = grid?.get(toSref({ r: row, c: col }));
+        const mergeSpan = mergeData?.anchors.get(sref);
         const cStyle = colStyles?.get(col);
         let effectiveStyle: CellStyle | undefined;
         if (sheetStyle || cStyle || rStyle || cell?.s) {
@@ -364,6 +380,7 @@ export class GridCanvas {
           rowDim,
           colDim,
           effectiveStyle,
+          mergeSpan,
         );
       }
     }
@@ -372,7 +389,12 @@ export class GridCanvas {
     for (let row = rowStart; row <= rowEnd; row++) {
       const rStyle = rowStyles?.get(row);
       for (let col = colStart; col <= colEnd; col++) {
+        const sref = toSref({ r: row, c: col });
+        if (mergeData?.coverToAnchor.has(sref)) {
+          continue;
+        }
         const cell = grid?.get(toSref({ r: row, c: col }));
+        const mergeSpan = mergeData?.anchors.get(sref);
         const cStyle = colStyles?.get(col);
         let effectiveStyle: CellStyle | undefined;
         if (sheetStyle || cStyle || rStyle || cell?.s) {
@@ -388,6 +410,7 @@ export class GridCanvas {
           effectiveStyle,
           grid,
           colEnd,
+          mergeSpan,
         );
       }
     }
@@ -591,8 +614,9 @@ export class GridCanvas {
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
     effectiveStyle?: CellStyle,
+    mergeSpan?: MergeSpan,
   ): void {
-    const rect = toBoundingRect(id, scroll, rowDim, colDim);
+    const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
     const style = effectiveStyle ?? cell?.s;
 
     ctx.strokeStyle = this.getThemeColor('cellTextColor');
@@ -612,8 +636,9 @@ export class GridCanvas {
     effectiveStyle?: CellStyle,
     grid?: Grid,
     colEnd?: number,
+    mergeSpan?: MergeSpan,
   ): void {
-    const rect = toBoundingRect(id, scroll, rowDim, colDim);
+    const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
     const style = effectiveStyle ?? cell?.s;
 
     const rawData = cell?.v || '';
@@ -631,7 +656,14 @@ export class GridCanvas {
       // Compute overflow clip width for single-line, left-aligned text
       let clipWidth = rect.width;
       const align = style?.al || 'left';
-      if (lines.length === 1 && align === 'left' && grid && colDim && colEnd) {
+      if (
+        !mergeSpan &&
+        lines.length === 1 &&
+        align === 'left' &&
+        grid &&
+        colDim &&
+        colEnd
+      ) {
         ctx.save();
         ctx.font = fontStr;
         const textWidth = ctx.measureText(data).width + CellPaddingX * 2;
@@ -730,6 +762,58 @@ export class GridCanvas {
       }
       ctx.restore();
     }
+  }
+
+  /**
+   * Builds merge lookup maps for rendering.
+   */
+  private buildMergeRenderData(
+    merges?: Map<string, MergeSpan>,
+  ): { anchors: Map<string, MergeSpan>; coverToAnchor: Map<string, string> } | undefined {
+    if (!merges || merges.size === 0) return undefined;
+    const anchors = new Map<string, MergeSpan>();
+    const coverToAnchor = new Map<string, string>();
+
+    for (const [anchorSref, span] of merges) {
+      anchors.set(anchorSref, span);
+      const anchor = parseRef(anchorSref);
+      for (let r = anchor.r; r < anchor.r + span.rs; r++) {
+        for (let c = anchor.c; c < anchor.c + span.cs; c++) {
+          const sref = toSref({ r, c });
+          if (sref === anchorSref) continue;
+          coverToAnchor.set(sref, anchorSref);
+        }
+      }
+    }
+    return { anchors, coverToAnchor };
+  }
+
+  /**
+   * Returns the rect for a regular or merged anchor cell.
+   */
+  private toCellRect(
+    id: Ref,
+    scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    mergeSpan?: MergeSpan,
+  ): BoundingRect {
+    const start = toBoundingRect(id, scroll, rowDim, colDim);
+    if (!mergeSpan || (mergeSpan.rs === 1 && mergeSpan.cs === 1)) {
+      return start;
+    }
+    const end = toBoundingRect(
+      { r: id.r + mergeSpan.rs - 1, c: id.c + mergeSpan.cs - 1 },
+      scroll,
+      rowDim,
+      colDim,
+    );
+    return {
+      left: start.left,
+      top: start.top,
+      width: end.left + end.width - start.left,
+      height: end.top + end.height - start.top,
+    };
   }
 
   private getThemeColor(key: ThemeKey): string {

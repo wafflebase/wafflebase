@@ -99,11 +99,26 @@ export function SheetView({
           const ws = root.sheets[targetTab.id];
           if (!ws) return undefined;
 
+          const coverToAnchor = new Map<Sref, Sref>();
+          if (ws.merges) {
+            for (const [anchorSref, span] of Object.entries(ws.merges)) {
+              const anchorRef = parseRef(anchorSref);
+              for (let r = anchorRef.r; r < anchorRef.r + span.rs; r++) {
+                for (let c = anchorRef.c; c < anchorRef.c + span.cs; c++) {
+                  const covered = toSref({ r, c });
+                  if (covered === anchorSref) continue;
+                  coverToAnchor.set(covered, anchorSref);
+                }
+              }
+            }
+          }
+
           const grid: Grid = new Map();
           for (const localRef of refs) {
             const ref = parseRef(localRef);
             const sref = toSref(ref);
-            const cellData = ws.sheet[sref];
+            const anchorSref = coverToAnchor.get(sref) || sref;
+            const cellData = ws.sheet[anchorSref];
             if (cellData) {
               grid.set(localRef, cellData as Cell);
             }

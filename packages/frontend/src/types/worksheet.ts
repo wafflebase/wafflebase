@@ -1,4 +1,4 @@
-import { Cell, CellStyle, Sref } from "@wafflebase/sheet";
+import { Cell, CellStyle, MergeSpan, Sref } from "@wafflebase/sheet";
 
 export type Worksheet = {
   sheet: {
@@ -17,6 +17,9 @@ export type Worksheet = {
     [key: string]: CellStyle;
   };
   sheetStyle?: CellStyle;
+  merges?: {
+    [key: Sref]: MergeSpan;
+  };
   frozenRows: number;
   frozenCols: number;
 };
@@ -55,6 +58,7 @@ export const initialSpreadsheetDocument: SpreadsheetDocument = {
       colWidths: {},
       colStyles: {},
       rowStyles: {},
+      merges: {},
       frozenRows: 0,
       frozenCols: 0,
     },

@@ -149,6 +149,7 @@ export class Worksheet {
     this.sheet.setDimensions(this.rowDim, this.colDim);
     await this.sheet.loadDimensions();
     await this.sheet.loadStyles();
+    await this.sheet.loadMerges();
     await this.sheet.loadFreezePane();
     this.updateFreezeState();
     this.formulaBar.initialize(sheet);
@@ -1968,6 +1969,16 @@ export class Worksheet {
       e.preventDefault();
       await this.sheet!.toggleRangeStyle('u');
       this.render();
+    } else if (
+      (e.key === 'm' || e.key === 'M') &&
+      (e.metaKey || e.ctrlKey) &&
+      e.shiftKey
+    ) {
+      if (this.readOnly) return;
+      e.preventDefault();
+      if (await this.sheet!.toggleMergeSelection()) {
+        this.render();
+      }
     }
   }
 
@@ -1978,6 +1989,7 @@ export class Worksheet {
   public async reloadDimensions() {
     await this.sheet!.loadDimensions();
     await this.sheet!.loadStyles();
+    await this.sheet!.loadMerges();
     await this.sheet!.loadFreezePane();
     this.updateFreezeState();
   }
@@ -2020,6 +2032,7 @@ export class Worksheet {
       this.freezeState,
       this.freezeDrag,
       this.sheet!.getCopyRange(),
+      this.sheet!.getMerges(),
     );
   }
 
@@ -2077,6 +2090,17 @@ export class Worksheet {
       this.rowDim,
       this.colDim,
     );
+    const mergeSpan = this.sheet!.getMerges().get(toSref(ref));
+    if (mergeSpan) {
+      const end = toBoundingRect(
+        { r: ref.r + mergeSpan.rs - 1, c: ref.c + mergeSpan.cs - 1 },
+        { left: 0, top: 0 },
+        this.rowDim,
+        this.colDim,
+      );
+      cell.width = end.left + end.width - cell.left;
+      cell.height = end.top + end.height - cell.top;
+    }
 
     // The unfrozen viewport area
     const unfrozenColStart = this.colDim.getOffset(freeze.frozenCols + 1);
@@ -2145,6 +2169,26 @@ export class Worksheet {
             freeze,
           )
         : toBoundingRect(cell, this.scroll, this.rowDim, this.colDim);
+    const mergeSpan = this.sheet!.getMerges().get(toSref(cell));
+    if (mergeSpan) {
+      const end =
+        freeze.frozenRows > 0 || freeze.frozenCols > 0
+          ? toBoundingRectWithFreeze(
+              { r: cell.r + mergeSpan.rs - 1, c: cell.c + mergeSpan.cs - 1 },
+              this.scroll,
+              this.rowDim,
+              this.colDim,
+              freeze,
+            )
+          : toBoundingRect(
+              { r: cell.r + mergeSpan.rs - 1, c: cell.c + mergeSpan.cs - 1 },
+              this.scroll,
+              this.rowDim,
+              this.colDim,
+            );
+      rect.width = end.left + end.width - rect.left;
+      rect.height = end.top + end.height - rect.top;
+    }
     const value = withoutValue ? '' : await this.sheet!.toInputString(cell);
     const maxWidth = Math.max(rect.width, this.viewport.width - rect.left);
     const maxHeight = Math.max(rect.height, this.viewport.height - rect.top);
@@ -2214,6 +2258,7 @@ export class Worksheet {
       this.sheet!.getColStyles(),
       this.sheet!.getRowStyles(),
       this.sheet!.getSheetStyle(),
+      this.sheet!.getMerges(),
     );
   }
 

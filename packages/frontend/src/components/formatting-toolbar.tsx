@@ -40,6 +40,7 @@ import {
   IconChevronDown,
   IconHash,
   IconAbc,
+  IconTableAlias,
 } from "@tabler/icons-react";
 
 const TEXT_COLORS = [
@@ -118,11 +119,15 @@ interface FormattingToolbarProps {
 
 export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
+  const [selectionMerged, setSelectionMerged] = useState(false);
+  const [canMerge, setCanMerge] = useState(false);
 
   const refreshStyle = useCallback(async () => {
     if (!spreadsheet) return;
     const s = await spreadsheet.getActiveStyle();
     setStyle(s);
+    setSelectionMerged(spreadsheet.isSelectionMerged());
+    setCanMerge(spreadsheet.canMergeSelection());
   }, [spreadsheet]);
 
   useEffect(() => {
@@ -195,6 +200,10 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
 
   const handleDecreaseDecimals = useCallback(() => {
     spreadsheet?.decreaseDecimals();
+  }, [spreadsheet]);
+
+  const handleToggleMerge = useCallback(() => {
+    spreadsheet?.toggleMergeCells();
   }, [spreadsheet]);
 
   const currentAlign = style?.al || "left";
@@ -449,6 +458,25 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 ${
+              selectionMerged ? "bg-muted" : ""
+            }`}
+            onClick={handleToggleMerge}
+            disabled={!selectionMerged && !canMerge}
+          >
+            <IconTableAlias size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {selectionMerged
+            ? "Unmerge cells"
+            : `Merge cells (${modKey}+Shift+M)`}
+        </TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 

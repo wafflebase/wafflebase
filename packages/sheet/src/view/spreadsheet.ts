@@ -173,6 +173,33 @@ export class Spreadsheet {
   }
 
   /**
+   * `toggleMergeCells` merges/unmerges the current cell selection and re-renders.
+   */
+  public async toggleMergeCells() {
+    if (!this.sheet || this._readOnly) return;
+    if (await this.sheet.toggleMergeSelection()) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
+  }
+
+  /**
+   * `isSelectionMerged` returns whether current selection is a merged block.
+   */
+  public isSelectionMerged(): boolean {
+    if (!this.sheet) return false;
+    return this.sheet.isSelectionMerged();
+  }
+
+  /**
+   * `canMergeSelection` returns whether current selection can be merged.
+   */
+  public canMergeSelection(): boolean {
+    if (!this.sheet) return false;
+    return this.sheet.canMergeSelection();
+  }
+
+  /**
    * `undo` undoes the last local change and re-renders.
    */
   public async undo() {

@@ -40,6 +40,7 @@ type Reference = Sref | Srng;
 
 type Ref = { r: number; c: number };       // 1-based numeric coordinate
 type Range = [Ref, Ref];                   // [topLeft, bottomRight]
+type MergeSpan = { rs: number; cs: number }; // merged block size from anchor
 
 type Cell = { v?: string; f?: string; s?: CellStyle }; // v = value, f = formula, s = style
 type Grid = Map<Sref, Cell>;              // Sparse cell map
@@ -62,12 +63,16 @@ all cell, selection, and navigation operations.
   recalculate all affected cells in topological order.
 - **Selection** — `activeCell`, `range`, `selectStart`/`selectEnd`,
   `selectAll` (expands until empty border)
+- **Merged cells** — `mergeSelection`, `unmergeSelection`,
+  `toggleMergeSelection` with top-left anchor semantics. Covered cells resolve
+  to the anchor for read/write/formula lookups.
 - **Navigation** — `move`, `moveToEdge` (Ctrl+Arrow), `moveInRange`
   (Tab/Enter within selection, wraps around)
 - **Row/column operations** — `insertRows`, `deleteRows`, `insertColumns`,
   `deleteColumns`. These delegate to the store and then recalculate shifted
   formulas. `moveRows` and `moveColumns` reorder rows/columns by remapping
-  all cell positions and formula references.
+  all cell positions and formula references. Merge metadata is shifted/moved
+  in lockstep with cells, and split-inducing move operations are blocked.
 - **Selection model** — `selectRow`, `selectColumn`, `selectRowRange`,
   `selectColumnRange` support whole-row/column selection.
   `getSelectionType()` returns `'cell' | 'row' | 'column'`.
@@ -119,6 +124,11 @@ interface Store {
   setFreezePane(frozenRows: number, frozenCols: number): Promise<void>;
   getFreezePane(): Promise<{ frozenRows: number; frozenCols: number }>;
 
+  // Merged cells
+  setMerge(anchor: Ref, span: MergeSpan): Promise<void>;
+  deleteMerge(anchor: Ref): Promise<boolean>;
+  getMerges(): Promise<Map<Sref, MergeSpan>>;
+
   // Batch transactions
   beginBatch(): void;
   endBatch(): void;
@@ -151,6 +161,18 @@ navigation (see below).
 for displaying external data (e.g., SQL query results). Data is loaded via
 `loadQueryResults(columns, rows)` which populates row 0 with bold column
 headers and subsequent rows with data. All write operations are no-ops.
+
+### Merged Cell Model
+
+Merged cells are stored as sheet-level metadata: `Map<Sref, MergeSpan>`,
+where the key is the anchor cell (top-left of the merged block), and
+`MergeSpan` stores `{ rs, cs }`.
+
+- Covered cells are not persisted as merge metadata entries.
+- Cell reads/writes normalize covered refs to anchor refs.
+- Formula evaluation resolves covered references through this normalization.
+- Rendering draws only anchor cells for merged blocks and skips covered cells.
+- Merges that cross freeze pane boundaries are disallowed.
 
 #### CellIndex
 

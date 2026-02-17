@@ -11,11 +11,13 @@ import {
   moveGrid,
   moveDimensionMap,
 } from '../model/shifting';
+import { shiftMergeMap, moveMergeMap } from '../model/merging';
 import {
   Axis,
   Cell,
   CellStyle,
   Grid,
+  MergeSpan,
   Ref,
   Range,
   Sref,
@@ -37,6 +39,7 @@ export class MemStore implements Store {
   private colStyles: Map<number, CellStyle> = new Map();
   private rowStyles: Map<number, CellStyle> = new Map();
   private sheetStyle?: CellStyle;
+  private merges: Map<Sref, MergeSpan> = new Map();
   private frozenRows = 0;
   private frozenCols = 0;
 
@@ -140,6 +143,7 @@ export class MemStore implements Store {
       this.colWidths = shiftDimensionMap(this.colWidths, index, count);
       this.colStyles = shiftDimensionMap(this.colStyles, index, count);
     }
+    this.merges = shiftMergeMap(this.merges, axis, index, count);
   }
 
   async moveCells(
@@ -178,6 +182,7 @@ export class MemStore implements Store {
         dstIndex,
       );
     }
+    this.merges = moveMergeMap(this.merges, axis, srcIndex, count, dstIndex);
   }
 
   /**
@@ -271,6 +276,18 @@ export class MemStore implements Store {
 
   async getSheetStyle(): Promise<CellStyle | undefined> {
     return this.sheetStyle ? { ...this.sheetStyle } : undefined;
+  }
+
+  async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {
+    this.merges.set(toSref(anchor), { ...span });
+  }
+
+  async deleteMerge(anchor: Ref): Promise<boolean> {
+    return this.merges.delete(toSref(anchor));
+  }
+
+  async getMerges(): Promise<Map<Sref, MergeSpan>> {
+    return new Map(this.merges);
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {

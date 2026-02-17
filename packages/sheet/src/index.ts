@@ -9,6 +9,7 @@ import {
   type Ref,
   type Sref,
   type Range,
+  type MergeSpan,
   type Direction,
   type Axis,
   type SelectionType,
@@ -33,6 +34,15 @@ import {
   moveDimensionMap,
   relocateFormula,
 } from './model/shifting';
+import {
+  toMergeRange,
+  isRefInMerge,
+  shiftMerge,
+  moveMerge,
+  shiftMergeMap,
+  moveMergeMap,
+  isMergeSplitByMove,
+} from './model/merging';
 import { DimensionIndex } from './model/dimensions';
 import { type Store } from './store/store';
 import { CellIndex } from './store/cell-index';
@@ -56,6 +66,7 @@ export {
   Ref,
   Sref,
   Range,
+  MergeSpan,
   Direction,
   Axis,
   SelectionType,
@@ -77,4 +88,11 @@ export {
   moveGrid,
   moveDimensionMap,
   relocateFormula,
+  toMergeRange,
+  isRefInMerge,
+  shiftMerge,
+  moveMerge,
+  shiftMergeMap,
+  moveMergeMap,
+  isMergeSplitByMove,
 };

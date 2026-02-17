@@ -1,6 +1,6 @@
-import { Ref, Range, SelectionType } from '../model/types';
+import { MergeSpan, Ref, Range, SelectionType } from '../model/types';
 import { DimensionIndex } from '../model/dimensions';
-import { parseRef } from '../model/coordinates';
+import { parseRef, toSref } from '../model/coordinates';
 import { Theme, ThemeKey, getThemeColor, getPeerCursorColor, getFormulaRangeColor } from './theme';
 import {
   BoundingRect,
@@ -63,6 +63,7 @@ export class Overlay {
     freeze: FreezeState = NoFreeze,
     freezeDrag?: { axis: 'row' | 'column'; targetIndex: number } | null,
     copyRange?: Range,
+    merges?: Map<string, MergeSpan>,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -77,12 +78,28 @@ export class Overlay {
     ctx.scale(ratio, ratio);
 
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
+    const mergeData = this.buildMergeRenderData(merges);
 
     if (!hasFrozen) {
       // No freeze: render everything in a single pass (original behavior)
-      this.renderActiveCellSimple(ctx, activeCell, scroll, rowDim, colDim);
+      this.renderActiveCellSimple(
+        ctx,
+        activeCell,
+        scroll,
+        rowDim,
+        colDim,
+        mergeData,
+      );
       this.renderSelectionSimple(ctx, port, scroll, range, selectionType, rowDim, colDim);
-      this.renderPeerCursorsSimple(ctx, port, peerPresences, scroll, rowDim, colDim);
+      this.renderPeerCursorsSimple(
+        ctx,
+        port,
+        peerPresences,
+        scroll,
+        rowDim,
+        colDim,
+        mergeData,
+      );
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
       this.renderCopyRangeSimple(ctx, copyRange, scroll, rowDim, colDim);
     } else {
@@ -99,7 +116,13 @@ export class Overlay {
         ctx.rect(q.x, q.y, q.width, q.height);
         ctx.clip();
 
-        const rect = toBoundingRect(activeCell, { left: q.scrollLeft, top: q.scrollTop }, rowDim, colDim);
+        const rect = this.toCellRect(
+          activeCell,
+          { left: q.scrollLeft, top: q.scrollTop },
+          rowDim,
+          colDim,
+          mergeData,
+        );
         ctx.strokeStyle = this.getThemeColor('activeCellColor');
         ctx.lineWidth = 2;
         ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
@@ -119,7 +142,13 @@ export class Overlay {
           ctx.rect(q.x, q.y, q.width, q.height);
           ctx.clip();
 
-          const rect = toBoundingRect(peerRef, { left: q.scrollLeft, top: q.scrollTop }, rowDim, colDim);
+          const rect = this.toCellRect(
+            peerRef,
+            { left: q.scrollLeft, top: q.scrollTop },
+            rowDim,
+            colDim,
+            mergeData,
+          );
           if (rect.left >= -rect.width && rect.left < port.width &&
               rect.top >= -rect.height && rect.top < port.height) {
             ctx.strokeStyle = peerColor;
@@ -265,8 +294,12 @@ export class Overlay {
     scroll: { left: number; top: number },
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
+    mergeData?: {
+      anchors: Map<string, MergeSpan>;
+      coverToAnchor: Map<string, string>;
+    },
   ): void {
-    const rect = toBoundingRect(activeCell, scroll, rowDim, colDim);
+    const rect = this.toCellRect(activeCell, scroll, rowDim, colDim, mergeData);
     ctx.strokeStyle = this.getThemeColor('activeCellColor');
     ctx.lineWidth = 2;
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
@@ -326,12 +359,22 @@ export class Overlay {
     scroll: { left: number; top: number },
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
+    mergeData?: {
+      anchors: Map<string, MergeSpan>;
+      coverToAnchor: Map<string, string>;
+    },
   ): void {
     for (const { clientID, presence } of peerPresences) {
       if (!presence.activeCell) continue;
 
       const peerActiveCell = parseRef(presence.activeCell);
-      const rect = toBoundingRect(peerActiveCell, scroll, rowDim, colDim);
+      const rect = this.toCellRect(
+        peerActiveCell,
+        scroll,
+        rowDim,
+        colDim,
+        mergeData,
+      );
 
       if (rect.left >= -rect.width && rect.left < port.width &&
           rect.top >= -rect.height && rect.top < port.height) {
@@ -556,5 +599,65 @@ export class Overlay {
 
   private getThemeColor(key: ThemeKey): string {
     return getThemeColor(this.theme, key);
+  }
+
+  /**
+   * Builds merge lookup maps for overlay rendering.
+   */
+  private buildMergeRenderData(
+    merges?: Map<string, MergeSpan>,
+  ): { anchors: Map<string, MergeSpan>; coverToAnchor: Map<string, string> } | undefined {
+    if (!merges || merges.size === 0) return undefined;
+    const anchors = new Map<string, MergeSpan>();
+    const coverToAnchor = new Map<string, string>();
+    for (const [anchorSref, span] of merges) {
+      anchors.set(anchorSref, span);
+      const anchor = parseRef(anchorSref);
+      for (let r = anchor.r; r < anchor.r + span.rs; r++) {
+        for (let c = anchor.c; c < anchor.c + span.cs; c++) {
+          const sref = toSref({ r, c });
+          if (sref === anchorSref) continue;
+          coverToAnchor.set(sref, anchorSref);
+        }
+      }
+    }
+    return { anchors, coverToAnchor };
+  }
+
+  /**
+   * Returns the bounding rect for a regular or merged cell.
+   */
+  private toCellRect(
+    ref: Ref,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    mergeData?: {
+      anchors: Map<string, MergeSpan>;
+      coverToAnchor: Map<string, string>;
+    },
+  ): BoundingRect {
+    const sref = toSref(ref);
+    const anchorSref = mergeData?.coverToAnchor.get(sref) || sref;
+    const anchor = parseRef(anchorSref);
+    const span = mergeData?.anchors.get(anchorSref);
+
+    const start = toBoundingRect(anchor, scroll, rowDim, colDim);
+    if (!span || (span.rs === 1 && span.cs === 1)) {
+      return start;
+    }
+
+    const end = toBoundingRect(
+      { r: anchor.r + span.rs - 1, c: anchor.c + span.cs - 1 },
+      scroll,
+      rowDim,
+      colDim,
+    );
+    return {
+      left: start.left,
+      top: start.top,
+      width: end.left + end.width - start.left,
+      height: end.top + end.height - start.top,
+    };
   }
 }

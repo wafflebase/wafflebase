@@ -4,6 +4,7 @@ import {
   Grid,
   Cell,
   CellStyle,
+  MergeSpan,
   Ref,
   Sref,
   Range,
@@ -21,6 +22,8 @@ import {
   moveFormula,
   remapIndex,
   isCrossSheetRef,
+  shiftMergeMap,
+  moveMergeMap,
 } from "@wafflebase/sheet";
 import { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
@@ -363,6 +366,16 @@ export class YorkieStore implements Store {
           }
         }
       }
+
+      // Shift merged ranges for the affected axis
+      const mergeMap = new Map<Sref, MergeSpan>(
+        Object.entries(ws.merges || {}) as Array<[Sref, MergeSpan]>,
+      );
+      const shiftedMerges = shiftMergeMap(mergeMap, axis, index, count);
+      ws.merges = {};
+      for (const [sref, span] of shiftedMerges) {
+        ws.merges[sref] = span;
+      }
     });
 
     this.dirty = true;
@@ -434,6 +447,16 @@ export class YorkieStore implements Store {
           const newIdx = remapIndex(idx, srcIndex, count, dstIndex);
           styleObj[String(newIdx)] = value;
         }
+      }
+
+      // Remap merged ranges
+      const mergeMap = new Map<Sref, MergeSpan>(
+        Object.entries(ws.merges || {}) as Array<[Sref, MergeSpan]>,
+      );
+      const movedMerges = moveMergeMap(mergeMap, axis, srcIndex, count, dstIndex);
+      ws.merges = {};
+      for (const [sref, span] of movedMerges) {
+        ws.merges[sref] = span;
       }
     });
 
@@ -627,6 +650,65 @@ export class YorkieStore implements Store {
     return ws.sheetStyle ? { ...ws.sheetStyle } : undefined;
   }
 
+  async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      const sref = toSref(anchor);
+      this.batchOps.push((root) => {
+        if (!root.sheets[tabId].merges) {
+          root.sheets[tabId].merges = {};
+        }
+        root.sheets[tabId].merges[sref] = { ...span };
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    const sref = toSref(anchor);
+    this.doc.update((root) => {
+      if (!root.sheets[tabId].merges) {
+        root.sheets[tabId].merges = {};
+      }
+      root.sheets[tabId].merges[sref] = { ...span };
+    });
+  }
+
+  async deleteMerge(anchor: Ref): Promise<boolean> {
+    const sref = toSref(anchor);
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      const ws = this.getSheet();
+      const exists = !!ws.merges?.[sref];
+      if (!exists) return false;
+      this.batchOps.push((root) => {
+        if (root.sheets[tabId].merges?.[sref]) {
+          delete root.sheets[tabId].merges[sref];
+        }
+      });
+      return true;
+    }
+
+    let deleted = false;
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      if (root.sheets[tabId].merges?.[sref]) {
+        delete root.sheets[tabId].merges[sref];
+        deleted = true;
+      }
+    });
+    return deleted;
+  }
+
+  async getMerges(): Promise<Map<Sref, MergeSpan>> {
+    const ws = this.getSheet();
+    const result = new Map<Sref, MergeSpan>();
+    if (!ws.merges) return result;
+    for (const [sref, span] of Object.entries(ws.merges)) {
+      result.set(sref, { ...span });
+    }
+    return result;
+  }
+
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
     if (this.batchOps) {
       const tabId = this.tabId;
@@ -696,38 +778,59 @@ export class YorkieStore implements Store {
   async undo(): Promise<{ success: boolean; affectedRange?: Range }> {
     if (!this.doc.history.canUndo()) return { success: false };
 
-    const beforeKeys = new Set(Object.keys(this.getSheet().sheet));
+    const beforeCellKeys = new Set(Object.keys(this.getSheet().sheet));
+    const beforeMerges = new Map<Sref, MergeSpan>(
+      Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
+    );
     this.doc.history.undo();
     this.dirty = true;
 
-    const affectedRange = this.computeAffectedRange(beforeKeys);
+    const affectedRange = this.computeAffectedRange(beforeCellKeys, beforeMerges);
     return { success: true, affectedRange };
   }
 
   async redo(): Promise<{ success: boolean; affectedRange?: Range }> {
     if (!this.doc.history.canRedo()) return { success: false };
 
-    const beforeKeys = new Set(Object.keys(this.getSheet().sheet));
+    const beforeCellKeys = new Set(Object.keys(this.getSheet().sheet));
+    const beforeMerges = new Map<Sref, MergeSpan>(
+      Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
+    );
     this.doc.history.redo();
     this.dirty = true;
 
-    const affectedRange = this.computeAffectedRange(beforeKeys);
+    const affectedRange = this.computeAffectedRange(beforeCellKeys, beforeMerges);
     return { success: true, affectedRange };
   }
 
   /**
    * Computes the bounding range of cells that changed between beforeKeys and current state.
    */
-  private computeAffectedRange(beforeKeys: Set<string>): Range | undefined {
+  private computeAffectedRange(
+    beforeCellKeys: Set<string>,
+    beforeMerges: Map<Sref, MergeSpan>,
+  ): Range | undefined {
     const afterKeys = new Set(Object.keys(this.getSheet().sheet));
+    const afterMerges = new Map<Sref, MergeSpan>(
+      Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
+    );
 
     // Find all changed srefs (added, removed, or modified)
     const changedSrefs = new Set<string>();
     for (const sref of afterKeys) {
-      if (!beforeKeys.has(sref)) changedSrefs.add(sref);
+      if (!beforeCellKeys.has(sref)) changedSrefs.add(sref);
     }
-    for (const sref of beforeKeys) {
+    for (const sref of beforeCellKeys) {
       if (!afterKeys.has(sref)) changedSrefs.add(sref);
+    }
+    for (const [sref, span] of afterMerges) {
+      const prev = beforeMerges.get(sref);
+      if (!prev || prev.rs !== span.rs || prev.cs !== span.cs) {
+        changedSrefs.add(sref);
+      }
+    }
+    for (const sref of beforeMerges.keys()) {
+      if (!afterMerges.has(sref)) changedSrefs.add(sref);
     }
 
     if (changedSrefs.size === 0) return undefined;

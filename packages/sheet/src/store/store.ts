@@ -3,6 +3,7 @@ import {
   Cell,
   CellStyle,
   Grid,
+  MergeSpan,
   Ref,
   Range,
   Sref,
@@ -125,6 +126,21 @@ export interface Store {
    * `getSheetStyle` method gets the sheet-level default style.
    */
   getSheetStyle(): Promise<CellStyle | undefined>;
+
+  /**
+   * `setMerge` sets a merged range anchor with row/column span.
+   */
+  setMerge(anchor: Ref, span: MergeSpan): Promise<void>;
+
+  /**
+   * `deleteMerge` removes a merged range anchor.
+   */
+  deleteMerge(anchor: Ref): Promise<boolean>;
+
+  /**
+   * `getMerges` gets all merged range anchors in the worksheet.
+   */
+  getMerges(): Promise<Map<Sref, MergeSpan>>;
 
   /**
    * `updateActiveCell` method updates the active cell of the current user.

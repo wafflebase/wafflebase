@@ -106,6 +106,7 @@ type Worksheet = {
   colStyles: { [index: string]: CellStyle };
   rowStyles: { [index: string]: CellStyle };
   sheetStyle?: CellStyle;
+  merges?: { [anchor: Sref]: { rs: number; cs: number } };
   frozenRows: number;
   frozenCols: number;
 };
@@ -144,6 +145,9 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `moveCells(axis, src, count, dst)` | Rebuild `root.sheet` with remapped refs and formulas |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
+| `setMerge(anchor, span)` | Write to `root.sheets[tabId].merges[anchorSref]` |
+| `deleteMerge(anchor)` | Delete `root.sheets[tabId].merges[anchorSref]` |
+| `getMerges()` | Read all merge anchors from `root.sheets[tabId].merges` |
 | `updateActiveCell(ref)` | `doc.update((_, presence) => presence.set(...))` |
 | `getPresences()` | `doc.getPresences()` filtered to other clients |
 
