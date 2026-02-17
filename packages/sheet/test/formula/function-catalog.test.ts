@@ -62,6 +62,9 @@ describe('FunctionCatalog', () => {
       expect(findFunction('ABS')!.name).toBe('ABS');
       expect(findFunction('ROUND')!.name).toBe('ROUND');
       expect(findFunction('SUBSTITUTE')!.name).toBe('SUBSTITUTE');
+      expect(findFunction('IFS')!.name).toBe('IFS');
+      expect(findFunction('SWITCH')!.name).toBe('SWITCH');
+      expect(findFunction('TEXTJOIN')!.name).toBe('TEXTJOIN');
     });
 
     it('should return undefined for unknown function', () => {
@@ -96,6 +99,13 @@ describe('FunctionCatalog', () => {
       const info = findFunction('SUBSTITUTE')!;
       expect(formatSignature(info)).toBe(
         'SUBSTITUTE(text, search_for, replace_with, [occurrence])',
+      );
+    });
+
+    it('should format TEXTJOIN signature', () => {
+      const info = findFunction('TEXTJOIN')!;
+      expect(formatSignature(info)).toBe(
+        'TEXTJOIN(delimiter, ignore_empty, text1, [text2], ...)',
       );
     });
   });

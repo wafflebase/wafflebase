@@ -75,6 +75,28 @@ export const FunctionCatalog: FunctionInfo[] = [
     ],
   },
   {
+    name: 'IFS',
+    description: 'Returns the first value whose condition is true',
+    args: [
+      { name: 'condition1' },
+      { name: 'value1' },
+      { name: 'condition2', optional: true, repeating: true },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'SWITCH',
+    description: 'Matches an expression against case/value pairs',
+    args: [
+      { name: 'expression' },
+      { name: 'case1' },
+      { name: 'value1' },
+      { name: 'case2', optional: true, repeating: true },
+      { name: 'value2', optional: true, repeating: true },
+      { name: 'default', optional: true },
+    ],
+  },
+  {
     name: 'AND',
     description: 'Returns TRUE if all arguments are true',
     args: [
@@ -167,6 +189,34 @@ export const FunctionCatalog: FunctionInfo[] = [
       { name: 'text1' },
       { name: 'text2' },
       { name: 'text3', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'FIND',
+    description: 'Finds one text value inside another (case-sensitive)',
+    args: [
+      { name: 'search_for' },
+      { name: 'text_to_search' },
+      { name: 'starting_at', optional: true },
+    ],
+  },
+  {
+    name: 'SEARCH',
+    description: 'Finds one text value inside another (case-insensitive)',
+    args: [
+      { name: 'search_for' },
+      { name: 'text_to_search' },
+      { name: 'starting_at', optional: true },
+    ],
+  },
+  {
+    name: 'TEXTJOIN',
+    description: 'Joins text values with a delimiter',
+    args: [
+      { name: 'delimiter' },
+      { name: 'ignore_empty' },
+      { name: 'text1' },
+      { name: 'text2', optional: true, repeating: true },
     ],
   },
   {

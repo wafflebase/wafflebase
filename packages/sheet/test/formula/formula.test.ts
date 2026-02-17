@@ -124,6 +124,19 @@ describe('Formula', () => {
     expect(evaluate('=IF(FALSE,1)')).toBe('false');
   });
 
+  it('should correctly evaluate IFS function', () => {
+    expect(evaluate('=IFS(1=0,"a",2=2,"b")')).toBe('b');
+    expect(evaluate('=IFS(TRUE,1,FALSE,2)')).toBe('1');
+    expect(evaluate('=IFS(FALSE,1,FALSE,2)')).toBe('#N/A!');
+    expect(evaluate('=IFS(TRUE)')).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate SWITCH function', () => {
+    expect(evaluate('=SWITCH(2,1,"a",2,"b","c")')).toBe('b');
+    expect(evaluate('=SWITCH("x","y",1,"z",2,3)')).toBe('3');
+    expect(evaluate('=SWITCH(1,2,"a")')).toBe('#N/A!');
+  });
+
   it('should correctly evaluate AND function', () => {
     expect(evaluate('=AND(TRUE,TRUE)')).toBe('true');
     expect(evaluate('=AND(TRUE,FALSE)')).toBe('false');
@@ -234,6 +247,25 @@ describe('Formula', () => {
     expect(evaluate('=CONCATENATE("hello"," ","world")')).toBe('hello world');
     expect(evaluate('=CONCATENATE("a","b")')).toBe('ab');
     expect(evaluate('=CONCATENATE("x","y","z")')).toBe('xyz');
+  });
+
+  it('should correctly evaluate FIND function', () => {
+    expect(evaluate('=FIND("o","Hello")')).toBe('5');
+    expect(evaluate('=FIND("l","Hello",4)')).toBe('4');
+    expect(evaluate('=FIND("h","Hello")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate SEARCH function', () => {
+    expect(evaluate('=SEARCH("h","Hello")')).toBe('1');
+    expect(evaluate('=SEARCH("L","Hello",4)')).toBe('4');
+    expect(evaluate('=SEARCH("?e*o","Hello")')).toBe('1');
+    expect(evaluate('=SEARCH("z","Hello")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate TEXTJOIN function', () => {
+    expect(evaluate('=TEXTJOIN("-",TRUE,"a","","b")')).toBe('a-b');
+    expect(evaluate('=TEXTJOIN("-",FALSE,"a","","b")')).toBe('a--b');
+    expect(evaluate('=TEXTJOIN(" ",TRUE,"hello","world")')).toBe('hello world');
   });
 
   it('should correctly evaluate LOWER function', () => {
@@ -434,6 +466,13 @@ describe('Formula.extractTokens', () => {
 
     expect(extractTokens('=MY_FUNC(1)')).toEqual([
       { type: 'FUNCNAME', start: 0, stop: 6, text: 'MY_FUNC' },
+      { type: 'STRING', start: 7, stop: 7, text: '(' },
+      { type: 'NUM', start: 8, stop: 8, text: '1' },
+      { type: 'STRING', start: 9, stop: 9, text: ')' },
+    ]);
+
+    expect(extractTokens('=MY.FUNC(1)')).toEqual([
+      { type: 'FUNCNAME', start: 0, stop: 6, text: 'MY.FUNC' },
       { type: 'STRING', start: 7, stop: 7, text: '(' },
       { type: 'NUM', start: 8, stop: 8, text: '1' },
       { type: 'STRING', start: 9, stop: 9, text: ')' },

@@ -19,6 +19,8 @@ export const FunctionMap = new Map([
   ['SQRT', sqrtFunc],
   ['POWER', powerFunc],
   ['IF', ifFunc],
+  ['IFS', ifsFunc],
+  ['SWITCH', switchFunc],
   ['AND', andFunc],
   ['OR', orFunc],
   ['NOT', notFunc],
@@ -33,6 +35,9 @@ export const FunctionMap = new Map([
   ['RIGHT', rightFunc],
   ['MID', midFunc],
   ['CONCATENATE', concatenateFunc],
+  ['FIND', findFunc],
+  ['SEARCH', searchFunc],
+  ['TEXTJOIN', textjoinFunc],
   ['LOWER', lowerFunc],
   ['UPPER', upperFunc],
   ['PROPER', properFunc],
@@ -392,6 +397,86 @@ export function ifFunc(
   }
 
   return { t: 'bool', v: false };
+}
+
+/**
+ * `ifsFunc` is the implementation of the IFS function.
+ * IFS(condition1, value1, [condition2, value2], ...) — returns the first value
+ * whose condition is true.
+ */
+export function ifsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length % 2 !== 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  for (let i = 0; i < exprs.length; i += 2) {
+    const condition = BoolArgs.map(visit(exprs[i]), grid);
+    if (condition.t === 'err') {
+      return condition;
+    }
+
+    if (condition.v) {
+      return visit(exprs[i + 1]);
+    }
+  }
+
+  return { t: 'err', v: '#N/A!' };
+}
+
+/**
+ * `switchFunc` is the implementation of the SWITCH function.
+ * SWITCH(expression, case1, value1, [case2, value2], [default])
+ */
+export function switchFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const expression = toStr(visit(exprs[0]), grid);
+  if (expression.t === 'err') {
+    return expression;
+  }
+
+  const remaining = exprs.length - 1;
+  const hasDefault = remaining % 2 === 1;
+  const pairCount = hasDefault ? (remaining - 1) / 2 : remaining / 2;
+
+  for (let i = 0; i < pairCount; i++) {
+    const caseValue = toStr(visit(exprs[1 + i * 2]), grid);
+    if (caseValue.t === 'err') {
+      return caseValue;
+    }
+
+    if (caseValue.v === expression.v) {
+      return visit(exprs[2 + i * 2]);
+    }
+  }
+
+  if (hasDefault) {
+    return visit(exprs[exprs.length - 1]);
+  }
+
+  return { t: 'err', v: '#N/A!' };
 }
 
 /**
@@ -837,6 +922,212 @@ export function concatenateFunc(
   }
 
   return { t: 'str', v: result };
+}
+
+function parseStartPosition(
+  expr: ParseTree | undefined,
+  text: string,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): { t: 'num'; v: number } | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+  if (!expr) {
+    return { t: 'num', v: 1 };
+  }
+
+  const start = NumberArgs.map(visit(expr), grid);
+  if (start.t === 'err') {
+    return start;
+  }
+
+  const value = Math.trunc(start.v);
+  if (value < 1 || value > text.length + 1) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: value };
+}
+
+/**
+ * `findFunc` is the implementation of the FIND function.
+ * FIND(search_for, text_to_search, [starting_at]) — case-sensitive search.
+ */
+export function findFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const searchFor = toStr(visit(exprs[0]), grid);
+  if (searchFor.t === 'err') {
+    return searchFor;
+  }
+
+  const text = toStr(visit(exprs[1]), grid);
+  if (text.t === 'err') {
+    return text;
+  }
+
+  const start = parseStartPosition(exprs[2], text.v, visit, grid);
+  if (start.t === 'err') {
+    return start;
+  }
+
+  if (searchFor.v === '') {
+    return { t: 'num', v: start.v };
+  }
+
+  const index = text.v.indexOf(searchFor.v, start.v - 1);
+  if (index < 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: index + 1 };
+}
+
+function wildcardToRegex(pattern: string): string {
+  let regex = '';
+
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+
+    if (ch === '~' && i + 1 < pattern.length) {
+      regex += pattern[i + 1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      i++;
+      continue;
+    }
+
+    if (ch === '*') {
+      regex += '.*';
+      continue;
+    }
+
+    if (ch === '?') {
+      regex += '.';
+      continue;
+    }
+
+    regex += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  return regex;
+}
+
+/**
+ * `searchFunc` is the implementation of the SEARCH function.
+ * SEARCH(search_for, text_to_search, [starting_at]) — case-insensitive search.
+ */
+export function searchFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const searchFor = toStr(visit(exprs[0]), grid);
+  if (searchFor.t === 'err') {
+    return searchFor;
+  }
+
+  const text = toStr(visit(exprs[1]), grid);
+  if (text.t === 'err') {
+    return text;
+  }
+
+  const start = parseStartPosition(exprs[2], text.v, visit, grid);
+  if (start.t === 'err') {
+    return start;
+  }
+
+  if (searchFor.v === '') {
+    return { t: 'num', v: start.v };
+  }
+
+  const query = wildcardToRegex(searchFor.v);
+  const regex = new RegExp(query, 'i');
+  const sliced = text.v.slice(start.v - 1);
+  const match = regex.exec(sliced);
+  if (!match || match.index === undefined) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: start.v + match.index };
+}
+
+/**
+ * `textjoinFunc` is the implementation of the TEXTJOIN function.
+ * TEXTJOIN(delimiter, ignore_empty, text1, [text2], ...)
+ */
+export function textjoinFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const delimiter = toStr(visit(exprs[0]), grid);
+  if (delimiter.t === 'err') {
+    return delimiter;
+  }
+
+  const ignoreEmpty = BoolArgs.map(visit(exprs[1]), grid);
+  if (ignoreEmpty.t === 'err') {
+    return ignoreEmpty;
+  }
+
+  const values: string[] = [];
+  for (const expr of exprs.slice(2)) {
+    const node = visit(expr);
+
+    if (node.t === 'ref' && grid && isSrng(node.v)) {
+      for (const ref of toSrefs([node.v])) {
+        const value = toStr({ t: 'ref', v: ref }, grid);
+        if (value.t === 'err') {
+          return value;
+        }
+        if (ignoreEmpty.v && value.v === '') {
+          continue;
+        }
+        values.push(value.v);
+      }
+      continue;
+    }
+
+    const value = toStr(node, grid);
+    if (value.t === 'err') {
+      return value;
+    }
+    if (ignoreEmpty.v && value.v === '') {
+      continue;
+    }
+    values.push(value.v);
+  }
+
+  return { t: 'str', v: values.join(delimiter.v) };
 }
 
 /**

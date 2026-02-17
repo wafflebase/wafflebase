@@ -270,9 +270,9 @@ Functions are registered in `FunctionMap`. Currently implemented:
 
 - **Math** — `SUM`, `ABS`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `INT`, `MOD`,
   `SQRT`, `POWER`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`.
-- **Logical** — `IF`, `AND`, `OR`, `NOT`, `IFERROR`.
-- **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `LOWER`,
-  `UPPER`, `PROPER`, `SUBSTITUTE`.
+- **Logical** — `IF`, `IFS`, `SWITCH`, `AND`, `OR`, `NOT`, `IFERROR`.
+- **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `FIND`,
+  `SEARCH`, `TEXTJOIN`, `LOWER`, `UPPER`, `PROPER`, `SUBSTITUTE`.
 - **Date/Time** — `TODAY`, `NOW`, `YEAR`, `MONTH`, `DAY`.
 
 Ranges are expanded to individual cells where relevant. Numeric coercion uses
@@ -528,7 +528,7 @@ all style properties and calls `Spreadsheet.applyStyle()` /
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 30+ functions are implemented. New functions
+**Formula function coverage** — 35+ functions are implemented. New functions
 are added to `FunctionMap` following the same pattern: accept a
 `FunctionContext`, visitor, and optional grid; return an `EvalNode`.
 

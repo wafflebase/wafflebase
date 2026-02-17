@@ -143,11 +143,14 @@ Functions are registered in `FunctionMap`. Each function receives a
 | `COUNT`                  | Count of numeric values                             |
 | `COUNTA`                 | Count of non-empty values                           |
 | `IF`                     | Conditional: `IF(condition, true_val, [false_val])` |
+| `IFS` / `SWITCH`         | Multi-branch conditional selection                  |
 | `AND` / `OR` / `NOT`     | Logical operators                                   |
 | `TRIM`                   | Remove leading/trailing whitespace                  |
 | `LEN`                    | String length                                       |
 | `LEFT` / `RIGHT` / `MID` | Substring extraction                                |
 | `CONCATENATE`            | String concatenation                                |
+| `FIND` / `SEARCH`        | Text search (case-sensitive/insensitive)            |
+| `TEXTJOIN`               | Concatenation with delimiter and empty filtering    |
 | `LOWER` / `UPPER` / `PROPER` | Text case conversion                            |
 | `SUBSTITUTE`             | Replace text occurrences                            |
 | `TODAY` / `NOW`          | Current date / datetime                             |
@@ -322,7 +325,7 @@ changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — Currently 30+ functions are implemented. New
+**Formula function coverage** — Currently 35+ functions are implemented. New
 functions are added to `FunctionMap` and `FunctionCatalog` following the same
 pattern: accept `(ctx, visit, grid?)`, return an `EvalNode`.
 
