@@ -157,11 +157,16 @@ export class GridContainer {
   }
 
   private physicalMax(actualSize: number, viewportSize: number): number {
-    return this.cappedSize(actualSize) - viewportSize;
+    return Math.max(0, this.cappedSize(actualSize) - viewportSize);
   }
 
   private logicalMax(actualSize: number, viewportSize: number): number {
-    return actualSize - viewportSize;
+    return Math.max(0, actualSize - viewportSize);
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    if (max <= min) return min;
+    return Math.min(max, Math.max(min, value));
   }
 
   private toLogical(
@@ -169,15 +174,15 @@ export class GridContainer {
     actualSize: number,
     viewportSize: number,
   ): number {
+    const lMax = this.logicalMax(actualSize, viewportSize);
     if (!this.needsRemap(actualSize, viewportSize)) {
-      return physicalScroll;
+      return this.clamp(physicalScroll, 0, lMax);
     }
 
     const pMax = this.physicalMax(actualSize, viewportSize);
-    if (pMax <= 0) return 0;
-
-    const lMax = this.logicalMax(actualSize, viewportSize);
-    return physicalScroll * lMax / pMax;
+    if (pMax <= 0 || lMax <= 0) return 0;
+    const clampedPhysical = this.clamp(physicalScroll, 0, pMax);
+    return clampedPhysical * lMax / pMax;
   }
 
   private toPhysical(
@@ -185,14 +190,15 @@ export class GridContainer {
     actualSize: number,
     viewportSize: number,
   ): number {
+    const lMax = this.logicalMax(actualSize, viewportSize);
     if (!this.needsRemap(actualSize, viewportSize)) {
-      return logicalScroll;
+      return this.clamp(logicalScroll, 0, lMax);
     }
 
-    const lMax = this.logicalMax(actualSize, viewportSize);
     if (lMax <= 0) return 0;
 
     const pMax = this.physicalMax(actualSize, viewportSize);
-    return logicalScroll * pMax / lMax;
+    const clampedLogical = this.clamp(logicalScroll, 0, lMax);
+    return clampedLogical * pMax / lMax;
   }
 }

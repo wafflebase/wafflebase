@@ -63,6 +63,13 @@ describe('DimensionIndex', () => {
   });
 
   describe('findIndex', () => {
+    it('should clamp negative offsets to index 1', () => {
+      const dim = new DimensionIndex(100);
+      dim.setSize(2, 200);
+      expect(dim.findIndex(-1)).toBe(1);
+      expect(dim.findIndex(-999)).toBe(1);
+    });
+
     it('should find index with all default sizes', () => {
       const dim = new DimensionIndex(100);
       expect(dim.findIndex(0)).toBe(1);

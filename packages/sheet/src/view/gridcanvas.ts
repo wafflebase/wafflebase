@@ -124,13 +124,17 @@ export class GridCanvas {
       const fh = freeze.frozenHeight;
       const fr = freeze.frozenRows;
       const fc = freeze.frozenCols;
+      const unfrozenRowStartIndex = fr + 1;
+      const unfrozenColStartIndex = fc + 1;
+      const startUnfrozenRow = Math.max(unfrozenRowStartIndex, startID.r);
+      const startUnfrozenCol = Math.max(unfrozenColStartIndex, startID.c);
 
       // Compute scroll for unfrozen area: offset relative to first unfrozen row/col
       const unfrozenRowStart = rowDim
-        ? rowDim.getOffset(fr + 1)
+        ? rowDim.getOffset(unfrozenRowStartIndex)
         : fr * DefaultCellHeight;
       const unfrozenColStart = colDim
-        ? colDim.getOffset(fc + 1)
+        ? colDim.getOffset(unfrozenColStartIndex)
         : fc * DefaultCellWidth;
 
       // Quadrant D (bottom-right): scrolled H + V — draw first (background)
@@ -145,9 +149,9 @@ export class GridCanvas {
       ctx.clip();
       this.renderQuadrantCells(
         ctx,
-        startID.r,
+        startUnfrozenRow,
         endID.r + 1,
-        startID.c,
+        startUnfrozenCol,
         endID.c + 1,
         grid,
         {
@@ -177,7 +181,7 @@ export class GridCanvas {
           ctx,
           1,
           fr + 1,
-          startID.c,
+          startUnfrozenCol,
           endID.c + 1,
           grid,
           { left: scroll.left + unfrozenColStart - fw, top: 0 },
@@ -203,7 +207,7 @@ export class GridCanvas {
         ctx.clip();
         this.renderQuadrantCells(
           ctx,
-          startID.r,
+          startUnfrozenRow,
           endID.r + 1,
           1,
           fc + 1,
@@ -260,7 +264,7 @@ export class GridCanvas {
       // Column headers — unfrozen columns (scrolled)
       this.renderColumnHeaders(
         ctx,
-        startID.c,
+        startUnfrozenCol,
         endID.c,
         scroll.left + unfrozenColStart - fw,
         RowHeaderWidth + fw,
@@ -291,7 +295,7 @@ export class GridCanvas {
       // Row headers — unfrozen rows (scrolled)
       this.renderRowHeaders(
         ctx,
-        startID.r,
+        startUnfrozenRow,
         endID.r,
         scroll.top + unfrozenRowStart - fh,
         DefaultCellHeight + fh,

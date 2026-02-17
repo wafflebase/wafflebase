@@ -179,3 +179,14 @@ use arrow keys or click to select the exact cell.
 **Browser scroll rounding**: Browsers may round `scrollLeft/scrollTop` to
 integers, which can cause small drift after round-tripping through
 `toLogical`/`toPhysical`. The effect is sub-pixel and imperceptible in practice.
+
+**Mobile rubber-band overscroll**: On mobile Safari, pulling past the top/left
+edge can briefly produce negative `scrollTop`/`scrollLeft`. `GridContainer`
+clamps physical and logical scroll values to `[0, max]`, and
+`DimensionIndex.findIndex()` clamps negative offsets to index `1`, so rendering
+never shows row/column `0` or negative indices.
+
+When freeze panes are active, `Worksheet.viewRange` and `GridCanvas` also clamp
+the scrolled (unfrozen) start indices to at least `frozenRows+1` and
+`frozenCols+1`. This prevents frozen rows/columns from being drawn again in the
+bottom/right panes during transient scroll anomalies.

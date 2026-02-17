@@ -2035,12 +2035,23 @@ export class Worksheet {
     const unfrozenRowStart = this.rowDim.getOffset(freeze.frozenRows + 1);
     const unfrozenColStart = this.colDim.getOffset(freeze.frozenCols + 1);
 
-    const startRow = this.rowDim.findIndex(unfrozenRowStart + scroll.top);
-    const endRow =
-      this.rowDim.findIndex(unfrozenRowStart + scroll.top + port.height) + 1;
-    const startCol = this.colDim.findIndex(unfrozenColStart + scroll.left);
-    const endCol =
-      this.colDim.findIndex(unfrozenColStart + scroll.left + port.width) + 1;
+    // Keep the scrolled viewport strictly in the unfrozen region.
+    const startRow = Math.max(
+      freeze.frozenRows + 1,
+      this.rowDim.findIndex(unfrozenRowStart + scroll.top),
+    );
+    const endRow = Math.max(
+      startRow,
+      this.rowDim.findIndex(unfrozenRowStart + scroll.top + port.height) + 1,
+    );
+    const startCol = Math.max(
+      freeze.frozenCols + 1,
+      this.colDim.findIndex(unfrozenColStart + scroll.left),
+    );
+    const endCol = Math.max(
+      startCol,
+      this.colDim.findIndex(unfrozenColStart + scroll.left + port.width) + 1,
+    );
 
     return [
       { r: startRow, c: startCol },
@@ -2182,7 +2193,8 @@ export class Worksheet {
     // Fetch grid for all visible quadrants
     const viewRange = this.viewRange;
     const fullRange: Range = [
-      { r: Math.min(1, viewRange[0].r), c: Math.min(1, viewRange[0].c) },
+      // Frozen panes always need top-left data available.
+      { r: 1, c: 1 },
       { r: viewRange[1].r, c: viewRange[1].c },
     ];
     const grid = await this.sheet!.fetchGrid(fullRange);

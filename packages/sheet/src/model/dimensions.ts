@@ -58,6 +58,8 @@ export class DimensionIndex {
    * Uses the custom sizes to find the correct index.
    */
   findIndex(offset: number): number {
+    if (offset < 0) return 1;
+
     if (this.customSizes.size === 0) {
       return Math.floor(offset / this.defaultSize) + 1;
     }
