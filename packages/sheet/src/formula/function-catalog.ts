@@ -26,6 +26,46 @@ export const FunctionCatalog: FunctionInfo[] = [
     ],
   },
   {
+    name: 'ABS',
+    description: 'Returns the absolute value of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'ROUND',
+    description: 'Rounds a number to a certain number of decimal places',
+    args: [{ name: 'value' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'ROUNDUP',
+    description: 'Rounds a number away from zero',
+    args: [{ name: 'value' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'ROUNDDOWN',
+    description: 'Rounds a number toward zero',
+    args: [{ name: 'value' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'INT',
+    description: 'Rounds a number down to the nearest integer',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'MOD',
+    description: 'Returns the remainder after division',
+    args: [{ name: 'dividend' }, { name: 'divisor' }],
+  },
+  {
+    name: 'SQRT',
+    description: 'Returns the positive square root of a number',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'POWER',
+    description: 'Returns a number raised to a power',
+    args: [{ name: 'base' }, { name: 'exponent' }],
+  },
+  {
     name: 'IF',
     description: 'Returns one value if true and another if false',
     args: [
@@ -127,6 +167,31 @@ export const FunctionCatalog: FunctionInfo[] = [
       { name: 'text1' },
       { name: 'text2' },
       { name: 'text3', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'LOWER',
+    description: 'Converts text to lowercase',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'UPPER',
+    description: 'Converts text to uppercase',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'PROPER',
+    description: 'Capitalizes each word in text',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'SUBSTITUTE',
+    description: 'Replaces existing text with new text in a string',
+    args: [
+      { name: 'text' },
+      { name: 'search_for' },
+      { name: 'replace_with' },
+      { name: 'occurrence', optional: true },
     ],
   },
   {

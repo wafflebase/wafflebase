@@ -10,6 +10,14 @@ import { isSrng, toSrefs } from '../model/coordinates';
  */
 export const FunctionMap = new Map([
   ['SUM', sum],
+  ['ABS', absFunc],
+  ['ROUND', roundFunc],
+  ['ROUNDUP', roundUpFunc],
+  ['ROUNDDOWN', roundDownFunc],
+  ['INT', intFunc],
+  ['MOD', modFunc],
+  ['SQRT', sqrtFunc],
+  ['POWER', powerFunc],
   ['IF', ifFunc],
   ['AND', andFunc],
   ['OR', orFunc],
@@ -25,6 +33,10 @@ export const FunctionMap = new Map([
   ['RIGHT', rightFunc],
   ['MID', midFunc],
   ['CONCATENATE', concatenateFunc],
+  ['LOWER', lowerFunc],
+  ['UPPER', upperFunc],
+  ['PROPER', properFunc],
+  ['SUBSTITUTE', substituteFunc],
   ['TODAY', todayFunc],
   ['NOW', nowFunc],
   ['YEAR', yearFunc],
@@ -59,6 +71,292 @@ export function sum(
     t: 'num',
     v: value,
   };
+}
+
+/**
+ * `absFunc` is the implementation of the ABS function.
+ * ABS(number) — returns the absolute value of a number.
+ */
+export function absFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: Math.abs(num.v) };
+}
+
+function roundHalfAwayFromZero(value: number): number {
+  if (value >= 0) {
+    return Math.floor(value + 0.5);
+  }
+
+  return Math.ceil(value - 0.5);
+}
+
+function parsePlaces(
+  expr: ParseTree | undefined,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): { t: 'num'; v: number } | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+  if (!expr) {
+    return { t: 'num', v: 0 };
+  }
+
+  const places = NumberArgs.map(visit(expr), grid);
+  if (places.t === 'err') {
+    return places;
+  }
+
+  return { t: 'num', v: Math.trunc(places.v) };
+}
+
+/**
+ * `roundFunc` is the implementation of the ROUND function.
+ * ROUND(value, [places]) — rounds to a specified number of digits.
+ */
+export function roundFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = NumberArgs.map(visit(exprs[0]), grid);
+  if (value.t === 'err') {
+    return value;
+  }
+
+  const places = parsePlaces(exprs[1], visit, grid);
+  if (places.t === 'err') {
+    return places;
+  }
+
+  const factor = 10 ** places.v;
+  const rounded = roundHalfAwayFromZero(value.v * factor) / factor;
+  return { t: 'num', v: rounded };
+}
+
+/**
+ * `roundUpFunc` is the implementation of the ROUNDUP function.
+ * ROUNDUP(value, [places]) — rounds away from zero.
+ */
+export function roundUpFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = NumberArgs.map(visit(exprs[0]), grid);
+  if (value.t === 'err') {
+    return value;
+  }
+
+  const places = parsePlaces(exprs[1], visit, grid);
+  if (places.t === 'err') {
+    return places;
+  }
+
+  const factor = 10 ** places.v;
+  const scaled = value.v * factor;
+  const rounded = (scaled >= 0 ? Math.ceil(scaled) : Math.floor(scaled)) / factor;
+  return { t: 'num', v: rounded };
+}
+
+/**
+ * `roundDownFunc` is the implementation of the ROUNDDOWN function.
+ * ROUNDDOWN(value, [places]) — rounds toward zero.
+ */
+export function roundDownFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = NumberArgs.map(visit(exprs[0]), grid);
+  if (value.t === 'err') {
+    return value;
+  }
+
+  const places = parsePlaces(exprs[1], visit, grid);
+  if (places.t === 'err') {
+    return places;
+  }
+
+  const factor = 10 ** places.v;
+  const scaled = value.v * factor;
+  const rounded = (scaled >= 0 ? Math.floor(scaled) : Math.ceil(scaled)) / factor;
+  return { t: 'num', v: rounded };
+}
+
+/**
+ * `intFunc` is the implementation of the INT function.
+ * INT(value) — rounds down to the nearest integer.
+ */
+export function intFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = NumberArgs.map(visit(exprs[0]), grid);
+  if (value.t === 'err') {
+    return value;
+  }
+
+  return { t: 'num', v: Math.floor(value.v) };
+}
+
+/**
+ * `modFunc` is the implementation of the MOD function.
+ * MOD(dividend, divisor) — returns the remainder after division.
+ */
+export function modFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const dividend = NumberArgs.map(visit(exprs[0]), grid);
+  if (dividend.t === 'err') {
+    return dividend;
+  }
+
+  const divisor = NumberArgs.map(visit(exprs[1]), grid);
+  if (divisor.t === 'err') {
+    return divisor;
+  }
+  if (divisor.v === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const remainder = dividend.v - divisor.v * Math.floor(dividend.v / divisor.v);
+  return { t: 'num', v: remainder };
+}
+
+/**
+ * `sqrtFunc` is the implementation of the SQRT function.
+ * SQRT(value) — returns the positive square root.
+ */
+export function sqrtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = NumberArgs.map(visit(exprs[0]), grid);
+  if (value.t === 'err') {
+    return value;
+  }
+  if (value.v < 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.sqrt(value.v) };
+}
+
+/**
+ * `powerFunc` is the implementation of the POWER function.
+ * POWER(base, exponent) — returns base raised to exponent.
+ */
+export function powerFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const base = NumberArgs.map(visit(exprs[0]), grid);
+  if (base.t === 'err') {
+    return base;
+  }
+
+  const exponent = NumberArgs.map(visit(exprs[1]), grid);
+  if (exponent.t === 'err') {
+    return exponent;
+  }
+
+  const result = Math.pow(base.v, exponent.v);
+  if (!isFinite(result)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: result };
 }
 
 /**
@@ -539,6 +837,164 @@ export function concatenateFunc(
   }
 
   return { t: 'str', v: result };
+}
+
+/**
+ * `lowerFunc` is the implementation of the LOWER function.
+ * LOWER(text) — converts text to lowercase.
+ */
+export function lowerFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  return { t: 'str', v: str.v.toLowerCase() };
+}
+
+/**
+ * `upperFunc` is the implementation of the UPPER function.
+ * UPPER(text) — converts text to uppercase.
+ */
+export function upperFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  return { t: 'str', v: str.v.toUpperCase() };
+}
+
+/**
+ * `properFunc` is the implementation of the PROPER function.
+ * PROPER(text) — capitalizes words in text.
+ */
+export function properFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  const normalized = str.v.toLowerCase().replace(
+    /\b([a-z])([a-z]*)/g,
+    (_match, first: string, rest: string) => first.toUpperCase() + rest,
+  );
+  return { t: 'str', v: normalized };
+}
+
+/**
+ * `substituteFunc` is the implementation of the SUBSTITUTE function.
+ * SUBSTITUTE(text, search_for, replace_with, [occurrence]) — replaces text.
+ */
+export function substituteFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const text = toStr(visit(exprs[0]), grid);
+  if (text.t === 'err') {
+    return text;
+  }
+
+  const searchFor = toStr(visit(exprs[1]), grid);
+  if (searchFor.t === 'err') {
+    return searchFor;
+  }
+
+  const replaceWith = toStr(visit(exprs[2]), grid);
+  if (replaceWith.t === 'err') {
+    return replaceWith;
+  }
+
+  if (searchFor.v === '') {
+    return { t: 'str', v: text.v };
+  }
+
+  if (exprs.length === 3) {
+    return { t: 'str', v: text.v.split(searchFor.v).join(replaceWith.v) };
+  }
+
+  const occurrence = NumberArgs.map(visit(exprs[3]), grid);
+  if (occurrence.t === 'err') {
+    return occurrence;
+  }
+
+  const target = Math.trunc(occurrence.v);
+  if (target <= 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let from = 0;
+  let count = 0;
+  while (true) {
+    const index = text.v.indexOf(searchFor.v, from);
+    if (index < 0) {
+      return { t: 'str', v: text.v };
+    }
+
+    count++;
+    if (count === target) {
+      const replaced =
+        text.v.slice(0, index) +
+        replaceWith.v +
+        text.v.slice(index + searchFor.v.length);
+      return { t: 'str', v: replaced };
+    }
+
+    from = index + searchFor.v.length;
+  }
 }
 
 /**

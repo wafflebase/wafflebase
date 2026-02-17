@@ -45,6 +45,52 @@ describe('Formula', () => {
     expect(evaluate('=SUM(true,false,true)')).toBe('2');
   });
 
+  it('should correctly evaluate ABS function', () => {
+    expect(evaluate('=ABS(0-5)')).toBe('5');
+    expect(evaluate('=ABS(5)')).toBe('5');
+  });
+
+  it('should correctly evaluate ROUND function', () => {
+    expect(evaluate('=ROUND(1.234,2)')).toBe('1.23');
+    expect(evaluate('=ROUND(1.235,2)')).toBe('1.24');
+    expect(evaluate('=ROUND(0-1.5)')).toBe('-2');
+    expect(evaluate('=ROUND(1234,0-2)')).toBe('1200');
+  });
+
+  it('should correctly evaluate ROUNDUP function', () => {
+    expect(evaluate('=ROUNDUP(1.21,1)')).toBe('1.3');
+    expect(evaluate('=ROUNDUP(0-1.21,1)')).toBe('-1.3');
+    expect(evaluate('=ROUNDUP(1234,0-2)')).toBe('1300');
+  });
+
+  it('should correctly evaluate ROUNDDOWN function', () => {
+    expect(evaluate('=ROUNDDOWN(1.29,1)')).toBe('1.2');
+    expect(evaluate('=ROUNDDOWN(0-1.29,1)')).toBe('-1.2');
+    expect(evaluate('=ROUNDDOWN(1299,0-2)')).toBe('1200');
+  });
+
+  it('should correctly evaluate INT function', () => {
+    expect(evaluate('=INT(1.9)')).toBe('1');
+    expect(evaluate('=INT(0-1.1)')).toBe('-2');
+  });
+
+  it('should correctly evaluate MOD function', () => {
+    expect(evaluate('=MOD(10,3)')).toBe('1');
+    expect(evaluate('=MOD(0-10,3)')).toBe('2');
+    expect(evaluate('=MOD(10,0-3)')).toBe('-2');
+    expect(evaluate('=MOD(10,0)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate SQRT function', () => {
+    expect(evaluate('=SQRT(9)')).toBe('3');
+    expect(evaluate('=SQRT(0-1)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate POWER function', () => {
+    expect(evaluate('=POWER(2,3)')).toBe('8');
+    expect(evaluate('=POWER(9,0.5)')).toBe('3');
+  });
+
   it('should correctly evaluate comparison operators', () => {
     expect(evaluate('=1=1')).toBe('true');
     expect(evaluate('=1=2')).toBe('false');
@@ -188,6 +234,26 @@ describe('Formula', () => {
     expect(evaluate('=CONCATENATE("hello"," ","world")')).toBe('hello world');
     expect(evaluate('=CONCATENATE("a","b")')).toBe('ab');
     expect(evaluate('=CONCATENATE("x","y","z")')).toBe('xyz');
+  });
+
+  it('should correctly evaluate LOWER function', () => {
+    expect(evaluate('=LOWER("HeLLo")')).toBe('hello');
+  });
+
+  it('should correctly evaluate UPPER function', () => {
+    expect(evaluate('=UPPER("HeLLo")')).toBe('HELLO');
+  });
+
+  it('should correctly evaluate PROPER function', () => {
+    expect(evaluate('=PROPER("hello world")')).toBe('Hello World');
+    expect(evaluate('=PROPER("mIxEd cAse")')).toBe('Mixed Case');
+  });
+
+  it('should correctly evaluate SUBSTITUTE function', () => {
+    expect(evaluate('=SUBSTITUTE("abab","ab","x")')).toBe('xx');
+    expect(evaluate('=SUBSTITUTE("ababab","ab","x",2)')).toBe('abxab');
+    expect(evaluate('=SUBSTITUTE("hello","z","x",1)')).toBe('hello');
+    expect(evaluate('=SUBSTITUTE("abc","a","x",0)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate TODAY function', () => {
@@ -364,6 +430,13 @@ describe('Formula.extractTokens', () => {
     expect(extractTokens('=A1:')).toEqual([
       { type: 'REFERENCE', start: 0, stop: 1, text: 'A1' },
       { type: 'STRING', start: 2, stop: 3, text: ':' },
+    ]);
+
+    expect(extractTokens('=MY_FUNC(1)')).toEqual([
+      { type: 'FUNCNAME', start: 0, stop: 6, text: 'MY_FUNC' },
+      { type: 'STRING', start: 7, stop: 7, text: '(' },
+      { type: 'NUM', start: 8, stop: 8, text: '1' },
+      { type: 'STRING', start: 9, stop: 9, text: ')' },
     ]);
   });
 });

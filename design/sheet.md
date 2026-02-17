@@ -268,9 +268,16 @@ up to 3 letters and arbitrary row numbers (e.g., `ZZZ729443`).
 
 Functions are registered in `FunctionMap`. Currently implemented:
 
-- **SUM** — Sums numeric arguments. Ranges are expanded to individual cells.
-  Non-numeric values are coerced via `NumberArgs` (booleans → 0/1, strings →
-  `parseFloat`, refs → looked up and converted).
+- **Math** — `SUM`, `ABS`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `INT`, `MOD`,
+  `SQRT`, `POWER`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`.
+- **Logical** — `IF`, `AND`, `OR`, `NOT`, `IFERROR`.
+- **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `LOWER`,
+  `UPPER`, `PROPER`, `SUBSTITUTE`.
+- **Date/Time** — `TODAY`, `NOW`, `YEAR`, `MONTH`, `DAY`.
+
+Ranges are expanded to individual cells where relevant. Numeric coercion uses
+`NumberArgs` (booleans → 0/1, strings → `parseFloat`, refs → looked up and
+converted).
 
 #### Error Types
 
@@ -521,8 +528,8 @@ all style properties and calls `Spreadsheet.applyStyle()` /
 
 ## Risks and Mitigation
 
-**Formula function coverage** — Currently only `SUM` is implemented. New
-functions are added to `FunctionMap` following the same pattern: accept a
+**Formula function coverage** — 30+ functions are implemented. New functions
+are added to `FunctionMap` following the same pattern: accept a
 `FunctionContext`, visitor, and optional grid; return an `EvalNode`.
 
 **Large grid performance** — The rendering pipeline only draws visible cells,

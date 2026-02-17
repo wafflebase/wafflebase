@@ -10,8 +10,9 @@ describe('FunctionCatalog', () => {
   describe('searchFunctions', () => {
     it('should find functions by prefix (case-insensitive)', () => {
       const results = searchFunctions('su');
-      expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('SUM');
+      const names = results.map((r) => r.name);
+      expect(names).toContain('SUM');
+      expect(names).toContain('SUBSTITUTE');
     });
 
     it('should find multiple matches', () => {
@@ -57,6 +58,12 @@ describe('FunctionCatalog', () => {
       expect(info!.name).toBe('SUM');
     });
 
+    it('should find newly added functions', () => {
+      expect(findFunction('ABS')!.name).toBe('ABS');
+      expect(findFunction('ROUND')!.name).toBe('ROUND');
+      expect(findFunction('SUBSTITUTE')!.name).toBe('SUBSTITUTE');
+    });
+
     it('should return undefined for unknown function', () => {
       expect(findFunction('UNKNOWN')).toBeUndefined();
     });
@@ -78,6 +85,18 @@ describe('FunctionCatalog', () => {
     it('should format NOT signature', () => {
       const info = findFunction('NOT')!;
       expect(formatSignature(info)).toBe('NOT(logical)');
+    });
+
+    it('should format ROUND signature', () => {
+      const info = findFunction('ROUND')!;
+      expect(formatSignature(info)).toBe('ROUND(value, [places])');
+    });
+
+    it('should format SUBSTITUTE signature', () => {
+      const info = findFunction('SUBSTITUTE')!;
+      expect(formatSignature(info)).toBe(
+        'SUBSTITUTE(text, search_for, replace_with, [occurrence])',
+      );
     });
   });
 });

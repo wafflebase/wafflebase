@@ -134,6 +134,10 @@ Functions are registered in `FunctionMap`. Each function receives a
 | Function                 | Description                                         |
 | ------------------------ | --------------------------------------------------- |
 | `SUM`                    | Sum of numeric arguments                            |
+| `ABS`                    | Absolute value                                      |
+| `ROUND` / `ROUNDUP` / `ROUNDDOWN` | Decimal rounding controls                  |
+| `INT` / `MOD`            | Integer rounding and modular arithmetic             |
+| `SQRT` / `POWER`         | Square root and exponentiation                      |
 | `AVERAGE`                | Arithmetic mean                                     |
 | `MIN` / `MAX`            | Minimum / maximum value                             |
 | `COUNT`                  | Count of numeric values                             |
@@ -144,6 +148,8 @@ Functions are registered in `FunctionMap`. Each function receives a
 | `LEN`                    | String length                                       |
 | `LEFT` / `RIGHT` / `MID` | Substring extraction                                |
 | `CONCATENATE`            | String concatenation                                |
+| `LOWER` / `UPPER` / `PROPER` | Text case conversion                            |
+| `SUBSTITUTE`             | Replace text occurrences                            |
 | `TODAY` / `NOW`          | Current date / datetime                             |
 | `YEAR` / `MONTH` / `DAY` | Date component extraction                           |
 | `IFERROR`                | Error handling: `IFERROR(value, fallback)`          |
@@ -316,7 +322,7 @@ changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — Currently 20+ functions are implemented. New
+**Formula function coverage** — Currently 30+ functions are implemented. New
 functions are added to `FunctionMap` and `FunctionCatalog` following the same
 pattern: accept `(ctx, visit, grid?)`, return an `EvalNode`.
 
