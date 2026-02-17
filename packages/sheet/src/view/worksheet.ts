@@ -20,8 +20,6 @@ import {
   DefaultCellWidth,
   DefaultCellHeight,
   RowHeaderWidth,
-  ScrollIntervalMS,
-  ScrollSpeedMS,
   CellFontSize,
   CellLineHeight,
   CellPaddingY,
@@ -42,6 +40,9 @@ import {
 const ResizeEdgeThreshold = 4;
 const MinRowHeight = 10;
 const MinColumnWidth = 20;
+const AutoScrollDistanceForMaxSpeed = 120;
+const AutoScrollMinSpeed = 300;
+const AutoScrollMaxSpeed = 1800;
 
 /**
  * Worksheet represents the worksheet of the spreadsheet. It handles the
@@ -979,6 +980,40 @@ export class Worksheet {
     return this.colDim.findIndex(absX);
   }
 
+  private clampClientPointToViewport(
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } {
+    const port = this.viewport;
+    return {
+      x: Math.max(0, Math.min(port.width, clientX - port.left)),
+      y: Math.max(0, Math.min(port.height, clientY - port.top)),
+    };
+  }
+
+  private getAutoScrollSpeed(distanceOutside: number): number {
+    const clamped = Math.min(
+      AutoScrollDistanceForMaxSpeed,
+      Math.max(0, distanceOutside),
+    );
+    const ratio = clamped / AutoScrollDistanceForMaxSpeed;
+    return AutoScrollMinSpeed + (AutoScrollMaxSpeed - AutoScrollMinSpeed) * ratio;
+  }
+
+  private getAutoScrollVelocity(
+    clientPosition: number,
+    minPosition: number,
+    maxPosition: number,
+  ): number {
+    if (clientPosition < minPosition) {
+      return -this.getAutoScrollSpeed(minPosition - clientPosition);
+    }
+    if (clientPosition > maxPosition) {
+      return this.getAutoScrollSpeed(clientPosition - maxPosition);
+    }
+    return 0;
+  }
+
   private handleMouseMove(e: MouseEvent): void {
     const scrollContainer = this.gridContainer.getScrollContainer();
 
@@ -1111,19 +1146,77 @@ export class Worksheet {
       this.render();
 
       const startCol = col;
-      const onMove = (e: MouseEvent) => {
-        const port = this.viewport;
-        const moveX =
-          e.target !== this.gridContainer.getScrollContainer()
-            ? Math.max(0, Math.min(port.width, e.clientX - port.left))
-            : e.offsetX;
-        const endCol = this.toColFromMouse(moveX);
-        if (endCol >= 1) {
+      let endCol = col;
+      let lastClientX = e.clientX;
+      let frameId: number | null = null;
+      let lastFrameTime: number | null = null;
+
+      const updateSelection = () => {
+        const { x } = this.clampClientPointToViewport(lastClientX, 0);
+        const nextEndCol = this.toColFromMouse(x);
+        if (nextEndCol >= 1 && nextEndCol !== endCol) {
+          endCol = nextEndCol;
           this.sheet!.selectColumnRange(startCol, endCol);
-          this.render();
+        }
+      };
+
+      const stopAutoScroll = () => {
+        if (frameId !== null) {
+          cancelAnimationFrame(frameId);
+          frameId = null;
+        }
+        lastFrameTime = null;
+      };
+
+      const stepAutoScroll = (now: number) => {
+        const port = this.viewport;
+        const velocityX = this.getAutoScrollVelocity(
+          lastClientX,
+          port.left,
+          port.left + port.width,
+        );
+        if (velocityX === 0) {
+          frameId = null;
+          lastFrameTime = null;
+          return;
+        }
+
+        const dt = Math.min(
+          50,
+          lastFrameTime === null ? 16 : now - lastFrameTime,
+        );
+        lastFrameTime = now;
+        this.gridContainer.scrollBy((velocityX * dt) / 1000, 0);
+        updateSelection();
+        this.render();
+        frameId = requestAnimationFrame(stepAutoScroll);
+      };
+
+      const startAutoScroll = () => {
+        if (frameId === null) {
+          frameId = requestAnimationFrame(stepAutoScroll);
+        }
+      };
+
+      const onMove = (e: MouseEvent) => {
+        lastClientX = e.clientX;
+        updateSelection();
+        this.render();
+
+        const port = this.viewport;
+        const velocityX = this.getAutoScrollVelocity(
+          lastClientX,
+          port.left,
+          port.left + port.width,
+        );
+        if (velocityX === 0) {
+          stopAutoScroll();
+        } else {
+          startAutoScroll();
         }
       };
       const onUp = () => {
+        stopAutoScroll();
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       };
@@ -1168,19 +1261,77 @@ export class Worksheet {
       this.render();
 
       const startRow = row;
-      const onMove = (e: MouseEvent) => {
-        const port = this.viewport;
-        const moveY =
-          e.target !== this.gridContainer.getScrollContainer()
-            ? Math.max(0, Math.min(port.height, e.clientY - port.top))
-            : e.offsetY;
-        const endRow = this.toRowFromMouse(moveY);
-        if (endRow >= 1) {
+      let endRow = row;
+      let lastClientY = e.clientY;
+      let frameId: number | null = null;
+      let lastFrameTime: number | null = null;
+
+      const updateSelection = () => {
+        const { y } = this.clampClientPointToViewport(0, lastClientY);
+        const nextEndRow = this.toRowFromMouse(y);
+        if (nextEndRow >= 1 && nextEndRow !== endRow) {
+          endRow = nextEndRow;
           this.sheet!.selectRowRange(startRow, endRow);
-          this.render();
+        }
+      };
+
+      const stopAutoScroll = () => {
+        if (frameId !== null) {
+          cancelAnimationFrame(frameId);
+          frameId = null;
+        }
+        lastFrameTime = null;
+      };
+
+      const stepAutoScroll = (now: number) => {
+        const port = this.viewport;
+        const velocityY = this.getAutoScrollVelocity(
+          lastClientY,
+          port.top,
+          port.top + port.height,
+        );
+        if (velocityY === 0) {
+          frameId = null;
+          lastFrameTime = null;
+          return;
+        }
+
+        const dt = Math.min(
+          50,
+          lastFrameTime === null ? 16 : now - lastFrameTime,
+        );
+        lastFrameTime = now;
+        this.gridContainer.scrollBy(0, (velocityY * dt) / 1000);
+        updateSelection();
+        this.render();
+        frameId = requestAnimationFrame(stepAutoScroll);
+      };
+
+      const startAutoScroll = () => {
+        if (frameId === null) {
+          frameId = requestAnimationFrame(stepAutoScroll);
+        }
+      };
+
+      const onMove = (e: MouseEvent) => {
+        lastClientY = e.clientY;
+        updateSelection();
+        this.render();
+
+        const port = this.viewport;
+        const velocityY = this.getAutoScrollVelocity(
+          lastClientY,
+          port.top,
+          port.top + port.height,
+        );
+        if (velocityY === 0) {
+          stopAutoScroll();
+        } else {
+          startAutoScroll();
         }
       };
       const onUp = () => {
+        stopAutoScroll();
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       };
@@ -1269,55 +1420,86 @@ export class Worksheet {
     this.sheet!.selectStart(this.toRefFromMouse(e.offsetX, e.offsetY));
     this.render();
 
-    let interval: NodeJS.Timeout | null = null;
-    const onMove = (e: MouseEvent) => {
-      let offsetX = e.offsetX;
-      let offsetY = e.offsetY;
+    let lastClientX = e.clientX;
+    let lastClientY = e.clientY;
+    let frameId: number | null = null;
+    let lastFrameTime: number | null = null;
 
-      // NOTE(hackerwins): If the mouse is outside the scroll container,
-      // calculate the offset based on the sheet container.
+    const updateSelection = () => {
+      const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+      this.sheet!.selectEnd(this.toRefFromMouse(x, y));
+    };
+
+    const stopAutoScroll = () => {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+      lastFrameTime = null;
+    };
+
+    const stepAutoScroll = (now: number) => {
       const port = this.viewport;
-      if (e.target !== this.gridContainer.getScrollContainer()) {
-        offsetX = Math.max(0, Math.min(port.width, e.clientX - port.left));
-        offsetY = Math.max(0, Math.min(port.height, e.clientY - port.top));
+      const velocityX = this.getAutoScrollVelocity(
+        lastClientX,
+        port.left,
+        port.left + port.width,
+      );
+      const velocityY = this.getAutoScrollVelocity(
+        lastClientY,
+        port.top,
+        port.top + port.height,
+      );
+
+      if (velocityX === 0 && velocityY === 0) {
+        frameId = null;
+        lastFrameTime = null;
+        return;
       }
 
-      this.sheet!.selectEnd(this.toRefFromMouse(offsetX, offsetY));
+      const dt = Math.min(
+        50,
+        lastFrameTime === null ? 16 : now - lastFrameTime,
+      );
+      lastFrameTime = now;
+      this.gridContainer.scrollBy((velocityX * dt) / 1000, (velocityY * dt) / 1000);
+      updateSelection();
       this.render();
+      frameId = requestAnimationFrame(stepAutoScroll);
+    };
 
-      const { clientX, clientY } = e;
-      if (interval) {
-        clearInterval(interval);
+    const startAutoScroll = () => {
+      if (frameId === null) {
+        frameId = requestAnimationFrame(stepAutoScroll);
       }
+    };
 
-      // Calculate the scroll offset based on the mouse position.
-      const scroll = { x: 0, y: 0 };
-      if (clientX <= port.left) {
-        scroll.x = -ScrollSpeedMS;
-      } else if (clientX >= port.width) {
-        scroll.x = ScrollSpeedMS;
-      }
+    const onMove = (e: MouseEvent) => {
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      updateSelection();
+      this.renderOverlay();
 
-      if (clientY <= port.top) {
-        scroll.y = -ScrollSpeedMS;
-      } else if (clientY >= port.height) {
-        scroll.y = ScrollSpeedMS;
-      }
-
-      if (scroll.x !== 0 || scroll.y !== 0) {
-        interval = setInterval(() => {
-          this.gridContainer.scrollBy(scroll.x, scroll.y);
-          this.sheet!.selectEnd(this.toRefFromMouse(offsetX!, offsetY!));
-          this.render();
-        }, ScrollIntervalMS);
+      const port = this.viewport;
+      const velocityX = this.getAutoScrollVelocity(
+        lastClientX,
+        port.left,
+        port.left + port.width,
+      );
+      const velocityY = this.getAutoScrollVelocity(
+        lastClientY,
+        port.top,
+        port.top + port.height,
+      );
+      if (velocityX === 0 && velocityY === 0) {
+        stopAutoScroll();
+      } else {
+        startAutoScroll();
       }
     };
 
     const onUp = () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-
+      stopAutoScroll();
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };

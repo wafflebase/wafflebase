@@ -153,16 +153,21 @@ flowchart TD
   the coordinate space mouse handlers expect.
 - `scrollBy()` converts logical deltas to physical deltas using the same ratio,
   so auto-scroll during drag selection works correctly.
+- Drag selection auto-scroll uses `requestAnimationFrame` with distance-based
+  velocity ramping. The further the pointer moves beyond a viewport edge, the
+  faster scrolling becomes (capped to a max speed).
 
 ### Mouse Event Coordinate Flow
 
-With `pointer-events: none` on the dummy container, all mouse events have the
-scroll container as their target. `e.offsetX/Y` are therefore viewport-relative.
+With `pointer-events: none` on the dummy container, mouse events normally target
+the scroll container and `e.offsetX/Y` are viewport-relative. During drag
+selection, if the pointer leaves the container, handlers clamp `clientX/Y`
+against the viewport rectangle to keep selection and autoscroll stable.
 
 | Handler | Coordinate handling |
 | --- | --- |
 | `handleMouseDown` (selectStart) | `e.offsetX + scroll.left`, `e.offsetY + scroll.top` → absolute grid coords |
-| `onMove` (selectEnd) | `offsetX + scroll.left`, `offsetY + scroll.top` → absolute grid coords |
+| `onMove` (selectEnd) | `clientX/Y` clamped to viewport, then converted to refs with current logical scroll |
 | `handleContextMenu` | `e.offsetX` for header detection, `+ scroll` for `findIndex` |
 | `detectResizeEdge` | `e.offsetX` for header threshold, `+ scroll` for edge detection |
 | `handleMouseMove` | Delegates to `detectResizeEdge` |
