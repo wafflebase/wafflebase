@@ -1,10 +1,11 @@
 import { MergeSpan, Ref, Range, SelectionType } from '../model/types';
 import { DimensionIndex } from '../model/dimensions';
-import { parseRef, toSref } from '../model/coordinates';
+import { parseRef, toSref, isSameRange } from '../model/coordinates';
 import { Theme, ThemeKey, getThemeColor, getPeerCursorColor, getFormulaRangeColor } from './theme';
 import {
   BoundingRect,
   toBoundingRect,
+  toBoundingRectWithFreeze,
   expandBoundingRect,
   RowHeaderWidth,
   DefaultCellHeight,
@@ -63,6 +64,8 @@ export class Overlay {
     freeze: FreezeState = NoFreeze,
     freezeDrag?: { axis: 'row' | 'column'; targetIndex: number } | null,
     copyRange?: Range,
+    autofillPreview?: Range,
+    showAutofillHandle: boolean = true,
     merges?: Map<string, MergeSpan>,
   ) {
     this.canvas.width = 0;
@@ -79,6 +82,9 @@ export class Overlay {
 
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
     const mergeData = this.buildMergeRenderData(merges);
+    const selectionRange: Range = range
+      ? [range[0], range[1]]
+      : [activeCell, activeCell];
 
     if (!hasFrozen) {
       // No freeze: render everything in a single pass (original behavior)
@@ -202,6 +208,28 @@ export class Overlay {
           ctx.restore();
         }
       }
+    }
+
+    if (autofillPreview && !isSameRange(autofillPreview, selectionRange)) {
+      this.renderAutofillPreview(
+        ctx,
+        autofillPreview,
+        scroll,
+        rowDim,
+        colDim,
+        freeze,
+      );
+    }
+    if (showAutofillHandle) {
+      this.renderAutofillHandle(
+        ctx,
+        selectionRange,
+        selectionType,
+        scroll,
+        rowDim,
+        colDim,
+        freeze,
+      );
     }
 
     // Render resize hover highlight line (same for freeze/no-freeze)
@@ -595,6 +623,67 @@ export class Overlay {
       ctx.lineTo(x, port.height);
       ctx.stroke();
     }
+  }
+
+  private toRangeRect(
+    range: Range,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    freeze: FreezeState = NoFreeze,
+  ): BoundingRect | undefined {
+    if (!rowDim || !colDim) return undefined;
+    const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
+    const start = hasFrozen
+      ? toBoundingRectWithFreeze(range[0], scroll, rowDim, colDim, freeze)
+      : toBoundingRect(range[0], scroll, rowDim, colDim);
+    const end = hasFrozen
+      ? toBoundingRectWithFreeze(range[1], scroll, rowDim, colDim, freeze)
+      : toBoundingRect(range[1], scroll, rowDim, colDim);
+    return expandBoundingRect(start, end);
+  }
+
+  private renderAutofillPreview(
+    ctx: CanvasRenderingContext2D,
+    previewRange: Range,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    freeze: FreezeState = NoFreeze,
+  ): void {
+    const rect = this.toRangeRect(previewRange, scroll, rowDim, colDim, freeze);
+    if (!rect) return;
+    ctx.strokeStyle = this.getThemeColor('activeCellColor');
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 2]);
+    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+    ctx.setLineDash([]);
+  }
+
+  private renderAutofillHandle(
+    ctx: CanvasRenderingContext2D,
+    range: Range | undefined,
+    selectionType: SelectionType | undefined,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    freeze: FreezeState = NoFreeze,
+  ): void {
+    if (selectionType !== 'cell' || !range) {
+      return;
+    }
+
+    const rect = this.toRangeRect(range, scroll, rowDim, colDim, freeze);
+    if (!rect) return;
+
+    const size = 8;
+    const left = rect.left + rect.width - size / 2;
+    const top = rect.top + rect.height - size / 2;
+    ctx.fillStyle = this.getThemeColor('activeCellColor');
+    ctx.fillRect(left, top, size, size);
+    ctx.strokeStyle = this.getThemeColor('cellBGColor');
+    ctx.lineWidth = 1;
+    ctx.strokeRect(left + 0.5, top + 0.5, size, size);
   }
 
   private getThemeColor(key: ThemeKey): string {

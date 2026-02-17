@@ -77,6 +77,9 @@ React and the `@wafflebase/sheet` engine:
    their cursor, the overlay is re-rendered to show updated peer cursors.
 4. On unmount, calls `spreadsheet.cleanup()` to remove event listeners and
    DOM elements.
+5. Fill handle drag is handled inside `Worksheet`/`Overlay`: the bottom-right
+   handle on a cell selection shows a crosshair cursor, previews the expanded
+   fill range with a dashed border, and commits `Sheet.autofill(...)` on mouseup.
 
 `FormattingToolbar` includes a function browser trigger (`fx`) that calls
 `spreadsheet.toggleFunctionBrowser()`, so function discovery lives in the

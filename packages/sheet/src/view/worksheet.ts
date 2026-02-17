@@ -44,6 +44,8 @@ const MinColumnWidth = 20;
 const AutoScrollDistanceForMaxSpeed = 120;
 const AutoScrollMinSpeed = 300;
 const AutoScrollMaxSpeed = 1800;
+const AutofillHandleSize = 8;
+const AutofillHandleHitPadding = 4;
 
 /**
  * Worksheet represents the worksheet of the spreadsheet. It handles the
@@ -100,6 +102,7 @@ export class Worksheet {
   private freezeHandleHover: 'row' | 'column' | null = null;
   private freezeDrag: { axis: 'row' | 'column'; targetIndex: number } | null =
     null;
+  private autofillPreview: Range | undefined;
   private onRenderCallback?: () => void;
   private readOnly: boolean;
 
@@ -1159,6 +1162,65 @@ export class Worksheet {
     return this.colDim.findIndex(absX);
   }
 
+  /**
+   * `getAutofillSelectionRect` returns the on-screen rect for the current
+   * cell selection (or active cell when no explicit range exists).
+   */
+  private getAutofillSelectionRect(): BoundingRect | undefined {
+    if (!this.sheet || this.sheet.getSelectionType() !== 'cell') {
+      return undefined;
+    }
+
+    const range = this.sheet.getRangeOrActiveCell();
+    const start = toBoundingRectWithFreeze(
+      range[0],
+      this.scroll,
+      this.rowDim,
+      this.colDim,
+      this.freezeState,
+    );
+    const end = toBoundingRectWithFreeze(
+      range[1],
+      this.scroll,
+      this.rowDim,
+      this.colDim,
+      this.freezeState,
+    );
+    const left = Math.min(start.left, end.left);
+    const top = Math.min(start.top, end.top);
+    const right = Math.max(start.left + start.width, end.left + end.width);
+    const bottom = Math.max(start.top + start.height, end.top + end.height);
+    return {
+      left,
+      top,
+      width: right - left,
+      height: bottom - top,
+    };
+  }
+
+  /**
+   * `detectAutofillHandle` returns true when the pointer is over the fill handle.
+   */
+  private detectAutofillHandle(x: number, y: number): boolean {
+    if (this.readOnly) {
+      return false;
+    }
+
+    const rect = this.getAutofillSelectionRect();
+    if (!rect) {
+      return false;
+    }
+
+    const handleLeft = rect.left + rect.width - AutofillHandleSize / 2;
+    const handleTop = rect.top + rect.height - AutofillHandleSize / 2;
+    return (
+      x >= handleLeft - AutofillHandleHitPadding &&
+      x <= handleLeft + AutofillHandleSize + AutofillHandleHitPadding &&
+      y >= handleTop - AutofillHandleHitPadding &&
+      y <= handleTop + AutofillHandleSize + AutofillHandleHitPadding
+    );
+  }
+
   private clampClientPointToViewport(
     clientX: number,
     clientY: number,
@@ -1224,6 +1286,14 @@ export class Worksheet {
       scrollContainer.style.cursor =
         result.axis === 'column' ? 'col-resize' : 'row-resize';
     } else {
+      if (this.detectAutofillHandle(e.offsetX, e.offsetY)) {
+        scrollContainer.style.cursor = 'crosshair';
+        if (changed) {
+          this.renderOverlay();
+        }
+        return;
+      }
+
       // Check if hovering over a selected header → show grab cursor
       const x = e.offsetX;
       const y = e.offsetY;
@@ -1592,6 +1662,13 @@ export class Worksheet {
       return;
     }
 
+    if (this.detectAutofillHandle(e.offsetX, e.offsetY)) {
+      e.preventDefault();
+      await this.finishEditing();
+      this.startAutofillDrag(e);
+      return;
+    }
+
     await this.finishEditing();
 
     // Shift+click extends selection from active cell to clicked cell
@@ -1694,6 +1771,112 @@ export class Worksheet {
     };
 
     this.beginNativeSelectionBlock();
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  /**
+   * `startAutofillDrag` begins drag-fill from the current selection handle.
+   */
+  private startAutofillDrag(startEvent: MouseEvent): void {
+    let lastClientX = startEvent.clientX;
+    let lastClientY = startEvent.clientY;
+    let frameId: number | null = null;
+    let lastFrameTime: number | null = null;
+
+    const updatePreview = () => {
+      const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+      const target = this.toRefFromMouse(x, y);
+      this.autofillPreview = this.sheet!.getAutofillPreviewRange(target);
+      this.renderOverlay();
+    };
+
+    const stopAutoScroll = () => {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+        frameId = null;
+      }
+      lastFrameTime = null;
+    };
+
+    const stepAutoScroll = (now: number) => {
+      const port = this.viewport;
+      const velocityX = this.getAutoScrollVelocity(
+        lastClientX,
+        port.left,
+        port.left + port.width,
+      );
+      const velocityY = this.getAutoScrollVelocity(
+        lastClientY,
+        port.top,
+        port.top + port.height,
+      );
+
+      if (velocityX === 0 && velocityY === 0) {
+        frameId = null;
+        lastFrameTime = null;
+        return;
+      }
+
+      const dt = Math.min(
+        50,
+        lastFrameTime === null ? 16 : now - lastFrameTime,
+      );
+      lastFrameTime = now;
+      this.gridContainer.scrollBy((velocityX * dt) / 1000, (velocityY * dt) / 1000);
+      updatePreview();
+      frameId = requestAnimationFrame(stepAutoScroll);
+    };
+
+    const startAutoScroll = () => {
+      if (frameId === null) {
+        frameId = requestAnimationFrame(stepAutoScroll);
+      }
+    };
+
+    const onMove = (e: MouseEvent) => {
+      lastClientX = e.clientX;
+      lastClientY = e.clientY;
+      updatePreview();
+
+      const port = this.viewport;
+      const velocityX = this.getAutoScrollVelocity(
+        lastClientX,
+        port.left,
+        port.left + port.width,
+      );
+      const velocityY = this.getAutoScrollVelocity(
+        lastClientY,
+        port.top,
+        port.top + port.height,
+      );
+      if (velocityX === 0 && velocityY === 0) {
+        stopAutoScroll();
+      } else {
+        startAutoScroll();
+      }
+    };
+
+    const onUp = async () => {
+      stopAutoScroll();
+      this.endNativeSelectionBlock();
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+
+      const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+      const target = this.toRefFromMouse(x, y);
+      const changed = await this.sheet!.autofill(target);
+      this.autofillPreview = undefined;
+
+      if (changed) {
+        this.render();
+      } else {
+        this.renderOverlay();
+      }
+    };
+
+    this.beginNativeSelectionBlock();
+    updatePreview();
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
@@ -2435,6 +2618,8 @@ export class Worksheet {
       this.freezeState,
       this.freezeDrag,
       this.sheet!.getCopyRange(),
+      this.autofillPreview,
+      !this.readOnly,
       this.sheet!.getMerges(),
     );
   }

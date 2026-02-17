@@ -983,6 +983,145 @@ export class Sheet {
   }
 
   /**
+   * `computeAutofillRange` returns the expanded fill range, or undefined
+   * when `target` is inside the source range.
+   */
+  private computeAutofillRange(
+    sourceRange: Range,
+    target: Ref,
+  ): Range | undefined {
+    if (inRange(target, sourceRange)) {
+      return undefined;
+    }
+    return mergeRanges(sourceRange, [target, target]);
+  }
+
+  /**
+   * `getAutofillPreviewRange` returns the current preview range for fill-handle drag.
+   */
+  public getAutofillPreviewRange(target: Ref): Range | undefined {
+    if (this.selectionType !== 'cell') {
+      return undefined;
+    }
+    const sourceRange = this.getRangeOrActiveCell();
+    return this.computeAutofillRange(sourceRange, target);
+  }
+
+  /**
+   * `positiveMod` returns a positive modulo result for wrap-around indexing.
+   */
+  private positiveMod(value: number, mod: number): number {
+    return ((value % mod) + mod) % mod;
+  }
+
+  /**
+   * `cloneCellForAutofill` clones a source cell for a destination position.
+   * Formula cells are relocated and their cached values are dropped.
+   */
+  private cloneCellForAutofill(
+    sourceCell: Cell,
+    deltaRow: number,
+    deltaCol: number,
+  ): Cell {
+    if (sourceCell.f) {
+      const formula = relocateFormula(sourceCell.f, deltaRow, deltaCol);
+      return sourceCell.s ? { f: formula, s: { ...sourceCell.s } } : { f: formula };
+    }
+
+    const next: Cell = {};
+    if (sourceCell.v !== undefined) {
+      next.v = sourceCell.v;
+    }
+    if (sourceCell.s) {
+      next.s = { ...sourceCell.s };
+    }
+    return next;
+  }
+
+  /**
+   * `autofill` fills from the current selected range to include `target`.
+   * Pattern repeats by wrapping source rows/columns; formulas are relocated.
+   */
+  public async autofill(target: Ref): Promise<boolean> {
+    if (this.selectionType !== 'cell') {
+      return false;
+    }
+
+    const sourceRange = cloneRange(this.getRangeOrActiveCell());
+    const fillRange = this.computeAutofillRange(sourceRange, target);
+    if (!fillRange) {
+      return false;
+    }
+
+    // Keep first version conservative: block autofill across merged blocks.
+    if (this.getMergesIntersecting(fillRange).length > 0) {
+      return false;
+    }
+
+    const sourceGrid = await this.store.getGrid(sourceRange);
+    const sourceRowCount = sourceRange[1].r - sourceRange[0].r + 1;
+    const sourceColCount = sourceRange[1].c - sourceRange[0].c + 1;
+    const changedSrefs = new Set<Sref>();
+
+    this.store.beginBatch();
+    try {
+      for (let r = fillRange[0].r; r <= fillRange[1].r; r++) {
+        for (let c = fillRange[0].c; c <= fillRange[1].c; c++) {
+          const dest = { r, c };
+          if (inRange(dest, sourceRange)) {
+            continue;
+          }
+
+          const sourceRef = {
+            r:
+              sourceRange[0].r +
+              this.positiveMod(dest.r - sourceRange[0].r, sourceRowCount),
+            c:
+              sourceRange[0].c +
+              this.positiveMod(dest.c - sourceRange[0].c, sourceColCount),
+          };
+          const sourceCell = sourceGrid.get(toSref(sourceRef));
+          const normalizedDest = this.normalizeRefToAnchor(dest);
+          const normalizedDestSref = toSref(normalizedDest);
+
+          if (!sourceCell) {
+            await this.store.delete(normalizedDest);
+            changedSrefs.add(normalizedDestSref);
+            continue;
+          }
+
+          const deltaRow = dest.r - sourceRef.r;
+          const deltaCol = dest.c - sourceRef.c;
+          const nextCell = this.cloneCellForAutofill(sourceCell, deltaRow, deltaCol);
+
+          if (this.isEmptyCell(nextCell)) {
+            await this.store.delete(normalizedDest);
+          } else {
+            await this.store.set(normalizedDest, nextCell);
+          }
+          changedSrefs.add(normalizedDestSref);
+        }
+      }
+
+      if (changedSrefs.size > 0) {
+        const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+        const dependantsMap = await this.store.buildDependantsMap(expanded);
+        await calculate(this, dependantsMap, expanded);
+      }
+    } finally {
+      this.store.endBatch();
+    }
+
+    if (changedSrefs.size === 0) {
+      return false;
+    }
+
+    this.selectionType = 'cell';
+    this.range = fillRange;
+    return true;
+  }
+
+  /**
    * `hasContents` checks if the given range has contents.
    */
   async hasContents(range: Range): Promise<boolean> {

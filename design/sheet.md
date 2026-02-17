@@ -80,6 +80,10 @@ all cell, selection, and navigation operations.
 - **Copy/paste** — `copy` serializes the selection as a tab/newline string;
   `paste` parses it back and recalculates dependants from all changed refs
   (including plain-value pastes).
+- **Autofill (fill handle)** — dragging the selection handle repeats the source
+  pattern across the expanded range. Formula cells are relocated per target
+  offset (same reference-shift semantics as internal paste), then dependants are
+  recalculated from all changed destination refs.
 - **Dimensions** — `setRowHeight`, `setColumnWidth`, persisted to the store.
 
 **Grid dimensions:** `1,000,000 rows x 182,780 columns` (constants in the
