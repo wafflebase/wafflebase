@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently \"pnpm frontend dev\" \"pnpm backend start\"",
     "build": "concurrently \"pnpm sheet build\" \"pnpm frontend build\" \"pnpm backend build\"",
-    "test": "concurrently \"pnpm sheet test\"",
+    "test": "concurrently \"pnpm sheet test\" \"pnpm frontend test\" \"pnpm backend test\"",
     "frontend": "pnpm --filter @wafflebase/frontend",
     "backend": "pnpm --filter @wafflebase/backend",
     "sheet": "pnpm --filter @wafflebase/sheet"
