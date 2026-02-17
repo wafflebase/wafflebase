@@ -156,6 +156,10 @@ flowchart TD
 - Drag selection auto-scroll uses `requestAnimationFrame` with distance-based
   velocity ramping. The further the pointer moves beyond a viewport edge, the
   faster scrolling becomes (capped to a max speed).
+- During mouse-drag selection, `Worksheet` temporarily disables native document
+  text selection (`user-select: none` + `selectstart` prevention) and restores
+  it on mouseup, preventing accidental system-level text highlighting outside
+  the sheet.
 
 ### Mouse Event Coordinate Flow
 

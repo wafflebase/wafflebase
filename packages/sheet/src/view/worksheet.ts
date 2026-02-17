@@ -81,6 +81,7 @@ export class Worksheet {
   private boundHandleKeyUp: (e: KeyboardEvent) => void;
   private boundHandleMouseMove: (e: MouseEvent) => void;
   private boundHandleContextMenu: (e: MouseEvent) => void;
+  private boundPreventDocumentSelectStart: (e: Event) => void;
 
   private resizeHover: { axis: 'row' | 'column'; index: number } | null = null;
   private dragMove: {
@@ -104,6 +105,9 @@ export class Worksheet {
   private activeFormulaInput: 'cellInput' | 'formulaBar' | null = null;
   private formulaRefInsertPos: { start: number; end: number } | null = null;
   private lastFormulaRefTarget: Ref | null = null;
+  private nativeSelectionBlockDepth = 0;
+  private previousBodyUserSelect = '';
+  private previousBodyWebkitUserSelect = '';
 
   constructor(
     container: HTMLDivElement,
@@ -142,6 +146,9 @@ export class Worksheet {
     this.boundHandleKeyUp = this.handleKeyUp.bind(this);
     this.boundHandleMouseMove = this.handleMouseMove.bind(this);
     this.boundHandleContextMenu = this.handleContextMenu.bind(this);
+    this.boundPreventDocumentSelectStart = (e: Event) => {
+      e.preventDefault();
+    };
     this.resizeObserver = new ResizeObserver(() => this.boundRender());
   }
 
@@ -194,6 +201,7 @@ export class Worksheet {
 
   public cleanup() {
     this.removeAllEventListeners();
+    this.forceEndNativeSelectionBlock();
     this.resizeObserver.disconnect();
 
     this.formulaBar.cleanup();
@@ -206,6 +214,47 @@ export class Worksheet {
 
     this.sheet = undefined;
     this.container.innerHTML = '';
+  }
+
+  private beginNativeSelectionBlock(): void {
+    this.nativeSelectionBlockDepth += 1;
+    if (this.nativeSelectionBlockDepth !== 1) {
+      return;
+    }
+
+    const bodyStyle = document.body.style;
+    this.previousBodyUserSelect = bodyStyle.userSelect;
+    this.previousBodyWebkitUserSelect = bodyStyle.webkitUserSelect;
+    bodyStyle.userSelect = 'none';
+    bodyStyle.webkitUserSelect = 'none';
+    document.addEventListener('selectstart', this.boundPreventDocumentSelectStart);
+  }
+
+  private endNativeSelectionBlock(): void {
+    if (this.nativeSelectionBlockDepth === 0) {
+      return;
+    }
+
+    this.nativeSelectionBlockDepth -= 1;
+    if (this.nativeSelectionBlockDepth > 0) {
+      return;
+    }
+
+    const bodyStyle = document.body.style;
+    bodyStyle.userSelect = this.previousBodyUserSelect;
+    bodyStyle.webkitUserSelect = this.previousBodyWebkitUserSelect;
+    document.removeEventListener(
+      'selectstart',
+      this.boundPreventDocumentSelectStart,
+    );
+  }
+
+  private forceEndNativeSelectionBlock(): void {
+    if (this.nativeSelectionBlockDepth === 0) {
+      return;
+    }
+    this.nativeSelectionBlockDepth = 1;
+    this.endNativeSelectionBlock();
   }
 
   private addEventListener<K extends keyof HTMLElementEventMap>(
@@ -1217,9 +1266,11 @@ export class Worksheet {
       };
       const onUp = () => {
         stopAutoScroll();
+        this.endNativeSelectionBlock();
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       };
+      this.beginNativeSelectionBlock();
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
       return;
@@ -1332,9 +1383,11 @@ export class Worksheet {
       };
       const onUp = () => {
         stopAutoScroll();
+        this.endNativeSelectionBlock();
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       };
+      this.beginNativeSelectionBlock();
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
       return;
@@ -1391,6 +1444,7 @@ export class Worksheet {
       };
 
       const onUp = () => {
+        this.endNativeSelectionBlock();
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         // Refocus the active input
@@ -1402,6 +1456,7 @@ export class Worksheet {
         this.formulaRefInsertPos = null;
       };
 
+      this.beginNativeSelectionBlock();
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
       return;
@@ -1500,10 +1555,12 @@ export class Worksheet {
 
     const onUp = () => {
       stopAutoScroll();
+      this.endNativeSelectionBlock();
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
 
+    this.beginNativeSelectionBlock();
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
