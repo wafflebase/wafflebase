@@ -529,9 +529,16 @@ all style properties and calls `Spreadsheet.applyStyle()` /
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 39+ functions are implemented. New functions
+**Formula function coverage** — 43 built-in functions are implemented. New functions
 are added to `FunctionMap` following the same pattern: accept a
 `FunctionContext`, visitor, and optional grid; return an `EvalNode`.
+
+**Function discoverability UI** — The engine exposes a function browser dialog
+that is backed by `formula/function-catalog.ts` and supports search by
+name/signature/description. Consumers can toggle it via
+`Spreadsheet.toggleFunctionBrowser()`, and insertion writes `FUNCTION(` at the
+current cursor position. Existing autocomplete and argument hints remain active
+after insertion.
 
 **Large grid performance** — The rendering pipeline only draws visible cells,
 and `DimensionIndex.findIndex` uses binary search, so performance is O(visible

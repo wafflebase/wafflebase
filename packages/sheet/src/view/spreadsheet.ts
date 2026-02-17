@@ -221,6 +221,13 @@ export class Spreadsheet {
     }
   }
 
+  /**
+   * `toggleFunctionBrowser` toggles the function browser dialog.
+   */
+  public toggleFunctionBrowser() {
+    this.worksheet.toggleFunctionBrowser();
+  }
+
   public cleanup() {
     this.worksheet.cleanup();
     this.selectionChangeCallbacks = [];

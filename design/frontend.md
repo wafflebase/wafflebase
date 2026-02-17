@@ -78,6 +78,10 @@ React and the `@wafflebase/sheet` engine:
 4. On unmount, calls `spreadsheet.cleanup()` to remove event listeners and
    DOM elements.
 
+`FormattingToolbar` includes a function browser trigger (`fx`) that calls
+`spreadsheet.toggleFunctionBrowser()`, so function discovery lives in the
+frontend toolbar rather than the engine's formula bar.
+
 A `didMount` ref guards against React 19 StrictMode double-mounting in
 development.
 

@@ -41,6 +41,7 @@ import {
   IconHash,
   IconAbc,
   IconTableAlias,
+  IconMathFunction,
 } from "@tabler/icons-react";
 
 const TEXT_COLORS = [
@@ -185,6 +186,10 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
 
   const handleRedo = useCallback(() => {
     spreadsheet?.redo();
+  }, [spreadsheet]);
+
+  const handleToggleFunctionBrowser = useCallback(() => {
+    spreadsheet?.toggleFunctionBrowser();
   }, [spreadsheet]);
 
   const handleNumberFormat = useCallback(
@@ -537,6 +542,18 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
+            onClick={handleToggleFunctionBrowser}
+          >
+            <IconMathFunction size={16} className="mr-2" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Functions</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

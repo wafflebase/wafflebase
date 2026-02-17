@@ -15,6 +15,7 @@ import { GridContainer } from './gridcontainer';
 import { GridCanvas } from './gridcanvas';
 import { ContextMenu } from './contextmenu';
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
+import { FunctionBrowser } from './function-browser';
 import { toTextRange, setTextRange } from './utils/textrange';
 import {
   DefaultCellWidth,
@@ -60,6 +61,7 @@ export class Worksheet {
   private gridCanvas: GridCanvas;
   private contextMenu: ContextMenu;
   private autocomplete: FormulaAutocomplete;
+  private functionBrowser: FunctionBrowser;
   private resizeTooltip: HTMLDivElement;
 
   private rowDim: DimensionIndex;
@@ -125,6 +127,7 @@ export class Worksheet {
     this.cellInput = new CellInput(theme);
     this.contextMenu = new ContextMenu(theme);
     this.autocomplete = new FormulaAutocomplete(theme);
+    this.functionBrowser = new FunctionBrowser(theme);
     this.resizeTooltip = document.createElement('div');
 
     this.rowDim = new DimensionIndex(DefaultCellHeight);
@@ -137,6 +140,7 @@ export class Worksheet {
     this.container.appendChild(this.gridContainer.getContainer());
     this.container.appendChild(this.contextMenu.getContainer());
     this.container.appendChild(this.autocomplete.getContainer());
+    document.body.appendChild(this.functionBrowser.getContainer());
     this.resizeTooltip.style.position = 'fixed';
     this.resizeTooltip.style.display = 'none';
     this.resizeTooltip.style.pointerEvents = 'none';
@@ -151,6 +155,12 @@ export class Worksheet {
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.resizeTooltip.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
     document.body.appendChild(this.resizeTooltip);
+    this.functionBrowser.setOnInsert((info) => {
+      if (this.readOnly) {
+        return;
+      }
+      this.insertFunctionFromBrowser(info.name);
+    });
 
     this.boundRender = this.render.bind(this);
     this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
@@ -227,6 +237,7 @@ export class Worksheet {
     this.gridContainer.cleanup();
     this.contextMenu.cleanup();
     this.autocomplete.cleanup();
+    this.functionBrowser.cleanup();
     this.resizeTooltip.remove();
 
     this.sheet = undefined;
@@ -321,6 +332,7 @@ export class Worksheet {
     this.formulaBar.blur();
     this.cellInput.hide();
     this.autocomplete.hide();
+    this.functionBrowser.hide();
     this.formulaRanges = [];
     this.resetFormulaRangeState();
     window.getSelection()?.removeAllRanges();
@@ -331,6 +343,7 @@ export class Worksheet {
    */
   private async finishEditing() {
     this.autocomplete.hide();
+    this.functionBrowser.hide();
 
     const activeCell = this.sheet!.getActiveCell();
     if (this.formulaBar.isFocused()) {
@@ -355,8 +368,9 @@ export class Worksheet {
    * outside the sheet container. This lets us skip handling keyboard events
    * that belong to dialogs or other UI without blocking normal grid usage.
    */
-  private isExternalInput(target: Element | null): boolean {
-    if (!target) return false;
+  private isExternalInput(target: EventTarget | null): boolean {
+    if (this.functionBrowser.contains(target)) return true;
+    if (!(target instanceof Element)) return false;
     if (this.container.contains(target)) return false;
 
     const tag = target.tagName;
@@ -367,9 +381,17 @@ export class Worksheet {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
+    if (this.functionBrowser.isVisible()) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.functionBrowser.hide();
+      }
+      return;
+    }
+
     // Ignore key events originating from interactive elements outside the
     // sheet container (e.g. dialog inputs) so they can type normally.
-    if (this.isExternalInput(e.target as Element | null)) {
+    if (this.isExternalInput(e.target)) {
       return;
     }
 
@@ -385,9 +407,13 @@ export class Worksheet {
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
+    if (this.functionBrowser.isVisible()) {
+      return;
+    }
+
     // Ignore key events originating from interactive elements outside the
     // sheet container (e.g. dialog inputs) so they can type normally.
-    if (this.isExternalInput(e.target as Element | null)) {
+    if (this.isExternalInput(e.target)) {
       return;
     }
 
@@ -469,6 +495,19 @@ export class Worksheet {
   }
 
   /**
+   * `toggleFunctionBrowser` opens or closes the function browser dialog.
+   */
+  public toggleFunctionBrowser(): void {
+    if (this.functionBrowser.isVisible()) {
+      this.functionBrowser.hide();
+      return;
+    }
+
+    this.autocomplete.hide();
+    this.functionBrowser.show();
+  }
+
+  /**
    * `insertFunctionCompletion` replaces the typed prefix with the completed
    * function name and opening parenthesis, then updates both inputs.
    */
@@ -503,6 +542,58 @@ export class Worksheet {
 
     // Trigger autocomplete update for the new context (now inside function args)
     this.updateAutocomplete(newText, inputEl);
+  }
+
+  /**
+   * `insertFunctionFromBrowser` inserts a function call at the current cursor.
+   * If the current value is not a formula, it starts a new formula expression.
+   */
+  private insertFunctionFromBrowser(funcName: string): void {
+    const inputEl = this.getInputForFunctionInsert();
+    const text = inputEl.innerText;
+    const textRange = toTextRange(inputEl);
+
+    let newText: string;
+    let newCursorPos: number;
+
+    if (!text.startsWith('=')) {
+      newText = `=${funcName}(`;
+      newCursorPos = newText.length;
+    } else {
+      const start = textRange?.start ?? text.length;
+      const end = textRange?.end ?? text.length;
+      newText = text.slice(0, start) + funcName + '(' + text.slice(end);
+      newCursorPos = start + funcName.length + 1;
+    }
+
+    this.formulaBar.setValue(newText);
+    this.cellInput.setValue(newText);
+    setTextRange(inputEl, { start: newCursorPos, end: newCursorPos });
+    inputEl.focus();
+
+    this.formulaRanges = extractFormulaRanges(newText).map((r) => r.range);
+    this.renderOverlay();
+    this.autocomplete.hide();
+    this.updateAutocomplete(newText, inputEl);
+  }
+
+  /**
+   * `getInputForFunctionInsert` returns the target editor for function insert.
+   * Prefers focused cell input, then focused formula bar, otherwise formula bar.
+   */
+  private getInputForFunctionInsert(): HTMLDivElement {
+    if (this.cellInput.isFocused()) {
+      return this.cellInput.getInput();
+    }
+
+    const formulaInput = this.formulaBar.getFormulaInput();
+    if (!this.formulaBar.isFocused()) {
+      formulaInput.focus();
+      const end = formulaInput.innerText.length;
+      setTextRange(formulaInput, { start: end, end });
+    }
+
+    return formulaInput;
   }
 
   /**
