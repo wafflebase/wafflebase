@@ -1594,6 +1594,9 @@ export class Worksheet {
 
     const onUp = () => {
       stopAutoScroll();
+      // Finalize drag selection with a full render so toolbar listeners
+      // subscribed via onSelectionChange receive the updated range state.
+      this.render();
       this.endNativeSelectionBlock();
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
