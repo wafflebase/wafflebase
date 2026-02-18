@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MemStore } from '../../src/store/memory';
 import { Sheet } from '../../src/model/sheet';
+import { formatValue } from '../../src/model/format';
 
 describe('Sheet.Formatting', () => {
   it('should get undefined style for empty cell', async () => {
@@ -103,7 +104,9 @@ describe('Sheet.Formatting', () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '1234.5');
     await sheet.setStyle({ r: 1, c: 1 }, { nf: 'currency' });
-    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('$1,234.50');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe(
+      formatValue('1234.5', 'currency'),
+    );
   });
 
   it('should create cell when setting style on empty cell', async () => {
@@ -303,7 +306,9 @@ describe('Sheet.ColumnRowSheetStyles', () => {
 
     // Enter data in a cell
     await sheet.setData({ r: 1, c: 1 }, '1234.5');
-    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('$1,234.50');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe(
+      formatValue('1234.5', 'currency'),
+    );
   });
 
   it('should apply style to multiple columns at once', async () => {

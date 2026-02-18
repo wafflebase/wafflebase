@@ -83,7 +83,9 @@ React and the `@wafflebase/sheet` engine:
 
 `FormattingToolbar` includes a function browser trigger (`fx`) that calls
 `spreadsheet.toggleFunctionBrowser()`, so function discovery lives in the
-frontend toolbar rather than the engine's formula bar.
+frontend toolbar rather than the engine's formula bar. The `More format` menu
+shows common US-format examples first, then appends current system-locale
+entries for locale currency and locale date (such as KRW/date for `ko-KR`).
 
 A `didMount` ref guards against React 19 StrictMode double-mounting in
 development.

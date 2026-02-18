@@ -1,11 +1,75 @@
 import { NumberFormat } from './types';
+import { resolveCurrencyForLocale, resolveSystemLocale } from './locale';
+
+export type FormatValueOptions = {
+  locale?: string;
+  currency?: string;
+};
+
+function safeFormat(
+  value: number,
+  locale: string,
+  options: Intl.NumberFormatOptions,
+): string {
+  try {
+    return value.toLocaleString(locale, options);
+  } catch {
+    return value.toLocaleString('en-US', options);
+  }
+}
+
+function parseDateValue(value: string): Date | undefined {
+  const isoDateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateMatch) {
+    const year = Number(isoDateMatch[1]);
+    const month = Number(isoDateMatch[2]);
+    const day = Number(isoDateMatch[3]);
+    const localDate = new Date(year, month - 1, day);
+    if (
+      localDate.getFullYear() === year &&
+      localDate.getMonth() === month - 1 &&
+      localDate.getDate() === day
+    ) {
+      return localDate;
+    }
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  if (isNaN(parsed.getTime())) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function safeFormatDate(value: string, locale: string): string {
+  const date = parseDateValue(value);
+  if (!date) {
+    return value;
+  }
+
+  try {
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
+  }
+}
 
 /**
  * `formatValue` converts a raw value to a display string based on the number format.
  * Returns the original value for non-numeric inputs or 'plain'/undefined format.
  * @param dp decimal places override (undefined uses format default of 2)
  */
-export function formatValue(value: string, format?: NumberFormat, dp?: number): string {
+export function formatValue(
+  value: string,
+  format?: NumberFormat,
+  dp?: number,
+  options?: FormatValueOptions,
+): string {
   if (!format || format === 'plain') {
     return value;
   }
@@ -14,32 +78,40 @@ export function formatValue(value: string, format?: NumberFormat, dp?: number): 
     return value;
   }
 
-  const num = Number(value);
-  if (isNaN(num)) {
-    return value;
-  }
-
   const decimals = dp ?? 2;
+  const locale = options?.locale ?? resolveSystemLocale();
+  const currency = options?.currency ?? resolveCurrencyForLocale(locale);
 
   switch (format) {
-    case 'number':
-      return num.toLocaleString('en-US', {
+    case 'number': {
+      const num = Number(value);
+      if (isNaN(num)) return value;
+      return safeFormat(num, locale, {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
       });
-    case 'currency':
-      return num.toLocaleString('en-US', {
+    }
+    case 'currency': {
+      const num = Number(value);
+      if (isNaN(num)) return value;
+      return safeFormat(num, locale, {
         style: 'currency',
-        currency: 'USD',
+        currency,
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
       });
-    case 'percent':
-      return (num / 100).toLocaleString('en-US', {
+    }
+    case 'percent': {
+      const num = Number(value);
+      if (isNaN(num)) return value;
+      return safeFormat(num / 100, locale, {
         style: 'percent',
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,
       });
+    }
+    case 'date':
+      return safeFormatDate(value, locale);
     default:
       return value;
   }

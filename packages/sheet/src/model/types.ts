@@ -51,7 +51,12 @@ export type VerticalAlign = 'top' | 'middle' | 'bottom';
 /**
  * NumberFormat represents the number format of a cell.
  */
-export type NumberFormat = 'plain' | 'number' | 'currency' | 'percent';
+export type NumberFormat =
+  | 'plain'
+  | 'number'
+  | 'currency'
+  | 'percent'
+  | 'date';
 
 /**
  * CellStyle represents the formatting style of a cell.

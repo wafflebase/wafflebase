@@ -49,6 +49,13 @@ import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
 import { ReadOnlyStore } from './store/readonly';
 import { initialize, Spreadsheet } from './view/spreadsheet';
+import {
+  buildLocaleFormatPreview,
+  resolveCurrencyForLocale,
+  resolveSystemLocale,
+  type LocaleFormatPreview,
+} from './model/locale';
+import { type FormatValueOptions } from './model/format';
 
 export {
   initialize,
@@ -95,4 +102,9 @@ export {
   shiftMergeMap,
   moveMergeMap,
   isMergeSplitByMove,
+  resolveSystemLocale,
+  resolveCurrencyForLocale,
+  buildLocaleFormatPreview,
+  type LocaleFormatPreview,
+  type FormatValueOptions,
 };

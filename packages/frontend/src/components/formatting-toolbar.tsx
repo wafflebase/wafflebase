@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Spreadsheet,
   CellStyle,
   NumberFormat,
   VerticalAlign,
+  LocaleFormatPreview,
 } from "@wafflebase/sheet";
+import { buildLocaleFormatPreview } from "@wafflebase/sheet";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -18,6 +20,9 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
 import {
   IconBold,
@@ -40,6 +45,7 @@ import {
   IconChevronDown,
   IconHash,
   IconAbc,
+  IconCalendar,
   IconTableAlias,
   IconMathFunction,
 } from "@tabler/icons-react";
@@ -107,6 +113,7 @@ const FORMAT_ICONS = {
   number: IconHash,
   currency: IconCurrencyDollar,
   percent: IconPercentage,
+  date: IconCalendar,
 } as const;
 
 const isMac =
@@ -122,6 +129,14 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
   const [selectionMerged, setSelectionMerged] = useState(false);
   const [canMerge, setCanMerge] = useState(false);
+  const usPreview: LocaleFormatPreview = useMemo(
+    () => buildLocaleFormatPreview("en-US"),
+    [],
+  );
+  const localePreview: LocaleFormatPreview = useMemo(
+    () => buildLocaleFormatPreview(),
+    [],
+  );
 
   const refreshStyle = useCallback(async () => {
     if (!spreadsheet) return;
@@ -259,7 +274,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
             <IconCurrencyDollar size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Format as currency</TooltipContent>
+        <TooltipContent>Format as currency ({localePreview.currency})</TooltipContent>
       </Tooltip>
 
       {/* Percent shortcut */}
@@ -321,6 +336,10 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
           <TooltipContent>More format</TooltipContent>
         </Tooltip>
         <DropdownMenuContent>
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            Common formats (US examples)
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>
             <IconAbc size={16} className="mr-2" />
             Plain text
@@ -328,14 +347,35 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
           <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
             <IconHash size={16} className="mr-2" />
             Number
+            <DropdownMenuShortcut>{usPreview.number}</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
             <IconCurrencyDollar size={16} className="mr-2" />
             Currency
+            <DropdownMenuShortcut>{usPreview.currencyValue}</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
             <IconPercentage size={16} className="mr-2" />
             Percent
+            <DropdownMenuShortcut>{usPreview.percent}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            US date preview: {usPreview.date}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+            Your locale ({localePreview.locale})
+          </DropdownMenuLabel>
+          <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
+            <IconCurrencyDollar size={16} className="mr-2" />
+            Locale currency
+            <DropdownMenuShortcut>{localePreview.currencyValue}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
+            <IconCalendar size={16} className="mr-2" />
+            Locale date
+            <DropdownMenuShortcut>{localePreview.date}</DropdownMenuShortcut>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

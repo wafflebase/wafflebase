@@ -490,7 +490,7 @@ style store is needed.
 ```typescript
 type TextAlign = 'left' | 'center' | 'right';
 type VerticalAlign = 'top' | 'middle' | 'bottom';
-type NumberFormat = 'plain' | 'number' | 'currency' | 'percent';
+type NumberFormat = 'plain' | 'number' | 'currency' | 'percent' | 'date';
 
 type CellStyle = {
   b?: boolean;         // bold
@@ -523,8 +523,13 @@ vertical), underline/strikethrough decorations, and number formatting. The
 `<div>`.
 
 **Number formatting:** The `formatValue(value, format)` utility converts raw
-values to display strings: `'number'` → `1,234.00`, `'currency'` → `$1,234.50`,
-`'percent'` → `15.00%`. Applied in `toDisplayString` and `renderCell`.
+values to display strings using the system locale by default. `'number'`,
+`'currency'`, and `'percent'` all use locale separators, and `'currency'`
+resolves a currency code from locale region (including language-only locales
+that can be maximized, for example `ko`/`ko-KR` → `KRW`, `de-DE` → `EUR`).
+`'date'` formats parseable date values (for example,
+`2026-02-18`) using locale date style. Applied in `toDisplayString` and
+`renderCell`.
 
 **Data preservation:** `setData` preserves the existing `s` property when
 updating a cell's value or formula.
