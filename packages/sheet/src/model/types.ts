@@ -59,6 +59,19 @@ export type NumberFormat =
   | 'date';
 
 /**
+ * BorderPreset represents a border application preset for a selected range.
+ */
+export type BorderPreset =
+  | 'all'
+  | 'outer'
+  | 'inner'
+  | 'top'
+  | 'bottom'
+  | 'left'
+  | 'right'
+  | 'clear';
+
+/**
  * CellStyle represents the formatting style of a cell.
  */
 export type CellStyle = {
@@ -66,6 +79,10 @@ export type CellStyle = {
   i?: boolean; // italic
   u?: boolean; // underline
   st?: boolean; // strikethrough
+  bt?: boolean; // top border
+  br?: boolean; // right border
+  bb?: boolean; // bottom border
+  bl?: boolean; // left border
   tc?: string; // text color (#hex)
   bg?: string; // background color (#hex)
   al?: TextAlign; // horizontal alignment

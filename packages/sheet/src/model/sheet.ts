@@ -17,6 +17,7 @@ import {
 } from './coordinates';
 import {
   Axis,
+  BorderPreset,
   Grid,
   GridResolver,
   Cell,
@@ -55,11 +56,16 @@ import { formatValue } from './format';
  * It represents cells from A1 to ZZZ1000000.
  */
 const Dimensions = { rows: 1000000, columns: 18278 };
+const MaxBorderSelectionCells = 50000;
 const DefaultStyleValues: Partial<CellStyle> = {
   b: false,
   i: false,
   u: false,
   st: false,
+  bt: false,
+  br: false,
+  bb: false,
+  bl: false,
   al: 'left',
   va: 'top',
   nf: 'plain',
@@ -1626,6 +1632,36 @@ export class Sheet {
   }
 
   /**
+   * `setRangeBorders` applies a border preset to the current cell selection.
+   * Border presets are only supported for cell selections.
+   */
+  async setRangeBorders(preset: BorderPreset): Promise<boolean> {
+    if (this.selectionType !== 'cell') {
+      return false;
+    }
+
+    const selection = this.getRangeOrActiveCell();
+    const rows = selection[1].r - selection[0].r + 1;
+    const cols = selection[1].c - selection[0].c + 1;
+    if (rows * cols > MaxBorderSelectionCells) {
+      return false;
+    }
+
+    const targets = this.collectBorderTargets(selection);
+    this.store.beginBatch();
+    try {
+      for (const { anchor, range } of targets) {
+        const patch = this.toBorderPatchForPreset(preset, selection, range);
+        await this.setStyle(anchor, patch);
+      }
+    } finally {
+      this.store.endBatch();
+    }
+
+    return true;
+  }
+
+  /**
    * `toggleRangeStyle` toggles a boolean style property based on the active cell's
    * effective style (including inherited column/row/sheet styles).
    */
@@ -1633,6 +1669,81 @@ export class Sheet {
     const effectiveStyle = await this.getStyle(this.activeCell);
     const newValue = !effectiveStyle?.[prop];
     await this.setRangeStyle({ [prop]: newValue });
+  }
+
+  private collectBorderTargets(
+    selection: Range,
+  ): Array<{ anchor: Ref; range: Range }> {
+    const targets: Array<{ anchor: Ref; range: Range }> = [];
+    const visited = new Set<Sref>();
+
+    for (let r = selection[0].r; r <= selection[1].r; r++) {
+      for (let c = selection[0].c; c <= selection[1].c; c++) {
+        const anchor = this.normalizeRefToAnchor({ r, c });
+        const anchorSref = toSref(anchor);
+        if (visited.has(anchorSref)) {
+          continue;
+        }
+        visited.add(anchorSref);
+
+        const span = this.merges.get(anchorSref);
+        const range = span ? toMergeRange(anchor, span) : [anchor, anchor];
+        targets.push({ anchor, range });
+      }
+    }
+
+    return targets;
+  }
+
+  private toBorderPatchForPreset(
+    preset: BorderPreset,
+    selection: Range,
+    target: Range,
+  ): Partial<CellStyle> {
+    const onTop = target[0].r === selection[0].r;
+    const onBottom = target[1].r === selection[1].r;
+    const onLeft = target[0].c === selection[0].c;
+    const onRight = target[1].c === selection[1].c;
+
+    switch (preset) {
+      case 'all':
+        return {
+          bt: true,
+          bl: true,
+          br: onRight,
+          bb: onBottom,
+        };
+      case 'outer':
+        return {
+          bt: onTop,
+          bl: onLeft,
+          br: onRight,
+          bb: onBottom,
+        };
+      case 'inner':
+        return {
+          bt: !onTop,
+          bl: !onLeft,
+          br: false,
+          bb: false,
+        };
+      case 'top':
+        return { bt: onTop };
+      case 'bottom':
+        return { bb: onBottom };
+      case 'left':
+        return { bl: onLeft };
+      case 'right':
+        return { br: onRight };
+      case 'clear':
+      default:
+        return {
+          bt: false,
+          bl: false,
+          br: false,
+          bb: false,
+        };
+    }
   }
 
   /**

@@ -86,6 +86,9 @@ React and the `@wafflebase/sheet` engine:
 frontend toolbar rather than the engine's formula bar. The `More format` menu
 shows common US-format examples first, then appends current system-locale
 entries for locale currency and locale date (such as KRW/date for `ko-KR`).
+The toolbar also includes a `Borders` dropdown that applies border presets
+(`all`, `outer`, `inner`, directional sides, `clear`) via
+`spreadsheet.applyBorders(...)`.
 
 A `didMount` ref guards against React 19 StrictMode double-mounting in
 development.

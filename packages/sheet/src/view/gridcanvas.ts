@@ -16,6 +16,7 @@ import {
   DefaultCellHeight,
   RowHeaderWidth,
   CellBorderWidth,
+  CustomCellBorderWidth,
   CellFontSize,
   CellLineHeight,
   CellPaddingX,
@@ -373,13 +374,12 @@ export class GridCanvas {
       mergeData,
     );
 
-    // Two-pass rendering: backgrounds first, then text content.
+    // Three-pass rendering: backgrounds first, then custom borders, then text.
     // This ensures text overflow into empty neighbor cells is not
     // overwritten by the neighbor's background fill.
 
-    // Pass 1: Render all cell backgrounds and borders.
+    // Pass 1: Render all cell backgrounds and default grid borders.
     for (let row = rowStart; row <= rowEnd; row++) {
-      const rStyle = rowStyles?.get(row);
       for (let col = colStart; col <= colEnd; col++) {
         const sref = toSref({ r: row, c: col });
         if (mergeData?.coverToAnchor.has(sref)) {
@@ -387,11 +387,14 @@ export class GridCanvas {
         }
         const cell = grid?.get(toSref({ r: row, c: col }));
         const mergeSpan = mergeData?.anchors.get(sref);
-        const cStyle = colStyles?.get(col);
-        let effectiveStyle: CellStyle | undefined;
-        if (sheetStyle || cStyle || rStyle || cell?.s) {
-          effectiveStyle = { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
-        }
+        const effectiveStyle = this.resolveEffectiveStyle(
+          row,
+          col,
+          cell,
+          sheetStyle,
+          colStyles,
+          rowStyles,
+        );
         const hideLeftBorder = overflowData?.hiddenVerticalBoundaries.has(
           this.verticalBoundaryKey(row, col - 1),
         );
@@ -413,9 +416,8 @@ export class GridCanvas {
       }
     }
 
-    // Pass 2: Render all cell text content (with overflow clipping).
+    // Pass 2: Render custom cell borders.
     for (let row = rowStart; row <= rowEnd; row++) {
-      const rStyle = rowStyles?.get(row);
       for (let col = colStart; col <= colEnd; col++) {
         const sref = toSref({ r: row, c: col });
         if (mergeData?.coverToAnchor.has(sref)) {
@@ -423,11 +425,43 @@ export class GridCanvas {
         }
         const cell = grid?.get(toSref({ r: row, c: col }));
         const mergeSpan = mergeData?.anchors.get(sref);
-        const cStyle = colStyles?.get(col);
-        let effectiveStyle: CellStyle | undefined;
-        if (sheetStyle || cStyle || rStyle || cell?.s) {
-          effectiveStyle = { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
+        const effectiveStyle = this.resolveEffectiveStyle(
+          row,
+          col,
+          cell,
+          sheetStyle,
+          colStyles,
+          rowStyles,
+        );
+        this.renderCellCustomBorders(
+          ctx,
+          { r: row, c: col },
+          scroll,
+          rowDim,
+          colDim,
+          effectiveStyle,
+          mergeSpan,
+        );
+      }
+    }
+
+    // Pass 3: Render all cell text content (with overflow clipping).
+    for (let row = rowStart; row <= rowEnd; row++) {
+      for (let col = colStart; col <= colEnd; col++) {
+        const sref = toSref({ r: row, c: col });
+        if (mergeData?.coverToAnchor.has(sref)) {
+          continue;
         }
+        const cell = grid?.get(toSref({ r: row, c: col }));
+        const mergeSpan = mergeData?.anchors.get(sref);
+        const effectiveStyle = this.resolveEffectiveStyle(
+          row,
+          col,
+          cell,
+          sheetStyle,
+          colStyles,
+          rowStyles,
+        );
         const overflowEndCol = overflowData?.anchorToEndCol.get(sref);
         this.renderCellContent(
           ctx,
@@ -673,6 +707,46 @@ export class GridCanvas {
     ctx.stroke();
   }
 
+  private renderCellCustomBorders(
+    ctx: CanvasRenderingContext2D,
+    id: Ref,
+    scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    style?: CellStyle,
+    mergeSpan?: MergeSpan,
+  ): void {
+    if (!style || (!style.bt && !style.br && !style.bb && !style.bl)) {
+      return;
+    }
+
+    const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
+    ctx.beginPath();
+    ctx.strokeStyle = this.getThemeColor('customBorderColor');
+    ctx.lineWidth = CustomCellBorderWidth;
+
+    if (style.bt) {
+      ctx.moveTo(rect.left, rect.top);
+      ctx.lineTo(rect.left + rect.width, rect.top);
+    }
+    if (style.br) {
+      const x = rect.left + rect.width;
+      ctx.moveTo(x, rect.top);
+      ctx.lineTo(x, rect.top + rect.height);
+    }
+    if (style.bb) {
+      const y = rect.top + rect.height;
+      ctx.moveTo(rect.left, y);
+      ctx.lineTo(rect.left + rect.width, y);
+    }
+    if (style.bl) {
+      ctx.moveTo(rect.left, rect.top);
+      ctx.lineTo(rect.left, rect.top + rect.height);
+    }
+
+    ctx.stroke();
+  }
+
   private renderCellContent(
     ctx: CanvasRenderingContext2D,
     id: Ref,
@@ -837,7 +911,6 @@ export class GridCanvas {
 
     ctx.save();
     for (let row = rowStart; row <= rowEnd; row++) {
-      const rStyle = rowStyles?.get(row);
       for (let col = colStart; col <= colEnd; col++) {
         const sref = toSref({ r: row, c: col });
         if (mergeData?.coverToAnchor.has(sref) || mergeData?.anchors.has(sref)) {
@@ -850,11 +923,14 @@ export class GridCanvas {
           continue;
         }
 
-        const cStyle = colStyles?.get(col);
-        const style =
-          sheetStyle || cStyle || rStyle || cell?.s
-            ? { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s }
-            : undefined;
+        const style = this.resolveEffectiveStyle(
+          row,
+          col,
+          cell,
+          sheetStyle,
+          colStyles,
+          rowStyles,
+        );
 
         const align = style?.al || 'left';
         if (align !== 'left') {
@@ -877,6 +953,26 @@ export class GridCanvas {
         let width = cellWidth;
         let overflowEndCol = col;
         for (let nextCol = col + 1; nextCol <= colEnd; nextCol++) {
+          const leftStyle = this.resolveEffectiveStyle(
+            row,
+            nextCol - 1,
+            grid.get(toSref({ r: row, c: nextCol - 1 })),
+            sheetStyle,
+            colStyles,
+            rowStyles,
+          );
+          const rightStyle = this.resolveEffectiveStyle(
+            row,
+            nextCol,
+            grid.get(toSref({ r: row, c: nextCol })),
+            sheetStyle,
+            colStyles,
+            rowStyles,
+          );
+          if (leftStyle?.br || rightStyle?.bl) {
+            break;
+          }
+
           const nextSref = toSref({ r: row, c: nextCol });
           if (
             mergeData?.coverToAnchor.has(nextSref) ||
@@ -916,6 +1012,22 @@ export class GridCanvas {
     }
 
     return { anchorToEndCol, hiddenVerticalBoundaries };
+  }
+
+  private resolveEffectiveStyle(
+    row: number,
+    col: number,
+    cell?: Cell,
+    sheetStyle?: CellStyle,
+    colStyles?: Map<number, CellStyle>,
+    rowStyles?: Map<number, CellStyle>,
+  ): CellStyle | undefined {
+    const cStyle = colStyles?.get(col);
+    const rStyle = rowStyles?.get(row);
+    if (!sheetStyle && !cStyle && !rStyle && !cell?.s) {
+      return undefined;
+    }
+    return { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
   }
 
   /**

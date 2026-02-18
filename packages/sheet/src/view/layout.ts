@@ -16,6 +16,7 @@ export const CellPaddingY = 5;
 
 // Other constants
 export const CellBorderWidth = 0.5;
+export const CustomCellBorderWidth = 1.5;
 export const HeaderTextAlign = 'center';
 export const ScrollIntervalMS = 10;
 export const ScrollSpeedMS = 10;

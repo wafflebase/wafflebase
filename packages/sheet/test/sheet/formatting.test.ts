@@ -137,6 +137,66 @@ describe('Sheet.Formatting', () => {
     const style = await sheet.getStyle({ r: 1, c: 1 });
     expect(style).toEqual({ al: 'center', va: 'bottom' });
   });
+
+  it('should apply all borders preset to a selected range', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+
+    expect(await sheet.setRangeBorders('all')).toBe(true);
+
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ bt: true, bl: true });
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
+      bt: true,
+      bl: true,
+      br: true,
+    });
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
+      bt: true,
+      bl: true,
+      bb: true,
+    });
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
+      bt: true,
+      bl: true,
+      br: true,
+      bb: true,
+    });
+  });
+
+  it('should replace all borders with outer border preset', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+
+    await sheet.setRangeBorders('all');
+    expect(await sheet.setRangeBorders('outer')).toBe(true);
+
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ bt: true, bl: true });
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({ bt: true, br: true });
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({ bl: true, bb: true });
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({ br: true, bb: true });
+  });
+
+  it('should clear borders from selected range', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+
+    await sheet.setRangeBorders('all');
+    expect(await sheet.setRangeBorders('clear')).toBe(true);
+
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toBeUndefined();
+  });
+
+  it('should reject border presets for non-cell selections', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectColumn(1);
+    expect(await sheet.setRangeBorders('all')).toBe(false);
+  });
 });
 
 describe('Sheet.ColumnRowSheetStyles', () => {

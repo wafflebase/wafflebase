@@ -2,6 +2,7 @@ export type Theme = 'light' | 'dark';
 
 export const LightTheme = {
   cellBorderColor: '#D3D3D3',
+  customBorderColor: '#000000',
   cellBGColor: '#FFFFFF',
   cellTextColor: '#000000',
   activeCellColor: '#E6C746',
@@ -35,6 +36,7 @@ export const LightTheme = {
 
 export const DarkTheme = {
   cellBorderColor: '#4A4A4A',
+  customBorderColor: '#FFFFFF',
   cellBGColor: '#1E1E1E',
   cellTextColor: '#FFFFFF',
   activeCellColor: '#D4B73E',

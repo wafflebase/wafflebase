@@ -497,6 +497,10 @@ type CellStyle = {
   i?: boolean;         // italic
   u?: boolean;         // underline
   st?: boolean;        // strikethrough
+  bt?: boolean;        // top border (custom border)
+  br?: boolean;        // right border (custom border)
+  bb?: boolean;        // bottom border (custom border)
+  bl?: boolean;        // left border (custom border)
   tc?: string;         // text color (#hex)
   bg?: string;         // background color (#hex)
   al?: TextAlign;      // horizontal alignment
@@ -515,12 +519,18 @@ type CellStyle = {
 - `setRangeStyle(style)` — Applies style to all cells in the current selection.
 - `toggleRangeStyle(prop)` — Toggles a boolean style (`b`, `i`, `u`, `st`) based
   on the active cell's state.
+- `setRangeBorders(preset)` — Applies a border preset (`all`, `outer`, `inner`,
+  `top`, `bottom`, `left`, `right`, `clear`) to the selected cell range.
 
-**Rendering:** The `GridCanvas.renderCell` method reads `cell.s` to determine
+**Rendering:** The `GridCanvas` renderer reads `cell.s` to determine
 background color, font weight/style, text color, alignment (horizontal and
 vertical), underline/strikethrough decorations, and number formatting. The
 `CellInput.applyStyle` method mirrors these styles on the inline editing
 `<div>`.
+
+Custom borders are rendered in a dedicated pass above default gridlines using
+`bt/br/bb/bl`. Text overflow into neighboring empty cells stops at explicit
+custom borders.
 
 **Number formatting:** The `formatValue(value, format)` utility converts raw
 values to display strings using the system locale by default. `'number'`,
@@ -538,8 +548,9 @@ updating a cell's value or formula.
 italic, and underline on the current selection.
 
 **Toolbar:** The frontend `FormattingToolbar` component provides controls for
-all style properties and calls `Spreadsheet.applyStyle()` /
-`Spreadsheet.toggleStyle()`. It refreshes its state via the
+all style properties (including border presets) and calls
+`Spreadsheet.applyStyle()` / `Spreadsheet.toggleStyle()` /
+`Spreadsheet.applyBorders()`. It refreshes its state via the
 `onSelectionChange` callback.
 
 ## Risks and Mitigation

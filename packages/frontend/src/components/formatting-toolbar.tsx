@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Spreadsheet,
+  BorderPreset,
   CellStyle,
   NumberFormat,
   VerticalAlign,
@@ -48,6 +49,14 @@ import {
   IconCalendar,
   IconTableAlias,
   IconMathFunction,
+  IconBorderAll,
+  IconBorderOuter,
+  IconBorderInner,
+  IconBorderTop,
+  IconBorderBottom,
+  IconBorderLeft,
+  IconBorderRight,
+  IconBorderNone,
 } from "@tabler/icons-react";
 
 const TEXT_COLORS = [
@@ -225,6 +234,13 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
   const handleToggleMerge = useCallback(() => {
     spreadsheet?.toggleMergeCells();
   }, [spreadsheet]);
+
+  const handleBorders = useCallback(
+    (preset: BorderPreset) => {
+      spreadsheet?.applyBorders(preset);
+    },
+    [spreadsheet],
+  );
 
   const currentAlign = style?.al || "left";
   const CurrentAlignIcon = ALIGN_ICONS[currentAlign];
@@ -501,6 +517,57 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
               />
             ))}
           </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Borders */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                <IconBorderAll size={14} />
+                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Cell borders</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
+          <DropdownMenuItem onClick={() => handleBorders("all")}>
+            <IconBorderAll size={14} className="mr-2" />
+            All borders
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleBorders("outer")}>
+            <IconBorderOuter size={14} className="mr-2" />
+            Outer border
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleBorders("inner")}>
+            <IconBorderInner size={14} className="mr-2" />
+            Inner borders
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => handleBorders("top")}>
+            <IconBorderTop size={14} className="mr-2" />
+            Top border
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleBorders("bottom")}>
+            <IconBorderBottom size={14} className="mr-2" />
+            Bottom border
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleBorders("left")}>
+            <IconBorderLeft size={14} className="mr-2" />
+            Left border
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleBorders("right")}>
+            <IconBorderRight size={14} className="mr-2" />
+            Right border
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => handleBorders("clear")}>
+            <IconBorderNone size={14} className="mr-2" />
+            Clear borders
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

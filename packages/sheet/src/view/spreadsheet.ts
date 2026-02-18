@@ -1,4 +1,4 @@
-import { CellStyle, GridResolver } from '../model/types';
+import { BorderPreset, CellStyle, GridResolver } from '../model/types';
 import { Sheet } from '../model/sheet';
 import { Store } from '../store/store';
 import { MemStore } from '../store/memory';
@@ -108,6 +108,17 @@ export class Spreadsheet {
     await this.sheet.setRangeStyle(style);
     this.worksheet.render();
     this.notifySelectionChange();
+  }
+
+  /**
+   * `applyBorders` applies a border preset to the current selection and re-renders.
+   */
+  public async applyBorders(preset: BorderPreset) {
+    if (!this.sheet || this._readOnly) return;
+    if (await this.sheet.setRangeBorders(preset)) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
   }
 
   /**
