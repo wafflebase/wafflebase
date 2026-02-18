@@ -69,6 +69,13 @@ describe('FunctionCatalog', () => {
       expect(findFunction('SUMIF')!.name).toBe('SUMIF');
       expect(findFunction('COUNTIFS')!.name).toBe('COUNTIFS');
       expect(findFunction('SUMIFS')!.name).toBe('SUMIFS');
+      expect(findFunction('PRODUCT')!.name).toBe('PRODUCT');
+      expect(findFunction('MEDIAN')!.name).toBe('MEDIAN');
+      expect(findFunction('COUNTBLANK')!.name).toBe('COUNTBLANK');
+      expect(findFunction('CONCAT')!.name).toBe('CONCAT');
+      expect(findFunction('ISBLANK')!.name).toBe('ISBLANK');
+      expect(findFunction('ISNUMBER')!.name).toBe('ISNUMBER');
+      expect(findFunction('ISTEXT')!.name).toBe('ISTEXT');
     });
 
     it('should return undefined for unknown function', () => {
@@ -118,6 +125,11 @@ describe('FunctionCatalog', () => {
       expect(formatSignature(info)).toBe(
         'SUMIFS(sum_range, criteria_range1, criterion1, [criteria_range2], ..., [criterion2], ...)',
       );
+    });
+
+    it('should format ISNUMBER signature', () => {
+      const info = findFunction('ISNUMBER')!;
+      expect(formatSignature(info)).toBe('ISNUMBER(value)');
     });
   });
 });

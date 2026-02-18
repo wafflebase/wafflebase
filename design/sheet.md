@@ -273,12 +273,13 @@ up to 3 letters and arbitrary row numbers (e.g., `ZZZ729443`).
 Functions are registered in `FunctionMap`. Currently implemented:
 
 - **Math** — `SUM`, `ABS`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `INT`, `MOD`,
-  `SQRT`, `POWER`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`, `COUNTIF`,
-  `SUMIF`, `COUNTIFS`, `SUMIFS`.
+  `SQRT`, `POWER`, `PRODUCT`, `MEDIAN`, `AVERAGE`, `MIN`, `MAX`, `COUNT`,
+  `COUNTA`, `COUNTBLANK`, `COUNTIF`, `SUMIF`, `COUNTIFS`, `SUMIFS`.
 - **Logical** — `IF`, `IFS`, `SWITCH`, `AND`, `OR`, `NOT`, `IFERROR`.
-- **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `FIND`,
-  `SEARCH`, `TEXTJOIN`, `LOWER`, `UPPER`, `PROPER`, `SUBSTITUTE`.
+- **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `CONCAT`,
+  `FIND`, `SEARCH`, `TEXTJOIN`, `LOWER`, `UPPER`, `PROPER`, `SUBSTITUTE`.
 - **Date/Time** — `TODAY`, `NOW`, `YEAR`, `MONTH`, `DAY`.
+- **Information** — `ISBLANK`, `ISNUMBER`, `ISTEXT`.
 
 Ranges are expanded to individual cells where relevant. Numeric coercion uses
 `NumberArgs` (booleans → 0/1, strings → `parseFloat`, refs → looked up and
@@ -538,7 +539,7 @@ all style properties and calls `Spreadsheet.applyStyle()` /
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 43 built-in functions are implemented. New functions
+**Formula function coverage** — 50 built-in functions are implemented. New functions
 are added to `FunctionMap` following the same pattern: accept a
 `FunctionContext`, visitor, and optional grid; return an `EvalNode`.
 

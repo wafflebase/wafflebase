@@ -18,6 +18,8 @@ export const FunctionMap = new Map([
   ['MOD', modFunc],
   ['SQRT', sqrtFunc],
   ['POWER', powerFunc],
+  ['PRODUCT', productFunc],
+  ['MEDIAN', medianFunc],
   ['IF', ifFunc],
   ['IFS', ifsFunc],
   ['SWITCH', switchFunc],
@@ -29,6 +31,7 @@ export const FunctionMap = new Map([
   ['MAX', maxFunc],
   ['COUNT', countFunc],
   ['COUNTA', countaFunc],
+  ['COUNTBLANK', countblankFunc],
   ['COUNTIF', countifFunc],
   ['SUMIF', sumifFunc],
   ['COUNTIFS', countifsFunc],
@@ -39,6 +42,7 @@ export const FunctionMap = new Map([
   ['RIGHT', rightFunc],
   ['MID', midFunc],
   ['CONCATENATE', concatenateFunc],
+  ['CONCAT', concatFunc],
   ['FIND', findFunc],
   ['SEARCH', searchFunc],
   ['TEXTJOIN', textjoinFunc],
@@ -51,6 +55,9 @@ export const FunctionMap = new Map([
   ['YEAR', yearFunc],
   ['MONTH', monthFunc],
   ['DAY', dayFunc],
+  ['ISBLANK', isblankFunc],
+  ['ISNUMBER', isnumberFunc],
+  ['ISTEXT', istextFunc],
   ['IFERROR', iferrorFunc],
 ]);
 
@@ -493,6 +500,66 @@ export function powerFunc(
 }
 
 /**
+ * `productFunc` is the implementation of the PRODUCT function.
+ * PRODUCT(number1, [number2], ...) — multiplies numeric values.
+ */
+export function productFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let value = 1;
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    value *= node.v;
+  }
+
+  return { t: 'num', v: value };
+}
+
+/**
+ * `medianFunc` is the implementation of the MEDIAN function.
+ * MEDIAN(number1, [number2], ...) — returns the middle value.
+ */
+export function medianFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    values.push(node.v);
+  }
+
+  if (values.length === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  values.sort((a, b) => a - b);
+  const middle = Math.floor(values.length / 2);
+  if (values.length % 2 === 1) {
+    return { t: 'num', v: values[middle] };
+  }
+
+  return { t: 'num', v: (values[middle - 1] + values[middle]) / 2 };
+}
+
+/**
  * `ifFunc` is the implementation of the IF function.
  * IF(condition, value_if_true, [value_if_false])
  */
@@ -852,6 +919,54 @@ export function countaFunc(
           count++;
         }
       }
+    }
+  }
+
+  return { t: 'num', v: count };
+}
+
+/**
+ * `countblankFunc` is the implementation of the COUNTBLANK function.
+ * COUNTBLANK(value1, [value2], ...) — counts empty values.
+ */
+export function countblankFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args()!;
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let count = 0;
+  for (const expr of args.expr()) {
+    const node = visit(expr);
+
+    if (node.t === 'str') {
+      if (node.v === '') {
+        count++;
+      }
+      continue;
+    }
+
+    if (node.t !== 'ref' || !grid) {
+      continue;
+    }
+
+    if (isSrng(node.v)) {
+      for (const ref of toSrefs([node.v])) {
+        const val = grid.get(ref)?.v || '';
+        if (val === '') {
+          count++;
+        }
+      }
+      continue;
+    }
+
+    const val = grid.get(node.v)?.v || '';
+    if (val === '') {
+      count++;
     }
   }
 
@@ -1267,6 +1382,18 @@ export function concatenateFunc(
   }
 
   return { t: 'str', v: result };
+}
+
+/**
+ * `concatFunc` is the implementation of the CONCAT function.
+ * CONCAT(text1, text2, ...) — joins text values into one string.
+ */
+export function concatFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  return concatenateFunc(ctx, visit, grid);
 }
 
 function parseStartPosition(
@@ -1768,6 +1895,126 @@ export function dayFunc(
   if (!(date instanceof Date)) return date;
 
   return { t: 'num', v: date.getDate() };
+}
+
+/**
+ * `isblankFunc` is the implementation of the ISBLANK function.
+ * ISBLANK(value) — returns TRUE when the value is an empty cell reference.
+ */
+export function isblankFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t !== 'ref' || !grid) {
+    return { t: 'bool', v: false };
+  }
+  if (isSrng(node.v)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const value = grid.get(node.v)?.v || '';
+  return { t: 'bool', v: value === '' };
+}
+
+/**
+ * `isnumberFunc` is the implementation of the ISNUMBER function.
+ * ISNUMBER(value) — returns TRUE when value is numeric.
+ */
+export function isnumberFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t === 'num') {
+    return { t: 'bool', v: true };
+  }
+  if (node.t !== 'ref' || !grid) {
+    return { t: 'bool', v: false };
+  }
+  if (isSrng(node.v)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const value = grid.get(node.v)?.v || '';
+  const upper = value.toUpperCase();
+  const isBoolean = upper === 'TRUE' || upper === 'FALSE';
+  return {
+    t: 'bool',
+    v: value !== '' && !isBoolean && !isNaN(Number(value)),
+  };
+}
+
+/**
+ * `istextFunc` is the implementation of the ISTEXT function.
+ * ISTEXT(value) — returns TRUE when value is text.
+ */
+export function istextFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t === 'str') {
+    return { t: 'bool', v: true };
+  }
+  if (node.t !== 'ref' || !grid) {
+    return { t: 'bool', v: false };
+  }
+  if (isSrng(node.v)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const value = grid.get(node.v)?.v || '';
+  if (value === '') {
+    return { t: 'bool', v: false };
+  }
+
+  const upper = value.toUpperCase();
+  const isBoolean = upper === 'TRUE' || upper === 'FALSE';
+  const isNumeric = !isNaN(Number(value));
+  return { t: 'bool', v: !isBoolean && !isNumeric };
 }
 
 /**

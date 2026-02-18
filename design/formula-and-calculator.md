@@ -138,10 +138,11 @@ Functions are registered in `FunctionMap`. Each function receives a
 | `ROUND` / `ROUNDUP` / `ROUNDDOWN` | Decimal rounding controls                  |
 | `INT` / `MOD`            | Integer rounding and modular arithmetic             |
 | `SQRT` / `POWER`         | Square root and exponentiation                      |
+| `PRODUCT` / `MEDIAN`     | Multiplication and middle-value aggregation         |
 | `AVERAGE`                | Arithmetic mean                                     |
 | `MIN` / `MAX`            | Minimum / maximum value                             |
 | `COUNT`                  | Count of numeric values                             |
-| `COUNTA`                 | Count of non-empty values                           |
+| `COUNTA` / `COUNTBLANK`  | Count of non-empty / blank values                   |
 | `COUNTIF` / `SUMIF`      | Single-criterion conditional count/sum              |
 | `COUNTIFS` / `SUMIFS`    | Multi-criteria conditional count/sum                |
 | `IF`                     | Conditional: `IF(condition, true_val, [false_val])` |
@@ -150,13 +151,14 @@ Functions are registered in `FunctionMap`. Each function receives a
 | `TRIM`                   | Remove leading/trailing whitespace                  |
 | `LEN`                    | String length                                       |
 | `LEFT` / `RIGHT` / `MID` | Substring extraction                                |
-| `CONCATENATE`            | String concatenation                                |
+| `CONCATENATE` / `CONCAT` | String concatenation                                |
 | `FIND` / `SEARCH`        | Text search (case-sensitive/insensitive)            |
 | `TEXTJOIN`               | Concatenation with delimiter and empty filtering    |
 | `LOWER` / `UPPER` / `PROPER` | Text case conversion                            |
 | `SUBSTITUTE`             | Replace text occurrences                            |
 | `TODAY` / `NOW`          | Current date / datetime                             |
 | `YEAR` / `MONTH` / `DAY` | Date component extraction                           |
+| `ISBLANK` / `ISNUMBER` / `ISTEXT` | Value-type checks                          |
 | `IFERROR`                | Error handling: `IFERROR(value, fallback)`          |
 
 New functions follow the same pattern: accept `(ctx, visit, grid?)`, return
@@ -327,7 +329,7 @@ changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — Currently 39+ functions are implemented. New
+**Formula function coverage** — 50 built-in functions are implemented. New
 functions are added to `FunctionMap` and `FunctionCatalog` following the same
 pattern: accept `(ctx, visit, grid?)`, return an `EvalNode`.
 

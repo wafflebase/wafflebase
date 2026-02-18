@@ -92,6 +92,18 @@ describe('Formula', () => {
     expect(evaluate('=POWER(9,0.5)')).toBe('3');
   });
 
+  it('should correctly evaluate PRODUCT function', () => {
+    expect(evaluate('=PRODUCT(2,3,4)')).toBe('24');
+    expect(evaluate('=PRODUCT(10,0.5)')).toBe('5');
+    expect(evaluate('=PRODUCT(TRUE,5)')).toBe('5');
+  });
+
+  it('should correctly evaluate MEDIAN function', () => {
+    expect(evaluate('=MEDIAN(1,3,2)')).toBe('2');
+    expect(evaluate('=MEDIAN(1,2,3,4)')).toBe('2.5');
+    expect(evaluate('=MEDIAN(10)')).toBe('10');
+  });
+
   it('should correctly evaluate comparison operators', () => {
     expect(evaluate('=1=1')).toBe('true');
     expect(evaluate('=1=2')).toBe('false');
@@ -212,6 +224,16 @@ describe('Formula', () => {
     expect(evaluate('=COUNTA(1,2,3)')).toBe('3');
   });
 
+  it('should correctly evaluate COUNTBLANK function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '' });
+    grid.set('A4', { v: 'hello' });
+
+    expect(evaluate('=COUNTBLANK(A1:A4)', grid)).toBe('2');
+    expect(evaluate('=COUNTBLANK("",A1)', grid)).toBe('1');
+  });
+
   it('should correctly evaluate COUNTIF function', () => {
     const grid: Grid = new Map<string, Cell>();
     grid.set('A1', { v: '10' });
@@ -309,6 +331,11 @@ describe('Formula', () => {
     expect(evaluate('=CONCATENATE("x","y","z")')).toBe('xyz');
   });
 
+  it('should correctly evaluate CONCAT function', () => {
+    expect(evaluate('=CONCAT("hello"," world")')).toBe('hello world');
+    expect(evaluate('=CONCAT("a","b","c")')).toBe('abc');
+  });
+
   it('should correctly evaluate FIND function', () => {
     expect(evaluate('=FIND("o","Hello")')).toBe('5');
     expect(evaluate('=FIND("l","Hello",4)')).toBe('4');
@@ -371,6 +398,38 @@ describe('Formula', () => {
   it('should correctly evaluate DAY function', () => {
     expect(evaluate('=DAY("2024-03-15")')).toBe('15');
     expect(evaluate('=DAY("invalid")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate ISBLANK function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '' });
+    grid.set('A2', { v: 'value' });
+
+    expect(evaluate('=ISBLANK(A1)', grid)).toBe('true');
+    expect(evaluate('=ISBLANK(A2)', grid)).toBe('false');
+    expect(evaluate('=ISBLANK("")')).toBe('false');
+  });
+
+  it('should correctly evaluate ISNUMBER function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: 'hello' });
+
+    expect(evaluate('=ISNUMBER(10)')).toBe('true');
+    expect(evaluate('=ISNUMBER("10")')).toBe('false');
+    expect(evaluate('=ISNUMBER(A1)', grid)).toBe('true');
+    expect(evaluate('=ISNUMBER(A2)', grid)).toBe('false');
+  });
+
+  it('should correctly evaluate ISTEXT function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'hello' });
+    grid.set('A2', { v: '10' });
+
+    expect(evaluate('=ISTEXT("hello")')).toBe('true');
+    expect(evaluate('=ISTEXT(10)')).toBe('false');
+    expect(evaluate('=ISTEXT(A1)', grid)).toBe('true');
+    expect(evaluate('=ISTEXT(A2)', grid)).toBe('false');
   });
 
   it('should correctly evaluate IFERROR function', () => {

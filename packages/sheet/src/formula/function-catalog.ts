@@ -66,6 +66,22 @@ export const FunctionCatalog: FunctionInfo[] = [
     args: [{ name: 'base' }, { name: 'exponent' }],
   },
   {
+    name: 'PRODUCT',
+    description: 'Multiplies a series of numbers',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'MEDIAN',
+    description: 'Returns the middle number in a series',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
     name: 'IF',
     description: 'Returns one value if true and another if false',
     args: [
@@ -158,6 +174,14 @@ export const FunctionCatalog: FunctionInfo[] = [
     ],
   },
   {
+    name: 'COUNTBLANK',
+    description: 'Counts empty cells',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
     name: 'COUNTIF',
     description: 'Counts values in a range that meet a criterion',
     args: [{ name: 'range' }, { name: 'criterion' }],
@@ -220,6 +244,15 @@ export const FunctionCatalog: FunctionInfo[] = [
   {
     name: 'CONCATENATE',
     description: 'Joins two or more text strings into one',
+    args: [
+      { name: 'text1' },
+      { name: 'text2' },
+      { name: 'text3', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'CONCAT',
+    description: 'Joins text values into one string',
     args: [
       { name: 'text1' },
       { name: 'text2' },
@@ -303,6 +336,21 @@ export const FunctionCatalog: FunctionInfo[] = [
     name: 'DAY',
     description: 'Returns the day of the month from a date (1-31)',
     args: [{ name: 'date' }],
+  },
+  {
+    name: 'ISBLANK',
+    description: 'Checks whether a value is blank',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ISNUMBER',
+    description: 'Checks whether a value is a number',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ISTEXT',
+    description: 'Checks whether a value is text',
+    args: [{ name: 'value' }],
   },
   {
     name: 'IFERROR',
