@@ -69,21 +69,67 @@ export class YorkieStore implements Store {
   }
 
   /**
+   * Normalizes a cell before persistence.
+   * - Drops empty-string values (`v: ""`) as default.
+   * - Drops empty formulas/styles.
+   * - Returns null when the cell has no meaningful payload.
+   */
+  private normalizeCell(cell: Cell): Cell | null {
+    const normalized: Cell = {};
+
+    if (cell.v !== undefined && cell.v !== "") {
+      normalized.v = cell.v;
+    }
+
+    if (cell.f !== undefined && cell.f !== "") {
+      normalized.f = cell.f;
+    }
+
+    if (cell.s && Object.keys(cell.s).length > 0) {
+      normalized.s = cell.s;
+    }
+
+    if (
+      normalized.v === undefined &&
+      normalized.f === undefined &&
+      normalized.s === undefined
+    ) {
+      return null;
+    }
+
+    return normalized;
+  }
+
+  /**
    * `set` method sets the value of a cell.
    */
   async set(ref: Ref, value: Cell): Promise<void> {
     const sref = toSref(ref);
+    const normalized = this.normalizeCell(value);
+
     if (this.batchOverlay) {
-      this.batchOverlay.set(sref, value);
-      if (!this.dirty) {
-        this.cellIndex.add(ref.r, ref.c);
+      if (normalized) {
+        this.batchOverlay.set(sref, normalized);
+        if (!this.dirty) {
+          this.cellIndex.add(ref.r, ref.c);
+        }
+      } else {
+        this.batchOverlay.set(sref, null);
+        if (!this.dirty) {
+          this.cellIndex.remove(ref.r, ref.c);
+        }
       }
+      return;
+    }
+
+    if (!normalized) {
+      await this.delete(ref);
       return;
     }
 
     const tabId = this.tabId;
     this.doc.update((root) => {
-      root.sheets[tabId].sheet[sref] = value;
+      root.sheets[tabId].sheet[sref] = normalized;
     });
     if (!this.dirty) {
       this.cellIndex.add(ref.r, ref.c);
@@ -200,12 +246,18 @@ export class YorkieStore implements Store {
   async setGrid(grid: Grid): Promise<void> {
     if (this.batchOverlay) {
       for (const [sref, cell] of grid) {
-        this.batchOverlay.set(sref, cell);
-      }
-      if (!this.dirty) {
-        for (const [sref] of grid) {
-          const ref = parseRef(sref);
-          this.cellIndex.add(ref.r, ref.c);
+        const ref = parseRef(sref);
+        const normalized = this.normalizeCell(cell);
+        if (normalized) {
+          this.batchOverlay.set(sref, normalized);
+          if (!this.dirty) {
+            this.cellIndex.add(ref.r, ref.c);
+          }
+        } else {
+          this.batchOverlay.set(sref, null);
+          if (!this.dirty) {
+            this.cellIndex.remove(ref.r, ref.c);
+          }
         }
       }
       return;
@@ -214,13 +266,22 @@ export class YorkieStore implements Store {
     const tabId = this.tabId;
     this.doc.update((root) => {
       for (const [sref, cell] of grid) {
-        root.sheets[tabId].sheet[sref] = cell;
+        const normalized = this.normalizeCell(cell);
+        if (normalized) {
+          root.sheets[tabId].sheet[sref] = normalized;
+        } else if (root.sheets[tabId].sheet[sref] !== undefined) {
+          delete root.sheets[tabId].sheet[sref];
+        }
       }
     });
     if (!this.dirty) {
-      for (const [sref] of grid) {
+      for (const [sref, cell] of grid) {
         const ref = parseRef(sref);
-        this.cellIndex.add(ref.r, ref.c);
+        if (this.normalizeCell(cell)) {
+          this.cellIndex.add(ref.r, ref.c);
+        } else {
+          this.cellIndex.remove(ref.r, ref.c);
+        }
       }
     }
   }
@@ -297,13 +358,19 @@ export class YorkieStore implements Store {
           continue;
         }
 
+        let nextCell: Cell;
         if (cell.f) {
-          ws.sheet[newSref] = {
+          nextCell = {
             ...cell,
             f: shiftFormula(cell.f, axis, index, count),
           };
         } else {
-          ws.sheet[newSref] = { ...cell };
+          nextCell = { ...cell };
+        }
+
+        const normalized = this.normalizeCell(nextCell);
+        if (normalized) {
+          ws.sheet[newSref] = normalized;
         }
       }
 
@@ -407,13 +474,19 @@ export class YorkieStore implements Store {
         const newRef = moveRef(ref, axis, srcIndex, count, dstIndex);
         const newSref = toSref(newRef);
 
+        let nextCell: Cell;
         if (cell.f) {
-          ws.sheet[newSref] = {
+          nextCell = {
             ...cell,
             f: moveFormula(cell.f, axis, srcIndex, count, dstIndex),
           };
         } else {
-          ws.sheet[newSref] = { ...cell };
+          nextCell = { ...cell };
+        }
+
+        const normalized = this.normalizeCell(nextCell);
+        if (normalized) {
+          ws.sheet[newSref] = normalized;
         }
       }
 
@@ -763,7 +836,12 @@ export class YorkieStore implements Store {
               delete ws.sheet[sref];
             }
           } else {
-            ws.sheet[sref] = cell;
+            const normalized = this.normalizeCell(cell);
+            if (normalized) {
+              ws.sheet[sref] = normalized;
+            } else if (ws.sheet[sref] !== undefined) {
+              delete ws.sheet[sref];
+            }
           }
         }
       }

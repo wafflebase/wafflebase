@@ -212,7 +212,9 @@ this checks ~50 row entries, not 1M.
   grid replacement.
 - **YorkieStore** — Uses a dirty flag with lazy rebuild. Remote changes set
   `dirty = true`; queries call `ensureIndex()` which rebuilds if dirty. Local
-  mutations update the index incrementally when not dirty.
+  mutations update the index incrementally when not dirty. Before persisting,
+  cell payloads are compacted: empty-string values and empty style/formula
+  fields are dropped, and cells with no remaining data are deleted.
 
 #### findEdgeWithIndex
 

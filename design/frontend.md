@@ -171,6 +171,10 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 All mutations go through `doc.update()`, which automatically syncs to the
 Yorkie server and broadcasts to all connected peers.
 
+Cell payloads are normalized before persistence. `YorkieStore` drops default
+empty values (`v: ""`) and empty style/formula fields; if a cell has no
+remaining meaningful payload, it is removed from `sheet` instead of stored.
+
 **Batch transactions** — YorkieStore implements `beginBatch()` / `endBatch()`
 to group multiple mutations into a single `doc.update()` call, creating one
 undo step. Cell mutations are buffered in an overlay `Map<Sref, Cell | null>`
