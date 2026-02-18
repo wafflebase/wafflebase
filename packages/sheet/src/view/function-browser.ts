@@ -12,13 +12,20 @@ export class FunctionBrowser {
   private searchInput: HTMLInputElement;
   private status: HTMLDivElement;
   private list: HTMLDivElement;
+  private rows: Array<{ row: HTMLDivElement; name: HTMLDivElement }> = [];
   private matches: FunctionInfo[] = [...FunctionCatalog];
   private selectedIndex: number = 0;
+  private listTextColor: string = '';
+  private listSelectedBG: string = '';
+  private listActiveColor: string = '';
   private onInsert?: (info: FunctionInfo) => void;
   private onClose?: () => void;
   private boundHandleBackdropMouseDown: (e: MouseEvent) => void;
   private boundHandleSearchInput: () => void;
   private boundHandleSearchKeydown: (e: KeyboardEvent) => void;
+  private boundHandleListPointerDown: (e: PointerEvent) => void;
+  private boundHandleListClick: (e: MouseEvent) => void;
+  private boundHandleListMouseOver: (e: MouseEvent) => void;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -119,8 +126,7 @@ export class FunctionBrowser {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         if (this.matches.length > 0) {
-          this.selectedIndex = (this.selectedIndex + 1) % this.matches.length;
-          this.renderList();
+          this.setSelectedIndex((this.selectedIndex + 1) % this.matches.length);
           this.scrollSelectedIntoView();
         }
         return;
@@ -129,9 +135,9 @@ export class FunctionBrowser {
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         if (this.matches.length > 0) {
-          this.selectedIndex =
-            (this.selectedIndex - 1 + this.matches.length) % this.matches.length;
-          this.renderList();
+          this.setSelectedIndex(
+            (this.selectedIndex - 1 + this.matches.length) % this.matches.length,
+          );
           this.scrollSelectedIntoView();
         }
         return;
@@ -139,11 +145,7 @@ export class FunctionBrowser {
 
       if (e.key === 'Enter') {
         e.preventDefault();
-        const selected = this.matches[this.selectedIndex];
-        if (selected) {
-          this.onInsert?.(selected);
-          this.hide();
-        }
+        this.insertSelected();
         return;
       }
 
@@ -152,6 +154,29 @@ export class FunctionBrowser {
         this.hide();
       }
     };
+    this.boundHandleListPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const index = this.getRowIndexFromTarget(e.target);
+      if (index === null) return;
+      // Keep editor selection context and support both mouse and touch.
+      e.preventDefault();
+      this.setSelectedIndex(index);
+      this.insertSelected();
+    };
+    this.boundHandleListClick = (e: MouseEvent) => {
+      if (e.button !== 0 || !this.isVisible()) return;
+      const index = this.getRowIndexFromTarget(e.target);
+      if (index === null) return;
+      // Fallback for environments where pointer events are unavailable.
+      e.preventDefault();
+      this.setSelectedIndex(index);
+      this.insertSelected();
+    };
+    this.boundHandleListMouseOver = (e: MouseEvent) => {
+      const index = this.getRowIndexFromTarget(e.target);
+      if (index === null || index === this.selectedIndex) return;
+      this.setSelectedIndex(index);
+    };
 
     this.container.addEventListener(
       'mousedown',
@@ -159,6 +184,9 @@ export class FunctionBrowser {
     );
     this.searchInput.addEventListener('input', this.boundHandleSearchInput);
     this.searchInput.addEventListener('keydown', this.boundHandleSearchKeydown);
+    this.list.addEventListener('pointerdown', this.boundHandleListPointerDown);
+    this.list.addEventListener('click', this.boundHandleListClick);
+    this.list.addEventListener('mouseover', this.boundHandleListMouseOver);
     this.filterAndRender();
   }
 
@@ -208,6 +236,9 @@ export class FunctionBrowser {
       'keydown',
       this.boundHandleSearchKeydown,
     );
+    this.list.removeEventListener('pointerdown', this.boundHandleListPointerDown);
+    this.list.removeEventListener('click', this.boundHandleListClick);
+    this.list.removeEventListener('mouseover', this.boundHandleListMouseOver);
     this.container.remove();
   }
 
@@ -234,6 +265,7 @@ export class FunctionBrowser {
 
   private renderList(): void {
     this.list.innerHTML = '';
+    this.rows = [];
     this.status.textContent = `${this.matches.length} functions`;
 
     if (this.matches.length === 0) {
@@ -247,14 +279,15 @@ export class FunctionBrowser {
     }
 
     const borderColor = getThemeColor(this.theme, 'cellBorderColor');
-    const textColor = getThemeColor(this.theme, 'cellTextColor');
-    const selectedBG = getThemeColor(this.theme, 'selectionBGColor');
-    const activeColor = getThemeColor(this.theme, 'activeCellColor');
+    this.listTextColor = getThemeColor(this.theme, 'cellTextColor');
+    this.listSelectedBG = getThemeColor(this.theme, 'selectionBGColor');
+    this.listActiveColor = getThemeColor(this.theme, 'activeCellColor');
 
     for (let i = 0; i < this.matches.length; i++) {
       const info = this.matches[i];
       const row = document.createElement('div');
       row.dataset.funcName = info.name;
+      row.dataset.funcIndex = String(i);
       row.style.display = 'flex';
       row.style.gap = '10px';
       row.style.alignItems = 'flex-start';
@@ -262,7 +295,7 @@ export class FunctionBrowser {
       row.style.padding = '10px 14px';
       row.style.cursor = 'pointer';
       row.style.borderBottom = `1px solid ${borderColor}`;
-      row.style.backgroundColor = i === this.selectedIndex ? selectedBG : 'transparent';
+      row.style.backgroundColor = 'transparent';
 
       const details = document.createElement('div');
       details.style.minWidth = '0';
@@ -271,7 +304,7 @@ export class FunctionBrowser {
       const name = document.createElement('div');
       name.textContent = info.name;
       name.style.font = '600 13px Arial';
-      name.style.color = i === this.selectedIndex ? activeColor : textColor;
+      name.style.color = this.listTextColor;
 
       const signature = document.createElement('div');
       signature.textContent = formatSignature(info);
@@ -290,28 +323,56 @@ export class FunctionBrowser {
       details.appendChild(name);
       details.appendChild(signature);
       details.appendChild(description);
-
-      row.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
-        // Prevent focus loss so formula insertion can preserve cursor context.
-        e.preventDefault();
-        this.onInsert?.(info);
-        this.hide();
-      });
-      row.addEventListener('mouseenter', () => {
-        this.selectedIndex = i;
-        this.renderList();
-      });
-
       row.appendChild(details);
       this.list.appendChild(row);
+      this.rows.push({ row, name });
     }
+
+    this.updateRowSelection(this.selectedIndex);
   }
 
   private scrollSelectedIntoView(): void {
-    const selected = this.list.children[this.selectedIndex];
-    if (selected instanceof HTMLElement) {
+    const selected = this.rows[this.selectedIndex]?.row;
+    if (selected) {
       selected.scrollIntoView({ block: 'nearest' });
     }
+  }
+
+  private getRowIndexFromTarget(target: EventTarget | null): number | null {
+    if (!(target instanceof Element)) return null;
+    const row = target.closest('[data-func-index]');
+    if (!(row instanceof HTMLDivElement) || !this.list.contains(row)) return null;
+    const index = Number(row.dataset.funcIndex);
+    return Number.isInteger(index) ? index : null;
+  }
+
+  private setSelectedIndex(nextIndex: number): void {
+    if (
+      nextIndex === this.selectedIndex ||
+      nextIndex < 0 ||
+      nextIndex >= this.matches.length
+    ) {
+      return;
+    }
+
+    const prevIndex = this.selectedIndex;
+    this.selectedIndex = nextIndex;
+    this.updateRowSelection(prevIndex);
+    this.updateRowSelection(nextIndex);
+  }
+
+  private updateRowSelection(index: number): void {
+    const row = this.rows[index];
+    if (!row) return;
+    const selected = index === this.selectedIndex;
+    row.row.style.backgroundColor = selected ? this.listSelectedBG : 'transparent';
+    row.name.style.color = selected ? this.listActiveColor : this.listTextColor;
+  }
+
+  private insertSelected(): void {
+    const selected = this.matches[this.selectedIndex];
+    if (!selected) return;
+    this.onInsert?.(selected);
+    this.hide();
   }
 }

@@ -162,7 +162,7 @@ export class Worksheet {
       if (this.readOnly) {
         return;
       }
-      this.insertFunctionFromBrowser(info.name);
+      void this.insertFunctionFromBrowser(info.name);
     });
 
     this.boundRender = this.render.bind(this);
@@ -551,8 +551,8 @@ export class Worksheet {
    * `insertFunctionFromBrowser` inserts a function call at the current cursor.
    * If the current value is not a formula, it starts a new formula expression.
    */
-  private insertFunctionFromBrowser(funcName: string): void {
-    const inputEl = this.getInputForFunctionInsert();
+  private async insertFunctionFromBrowser(funcName: string): Promise<void> {
+    const inputEl = await this.getInputForFunctionInsert();
     const text = inputEl.innerText;
     const textRange = toTextRange(inputEl);
 
@@ -582,21 +582,31 @@ export class Worksheet {
 
   /**
    * `getInputForFunctionInsert` returns the target editor for function insert.
-   * Prefers focused cell input, then focused formula bar, otherwise formula bar.
+   * Function browser insertion always edits/focuses the in-cell editor.
    */
-  private getInputForFunctionInsert(): HTMLDivElement {
+  private async getInputForFunctionInsert(): Promise<HTMLDivElement> {
     if (this.cellInput.isFocused()) {
       return this.cellInput.getInput();
     }
 
+    const cellInput = this.cellInput.getInput();
     const formulaInput = this.formulaBar.getFormulaInput();
-    if (!this.formulaBar.isFocused()) {
-      formulaInput.focus();
-      const end = formulaInput.innerText.length;
-      setTextRange(formulaInput, { start: end, end });
+    const formulaText = formulaInput.innerText;
+    const formulaRange = toTextRange(formulaInput);
+
+    if (!this.cellInput.isShown()) {
+      await this.showCellInput(true, true);
     }
 
-    return formulaInput;
+    this.cellInput.setValue(formulaText);
+
+    const cursorPos = formulaRange?.end ?? formulaText.length;
+    setTextRange(cellInput, { start: cursorPos, end: cursorPos });
+    if (!this.cellInput.isFocused()) {
+      cellInput.focus();
+    }
+
+    return cellInput;
   }
 
   /**

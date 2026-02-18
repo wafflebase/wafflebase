@@ -41,6 +41,25 @@ describe('FunctionBrowser', () => {
     expect(rows).not.toContain('SUM');
   });
 
+  it('updates highlighted row on hover without rebuilding list rows', () => {
+    browser.show();
+
+    const rows = browser
+      .getContainer()
+      .querySelectorAll('[data-func-name]') as NodeListOf<HTMLElement>;
+    expect(rows.length).toBeGreaterThan(1);
+
+    const firstRow = rows[0];
+    const secondRow = rows[1];
+    secondRow.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+
+    const firstRowAfter = browser.getContainer().querySelectorAll(
+      '[data-func-name]',
+    )[0];
+    expect(firstRowAfter).toBe(firstRow);
+    expect(secondRow.style.backgroundColor).not.toBe('transparent');
+  });
+
   it('inserts selected function on Enter key', () => {
     const onInsert = vi.fn();
     browser.setOnInsert(onInsert);
@@ -57,7 +76,7 @@ describe('FunctionBrowser', () => {
     expect(browser.isVisible()).toBe(false);
   });
 
-  it('inserts selected function on row mouse down', () => {
+  it('inserts selected function on row pointer down', () => {
     const onInsert = vi.fn();
     browser.setOnInsert(onInsert);
     browser.show();
@@ -66,7 +85,25 @@ describe('FunctionBrowser', () => {
       .getContainer()
       .querySelector('[data-func-name="SUM"]') as HTMLElement | null;
     expect(row).toBeTruthy();
-    row!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    row!.dispatchEvent(
+      new MouseEvent('pointerdown', { bubbles: true, button: 0 }),
+    );
+
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(onInsert.mock.calls[0][0].name).toBe('SUM');
+    expect(browser.isVisible()).toBe(false);
+  });
+
+  it('inserts selected function on row click', () => {
+    const onInsert = vi.fn();
+    browser.setOnInsert(onInsert);
+    browser.show();
+
+    const row = browser
+      .getContainer()
+      .querySelector('[data-func-name="SUM"]') as HTMLElement | null;
+    expect(row).toBeTruthy();
+    row!.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
 
     expect(onInsert).toHaveBeenCalledTimes(1);
     expect(onInsert.mock.calls[0][0].name).toBe('SUM');
