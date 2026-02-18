@@ -421,7 +421,8 @@ draws:
 - Resize drag UX:
   - Wider header-edge hit tolerance for easier grabbing
   - Live width/height tooltip during drag (includes multi-selection count)
-  - `requestAnimationFrame`-coalesced resize rendering for smoother feedback
+  - `requestAnimationFrame`-coalesced worksheet rendering so scroll/resize
+    bursts collapse to one frame and stale async grid fetch results are dropped
 - Move drop indicator (bold blue line at drop position during drag-to-move)
 
 ### DimensionIndex
@@ -431,9 +432,10 @@ non-default sizes in a `Map<number, number>` and provides:
 
 - `getSize(index)` — Returns custom or default size.
 - `getOffset(index)` — Pixel offset of the start of a 1-based row/column.
-  Computed by summing default sizes for gaps and custom sizes for overrides.
-- `findIndex(offset)` — Binary search to find which row/column a pixel offset
-  falls into. Used by `viewRange` calculation.
+  Uses cached sorted custom indices plus prefix deltas to resolve in
+  `O(log customCount)`.
+- `findIndex(offset)` — Uses cached custom start offsets with binary search to
+  find which row/column a pixel offset falls into.
 - `shift(index, count)` — Adjusts keys when rows/columns are inserted or
   deleted.
 - `move(src, count, dst)` — Remaps keys when rows/columns are moved.

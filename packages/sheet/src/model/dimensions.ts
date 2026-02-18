@@ -8,6 +8,11 @@ import { remapIndex } from './shifting';
 export class DimensionIndex {
   private customSizes: Map<number, number>;
   private defaultSize: number;
+  private cacheDirty = true;
+  private sortedIndices: number[] = [];
+  private sortedSizes: number[] = [];
+  private prefixDeltas: number[] = [];
+  private customStarts: number[] = [];
 
   constructor(defaultSize: number) {
     this.defaultSize = defaultSize;
@@ -30,6 +35,7 @@ export class DimensionIndex {
     } else {
       this.customSizes.set(index, size);
     }
+    this.cacheDirty = true;
   }
 
   /**
@@ -45,10 +51,12 @@ export class DimensionIndex {
    */
   getOffset(index: number): number {
     let offset = (index - 1) * this.defaultSize;
-    for (const [i, size] of this.customSizes) {
-      if (i < index) {
-        offset += size - this.defaultSize;
-      }
+    if (this.customSizes.size === 0) return offset;
+
+    this.ensureCache();
+    const pos = this.lowerBound(this.sortedIndices, index) - 1;
+    if (pos >= 0) {
+      offset += this.prefixDeltas[pos];
     }
     return offset;
   }
@@ -64,33 +72,23 @@ export class DimensionIndex {
       return Math.floor(offset / this.defaultSize) + 1;
     }
 
-    // Sort custom indices for sequential scan
-    const sorted = Array.from(this.customSizes.entries()).sort(
-      (a, b) => a[0] - b[0],
-    );
-
-    let accumulated = 0;
-    let lastChecked = 0;
-
-    for (const [idx, size] of sorted) {
-      // Fill default-sized items between lastChecked and idx
-      const gapCount = idx - 1 - lastChecked;
-      const gapEnd = accumulated + gapCount * this.defaultSize;
-      if (offset < gapEnd) {
-        return lastChecked + Math.floor((offset - accumulated) / this.defaultSize) + 1;
-      }
-      accumulated = gapEnd;
-
-      // Check this custom-sized item
-      if (offset < accumulated + size) {
-        return idx;
-      }
-      accumulated += size;
-      lastChecked = idx;
+    this.ensureCache();
+    const firstCustomStart = this.customStarts[0];
+    if (offset < firstCustomStart) {
+      return Math.floor(offset / this.defaultSize) + 1;
     }
 
-    // Past all custom sizes, remaining are default
-    return lastChecked + Math.floor((offset - accumulated) / this.defaultSize) + 1;
+    const customPos = this.upperBound(this.customStarts, offset) - 1;
+    const customIndex = this.sortedIndices[customPos];
+    const customStart = this.customStarts[customPos];
+    const customSize = this.sortedSizes[customPos];
+
+    if (offset < customStart + customSize) {
+      return customIndex;
+    }
+
+    const gapOffset = offset - (customStart + customSize);
+    return customIndex + 1 + Math.floor(gapOffset / this.defaultSize);
   }
 
   /**
@@ -122,6 +120,7 @@ export class DimensionIndex {
     }
 
     this.customSizes = newSizes;
+    this.cacheDirty = true;
   }
 
   /**
@@ -135,6 +134,7 @@ export class DimensionIndex {
     }
 
     this.customSizes = newSizes;
+    this.cacheDirty = true;
   }
 
   /**
@@ -142,6 +142,7 @@ export class DimensionIndex {
    */
   clear(): void {
     this.customSizes.clear();
+    this.cacheDirty = true;
   }
 
   /**
@@ -149,5 +150,68 @@ export class DimensionIndex {
    */
   hasCustomSizes(): boolean {
     return this.customSizes.size > 0;
+  }
+
+  private ensureCache(): void {
+    if (!this.cacheDirty) {
+      return;
+    }
+
+    if (this.customSizes.size === 0) {
+      this.sortedIndices = [];
+      this.sortedSizes = [];
+      this.prefixDeltas = [];
+      this.customStarts = [];
+      this.cacheDirty = false;
+      return;
+    }
+
+    const sorted = Array.from(this.customSizes.entries()).sort(
+      (a, b) => a[0] - b[0],
+    );
+
+    this.sortedIndices = [];
+    this.sortedSizes = [];
+    this.prefixDeltas = [];
+    this.customStarts = [];
+
+    let accumulatedDelta = 0;
+    for (const [index, size] of sorted) {
+      this.sortedIndices.push(index);
+      this.sortedSizes.push(size);
+      this.customStarts.push((index - 1) * this.defaultSize + accumulatedDelta);
+      accumulatedDelta += size - this.defaultSize;
+      this.prefixDeltas.push(accumulatedDelta);
+    }
+
+    this.cacheDirty = false;
+  }
+
+  private lowerBound(array: number[], target: number): number {
+    let left = 0;
+    let right = array.length;
+    while (left < right) {
+      const mid = left + Math.floor((right - left) / 2);
+      if (array[mid] < target) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+    }
+    return left;
+  }
+
+  private upperBound(array: number[], target: number): number {
+    let left = 0;
+    let right = array.length;
+    while (left < right) {
+      const mid = left + Math.floor((right - left) / 2);
+      if (array[mid] <= target) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+    }
+    return left;
   }
 }

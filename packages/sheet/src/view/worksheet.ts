@@ -114,6 +114,10 @@ export class Worksheet {
   private nativeSelectionBlockDepth = 0;
   private previousBodyUserSelect = '';
   private previousBodyWebkitUserSelect = '';
+  private pendingRenderFrame: number | null = null;
+  private renderInFlight = false;
+  private renderQueued = false;
+  private renderVersion = 0;
 
   constructor(
     container: HTMLDivElement,
@@ -244,6 +248,11 @@ export class Worksheet {
   }
 
   public cleanup() {
+    if (this.pendingRenderFrame !== null) {
+      cancelAnimationFrame(this.pendingRenderFrame);
+      this.pendingRenderFrame = null;
+    }
+
     this.removeAllEventListeners();
     this.forceEndNativeSelectionBlock();
     this.resizeObserver.disconnect();
@@ -1289,7 +1298,7 @@ export class Worksheet {
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
     if (freezeHandle !== this.freezeHandleHover) {
       this.freezeHandleHover = freezeHandle;
-      this.renderSheet();
+      this.render();
     }
     if (freezeHandle) {
       scrollContainer.style.cursor = 'grab';
@@ -2618,8 +2627,50 @@ export class Worksheet {
    * `render` renders the spreadsheet in the container.
    */
   public render() {
+    this.renderVersion += 1;
+    this.requestRenderFrame();
+  }
+
+  private requestRenderFrame(): void {
+    if (this.pendingRenderFrame !== null) {
+      return;
+    }
+
+    this.pendingRenderFrame = requestAnimationFrame(() => {
+      this.pendingRenderFrame = null;
+      this.handleRenderFrame();
+    });
+  }
+
+  private handleRenderFrame(): void {
+    if (this.renderInFlight) {
+      this.renderQueued = true;
+      return;
+    }
+
+    this.renderInFlight = true;
+    const targetVersion = this.renderVersion;
+    void this.performRender(targetVersion).finally(() => {
+      this.renderInFlight = false;
+      if (this.renderQueued || this.renderVersion !== targetVersion) {
+        this.renderQueued = false;
+        this.requestRenderFrame();
+      }
+    });
+  }
+
+  private async performRender(targetVersion: number): Promise<void> {
+    if (!this.sheet) {
+      return;
+    }
+
     this.formulaBar.render();
-    this.renderSheet();
+
+    await this.renderSheet(targetVersion);
+    if (!this.sheet || targetVersion !== this.renderVersion) {
+      return;
+    }
+
     this.renderOverlay();
     this.onRenderCallback?.();
   }
@@ -2837,7 +2888,12 @@ export class Worksheet {
   /**
    * `renderSheet` renders the spreadsheet.
    */
-  private async renderSheet() {
+  private async renderSheet(targetVersion: number = this.renderVersion) {
+    const sheet = this.sheet;
+    if (!sheet) {
+      return;
+    }
+
     const gridSize = this.gridSize;
     const freeze = this.freezeState;
 
@@ -2849,6 +2905,9 @@ export class Worksheet {
       gridSize.height + DefaultCellHeight,
     );
 
+    const viewport = this.viewport;
+    const scroll = this.scroll;
+
     // Fetch grid for all visible quadrants
     const viewRange = this.viewRange;
     const fullRange: Range = [
@@ -2856,24 +2915,27 @@ export class Worksheet {
       { r: 1, c: 1 },
       { r: viewRange[1].r, c: viewRange[1].c },
     ];
-    const grid = await this.sheet!.fetchGrid(fullRange);
+    const grid = await sheet.fetchGrid(fullRange);
+    if (sheet !== this.sheet || targetVersion !== this.renderVersion) {
+      return;
+    }
 
     this.gridCanvas.render(
-      this.viewport,
-      this.scroll,
-      this.viewRange,
-      this.sheet!.getActiveCell(),
+      viewport,
+      scroll,
+      viewRange,
+      sheet.getActiveCell(),
       grid,
       this.rowDim,
       this.colDim,
-      this.sheet!.getSelectionType(),
-      this.sheet!.getRange(),
+      sheet.getSelectionType(),
+      sheet.getRange(),
       freeze,
       this.freezeHandleHover,
-      this.sheet!.getColStyles(),
-      this.sheet!.getRowStyles(),
-      this.sheet!.getSheetStyle(),
-      this.sheet!.getMerges(),
+      sheet.getColStyles(),
+      sheet.getRowStyles(),
+      sheet.getSheetStyle(),
+      sheet.getMerges(),
     );
   }
 
