@@ -399,6 +399,11 @@ linearly remapped. All downstream code works in logical coordinates.
 For each cell in `viewRange`, it computes pixel coordinates via
 `DimensionIndex.getOffset` and renders borders, background, and text. Row and
 column headers are drawn separately.
+Rendering uses a two-pass cell pipeline (background/borders first, then text).
+For single-line left-aligned text, the renderer extends clipping into adjacent
+empty cells; when overflow happens, internal vertical boundaries in that span
+are suppressed so glyphs are not visually cut by grid lines. This overflow span
+logic is independent from persisted merge metadata.
 
 **Overlay** — A second `<canvas>` (z-index: 1, pointer-events: none) that
 draws:

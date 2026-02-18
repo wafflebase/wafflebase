@@ -29,6 +29,11 @@ import {
   toBoundingRect,
 } from './layout';
 
+type TextOverflowRenderData = {
+  anchorToEndCol: Map<string, number>;
+  hiddenVerticalBoundaries: Set<string>;
+};
+
 /**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.
  */
@@ -167,6 +172,7 @@ export class GridCanvas {
         colStyles,
         rowStyles,
         sheetStyle,
+        mergeData,
       );
       ctx.restore();
 
@@ -353,6 +359,20 @@ export class GridCanvas {
       coverToAnchor: Map<string, string>;
     },
   ): void {
+    const overflowData = this.buildTextOverflowRenderData(
+      ctx,
+      rowStart,
+      rowEnd,
+      colStart,
+      colEnd,
+      grid,
+      colDim,
+      colStyles,
+      rowStyles,
+      sheetStyle,
+      mergeData,
+    );
+
     // Two-pass rendering: backgrounds first, then text content.
     // This ensures text overflow into empty neighbor cells is not
     // overwritten by the neighbor's background fill.
@@ -372,6 +392,12 @@ export class GridCanvas {
         if (sheetStyle || cStyle || rStyle || cell?.s) {
           effectiveStyle = { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
         }
+        const hideLeftBorder = overflowData?.hiddenVerticalBoundaries.has(
+          this.verticalBoundaryKey(row, col - 1),
+        );
+        const hideRightBorder = overflowData?.hiddenVerticalBoundaries.has(
+          this.verticalBoundaryKey(row, col),
+        );
         this.renderCellBackground(
           ctx,
           { r: row, c: col },
@@ -381,6 +407,8 @@ export class GridCanvas {
           colDim,
           effectiveStyle,
           mergeSpan,
+          hideLeftBorder,
+          hideRightBorder,
         );
       }
     }
@@ -400,6 +428,7 @@ export class GridCanvas {
         if (sheetStyle || cStyle || rStyle || cell?.s) {
           effectiveStyle = { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
         }
+        const overflowEndCol = overflowData?.anchorToEndCol.get(sref);
         this.renderCellContent(
           ctx,
           { r: row, c: col },
@@ -411,6 +440,7 @@ export class GridCanvas {
           grid,
           colEnd,
           mergeSpan,
+          overflowEndCol,
         );
       }
     }
@@ -615,15 +645,32 @@ export class GridCanvas {
     colDim?: DimensionIndex,
     effectiveStyle?: CellStyle,
     mergeSpan?: MergeSpan,
+    hideLeftBorder: boolean = false,
+    hideRightBorder: boolean = false,
   ): void {
     const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
     const style = effectiveStyle ?? cell?.s;
 
-    ctx.strokeStyle = this.getThemeColor('cellTextColor');
-    ctx.lineWidth = CellBorderWidth;
-    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
     ctx.fillStyle = style?.bg || this.getThemeColor('cellBGColor');
     ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+
+    ctx.beginPath();
+    ctx.strokeStyle = this.getThemeColor('cellBorderColor');
+    ctx.lineWidth = CellBorderWidth;
+    if (!hideLeftBorder) {
+      ctx.moveTo(rect.left, rect.top);
+      ctx.lineTo(rect.left, rect.top + rect.height);
+    }
+    if (!hideRightBorder) {
+      const x = rect.left + rect.width;
+      ctx.moveTo(x, rect.top);
+      ctx.lineTo(x, rect.top + rect.height);
+    }
+    ctx.moveTo(rect.left, rect.top);
+    ctx.lineTo(rect.left + rect.width, rect.top);
+    ctx.moveTo(rect.left, rect.top + rect.height);
+    ctx.lineTo(rect.left + rect.width, rect.top + rect.height);
+    ctx.stroke();
   }
 
   private renderCellContent(
@@ -637,6 +684,7 @@ export class GridCanvas {
     grid?: Grid,
     colEnd?: number,
     mergeSpan?: MergeSpan,
+    overflowEndCol?: number,
   ): void {
     const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
     const style = effectiveStyle ?? cell?.s;
@@ -647,16 +695,18 @@ export class GridCanvas {
       const lines = data.split('\n');
 
       // Build font string (needed for measuring text width)
-      const fontParts: string[] = [];
-      if (style?.b) fontParts.push('bold');
-      if (style?.i) fontParts.push('italic');
-      fontParts.push(`${CellFontSize}px Arial`);
-      const fontStr = fontParts.join(' ');
+      const fontStr = this.toCellFont(style);
 
       // Compute overflow clip width for single-line, left-aligned text
       let clipWidth = rect.width;
       const align = style?.al || 'left';
-      if (
+      if (!mergeSpan && overflowEndCol && colDim && overflowEndCol > id.c) {
+        let extraWidth = 0;
+        for (let nextCol = id.c + 1; nextCol <= overflowEndCol; nextCol++) {
+          extraWidth += colDim.getSize(nextCol);
+        }
+        clipWidth = rect.width + extraWidth;
+      } else if (
         !mergeSpan &&
         lines.length === 1 &&
         align === 'left' &&
@@ -764,6 +814,110 @@ export class GridCanvas {
     }
   }
 
+  private buildTextOverflowRenderData(
+    ctx: CanvasRenderingContext2D,
+    rowStart: number,
+    rowEnd: number,
+    colStart: number,
+    colEnd: number,
+    grid: Grid | undefined,
+    colDim?: DimensionIndex,
+    colStyles?: Map<number, CellStyle>,
+    rowStyles?: Map<number, CellStyle>,
+    sheetStyle?: CellStyle,
+    mergeData?: {
+      anchors: Map<string, MergeSpan>;
+      coverToAnchor: Map<string, string>;
+    },
+  ): TextOverflowRenderData | undefined {
+    if (!grid || !colDim) return undefined;
+
+    const anchorToEndCol = new Map<string, number>();
+    const hiddenVerticalBoundaries = new Set<string>();
+
+    ctx.save();
+    for (let row = rowStart; row <= rowEnd; row++) {
+      const rStyle = rowStyles?.get(row);
+      for (let col = colStart; col <= colEnd; col++) {
+        const sref = toSref({ r: row, c: col });
+        if (mergeData?.coverToAnchor.has(sref) || mergeData?.anchors.has(sref)) {
+          continue;
+        }
+
+        const cell = grid.get(sref);
+        const rawData = cell?.v || '';
+        if (!rawData) {
+          continue;
+        }
+
+        const cStyle = colStyles?.get(col);
+        const style =
+          sheetStyle || cStyle || rStyle || cell?.s
+            ? { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s }
+            : undefined;
+
+        const align = style?.al || 'left';
+        if (align !== 'left') {
+          continue;
+        }
+
+        const data = formatValue(rawData, style?.nf, style?.dp);
+        const lines = data.split('\n');
+        if (lines.length !== 1) {
+          continue;
+        }
+
+        const cellWidth = colDim.getSize(col);
+        ctx.font = this.toCellFont(style);
+        const textWidth = ctx.measureText(data).width + CellPaddingX * 2;
+        if (textWidth <= cellWidth) {
+          continue;
+        }
+
+        let width = cellWidth;
+        let overflowEndCol = col;
+        for (let nextCol = col + 1; nextCol <= colEnd; nextCol++) {
+          const nextSref = toSref({ r: row, c: nextCol });
+          if (
+            mergeData?.coverToAnchor.has(nextSref) ||
+            mergeData?.anchors.has(nextSref)
+          ) {
+            break;
+          }
+          const neighbor = grid.get(nextSref);
+          if (neighbor && (neighbor.v || neighbor.f)) {
+            break;
+          }
+          width += colDim.getSize(nextCol);
+          overflowEndCol = nextCol;
+          if (width >= textWidth) {
+            break;
+          }
+        }
+
+        if (overflowEndCol > col) {
+          anchorToEndCol.set(sref, overflowEndCol);
+          for (
+            let boundaryCol = col;
+            boundaryCol < overflowEndCol;
+            boundaryCol++
+          ) {
+            hiddenVerticalBoundaries.add(
+              this.verticalBoundaryKey(row, boundaryCol),
+            );
+          }
+        }
+      }
+    }
+    ctx.restore();
+
+    if (anchorToEndCol.size === 0) {
+      return undefined;
+    }
+
+    return { anchorToEndCol, hiddenVerticalBoundaries };
+  }
+
   /**
    * Builds merge lookup maps for rendering.
    */
@@ -814,6 +968,18 @@ export class GridCanvas {
       width: end.left + end.width - start.left,
       height: end.top + end.height - start.top,
     };
+  }
+
+  private toCellFont(style?: CellStyle): string {
+    const fontParts: string[] = [];
+    if (style?.b) fontParts.push('bold');
+    if (style?.i) fontParts.push('italic');
+    fontParts.push(`${CellFontSize}px Arial`);
+    return fontParts.join(' ');
+  }
+
+  private verticalBoundaryKey(row: number, col: number): string {
+    return `${row}:${col}`;
   }
 
   private getThemeColor(key: ThemeKey): string {
