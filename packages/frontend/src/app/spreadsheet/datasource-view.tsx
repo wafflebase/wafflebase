@@ -9,6 +9,7 @@ import { IconPlayerPlay } from "@tabler/icons-react";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 import type { UserPresence } from "@/types/users";
 import type { QueryResult } from "@/types/datasource";
+import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 
 export function DataSourceView({ tabId }: { tabId: string }) {
   const { resolvedTheme: theme } = useTheme();
@@ -23,6 +24,7 @@ export function DataSourceView({ tabId }: { tabId: string }) {
   const [executing, setExecuting] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
+  useMobileSheetGestures({ containerRef, sheetRef });
 
   // Prevent double initialization in dev
   useEffect(() => {
@@ -163,7 +165,11 @@ export function DataSourceView({ tabId }: { tabId: string }) {
       </div>
 
       {/* Grid */}
-      <div ref={containerRef} className="flex-1 w-full" />
+      <div
+        ref={containerRef}
+        className="flex-1 w-full"
+        style={{ touchAction: "manipulation" }}
+      />
     </div>
   );
 }

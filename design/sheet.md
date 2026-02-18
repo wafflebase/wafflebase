@@ -392,6 +392,11 @@ block-beta
   spreadsheet --> worksheet --> rendering
 ```
 
+For touch-first hosts, `Spreadsheet` exposes mobile-friendly imperative hooks:
+`panBy(deltaX, deltaY)` to scroll the logical viewport and
+`handleMobileDoubleTap(clientX, clientY)` to trigger edit-mode behavior at a
+tapped point without wiring DOM-level double-click synthesis in the app layer.
+
 **GridContainer** — Wraps a scrollable `<div>` with a dummy sized child. When
 the logical grid size exceeds `MAX_SCROLL_SIZE` (10M px), scroll positions are
 linearly remapped. All downstream code works in logical coordinates.

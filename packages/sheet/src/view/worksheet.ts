@@ -228,6 +228,21 @@ export class Worksheet {
     this.updateFreezeState();
   }
 
+  /**
+   * `panBy` scrolls the viewport by logical pixel deltas.
+   */
+  public panBy(deltaX: number, deltaY: number): void {
+    this.gridContainer.scrollBy(deltaX, deltaY);
+  }
+
+  /**
+   * `handleMobileDoubleTap` enters edit mode from a mobile double-tap.
+   */
+  public handleMobileDoubleTap(clientX: number, clientY: number): void {
+    const { x, y } = this.clampClientPointToViewport(clientX, clientY);
+    this.handleDblClickAt(x, y);
+  }
+
   public cleanup() {
     this.removeAllEventListeners();
     this.forceEndNativeSelectionBlock();
@@ -792,12 +807,16 @@ export class Worksheet {
   }
 
   private handleDblClick(e: MouseEvent): void {
+    e.preventDefault();
+    this.handleDblClickAt(e.offsetX, e.offsetY);
+  }
+
+  private handleDblClickAt(x: number, y: number): void {
     if (this.readOnly) return;
 
     // Double-click on freeze handle → quick freeze top row / first column
-    const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
+    const freezeHandle = this.detectFreezeHandle(x, y);
     if (freezeHandle) {
-      e.preventDefault();
       const currentFreeze = this.sheet!.getFreezePane();
       if (freezeHandle === 'row') {
         this.setFreezePane(
@@ -813,15 +832,13 @@ export class Worksheet {
       return;
     }
 
-    const resizeEdge = this.detectResizeEdge(e.offsetX, e.offsetY);
+    const resizeEdge = this.detectResizeEdge(x, y);
     if (resizeEdge) {
-      e.preventDefault();
       this.autoFitSize(resizeEdge.axis, resizeEdge.index);
       return;
     }
 
     this.showCellInput();
-    e.preventDefault();
   }
 
   private handleContextMenu(e: MouseEvent): void {

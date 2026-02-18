@@ -15,6 +15,7 @@ import { useDocument } from "@yorkie-js/react";
 import { SpreadsheetDocument } from "@/types/worksheet";
 import { YorkieStore } from "./yorkie-store";
 import { UserPresence } from "@/types/users";
+import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 
 export function SheetView({
   tabId,
@@ -31,6 +32,7 @@ export function SheetView({
     SpreadsheetDocument,
     UserPresence
   >();
+  useMobileSheetGestures({ containerRef, sheetRef });
 
   // NOTE(hackerwins): To prevent initialization of the spreadsheet
   // twice in development.
@@ -45,7 +47,7 @@ export function SheetView({
     }
 
     let sheet: Awaited<ReturnType<typeof initialize>> | undefined;
-    let unsubs: Array<Function> = [];
+    const unsubs: Array<() => void> = [];
     let cancelled = false;
     let recalcInFlight = false;
     let recalcPending = false;
@@ -153,7 +155,7 @@ export function SheetView({
         unsub();
       }
     };
-  }, [didMount, containerRef, doc, tabId, readOnly]);
+  }, [didMount, containerRef, doc, tabId, readOnly, theme]);
 
   if (loading) {
     return <Loader />;
@@ -170,7 +172,11 @@ export function SheetView({
   return (
     <div className="flex h-full w-full flex-col">
       {!readOnly && <FormattingToolbar spreadsheet={sheetRef.current} />}
-      <div ref={containerRef} className="flex-1 w-full" />
+      <div
+        ref={containerRef}
+        className="flex-1 w-full"
+        style={{ touchAction: "manipulation" }}
+      />
     </div>
   );
 }

@@ -101,6 +101,20 @@ export class Spreadsheet {
   }
 
   /**
+   * `panBy` scrolls the viewport by logical pixel deltas.
+   */
+  public panBy(deltaX: number, deltaY: number) {
+    this.worksheet.panBy(deltaX, deltaY);
+  }
+
+  /**
+   * `handleMobileDoubleTap` enters edit mode for the tapped cell.
+   */
+  public handleMobileDoubleTap(clientX: number, clientY: number) {
+    this.worksheet.handleMobileDoubleTap(clientX, clientY);
+  }
+
+  /**
    * `applyStyle` applies the given style to the current selection and re-renders.
    */
   public async applyStyle(style: Partial<CellStyle>) {

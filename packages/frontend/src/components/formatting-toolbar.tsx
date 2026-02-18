@@ -25,6 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   IconBold,
   IconItalic,
@@ -57,6 +58,7 @@ import {
   IconBorderLeft,
   IconBorderRight,
   IconBorderNone,
+  IconDotsVertical,
 } from "@tabler/icons-react";
 
 const TEXT_COLORS = [
@@ -135,6 +137,7 @@ interface FormattingToolbarProps {
 }
 
 export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
+  const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
   const [selectionMerged, setSelectionMerged] = useState(false);
   const [canMerge, setCanMerge] = useState(false);
@@ -250,7 +253,7 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
   const CurrentFormatIcon = FORMAT_ICONS[currentFormat];
 
   return (
-    <div className="flex items-center gap-0.5 border-b px-2 py-1 bg-background">
+    <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap">
       {/* Undo / Redo */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -280,123 +283,129 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Currency shortcut */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => handleNumberFormat("currency")}
-          >
-            <IconCurrencyDollar size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Format as currency ({localePreview.currency})</TooltipContent>
-      </Tooltip>
-
-      {/* Percent shortcut */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => handleNumberFormat("percent")}
-          >
-            <IconPercentage size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Format as percent</TooltipContent>
-      </Tooltip>
-
-      {/* Decrease decimals */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={handleDecreaseDecimals}
-          >
-            <IconDecimal size={16} />
-            <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
-              -
-            </span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Decrease decimal places</TooltipContent>
-      </Tooltip>
-
-      {/* Increase decimals */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={handleIncreaseDecimals}
-          >
-            <IconDecimal size={16} />
-            <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
-              +
-            </span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Increase decimal places</TooltipContent>
-      </Tooltip>
-
-      {/* More Format Dropdown */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
-                <CurrentFormatIcon size={16} />
-                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+      {!isMobile && (
+        <>
+          {/* Currency shortcut */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={() => handleNumberFormat("currency")}
+              >
+                <IconCurrencyDollar size={16} />
               </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>More format</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent>
-          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            Common formats (US examples)
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>
-            <IconAbc size={16} className="mr-2" />
-            Plain text
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
-            <IconHash size={16} className="mr-2" />
-            Number
-            <DropdownMenuShortcut>{usPreview.number}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
-            <IconCurrencyDollar size={16} className="mr-2" />
-            Currency
-            <DropdownMenuShortcut>{usPreview.currencyValue}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
-            <IconPercentage size={16} className="mr-2" />
-            Percent
-            <DropdownMenuShortcut>{usPreview.percent}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            US date preview: {usPreview.date}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-            Your locale ({localePreview.locale})
-          </DropdownMenuLabel>
-          <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
-            <IconCurrencyDollar size={16} className="mr-2" />
-            Locale currency
-            <DropdownMenuShortcut>{localePreview.currencyValue}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
-            <IconCalendar size={16} className="mr-2" />
-            Locale date
-            <DropdownMenuShortcut>{localePreview.date}</DropdownMenuShortcut>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            </TooltipTrigger>
+            <TooltipContent>
+              Format as currency ({localePreview.currency})
+            </TooltipContent>
+          </Tooltip>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+          {/* Percent shortcut */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={() => handleNumberFormat("percent")}
+              >
+                <IconPercentage size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Format as percent</TooltipContent>
+          </Tooltip>
+
+          {/* Decrease decimals */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={handleDecreaseDecimals}
+              >
+                <IconDecimal size={16} />
+                <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
+                  -
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Decrease decimal places</TooltipContent>
+          </Tooltip>
+
+          {/* Increase decimals */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={handleIncreaseDecimals}
+              >
+                <IconDecimal size={16} />
+                <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
+                  +
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Increase decimal places</TooltipContent>
+          </Tooltip>
+
+          {/* More Format Dropdown */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                    <CurrentFormatIcon size={16} />
+                    <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>More format</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent>
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Common formats (US examples)
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>
+                <IconAbc size={16} className="mr-2" />
+                Plain text
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
+                <IconHash size={16} className="mr-2" />
+                Number
+                <DropdownMenuShortcut>{usPreview.number}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
+                <IconCurrencyDollar size={16} className="mr-2" />
+                Currency
+                <DropdownMenuShortcut>{usPreview.currencyValue}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
+                <IconPercentage size={16} className="mr-2" />
+                Percent
+                <DropdownMenuShortcut>{usPreview.percent}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                US date preview: {usPreview.date}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Your locale ({localePreview.locale})
+              </DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
+                <IconCurrencyDollar size={16} className="mr-2" />
+                Locale currency
+                <DropdownMenuShortcut>{localePreview.currencyValue}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
+                <IconCalendar size={16} className="mr-2" />
+                Locale date
+                <DropdownMenuShortcut>{localePreview.date}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Separator orientation="vertical" className="mx-1 h-6" />
+        </>
+      )}
 
       {/* Text Style */}
       <Tooltip>
@@ -427,19 +436,21 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         <TooltipContent>Italic ({modKey}+I)</TooltipContent>
       </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            pressed={style?.st || false}
-            onPressedChange={() => handleToggle("st")}
-            className="h-7 w-7 cursor-pointer"
-          >
-            <IconStrikethrough size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Strikethrough</TooltipContent>
-      </Tooltip>
+      {!isMobile && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={style?.st || false}
+              onPressedChange={() => handleToggle("st")}
+              className="h-7 w-7 cursor-pointer"
+            >
+              <IconStrikethrough size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Strikethrough</TooltipContent>
+        </Tooltip>
+      )}
 
       {/* Text Color */}
       <DropdownMenu>
@@ -521,55 +532,57 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
       </DropdownMenu>
 
       {/* Borders */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
-                <IconBorderAll size={14} />
-                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Cell borders</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => handleBorders("all")}>
-            <IconBorderAll size={14} className="mr-2" />
-            All borders
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleBorders("outer")}>
-            <IconBorderOuter size={14} className="mr-2" />
-            Outer border
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleBorders("inner")}>
-            <IconBorderInner size={14} className="mr-2" />
-            Inner borders
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => handleBorders("top")}>
-            <IconBorderTop size={14} className="mr-2" />
-            Top border
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleBorders("bottom")}>
-            <IconBorderBottom size={14} className="mr-2" />
-            Bottom border
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleBorders("left")}>
-            <IconBorderLeft size={14} className="mr-2" />
-            Left border
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleBorders("right")}>
-            <IconBorderRight size={14} className="mr-2" />
-            Right border
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => handleBorders("clear")}>
-            <IconBorderNone size={14} className="mr-2" />
-            Clear borders
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {!isMobile && (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                  <IconBorderAll size={14} />
+                  <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Cell borders</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => handleBorders("all")}>
+              <IconBorderAll size={14} className="mr-2" />
+              All borders
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("outer")}>
+              <IconBorderOuter size={14} className="mr-2" />
+              Outer border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("inner")}>
+              <IconBorderInner size={14} className="mr-2" />
+              Inner borders
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleBorders("top")}>
+              <IconBorderTop size={14} className="mr-2" />
+              Top border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("bottom")}>
+              <IconBorderBottom size={14} className="mr-2" />
+              Bottom border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("left")}>
+              <IconBorderLeft size={14} className="mr-2" />
+              Left border
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleBorders("right")}>
+              <IconBorderRight size={14} className="mr-2" />
+              Right border
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleBorders("clear")}>
+              <IconBorderNone size={14} className="mr-2" />
+              Clear borders
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -590,77 +603,195 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
         </TooltipContent>
       </Tooltip>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      {!isMobile && (
+        <>
+          <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Horizontal Alignment Dropdown */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
+          {/* Horizontal Alignment Dropdown */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                    <CurrentAlignIcon size={16} />
+                    <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Horizontal align</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => handleAlign("left")}>
+                <IconAlignLeft size={16} className="mr-2" />
+                Left
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAlign("center")}>
+                <IconAlignCenter size={16} className="mr-2" />
+                Center
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAlign("right")}>
+                <IconAlignRight size={16} className="mr-2" />
+                Right
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Vertical Alignment Dropdown */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                    <CurrentVAlignIcon size={16} />
+                    <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Vertical align</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={() => handleVerticalAlign("top")}>
+                <IconAlignBoxTopCenter size={16} className="mr-2" />
+                Top
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleVerticalAlign("middle")}>
+                <IconAlignBoxCenterMiddle size={16} className="mr-2" />
+                Middle
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleVerticalAlign("bottom")}>
+                <IconAlignBoxBottomCenter size={16} className="mr-2" />
+                Bottom
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
+                onClick={handleToggleFunctionBrowser}
+              >
+                <IconMathFunction size={16} className="mr-2" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Functions</TooltipContent>
+          </Tooltip>
+        </>
+      )}
+
+      {isMobile && (
+        <>
+          <Separator orientation="vertical" className="mx-1 h-6" />
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
-                <CurrentAlignIcon size={16} />
-                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted">
+                <IconDotsVertical size={16} />
               </button>
             </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Horizontal align</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => handleAlign("left")}>
-            <IconAlignLeft size={16} className="mr-2" />
-            Left
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleAlign("center")}>
-            <IconAlignCenter size={16} className="mr-2" />
-            Center
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleAlign("right")}>
-            <IconAlignRight size={16} className="mr-2" />
-            Right
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* Vertical Alignment Dropdown */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
-                <CurrentVAlignIcon size={16} />
-                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Vertical align</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => handleVerticalAlign("top")}>
-            <IconAlignBoxTopCenter size={16} className="mr-2" />
-            Top
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleVerticalAlign("middle")}>
-            <IconAlignBoxCenterMiddle size={16} className="mr-2" />
-            Middle
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleVerticalAlign("bottom")}>
-            <IconAlignBoxBottomCenter size={16} className="mr-2" />
-            Bottom
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
-            onClick={handleToggleFunctionBrowser}
-          >
-            <IconMathFunction size={16} className="mr-2" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Functions</TooltipContent>
-      </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Format</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleNumberFormat("currency")}>
+                <IconCurrencyDollar size={16} className="mr-2" />
+                Currency
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNumberFormat("percent")}>
+                <IconPercentage size={16} className="mr-2" />
+                Percent
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleDecreaseDecimals}>
+                <IconDecimal size={16} className="mr-2" />
+                Decrease decimals
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleIncreaseDecimals}>
+                <IconDecimal size={16} className="mr-2" />
+                Increase decimals
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleNumberFormat("plain")}>
+                <IconAbc size={16} className="mr-2" />
+                Plain text
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNumberFormat("number")}>
+                <IconHash size={16} className="mr-2" />
+                Number ({usPreview.number})
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
+                <IconCalendar size={16} className="mr-2" />
+                Date ({localePreview.date})
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Align</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleAlign("left")}>
+                <IconAlignLeft size={16} className="mr-2" />
+                Left
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAlign("center")}>
+                <IconAlignCenter size={16} className="mr-2" />
+                Center
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAlign("right")}>
+                <IconAlignRight size={16} className="mr-2" />
+                Right
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleVerticalAlign("top")}>
+                <IconAlignBoxTopCenter size={16} className="mr-2" />
+                Top
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleVerticalAlign("middle")}>
+                <IconAlignBoxCenterMiddle size={16} className="mr-2" />
+                Middle
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleVerticalAlign("bottom")}>
+                <IconAlignBoxBottomCenter size={16} className="mr-2" />
+                Bottom
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Borders</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleBorders("all")}>
+                <IconBorderAll size={14} className="mr-2" />
+                All borders
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleBorders("outer")}>
+                <IconBorderOuter size={14} className="mr-2" />
+                Outer border
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleBorders("inner")}>
+                <IconBorderInner size={14} className="mr-2" />
+                Inner borders
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleBorders("top")}>
+                <IconBorderTop size={14} className="mr-2" />
+                Top border
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleBorders("bottom")}>
+                <IconBorderBottom size={14} className="mr-2" />
+                Bottom border
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleBorders("left")}>
+                <IconBorderLeft size={14} className="mr-2" />
+                Left border
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleBorders("right")}>
+                <IconBorderRight size={14} className="mr-2" />
+                Right border
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleBorders("clear")}>
+                <IconBorderNone size={14} className="mr-2" />
+                Clear borders
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleToggle("st")}>
+                <IconStrikethrough size={16} className="mr-2" />
+                Strikethrough
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleToggleFunctionBrowser}>
+                <IconMathFunction size={16} className="mr-2" />
+                Functions
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      )}
     </div>
   );
 }

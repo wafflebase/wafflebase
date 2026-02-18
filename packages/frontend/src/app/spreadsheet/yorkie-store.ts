@@ -474,7 +474,10 @@ export class YorkieStore implements Store {
     return grid;
   }
 
-  async buildDependantsMap(_: Iterable<Sref>): Promise<Map<Sref, Set<Sref>>> {
+  async buildDependantsMap(
+    srefs: Iterable<Sref>,
+  ): Promise<Map<Sref, Set<Sref>>> {
+    void srefs;
     const dependantsMap = new Map<Sref, Set<Sref>>();
     const sheet = this.getSheet().sheet;
 

@@ -80,6 +80,9 @@ React and the `@wafflebase/sheet` engine:
 5. Fill handle drag is handled inside `Worksheet`/`Overlay`: the bottom-right
    handle on a cell selection shows a crosshair cursor, previews the expanded
    fill range with a dashed border, and commits `Sheet.autofill(...)` on mouseup.
+6. On mobile viewports, `useMobileSheetGestures` adds one-finger drag panning
+   (`spreadsheet.panBy(...)`) and double-tap-to-edit
+   (`spreadsheet.handleMobileDoubleTap(...)`) on the canvas container.
 
 `FormattingToolbar` includes a function browser trigger (`fx`) that calls
 `spreadsheet.toggleFunctionBrowser()`, so function discovery lives in the
@@ -88,7 +91,9 @@ shows common US-format examples first, then appends current system-locale
 entries for locale currency and locale date (such as KRW/date for `ko-KR`).
 The toolbar also includes a `Borders` dropdown that applies border presets
 (`all`, `outer`, `inner`, directional sides, `clear`) via
-`spreadsheet.applyBorders(...)`.
+`spreadsheet.applyBorders(...)`. On mobile, the toolbar uses a compact set of
+inline actions (undo/redo, text style, colors, merge) and moves advanced
+format/alignment/border/function actions into a trailing overflow menu.
 
 A `didMount` ref guards against React 19 StrictMode double-mounting in
 development.

@@ -67,6 +67,10 @@ const spreadsheet = await initialize(containerElement, {
   theme: 'light', // or 'dark'
   store: myStore,  // optional — defaults to MemStore
 });
+
+// Optional host-driven mobile gestures
+spreadsheet.panBy(0, 120);
+spreadsheet.handleMobileDoubleTap(180, 420);
 ```
 
 ## Development
