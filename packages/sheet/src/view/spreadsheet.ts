@@ -1,4 +1,11 @@
-import { BorderPreset, CellStyle, GridResolver } from '../model/types';
+import {
+  BorderPreset,
+  CellStyle,
+  GridResolver,
+  Range,
+  Ref,
+  SelectionType,
+} from '../model/types';
 import { Sheet } from '../model/sheet';
 import { Store } from '../store/store';
 import { MemStore } from '../store/memory';
@@ -11,6 +18,13 @@ export interface Options {
   store?: Store;
   readOnly?: boolean;
 }
+
+export type LayoutRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 
 /**
  * setupSpreadsheet sets up the spreadsheet in the given container.
@@ -173,6 +187,52 @@ export class Spreadsheet {
     for (const cb of this.selectionChangeCallbacks) {
       cb();
     }
+  }
+
+  /**
+   * `getSelectionType` returns the current selection type.
+   */
+  public getSelectionType(): SelectionType | undefined {
+    return this.sheet?.getSelectionType();
+  }
+
+  /**
+   * `getSelectionRangeOrActiveCell` returns the current selection range, or
+   * active cell as a single-cell range.
+   */
+  public getSelectionRangeOrActiveCell(): Range | undefined {
+    return this.sheet?.getRangeOrActiveCell();
+  }
+
+  /**
+   * `getGridViewportRect` returns the grid viewport rectangle relative to the
+   * worksheet container.
+   */
+  public getGridViewportRect(): LayoutRect {
+    return this.worksheet.getGridViewportRect();
+  }
+
+  /**
+   * `getScrollableGridViewportRect` returns the unfrozen scrollable viewport
+   * rectangle (Quadrant D), relative to the worksheet container.
+   */
+  public getScrollableGridViewportRect(): LayoutRect {
+    return this.worksheet.getScrollableGridViewportRect();
+  }
+
+  /**
+   * `getCellRect` returns the on-screen rectangle for a given cell.
+   */
+  public getCellRect(ref: Ref): LayoutRect {
+    return this.worksheet.getCellRect(ref);
+  }
+
+  /**
+   * `getCellRectInScrollableViewport` returns the cell rectangle in unfrozen
+   * scrollable-quadrant coordinates (Quadrant D).
+   */
+  public getCellRectInScrollableViewport(ref: Ref): LayoutRect {
+    return this.worksheet.getCellRectInScrollableViewport(ref);
   }
 
   /**

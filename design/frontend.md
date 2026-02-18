@@ -94,6 +94,12 @@ The toolbar also includes a `Borders` dropdown that applies border presets
 `spreadsheet.applyBorders(...)`. On mobile, the toolbar uses a compact set of
 inline actions (undo/redo, text style, colors, merge) and moves advanced
 format/alignment/border/function actions into a trailing overflow menu.
+It also exposes `Insert chart`, which creates a floating chart object from the
+current cell selection. Floating chart cards include a top-right context menu
+(`Edit chart`, `Delete chart`) and open a right-side chart editor panel for
+configuring chart type, data range, X-axis column, and visible series columns.
+Chart series colors are derived from theme tokens (`primary` with tonal
+variants), so they stay visually consistent across light and dark mode.
 
 A `didMount` ref guards against React 19 StrictMode double-mounting in
 development.
@@ -116,6 +122,21 @@ type TabMeta = {
   query?: string;        // SQL query (datasource tabs only)
 };
 
+type SheetChart = {
+  id: string;
+  type: 'bar' | 'line';
+  title?: string;
+  sourceTabId: string;   // tab that provides chart data
+  sourceRange: string;   // A1 range (e.g. "A1:C20")
+  xAxisColumn?: string;  // absolute column name (e.g. "A")
+  seriesColumns?: string[]; // absolute column names (e.g. ["B", "C"])
+  anchor: Sref;          // top-left anchor cell in current sheet
+  offsetX: number;       // px offset from anchor cell left
+  offsetY: number;       // px offset from anchor cell top
+  width: number;         // px
+  height: number;        // px
+};
+
 type Worksheet = {
   sheet: { [sref: Sref]: Cell };
   rowHeights: { [index: string]: number };
@@ -124,6 +145,7 @@ type Worksheet = {
   rowStyles: { [index: string]: CellStyle };
   sheetStyle?: CellStyle;
   merges?: { [anchor: Sref]: { rs: number; cs: number } };
+  charts?: { [id: string]: SheetChart };
   frozenRows: number;
   frozenCols: number;
 };
@@ -137,6 +159,13 @@ type SpreadsheetDocument = {
 
 Tab metadata and sheet data are synced via Yorkie. Datasource query results
 are fetched from the backend on demand and displayed using `ReadOnlyStore`.
+Chart objects are stored in each worksheet and rendered as floating DOM cards
+above the sheet canvas. Chart geometry and editor fields are updated through
+`doc.update()` so chart edits are collaborative in real time. Rendering is
+clipped to the unfrozen scrollable quadrant, so charts are hidden underneath
+frozen rows/columns. Chart anchor layout also uses scrollable-quadrant
+coordinates, so charts continue moving with scroll even if their anchor refs
+fall inside frozen rows/columns.
 
 **Migration:** Old documents (flat `Worksheet` format with `root.sheet`) are
 automatically migrated to the new `SpreadsheetDocument` structure on load,
@@ -158,8 +187,8 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `setGrid(grid)` | Batch write to `root.sheet` |
 | `getGrid(range)` | Use CellIndex to iterate only populated cells in range |
 | `findEdge(ref, direction, dimension)` | Delegate to `findEdgeWithIndex` using CellIndex |
-| `shiftCells(axis, index, count)` | Rebuild `root.sheet` with shifted refs and formulas |
-| `moveCells(axis, src, count, dst)` | Rebuild `root.sheet` with remapped refs and formulas |
+| `shiftCells(axis, index, count)` | Rebuild `root.sheet` with shifted refs and formulas; also remap chart anchors |
+| `moveCells(axis, src, count, dst)` | Rebuild `root.sheet` with remapped refs and formulas; also remap chart anchors |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
 | `setMerge(anchor, span)` | Write to `root.sheets[tabId].merges[anchorSref]` |

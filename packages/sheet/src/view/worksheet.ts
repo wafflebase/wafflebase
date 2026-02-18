@@ -34,6 +34,7 @@ import {
   buildFreezeState,
   toBoundingRect,
   toBoundingRectWithFreeze,
+  expandBoundingRect,
   toRef,
   toRefWithFreeze,
 } from './layout';
@@ -1202,21 +1203,21 @@ export class Worksheet {
    * `getAutofillSelectionRect` returns the on-screen rect for the current
    * cell selection (or active cell when no explicit range exists).
    */
-  private getAutofillSelectionRect(): BoundingRect | undefined {
+  private getAutofillSelectionRect(range?: Range): BoundingRect | undefined {
     if (!this.sheet || this.sheet.getSelectionType() !== 'cell') {
       return undefined;
     }
 
-    const range = this.sheet.getRangeOrActiveCell();
+    const currentRange = range || this.sheet.getRangeOrActiveCell();
     const start = toBoundingRectWithFreeze(
-      range[0],
+      currentRange[0],
       this.scroll,
       this.rowDim,
       this.colDim,
       this.freezeState,
     );
     const end = toBoundingRectWithFreeze(
-      range[1],
+      currentRange[1],
       this.scroll,
       this.rowDim,
       this.colDim,
@@ -1241,9 +1242,17 @@ export class Worksheet {
     if (this.readOnly) {
       return false;
     }
+    if (!this.sheet || this.sheet.getSelectionType() !== 'cell') {
+      return false;
+    }
 
-    const rect = this.getAutofillSelectionRect();
+    const range = this.sheet.getRangeOrActiveCell();
+
+    const rect = this.getAutofillSelectionRect(range);
     if (!rect) {
+      return false;
+    }
+    if (this.isAutofillHandleHiddenByFreeze(range, rect)) {
       return false;
     }
 
@@ -1255,6 +1264,41 @@ export class Worksheet {
       y >= handleTop - AutofillHandleHitPadding &&
       y <= handleTop + AutofillHandleSize + AutofillHandleHitPadding
     );
+  }
+
+  private shouldShowAutofillHandle(): boolean {
+    if (this.readOnly) return false;
+    if (!this.sheet || this.sheet.getSelectionType() !== 'cell') return false;
+
+    const range = this.sheet.getRangeOrActiveCell();
+    const rect = this.getAutofillSelectionRect(range);
+    if (!rect) return false;
+
+    return !this.isAutofillHandleHiddenByFreeze(range, rect);
+  }
+
+  private isAutofillHandleHiddenByFreeze(
+    range: Range,
+    selectionRect: BoundingRect,
+  ): boolean {
+    const freeze = this.freezeState;
+    if (freeze.frozenRows === 0 && freeze.frozenCols === 0) {
+      return false;
+    }
+
+    const handleRow = Math.max(range[0].r, range[1].r);
+    const handleCol = Math.max(range[0].c, range[1].c);
+    const isScrollableQuadrantHandle =
+      handleRow > freeze.frozenRows && handleCol > freeze.frozenCols;
+    if (!isScrollableQuadrantHandle) {
+      return false;
+    }
+
+    const handleLeft = selectionRect.left + selectionRect.width - AutofillHandleSize / 2;
+    const handleTop = selectionRect.top + selectionRect.height - AutofillHandleSize / 2;
+    const frozenBoundaryLeft = RowHeaderWidth + freeze.frozenWidth;
+    const frozenBoundaryTop = DefaultCellHeight + freeze.frozenHeight;
+    return handleLeft < frozenBoundaryLeft || handleTop < frozenBoundaryTop;
   }
 
   private clampClientPointToViewport(
@@ -2617,6 +2661,87 @@ export class Worksheet {
   }
 
   /**
+   * `getGridViewportRect` returns the grid viewport rectangle relative to the
+   * worksheet container.
+   */
+  public getGridViewportRect(): BoundingRect {
+    const viewport = this.viewport;
+    const container = this.container.getBoundingClientRect();
+    return {
+      left: viewport.left - container.left,
+      top: viewport.top - container.top,
+      width: viewport.width,
+      height: viewport.height,
+    };
+  }
+
+  /**
+   * `getScrollableGridViewportRect` returns the unfrozen scrollable viewport
+   * rectangle (Quadrant D), relative to the worksheet container.
+   */
+  public getScrollableGridViewportRect(): BoundingRect {
+    const viewport = this.getGridViewportRect();
+    const freeze = this.freezeState;
+    const leftInset = RowHeaderWidth + freeze.frozenWidth;
+    const topInset = DefaultCellHeight + freeze.frozenHeight;
+
+    return {
+      left: viewport.left + leftInset,
+      top: viewport.top + topInset,
+      width: Math.max(0, viewport.width - leftInset),
+      height: Math.max(0, viewport.height - topInset),
+    };
+  }
+
+  /**
+   * `getCellRect` returns the on-screen rectangle for a cell in the current
+   * viewport coordinate system.
+   */
+  public getCellRect(ref: Ref): BoundingRect {
+    const freeze = this.freezeState;
+    if (freeze.frozenRows > 0 || freeze.frozenCols > 0) {
+      return toBoundingRectWithFreeze(
+        ref,
+        this.scroll,
+        this.rowDim,
+        this.colDim,
+        freeze,
+      );
+    }
+    return toBoundingRect(ref, this.scroll, this.rowDim, this.colDim);
+  }
+
+  /**
+   * `getCellRectInScrollableViewport` returns the cell rectangle using
+   * scrollable-quadrant coordinates (Quadrant D), even for refs in frozen
+   * rows/columns. Useful for floating objects that should move with scroll.
+   */
+  public getCellRectInScrollableViewport(ref: Ref): BoundingRect {
+    const freeze = this.freezeState;
+    const scroll = this.scroll;
+    const scrollableLeft =
+      scroll.left + this.colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth;
+    const scrollableTop =
+      scroll.top + this.rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight;
+    return toBoundingRect(
+      ref,
+      { left: scrollableLeft, top: scrollableTop },
+      this.rowDim,
+      this.colDim,
+    );
+  }
+
+  /**
+   * `getRangeRect` returns the on-screen rectangle for the given range.
+   */
+  public getRangeRect(range: Range): BoundingRect {
+    return expandBoundingRect(
+      this.getCellRect(range[0]),
+      this.getCellRect(range[1]),
+    );
+  }
+
+  /**
    * `setOnRender` registers a callback that fires after every render.
    */
   public setOnRender(callback: () => void) {
@@ -2697,7 +2822,7 @@ export class Worksheet {
       this.freezeDrag,
       this.sheet!.getCopyRange(),
       this.autofillPreview,
-      !this.readOnly,
+      this.shouldShowAutofillHandle(),
       this.sheet!.getMerges(),
     );
   }

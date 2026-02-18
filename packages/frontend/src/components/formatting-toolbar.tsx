@@ -50,6 +50,7 @@ import {
   IconCalendar,
   IconTableAlias,
   IconMathFunction,
+  IconChartBar,
   IconBorderAll,
   IconBorderOuter,
   IconBorderInner,
@@ -134,9 +135,13 @@ const modKey = isMac ? "⌘" : "Ctrl";
 
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
+  onInsertChart?: () => void;
 }
 
-export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
+export function FormattingToolbar({
+  spreadsheet,
+  onInsertChart,
+}: FormattingToolbarProps) {
   const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
   const [selectionMerged, setSelectionMerged] = useState(false);
@@ -218,6 +223,10 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
   const handleToggleFunctionBrowser = useCallback(() => {
     spreadsheet?.toggleFunctionBrowser();
   }, [spreadsheet]);
+
+  const handleInsertChart = useCallback(() => {
+    onInsertChart?.();
+  }, [onInsertChart]);
 
   const handleNumberFormat = useCallback(
     (format: string) => {
@@ -676,6 +685,18 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
             </TooltipTrigger>
             <TooltipContent>Functions</TooltipContent>
           </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
+                onClick={handleInsertChart}
+              >
+                <IconChartBar size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Insert chart</TooltipContent>
+          </Tooltip>
         </>
       )}
 
@@ -787,6 +808,10 @@ export function FormattingToolbar({ spreadsheet }: FormattingToolbarProps) {
               <DropdownMenuItem onClick={handleToggleFunctionBrowser}>
                 <IconMathFunction size={16} className="mr-2" />
                 Functions
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleInsertChart}>
+                <IconChartBar size={16} className="mr-2" />
+                Insert chart
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

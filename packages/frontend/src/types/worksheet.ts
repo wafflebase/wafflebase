@@ -1,5 +1,22 @@
 import { Cell, CellStyle, MergeSpan, Sref } from "@wafflebase/sheet";
 
+export type ChartType = "bar" | "line";
+
+export type SheetChart = {
+  id: string;
+  type: ChartType;
+  title?: string;
+  sourceTabId: string;
+  sourceRange: string;
+  xAxisColumn?: string;
+  seriesColumns?: string[];
+  anchor: Sref;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+};
+
 export type Worksheet = {
   sheet: {
     [key: Sref]: Cell;
@@ -19,6 +36,9 @@ export type Worksheet = {
   sheetStyle?: CellStyle;
   merges?: {
     [key: Sref]: MergeSpan;
+  };
+  charts?: {
+    [id: string]: SheetChart;
   };
   frozenRows: number;
   frozenCols: number;
@@ -59,6 +79,7 @@ export const initialSpreadsheetDocument: SpreadsheetDocument = {
       colStyles: {},
       rowStyles: {},
       merges: {},
+      charts: {},
       frozenRows: 0,
       frozenCols: 0,
     },

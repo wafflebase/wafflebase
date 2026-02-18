@@ -25,7 +25,7 @@ import {
   shiftMergeMap,
   moveMergeMap,
 } from "@wafflebase/sheet";
-import { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
+import { SheetChart, SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
 
 export class YorkieStore implements Store {
@@ -443,6 +443,26 @@ export class YorkieStore implements Store {
       for (const [sref, span] of shiftedMerges) {
         ws.merges[sref] = span;
       }
+
+      // Shift chart anchor refs.
+      if (ws.charts) {
+        for (const chart of Object.values(ws.charts as Record<string, SheetChart>)) {
+          const shiftedAnchor = shiftSref(chart.anchor, axis, index, count);
+          if (shiftedAnchor) {
+            chart.anchor = shiftedAnchor;
+            continue;
+          }
+
+          // If anchor cell was deleted, pin to the deletion boundary.
+          const fallback = parseRef(chart.anchor);
+          if (axis === "row") {
+            fallback.r = Math.max(1, index);
+          } else {
+            fallback.c = Math.max(1, index);
+          }
+          chart.anchor = toSref(fallback);
+        }
+      }
     });
 
     this.dirty = true;
@@ -530,6 +550,20 @@ export class YorkieStore implements Store {
       ws.merges = {};
       for (const [sref, span] of movedMerges) {
         ws.merges[sref] = span;
+      }
+
+      // Remap chart anchor refs.
+      if (ws.charts) {
+        for (const chart of Object.values(ws.charts as Record<string, SheetChart>)) {
+          const nextAnchor = moveRef(
+            parseRef(chart.anchor),
+            axis,
+            srcIndex,
+            count,
+            dstIndex,
+          );
+          chart.anchor = toSref(nextAnchor);
+        }
       }
     });
 

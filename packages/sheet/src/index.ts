@@ -49,7 +49,7 @@ import { type Store } from './store/store';
 import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
 import { ReadOnlyStore } from './store/readonly';
-import { initialize, Spreadsheet } from './view/spreadsheet';
+import { initialize, Spreadsheet, type LayoutRect } from './view/spreadsheet';
 import {
   buildLocaleFormatPreview,
   resolveCurrencyForLocale,
@@ -61,6 +61,7 @@ import { type FormatValueOptions } from './model/format';
 export {
   initialize,
   Spreadsheet,
+  LayoutRect,
   Store,
   CellIndex,
   ReadOnlyStore,

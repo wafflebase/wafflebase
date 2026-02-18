@@ -87,6 +87,7 @@ function migrateDocument(
         rowStyles: r.rowStyles || {},
         sheetStyle: r.sheetStyle,
         merges: (r as Record<string, unknown>).merges || {},
+        charts: {},
         frozenRows: r.frozenRows || 0,
         frozenCols: r.frozenCols || 0,
       },
@@ -169,6 +170,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         colStyles: {},
         rowStyles: {},
         merges: {},
+        charts: {},
         frozenRows: 0,
         frozenCols: 0,
       } as Worksheet;

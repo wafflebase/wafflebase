@@ -83,7 +83,9 @@ all cell, selection, and navigation operations.
 - **Autofill (fill handle)** — dragging the selection handle repeats the source
   pattern across the expanded range. Formula cells are relocated per target
   offset (same reference-shift semantics as internal paste), then dependants are
-  recalculated from all changed destination refs.
+  recalculated from all changed destination refs. With freeze panes, the handle
+  is hidden (and non-interactive) when the selection is in the unfrozen
+  scrollable quadrant but the handle position would fall under frozen panes.
 - **Dimensions** — `setRowHeight`, `setColumnWidth`, persisted to the store.
 
 **Grid dimensions:** `1,000,000 rows x 182,780 columns` (constants in the
@@ -561,6 +563,13 @@ all style properties (including border presets) and calls
 `Spreadsheet.applyStyle()` / `Spreadsheet.toggleStyle()` /
 `Spreadsheet.applyBorders()`. It refreshes its state via the
 `onSelectionChange` callback.
+
+**Layout helpers for floating objects:** The `Spreadsheet` facade now exposes
+`getSelectionType()`, `getSelectionRangeOrActiveCell()`,
+`getGridViewportRect()`, `getScrollableGridViewportRect()`, and
+`getCellRect(ref)`, `getCellRectInScrollableViewport(ref)` so frontend
+features (such as floating chart cards) can align DOM overlays with
+canvas-rendered cells while respecting scroll remapping and freeze panes.
 
 ## Risks and Mitigation
 
