@@ -17,6 +17,7 @@ import { ContextMenu } from './contextmenu';
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
 import { toTextRange, setTextRange } from './utils/textrange';
+import { runKeyRules, isModPressed, keyEquals, matchesKeyCombo } from './keymap';
 import {
   DefaultCellWidth,
   DefaultCellHeight,
@@ -47,6 +48,7 @@ const AutoScrollMinSpeed = 300;
 const AutoScrollMaxSpeed = 1800;
 const AutofillHandleSize = 8;
 const AutofillHandleHitPadding = 4;
+type EditorInputSource = 'formulaBar' | 'cellInput';
 
 /**
  * Worksheet represents the worksheet of the spreadsheet. It handles the
@@ -2271,222 +2273,196 @@ export class Worksheet {
    * `handleFormulaInputKeydown` handles the keydown event for the formula input.
    */
   private async handleFormulaKeydown(e: KeyboardEvent) {
-    // Ignore keydown events during IME composition.
-    if (e.isComposing) return;
-
-    // Autocomplete interception
-    if (this.autocomplete.isListVisible()) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        this.autocomplete.moveDown();
-        return;
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        this.autocomplete.moveUp();
-        return;
-      } else if (e.key === 'Tab' || e.key === 'Enter') {
-        const selected = this.autocomplete.getSelectedFunction();
-        if (selected) {
-          e.preventDefault();
-          this.insertFunctionCompletion(
-            selected.name,
-            this.formulaBar.getFormulaInput(),
-          );
-          return;
-        }
-      } else if (e.key === 'Escape') {
-        this.autocomplete.hide();
-      }
-    } else if (this.autocomplete.isHintVisible()) {
-      if (e.key === 'Escape') {
-        this.autocomplete.hide();
-      }
-    }
-
-    if (e.key === 'Enter' && e.altKey) {
-      e.preventDefault();
-      document.execCommand('insertLineBreak');
-      return;
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      await this.finishEditing();
-      this.focusGrid();
-      this.sheet!.move('down');
-      this.render();
-      this.scrollIntoView();
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      await this.finishEditing();
-      this.focusGrid();
-      this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
-      this.render();
-      this.scrollIntoView();
-    } else if (
-      e.key.startsWith('Arrow') &&
-      !this.editMode &&
-      this.isInFormulaRangeMode()
-    ) {
-      // Arrow keys in formula range mode from formula bar
-      e.preventDefault();
-      const base = this.lastFormulaRefTarget || this.sheet!.getActiveCell();
-      const targetRef = { ...base };
-      if (e.key === 'ArrowDown') targetRef.r = Math.max(1, targetRef.r + 1);
-      else if (e.key === 'ArrowUp') targetRef.r = Math.max(1, targetRef.r - 1);
-      else if (e.key === 'ArrowLeft')
-        targetRef.c = Math.max(1, targetRef.c - 1);
-      else if (e.key === 'ArrowRight') targetRef.c = targetRef.c + 1;
-
-      if (e.shiftKey && this.formulaRangeAnchor) {
-        // Shift+Arrow: extend range from anchor to target
-        const startRef: Ref = {
-          r: Math.min(this.formulaRangeAnchor.r, targetRef.r),
-          c: Math.min(this.formulaRangeAnchor.c, targetRef.c),
-        };
-        const endRef: Ref = {
-          r: Math.max(this.formulaRangeAnchor.r, targetRef.r),
-          c: Math.max(this.formulaRangeAnchor.c, targetRef.c),
-        };
-        this.insertReferenceAtCursor(startRef, endRef);
-        // Override with actual target so navigation tracks the moving end,
-        // not the normalized max corner of the range.
-        this.lastFormulaRefTarget = targetRef;
-      } else {
-        this.formulaRangeAnchor = targetRef;
-        this.formulaRefInsertPos = null;
-        this.insertReferenceAtCursor(targetRef);
-      }
-    } else if (e.key === 'F4') {
-      e.preventDefault();
-      this.toggleAbsoluteReference(this.formulaBar.getFormulaInput());
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      this.focusGrid();
-      this.render();
-    } else {
-      if (!this.cellInput.isShown()) {
-        this.showCellInput(true, true);
-      }
-    }
+    await this.handleEditorKeydown(e, 'formulaBar');
   }
 
   /**
    * `handleCellInputKeydown` handles the keydown event for the cell input.
    */
   private async handleCellInputKeydown(e: KeyboardEvent) {
+    await this.handleEditorKeydown(e, 'cellInput');
+  }
+
+  private async handleEditorKeydown(
+    e: KeyboardEvent,
+    source: EditorInputSource,
+  ): Promise<void> {
     // Ignore keydown events during IME composition to prevent
     // duplicate characters (e.g. Korean input commit + Enter).
     if (e.isComposing) return;
 
-    // Autocomplete interception
+    const inputEl =
+      source === 'formulaBar'
+        ? this.formulaBar.getFormulaInput()
+        : this.cellInput.getInput();
+
+    if (this.handleAutocompleteKeydown(e, inputEl)) {
+      return;
+    }
+
+    const moveByArrow = (event: KeyboardEvent): void => {
+      if (keyEquals(event, 'ArrowDown')) {
+        this.sheet!.move('down');
+      } else if (keyEquals(event, 'ArrowUp')) {
+        this.sheet!.move('up');
+      } else if (keyEquals(event, 'ArrowLeft')) {
+        this.sheet!.move('left');
+      } else if (keyEquals(event, 'ArrowRight')) {
+        this.sheet!.move('right');
+      }
+    };
+
+    const handled = await runKeyRules(e, [
+      {
+        match: (event) => matchesKeyCombo(event, { key: 'Enter', alt: true }),
+        run: (event) => {
+          event.preventDefault();
+          document.execCommand('insertLineBreak');
+        },
+      },
+      {
+        match: (event) => keyEquals(event, 'Enter'),
+        run: async (event) => {
+          event.preventDefault();
+          await this.finishEditing();
+
+          if (source === 'formulaBar') {
+            this.focusGrid();
+            this.sheet!.move('down');
+          } else {
+            this.sheet!.moveInRange(event.shiftKey ? -1 : 1, 0);
+          }
+          this.render();
+          this.scrollIntoView();
+        },
+      },
+      {
+        match: (event) => keyEquals(event, 'Tab'),
+        run: async (event) => {
+          event.preventDefault();
+          await this.finishEditing();
+
+          if (source === 'formulaBar') {
+            this.focusGrid();
+          }
+          this.sheet!.moveInRange(0, event.shiftKey ? -1 : 1);
+          this.render();
+          this.scrollIntoView();
+        },
+      },
+      {
+        match: (event) =>
+          this.isArrowKey(event) &&
+          !this.editMode &&
+          (source === 'formulaBar' || this.cellInput.hasFormula()) &&
+          this.isInFormulaRangeMode(),
+        run: (event) => {
+          event.preventDefault();
+          this.applyFormulaRangeArrowKey(event);
+        },
+      },
+      {
+        match: (event) =>
+          source === 'cellInput' &&
+          this.isArrowKey(event) &&
+          !this.cellInput.hasFormula() &&
+          !this.editMode,
+        run: async (event) => {
+          event.preventDefault();
+          await this.finishEditing();
+          moveByArrow(event);
+          this.render();
+          this.scrollIntoView();
+        },
+      },
+      {
+        match: (event) => keyEquals(event, 'F4'),
+        run: (event) => {
+          event.preventDefault();
+          this.toggleAbsoluteReference(inputEl);
+        },
+      },
+      {
+        match: (event) => keyEquals(event, 'Escape'),
+        run: (event) => {
+          event.preventDefault();
+          this.focusGrid();
+          this.render();
+        },
+      },
+    ]);
+    if (!handled && source === 'formulaBar' && !this.cellInput.isShown()) {
+      this.showCellInput(true, true);
+    }
+  }
+
+  private handleAutocompleteKeydown(
+    e: KeyboardEvent,
+    inputEl: HTMLDivElement,
+  ): boolean {
     if (this.autocomplete.isListVisible()) {
-      if (e.key === 'ArrowDown') {
+      if (keyEquals(e, 'ArrowDown')) {
         e.preventDefault();
         this.autocomplete.moveDown();
-        return;
-      } else if (e.key === 'ArrowUp') {
+        return true;
+      } else if (keyEquals(e, 'ArrowUp')) {
         e.preventDefault();
         this.autocomplete.moveUp();
-        return;
-      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        return true;
+      } else if (keyEquals(e, 'Tab') || keyEquals(e, 'Enter')) {
         const selected = this.autocomplete.getSelectedFunction();
         if (selected) {
           e.preventDefault();
-          this.insertFunctionCompletion(
-            selected.name,
-            this.cellInput.getInput(),
-          );
-          return;
+          this.insertFunctionCompletion(selected.name, inputEl);
+          return true;
         }
-      } else if (e.key === 'Escape') {
+      } else if (keyEquals(e, 'Escape')) {
         this.autocomplete.hide();
       }
-    } else if (this.autocomplete.isHintVisible()) {
-      if (e.key === 'Escape') {
-        this.autocomplete.hide();
-      }
+    } else if (this.autocomplete.isHintVisible() && keyEquals(e, 'Escape')) {
+      this.autocomplete.hide();
     }
 
-    if (e.key === 'Enter' && e.altKey) {
-      e.preventDefault();
-      document.execCommand('insertLineBreak');
-      return;
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
+    return false;
+  }
 
-      await this.finishEditing();
-      this.sheet!.moveInRange(e.shiftKey ? -1 : 1, 0);
-      this.render();
-      this.scrollIntoView();
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
+  private isArrowKey(e: KeyboardEvent): boolean {
+    return (
+      keyEquals(e, 'ArrowDown') ||
+      keyEquals(e, 'ArrowUp') ||
+      keyEquals(e, 'ArrowLeft') ||
+      keyEquals(e, 'ArrowRight')
+    );
+  }
 
-      await this.finishEditing();
-      this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
-      this.render();
-      this.scrollIntoView();
-    } else if (
-      e.key.startsWith('Arrow') &&
-      this.cellInput.hasFormula() &&
-      !this.editMode &&
-      this.isInFormulaRangeMode()
-    ) {
-      // Arrow keys in formula range mode: insert reference by navigating
-      e.preventDefault();
-      const base = this.lastFormulaRefTarget || this.sheet!.getActiveCell();
-      const targetRef = { ...base };
-      if (e.key === 'ArrowDown') targetRef.r = Math.max(1, targetRef.r + 1);
-      else if (e.key === 'ArrowUp') targetRef.r = Math.max(1, targetRef.r - 1);
-      else if (e.key === 'ArrowLeft')
-        targetRef.c = Math.max(1, targetRef.c - 1);
-      else if (e.key === 'ArrowRight') targetRef.c = targetRef.c + 1;
+  private applyFormulaRangeArrowKey(e: KeyboardEvent): void {
+    // Arrow keys in formula range mode insert or expand references.
+    const base = this.lastFormulaRefTarget || this.sheet!.getActiveCell();
+    const targetRef = { ...base };
+    if (keyEquals(e, 'ArrowDown')) targetRef.r = Math.max(1, targetRef.r + 1);
+    else if (keyEquals(e, 'ArrowUp'))
+      targetRef.r = Math.max(1, targetRef.r - 1);
+    else if (keyEquals(e, 'ArrowLeft'))
+      targetRef.c = Math.max(1, targetRef.c - 1);
+    else if (keyEquals(e, 'ArrowRight')) targetRef.c = targetRef.c + 1;
 
-      if (e.shiftKey && this.formulaRangeAnchor) {
-        // Shift+Arrow: extend range from anchor to target
-        const startRef: Ref = {
-          r: Math.min(this.formulaRangeAnchor.r, targetRef.r),
-          c: Math.min(this.formulaRangeAnchor.c, targetRef.c),
-        };
-        const endRef: Ref = {
-          r: Math.max(this.formulaRangeAnchor.r, targetRef.r),
-          c: Math.max(this.formulaRangeAnchor.c, targetRef.c),
-        };
-        this.insertReferenceAtCursor(startRef, endRef);
-        // Override with actual target so navigation tracks the moving end,
-        // not the normalized max corner of the range.
-        this.lastFormulaRefTarget = targetRef;
-      } else {
-        this.formulaRangeAnchor = targetRef;
-        this.formulaRefInsertPos = null;
-        this.insertReferenceAtCursor(targetRef);
-      }
-    } else if (
-      e.key.startsWith('Arrow') &&
-      !this.cellInput.hasFormula() &&
-      !this.editMode
-    ) {
-      e.preventDefault();
-
-      await this.finishEditing();
-
-      if (e.key === 'ArrowDown') {
-        this.sheet!.move('down');
-      } else if (e.key === 'ArrowUp') {
-        this.sheet!.move('up');
-      } else if (e.key === 'ArrowLeft') {
-        this.sheet!.move('left');
-      } else if (e.key === 'ArrowRight') {
-        this.sheet!.move('right');
-      }
-
-      this.render();
-      this.scrollIntoView();
-    } else if (e.key === 'F4') {
-      e.preventDefault();
-      this.toggleAbsoluteReference(this.cellInput.getInput());
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      this.focusGrid();
-      this.render();
+    if (e.shiftKey && this.formulaRangeAnchor) {
+      // Shift+Arrow: extend range from anchor to target
+      const startRef: Ref = {
+        r: Math.min(this.formulaRangeAnchor.r, targetRef.r),
+        c: Math.min(this.formulaRangeAnchor.c, targetRef.c),
+      };
+      const endRef: Ref = {
+        r: Math.max(this.formulaRangeAnchor.r, targetRef.r),
+        c: Math.max(this.formulaRangeAnchor.c, targetRef.c),
+      };
+      this.insertReferenceAtCursor(startRef, endRef);
+      // Track the moving end, not the normalized max corner.
+      this.lastFormulaRefTarget = targetRef;
+    } else {
+      this.formulaRangeAnchor = targetRef;
+      this.formulaRefInsertPos = null;
+      this.insertReferenceAtCursor(targetRef);
     }
   }
 
@@ -2534,16 +2510,12 @@ export class Worksheet {
    * `handleGridKeydown` handles the keydown event for the grid.
    */
   private async handleGridKeydown(e: KeyboardEvent) {
-    const move = async (
-      direction: Direction,
-      shift: boolean,
-      ctrl: boolean,
-    ) => {
-      e.preventDefault();
+    const move = async (event: KeyboardEvent, direction: Direction) => {
+      event.preventDefault();
 
-      let changed = shift
+      const changed = event.shiftKey
         ? this.sheet!.resizeRange(direction)
-        : ctrl
+        : isModPressed(event)
           ? await this.sheet!.moveToEdge(direction)
           : this.sheet!.move(direction);
       if (changed) {
@@ -2552,100 +2524,163 @@ export class Worksheet {
       }
     };
 
-    if (e.key === 'ArrowDown') {
-      move('down', e.shiftKey, e.metaKey);
-    } else if (e.key === 'ArrowUp') {
-      move('up', e.shiftKey, e.metaKey);
-    } else if (e.key === 'ArrowLeft') {
-      move('left', e.shiftKey, e.metaKey);
-    } else if (e.key === 'ArrowRight') {
-      move('right', e.shiftKey, e.metaKey);
-    } else if (e.key === 'a' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      await this.sheet!.selectAll();
-      this.render();
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
+    await runKeyRules(e, [
+      {
+        match: (event) => keyEquals(event, 'ArrowDown'),
+        run: (event) => move(event, 'down'),
+      },
+      {
+        match: (event) => keyEquals(event, 'ArrowUp'),
+        run: (event) => move(event, 'up'),
+      },
+      {
+        match: (event) => keyEquals(event, 'ArrowLeft'),
+        run: (event) => move(event, 'left'),
+      },
+      {
+        match: (event) => keyEquals(event, 'ArrowRight'),
+        run: (event) => move(event, 'right'),
+      },
+      {
+        match: (event) => matchesKeyCombo(event, { key: 'a', mod: true }),
+        run: async (event) => {
+          event.preventDefault();
+          await this.sheet!.selectAll();
+          this.render();
+        },
+      },
+      {
+        match: (event) => keyEquals(event, 'Tab'),
+        run: (event) => {
+          event.preventDefault();
+          this.sheet!.moveInRange(0, event.shiftKey ? -1 : 1);
+          this.render();
+          this.scrollIntoView();
+        },
+      },
+      {
+        match: (event) => keyEquals(event, 'Enter'),
+        run: (event) => {
+          event.preventDefault();
 
-      this.sheet!.moveInRange(0, e.shiftKey ? -1 : 1);
-      this.render();
-      this.scrollIntoView();
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
+          if (this.sheet!.hasRange()) {
+            this.sheet!.moveInRange(event.shiftKey ? -1 : 1, 0);
+            this.render();
+            this.scrollIntoView();
+          } else if (!this.readOnly) {
+            this.showCellInput();
+          }
+        },
+      },
+      {
+        match: (event) =>
+          keyEquals(event, 'Delete') || keyEquals(event, 'Backspace'),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
 
-      if (this.sheet!.hasRange()) {
-        this.sheet!.moveInRange(e.shiftKey ? -1 : 1, 0);
-        this.render();
-        this.scrollIntoView();
-      } else if (!this.readOnly) {
-        this.showCellInput();
-      }
-    } else if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (this.readOnly) return;
-      e.preventDefault();
-
-      if (await this.sheet!.removeData()) {
-        this.render();
-      }
-    } else if (!e.metaKey && !e.ctrlKey && this.isValidCellInput(e.key)) {
-      if (this.readOnly) return;
-      this.showCellInput(true);
-    } else if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
-      if (this.readOnly) return;
-      e.preventDefault();
-      if (await this.sheet!.undo()) {
-        this.render();
-        this.scrollIntoView();
-      }
-    } else if (
-      ((e.key === 'z' && e.shiftKey) || e.key === 'y') &&
-      (e.metaKey || e.ctrlKey)
-    ) {
-      if (this.readOnly) return;
-      e.preventDefault();
-      if (await this.sheet!.redo()) {
-        this.render();
-        this.scrollIntoView();
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      if (this.sheet!.getCopyRange()) {
-        this.sheet!.clearCopyBuffer();
-        this.renderOverlay();
-      }
-    } else if (e.key === 'c' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      await this.copy();
-    } else if (e.key === 'v' && (e.metaKey || e.ctrlKey)) {
-      if (this.readOnly) return;
-      e.preventDefault();
-      await this.paste();
-    } else if (e.key === 'b' && (e.metaKey || e.ctrlKey)) {
-      if (this.readOnly) return;
-      e.preventDefault();
-      await this.sheet!.toggleRangeStyle('b');
-      this.render();
-    } else if (e.key === 'i' && (e.metaKey || e.ctrlKey)) {
-      if (this.readOnly) return;
-      e.preventDefault();
-      await this.sheet!.toggleRangeStyle('i');
-      this.render();
-    } else if (e.key === 'u' && (e.metaKey || e.ctrlKey)) {
-      if (this.readOnly) return;
-      e.preventDefault();
-      await this.sheet!.toggleRangeStyle('u');
-      this.render();
-    } else if (
-      (e.key === 'm' || e.key === 'M') &&
-      (e.metaKey || e.ctrlKey) &&
-      e.shiftKey
-    ) {
-      if (this.readOnly) return;
-      e.preventDefault();
-      if (await this.sheet!.toggleMergeSelection()) {
-        this.render();
-      }
-    }
+          if (await this.sheet!.removeData()) {
+            this.render();
+          }
+        },
+      },
+      {
+        match: (event) =>
+          !isModPressed(event) && this.isValidCellInput(event.key),
+        run: () => {
+          if (this.readOnly) return;
+          this.showCellInput(true);
+        },
+      },
+      {
+        match: (event) =>
+          matchesKeyCombo(event, { key: 'z', mod: true, shift: false }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          if (await this.sheet!.undo()) {
+            this.render();
+            this.scrollIntoView();
+          }
+        },
+      },
+      {
+        match: (event) =>
+          matchesKeyCombo(event, { key: 'z', mod: true, shift: true }) ||
+          matchesKeyCombo(event, { key: 'y', mod: true }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          if (await this.sheet!.redo()) {
+            this.render();
+            this.scrollIntoView();
+          }
+        },
+      },
+      {
+        match: (event) => keyEquals(event, 'Escape'),
+        run: (event) => {
+          event.preventDefault();
+          if (this.sheet!.getCopyRange()) {
+            this.sheet!.clearCopyBuffer();
+            this.renderOverlay();
+          }
+        },
+      },
+      {
+        match: (event) => matchesKeyCombo(event, { key: 'c', mod: true }),
+        run: async (event) => {
+          event.preventDefault();
+          await this.copy();
+        },
+      },
+      {
+        match: (event) => matchesKeyCombo(event, { key: 'v', mod: true }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          await this.paste();
+        },
+      },
+      {
+        match: (event) => matchesKeyCombo(event, { key: 'b', mod: true }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          await this.sheet!.toggleRangeStyle('b');
+          this.render();
+        },
+      },
+      {
+        match: (event) => matchesKeyCombo(event, { key: 'i', mod: true }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          await this.sheet!.toggleRangeStyle('i');
+          this.render();
+        },
+      },
+      {
+        match: (event) => matchesKeyCombo(event, { key: 'u', mod: true }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          await this.sheet!.toggleRangeStyle('u');
+          this.render();
+        },
+      },
+      {
+        match: (event) =>
+          matchesKeyCombo(event, { key: 'm', mod: true, shift: true }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          if (await this.sheet!.toggleMergeSelection()) {
+            this.render();
+          }
+        },
+      },
+    ]);
   }
 
   /**

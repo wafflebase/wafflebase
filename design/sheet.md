@@ -557,6 +557,14 @@ updating a cell's value or formula.
 
 **Keyboard shortcuts:** `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, `Cmd/Ctrl+U` toggle bold,
 italic, and underline on the current selection.
+Grid navigation and editing shortcuts normalize `Cmd` and `Ctrl` via
+`view/keymap.ts` (`isModPressed`, `matchesKeyCombo`) so combos like
+`Cmd/Ctrl+Arrow` consistently route to edge navigation across platforms.
+Formula bar and in-cell editor key handling share a single
+`handleEditorKeydown` path in `Worksheet` so autocomplete, formula-range arrow
+updates, and commit/navigation behaviors stay consistent.
+Both editor and grid shortcuts now use ordered `KeyRule` tables (`match` +
+`run`) to keep precedence explicit while making new bindings easier to add.
 
 **Toolbar:** The frontend `FormattingToolbar` component provides controls for
 all style properties (including border presets) and calls

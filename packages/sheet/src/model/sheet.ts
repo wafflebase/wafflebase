@@ -1687,7 +1687,7 @@ export class Sheet {
         visited.add(anchorSref);
 
         const span = this.merges.get(anchorSref);
-        const range = span ? toMergeRange(anchor, span) : [anchor, anchor];
+        const range = span ? toMergeRange(anchor, span) : toRange(anchor, anchor);
         targets.push({ anchor, range });
       }
     }
