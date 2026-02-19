@@ -41,14 +41,23 @@ describe('formatValue', () => {
     );
   });
 
+  it('should format KRW currency without decimals by default', () => {
+    const formatted = formatValue('113300000', 'currency', undefined, {
+      locale: 'ko-KR',
+      currency: 'KRW',
+    });
+    expect(formatted).toContain('113,300,000');
+    expect(formatted).not.toContain('.');
+  });
+
   it('should format percent', () => {
-    expect(formatValue('50', 'percent', undefined, { locale: 'en-US' })).toBe(
+    expect(formatValue('0.5', 'percent', undefined, { locale: 'en-US' })).toBe(
       '50.00%',
     );
-    expect(formatValue('100', 'percent', undefined, { locale: 'en-US' })).toBe(
+    expect(formatValue('1', 'percent', undefined, { locale: 'en-US' })).toBe(
       '100.00%',
     );
-    expect(formatValue('15', 'percent', undefined, { locale: 'en-US' })).toBe(
+    expect(formatValue('0.15', 'percent', undefined, { locale: 'en-US' })).toBe(
       '15.00%',
     );
   });

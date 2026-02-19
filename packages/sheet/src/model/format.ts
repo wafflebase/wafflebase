@@ -94,6 +94,12 @@ export function formatValue(
     case 'currency': {
       const num = Number(value);
       if (isNaN(num)) return value;
+      if (dp === undefined) {
+        return safeFormat(num, locale, {
+          style: 'currency',
+          currency,
+        });
+      }
       return safeFormat(num, locale, {
         style: 'currency',
         currency,
@@ -104,7 +110,7 @@ export function formatValue(
     case 'percent': {
       const num = Number(value);
       if (isNaN(num)) return value;
-      return safeFormat(num / 100, locale, {
+      return safeFormat(num, locale, {
         style: 'percent',
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals,

@@ -113,6 +113,42 @@ describe('Sheet.paste - external TSV', () => {
     expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('40');
   });
 
+  it('should apply input inference for external TSV paste', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+
+    await sheet.paste({ text: '$1,200.50\t12.34%\n2025-02-19\ttrue' });
+
+    expect(await sheet.getCell({ r: 1, c: 1 })).toEqual({
+      v: '1200.5',
+      s: { nf: 'currency', cu: 'USD' },
+    });
+    expect(await sheet.getCell({ r: 1, c: 2 })).toEqual({
+      v: '0.1234',
+      s: { nf: 'percent' },
+    });
+    expect(await sheet.getCell({ r: 2, c: 1 })).toEqual({
+      v: '2025-02-19',
+      s: { nf: 'date' },
+    });
+    expect(await sheet.getCell({ r: 2, c: 2 })).toEqual({
+      v: 'TRUE',
+    });
+  });
+
+  it('should infer formulas and preserve leading-zero text on external paste', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+
+    await sheet.paste({ text: '=1+2\t00123' });
+
+    expect(await sheet.toInputString({ r: 1, c: 1 })).toBe('=1+2');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('3');
+    expect(await sheet.getCell({ r: 1, c: 2 })).toEqual({
+      v: '00123',
+    });
+  });
+
   it('should treat modified clipboard text as external paste', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');

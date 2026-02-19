@@ -56,8 +56,9 @@ all cell, selection, and navigation operations.
 
 **Key responsibilities:**
 
-- **Cell access** — `getCell`, `setCell`, `setData` (detects formulas by `=`
-  prefix), `removeData`, `fetchGrid`
+- **Cell access** — `getCell`, `setCell`, `setData` (trims input, infers
+  formula/boolean/number/date/text, normalizes value, and attaches inferred
+  format metadata), `removeData`, `fetchGrid`
 - **Formula recalculation** — When a cell is set via `setData`, the sheet
   builds a dependants map from the store and invokes the `Calculator` to
   recalculate all affected cells in topological order.
@@ -79,7 +80,8 @@ all cell, selection, and navigation operations.
   `getSelectedIndices()` returns the selected range for row/column selections.
 - **Copy/paste** — `copy` serializes the selection as a tab/newline string;
   `paste` parses it back and recalculates dependants from all changed refs
-  (including plain-value pastes).
+  (including plain-value pastes). External pastes (TSV/HTML) run through the
+  same conservative input inference as `setData` before persistence.
 - **Autofill (fill handle)** — dragging the selection handle repeats the source
   pattern across the expanded range. Formula cells are relocated per target
   offset (same reference-shift semantics as internal paste), then dependants are
@@ -517,6 +519,7 @@ type CellStyle = {
   al?: TextAlign;      // horizontal alignment
   va?: VerticalAlign;  // vertical alignment
   nf?: NumberFormat;   // number format
+  cu?: string;         // explicit currency code for nf='currency'
 };
 ```
 
@@ -545,15 +548,27 @@ custom borders.
 
 **Number formatting:** The `formatValue(value, format)` utility converts raw
 values to display strings using the system locale by default. `'number'`,
-`'currency'`, and `'percent'` all use locale separators, and `'currency'`
-resolves a currency code from locale region (including language-only locales
-that can be maximized, for example `ko`/`ko-KR` → `KRW`, `de-DE` → `EUR`).
-`'date'` formats parseable date values (for example,
-`2026-02-18`) using locale date style. Applied in `toDisplayString` and
-`renderCell`.
+`'currency'`, and `'percent'` all use locale separators. `'currency'` can use
+an explicit `CellStyle.cu` code (for example `KRW` or `USD`) and otherwise
+falls back to locale-derived currency (for example `ko`/`ko-KR` → `KRW`,
+`de-DE` → `EUR`). `'percent'` expects normalized fractional values
+(for example `0.1234` → `12.34%`). `'date'` formats parseable date values
+(for example `2026-02-18`) using locale date style. Applied in
+`toDisplayString` and `renderCell`.
 
-**Data preservation:** `setData` preserves the existing `s` property when
-updating a cell's value or formula.
+**Input inference:** `setData` first trims whitespace, then applies
+conservative inference:
+- Leading `=` becomes a formula (`f`) with normalized expression text.
+- `true`/`false` become logical values (`TRUE`/`FALSE` in storage).
+- `$...` and `₩...` parse as numbers with `nf: 'currency'` and `cu`.
+- `...%` parses as fractional number with `nf: 'percent'`.
+- `YYYY-MM-DD` and `M/D` parse to ISO date with `nf: 'date'`.
+- Numeric literals parse only when safe (for example `1,234`, `12.34`, `1e6`);
+  leading-zero identifiers like `00123` stay text.
+
+**Data preservation:** `setData` preserves existing style keys and only updates
+inferred number-format keys (`nf`/`cu`) when inference explicitly detects a
+currency/percent/date input.
 
 **Keyboard shortcuts:** `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, `Cmd/Ctrl+U` toggle bold,
 italic, and underline on the current selection.

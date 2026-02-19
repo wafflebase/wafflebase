@@ -57,6 +57,12 @@ import {
   type LocaleFormatPreview,
 } from './model/locale';
 import { type FormatValueOptions } from './model/format';
+import {
+  inferInput,
+  type InferInputOptions,
+  type InferredInput,
+  type InferredInputFormat,
+} from './model/input';
 
 export {
   initialize,
@@ -110,4 +116,8 @@ export {
   buildLocaleFormatPreview,
   type LocaleFormatPreview,
   type FormatValueOptions,
+  inferInput,
+  InferInputOptions,
+  InferredInput,
+  InferredInputFormat,
 };

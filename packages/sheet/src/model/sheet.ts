@@ -49,6 +49,7 @@ import {
 } from './grids';
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
+import { inferInput, type InferredInput } from './input';
 
 /**
  * `Dimensions` represents the dimensions of the sheet.
@@ -506,7 +507,80 @@ export class Sheet {
     const cell = await this.store.get(anchor);
     if (!cell || !cell.v) return '';
     const effective = this.resolveEffectiveStyle(anchor.r, anchor.c, cell.s);
-    return formatValue(cell.v, effective?.nf, effective?.dp);
+    return formatValue(cell.v, effective?.nf, effective?.dp, {
+      currency: effective?.cu,
+    });
+  }
+
+  /**
+   * `toStoredValue` converts inferred non-formula input to normalized storage value.
+   */
+  private toStoredValue(inferred: Exclude<InferredInput, { type: 'formula' }>): string {
+    switch (inferred.type) {
+      case 'number':
+        return inferred.value.toString();
+      case 'date':
+      case 'text':
+        return inferred.value;
+      case 'boolean':
+        return inferred.value ? 'TRUE' : 'FALSE';
+    }
+  }
+
+  /**
+   * `applyInferredFormat` applies inferred format metadata onto an existing style.
+   */
+  private applyInferredFormat(
+    existing: CellStyle | undefined,
+    inferred: InferredInput,
+  ): CellStyle | undefined {
+    if (inferred.type === 'date') {
+      const style: CellStyle = { ...(existing || {}), nf: 'date' };
+      delete style.cu;
+      return style;
+    }
+
+    if (inferred.type === 'number' && inferred.format === 'percent') {
+      const style: CellStyle = { ...(existing || {}), nf: 'percent' };
+      delete style.cu;
+      return style;
+    }
+
+    if (
+      inferred.type === 'number' &&
+      inferred.format?.startsWith('currency:')
+    ) {
+      const style: CellStyle = {
+        ...(existing || {}),
+        nf: 'currency',
+        cu: inferred.format.slice('currency:'.length),
+      };
+      return style;
+    }
+
+    return existing ? { ...existing } : undefined;
+  }
+
+  /**
+   * `applyInputInferenceToGrid` normalizes pasted external cell input values.
+   */
+  private applyInputInferenceToGrid(grid: Grid): Grid {
+    const normalized: Grid = new Map();
+    for (const [sref, cell] of grid) {
+      if (cell.f) {
+        normalized.set(sref, { ...cell });
+        continue;
+      }
+
+      const inferred = inferInput(cell.v ?? '');
+      const style = this.applyInferredFormat(cell.s, inferred);
+      const base =
+        inferred.type === 'formula'
+          ? { f: `=${inferred.value}` }
+          : { v: this.toStoredValue(inferred) };
+      normalized.set(sref, this.compactCell(base, style));
+    }
+    return normalized;
   }
 
   /**
@@ -516,10 +590,15 @@ export class Sheet {
     const target = this.normalizeRefToAnchor(ref);
     this.store.beginBatch();
     try {
-      // 01. Update the cell with the new value, preserving existing style.
+      // 01. Update the cell with normalized inferred value and style metadata.
       const existing = await this.store.get(target);
-      const base = value.startsWith('=') ? { f: value } : { v: value };
-      const cell = existing?.s ? { ...base, s: existing.s } : base;
+      const inferred = inferInput(value);
+      const style = this.applyInferredFormat(existing?.s, inferred);
+      const base =
+        inferred.type === 'formula'
+          ? { f: `=${inferred.value}` }
+          : { v: this.toStoredValue(inferred) };
+      const cell = this.compactCell(base, style);
 
       // If the cell is effectively empty (no value, no formula, no style), delete it.
       if (this.isEmptyCell(cell)) {
@@ -889,6 +968,7 @@ export class Sheet {
   public async paste(options: { text?: string; html?: string }): Promise<void> {
     const { text, html } = options;
     let grid: Grid;
+    let shouldInferPastedInput = false;
 
     if (this.copyBuffer && text === this.copyBuffer.text) {
       // Internal paste: relocate formulas based on position delta
@@ -900,11 +980,17 @@ export class Sheet {
     } else if (html && isSpreadsheetHtml(html)) {
       // Spreadsheet HTML paste (Google Sheets / Excel)
       grid = html2grid(html, this.activeCell);
+      shouldInferPastedInput = true;
     } else if (text) {
       // Plain TSV paste
       grid = string2grid(this.activeCell, text);
+      shouldInferPastedInput = true;
     } else {
       return;
+    }
+
+    if (shouldInferPastedInput) {
+      grid = this.applyInputInferenceToGrid(grid);
     }
 
     this.store.beginBatch();
