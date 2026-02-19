@@ -50,6 +50,8 @@ flowchart TD
 - **PublicRoute** — Redirects to `/` if already authenticated.
 - **PrivateRoute** — Calls `fetchMe()` to verify the JWT cookie. Wraps
   children in `YorkieProvider`. Redirects to `/login` on failure.
+- Route components are loaded with `React.lazy` + `Suspense` so the login,
+  list, settings, and document-detail pages are split into separate chunks.
 
 #### Provider Hierarchy
 
@@ -71,10 +73,11 @@ React and the `@wafflebase/sheet` engine:
 
 1. On mount, it calls `initialize(containerDiv, { theme, store })` where
    `store` is a `YorkieStore` wrapping the current Yorkie document.
-2. Subscribes to `doc.subscribe("remote-change")` — when a remote peer
-   modifies cells, the spreadsheet re-renders the grid.
-3. Subscribes to `doc.subscribe("presence")` — when a remote peer moves
-   their cursor, the overlay is re-rendered to show updated peer cursors.
+2. Subscribes to `doc.subscribe("remote-change")` and coalesces cross-sheet
+   recalculation to animation frames so bursty updates do not trigger
+   redundant recalculations.
+3. Subscribes to `doc.subscribe("presence")` and coalesces overlay redraws
+   to animation frames so rapid presence updates do not flood rerenders.
 4. On unmount, calls `spreadsheet.cleanup()` to remove event listeners and
    DOM elements.
 5. Fill handle drag is handled inside `Worksheet`/`Overlay`: the bottom-right
@@ -100,6 +103,8 @@ current cell selection. Floating chart cards include a top-right context menu
 configuring chart type, data range, X-axis column, and visible series columns.
 Chart series colors are derived from theme tokens (`primary` with tonal
 variants), so they stay visually consistent across light and dark mode.
+Chart overlay/editor UI is lazy-loaded, and chart overlay render-version
+tracking is enabled only when the current tab actually has charts.
 
 A `didMount` ref guards against React 19 StrictMode double-mounting in
 development.
@@ -323,7 +328,9 @@ caching and mutations.
 Row click navigates to `/:id`.
 
 **Document detail** wraps `SheetView` in a `DocumentProvider` that connects to
-the Yorkie document with key `sheet-{id}`.
+the Yorkie document with key `sheet-{id}`. The sheet and datasource tab views
+are lazy-loaded per active tab, and the datasource selector dialog is loaded
+on demand when adding datasource tabs.
 
 ### Type Definitions
 

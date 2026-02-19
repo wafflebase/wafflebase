@@ -1,7 +1,7 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { Loader } from "@/components/loader";
@@ -12,10 +12,7 @@ import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
-import SheetView from "@/app/spreadsheet/sheet-view";
 import { TabBar } from "@/components/tab-bar";
-import { DataSourceView } from "@/app/spreadsheet/datasource-view";
-import { DataSourceSelector } from "@/components/datasource-selector";
 import {
   SpreadsheetDocument,
   Worksheet,
@@ -25,6 +22,18 @@ import {
 } from "@/types/worksheet";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import type { DataSource } from "@/types/datasource";
+
+const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
+const DataSourceView = lazy(() =>
+  import("@/app/spreadsheet/datasource-view").then((module) => ({
+    default: module.DataSourceView,
+  })),
+);
+const DataSourceSelector = lazy(() =>
+  import("@/components/datasource-selector").then((module) => ({
+    default: module.DataSourceSelector,
+  })),
+);
 
 const items = {
   main: [
@@ -292,11 +301,13 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-2">
             <div className="flex flex-col h-full">
-              {activeTab?.type === "datasource" ? (
-                <DataSourceView tabId={activeTabId} />
-              ) : (
-                <SheetView tabId={activeTabId} />
-              )}
+              <Suspense fallback={<Loader />}>
+                {activeTab?.type === "datasource" ? (
+                  <DataSourceView tabId={activeTabId} />
+                ) : (
+                  <SheetView tabId={activeTabId} />
+                )}
+              </Suspense>
             </div>
           </div>
           <TabBar
@@ -311,11 +322,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         </div>
       </SidebarInset>
 
-      <DataSourceSelector
-        open={showDsSelector}
-        onOpenChange={setShowDsSelector}
-        onSelect={addDataSourceTab}
-      />
+      {showDsSelector && (
+        <Suspense fallback={null}>
+          <DataSourceSelector
+            open={showDsSelector}
+            onOpenChange={setShowDsSelector}
+            onSelect={addDataSourceTab}
+          />
+        </Suspense>
+      )}
     </SidebarProvider>
   );
 }

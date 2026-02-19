@@ -7,7 +7,7 @@ import {
   parseRef,
   toSref,
 } from "@wafflebase/sheet";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
@@ -16,10 +16,19 @@ import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import { YorkieStore } from "./yorkie-store";
 import { UserPresence } from "@/types/users";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
-import { ChartObjectLayer } from "./chart-object-layer";
 import { toast } from "sonner";
-import { ChartEditorPanel } from "./chart-editor-panel";
 import { getDefaultChartColumns } from "./chart-utils";
+
+const ChartObjectLayer = lazy(() =>
+  import("./chart-object-layer").then((module) => ({
+    default: module.ChartObjectLayer,
+  })),
+);
+const ChartEditorPanel = lazy(() =>
+  import("./chart-editor-panel").then((module) => ({
+    default: module.ChartEditorPanel,
+  })),
+);
 
 export function SheetView({
   tabId,
@@ -35,11 +44,21 @@ export function SheetView({
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
+  const hasChartsRef = useRef(false);
   const { doc, loading, error } = useDocument<
     SpreadsheetDocument,
     UserPresence
   >();
   useMobileSheetGestures({ containerRef, sheetRef });
+
+  const root = doc?.getRoot();
+  const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
+  const selectedChart =
+    root && selectedChartId ? root.sheets[tabId]?.charts?.[selectedChartId] : undefined;
+
+  useEffect(() => {
+    hasChartsRef.current = hasCharts;
+  }, [hasCharts]);
 
   const handleInsertChart = useCallback(() => {
     if (readOnly) return;
@@ -185,7 +204,9 @@ export function SheetView({
     let cancelled = false;
     let recalcInFlight = false;
     let recalcPending = false;
-    let renderFrame: number | null = null;
+    let selectionFrame: number | null = null;
+    let overlayFrame: number | null = null;
+    let recalcFrame: number | null = null;
 
     initialize(container, {
       theme,
@@ -205,11 +226,11 @@ export function SheetView({
       // objects stay aligned with the canvas viewport.
       unsubs.push(
         s.onSelectionChange(() => {
-          if (renderFrame !== null) {
+          if (!hasChartsRef.current || selectionFrame !== null) {
             return;
           }
-          renderFrame = requestAnimationFrame(() => {
-            renderFrame = null;
+          selectionFrame = requestAnimationFrame(() => {
+            selectionFrame = null;
             setSheetRenderVersion((v) => v + 1);
           });
         }),
@@ -236,6 +257,24 @@ export function SheetView({
               queueMicrotask(runCrossSheetRecalc);
             }
           });
+      };
+
+      const scheduleCrossSheetRecalc = () => {
+        if (cancelled || recalcFrame !== null) return;
+        recalcFrame = requestAnimationFrame(() => {
+          recalcFrame = null;
+          runCrossSheetRecalc();
+        });
+      };
+
+      const scheduleOverlayRender = () => {
+        if (overlayFrame !== null) return;
+        overlayFrame = requestAnimationFrame(() => {
+          overlayFrame = null;
+          if (!cancelled && sheet) {
+            sheet.renderOverlay();
+          }
+        });
       };
 
       // Wire up cross-sheet formula resolver
@@ -287,11 +326,11 @@ export function SheetView({
       unsubs.push(
         doc.subscribe((e) => {
           if (e.type === "remote-change") {
-            runCrossSheetRecalc();
+            scheduleCrossSheetRecalc();
           }
         }),
       );
-      unsubs.push(doc.subscribe("presence", () => sheet!.renderOverlay()));
+      unsubs.push(doc.subscribe("presence", scheduleOverlayRender));
     });
 
     return () => {
@@ -300,8 +339,14 @@ export function SheetView({
         sheet.cleanup();
       }
       sheetRef.current = undefined;
-      if (renderFrame !== null) {
-        cancelAnimationFrame(renderFrame);
+      if (selectionFrame !== null) {
+        cancelAnimationFrame(selectionFrame);
+      }
+      if (overlayFrame !== null) {
+        cancelAnimationFrame(overlayFrame);
+      }
+      if (recalcFrame !== null) {
+        cancelAnimationFrame(recalcFrame);
       }
 
       for (const unsub of unsubs) {
@@ -309,11 +354,6 @@ export function SheetView({
       }
     };
   }, [didMount, containerRef, doc, tabId, readOnly, theme]);
-
-  const root = doc?.getRoot();
-
-  const selectedChart =
-    root && selectedChartId ? root.sheets[tabId]?.charts?.[selectedChartId] : undefined;
 
   useEffect(() => {
     if (!selectedChartId) return;
@@ -350,29 +390,33 @@ export function SheetView({
           style={{ touchAction: "manipulation" }}
           onPointerDown={handleGridPointerDown}
         />
-        {root && (
-          <ChartObjectLayer
-            spreadsheet={sheetRef.current}
-            root={root}
-            tabId={tabId}
-            readOnly={readOnly}
-            selectedChartId={selectedChartId}
-            onSelectChart={setSelectedChartId}
-            onRequestEditChart={handleEditChart}
-            onDeleteChart={handleDeleteChart}
-            onUpdateChart={handleUpdateChart}
-            renderVersion={sheetRenderVersion}
-          />
+        {root && hasCharts && (
+          <Suspense fallback={null}>
+            <ChartObjectLayer
+              spreadsheet={sheetRef.current}
+              root={root}
+              tabId={tabId}
+              readOnly={readOnly}
+              selectedChartId={selectedChartId}
+              onSelectChart={setSelectedChartId}
+              onRequestEditChart={handleEditChart}
+              onDeleteChart={handleDeleteChart}
+              onUpdateChart={handleUpdateChart}
+              renderVersion={sheetRenderVersion}
+            />
+          </Suspense>
         )}
-        {root && !readOnly && (
-          <ChartEditorPanel
-            root={root}
-            chart={selectedChart}
-            open={chartEditorOpen}
-            onClose={() => setChartEditorOpen(false)}
-            onUpdateChart={handleUpdateChart}
-            getSelectionRange={getSelectionRange}
-          />
+        {root && !readOnly && chartEditorOpen && (
+          <Suspense fallback={null}>
+            <ChartEditorPanel
+              root={root}
+              chart={selectedChart}
+              open={chartEditorOpen}
+              onClose={() => setChartEditorOpen(false)}
+              onUpdateChart={handleUpdateChart}
+              getSelectionRange={getSelectionRange}
+            />
+          </Suspense>
         )}
       </div>
     </div>
