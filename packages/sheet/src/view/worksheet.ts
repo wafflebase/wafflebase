@@ -3506,6 +3506,16 @@ export class Worksheet {
       },
       {
         match: (event) =>
+          matchesKeyCombo(event, { key: 's', mod: true, shift: true }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          await this.sheet!.toggleRangeStyle('st');
+          this.render();
+        },
+      },
+      {
+        match: (event) =>
           matchesKeyCombo(event, { key: 'm', mod: true, shift: true }),
         run: async (event) => {
           if (this.readOnly) return;

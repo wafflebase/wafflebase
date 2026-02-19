@@ -470,7 +470,7 @@ export function FormattingToolbar({
               <IconStrikethrough size={16} />
             </Toggle>
           </TooltipTrigger>
-          <TooltipContent>Strikethrough</TooltipContent>
+          <TooltipContent>Strikethrough ({modKey}+Shift+S)</TooltipContent>
         </Tooltip>
       )}
 

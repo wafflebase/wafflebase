@@ -146,7 +146,8 @@ inference positively detects a matching type.
 
 ## UI Integration
 
-- Keyboard shortcuts: `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, `Cmd/Ctrl+U`.
+- Keyboard shortcuts: `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, `Cmd/Ctrl+U`,
+  `Cmd/Ctrl+Shift+S` (strikethrough).
 - `FormattingToolbar` controls all style properties and border presets through
   `Spreadsheet.applyStyle()`, `Spreadsheet.toggleStyle()`,
   `Spreadsheet.applyBorders()`.
