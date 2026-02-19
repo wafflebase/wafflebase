@@ -631,3 +631,9 @@ grammar's `REF` rule supports optional `$` prefixes.
 `activeFormulaInput`, `formulaRefInsertPos` (current insertion span for drag
 updates), and `lastFormulaRefTarget` (for arrow key navigation). All state is
 reset in `finishEditing()` and `focusGrid()`.
+
+**Event lifecycle** — `Worksheet` centralizes DOM listener management in two
+tiers: long-lived listeners (window resize, grid container events, document
+key handlers) and interaction-scoped drag sessions (document mousemove/mouseup
+bindings). Interaction sessions are registered through a shared helper and are
+force-cleaned during `cleanup()` to avoid leaked handlers during unmount.

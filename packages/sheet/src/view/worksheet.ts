@@ -49,6 +49,11 @@ const AutoScrollMaxSpeed = 1800;
 const AutofillHandleSize = 8;
 const AutofillHandleHitPadding = 4;
 type EditorInputSource = 'formulaBar' | 'cellInput';
+type MouseDragSessionConfig = {
+  onMove: (e: MouseEvent) => void;
+  onComplete?: () => void;
+  onCleanup?: () => void;
+};
 
 /**
  * Worksheet represents the worksheet of the spreadsheet. It handles the
@@ -72,24 +77,12 @@ export class Worksheet {
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
 
-  private listeners: Array<{
-    element: EventTarget;
-    type: string;
-    handler: EventListenerOrEventListenerObject;
-  }> = [];
+  private listeners: Array<() => void> = [];
+  private interactionCleanups: Set<() => void> = new Set();
   private resizeObserver: ResizeObserver;
-
-  private boundRender: () => void;
-  private boundHandleGridKeydown: (e: KeyboardEvent) => void;
-  private boundHandleFormulaKeydown: (e: KeyboardEvent) => void;
-  private boundHandleCellInputKeydown: (e: KeyboardEvent) => void;
-  private boundHandleMouseDown: (e: MouseEvent) => void;
-  private boundHandleDblClick: (e: MouseEvent) => void;
-  private boundHandleKeyDown: (e: KeyboardEvent) => void;
-  private boundHandleKeyUp: (e: KeyboardEvent) => void;
-  private boundHandleMouseMove: (e: MouseEvent) => void;
-  private boundHandleContextMenu: (e: MouseEvent) => void;
-  private boundPreventDocumentSelectStart: (e: Event) => void;
+  private preventDocumentSelectStart = (e: Event): void => {
+    e.preventDefault();
+  };
 
   private resizeHover: { axis: 'row' | 'column'; index: number } | null = null;
   private dragMove: {
@@ -171,21 +164,7 @@ export class Worksheet {
       }
       void this.insertFunctionFromBrowser(info.name);
     });
-
-    this.boundRender = this.render.bind(this);
-    this.boundHandleGridKeydown = this.handleGridKeydown.bind(this);
-    this.boundHandleFormulaKeydown = this.handleFormulaKeydown.bind(this);
-    this.boundHandleCellInputKeydown = this.handleCellInputKeydown.bind(this);
-    this.boundHandleMouseDown = this.handleMouseDown.bind(this);
-    this.boundHandleDblClick = this.handleDblClick.bind(this);
-    this.boundHandleKeyDown = this.handleKeyDown.bind(this);
-    this.boundHandleKeyUp = this.handleKeyUp.bind(this);
-    this.boundHandleMouseMove = this.handleMouseMove.bind(this);
-    this.boundHandleContextMenu = this.handleContextMenu.bind(this);
-    this.boundPreventDocumentSelectStart = (e: Event) => {
-      e.preventDefault();
-    };
-    this.resizeObserver = new ResizeObserver(() => this.boundRender());
+    this.resizeObserver = new ResizeObserver(() => this.render());
   }
 
   public async initialize(sheet: Sheet) {
@@ -256,6 +235,7 @@ export class Worksheet {
       this.pendingRenderFrame = null;
     }
 
+    this.cancelActiveInteractions();
     this.removeAllEventListeners();
     this.forceEndNativeSelectionBlock();
     this.resizeObserver.disconnect();
@@ -285,7 +265,7 @@ export class Worksheet {
     this.previousBodyWebkitUserSelect = bodyStyle.webkitUserSelect;
     bodyStyle.userSelect = 'none';
     bodyStyle.webkitUserSelect = 'none';
-    document.addEventListener('selectstart', this.boundPreventDocumentSelectStart);
+    document.addEventListener('selectstart', this.preventDocumentSelectStart);
   }
 
   private endNativeSelectionBlock(): void {
@@ -303,7 +283,7 @@ export class Worksheet {
     bodyStyle.webkitUserSelect = this.previousBodyWebkitUserSelect;
     document.removeEventListener(
       'selectstart',
-      this.boundPreventDocumentSelectStart,
+      this.preventDocumentSelectStart,
     );
   }
 
@@ -337,19 +317,93 @@ export class Worksheet {
     this.resizeTooltip.style.display = 'none';
   }
 
+  private bindEventListener<K extends keyof HTMLElementEventMap>(
+    element: EventTarget,
+    type: K,
+    handler: (this: typeof element, ev: HTMLElementEventMap[K]) => any,
+    options?: boolean | AddEventListenerOptions,
+  ): () => void {
+    element.addEventListener(type, handler as EventListener, options);
+    let active = true;
+    return () => {
+      if (!active) return;
+      active = false;
+      element.removeEventListener(type, handler as EventListener, options);
+    };
+  }
+
   private addEventListener<K extends keyof HTMLElementEventMap>(
     element: EventTarget,
     type: K,
     handler: (this: typeof element, ev: HTMLElementEventMap[K]) => any,
     options?: boolean | AddEventListenerOptions,
-  ): void {
-    element.addEventListener(type, handler as any, options);
-    this.listeners.push({ element, type, handler: handler as any });
+  ): () => void {
+    const cleanup = this.bindEventListener(element, type, handler, options);
+    this.listeners.push(cleanup);
+    return cleanup;
+  }
+
+  private registerInteractionCleanup(cleanup: () => void): () => void {
+    let active = true;
+    const wrapped = () => {
+      if (!active) return;
+      active = false;
+      this.interactionCleanups.delete(wrapped);
+      cleanup();
+    };
+    this.interactionCleanups.add(wrapped);
+    return wrapped;
+  }
+
+  private addInteractionEventListener<K extends keyof HTMLElementEventMap>(
+    element: EventTarget,
+    type: K,
+    handler: (this: typeof element, ev: HTMLElementEventMap[K]) => any,
+    options?: boolean | AddEventListenerOptions,
+  ): () => void {
+    const cleanup = this.bindEventListener(element, type, handler, options);
+    return this.registerInteractionCleanup(cleanup);
+  }
+
+  private startMouseDragSession({
+    onMove,
+    onComplete,
+    onCleanup,
+  }: MouseDragSessionConfig): () => void {
+    let stop = () => {};
+    const onUp = () => {
+      try {
+        onComplete?.();
+      } finally {
+        stop();
+      }
+    };
+
+    const removeMove = this.addInteractionEventListener(
+      document,
+      'mousemove',
+      onMove,
+    );
+    const removeUp = this.addInteractionEventListener(document, 'mouseup', onUp);
+
+    stop = this.registerInteractionCleanup(() => {
+      removeMove();
+      removeUp();
+      onCleanup?.();
+    });
+
+    return stop;
+  }
+
+  private cancelActiveInteractions(): void {
+    for (const cleanup of Array.from(this.interactionCleanups)) {
+      cleanup();
+    }
   }
 
   private removeAllEventListeners(): void {
-    for (const { element, type, handler } of this.listeners) {
-      element.removeEventListener(type, handler);
+    for (const cleanup of this.listeners) {
+      cleanup();
     }
     this.listeners = [];
   }
@@ -426,14 +480,14 @@ export class Worksheet {
     }
 
     if (this.formulaBar.isFocused()) {
-      this.boundHandleFormulaKeydown(e);
+      void this.handleFormulaKeydown(e);
       return;
     } else if (this.cellInput.isFocused()) {
-      this.boundHandleCellInputKeydown(e);
+      void this.handleCellInputKeydown(e);
       return;
     }
 
-    this.boundHandleGridKeydown(e);
+    void this.handleGridKeydown(e);
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
@@ -949,19 +1003,28 @@ export class Worksheet {
    * `addEventLisnters` adds event listeners to the spreadsheet.
    */
   private addEventListeners() {
-    this.addEventListener(window, 'resize', this.boundRender);
+    const scrollContainer = this.gridContainer.getScrollContainer();
+    this.addEventListener(window, 'resize', () => this.render());
+    this.addEventListener(scrollContainer, 'scroll', () => this.render());
+    this.addEventListener(scrollContainer, 'mousedown', (e) => {
+      void this.handleMouseDown(e);
+    });
+    this.addEventListener(scrollContainer, 'mousemove', (e) => {
+      this.handleMouseMove(e);
+    });
+    this.addEventListener(scrollContainer, 'dblclick', (e) => {
+      this.handleDblClick(e);
+    });
+    this.addEventListener(scrollContainer, 'contextmenu', (e) => {
+      this.handleContextMenu(e);
+    });
 
-    this.gridContainer.addEventListener('scroll', this.boundRender);
-    this.gridContainer.addEventListener('mousedown', this.boundHandleMouseDown);
-    this.gridContainer.addEventListener('mousemove', this.boundHandleMouseMove);
-    this.gridContainer.addEventListener('dblclick', this.boundHandleDblClick);
-    this.gridContainer.addEventListener(
-      'contextmenu',
-      this.boundHandleContextMenu,
-    );
-
-    this.addEventListener(document, 'keydown', this.boundHandleKeyDown);
-    this.addEventListener(document, 'keyup', this.boundHandleKeyUp);
+    this.addEventListener(document, 'keydown', (e) => {
+      this.handleKeyDown(e);
+    });
+    this.addEventListener(document, 'keyup', (e) => {
+      this.handleKeyUp(e);
+    });
   }
 
   /**
@@ -1123,25 +1186,24 @@ export class Worksheet {
       }
     };
 
-    const onUp = () => {
-      scrollContainer.style.cursor = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-
-      const targetIndex = this.freezeDrag?.targetIndex ?? 0;
-      this.freezeDrag = null;
-      this.freezeHandleHover = null;
-
-      const currentFreeze = this.sheet!.getFreezePane();
-      if (axis === 'row') {
-        this.setFreezePane(targetIndex, currentFreeze.frozenCols);
-      } else {
-        this.setFreezePane(currentFreeze.frozenRows, targetIndex);
-      }
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    this.startMouseDragSession({
+      onMove,
+      onComplete: () => {
+        const targetIndex = this.freezeDrag?.targetIndex ?? 0;
+        const currentFreeze = this.sheet!.getFreezePane();
+        if (axis === 'row') {
+          this.setFreezePane(targetIndex, currentFreeze.frozenCols);
+        } else {
+          this.setFreezePane(currentFreeze.frozenRows, targetIndex);
+        }
+      },
+      onCleanup: () => {
+        scrollContainer.style.cursor = '';
+        this.freezeDrag = null;
+        this.freezeHandleHover = null;
+        this.renderOverlay();
+      },
+    });
   }
 
   /**
@@ -1546,15 +1608,14 @@ export class Worksheet {
           startAutoScroll();
         }
       };
-      const onUp = () => {
-        stopAutoScroll();
-        this.endNativeSelectionBlock();
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      };
       this.beginNativeSelectionBlock();
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      this.startMouseDragSession({
+        onMove,
+        onCleanup: () => {
+          stopAutoScroll();
+          this.endNativeSelectionBlock();
+        },
+      });
       return;
     }
 
@@ -1663,15 +1724,14 @@ export class Worksheet {
           startAutoScroll();
         }
       };
-      const onUp = () => {
-        stopAutoScroll();
-        this.endNativeSelectionBlock();
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      };
       this.beginNativeSelectionBlock();
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      this.startMouseDragSession({
+        onMove,
+        onCleanup: () => {
+          stopAutoScroll();
+          this.endNativeSelectionBlock();
+        },
+      });
       return;
     }
 
@@ -1725,22 +1785,22 @@ export class Worksheet {
         this.insertReferenceAtCursor(startRef, rangeEnd);
       };
 
-      const onUp = () => {
-        this.endNativeSelectionBlock();
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        // Refocus the active input
-        if (this.activeFormulaInput === 'cellInput') {
-          this.cellInput.getInput().focus();
-        } else if (this.activeFormulaInput === 'formulaBar') {
-          this.formulaBar.getFormulaInput().focus();
-        }
-        this.formulaRefInsertPos = null;
-      };
-
       this.beginNativeSelectionBlock();
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      this.startMouseDragSession({
+        onMove,
+        onComplete: () => {
+          // Refocus the active input
+          if (this.activeFormulaInput === 'cellInput') {
+            this.cellInput.getInput().focus();
+          } else if (this.activeFormulaInput === 'formulaBar') {
+            this.formulaBar.getFormulaInput().focus();
+          }
+        },
+        onCleanup: () => {
+          this.endNativeSelectionBlock();
+          this.formulaRefInsertPos = null;
+        },
+      });
       return;
     }
 
@@ -1842,19 +1902,19 @@ export class Worksheet {
       }
     };
 
-    const onUp = () => {
-      stopAutoScroll();
-      // Finalize drag selection with a full render so toolbar listeners
-      // subscribed via onSelectionChange receive the updated range state.
-      this.render();
-      this.endNativeSelectionBlock();
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-
     this.beginNativeSelectionBlock();
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    this.startMouseDragSession({
+      onMove,
+      onComplete: () => {
+        // Finalize drag selection with a full render so toolbar listeners
+        // subscribed via onSelectionChange receive the updated range state.
+        this.render();
+      },
+      onCleanup: () => {
+        stopAutoScroll();
+        this.endNativeSelectionBlock();
+      },
+    });
   }
 
   /**
@@ -1939,28 +1999,34 @@ export class Worksheet {
       }
     };
 
-    const onUp = async () => {
-      stopAutoScroll();
-      this.endNativeSelectionBlock();
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-
-      const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
-      const target = this.toRefFromMouse(x, y);
-      const changed = await this.sheet!.autofill(target);
-      this.autofillPreview = undefined;
-
-      if (changed) {
-        this.render();
-      } else {
-        this.renderOverlay();
-      }
-    };
-
     this.beginNativeSelectionBlock();
     updatePreview();
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    this.startMouseDragSession({
+      onMove,
+      onComplete: () => {
+        const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+        const target = this.toRefFromMouse(x, y);
+        const sheet = this.sheet!;
+        void (async () => {
+          const changed = await sheet.autofill(target);
+          this.autofillPreview = undefined;
+          if (!this.sheet) return;
+          if (changed) {
+            this.render();
+          } else {
+            this.renderOverlay();
+          }
+        })();
+      },
+      onCleanup: () => {
+        stopAutoScroll();
+        this.endNativeSelectionBlock();
+        this.autofillPreview = undefined;
+        if (this.sheet) {
+          this.renderOverlay();
+        }
+      },
+    });
   }
 
   /**
@@ -2033,34 +2099,33 @@ export class Worksheet {
       );
     };
 
-    const onUp = () => {
-      scrollContainer.style.cursor = '';
-      this.hideResizeTooltip();
-      this.endNativeSelectionBlock();
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      if (frameId !== null) {
-        cancelAnimationFrame(frameId);
-        frameId = null;
-      }
-
-      // On mouseup, apply the final size to all selected indices
-      const finalSize = pendingSize;
-      dim.setSize(index, finalSize);
-      for (const idx of indices) {
-        dim.setSize(idx, finalSize);
-        if (axis === 'column') {
-          this.sheet!.setColumnWidth(idx, finalSize);
-        } else {
-          this.manuallyResizedRows.add(idx);
-          this.sheet!.setRowHeight(idx, finalSize);
+    this.startMouseDragSession({
+      onMove,
+      onComplete: () => {
+        // On mouseup, apply the final size to all selected indices
+        const finalSize = pendingSize;
+        dim.setSize(index, finalSize);
+        for (const idx of indices) {
+          dim.setSize(idx, finalSize);
+          if (axis === 'column') {
+            this.sheet!.setColumnWidth(idx, finalSize);
+          } else {
+            this.manuallyResizedRows.add(idx);
+            this.sheet!.setRowHeight(idx, finalSize);
+          }
         }
-      }
-      this.render();
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+        this.render();
+      },
+      onCleanup: () => {
+        scrollContainer.style.cursor = '';
+        this.hideResizeTooltip();
+        this.endNativeSelectionBlock();
+        if (frameId !== null) {
+          cancelAnimationFrame(frameId);
+          frameId = null;
+        }
+      },
+    });
   }
 
   /**
@@ -2227,18 +2292,17 @@ export class Worksheet {
       }
     };
 
-    const onUp = () => {
-      scrollContainer.style.cursor = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+    this.startMouseDragSession({
+      onMove,
+      onComplete: () => {
+        const dropIndex = this.dragMove?.dropIndex;
+        if (
+          dropIndex === undefined ||
+          (dropIndex >= srcIndex && dropIndex <= srcIndex + count)
+        ) {
+          return;
+        }
 
-      const dropIndex = this.dragMove?.dropIndex;
-      this.dragMove = null;
-
-      if (
-        dropIndex !== undefined &&
-        !(dropIndex >= srcIndex && dropIndex <= srcIndex + count)
-      ) {
         const movePromise =
           axis === 'row'
             ? this.sheet!.moveRows(srcIndex, count, dropIndex)
@@ -2260,13 +2324,13 @@ export class Worksheet {
           }
           this.render();
         });
-      } else {
+      },
+      onCleanup: () => {
+        scrollContainer.style.cursor = '';
+        this.dragMove = null;
         this.renderOverlay();
-      }
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+      },
+    });
   }
 
   /**
