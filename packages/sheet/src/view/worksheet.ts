@@ -3936,6 +3936,7 @@ export class Worksheet {
       sheet.getColStyles(),
       sheet.getRowStyles(),
       sheet.getSheetStyle(),
+      sheet.getRangeStyles(),
       sheet.getMerges(),
       sheet.getFilterRange(),
       sheet.getFilteredColumns(),

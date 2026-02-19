@@ -83,7 +83,8 @@ describe('Sheet.paste - internal formula relocation', () => {
   });
 
   it('should preserve cell styles on internal paste', async () => {
-    const sheet = new Sheet(new MemStore());
+    const store = new MemStore();
+    const sheet = new Sheet(store);
     await sheet.setData({ r: 1, c: 1 }, '10');
     sheet.selectStart({ r: 1, c: 1 });
     await sheet.setRangeStyle({ b: true, bg: '#ff0000' });
@@ -94,9 +95,56 @@ describe('Sheet.paste - internal formula relocation', () => {
     sheet.selectStart({ r: 2, c: 1 });
     await sheet.paste({ text });
 
-    const cell = await sheet.getCell({ r: 2, c: 1 });
-    expect(cell?.s?.b).toBe(true);
-    expect(cell?.s?.bg).toBe('#ff0000');
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
+      b: true,
+      bg: '#ff0000',
+    });
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 1, c: 1 },
+          { r: 2, c: 1 },
+        ],
+        style: { b: true, bg: '#ff0000' },
+      },
+    ]);
+  });
+
+  it('should preserve empty-range styles on internal paste', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    await sheet.setRangeStyle({ bg: '#ff0000' });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    const { text } = await sheet.copy();
+
+    sheet.selectStart({ r: 4, c: 4 });
+    await sheet.paste({ text });
+
+    expect(await sheet.getStyle({ r: 4, c: 4 })).toEqual({ bg: '#ff0000' });
+    expect(await sheet.getStyle({ r: 4, c: 5 })).toEqual({ bg: '#ff0000' });
+    expect(await sheet.getStyle({ r: 5, c: 4 })).toEqual({ bg: '#ff0000' });
+    expect(await sheet.getStyle({ r: 5, c: 5 })).toEqual({ bg: '#ff0000' });
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 1, c: 1 },
+          { r: 2, c: 2 },
+        ],
+        style: { bg: '#ff0000' },
+      },
+      {
+        range: [
+          { r: 4, c: 4 },
+          { r: 5, c: 5 },
+        ],
+        style: { bg: '#ff0000' },
+      },
+    ]);
   });
 });
 

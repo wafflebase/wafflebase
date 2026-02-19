@@ -53,6 +53,19 @@ import {
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
 import { inferInput, type InferredInput } from './input';
+import {
+  RangeStylePatch,
+  clipRangeStylePatches,
+  mergeStylePatch,
+  moveRangeStylePatches,
+  normalizeRangeStylePatch,
+  normalizeStylePatch,
+  pruneShadowedRangeStylePatches,
+  resolveRangeStyleAt,
+  shiftRangeStylePatches,
+  stylesEqual,
+  translateRangeStylePatches,
+} from './range-styles';
 
 /**
  * `Dimensions` represents the dimensions of the sheet.
@@ -141,6 +154,11 @@ export class Sheet {
   private sheetStyle: CellStyle | undefined;
 
   /**
+   * `rangeStyles` stores range-level style patches in apply order.
+   */
+  private rangeStyles: RangeStylePatch[] = [];
+
+  /**
    * `merges` stores merged range spans keyed by anchor sref.
    */
   private merges: Map<Sref, MergeSpan> = new Map();
@@ -169,7 +187,12 @@ export class Sheet {
    * `copyBuffer` stores the source range and grid from the last copy operation.
    * Used for internal formula-aware paste with reference relocation.
    */
-  private copyBuffer?: { sourceRange: Range; grid: Grid; text: string };
+  private copyBuffer?: {
+    sourceRange: Range;
+    grid: Grid;
+    rangeStyles: RangeStylePatch[];
+    text: string;
+  };
 
   /**
    * `gridResolver` resolves cell data from other sheets for cross-sheet formula references.
@@ -293,6 +316,7 @@ export class Sheet {
     this.colStyles = await this.store.getColumnStyles();
     this.rowStyles = await this.store.getRowStyles();
     this.sheetStyle = await this.store.getSheetStyle();
+    this.rangeStyles = await this.store.getRangeStyles();
   }
 
   /**
@@ -402,6 +426,16 @@ export class Sheet {
    */
   getSheetStyle(): CellStyle | undefined {
     return this.sheetStyle;
+  }
+
+  /**
+   * `getRangeStyles` returns the range-level style patches for rendering.
+   */
+  getRangeStyles(): RangeStylePatch[] {
+    return this.rangeStyles.map((patch) => ({
+      range: cloneRange(patch.range),
+      style: { ...patch.style },
+    }));
   }
 
   /**
@@ -545,7 +579,7 @@ export class Sheet {
   }
 
   /**
-   * `resolveEffectiveStyle` merges sheet → column → row → cell styles.
+   * `resolveEffectiveStyle` merges sheet → column → row → range → cell styles.
    * Later levels override earlier ones.
    */
   resolveEffectiveStyle(
@@ -556,8 +590,9 @@ export class Sheet {
     const s = this.sheetStyle;
     const c = this.colStyles.get(col);
     const r = this.rowStyles.get(row);
-    if (!s && !c && !r && !cellStyle) return undefined;
-    return { ...s, ...c, ...r, ...cellStyle };
+    const range = resolveRangeStyleAt(this.rangeStyles, row, col);
+    if (!s && !c && !r && !range && !cellStyle) return undefined;
+    return { ...s, ...c, ...r, ...range, ...cellStyle };
   }
 
   /**
@@ -824,6 +859,12 @@ export class Sheet {
       this.colDimensions?.shift(index, count);
       this.colStyles = shiftDimensionMap(this.colStyles, index, count);
     }
+    this.rangeStyles = shiftRangeStylePatches(
+      this.rangeStyles,
+      axis,
+      index,
+      count,
+    );
     this.merges = shiftMergeMap(this.merges, axis, index, count);
     this.rebuildMergeCoverMap();
     this.shiftFilterState(axis, index, count);
@@ -942,6 +983,13 @@ export class Sheet {
       this.colDimensions?.move(src, count, dst);
       this.colStyles = moveDimensionMap(this.colStyles, src, count, dst);
     }
+    this.rangeStyles = moveRangeStylePatches(
+      this.rangeStyles,
+      axis,
+      src,
+      count,
+      dst,
+    );
     this.merges = moveMergeMap(this.merges, axis, src, count, dst);
     this.rebuildMergeCoverMap();
     this.moveFilterState(axis, src, count, dst);
@@ -1409,14 +1457,356 @@ export class Sheet {
     return !hasContent && !hasStyle;
   }
 
-  /**
-   * `isDefaultStyleValue` checks if a style value equals the global default.
-   */
-  private isDefaultStyleValue<K extends keyof CellStyle>(
-    key: K,
-    value: CellStyle[K],
+  private normalizeStylePatch(
+    style: Partial<CellStyle>,
+  ): CellStyle | undefined {
+    return normalizeStylePatch(style);
+  }
+
+  private mergeStylePatch(
+    base: CellStyle | undefined,
+    patch: Partial<CellStyle>,
+  ): CellStyle | undefined {
+    return mergeStylePatch(base, patch);
+  }
+
+  private rangesIntersect(a: Range, b: Range): boolean {
+    return (
+      a[0].r <= b[1].r &&
+      a[1].r >= b[0].r &&
+      a[0].c <= b[1].c &&
+      a[1].c >= b[0].c
+    );
+  }
+
+  private hasConflictingStyleSourceForKey(
+    range: Range,
+    key: keyof CellStyle,
+    targetValue: CellStyle[keyof CellStyle],
+    excludedRangeStyleIndex?: number,
   ): boolean {
-    return DefaultStyleValues[key] === value;
+    const sheetValue = this.sheetStyle?.[key];
+    if (sheetValue !== undefined && sheetValue !== targetValue) {
+      return true;
+    }
+
+    for (const [col, style] of this.colStyles) {
+      if (col < range[0].c || col > range[1].c) {
+        continue;
+      }
+      const value = style[key];
+      if (value !== undefined && value !== targetValue) {
+        return true;
+      }
+    }
+
+    for (const [row, style] of this.rowStyles) {
+      if (row < range[0].r || row > range[1].r) {
+        continue;
+      }
+      const value = style[key];
+      if (value !== undefined && value !== targetValue) {
+        return true;
+      }
+    }
+
+    for (let i = 0; i < this.rangeStyles.length; i++) {
+      if (excludedRangeStyleIndex !== undefined && i === excludedRangeStyleIndex) {
+        continue;
+      }
+      const patch = this.rangeStyles[i];
+      const value = patch.style[key];
+      if (value === undefined || value === targetValue) {
+        continue;
+      }
+      if (!this.rangesIntersect(range, patch.range)) {
+        continue;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  private pruneRedundantDefaultStyleKeys(
+    range: Range,
+    style: CellStyle,
+    excludedRangeStyleIndex?: number,
+  ): CellStyle | undefined {
+    const pruned: Partial<
+      Record<keyof CellStyle, CellStyle[keyof CellStyle]>
+    > = {};
+
+    for (const key of Object.keys(style) as Array<keyof CellStyle>) {
+      const value = style[key];
+      if (value === undefined) {
+        continue;
+      }
+
+      const defaultValue = DefaultStyleValues[key];
+      if (
+        defaultValue !== undefined &&
+        value === defaultValue &&
+        !this.hasConflictingStyleSourceForKey(
+          range,
+          key,
+          value,
+          excludedRangeStyleIndex,
+        )
+      ) {
+        continue;
+      }
+
+      pruned[key] = value as CellStyle[keyof CellStyle];
+    }
+
+    return Object.keys(pruned).length > 0
+      ? (pruned as CellStyle)
+      : undefined;
+  }
+
+  private sameRangeStylePatchList(
+    a: RangeStylePatch[],
+    b: RangeStylePatch[],
+  ): boolean {
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+      if (!isSameRange(a[i].range, b[i].range)) {
+        return false;
+      }
+      if (!stylesEqual(a[i].style, b[i].style)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private compactShadowedRangeStyles(): boolean {
+    const compacted = pruneShadowedRangeStylePatches(this.rangeStyles);
+    if (this.sameRangeStylePatchList(compacted, this.rangeStyles)) {
+      return false;
+    }
+    this.rangeStyles = compacted;
+    return true;
+  }
+
+  private containsRange(outer: Range, inner: Range): boolean {
+    return (
+      outer[0].r <= inner[0].r &&
+      outer[0].c <= inner[0].c &&
+      outer[1].r >= inner[1].r &&
+      outer[1].c >= inner[1].c
+    );
+  }
+
+  private mergeableColBand(a: Range, b: Range): boolean {
+    if (a[0].r !== b[0].r || a[1].r !== b[1].r) return false;
+    return b[0].c <= a[1].c + 1 && a[0].c <= b[1].c + 1;
+  }
+
+  private mergeableRowBand(a: Range, b: Range): boolean {
+    if (a[0].c !== b[0].c || a[1].c !== b[1].c) return false;
+    return b[0].r <= a[1].r + 1 && a[0].r <= b[1].r + 1;
+  }
+
+  private tryMergeRangeStylePatches(
+    prev: RangeStylePatch,
+    next: RangeStylePatch,
+  ): RangeStylePatch | undefined {
+    if (!stylesEqual(prev.style, next.style)) {
+      return undefined;
+    }
+
+    if (isSameRange(prev.range, next.range) || this.containsRange(prev.range, next.range)) {
+      return prev;
+    }
+
+    if (this.containsRange(next.range, prev.range)) {
+      return next;
+    }
+
+    if (this.mergeableColBand(prev.range, next.range)) {
+      return {
+        range: [
+          {
+            r: prev.range[0].r,
+            c: Math.min(prev.range[0].c, next.range[0].c),
+          },
+          {
+            r: prev.range[1].r,
+            c: Math.max(prev.range[1].c, next.range[1].c),
+          },
+        ],
+        style: { ...prev.style },
+      };
+    }
+
+    if (this.mergeableRowBand(prev.range, next.range)) {
+      return {
+        range: [
+          {
+            r: Math.min(prev.range[0].r, next.range[0].r),
+            c: prev.range[0].c,
+          },
+          {
+            r: Math.max(prev.range[1].r, next.range[1].r),
+            c: prev.range[1].c,
+          },
+        ],
+        style: { ...prev.style },
+      };
+    }
+
+    return undefined;
+  }
+
+  private async addRangeStylePatch(
+    range: Range,
+    patch: Partial<CellStyle>,
+  ): Promise<void> {
+    const normalizedStyle = this.normalizeStylePatch(patch);
+    if (!normalizedStyle) {
+      return;
+    }
+
+    const normalizedPatch = normalizeRangeStylePatch({
+      range: cloneRange(range),
+      style: normalizedStyle,
+    });
+    if (!normalizedPatch) {
+      return;
+    }
+
+    const current = this.rangeStyles;
+
+    // If the style only sets defaults and no layer needs overriding, skip.
+    const prunedStyle = this.pruneRedundantDefaultStyleKeys(
+      normalizedPatch.range,
+      normalizedPatch.style,
+    );
+    if (!prunedStyle) {
+      return;
+    }
+    normalizedPatch.style = prunedStyle;
+
+    // If the newest patch targets the exact same range, merge style payloads
+    // in place so repeated toggles do not keep appending redundant patches.
+    const tail = current[current.length - 1];
+    if (tail && isSameRange(tail.range, normalizedPatch.range)) {
+      const mergedTailStyle = this.mergeStylePatch(
+        tail.style,
+        normalizedPatch.style,
+      );
+      if (!mergedTailStyle) {
+        return;
+      }
+
+      const normalizedTailStyle = this.pruneRedundantDefaultStyleKeys(
+        tail.range,
+        mergedTailStyle,
+        current.length - 1,
+      );
+      if (!normalizedTailStyle) {
+        this.rangeStyles = current.slice(0, -1);
+        this.compactShadowedRangeStyles();
+        await this.store.setRangeStyles(this.rangeStyles);
+        return;
+      }
+
+      if (stylesEqual(normalizedTailStyle, tail.style)) {
+        return;
+      }
+      tail.style = { ...normalizedTailStyle };
+      this.compactShadowedRangeStyles();
+      await this.store.setRangeStyles(this.rangeStyles);
+      return;
+    }
+
+    let nextPatch = normalizedPatch;
+    let replaceFrom = current.length;
+
+    for (let i = current.length - 1; i >= 0; i--) {
+      const prev = current[i];
+      const merged = this.tryMergeRangeStylePatches(prev, nextPatch);
+      if (!merged) {
+        break;
+      }
+
+      // New patch is fully absorbed by existing tail patch: no-op.
+      if (isSameRange(merged.range, prev.range)) {
+        if (i === current.length - 1) {
+          return;
+        }
+
+        this.rangeStyles = current.slice(0, i + 1);
+        this.compactShadowedRangeStyles();
+        await this.store.setRangeStyles(this.rangeStyles);
+        return;
+      }
+
+      nextPatch = merged;
+      replaceFrom = i;
+    }
+
+    if (replaceFrom === current.length) {
+      this.rangeStyles.push(nextPatch);
+      await this.store.addRangeStyle(nextPatch);
+      if (this.compactShadowedRangeStyles()) {
+        await this.store.setRangeStyles(this.rangeStyles);
+      }
+      return;
+    }
+
+    this.rangeStyles = [...current.slice(0, replaceFrom), nextPatch];
+    this.compactShadowedRangeStyles();
+    await this.store.setRangeStyles(this.rangeStyles);
+  }
+
+  private async applyStylePatchToExistingCells(
+    range: Range,
+    patch: Partial<CellStyle>,
+  ): Promise<void> {
+    const normalizedStyle = this.normalizeStylePatch(patch);
+    if (!normalizedStyle) {
+      return;
+    }
+
+    const grid = await this.store.getGrid(range);
+    const visited = new Set<Sref>();
+    for (const [sref] of grid) {
+      const ref = parseRef(sref);
+      const anchor = this.normalizeRefToAnchor(ref);
+      const anchorSref = toSref(anchor);
+      if (visited.has(anchorSref)) {
+        continue;
+      }
+      visited.add(anchorSref);
+
+      const existing = await this.store.get(anchor);
+      if (!existing?.s) {
+        continue;
+      }
+
+      const conflictPatch: Partial<
+        Record<keyof CellStyle, CellStyle[keyof CellStyle]>
+      > = {};
+      for (const key of Object.keys(normalizedStyle) as Array<keyof CellStyle>) {
+        const prev = existing.s[key];
+        const next = normalizedStyle[key];
+        if (prev === undefined || prev === next) {
+          continue;
+        }
+        conflictPatch[key] = next as CellStyle[keyof CellStyle];
+      }
+
+      if (Object.keys(conflictPatch).length === 0) {
+        continue;
+      }
+
+      await this.setStyle(anchor, conflictPatch as Partial<CellStyle>);
+    }
   }
 
   /**
@@ -1459,8 +1849,9 @@ export class Sheet {
   public async copy(): Promise<{ text: string }> {
     const range: Range = this.getRangeOrActiveCell();
     const grid = await this.fetchGrid(range);
+    const rangeStyles = clipRangeStylePatches(this.rangeStyles, range);
     const text = grid2string(grid);
-    this.copyBuffer = { sourceRange: range, grid, text };
+    this.copyBuffer = { sourceRange: range, grid, rangeStyles, text };
     return { text };
   }
 
@@ -1473,6 +1864,7 @@ export class Sheet {
   public async paste(options: { text?: string; html?: string }): Promise<void> {
     const { text, html } = options;
     let grid: Grid;
+    let rangeStylePatches: RangeStylePatch[] = [];
     let shouldInferPastedInput = false;
 
     if (this.copyBuffer && text === this.copyBuffer.text) {
@@ -1481,6 +1873,13 @@ export class Sheet {
         this.copyBuffer.grid,
         this.copyBuffer.sourceRange,
         this.activeCell,
+      );
+      const deltaRow = this.activeCell.r - this.copyBuffer.sourceRange[0].r;
+      const deltaCol = this.activeCell.c - this.copyBuffer.sourceRange[0].c;
+      rangeStylePatches = translateRangeStylePatches(
+        this.copyBuffer.rangeStyles,
+        deltaRow,
+        deltaCol,
       );
     } else if (html && isSpreadsheetHtml(html)) {
       // Spreadsheet HTML paste (Google Sheets / Excel)
@@ -1501,6 +1900,10 @@ export class Sheet {
     this.store.beginBatch();
     try {
       await this.setGrid(grid);
+      for (const patch of rangeStylePatches) {
+        await this.addRangeStylePatch(patch.range, patch.style);
+        await this.applyStylePatchToExistingCells(patch.range, patch.style);
+      }
 
       // Recalculate from all changed refs, not only pasted formulas.
       // This ensures pasting plain values triggers dependant formula chains.
@@ -2462,37 +2865,19 @@ export class Sheet {
   /**
    * `setStyle` merges the given style into the cell at the given ref.
    * Creates the cell if it doesn't exist.
-   * Keeps only meaningful overrides by pruning inherited/default values.
+   * `undefined` keys are ignored; explicit `false`/`0`/`""` are preserved.
    */
   async setStyle(ref: Ref, style: Partial<CellStyle>): Promise<void> {
+    const patch = this.normalizeStylePatch(style);
+    if (!patch) {
+      return;
+    }
+
     const anchor = this.normalizeRefToAnchor(ref);
     const cell = (await this.store.get(anchor)) || {};
-    const merged = { ...cell.s, ...style };
-    const inherited = this.resolveEffectiveStyle(anchor.r, anchor.c);
+    const merged = this.mergeStylePatch(cell.s, patch);
 
-    // Remove undefined and empty string keys.
-    for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
-      if (merged[key] === undefined || merged[key] === '') {
-        delete merged[key];
-      }
-    }
-
-    // Remove keys that match inherited/default values (they do not need explicit storage).
-    for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
-      const value = merged[key];
-      if (value === inherited?.[key]) {
-        delete merged[key];
-        continue;
-      }
-      if (inherited?.[key] === undefined && this.isDefaultStyleValue(key, value)) {
-        delete merged[key];
-      }
-    }
-
-    const newCell = this.compactCell(
-      cell,
-      Object.keys(merged).length > 0 ? merged : undefined,
-    );
+    const newCell = this.compactCell(cell, merged);
     if (this.isEmptyCell(newCell)) {
       await this.store.delete(anchor);
       return;
@@ -2511,12 +2896,9 @@ export class Sheet {
       if (this.selectionType === 'column') {
         const range = this.getRangeOrActiveCell();
         for (let c = range[0].c; c <= range[1].c; c++) {
-          const existing = this.colStyles.get(c) || {};
-          const merged = { ...existing, ...style };
-          for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
-            if (!merged[key] && merged[key] !== 0) {
-              delete merged[key];
-            }
+          const merged = this.mergeStylePatch(this.colStyles.get(c), style);
+          if (!merged) {
+            continue;
           }
           this.colStyles.set(c, merged);
           await this.store.setColumnStyle(c, merged);
@@ -2527,12 +2909,9 @@ export class Sheet {
       if (this.selectionType === 'row') {
         const range = this.getRangeOrActiveCell();
         for (let r = range[0].r; r <= range[1].r; r++) {
-          const existing = this.rowStyles.get(r) || {};
-          const merged = { ...existing, ...style };
-          for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
-            if (!merged[key] && merged[key] !== 0) {
-              delete merged[key];
-            }
+          const merged = this.mergeStylePatch(this.rowStyles.get(r), style);
+          if (!merged) {
+            continue;
           }
           this.rowStyles.set(r, merged);
           await this.store.setRowStyle(r, merged);
@@ -2541,25 +2920,19 @@ export class Sheet {
       }
 
       if (this.selectionType === 'all') {
-        const existing = this.sheetStyle || {};
-        const merged = { ...existing, ...style };
-        for (const key of Object.keys(merged) as Array<keyof CellStyle>) {
-          if (!merged[key] && merged[key] !== 0) {
-            delete merged[key];
-          }
+        const merged = this.mergeStylePatch(this.sheetStyle, style);
+        if (!merged) {
+          return;
         }
         this.sheetStyle = merged;
         await this.store.setSheetStyle(merged);
         return;
       }
 
-      // Default: cell-level styling
+      // Default: append range patch and only touch already-populated cells.
       const range = this.getRangeOrActiveCell();
-      for (let r = range[0].r; r <= range[1].r; r++) {
-        for (let c = range[0].c; c <= range[1].c; c++) {
-          await this.setStyle({ r, c }, style);
-        }
-      }
+      await this.addRangeStylePatch(range, style);
+      await this.applyStylePatchToExistingCells(range, style);
     } finally {
       this.store.endBatch();
     }

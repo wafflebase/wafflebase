@@ -11,6 +11,7 @@ import {
   Sref,
   Direction,
 } from '../model/types';
+import { RangeStylePatch } from '../model/range-styles';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
@@ -178,6 +179,18 @@ export class ReadOnlyStore implements Store {
 
   async getSheetStyle(): Promise<CellStyle | undefined> {
     return undefined;
+  }
+
+  async addRangeStyle(_patch: RangeStylePatch): Promise<void> {
+    // no-op
+  }
+
+  async setRangeStyles(_patches: RangeStylePatch[]): Promise<void> {
+    // no-op
+  }
+
+  async getRangeStyles(): Promise<RangeStylePatch[]> {
+    return [];
   }
 
   async setMerge(_anchor: Ref, _span: MergeSpan): Promise<void> {

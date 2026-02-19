@@ -220,6 +220,9 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `moveCells(axis, src, count, dst)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
+| `addRangeStyle(patch)` | Append to `root.sheets[tabId].rangeStyles` |
+| `setRangeStyles(patches)` | Replace/delete `root.sheets[tabId].rangeStyles` |
+| `getRangeStyles()` | Read `root.sheets[tabId].rangeStyles` (fallback `[]`) |
 | `setMerge(anchor, span)` | Write to `root.sheets[tabId].merges[anchorSref]` |
 | `deleteMerge(anchor)` | Delete `root.sheets[tabId].merges[anchorSref]` |
 | `getMerges()` | Read all merge anchors from `root.sheets[tabId].merges` |
@@ -234,6 +237,8 @@ Yorkie server and broadcasts to all connected peers.
 Cell payloads are normalized before persistence. `YorkieStore` drops default
 empty values (`v: ""`) and empty style/formula fields; if a cell has no
 remaining meaningful payload, it is removed from `sheet` instead of stored.
+Range-style patches are stored separately in optional `rangeStyles`; documents
+without that field remain valid and are treated as having no patches.
 
 **Batch transactions** — YorkieStore implements `beginBatch()` / `endBatch()`
 to group multiple mutations into a single `doc.update()` call, creating one

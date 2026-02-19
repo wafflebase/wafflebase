@@ -11,6 +11,13 @@ import {
   moveGrid,
   moveDimensionMap,
 } from '../model/shifting';
+import {
+  RangeStylePatch,
+  cloneRangeStylePatch,
+  moveRangeStylePatches,
+  normalizeRangeStylePatch,
+  shiftRangeStylePatches,
+} from '../model/range-styles';
 import { shiftMergeMap, moveMergeMap } from '../model/merging';
 import {
   Axis,
@@ -40,6 +47,7 @@ export class MemStore implements Store {
   private colStyles: Map<number, CellStyle> = new Map();
   private rowStyles: Map<number, CellStyle> = new Map();
   private sheetStyle?: CellStyle;
+  private rangeStyles: RangeStylePatch[] = [];
   private merges: Map<Sref, MergeSpan> = new Map();
   private filterState?: FilterState;
   private frozenRows = 0;
@@ -145,6 +153,12 @@ export class MemStore implements Store {
       this.colWidths = shiftDimensionMap(this.colWidths, index, count);
       this.colStyles = shiftDimensionMap(this.colStyles, index, count);
     }
+    this.rangeStyles = shiftRangeStylePatches(
+      this.rangeStyles,
+      axis,
+      index,
+      count,
+    );
     this.merges = shiftMergeMap(this.merges, axis, index, count);
   }
 
@@ -184,6 +198,13 @@ export class MemStore implements Store {
         dstIndex,
       );
     }
+    this.rangeStyles = moveRangeStylePatches(
+      this.rangeStyles,
+      axis,
+      srcIndex,
+      count,
+      dstIndex,
+    );
     this.merges = moveMergeMap(this.merges, axis, srcIndex, count, dstIndex);
   }
 
@@ -278,6 +299,25 @@ export class MemStore implements Store {
 
   async getSheetStyle(): Promise<CellStyle | undefined> {
     return this.sheetStyle ? { ...this.sheetStyle } : undefined;
+  }
+
+  async addRangeStyle(patch: RangeStylePatch): Promise<void> {
+    const normalized = normalizeRangeStylePatch(patch);
+    if (!normalized) {
+      return;
+    }
+    this.rangeStyles.push(cloneRangeStylePatch(normalized));
+  }
+
+  async setRangeStyles(patches: RangeStylePatch[]): Promise<void> {
+    this.rangeStyles = patches
+      .map((patch) => normalizeRangeStylePatch(patch))
+      .filter((patch): patch is RangeStylePatch => !!patch)
+      .map((patch) => cloneRangeStylePatch(patch));
+  }
+
+  async getRangeStyles(): Promise<RangeStylePatch[]> {
+    return this.rangeStyles.map((patch) => cloneRangeStylePatch(patch));
   }
 
   async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {

@@ -10,6 +10,7 @@ import {
   Sref,
   Direction,
 } from '../model/types';
+import { RangeStylePatch } from '../model/range-styles';
 
 /**
  * `Store` interface represents a storage that stores the cell values.
@@ -127,6 +128,21 @@ export interface Store {
    * `getSheetStyle` method gets the sheet-level default style.
    */
   getSheetStyle(): Promise<CellStyle | undefined>;
+
+  /**
+   * `addRangeStyle` method appends a range style patch.
+   */
+  addRangeStyle(patch: RangeStylePatch): Promise<void>;
+
+  /**
+   * `setRangeStyles` method replaces all range style patches.
+   */
+  setRangeStyles(patches: RangeStylePatch[]): Promise<void>;
+
+  /**
+   * `getRangeStyles` method gets all range style patches in apply order.
+   */
+  getRangeStyles(): Promise<RangeStylePatch[]>;
 
   /**
    * `setMerge` sets a merged range anchor with row/column span.

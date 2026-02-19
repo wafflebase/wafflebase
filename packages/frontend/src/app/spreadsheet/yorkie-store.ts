@@ -26,6 +26,11 @@ import {
   isCrossSheetRef,
   shiftMergeMap,
   moveMergeMap,
+  RangeStylePatch,
+  cloneRangeStylePatch,
+  moveRangeStylePatches,
+  normalizeRangeStylePatch,
+  shiftRangeStylePatches,
 } from "@wafflebase/sheet";
 import { SheetChart, SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
@@ -566,6 +571,15 @@ export class YorkieStore implements Store {
         }
       }
 
+      if (ws.rangeStyles) {
+        ws.rangeStyles = shiftRangeStylePatches(
+          ws.rangeStyles as RangeStylePatch[],
+          axis,
+          index,
+          count,
+        );
+      }
+
       // Shift merged ranges for the affected axis
       const mergeMap = new Map<Sref, MergeSpan>(
         Object.entries(ws.merges || {}) as Array<[Sref, MergeSpan]>,
@@ -691,6 +705,16 @@ export class YorkieStore implements Store {
           const newIdx = remapIndex(idx, srcIndex, count, dstIndex);
           styleObj[String(newIdx)] = value;
         }
+      }
+
+      if (ws.rangeStyles) {
+        ws.rangeStyles = moveRangeStylePatches(
+          ws.rangeStyles as RangeStylePatch[],
+          axis,
+          srcIndex,
+          count,
+          dstIndex,
+        );
       }
 
       // Remap merged ranges
@@ -919,6 +943,74 @@ export class YorkieStore implements Store {
   async getSheetStyle(): Promise<CellStyle | undefined> {
     const ws = this.getSheet();
     return ws.sheetStyle ? { ...ws.sheetStyle } : undefined;
+  }
+
+  async addRangeStyle(patch: RangeStylePatch): Promise<void> {
+    const normalized = normalizeRangeStylePatch(patch);
+    if (!normalized) {
+      return;
+    }
+
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      this.batchOps.push((root) => {
+        if (!root.sheets[tabId].rangeStyles) {
+          root.sheets[tabId].rangeStyles = [];
+        }
+        root.sheets[tabId].rangeStyles.push(cloneRangeStylePatch(normalized));
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      if (!root.sheets[tabId].rangeStyles) {
+        root.sheets[tabId].rangeStyles = [];
+      }
+      root.sheets[tabId].rangeStyles.push(cloneRangeStylePatch(normalized));
+    });
+  }
+
+  async setRangeStyles(patches: RangeStylePatch[]): Promise<void> {
+    const normalized = patches
+      .map((patch) => normalizeRangeStylePatch(patch))
+      .filter((patch): patch is RangeStylePatch => !!patch)
+      .map((patch) => cloneRangeStylePatch(patch));
+
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      this.batchOps.push((root) => {
+        if (normalized.length === 0) {
+          delete root.sheets[tabId].rangeStyles;
+          return;
+        }
+        root.sheets[tabId].rangeStyles = normalized.map((patch) =>
+          cloneRangeStylePatch(patch),
+        );
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      if (normalized.length === 0) {
+        delete root.sheets[tabId].rangeStyles;
+        return;
+      }
+      root.sheets[tabId].rangeStyles = normalized.map((patch) =>
+        cloneRangeStylePatch(patch),
+      );
+    });
+  }
+
+  async getRangeStyles(): Promise<RangeStylePatch[]> {
+    const ws = this.getSheet();
+    if (!ws.rangeStyles || ws.rangeStyles.length === 0) {
+      return [];
+    }
+    return (ws.rangeStyles as RangeStylePatch[]).map((patch) =>
+      cloneRangeStylePatch(patch),
+    );
   }
 
   async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {

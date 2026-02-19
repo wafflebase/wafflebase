@@ -532,97 +532,20 @@ Key functions in `src/model/coordinates.ts`:
 
 ### Cell Formatting (CellStyle)
 
-Each cell can carry an optional `s` property of type `CellStyle` that controls
-its visual formatting. The style travels with the cell through copy, shift, and
-move operations because it's embedded directly in the `Cell` type — no separate
-style store is needed.
+Style logic was extracted to [`sheet-style.md`](sheet-style.md).
 
-```typescript
-type TextAlign = 'left' | 'center' | 'right';
-type VerticalAlign = 'top' | 'middle' | 'bottom';
-type NumberFormat = 'plain' | 'number' | 'currency' | 'percent' | 'date';
+Key points:
 
-type CellStyle = {
-  b?: boolean;         // bold
-  i?: boolean;         // italic
-  u?: boolean;         // underline
-  st?: boolean;        // strikethrough
-  bt?: boolean;        // top border (custom border)
-  br?: boolean;        // right border (custom border)
-  bb?: boolean;        // bottom border (custom border)
-  bl?: boolean;        // left border (custom border)
-  tc?: string;         // text color (#hex)
-  bg?: string;         // background color (#hex)
-  al?: TextAlign;      // horizontal alignment
-  va?: VerticalAlign;  // vertical alignment
-  nf?: NumberFormat;   // number format
-  cu?: string;         // explicit currency code for nf='currency'
-};
-```
-
-**Sheet methods:**
-
-- `getStyle(ref)` — Returns the style of a cell.
-- `setStyle(ref, style)` — Merges style into the cell, creating it if needed.
-  Undefined/empty keys are removed, and redundant inherited/default values are
-  pruned (for example, `b: false` is only kept when needed to override an
-  inherited bold style).
-- `setRangeStyle(style)` — Applies style to all cells in the current selection.
-- `toggleRangeStyle(prop)` — Toggles a boolean style (`b`, `i`, `u`, `st`) based
-  on the active cell's state.
-- `setRangeBorders(preset)` — Applies a border preset (`all`, `outer`, `inner`,
-  `top`, `bottom`, `left`, `right`, `clear`) to the selected cell range.
-
-**Rendering:** The `GridCanvas` renderer reads `cell.s` to determine
-background color, font weight/style, text color, alignment (horizontal and
-vertical), underline/strikethrough decorations, and number formatting. The
-`CellInput.applyStyle` method mirrors these styles on the inline editing
-`<div>`.
-
-Custom borders are rendered in a dedicated pass above default gridlines using
-`bt/br/bb/bl`. Text overflow into neighboring empty cells stops at explicit
-custom borders.
-
-**Number formatting:** The `formatValue(value, format)` utility converts raw
-values to display strings using the system locale by default. `'number'`,
-`'currency'`, and `'percent'` all use locale separators. `'currency'` can use
-an explicit `CellStyle.cu` code (for example `KRW` or `USD`) and otherwise
-falls back to locale-derived currency (for example `ko`/`ko-KR` → `KRW`,
-`de-DE` → `EUR`). `'percent'` expects normalized fractional values
-(for example `0.1234` → `12.34%`). `'date'` formats parseable date values
-(for example `2026-02-18`) using locale date style. Applied in
-`toDisplayString` and `renderCell`.
-
-**Input inference:** `setData` first trims whitespace, then applies
-conservative inference:
-- Leading `=` becomes a formula (`f`) with normalized expression text.
-- `true`/`false` become logical values (`TRUE`/`FALSE` in storage).
-- `$...` and `₩...` parse as numbers with `nf: 'currency'` and `cu`.
-- `...%` parses as fractional number with `nf: 'percent'`.
-- `YYYY-MM-DD` and `M/D` parse to ISO date with `nf: 'date'`.
-- Numeric literals parse only when safe (for example `1,234`, `12.34`, `1e6`);
-  leading-zero identifiers like `00123` stay text.
-
-**Data preservation:** `setData` preserves existing style keys and only updates
-inferred number-format keys (`nf`/`cu`) when inference explicitly detects a
-currency/percent/date input.
-
-**Keyboard shortcuts:** `Cmd/Ctrl+B`, `Cmd/Ctrl+I`, `Cmd/Ctrl+U` toggle bold,
-italic, and underline on the current selection.
-Grid navigation and editing shortcuts normalize `Cmd` and `Ctrl` via
-`view/keymap.ts` (`isModPressed`, `matchesKeyCombo`) so combos like
-`Cmd/Ctrl+Arrow` consistently route to edge navigation across platforms.
-Formula bar and in-cell editor key handling share a single
-`handleEditorKeydown` path in `Worksheet` so autocomplete, formula-range arrow
-updates, and commit/navigation behaviors stay consistent.
-Both editor and grid shortcuts now use ordered `KeyRule` tables (`match` +
-`run`) to keep precedence explicit while making new bindings easier to add.
-
-**Toolbar:** The frontend `FormattingToolbar` component provides controls for
-all style properties (including border presets) and calls
-`Spreadsheet.applyStyle()` / `Spreadsheet.toggleStyle()` /
-`Spreadsheet.applyBorders()`. It refreshes its state via the
-`onSelectionChange` callback.
+- Style precedence: `sheet -> column -> row -> range patch -> cell`.
+- Merge semantics: `undefined` means inherit/no-op, explicit `false/0/""`
+  remain valid overrides.
+- Cell-selection formatting uses `rangeStyles` patches with compaction/pruning
+  to avoid style-only cell explosion in Yorkie.
+- Structural operations remap range patches consistently; inserts inside a style
+  range expand it.
+- Internal copy/paste carries and relocates `rangeStyles` so empty-range
+  formatting is preserved.
+- Rendering resolves effective style from all layers.
 
 **Layout helpers for floating objects:** The `Spreadsheet` facade now exposes
 `getSelectionType()`, `getSelectionRangeOrActiveCell()`,

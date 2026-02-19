@@ -3,6 +3,7 @@ import {
   CellStyle,
   FilterCondition,
   MergeSpan,
+  RangeStylePatch,
   Sref,
 } from "@wafflebase/sheet";
 
@@ -51,6 +52,7 @@ export type Worksheet = {
     [key: string]: CellStyle;
   };
   sheetStyle?: CellStyle;
+  rangeStyles?: RangeStylePatch[];
   merges?: {
     [key: Sref]: MergeSpan;
   };

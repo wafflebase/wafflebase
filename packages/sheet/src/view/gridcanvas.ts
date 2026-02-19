@@ -7,6 +7,7 @@ import {
   CellStyle,
   MergeSpan,
 } from '../model/types';
+import { RangeStylePatch, resolveRangeStyleAt } from '../model/range-styles';
 import { DimensionIndex } from '../model/dimensions';
 import { formatValue } from '../model/format';
 import { Theme, ThemeKey, getThemeColor } from './theme';
@@ -71,6 +72,7 @@ export class GridCanvas {
     colStyles?: Map<number, CellStyle>,
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
+    rangeStyles?: RangeStylePatch[],
     merges?: Map<string, MergeSpan>,
     filterRange?: Range,
     filteredColumns?: Set<number>,
@@ -107,6 +109,7 @@ export class GridCanvas {
         colStyles,
         rowStyles,
         sheetStyle,
+        rangeStyles,
         mergeData,
         filterRange,
         filteredColumns,
@@ -182,6 +185,7 @@ export class GridCanvas {
         colStyles,
         rowStyles,
         sheetStyle,
+        rangeStyles,
         mergeData,
         filterRange,
         filteredColumns,
@@ -213,6 +217,7 @@ export class GridCanvas {
           colStyles,
           rowStyles,
           sheetStyle,
+          rangeStyles,
           mergeData,
           filterRange,
           filteredColumns,
@@ -245,6 +250,7 @@ export class GridCanvas {
           colStyles,
           rowStyles,
           sheetStyle,
+          rangeStyles,
           mergeData,
           filterRange,
           filteredColumns,
@@ -272,6 +278,7 @@ export class GridCanvas {
           colStyles,
           rowStyles,
           sheetStyle,
+          rangeStyles,
           mergeData,
           filterRange,
           filteredColumns,
@@ -376,6 +383,7 @@ export class GridCanvas {
     colStyles?: Map<number, CellStyle>,
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
+    rangeStyles?: RangeStylePatch[],
     mergeData?: {
       anchors: Map<string, MergeSpan>;
       coverToAnchor: Map<string, string>;
@@ -395,6 +403,7 @@ export class GridCanvas {
       colStyles,
       rowStyles,
       sheetStyle,
+      rangeStyles,
       mergeData,
     );
 
@@ -418,6 +427,7 @@ export class GridCanvas {
           sheetStyle,
           colStyles,
           rowStyles,
+          rangeStyles,
         );
         const hideLeftBorder = overflowData?.hiddenVerticalBoundaries.has(
           this.verticalBoundaryKey(row, col - 1),
@@ -456,6 +466,7 @@ export class GridCanvas {
           sheetStyle,
           colStyles,
           rowStyles,
+          rangeStyles,
         );
         this.renderCellCustomBorders(
           ctx,
@@ -485,6 +496,7 @@ export class GridCanvas {
           sheetStyle,
           colStyles,
           rowStyles,
+          rangeStyles,
         );
         const overflowEndCol = overflowData?.anchorToEndCol.get(sref);
         this.renderCellContent(
@@ -1027,6 +1039,7 @@ export class GridCanvas {
     colStyles?: Map<number, CellStyle>,
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
+    rangeStyles?: RangeStylePatch[],
     mergeData?: {
       anchors: Map<string, MergeSpan>;
       coverToAnchor: Map<string, string>;
@@ -1058,6 +1071,7 @@ export class GridCanvas {
           sheetStyle,
           colStyles,
           rowStyles,
+          rangeStyles,
         );
 
         const align = style?.al || 'left';
@@ -1088,6 +1102,7 @@ export class GridCanvas {
             sheetStyle,
             colStyles,
             rowStyles,
+            rangeStyles,
           );
           const rightStyle = this.resolveEffectiveStyle(
             row,
@@ -1096,6 +1111,7 @@ export class GridCanvas {
             sheetStyle,
             colStyles,
             rowStyles,
+            rangeStyles,
           );
           if (leftStyle?.br || rightStyle?.bl) {
             break;
@@ -1149,13 +1165,17 @@ export class GridCanvas {
     sheetStyle?: CellStyle,
     colStyles?: Map<number, CellStyle>,
     rowStyles?: Map<number, CellStyle>,
+    rangeStyles?: RangeStylePatch[],
   ): CellStyle | undefined {
     const cStyle = colStyles?.get(col);
     const rStyle = rowStyles?.get(row);
-    if (!sheetStyle && !cStyle && !rStyle && !cell?.s) {
+    const rangeStyle = rangeStyles
+      ? resolveRangeStyleAt(rangeStyles, row, col)
+      : undefined;
+    if (!sheetStyle && !cStyle && !rStyle && !rangeStyle && !cell?.s) {
       return undefined;
     }
-    return { ...sheetStyle, ...cStyle, ...rStyle, ...cell?.s };
+    return { ...sheetStyle, ...cStyle, ...rStyle, ...rangeStyle, ...cell?.s };
   }
 
   /**

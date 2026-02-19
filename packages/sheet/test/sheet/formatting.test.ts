@@ -25,20 +25,20 @@ describe('Sheet.Formatting', () => {
     expect(style).toEqual({ b: true, i: true });
   });
 
-  it('should remove default false values that are not needed as overrides', async () => {
+  it('should keep explicit false values as overrides', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setStyle({ r: 1, c: 1 }, { b: true, i: true });
     await sheet.setStyle({ r: 1, c: 1 }, { b: false });
     const style = await sheet.getStyle({ r: 1, c: 1 });
-    expect(style).toEqual({ i: true });
+    expect(style).toEqual({ b: false, i: true });
   });
 
-  it('should drop style when only default values remain', async () => {
+  it('should keep explicit default-like values', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setStyle({ r: 1, c: 1 }, { b: true });
     await sheet.setStyle({ r: 1, c: 1 }, { b: false });
     const style = await sheet.getStyle({ r: 1, c: 1 });
-    expect(style).toBeUndefined();
+    expect(style).toEqual({ b: false });
   });
 
   it('should preserve style when setting data', async () => {
@@ -62,7 +62,7 @@ describe('Sheet.Formatting', () => {
     expect(style).toBeUndefined();
   });
 
-  it('should remove default style after toggling bold twice on a value cell', async () => {
+  it('should drop default-only override after toggling bold twice on a value cell', async () => {
     const store = new MemStore();
     const sheet = new Sheet(store);
     await sheet.setData({ r: 2, c: 2 }, '1');
@@ -73,6 +73,7 @@ describe('Sheet.Formatting', () => {
 
     expect(await sheet.getStyle({ r: 2, c: 2 })).toBeUndefined();
     expect(await store.get({ r: 2, c: 2 })).toEqual({ v: '1' });
+    expect(await store.getRangeStyles()).toEqual([]);
   });
 
   it('should apply style to range', async () => {
@@ -98,6 +99,143 @@ describe('Sheet.Formatting', () => {
       b: true,
       tc: '#0000ff',
     });
+  });
+
+  it('should persist cell-range style as a range patch without creating empty cells', async () => {
+    const store = new MemStore();
+    const setSpy = vi.spyOn(store, 'set');
+    const addRangeStyleSpy = vi.spyOn(store, 'addRangeStyle');
+    const sheet = new Sheet(store);
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+
+    await sheet.setRangeStyle({ b: true });
+
+    expect(setSpy).not.toHaveBeenCalled();
+    expect(addRangeStyleSpy).toHaveBeenCalledTimes(1);
+    expect(await store.get({ r: 2, c: 2 })).toBeUndefined();
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 1, c: 1 },
+          { r: 3, c: 3 },
+        ],
+        style: { b: true },
+      },
+    ]);
+  });
+
+  it('should skip redundant tail range-style writes', async () => {
+    const store = new MemStore();
+    const addRangeStyleSpy = vi.spyOn(store, 'addRangeStyle');
+    const setRangeStylesSpy = vi.spyOn(store, 'setRangeStyles');
+    const sheet = new Sheet(store);
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 1 });
+    await sheet.setRangeStyle({ b: true });
+
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.setRangeStyle({ b: true });
+
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 1, c: 1 },
+          { r: 2, c: 1 },
+        ],
+        style: { b: true },
+      },
+    ]);
+    expect(addRangeStyleSpy).toHaveBeenCalledTimes(1);
+    expect(setRangeStylesSpy).not.toHaveBeenCalled();
+  });
+
+  it('should not grow rangeStyles when toggling same range repeatedly', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    sheet.selectStart({ r: 2, c: 2 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.toggleRangeStyle('b');
+    await sheet.toggleRangeStyle('b');
+    await sheet.toggleRangeStyle('b');
+
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 2, c: 2 },
+          { r: 3, c: 3 },
+        ],
+        style: { b: true },
+      },
+    ]);
+  });
+
+  it('should remove default-only range patch after toggling back', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    sheet.selectStart({ r: 2, c: 2 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.toggleRangeStyle('b');
+    await sheet.toggleRangeStyle('b');
+
+    expect(await store.getRangeStyles()).toEqual([]);
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toBeUndefined();
+  });
+
+  it('should skip default override patch when inherited value is same', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    sheet.selectRow(2);
+    await sheet.setRangeStyle({ b: false });
+
+    sheet.selectStart({ r: 2, c: 2 });
+    sheet.selectEnd({ r: 2, c: 3 });
+    await sheet.setRangeStyle({ b: false });
+
+    expect(await store.getRangeStyles()).toEqual([]);
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({ b: false });
+    expect(await sheet.getStyle({ r: 2, c: 3 })).toEqual({ b: false });
+  });
+
+  it('should prune older range patch shadowed by later identical patch', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 1 });
+    await sheet.setRangeStyle({ b: true });
+
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 2, c: 1 });
+    await sheet.setRangeStyle({ b: false });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 1 });
+    await sheet.setRangeStyle({ b: true });
+
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 2, c: 1 },
+          { r: 2, c: 1 },
+        ],
+        style: { b: false },
+      },
+      {
+        range: [
+          { r: 1, c: 1 },
+          { r: 3, c: 1 },
+        ],
+        style: { b: true },
+      },
+    ]);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ b: true });
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({ b: true });
+    expect(await sheet.getStyle({ r: 3, c: 1 })).toEqual({ b: true });
   });
 
   it('should apply number format in display string', async () => {
@@ -145,15 +283,22 @@ describe('Sheet.Formatting', () => {
 
     expect(await sheet.setRangeBorders('all')).toBe(true);
 
-    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ bt: true, bl: true });
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      bt: true,
+      bl: true,
+      br: false,
+      bb: false,
+    });
     expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
       bt: true,
       bl: true,
       br: true,
+      bb: false,
     });
     expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
       bt: true,
       bl: true,
+      br: false,
       bb: true,
     });
     expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
@@ -172,10 +317,30 @@ describe('Sheet.Formatting', () => {
     await sheet.setRangeBorders('all');
     expect(await sheet.setRangeBorders('outer')).toBe(true);
 
-    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ bt: true, bl: true });
-    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({ bt: true, br: true });
-    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({ bl: true, bb: true });
-    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({ br: true, bb: true });
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      bt: true,
+      bl: true,
+      br: false,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
+      bt: true,
+      bl: false,
+      br: true,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
+      bt: false,
+      bl: true,
+      br: false,
+      bb: true,
+    });
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
+      bt: false,
+      bl: false,
+      br: true,
+      bb: true,
+    });
   });
 
   it('should clear borders from selected range', async () => {
@@ -186,10 +351,30 @@ describe('Sheet.Formatting', () => {
     await sheet.setRangeBorders('all');
     expect(await sheet.setRangeBorders('clear')).toBe(true);
 
-    expect(await sheet.getStyle({ r: 1, c: 1 })).toBeUndefined();
-    expect(await sheet.getStyle({ r: 1, c: 2 })).toBeUndefined();
-    expect(await sheet.getStyle({ r: 2, c: 1 })).toBeUndefined();
-    expect(await sheet.getStyle({ r: 2, c: 2 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      bt: false,
+      bl: false,
+      br: false,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
+      bt: false,
+      bl: false,
+      br: false,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
+      bt: false,
+      bl: false,
+      br: false,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
+      bt: false,
+      bl: false,
+      br: false,
+      bb: false,
+    });
   });
 
   it('should reject border presets for non-cell selections', async () => {
@@ -332,6 +517,85 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     expect(await sheet.getStyle({ r: 1, c: 2 })).toBeUndefined();
   });
 
+  it('should expand range styles on row insert inside range', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 1 });
+    await sheet.setRangeStyle({ b: true });
+    await sheet.insertRows(2, 1);
+
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ b: true });
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({ b: true });
+    expect(await sheet.getStyle({ r: 3, c: 1 })).toEqual({ b: true });
+    expect(await sheet.getStyle({ r: 4, c: 1 })).toEqual({ b: true });
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 1, c: 1 },
+          { r: 4, c: 1 },
+        ],
+        style: { b: true },
+      },
+    ]);
+  });
+
+  it('should expand range styles on column insert inside range', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    sheet.selectStart({ r: 2, c: 2 });
+    sheet.selectEnd({ r: 2, c: 4 });
+    await sheet.setRangeStyle({ i: true });
+    await sheet.insertColumns(3, 1);
+
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({ i: true });
+    expect(await sheet.getStyle({ r: 2, c: 3 })).toEqual({ i: true });
+    expect(await sheet.getStyle({ r: 2, c: 4 })).toEqual({ i: true });
+    expect(await sheet.getStyle({ r: 2, c: 5 })).toEqual({ i: true });
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 2, c: 2 },
+          { r: 2, c: 5 },
+        ],
+        style: { i: true },
+      },
+    ]);
+  });
+
+  it('should split range styles deterministically on row move', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 1 });
+    await sheet.setRangeStyle({ b: true });
+    await sheet.moveRows(3, 2, 1);
+
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ b: true });
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 3, c: 1 })).toEqual({ b: true });
+    expect(await sheet.getStyle({ r: 4, c: 1 })).toEqual({ b: true });
+    expect(await store.getRangeStyles()).toEqual([
+      {
+        range: [
+          { r: 1, c: 1 },
+          { r: 1, c: 1 },
+        ],
+        style: { b: true },
+      },
+      {
+        range: [
+          { r: 3, c: 1 },
+          { r: 4, c: 1 },
+        ],
+        style: { b: true },
+      },
+    ]);
+  });
+
   it('should toggle correctly with inherited column style', async () => {
     const store = new MemStore();
     const sheet = new Sheet(store);
@@ -340,13 +604,24 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     sheet.selectColumn(1);
     await sheet.setRangeStyle({ b: true });
 
-    // Select cell A1 and toggle bold off — should set cell-level b: false
+    // Select cell A1 and toggle bold off.
     sheet.selectStart({ r: 1, c: 1 });
     await sheet.toggleRangeStyle('b');
 
-    // The cell-level override should make effective bold = false
+    // Cell may stay absent; override can be represented as a range patch.
     const cell = await store.get({ r: 1, c: 1 });
-    expect(cell?.s?.b).toBe(false);
+    expect(cell?.s?.b).toBeUndefined();
+    const rangeStyles = await store.getRangeStyles();
+    expect(
+      rangeStyles.some(
+        (patch) =>
+          patch.range[0].r === 1 &&
+          patch.range[0].c === 1 &&
+          patch.range[1].r === 1 &&
+          patch.range[1].c === 1 &&
+          patch.style.b === false,
+      ),
+    ).toBe(true);
 
     // Effective style: column b:true + cell b:false → cell wins → b: false
     const effective = await sheet.getStyle({ r: 1, c: 1 });
