@@ -1303,6 +1303,38 @@ export class Worksheet {
     apply.style.cursor = enabled ? 'pointer' : 'not-allowed';
   }
 
+  private syncFilterPanelValuesSelectionState(filteredValues: string[]): void {
+    const state = this.filterPanelState;
+    if (!state) {
+      return;
+    }
+
+    const summary = this.filterPanel.querySelector(
+      '[data-wb-filter-summary="true"]',
+    ) as HTMLDivElement | null;
+    if (summary) {
+      const selectedCount = state.values.filter((value) =>
+        state.selected.has(value),
+      ).length;
+      summary.textContent = `Selected ${selectedCount} / ${state.values.length}`;
+    }
+
+    const selectAll = this.filterPanel.querySelector(
+      'input[data-wb-filter-select-all="true"]',
+    ) as HTMLInputElement | null;
+    if (selectAll) {
+      const selectedVisible = filteredValues.filter((value) =>
+        state.selected.has(value),
+      ).length;
+      selectAll.checked =
+        filteredValues.length > 0 && selectedVisible === filteredValues.length;
+      selectAll.indeterminate =
+        selectedVisible > 0 && selectedVisible < filteredValues.length;
+    }
+
+    this.syncFilterPanelApplyButtonState();
+  }
+
   /**
    * `renderFilterPanel` renders the current dropdown state.
    */
@@ -1454,6 +1486,7 @@ export class Worksheet {
         state.selected.has(value),
       ).length;
       const summary = document.createElement('div');
+      summary.dataset.wbFilterSummary = 'true';
       summary.textContent = `Selected ${selectedCount} / ${allValues.length}`;
       summary.style.margin = '0 0 8px';
       summary.style.fontSize = '11px';
@@ -1488,6 +1521,7 @@ export class Worksheet {
       selectAllRow.style.cursor = 'pointer';
       const selectAll = document.createElement('input');
       selectAll.type = 'checkbox';
+      selectAll.dataset.wbFilterSelectAll = 'true';
       selectAll.checked =
         filteredValues.length > 0 && selectedVisible === filteredValues.length;
       selectAll.indeterminate =
@@ -1534,7 +1568,7 @@ export class Worksheet {
             } else {
               this.filterPanelState.selected.delete(value);
             }
-            this.syncFilterPanelApplyButtonState();
+            this.syncFilterPanelValuesSelectionState(filteredValues);
           };
           const text = document.createElement('span');
           text.textContent = value === '' ? '(Blanks)' : value;
