@@ -1056,6 +1056,39 @@ export class Sheet {
   }
 
   /**
+   * `normalizeFilterText` converts runtime cell/filter values into plain strings.
+   * Yorkie may expose wrapped primitive objects at runtime.
+   */
+  private normalizeFilterText(value: unknown): string {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+    if (typeof value === 'object') {
+      const withValue = value as { value?: unknown; toJSON?: () => unknown };
+      if (withValue.value !== undefined && withValue.value !== value) {
+        return this.normalizeFilterText(withValue.value);
+      }
+      if (typeof withValue.toJSON === 'function') {
+        try {
+          const jsonValue = withValue.toJSON.call(value);
+          if (jsonValue !== value) {
+            return this.normalizeFilterText(jsonValue);
+          }
+        } catch {
+          // Ignore and fall back to string conversion.
+        }
+      }
+    }
+    return String(value);
+  }
+
+  /**
    * `normalizeFilterCondition` normalizes and validates a filter condition.
    */
   private normalizeFilterCondition(
@@ -1064,7 +1097,11 @@ export class Sheet {
     const op = condition.op;
     if (op === 'in') {
       const values = Array.from(
-        new Set((condition.values || []).map((value) => value.trim())),
+        new Set(
+          (condition.values || []).map((value) =>
+            this.normalizeFilterText(value).trim(),
+          ),
+        ),
       );
       return { op, values };
     }
@@ -1073,7 +1110,7 @@ export class Sheet {
       return { op };
     }
 
-    const value = (condition.value || '').trim();
+    const value = this.normalizeFilterText(condition.value).trim();
     if (value.length === 0) {
       return undefined;
     }
@@ -1087,12 +1124,19 @@ export class Sheet {
     value: string,
     condition: FilterCondition,
   ): boolean {
-    const normalizedValue = value.trim().toLowerCase();
-    const conditionValue = (condition.value || '').trim().toLowerCase();
+    const normalizedText = this.normalizeFilterText(value).trim();
+    const normalizedValue = normalizedText.toLowerCase();
+    const conditionValue = this.normalizeFilterText(condition.value)
+      .trim()
+      .toLowerCase();
 
     switch (condition.op) {
       case 'in':
-        return new Set(condition.values || []).has(value.trim());
+        return new Set(
+          (condition.values || []).map((item) =>
+            this.normalizeFilterText(item).trim(),
+          ),
+        ).has(normalizedText);
       case 'contains':
         return normalizedValue.includes(conditionValue);
       case 'notContains':
@@ -1121,7 +1165,9 @@ export class Sheet {
     for (const [col, condition] of this.filterColumns) {
       if (col === excludedCol) continue;
       const cell = await this.getCell({ r: row, c: col });
-      const value = cell?.v || '';
+      const value = this.normalizeFilterText(
+        (cell as { v?: unknown } | undefined)?.v,
+      );
       if (!this.matchesFilterCondition(value, condition)) {
         return false;
       }
@@ -2009,7 +2055,10 @@ export class Sheet {
         continue;
       }
       const cell = await this.getCell({ r: row, c: col });
-      distinct.add((cell?.v || '').trim());
+      const value = this.normalizeFilterText(
+        (cell as { v?: unknown } | undefined)?.v,
+      );
+      distinct.add(value.trim());
     }
 
     const values = Array.from(distinct).sort((a, b) =>
@@ -2022,7 +2071,14 @@ export class Sheet {
     }
 
     if (condition.op === 'in') {
-      return { values, selected: new Set(condition.values || []) };
+      return {
+        values,
+        selected: new Set(
+          (condition.values || []).map((value) =>
+            this.normalizeFilterText(value).trim(),
+          ),
+        ),
+      };
     }
 
     return {
@@ -2042,7 +2098,9 @@ export class Sheet {
     }
 
     const normalized = Array.from(
-      new Set(values.map((value) => value.trim())),
+      new Set(
+        values.map((value) => this.normalizeFilterText(value).trim()),
+      ),
     ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
     const options = await this.getFilterColumnValues(col);
@@ -2094,7 +2152,9 @@ export class Sheet {
     const rows: Array<{ row: number; text: string; lower: string; numeric: number | null }> = [];
     for (let row = dataStart; row <= dataEnd; row++) {
       const cell = await this.getCell({ r: row, c: col });
-      const text = (cell?.v || '').trim();
+      const text = this.normalizeFilterText(
+        (cell as { v?: unknown } | undefined)?.v,
+      ).trim();
       const numeric = text.length > 0 && Number.isFinite(Number(text)) ? Number(text) : null;
       rows.push({ row, text, lower: text.toLowerCase(), numeric });
     }
@@ -2333,16 +2393,36 @@ export class Sheet {
     const colDelta = direction === 'left' ? -1 : direction === 'right' ? 1 : 0;
     let range = cloneRange(this.getRangeOrActiveCell());
 
-    if (this.activeCell.r === range[1].r) {
-      range[0].r += rowDelta;
-    } else {
-      range[1].r += rowDelta;
+    if (rowDelta !== 0) {
+      const nextDirection = rowDelta > 0 ? 'down' : 'up';
+      const resolveNextRow = (row: number): number | undefined => {
+        if (!this.hiddenRows.has(row)) {
+          return row;
+        }
+        return this.findNextVisibleRow(row, nextDirection);
+      };
+
+      if (this.activeCell.r === range[1].r) {
+        const nextRow = resolveNextRow(range[0].r + rowDelta);
+        if (nextRow === undefined) {
+          return false;
+        }
+        range[0].r = nextRow;
+      } else {
+        const nextRow = resolveNextRow(range[1].r + rowDelta);
+        if (nextRow === undefined) {
+          return false;
+        }
+        range[1].r = nextRow;
+      }
     }
 
-    if (this.activeCell.c === range[1].c) {
-      range[0].c += colDelta;
-    } else {
-      range[1].c += colDelta;
+    if (colDelta !== 0) {
+      if (this.activeCell.c === range[1].c) {
+        range[0].c += colDelta;
+      } else {
+        range[1].c += colDelta;
+      }
     }
 
     range = toRange(range[0], range[1]);

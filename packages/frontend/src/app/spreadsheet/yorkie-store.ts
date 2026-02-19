@@ -4,6 +4,7 @@ import {
   Grid,
   Cell,
   CellStyle,
+  FilterCondition,
   FilterState,
   MergeSpan,
   Ref,
@@ -104,6 +105,44 @@ export class YorkieStore implements Store {
     return this.stableObjectEntries<Cell>(sheet) as Array<[Sref, Cell]>;
   }
 
+  private toPlainString(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return "";
+    if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    }
+    if (typeof value === "object") {
+      const withValue = value as { value?: unknown; toJSON?: () => unknown };
+      if (withValue.value !== undefined && withValue.value !== value) {
+        return this.toPlainString(withValue.value);
+      }
+      if (typeof withValue.toJSON === "function") {
+        try {
+          const jsonValue = withValue.toJSON.call(value);
+          if (jsonValue !== value) {
+            return this.toPlainString(jsonValue);
+          }
+        } catch {
+          // Ignore and fall back to generic string conversion.
+        }
+      }
+    }
+    return String(value);
+  }
+
+  private normalizeFilterCondition(condition: FilterCondition): FilterCondition {
+    const normalized: FilterCondition = { op: condition.op };
+    if (condition.value !== undefined) {
+      normalized.value = this.toPlainString(condition.value);
+    }
+    if (condition.values !== undefined) {
+      normalized.values = condition.values.map((value) =>
+        this.toPlainString(value),
+      );
+    }
+    return normalized;
+  }
+
   private toWorksheetFilterState(state: FilterState): NonNullable<Worksheet["filter"]> {
     return {
       startRow: state.range[0].r,
@@ -113,7 +152,7 @@ export class YorkieStore implements Store {
       columns: Object.fromEntries(
         Object.entries(state.columns).map(([key, condition]) => [
           key,
-          { ...condition },
+          this.normalizeFilterCondition(condition),
         ]),
       ),
       hiddenRows: [...state.hiddenRows],
@@ -132,7 +171,7 @@ export class YorkieStore implements Store {
       columns: Object.fromEntries(
         Object.entries(state.columns || {}).map(([key, condition]) => [
           key,
-          { ...condition },
+          this.normalizeFilterCondition(condition as FilterCondition),
         ]),
       ),
       hiddenRows: [...(state.hiddenRows || [])],

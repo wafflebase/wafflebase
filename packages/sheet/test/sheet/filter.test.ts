@@ -152,6 +152,28 @@ describe('Sheet.Filter', () => {
     expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('Charlie');
   });
 
+  it('skips hidden rows when expanding selection range vertically', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'Status');
+    await sheet.setData({ r: 2, c: 1 }, 'Keep');
+    await sheet.setData({ r: 3, c: 1 }, 'Hide');
+    await sheet.setData({ r: 4, c: 1 }, 'Hide');
+    await sheet.setData({ r: 5, c: 1 }, 'Keep');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 5, c: 1 });
+    await sheet.createFilterFromSelection();
+    await sheet.setColumnFilter(1, { op: 'equals', value: 'keep' });
+    expect(sheet.getHiddenRows()).toEqual(new Set([3, 4]));
+
+    sheet.selectStart({ r: 2, c: 1 });
+    expect(sheet.resizeRange('down')).toBe(true);
+    expect(sheet.getRange()).toEqual([
+      { r: 2, c: 1 },
+      { r: 5, c: 1 },
+    ]);
+  });
+
   it('uses one batch transaction for filter and sort actions', async () => {
     const store = new BatchCountingStore();
     const sheet = new Sheet(store);
