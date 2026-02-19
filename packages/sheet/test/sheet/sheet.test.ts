@@ -154,4 +154,21 @@ describe('Sheet.SelectAll', async () => {
       expect(sheet.getRange()).toEqual(test.expectedRange);
     });
   }
+
+  it('ignores style-only cells when expanding content range', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 2, c: 2 }, 'B2');
+    await sheet.setData({ r: 2, c: 3 }, 'C2');
+    await sheet.setData({ r: 3, c: 2 }, 'B3');
+    await sheet.setData({ r: 3, c: 3 }, 'C3');
+    await sheet.setStyle({ r: 4, c: 2 }, { bg: '#ff0000' });
+
+    sheet.selectStart({ r: 2, c: 2 });
+    await sheet.selectAll();
+
+    expect(sheet.getRange()).toEqual([
+      { r: 2, c: 2 },
+      { r: 3, c: 3 },
+    ]);
+  });
 });

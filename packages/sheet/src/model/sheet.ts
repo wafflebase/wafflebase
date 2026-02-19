@@ -1390,14 +1390,23 @@ export class Sheet {
   }
 
   /**
+   * `hasCellContent` checks whether a cell has value or formula content.
+   * Style-only cells return false.
+   */
+  private hasCellContent(cell: Cell): boolean {
+    const hasValue = cell.v !== undefined && cell.v !== '' && cell.v !== null;
+    const hasFormula = !!cell.f;
+    return hasValue || hasFormula;
+  }
+
+  /**
    * `isEmptyCell` checks if a cell has no meaningful data.
    * A cell is empty if it has no value (or empty string), no formula, and no style.
    */
   private isEmptyCell(cell: Cell): boolean {
-    const hasValue = cell.v !== undefined && cell.v !== '' && cell.v !== null;
-    const hasFormula = !!cell.f;
+    const hasContent = this.hasCellContent(cell);
     const hasStyle = cell.s !== undefined && Object.keys(cell.s).length > 0;
-    return !hasValue && !hasFormula && !hasStyle;
+    return !hasContent && !hasStyle;
   }
 
   /**
@@ -1718,11 +1727,17 @@ export class Sheet {
   }
 
   /**
-   * `hasContents` checks if the given range has contents.
+   * `hasContents` checks if the given range has cell contents.
+   * Style-only cells are ignored.
    */
   async hasContents(range: Range): Promise<boolean> {
     const grid = await this.store.getGrid(range);
-    return grid.size > 0;
+    for (const cell of grid.values()) {
+      if (this.hasCellContent(cell)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -73,7 +73,8 @@ all cell, selection, and navigation operations.
   builds a dependants map from the store and invokes the `Calculator` to
   recalculate all affected cells in topological order.
 - **Selection** — `activeCell`, `range`, `selectStart`/`selectEnd`,
-  `selectAll` (expands until empty border)
+  `selectAll` (expands until empty border using value/formula cells;
+  style-only cells are ignored)
 - **Merged cells** — `mergeSelection`, `unmergeSelection`,
   `toggleMergeSelection` with top-left anchor semantics. Covered cells resolve
   to the anchor for read/write/formula lookups.
