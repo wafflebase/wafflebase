@@ -1284,6 +1284,25 @@ export class Worksheet {
     this.render();
   }
 
+  private syncFilterPanelApplyButtonState(): void {
+    const state = this.filterPanelState;
+    if (!state) {
+      return;
+    }
+
+    const apply = this.filterPanel.querySelector(
+      'button[data-wb-filter-apply="true"]',
+    ) as HTMLButtonElement | null;
+    if (!apply) {
+      return;
+    }
+
+    const enabled = this.isFilterPanelDirty(state);
+    apply.disabled = !enabled;
+    apply.style.opacity = enabled ? '1' : '0.5';
+    apply.style.cursor = enabled ? 'pointer' : 'not-allowed';
+  }
+
   /**
    * `renderFilterPanel` renders the current dropdown state.
    */
@@ -1515,6 +1534,7 @@ export class Worksheet {
             } else {
               this.filterPanelState.selected.delete(value);
             }
+            this.syncFilterPanelApplyButtonState();
           };
           const text = document.createElement('span');
           text.textContent = value === '' ? '(Blanks)' : value;
@@ -1586,6 +1606,7 @@ export class Worksheet {
             ...this.filterPanelState.condition,
             value: input.value,
           };
+          this.syncFilterPanelApplyButtonState();
         };
         wrapper.appendChild(input);
       }
@@ -1620,6 +1641,7 @@ export class Worksheet {
     cancel.onclick = () => this.hideFilterPanel();
 
     const apply = makeButton('Apply');
+    apply.dataset.wbFilterApply = 'true';
     apply.onclick = () => {
       void this.applyFilterPanel();
     };
