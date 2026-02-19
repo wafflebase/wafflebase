@@ -1,4 +1,4 @@
-import { Range, Ref, Direction } from '../model/types';
+import { Range, Ref, Direction, FilterCondition } from '../model/types';
 import { toColumnLabel, toSref } from '../model/coordinates';
 import {
   extractFormulaRanges,
@@ -48,6 +48,19 @@ const AutoScrollMinSpeed = 300;
 const AutoScrollMaxSpeed = 1800;
 const AutofillHandleSize = 8;
 const AutofillHandleHitPadding = 4;
+const FilterPanelMaxVisibleValues = 200;
+type FilterPanelMode = 'values' | 'condition';
+type FilterPanelState = {
+  col: number;
+  values: string[];
+  selected: Set<string>;
+  initialSelected: Set<string>;
+  search: string;
+  mode: FilterPanelMode;
+  condition: FilterCondition;
+  initialCondition: FilterCondition;
+  hasExistingCondition: boolean;
+};
 type EditorInputSource = 'formulaBar' | 'cellInput';
 type MouseDragSessionConfig = {
   onMove: (e: MouseEvent) => void;
@@ -61,6 +74,7 @@ type MouseDragSessionConfig = {
  */
 export class Worksheet {
   private sheet?: Sheet;
+  private theme: Theme;
 
   private container: HTMLDivElement;
 
@@ -73,9 +87,15 @@ export class Worksheet {
   private autocomplete: FormulaAutocomplete;
   private functionBrowser: FunctionBrowser;
   private resizeTooltip: HTMLDivElement;
+  private filterPanel: HTMLDivElement;
+  private filterPanelState: FilterPanelState | null = null;
+  private filterPanelOutsideClickUnsub: (() => void) | null = null;
+  private filterPanelKeyboardUnsub: (() => void) | null = null;
 
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
+  private hiddenRows: Set<number> = new Set();
+  private hiddenRowSizeBackup: Map<number, number> = new Map();
 
   private listeners: Array<() => void> = [];
   private interactionCleanups: Set<() => void> = new Set();
@@ -96,6 +116,7 @@ export class Worksheet {
   private formulaRanges: Array<Range> = [];
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
+  private filterButtonHoverCol: number | null = null;
   private freezeDrag: { axis: 'row' | 'column'; targetIndex: number } | null =
     null;
   private autofillPreview: Range | undefined;
@@ -121,6 +142,7 @@ export class Worksheet {
     readOnly: boolean = false,
   ) {
     this.container = container;
+    this.theme = theme;
     this.readOnly = readOnly;
 
     this.formulaBar = new FormulaBar(theme);
@@ -132,6 +154,7 @@ export class Worksheet {
     this.autocomplete = new FormulaAutocomplete(theme);
     this.functionBrowser = new FunctionBrowser(theme);
     this.resizeTooltip = document.createElement('div');
+    this.filterPanel = document.createElement('div');
 
     this.rowDim = new DimensionIndex(DefaultCellHeight);
     this.colDim = new DimensionIndex(DefaultCellWidth);
@@ -158,6 +181,22 @@ export class Worksheet {
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.resizeTooltip.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
     document.body.appendChild(this.resizeTooltip);
+
+    this.filterPanel.style.position = 'fixed';
+    this.filterPanel.style.display = 'none';
+    this.filterPanel.style.zIndex = '1002';
+    this.filterPanel.style.width = '260px';
+    this.filterPanel.style.maxHeight = '360px';
+    this.filterPanel.style.overflow = 'hidden';
+    this.filterPanel.style.borderRadius = '6px';
+    this.filterPanel.style.border = `1px solid ${getThemeColor(theme, 'cellBorderColor')}`;
+    this.filterPanel.style.backgroundColor = getThemeColor(theme, 'cellBGColor');
+    this.filterPanel.style.color = getThemeColor(theme, 'cellTextColor');
+    this.filterPanel.style.fontSize = '12px';
+    this.filterPanel.style.fontFamily =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.filterPanel.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.2)';
+    document.body.appendChild(this.filterPanel);
     this.functionBrowser.setOnInsert((info) => {
       if (this.readOnly) {
         return;
@@ -174,6 +213,10 @@ export class Worksheet {
     await this.sheet.loadStyles();
     await this.sheet.loadMerges();
     await this.sheet.loadFreezePane();
+    await this.sheet.loadFilterState();
+    this.hiddenRows.clear();
+    this.hiddenRowSizeBackup.clear();
+    this.syncHiddenRowsFromSheet();
     this.updateFreezeState();
     this.formulaBar.initialize(sheet);
     this.addEventListeners();
@@ -249,6 +292,8 @@ export class Worksheet {
     this.autocomplete.cleanup();
     this.functionBrowser.cleanup();
     this.resizeTooltip.remove();
+    this.hideFilterPanel();
+    this.filterPanel.remove();
 
     this.sheet = undefined;
     this.container.innerHTML = '';
@@ -974,7 +1019,7 @@ export class Worksheet {
       const count = useMulti ? selected!.to - selected!.from + 1 : 1;
       const colLabel = count > 1 ? `${count} columns` : 'column';
 
-      this.contextMenu.show(e.clientX, e.clientY, [
+      const items = [
         {
           label: `Insert ${colLabel} left`,
           action: () => {
@@ -995,7 +1040,615 @@ export class Worksheet {
             this.sheet!.deleteColumns(from, count).then(() => this.render());
           },
         },
-      ]);
+      ];
+
+      this.contextMenu.show(e.clientX, e.clientY, items);
+    }
+  }
+
+  private getFilterButtonRect(
+    col: number,
+  ): { left: number; top: number; width: number; height: number } | null {
+    const filterRange = this.sheet?.getFilterRange();
+    if (!filterRange) {
+      return null;
+    }
+
+    const headerRow = filterRange[0].r;
+    const cellRect = this.getCellRect({ r: headerRow, c: col });
+    if (cellRect.width <= 6 || cellRect.height <= 6) {
+      return null;
+    }
+
+    const width = Math.min(16, Math.max(12, cellRect.width - 4));
+    const height = Math.min(16, Math.max(12, cellRect.height - 6));
+    return {
+      left: cellRect.left + cellRect.width - width - 2,
+      top: cellRect.top + Math.max(3, (cellRect.height - height) / 2),
+      width,
+      height,
+    };
+  }
+
+  /**
+   * `detectFilterButton` returns a column when the header filter indicator is clicked.
+   */
+  private detectFilterButton(x: number, y: number): number | null {
+    if (!this.sheet || !this.sheet.hasFilter()) return null;
+    if (x <= RowHeaderWidth || y <= DefaultCellHeight) return null;
+
+    const filterRange = this.sheet.getFilterRange();
+    if (!filterRange) return null;
+    const ref = this.toRefFromMouse(x, y);
+    if (ref.r !== filterRange[0].r) return null;
+    if (!this.sheet.isColumnInFilter(ref.c)) return null;
+
+    const rect = this.getFilterButtonRect(ref.c);
+    if (!rect) return null;
+    if (
+      x < rect.left - 2 ||
+      x > rect.left + rect.width + 2 ||
+      y < rect.top - 2 ||
+      y > rect.top + rect.height + 2
+    ) {
+      return null;
+    }
+    return ref.c;
+  }
+
+  /**
+   * `showFilterPanel` opens a value-checklist dropdown for `col`.
+   */
+  private async showFilterPanel(
+    col: number,
+    preferredMode?: FilterPanelMode,
+  ): Promise<void> {
+    if (!this.sheet || !this.sheet.isColumnInFilter(col)) {
+      return;
+    }
+
+    const payload = await this.sheet.getFilterColumnValues(col);
+    if (!payload) {
+      return;
+    }
+
+    const existing = this.sheet.getColumnFilterCondition(col);
+    const isConditionMode =
+      existing &&
+      existing.op !== 'in' &&
+      existing.op !== 'isEmpty' &&
+      existing.op !== 'isNotEmpty';
+    const mode: FilterPanelMode =
+      preferredMode === 'condition' || isConditionMode ? 'condition' : 'values';
+
+    const initialCondition: FilterCondition = existing
+      ? {
+          ...existing,
+          values: existing.values ? [...existing.values] : undefined,
+        }
+      : { op: 'contains', value: '' };
+
+    this.filterPanelState = {
+      col,
+      values: payload.values,
+      selected: new Set(payload.selected),
+      initialSelected: new Set(payload.selected),
+      search: '',
+      mode,
+      condition: {
+        ...initialCondition,
+        values: initialCondition.values ? [...initialCondition.values] : undefined,
+      },
+      initialCondition,
+      hasExistingCondition: !!existing,
+    };
+    this.renderFilterPanel();
+
+    const buttonRect = this.getFilterButtonRect(col);
+    if (!buttonRect) {
+      return;
+    }
+    const viewport = this.viewport;
+    const panelWidth = 260;
+    const left = Math.min(
+      viewport.left + Math.max(RowHeaderWidth, buttonRect.left - 6),
+      viewport.left + Math.max(0, viewport.width - panelWidth - 4),
+    );
+    const top = viewport.top + buttonRect.top + buttonRect.height + 4;
+    this.filterPanel.style.left = `${left}px`;
+    this.filterPanel.style.top = `${top}px`;
+    this.filterPanel.style.display = 'block';
+
+    this.filterPanelKeyboardUnsub?.();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!this.filterPanelState) {
+        return;
+      }
+      const target = event.target as Node | null;
+      const isInPanel = target ? this.filterPanel.contains(target) : false;
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.hideFilterPanel();
+        return;
+      }
+      if (event.key === 'Enter' && isInPanel) {
+        event.preventDefault();
+        event.stopPropagation();
+        void this.applyFilterPanel();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    this.filterPanelKeyboardUnsub = () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+
+    this.filterPanelOutsideClickUnsub?.();
+    requestAnimationFrame(() => {
+      if (!this.filterPanelState) {
+        return;
+      }
+      const onMouseDown = (event: MouseEvent) => {
+        if (!this.filterPanel.contains(event.target as Node)) {
+          this.hideFilterPanel();
+        }
+      };
+      document.addEventListener('mousedown', onMouseDown);
+      this.filterPanelOutsideClickUnsub = () => {
+        document.removeEventListener('mousedown', onMouseDown);
+      };
+    });
+  }
+
+  /**
+   * `hideFilterPanel` closes the filter dropdown.
+   */
+  private hideFilterPanel(): void {
+    this.filterPanel.style.display = 'none';
+    this.filterPanel.innerHTML = '';
+    this.filterPanelState = null;
+    this.filterPanelOutsideClickUnsub?.();
+    this.filterPanelOutsideClickUnsub = null;
+    this.filterPanelKeyboardUnsub?.();
+    this.filterPanelKeyboardUnsub = null;
+  }
+
+  private areStringSetsEqual(a: Set<string>, b: Set<string>): boolean {
+    if (a.size !== b.size) {
+      return false;
+    }
+    for (const value of a) {
+      if (!b.has(value)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private areFilterConditionsEqual(
+    left: FilterCondition,
+    right: FilterCondition,
+  ): boolean {
+    if (left.op !== right.op) {
+      return false;
+    }
+
+    if (left.op === 'in') {
+      const leftValues = Array.from(new Set(left.values || [])).sort();
+      const rightValues = Array.from(new Set(right.values || [])).sort();
+      if (leftValues.length !== rightValues.length) {
+        return false;
+      }
+      for (let i = 0; i < leftValues.length; i++) {
+        if (leftValues[i] !== rightValues[i]) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    if (left.op === 'isEmpty' || left.op === 'isNotEmpty') {
+      return true;
+    }
+
+    return (left.value || '').trim() === (right.value || '').trim();
+  }
+
+  private isFilterPanelDirty(state: FilterPanelState): boolean {
+    if (state.mode === 'values') {
+      return !this.areStringSetsEqual(state.selected, state.initialSelected);
+    }
+    return !this.areFilterConditionsEqual(state.condition, state.initialCondition);
+  }
+
+  private async applyFilterPanel(): Promise<void> {
+    const state = this.filterPanelState;
+    if (!state || !this.sheet) {
+      return;
+    }
+
+    if (!this.isFilterPanelDirty(state)) {
+      return;
+    }
+
+    if (state.mode === 'values') {
+      await this.sheet.setColumnIncludedValues(state.col, Array.from(state.selected));
+      this.hideFilterPanel();
+      this.render();
+      return;
+    }
+
+    await this.sheet.setColumnFilter(state.col, state.condition);
+    this.hideFilterPanel();
+    this.render();
+  }
+
+  /**
+   * `renderFilterPanel` renders the current dropdown state.
+   */
+  private renderFilterPanel(): void {
+    const state = this.filterPanelState;
+    if (!state) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const wasSearchFocused =
+      activeElement instanceof HTMLInputElement &&
+      activeElement.dataset.wbFilterSearch === 'true';
+    const searchSelectionStart = wasSearchFocused
+      ? activeElement.selectionStart
+      : null;
+    const searchSelectionEnd = wasSearchFocused
+      ? activeElement.selectionEnd
+      : null;
+
+    const borderColor = getThemeColor(this.theme, 'cellBorderColor');
+    const activeBG = getThemeColor(this.theme, 'selectionBGColor');
+
+    const makeButton = (label: string): HTMLButtonElement => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.style.height = '26px';
+      button.style.padding = '0 8px';
+      button.style.border = `1px solid ${borderColor}`;
+      button.style.borderRadius = '4px';
+      button.style.background = 'transparent';
+      button.style.color = 'inherit';
+      button.style.cursor = 'pointer';
+      return button;
+    };
+
+    this.filterPanel.innerHTML = '';
+    const root = document.createElement('div');
+    root.style.display = 'flex';
+    root.style.flexDirection = 'column';
+    root.style.maxHeight = '360px';
+    root.style.height = state.mode === 'values' ? '360px' : 'auto';
+    root.style.overflow = 'hidden';
+
+    const header = document.createElement('div');
+    header.style.padding = '8px 10px';
+    header.style.borderBottom = `1px solid ${borderColor}`;
+    header.style.fontWeight = '600';
+    header.textContent = `Filter ${toColumnLabel(state.col)}`;
+    root.appendChild(header);
+
+    const sortLabel = document.createElement('div');
+    sortLabel.textContent = 'Sort';
+    sortLabel.style.padding = '8px 10px 4px';
+    sortLabel.style.fontSize = '11px';
+    sortLabel.style.opacity = '0.7';
+    root.appendChild(sortLabel);
+
+    const sortRow = document.createElement('div');
+    sortRow.style.display = 'flex';
+    sortRow.style.flexWrap = 'wrap';
+    sortRow.style.gap = '6px';
+    sortRow.style.padding = '8px 10px 6px';
+
+    const sortAsc = makeButton('Sort A to Z');
+    sortAsc.onclick = () => {
+      this.sheet!.sortFilterByColumn(state.col, 'asc').then((sorted) => {
+        if (sorted) {
+          this.hideFilterPanel();
+          this.render();
+        }
+      });
+    };
+    const sortDesc = makeButton('Sort Z to A');
+    sortDesc.onclick = () => {
+      this.sheet!.sortFilterByColumn(state.col, 'desc').then((sorted) => {
+        if (sorted) {
+          this.hideFilterPanel();
+          this.render();
+        }
+      });
+    };
+    sortRow.append(sortAsc, sortDesc);
+    root.appendChild(sortRow);
+
+    const modeLabel = document.createElement('div');
+    modeLabel.textContent = 'Filter';
+    modeLabel.style.padding = '0 10px 4px';
+    modeLabel.style.fontSize = '11px';
+    modeLabel.style.opacity = '0.7';
+    root.appendChild(modeLabel);
+
+    const modeRow = document.createElement('div');
+    modeRow.style.display = 'flex';
+    modeRow.style.flexWrap = 'wrap';
+    modeRow.style.gap = '6px';
+    modeRow.style.padding = '0 10px 8px';
+
+    const makeModeButton = (label: string, mode: FilterPanelMode) => {
+      const button = makeButton(label);
+      if (state.mode === mode) {
+        button.style.background = activeBG;
+      }
+      button.onclick = () => {
+        if (!this.filterPanelState) return;
+        this.filterPanelState.mode = mode;
+        this.renderFilterPanel();
+      };
+      return button;
+    };
+    modeRow.append(
+      makeModeButton('Filter by values', 'values'),
+      makeModeButton('Filter by condition', 'condition'),
+    );
+    root.appendChild(modeRow);
+
+    const body = document.createElement('div');
+    body.style.flex = '1';
+    body.style.minHeight = '0';
+    body.style.padding = '0 10px';
+    body.style.display = 'flex';
+    body.style.flexDirection = 'column';
+    root.appendChild(body);
+
+    if (state.mode === 'values') {
+      const search = document.createElement('input');
+      search.type = 'text';
+      search.dataset.wbFilterSearch = 'true';
+      search.value = state.search;
+      search.placeholder = 'Search values';
+      search.style.width = '100%';
+      search.style.margin = '0 0 8px';
+      search.style.height = '28px';
+      search.style.padding = '0 8px';
+      search.style.border = `1px solid ${borderColor}`;
+      search.style.borderRadius = '4px';
+      search.style.background = 'transparent';
+      search.style.color = 'inherit';
+      search.oninput = () => {
+        if (!this.filterPanelState) return;
+        this.filterPanelState.search = search.value;
+        this.renderFilterPanel();
+      };
+      body.appendChild(search);
+
+      const allValues = state.values;
+      const selectedCount = allValues.filter((value) =>
+        state.selected.has(value),
+      ).length;
+      const summary = document.createElement('div');
+      summary.textContent = `Selected ${selectedCount} / ${allValues.length}`;
+      summary.style.margin = '0 0 8px';
+      summary.style.fontSize = '11px';
+      summary.style.opacity = '0.7';
+      body.appendChild(summary);
+
+      const keyword = state.search.trim().toLowerCase();
+      const filteredValues = allValues
+        .filter((value) => {
+          if (!keyword) return true;
+          const label = value === '' ? '(Blanks)' : value;
+          return label.toLowerCase().includes(keyword);
+        })
+        .slice(0, FilterPanelMaxVisibleValues);
+
+      const valuesWrap = document.createElement('div');
+      valuesWrap.style.flex = '1';
+      valuesWrap.style.minHeight = '0';
+      valuesWrap.style.border = `1px solid ${borderColor}`;
+      valuesWrap.style.borderRadius = '4px';
+      valuesWrap.style.overflow = 'auto';
+
+      const selectedVisible = filteredValues.filter((value) =>
+        state.selected.has(value),
+      ).length;
+      const selectAllRow = document.createElement('label');
+      selectAllRow.style.display = 'flex';
+      selectAllRow.style.alignItems = 'center';
+      selectAllRow.style.gap = '8px';
+      selectAllRow.style.padding = '6px 8px';
+      selectAllRow.style.borderBottom = `1px solid ${borderColor}`;
+      selectAllRow.style.cursor = 'pointer';
+      const selectAll = document.createElement('input');
+      selectAll.type = 'checkbox';
+      selectAll.checked =
+        filteredValues.length > 0 && selectedVisible === filteredValues.length;
+      selectAll.indeterminate =
+        selectedVisible > 0 && selectedVisible < filteredValues.length;
+      selectAll.onchange = () => {
+        if (!this.filterPanelState) return;
+        if (selectAll.checked) {
+          for (const value of filteredValues) {
+            this.filterPanelState.selected.add(value);
+          }
+        } else {
+          for (const value of filteredValues) {
+            this.filterPanelState.selected.delete(value);
+          }
+        }
+        this.renderFilterPanel();
+      };
+      const selectAllText = document.createElement('span');
+      selectAllText.textContent = 'Select all';
+      selectAllRow.append(selectAll, selectAllText);
+      valuesWrap.appendChild(selectAllRow);
+
+      if (filteredValues.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.padding = '10px';
+        empty.style.opacity = '0.7';
+        empty.textContent = 'No values';
+        valuesWrap.appendChild(empty);
+      } else {
+        for (const value of filteredValues) {
+          const row = document.createElement('label');
+          row.style.display = 'flex';
+          row.style.alignItems = 'center';
+          row.style.gap = '8px';
+          row.style.padding = '6px 8px';
+          row.style.cursor = 'pointer';
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = state.selected.has(value);
+          checkbox.onchange = () => {
+            if (!this.filterPanelState) return;
+            if (checkbox.checked) {
+              this.filterPanelState.selected.add(value);
+            } else {
+              this.filterPanelState.selected.delete(value);
+            }
+          };
+          const text = document.createElement('span');
+          text.textContent = value === '' ? '(Blanks)' : value;
+          text.style.overflow = 'hidden';
+          text.style.textOverflow = 'ellipsis';
+          text.style.whiteSpace = 'nowrap';
+          row.append(checkbox, text);
+          valuesWrap.appendChild(row);
+        }
+      }
+      body.appendChild(valuesWrap);
+    } else {
+      const wrapper = document.createElement('div');
+      wrapper.style.display = 'grid';
+      wrapper.style.gap = '8px';
+
+      const operator = document.createElement('select');
+      operator.style.height = '30px';
+      operator.style.border = `1px solid ${borderColor}`;
+      operator.style.borderRadius = '4px';
+      operator.style.background = 'transparent';
+      operator.style.color = 'inherit';
+
+      const conditionOptions: Array<{ value: FilterCondition['op']; label: string }> = [
+        { value: 'contains', label: 'Contains' },
+        { value: 'notContains', label: 'Does not contain' },
+        { value: 'equals', label: 'Equals' },
+        { value: 'notEquals', label: 'Does not equal' },
+        { value: 'isEmpty', label: 'Is empty' },
+        { value: 'isNotEmpty', label: 'Is not empty' },
+      ];
+
+      const currentOp =
+        state.condition.op === 'in' ? 'contains' : state.condition.op;
+      for (const item of conditionOptions) {
+        const option = document.createElement('option');
+        option.value = item.value;
+        option.textContent = item.label;
+        option.selected = currentOp === item.value;
+        operator.appendChild(option);
+      }
+      operator.onchange = () => {
+        if (!this.filterPanelState) return;
+        const nextOp = operator.value as FilterCondition['op'];
+        this.filterPanelState.condition = {
+          op: nextOp,
+          value: this.filterPanelState.condition.value || '',
+        };
+        this.renderFilterPanel();
+      };
+      wrapper.appendChild(operator);
+
+      const needsValue =
+        currentOp !== 'isEmpty' && currentOp !== 'isNotEmpty';
+      if (needsValue) {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = this.filterPanelState?.condition.value || '';
+        input.placeholder = 'Enter value';
+        input.style.height = '30px';
+        input.style.padding = '0 8px';
+        input.style.border = `1px solid ${borderColor}`;
+        input.style.borderRadius = '4px';
+        input.style.background = 'transparent';
+        input.style.color = 'inherit';
+        input.oninput = () => {
+          if (!this.filterPanelState) return;
+          this.filterPanelState.condition = {
+            ...this.filterPanelState.condition,
+            value: input.value,
+          };
+        };
+        wrapper.appendChild(input);
+      }
+
+      body.appendChild(wrapper);
+    }
+
+    const footer = document.createElement('div');
+    footer.style.display = 'flex';
+    footer.style.justifyContent = 'flex-end';
+    footer.style.gap = '6px';
+    footer.style.padding = '8px 10px';
+
+    const disableButton = (button: HTMLButtonElement): void => {
+      button.disabled = true;
+      button.style.opacity = '0.5';
+      button.style.cursor = 'not-allowed';
+    };
+
+    const clear = makeButton('Clear');
+    clear.onclick = () => {
+      this.sheet!.clearColumnFilter(state.col).then(() => {
+        this.hideFilterPanel();
+        this.render();
+      });
+    };
+    if (!state.hasExistingCondition) {
+      disableButton(clear);
+    }
+
+    const cancel = makeButton('Cancel');
+    cancel.onclick = () => this.hideFilterPanel();
+
+    const apply = makeButton('Apply');
+    apply.onclick = () => {
+      void this.applyFilterPanel();
+    };
+    if (!this.isFilterPanelDirty(state)) {
+      disableButton(apply);
+    }
+
+    footer.append(clear, cancel, apply);
+    root.appendChild(footer);
+
+    this.filterPanel.appendChild(root);
+
+    if (wasSearchFocused && state.mode === 'values') {
+      const restoredSearch = this.filterPanel.querySelector(
+        'input[data-wb-filter-search="true"]',
+      ) as HTMLInputElement | null;
+      if (restoredSearch) {
+        restoredSearch.focus();
+        const valueLength = restoredSearch.value.length;
+        const start = Math.max(
+          0,
+          Math.min(valueLength, searchSelectionStart ?? valueLength),
+        );
+        const end = Math.max(
+          start,
+          Math.min(valueLength, searchSelectionEnd ?? start),
+        );
+        restoredSearch.setSelectionRange(start, end);
+      }
     }
   }
 
@@ -1005,12 +1658,20 @@ export class Worksheet {
   private addEventListeners() {
     const scrollContainer = this.gridContainer.getScrollContainer();
     this.addEventListener(window, 'resize', () => this.render());
-    this.addEventListener(scrollContainer, 'scroll', () => this.render());
+    this.addEventListener(scrollContainer, 'scroll', () => {
+      this.hideFilterPanel();
+      this.render();
+    });
     this.addEventListener(scrollContainer, 'mousedown', (e) => {
       void this.handleMouseDown(e);
     });
     this.addEventListener(scrollContainer, 'mousemove', (e) => {
       this.handleMouseMove(e);
+    });
+    this.addEventListener(scrollContainer, 'mouseleave', () => {
+      const scrollContainer = this.gridContainer.getScrollContainer();
+      scrollContainer.style.cursor = '';
+      this.setFilterButtonHoverCol(null);
     });
     this.addEventListener(scrollContainer, 'dblclick', (e) => {
       this.handleDblClick(e);
@@ -1410,6 +2071,7 @@ export class Worksheet {
     }
     if (freezeHandle) {
       scrollContainer.style.cursor = 'grab';
+      this.setFilterButtonHoverCol(null);
       if (this.resizeHover) {
         this.resizeHover = null;
         this.renderOverlay();
@@ -1429,9 +2091,11 @@ export class Worksheet {
     if (result) {
       scrollContainer.style.cursor =
         result.axis === 'column' ? 'col-resize' : 'row-resize';
+      this.setFilterButtonHoverCol(null);
     } else {
       if (this.detectAutofillHandle(e.offsetX, e.offsetY)) {
         scrollContainer.style.cursor = 'crosshair';
+        this.setFilterButtonHoverCol(null);
         if (changed) {
           this.renderOverlay();
         }
@@ -1441,6 +2105,16 @@ export class Worksheet {
       // Check if hovering over a selected header → show grab cursor
       const x = e.offsetX;
       const y = e.offsetY;
+      const filterButtonCol = this.detectFilterButton(x, y);
+      if (filterButtonCol !== null) {
+        scrollContainer.style.cursor = 'pointer';
+        this.setFilterButtonHoverCol(filterButtonCol);
+        if (changed) {
+          this.renderOverlay();
+        }
+        return;
+      }
+      this.setFilterButtonHoverCol(null);
       const selected = this.sheet?.getSelectedIndices();
 
       if (selected) {
@@ -1470,6 +2144,14 @@ export class Worksheet {
     }
   }
 
+  private setFilterButtonHoverCol(col: number | null): void {
+    if (this.filterButtonHoverCol === col) {
+      return;
+    }
+    this.filterButtonHoverCol = col;
+    this.render();
+  }
+
   private async handleMouseDown(e: MouseEvent) {
     // Check for freeze handle first (highest priority)
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
@@ -1489,6 +2171,14 @@ export class Worksheet {
 
     const x = e.offsetX;
     const y = e.offsetY;
+
+    const filterButtonCol = this.detectFilterButton(x, y);
+    if (filterButtonCol !== null) {
+      e.preventDefault();
+      await this.finishEditing();
+      await this.showFilterPanel(filterButtonCol);
+      return;
+    }
 
     // Handle corner button click (select all)
     const isCorner = x < RowHeaderWidth && y < DefaultCellHeight;
@@ -2756,6 +3446,10 @@ export class Worksheet {
     await this.sheet!.loadStyles();
     await this.sheet!.loadMerges();
     await this.sheet!.loadFreezePane();
+    await this.sheet!.loadFilterState();
+    this.hiddenRows.clear();
+    this.hiddenRowSizeBackup.clear();
+    this.syncHiddenRowsFromSheet();
     this.updateFreezeState();
   }
 
@@ -3118,6 +3812,8 @@ export class Worksheet {
       return;
     }
 
+    this.syncHiddenRowsFromSheet();
+
     const gridSize = this.gridSize;
     const freeze = this.freezeState;
 
@@ -3160,7 +3856,37 @@ export class Worksheet {
       sheet.getRowStyles(),
       sheet.getSheetStyle(),
       sheet.getMerges(),
+      sheet.getFilterRange(),
+      sheet.getFilteredColumns(),
+      this.filterButtonHoverCol,
     );
+  }
+
+  /**
+   * `syncHiddenRowsFromSheet` applies filter-hidden rows as zero-height rows.
+   */
+  private syncHiddenRowsFromSheet(): void {
+    const sheet = this.sheet;
+    if (!sheet) return;
+
+    const nextHiddenRows = sheet.getHiddenRows();
+
+    for (const row of this.hiddenRows) {
+      if (nextHiddenRows.has(row)) continue;
+      const restoreSize =
+        this.hiddenRowSizeBackup.get(row) ?? this.rowDim.getDefaultSize();
+      this.rowDim.setSize(row, restoreSize);
+      this.hiddenRowSizeBackup.delete(row);
+    }
+
+    for (const row of nextHiddenRows) {
+      if (!this.hiddenRows.has(row)) {
+        this.hiddenRowSizeBackup.set(row, this.rowDim.getSize(row));
+        this.rowDim.setSize(row, 0);
+      }
+    }
+
+    this.hiddenRows = nextHiddenRows;
   }
 
   private get gridSize(): Size {

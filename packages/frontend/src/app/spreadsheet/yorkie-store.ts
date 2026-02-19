@@ -4,6 +4,7 @@ import {
   Grid,
   Cell,
   CellStyle,
+  FilterState,
   MergeSpan,
   Ref,
   Sref,
@@ -101,6 +102,41 @@ export class YorkieStore implements Store {
 
   private stableSheetEntries(sheet: Worksheet["sheet"]): Array<[Sref, Cell]> {
     return this.stableObjectEntries<Cell>(sheet) as Array<[Sref, Cell]>;
+  }
+
+  private toWorksheetFilterState(state: FilterState): NonNullable<Worksheet["filter"]> {
+    return {
+      startRow: state.range[0].r,
+      endRow: state.range[1].r,
+      startCol: state.range[0].c,
+      endCol: state.range[1].c,
+      columns: Object.fromEntries(
+        Object.entries(state.columns).map(([key, condition]) => [
+          key,
+          { ...condition },
+        ]),
+      ),
+      hiddenRows: [...state.hiddenRows],
+    };
+  }
+
+  private fromWorksheetFilterState(
+    state: Worksheet["filter"] | undefined,
+  ): FilterState | undefined {
+    if (!state) return undefined;
+    return {
+      range: [
+        { r: state.startRow, c: state.startCol },
+        { r: state.endRow, c: state.endCol },
+      ],
+      columns: Object.fromEntries(
+        Object.entries(state.columns || {}).map(([key, condition]) => [
+          key,
+          { ...condition },
+        ]),
+      ),
+      hiddenRows: [...(state.hiddenRows || [])],
+    };
   }
 
   private ensureIndex(): void {
@@ -386,7 +422,7 @@ export class YorkieStore implements Store {
 
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
     const tabId = this.tabId;
-    this.doc.update((root) => {
+    const applyShift = (root: SpreadsheetDocument) => {
       const ws = root.sheets[tabId];
       // Collect all entries and compute new keys/formulas
       const entries: Array<[string, Cell]> = [];
@@ -520,6 +556,16 @@ export class YorkieStore implements Store {
           chart.anchor = toSref(fallback);
         }
       }
+    };
+
+    if (this.batchOps) {
+      this.batchOps.push(applyShift);
+      this.dirty = true;
+      return;
+    }
+
+    this.doc.update((root) => {
+      applyShift(root);
     });
 
     this.dirty = true;
@@ -532,7 +578,7 @@ export class YorkieStore implements Store {
     dstIndex: number,
   ): Promise<void> {
     const tabId = this.tabId;
-    this.doc.update((root) => {
+    const applyMove = (root: SpreadsheetDocument) => {
       const ws = root.sheets[tabId];
       // Collect all entries
       const entries: Array<[string, Cell]> = [];
@@ -631,6 +677,16 @@ export class YorkieStore implements Store {
           chart.anchor = toSref(nextAnchor);
         }
       }
+    };
+
+    if (this.batchOps) {
+      this.batchOps.push(applyMove);
+      this.dirty = true;
+      return;
+    }
+
+    this.doc.update((root) => {
+      applyMove(root);
     });
 
     this.dirty = true;
@@ -883,6 +939,35 @@ export class YorkieStore implements Store {
       result.set(sref, { ...span });
     }
     return result;
+  }
+
+  async setFilterState(state: FilterState | undefined): Promise<void> {
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      this.batchOps.push((root) => {
+        const ws = root.sheets[tabId];
+        if (!state) {
+          delete ws.filter;
+          return;
+        }
+        ws.filter = this.toWorksheetFilterState(state);
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      const ws = root.sheets[tabId];
+      if (!state) {
+        delete ws.filter;
+        return;
+      }
+      ws.filter = this.toWorksheetFilterState(state);
+    });
+  }
+
+  async getFilterState(): Promise<FilterState | undefined> {
+    return this.fromWorksheetFilterState(this.getSheet().filter);
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {

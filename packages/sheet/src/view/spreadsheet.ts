@@ -1,6 +1,7 @@
 import {
   BorderPreset,
   CellStyle,
+  FilterCondition,
   GridResolver,
   Range,
   Ref,
@@ -282,6 +283,65 @@ export class Spreadsheet {
   public canMergeSelection(): boolean {
     if (!this.sheet) return false;
     return this.sheet.canMergeSelection();
+  }
+
+  /**
+   * `hasFilter` returns whether an active filter exists on the sheet.
+   */
+  public hasFilter(): boolean {
+    return this.sheet?.hasFilter() || false;
+  }
+
+  /**
+   * `createFilterFromSelection` creates a filter for the current cell selection.
+   */
+  public async createFilterFromSelection(): Promise<boolean> {
+    if (!this.sheet || this._readOnly) return false;
+    const created = await this.sheet.createFilterFromSelection();
+    if (created) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
+    return created;
+  }
+
+  /**
+   * `clearFilter` removes all active filters.
+   */
+  public async clearFilter(): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.clearFilter();
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `setColumnFilter` sets a condition on a filter column.
+   */
+  public async setColumnFilter(
+    col: number,
+    condition: FilterCondition,
+  ): Promise<boolean> {
+    if (!this.sheet || this._readOnly) return false;
+    const changed = await this.sheet.setColumnFilter(col, condition);
+    if (changed) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
+    return changed;
+  }
+
+  /**
+   * `clearColumnFilter` removes a condition from a filter column.
+   */
+  public async clearColumnFilter(col: number): Promise<boolean> {
+    if (!this.sheet || this._readOnly) return false;
+    const changed = await this.sheet.clearColumnFilter(col);
+    if (changed) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
+    return changed;
   }
 
   /**

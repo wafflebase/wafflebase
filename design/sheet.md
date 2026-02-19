@@ -41,6 +41,16 @@ type Reference = Sref | Srng;
 type Ref = { r: number; c: number };       // 1-based numeric coordinate
 type Range = [Ref, Ref];                   // [topLeft, bottomRight]
 type MergeSpan = { rs: number; cs: number }; // merged block size from anchor
+type FilterCondition = {
+  op: 'contains' | 'notContains' | 'equals' | 'notEquals' | 'isEmpty' | 'isNotEmpty' | 'in';
+  value?: string;
+  values?: string[];
+};
+type FilterState = {
+  range: Range;                            // header row + data rows
+  columns: Record<string, FilterCondition>; // absolute col index as string
+  hiddenRows: number[];                    // 1-based rows hidden by filter
+};
 
 type Cell = { v?: string; f?: string; s?: CellStyle }; // v = value, f = formula, s = style
 type Grid = Map<Sref, Cell>;              // Sparse cell map
@@ -88,6 +98,12 @@ all cell, selection, and navigation operations.
   recalculated from all changed destination refs. With freeze panes, the handle
   is hidden (and non-interactive) when the selection is in the unfrozen
   scrollable quadrant but the handle position would fall under frozen panes.
+- **Filtering** — `createFilterFromSelection`, `setColumnFilter`, and
+  `clearFilter` persist filter metadata and compute hidden row indices.
+  Value-checklist filtering is represented as `{ op: 'in', values: [...] }`.
+  Hidden
+  rows are rendered as zero-height rows in `Worksheet` while preserving
+  user-defined row heights for restore.
 - **Dimensions** — `setRowHeight`, `setColumnWidth`, persisted to the store.
 
 **Grid dimensions:** `1,000,000 rows x 182,780 columns` (constants in the
@@ -137,6 +153,10 @@ interface Store {
   deleteMerge(anchor: Ref): Promise<boolean>;
   getMerges(): Promise<Map<Sref, MergeSpan>>;
 
+  // Filter state
+  setFilterState(state: FilterState | undefined): Promise<void>;
+  getFilterState(): Promise<FilterState | undefined>;
+
   // Batch transactions
   beginBatch(): void;
   endBatch(): void;
@@ -156,7 +176,10 @@ interface Store {
 **Batch transactions** — `beginBatch()` / `endBatch()` group multiple store
 mutations into a single undo step. The `Sheet` class wraps user-facing methods
 (`setData`, `removeData`, `paste`, `setRangeStyle`, and the post-shift part of
-`shiftCells`/`moveCells`) in batch calls. See
+`shiftCells`/`moveCells`) in batch calls. Filter mutations (`setFilterRange`,
+`setColumnFilter`, `clearColumnFilter`, `setColumnIncludedValues`, `clearFilter`)
+and filter-range sorting (`sortFilterByColumn`) are also wrapped so each action
+is a single undo step. See
 [batch-transactions.md](batch-transactions.md) for the full design.
 
 **MemStore** is the built-in in-memory implementation. It stores cells in a
@@ -181,6 +204,18 @@ where the key is the anchor cell (top-left of the merged block), and
 - Formula evaluation resolves covered references through this normalization.
 - Rendering draws only anchor cells for merged blocks and skips covered cells.
 - Merges that cross freeze pane boundaries are disallowed.
+
+### Filter Model
+
+Filter state is stored as worksheet-level metadata (`FilterState`):
+- `range` is the table range (header row included).
+- `columns` stores per-column criteria keyed by absolute column index.
+- `hiddenRows` stores computed row indices hidden by current criteria.
+
+`Sheet.recomputeFilterHiddenRows()` evaluates each data row (`range.startRow +
+1` through `range.endRow`) and persists the result through `Store`. `Worksheet`
+maps hidden rows to zero-height rows in `DimensionIndex` so rendering, hit
+testing, and scrolling all stay consistent without deleting underlying data.
 
 #### CellIndex
 

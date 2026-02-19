@@ -1,4 +1,10 @@
-import { Cell, CellStyle, MergeSpan, Sref } from "@wafflebase/sheet";
+import {
+  Cell,
+  CellStyle,
+  FilterCondition,
+  MergeSpan,
+  Sref,
+} from "@wafflebase/sheet";
 
 export type ChartType = "bar" | "line";
 
@@ -15,6 +21,17 @@ export type SheetChart = {
   offsetY: number;
   width: number;
   height: number;
+};
+
+export type WorksheetFilterState = {
+  startRow: number;
+  endRow: number;
+  startCol: number;
+  endCol: number;
+  columns: {
+    [key: string]: FilterCondition;
+  };
+  hiddenRows: number[];
 };
 
 export type Worksheet = {
@@ -37,6 +54,7 @@ export type Worksheet = {
   merges?: {
     [key: Sref]: MergeSpan;
   };
+  filter?: WorksheetFilterState;
   charts?: {
     [id: string]: SheetChart;
   };

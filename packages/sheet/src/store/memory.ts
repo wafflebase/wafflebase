@@ -16,6 +16,7 @@ import {
   Axis,
   Cell,
   CellStyle,
+  FilterState,
   Grid,
   MergeSpan,
   Ref,
@@ -40,6 +41,7 @@ export class MemStore implements Store {
   private rowStyles: Map<number, CellStyle> = new Map();
   private sheetStyle?: CellStyle;
   private merges: Map<Sref, MergeSpan> = new Map();
+  private filterState?: FilterState;
   private frozenRows = 0;
   private frozenCols = 0;
 
@@ -288,6 +290,45 @@ export class MemStore implements Store {
 
   async getMerges(): Promise<Map<Sref, MergeSpan>> {
     return new Map(this.merges);
+  }
+
+  async setFilterState(state: FilterState | undefined): Promise<void> {
+    if (!state) {
+      this.filterState = undefined;
+      return;
+    }
+    this.filterState = {
+      range: [
+        { ...state.range[0] },
+        { ...state.range[1] },
+      ],
+      columns: Object.fromEntries(
+        Object.entries(state.columns).map(([key, condition]) => [
+          key,
+          { ...condition },
+        ]),
+      ),
+      hiddenRows: [...state.hiddenRows],
+    };
+  }
+
+  async getFilterState(): Promise<FilterState | undefined> {
+    if (!this.filterState) {
+      return undefined;
+    }
+    return {
+      range: [
+        { ...this.filterState.range[0] },
+        { ...this.filterState.range[1] },
+      ],
+      columns: Object.fromEntries(
+        Object.entries(this.filterState.columns).map(([key, condition]) => [
+          key,
+          { ...condition },
+        ]),
+      ),
+      hiddenRows: [...this.filterState.hiddenRows],
+    };
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {

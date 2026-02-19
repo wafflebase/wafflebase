@@ -111,6 +111,36 @@ export type MergeSpan = {
 };
 
 /**
+ * Filter operators for column-level filtering.
+ */
+export type FilterOperator =
+  | 'contains'
+  | 'notContains'
+  | 'equals'
+  | 'notEquals'
+  | 'isEmpty'
+  | 'isNotEmpty'
+  | 'in';
+
+/**
+ * Filter condition for a single column.
+ */
+export type FilterCondition = {
+  op: FilterOperator;
+  value?: string;
+  values?: string[];
+};
+
+/**
+ * FilterState stores filter range, per-column criteria, and computed hidden rows.
+ */
+export type FilterState = {
+  range: Range;
+  columns: Record<string, FilterCondition>;
+  hiddenRows: number[];
+};
+
+/**
  * Grid type represents a grid of rows and columns.
  */
 export type Grid = Map<Sref, Cell>;

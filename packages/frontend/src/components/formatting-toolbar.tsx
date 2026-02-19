@@ -49,6 +49,7 @@ import {
   IconAbc,
   IconCalendar,
   IconTableAlias,
+  IconFilter,
   IconMathFunction,
   IconChartBar,
   IconBorderAll,
@@ -146,6 +147,7 @@ export function FormattingToolbar({
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
   const [selectionMerged, setSelectionMerged] = useState(false);
   const [canMerge, setCanMerge] = useState(false);
+  const [hasFilter, setHasFilter] = useState(false);
   const usPreview: LocaleFormatPreview = useMemo(
     () => buildLocaleFormatPreview("en-US"),
     [],
@@ -161,6 +163,7 @@ export function FormattingToolbar({
     setStyle(s);
     setSelectionMerged(spreadsheet.isSelectionMerged());
     setCanMerge(spreadsheet.canMergeSelection());
+    setHasFilter(spreadsheet.hasFilter());
   }, [spreadsheet]);
 
   useEffect(() => {
@@ -246,6 +249,16 @@ export function FormattingToolbar({
   const handleToggleMerge = useCallback(() => {
     spreadsheet?.toggleMergeCells();
   }, [spreadsheet]);
+
+  const handleToggleFilter = useCallback(async () => {
+    if (!spreadsheet) return;
+    if (spreadsheet.hasFilter()) {
+      await spreadsheet.clearFilter();
+    } else {
+      await spreadsheet.createFilterFromSelection();
+    }
+    await refreshStyle();
+  }, [refreshStyle, spreadsheet]);
 
   const handleBorders = useCallback(
     (preset: BorderPreset) => {
@@ -674,6 +687,8 @@ export function FormattingToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <Separator orientation="vertical" className="mx-1 h-6" />
+
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -684,6 +699,24 @@ export function FormattingToolbar({
               </button>
             </TooltipTrigger>
             <TooltipContent>Functions</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${
+                  hasFilter ? "bg-muted" : ""
+                }`}
+                onClick={() => {
+                  void handleToggleFilter();
+                }}
+              >
+                <IconFilter size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {hasFilter ? "Clear filter" : "Create filter from selection"}
+            </TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -739,6 +772,15 @@ export function FormattingToolbar({
               <DropdownMenuItem onClick={() => handleNumberFormat("date")}>
                 <IconCalendar size={16} className="mr-2" />
                 Date ({localePreview.date})
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  void handleToggleFilter();
+                }}
+              >
+                <IconFilter size={16} className="mr-2" />
+                {hasFilter ? "Clear filter" : "Create filter"}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Align</DropdownMenuLabel>

@@ -137,6 +137,28 @@ type SheetChart = {
   height: number;        // px
 };
 
+type WorksheetFilterState = {
+  startRow: number;
+  endRow: number;
+  startCol: number;
+  endCol: number;
+  columns: {
+    [key: string]: {
+      op:
+        | 'contains'
+        | 'notContains'
+        | 'equals'
+        | 'notEquals'
+        | 'isEmpty'
+        | 'isNotEmpty'
+        | 'in';
+      value?: string;
+      values?: string[];
+    };
+  };
+  hiddenRows: number[];
+};
+
 type Worksheet = {
   sheet: { [sref: Sref]: Cell };
   rowHeights: { [index: string]: number };
@@ -145,6 +167,7 @@ type Worksheet = {
   rowStyles: { [index: string]: CellStyle };
   sheetStyle?: CellStyle;
   merges?: { [anchor: Sref]: { rs: number; cs: number } };
+  filter?: WorksheetFilterState;
   charts?: { [id: string]: SheetChart };
   frozenRows: number;
   frozenCols: number;
@@ -194,6 +217,8 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `setMerge(anchor, span)` | Write to `root.sheets[tabId].merges[anchorSref]` |
 | `deleteMerge(anchor)` | Delete `root.sheets[tabId].merges[anchorSref]` |
 | `getMerges()` | Read all merge anchors from `root.sheets[tabId].merges` |
+| `setFilterState(state)` | Write/delete `root.sheets[tabId].filter` |
+| `getFilterState()` | Read `root.sheets[tabId].filter` |
 | `updateActiveCell(ref)` | `doc.update((_, presence) => presence.set(...))` |
 | `getPresences()` | `doc.getPresences()` filtered to other clients |
 

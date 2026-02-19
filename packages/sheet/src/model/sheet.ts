@@ -22,6 +22,8 @@ import {
   GridResolver,
   Cell,
   CellStyle,
+  FilterCondition,
+  FilterState,
   MergeSpan,
   Ref,
   Sref,
@@ -31,6 +33,7 @@ import {
 } from './types';
 import {
   moveRef,
+  remapIndex,
   shiftDimensionMap,
   moveDimensionMap,
   relocateFormula,
@@ -146,6 +149,21 @@ export class Sheet {
    * `mergeCoverMap` maps covered non-anchor srefs to their anchor sref.
    */
   private mergeCoverMap: Map<Sref, Sref> = new Map();
+
+  /**
+   * `filterRange` represents the filtered table range (header row included).
+   */
+  private filterRange?: Range;
+
+  /**
+   * `filterColumns` stores column-specific criteria keyed by absolute column index.
+   */
+  private filterColumns: Map<number, FilterCondition> = new Map();
+
+  /**
+   * `hiddenRows` stores row indices hidden by the active filter.
+   */
+  private hiddenRows: Set<number> = new Set();
 
   /**
    * `copyBuffer` stores the source range and grid from the last copy operation.
@@ -283,6 +301,86 @@ export class Sheet {
   async loadMerges(): Promise<void> {
     this.merges = await this.store.getMerges();
     this.rebuildMergeCoverMap();
+  }
+
+  /**
+   * `loadFilterState` loads filter metadata from the store.
+   */
+  async loadFilterState(): Promise<void> {
+    const state = await this.store.getFilterState();
+    if (!state) {
+      this.filterRange = undefined;
+      this.filterColumns.clear();
+      this.hiddenRows.clear();
+      return;
+    }
+
+    this.filterRange = toRange(state.range[0], state.range[1]);
+    this.filterColumns = new Map();
+    for (const [key, condition] of Object.entries(state.columns)) {
+      const col = Number(key);
+      if (!Number.isFinite(col)) continue;
+      this.filterColumns.set(col, { ...condition });
+    }
+    this.normalizeFilterColumnsToRange();
+    this.hiddenRows = new Set(state.hiddenRows.filter((row) => row > 0));
+    this.pruneHiddenRowsOutsideFilter();
+    this.ensureActiveCellVisibleAfterFiltering();
+  }
+
+  /**
+   * `hasFilter` returns whether a filter range is active.
+   */
+  hasFilter(): boolean {
+    return !!this.filterRange;
+  }
+
+  /**
+   * `getFilterRange` returns the active filter range.
+   */
+  getFilterRange(): Range | undefined {
+    return this.filterRange ? cloneRange(this.filterRange) : undefined;
+  }
+
+  /**
+   * `getHiddenRows` returns currently hidden row indices due to filtering.
+   */
+  getHiddenRows(): Set<number> {
+    return new Set(this.hiddenRows);
+  }
+
+  /**
+   * `getFilteredColumns` returns columns that currently have filter criteria.
+   */
+  getFilteredColumns(): Set<number> {
+    return new Set(this.filterColumns.keys());
+  }
+
+  /**
+   * `getColumnFilterCondition` returns the current condition for `col`.
+   */
+  getColumnFilterCondition(col: number): FilterCondition | undefined {
+    const condition = this.filterColumns.get(col);
+    if (!condition) return undefined;
+    return {
+      ...condition,
+      values: condition.values ? [...condition.values] : undefined,
+    };
+  }
+
+  /**
+   * `isColumnInFilter` returns whether `col` is inside the active filter range.
+   */
+  isColumnInFilter(col: number): boolean {
+    if (!this.filterRange) return false;
+    return col >= this.filterRange[0].c && col <= this.filterRange[1].c;
+  }
+
+  /**
+   * `getFilterState` returns the current persisted filter state payload.
+   */
+  getFilterState(): FilterState | undefined {
+    return this.buildFilterStatePayload();
   }
 
   /**
@@ -615,6 +713,11 @@ export class Sheet {
 
       // 03. Calculate the cell and its dependencies.
       await calculate(this, dependantsMap, changedSrefs);
+
+      // 04. Recompute active filter visibility if needed.
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
     } finally {
       this.store.endBatch();
     }
@@ -651,6 +754,10 @@ export class Sheet {
       const changedSrefs = this.expandChangedSrefsWithMergeAliases(removeds);
       const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
       await calculate(this, dependantsMap, changedSrefs);
+
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
       return true;
     } finally {
       this.store.endBatch();
@@ -719,6 +826,7 @@ export class Sheet {
     }
     this.merges = shiftMergeMap(this.merges, axis, index, count);
     this.rebuildMergeCoverMap();
+    this.shiftFilterState(axis, index, count);
 
     // Adjust activeCell if it's at or beyond the insertion/deletion point
     const value = axis === 'row' ? this.activeCell.r : this.activeCell.c;
@@ -792,22 +900,10 @@ export class Sheet {
         }
       }
 
-      // Recalculate all formula cells
-      const allSrefs = new Set<Sref>();
-      const fullRange: Range = [
-        { r: 1, c: 1 },
-        { r: 1000, c: 100 },
-      ];
-      const grid = await this.store.getGrid(fullRange);
-      for (const [sref, cell] of grid) {
-        if (cell.f) {
-          allSrefs.add(sref);
-        }
-      }
+      await this.recalculateAllFormulaCells();
 
-      if (allSrefs.size > 0) {
-        const dependantsMap = await this.store.buildDependantsMap(allSrefs);
-        await calculate(this, dependantsMap, allSrefs);
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
       }
     } finally {
       this.store.endBatch();
@@ -822,6 +918,7 @@ export class Sheet {
     src: number,
     count: number,
     dst: number,
+    options?: { skipPostRecalculate?: boolean },
   ): Promise<void> {
     // No-op if source and destination are the same
     if (dst >= src && dst <= src + count) {
@@ -847,6 +944,7 @@ export class Sheet {
     }
     this.merges = moveMergeMap(this.merges, axis, src, count, dst);
     this.rebuildMergeCoverMap();
+    this.moveFilterState(axis, src, count, dst);
 
     // Remap activeCell
     this.activeCell = this.normalizeRefToAnchor(
@@ -861,29 +959,381 @@ export class Sheet {
       ]);
     }
 
+    if (options?.skipPostRecalculate) {
+      return;
+    }
+
     // Batch the formula recalculation
     this.store.beginBatch();
     try {
-      // Recalculate all formula cells
-      const allSrefs = new Set<Sref>();
-      const fullRange: Range = [
-        { r: 1, c: 1 },
-        { r: 1000, c: 100 },
-      ];
-      const grid = await this.store.getGrid(fullRange);
-      for (const [sref, cell] of grid) {
-        if (cell.f) {
-          allSrefs.add(sref);
-        }
-      }
-
-      if (allSrefs.size > 0) {
-        const dependantsMap = await this.store.buildDependantsMap(allSrefs);
-        await calculate(this, dependantsMap, allSrefs);
+      await this.recalculateAllFormulaCells();
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
       }
     } finally {
       this.store.endBatch();
     }
+  }
+
+  /**
+   * `recalculateAllFormulaCells` recalculates all formula cells in the worksheet.
+   */
+  private async recalculateAllFormulaCells(): Promise<void> {
+    const allSrefs = new Set<Sref>();
+    const fullRange: Range = [
+      { r: 1, c: 1 },
+      { r: 1000, c: 100 },
+    ];
+    const grid = await this.store.getGrid(fullRange);
+    for (const [sref, cell] of grid) {
+      if (cell.f) {
+        allSrefs.add(sref);
+      }
+    }
+
+    if (allSrefs.size > 0) {
+      const dependantsMap = await this.store.buildDependantsMap(allSrefs);
+      await calculate(this, dependantsMap, allSrefs);
+    }
+  }
+
+  /**
+   * `buildFilterStatePayload` serializes in-memory filter state for persistence.
+   */
+  private buildFilterStatePayload(): FilterState | undefined {
+    if (!this.filterRange) return undefined;
+
+    const columns: Record<string, FilterCondition> = {};
+    const sortedColumns = Array.from(this.filterColumns.entries()).sort(
+      (a, b) => a[0] - b[0],
+    );
+    for (const [col, condition] of sortedColumns) {
+      if (!this.isColumnInFilter(col)) continue;
+      columns[String(col)] = { ...condition };
+    }
+
+    return {
+      range: cloneRange(this.filterRange),
+      columns,
+      hiddenRows: Array.from(this.hiddenRows).sort((a, b) => a - b),
+    };
+  }
+
+  /**
+   * `normalizeFilterColumnsToRange` removes criteria outside the active filter range.
+   */
+  private normalizeFilterColumnsToRange(): void {
+    if (!this.filterRange) {
+      this.filterColumns.clear();
+      return;
+    }
+
+    for (const col of this.filterColumns.keys()) {
+      if (!this.isColumnInFilter(col)) {
+        this.filterColumns.delete(col);
+      }
+    }
+  }
+
+  /**
+   * `pruneHiddenRowsOutsideFilter` keeps hidden rows within filter data rows only.
+   */
+  private pruneHiddenRowsOutsideFilter(): void {
+    if (!this.filterRange) {
+      this.hiddenRows.clear();
+      return;
+    }
+
+    const dataStart = this.filterRange[0].r + 1;
+    const dataEnd = this.filterRange[1].r;
+    const next = new Set<number>();
+    for (const row of this.hiddenRows) {
+      if (row >= dataStart && row <= dataEnd) {
+        next.add(row);
+      }
+    }
+    this.hiddenRows = next;
+  }
+
+  /**
+   * `normalizeFilterCondition` normalizes and validates a filter condition.
+   */
+  private normalizeFilterCondition(
+    condition: FilterCondition,
+  ): FilterCondition | undefined {
+    const op = condition.op;
+    if (op === 'in') {
+      const values = Array.from(
+        new Set((condition.values || []).map((value) => value.trim())),
+      );
+      return { op, values };
+    }
+
+    if (op === 'isEmpty' || op === 'isNotEmpty') {
+      return { op };
+    }
+
+    const value = (condition.value || '').trim();
+    if (value.length === 0) {
+      return undefined;
+    }
+    return { op, value };
+  }
+
+  /**
+   * `matchesFilterCondition` checks whether a cell text satisfies a condition.
+   */
+  private matchesFilterCondition(
+    value: string,
+    condition: FilterCondition,
+  ): boolean {
+    const normalizedValue = value.trim().toLowerCase();
+    const conditionValue = (condition.value || '').trim().toLowerCase();
+
+    switch (condition.op) {
+      case 'in':
+        return new Set(condition.values || []).has(value.trim());
+      case 'contains':
+        return normalizedValue.includes(conditionValue);
+      case 'notContains':
+        return !normalizedValue.includes(conditionValue);
+      case 'equals':
+        return normalizedValue === conditionValue;
+      case 'notEquals':
+        return normalizedValue !== conditionValue;
+      case 'isEmpty':
+        return normalizedValue.length === 0;
+      case 'isNotEmpty':
+        return normalizedValue.length > 0;
+      default:
+        return true;
+    }
+  }
+
+  /**
+   * `rowMatchesFilters` evaluates all column criteria for a row.
+   * `excludedCol` is ignored (used for filter dropdown option derivation).
+   */
+  private async rowMatchesFilters(
+    row: number,
+    excludedCol?: number,
+  ): Promise<boolean> {
+    for (const [col, condition] of this.filterColumns) {
+      if (col === excludedCol) continue;
+      const cell = await this.getCell({ r: row, c: col });
+      const value = cell?.v || '';
+      if (!this.matchesFilterCondition(value, condition)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * `recomputeFilterHiddenRows` recalculates hidden rows for the active filter.
+   */
+  private async recomputeFilterHiddenRows(): Promise<void> {
+    if (!this.filterRange) {
+      this.hiddenRows.clear();
+      await this.store.setFilterState(undefined);
+      return;
+    }
+
+    // Keep range bounded to valid dimensions.
+    this.filterRange = toRange(
+      {
+        r: Math.max(1, this.filterRange[0].r),
+        c: Math.max(1, this.filterRange[0].c),
+      },
+      {
+        r: Math.min(this.dimension.rows, this.filterRange[1].r),
+        c: Math.min(this.dimension.columns, this.filterRange[1].c),
+      },
+    );
+
+    // Require at least one data row.
+    if (this.filterRange[1].r <= this.filterRange[0].r) {
+      this.filterRange = undefined;
+      this.filterColumns.clear();
+      this.hiddenRows.clear();
+      await this.store.setFilterState(undefined);
+      return;
+    }
+
+    this.normalizeFilterColumnsToRange();
+    const nextHidden = new Set<number>();
+    const dataStart = this.filterRange[0].r + 1;
+    const dataEnd = this.filterRange[1].r;
+
+    if (this.filterColumns.size > 0) {
+      for (let row = dataStart; row <= dataEnd; row++) {
+        if (!(await this.rowMatchesFilters(row))) {
+          nextHidden.add(row);
+        }
+      }
+    }
+
+    this.hiddenRows = nextHidden;
+    this.ensureActiveCellVisibleAfterFiltering();
+    await this.store.setFilterState(this.buildFilterStatePayload());
+  }
+
+  /**
+   * `shiftFilterBoundary` remaps an index after insertion/deletion.
+   */
+  private shiftFilterBoundary(indexValue: number, index: number, count: number): number {
+    if (count > 0) {
+      return indexValue >= index ? indexValue + count : indexValue;
+    }
+
+    const absCount = Math.abs(count);
+    if (indexValue >= index && indexValue < index + absCount) {
+      return index;
+    }
+    if (indexValue >= index + absCount) {
+      return indexValue + count;
+    }
+    return indexValue;
+  }
+
+  /**
+   * `shiftFilterState` remaps filter metadata for insert/delete operations.
+   */
+  private shiftFilterState(axis: Axis, index: number, count: number): void {
+    if (!this.filterRange) {
+      return;
+    }
+
+    if (axis === 'row') {
+      const startRow = this.shiftFilterBoundary(this.filterRange[0].r, index, count);
+      const endRow = this.shiftFilterBoundary(this.filterRange[1].r, index, count);
+      this.filterRange = toRange(
+        { r: Math.max(1, startRow), c: this.filterRange[0].c },
+        { r: Math.max(1, endRow), c: this.filterRange[1].c },
+      );
+
+      const hiddenMap = new Map<number, number>();
+      for (const row of this.hiddenRows) {
+        hiddenMap.set(row, 1);
+      }
+      const shifted = shiftDimensionMap(hiddenMap, index, count);
+      this.hiddenRows = new Set(shifted.keys());
+      this.pruneHiddenRowsOutsideFilter();
+      return;
+    }
+
+    const startCol = this.shiftFilterBoundary(this.filterRange[0].c, index, count);
+    const endCol = this.shiftFilterBoundary(this.filterRange[1].c, index, count);
+    this.filterRange = toRange(
+      { r: this.filterRange[0].r, c: Math.max(1, startCol) },
+      { r: this.filterRange[1].r, c: Math.max(1, endCol) },
+    );
+
+    const columnMap = new Map<number, FilterCondition>();
+    for (const [col, condition] of this.filterColumns) {
+      columnMap.set(col, condition);
+    }
+    this.filterColumns = shiftDimensionMap(columnMap, index, count);
+    this.normalizeFilterColumnsToRange();
+  }
+
+  /**
+   * `moveFilterState` remaps filter metadata for move operations.
+   */
+  private moveFilterState(axis: Axis, src: number, count: number, dst: number): void {
+    if (!this.filterRange) {
+      return;
+    }
+
+    if (axis === 'row') {
+      const startRow = remapIndex(this.filterRange[0].r, src, count, dst);
+      const endRow = remapIndex(this.filterRange[1].r, src, count, dst);
+      this.filterRange = toRange(
+        { r: startRow, c: this.filterRange[0].c },
+        { r: endRow, c: this.filterRange[1].c },
+      );
+
+      const hiddenMap = new Map<number, number>();
+      for (const row of this.hiddenRows) {
+        hiddenMap.set(row, 1);
+      }
+      const moved = moveDimensionMap(hiddenMap, src, count, dst);
+      this.hiddenRows = new Set(moved.keys());
+      this.pruneHiddenRowsOutsideFilter();
+      return;
+    }
+
+    const startCol = remapIndex(this.filterRange[0].c, src, count, dst);
+    const endCol = remapIndex(this.filterRange[1].c, src, count, dst);
+    this.filterRange = toRange(
+      { r: this.filterRange[0].r, c: startCol },
+      { r: this.filterRange[1].r, c: endCol },
+    );
+
+    const columnMap = new Map<number, FilterCondition>();
+    for (const [col, condition] of this.filterColumns) {
+      columnMap.set(col, condition);
+    }
+    this.filterColumns = moveDimensionMap(columnMap, src, count, dst);
+    this.normalizeFilterColumnsToRange();
+  }
+
+  /**
+   * `ensureActiveCellVisibleAfterFiltering` moves active cell off hidden rows.
+   */
+  private ensureActiveCellVisibleAfterFiltering(): void {
+    if (!this.hiddenRows.has(this.activeCell.r)) {
+      return;
+    }
+
+    let targetRow: number | undefined;
+    if (
+      this.filterRange &&
+      this.activeCell.r > this.filterRange[0].r &&
+      this.activeCell.r <= this.filterRange[1].r
+    ) {
+      targetRow = this.filterRange[0].r;
+    } else {
+      for (let r = this.activeCell.r + 1; r <= this.dimension.rows; r++) {
+        if (!this.hiddenRows.has(r)) {
+          targetRow = r;
+          break;
+        }
+      }
+      if (targetRow === undefined) {
+        for (let r = this.activeCell.r - 1; r >= 1; r--) {
+          if (!this.hiddenRows.has(r)) {
+            targetRow = r;
+            break;
+          }
+        }
+      }
+    }
+
+    if (targetRow === undefined) {
+      return;
+    }
+
+    this.range = undefined;
+    this.setActiveCell({ r: targetRow, c: this.activeCell.c });
+  }
+
+  /**
+   * `findNextVisibleRow` returns the next non-hidden row from `row` in `direction`.
+   */
+  private findNextVisibleRow(
+    row: number,
+    direction: 'up' | 'down',
+  ): number | undefined {
+    const delta = direction === 'down' ? 1 : -1;
+    let current = row;
+    while (current >= 1 && current <= this.dimension.rows) {
+      if (!this.hiddenRows.has(current)) {
+        return current;
+      }
+      current += delta;
+    }
+    return undefined;
   }
 
   /**
@@ -1007,6 +1457,10 @@ export class Sheet {
         const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
         const dependantsMap = await this.store.buildDependantsMap(expanded);
         await calculate(this, dependantsMap, expanded);
+      }
+
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
       }
     } finally {
       this.store.endBatch();
@@ -1200,6 +1654,10 @@ export class Sheet {
         const dependantsMap = await this.store.buildDependantsMap(expanded);
         await calculate(this, dependantsMap, expanded);
       }
+
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
     } finally {
       this.store.endBatch();
     }
@@ -1288,6 +1746,9 @@ export class Sheet {
     try {
       const dependantsMap = await this.store.buildDependantsMap(formulaSrefs);
       await calculate(this, dependantsMap, formulaSrefs);
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
     } finally {
       this.store.endBatch();
     }
@@ -1427,6 +1888,280 @@ export class Sheet {
   }
 
   /**
+   * `createFilterFromSelection` enables filtering for the current cell selection.
+   * The top row is treated as the filter header row.
+   */
+  async createFilterFromSelection(): Promise<boolean> {
+    if (this.selectionType !== 'cell') {
+      return false;
+    }
+
+    const range = this.getRangeOrActiveCell();
+    return this.setFilterRange(range);
+  }
+
+  /**
+   * `setFilterRange` sets the filter range (header row included).
+   */
+  async setFilterRange(range: Range): Promise<boolean> {
+    const normalized = toRange(range[0], range[1]);
+    // Require at least one data row below the header.
+    if (normalized[1].r <= normalized[0].r) {
+      return false;
+    }
+
+    this.store.beginBatch();
+    try {
+      this.filterRange = normalized;
+      this.normalizeFilterColumnsToRange();
+      await this.recomputeFilterHiddenRows();
+    } finally {
+      this.store.endBatch();
+    }
+    return true;
+  }
+
+  /**
+   * `clearFilter` removes all filter criteria and row visibility state.
+   */
+  async clearFilter(): Promise<void> {
+    this.store.beginBatch();
+    try {
+      this.filterRange = undefined;
+      this.filterColumns.clear();
+      this.hiddenRows.clear();
+      await this.store.setFilterState(undefined);
+    } finally {
+      this.store.endBatch();
+    }
+  }
+
+  /**
+   * `setColumnFilter` sets or updates a filter condition on a column.
+   */
+  async setColumnFilter(
+    col: number,
+    condition: FilterCondition,
+  ): Promise<boolean> {
+    if (!this.filterRange || !this.isColumnInFilter(col)) {
+      return false;
+    }
+
+    this.store.beginBatch();
+    try {
+      const normalized = this.normalizeFilterCondition(condition);
+      if (!normalized) {
+        this.filterColumns.delete(col);
+      } else {
+        this.filterColumns.set(col, normalized);
+      }
+      await this.recomputeFilterHiddenRows();
+    } finally {
+      this.store.endBatch();
+    }
+    return true;
+  }
+
+  /**
+   * `filterColumnByValue` applies an equals filter using `value` on `col`.
+   */
+  async filterColumnByValue(col: number, value: string): Promise<boolean> {
+    return this.setColumnFilter(col, { op: 'equals', value });
+  }
+
+  /**
+   * `clearColumnFilter` removes filter criteria for a single column.
+   */
+  async clearColumnFilter(col: number): Promise<boolean> {
+    if (!this.filterRange || !this.isColumnInFilter(col)) {
+      return false;
+    }
+    if (!this.filterColumns.has(col)) {
+      return false;
+    }
+
+    this.store.beginBatch();
+    try {
+      this.filterColumns.delete(col);
+      await this.recomputeFilterHiddenRows();
+    } finally {
+      this.store.endBatch();
+    }
+    return true;
+  }
+
+  /**
+   * `getFilterColumnValues` returns distinct values and selected values for a column.
+   * Distinct values are computed from rows that satisfy other column filters.
+   */
+  async getFilterColumnValues(
+    col: number,
+  ): Promise<{ values: string[]; selected: Set<string> } | undefined> {
+    if (!this.filterRange || !this.isColumnInFilter(col)) {
+      return undefined;
+    }
+
+    const distinct = new Set<string>();
+    const dataStart = this.filterRange[0].r + 1;
+    const dataEnd = this.filterRange[1].r;
+    for (let row = dataStart; row <= dataEnd; row++) {
+      if (!(await this.rowMatchesFilters(row, col))) {
+        continue;
+      }
+      const cell = await this.getCell({ r: row, c: col });
+      distinct.add((cell?.v || '').trim());
+    }
+
+    const values = Array.from(distinct).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    );
+
+    const condition = this.filterColumns.get(col);
+    if (!condition) {
+      return { values, selected: new Set(values) };
+    }
+
+    if (condition.op === 'in') {
+      return { values, selected: new Set(condition.values || []) };
+    }
+
+    return {
+      values,
+      selected: new Set(
+        values.filter((value) => this.matchesFilterCondition(value, condition)),
+      ),
+    };
+  }
+
+  /**
+   * `setColumnIncludedValues` filters a column by an explicit set of values.
+   */
+  async setColumnIncludedValues(col: number, values: string[]): Promise<boolean> {
+    if (!this.filterRange || !this.isColumnInFilter(col)) {
+      return false;
+    }
+
+    const normalized = Array.from(
+      new Set(values.map((value) => value.trim())),
+    ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+    const options = await this.getFilterColumnValues(col);
+    if (!options) return false;
+
+    const optionSet = new Set(options.values);
+    const valid = normalized.filter((value) => optionSet.has(value));
+
+    this.store.beginBatch();
+    try {
+      if (valid.length === options.values.length) {
+        this.filterColumns.delete(col);
+      } else {
+        this.filterColumns.set(col, { op: 'in', values: valid });
+      }
+      await this.recomputeFilterHiddenRows();
+    } finally {
+      this.store.endBatch();
+    }
+    return true;
+  }
+
+  /**
+   * `sortFilterByColumn` sorts filter data rows by a column value.
+   */
+  async sortFilterByColumn(
+    col: number,
+    direction: 'asc' | 'desc',
+  ): Promise<boolean> {
+    if (!this.filterRange || !this.isColumnInFilter(col)) {
+      return false;
+    }
+
+    const dataStart = this.filterRange[0].r + 1;
+    const dataEnd = this.filterRange[1].r;
+    if (dataEnd <= dataStart) {
+      return false;
+    }
+
+    // Keep first iteration conservative: block sorting ranges with merges.
+    const fullRowRange: Range = [
+      { r: dataStart, c: 1 },
+      { r: dataEnd, c: this.dimension.columns },
+    ];
+    if (this.getMergesIntersecting(fullRowRange).length > 0) {
+      return false;
+    }
+
+    const rows: Array<{ row: number; text: string; lower: string; numeric: number | null }> = [];
+    for (let row = dataStart; row <= dataEnd; row++) {
+      const cell = await this.getCell({ r: row, c: col });
+      const text = (cell?.v || '').trim();
+      const numeric = text.length > 0 && Number.isFinite(Number(text)) ? Number(text) : null;
+      rows.push({ row, text, lower: text.toLowerCase(), numeric });
+    }
+
+    rows.sort((a, b) => {
+      const aEmpty = a.text.length === 0;
+      const bEmpty = b.text.length === 0;
+      if (aEmpty && !bEmpty) return 1;
+      if (!aEmpty && bEmpty) return -1;
+
+      let compared = 0;
+      if (a.numeric !== null && b.numeric !== null) {
+        compared = a.numeric - b.numeric;
+      } else {
+        compared = a.lower.localeCompare(b.lower, undefined, {
+          sensitivity: 'base',
+        });
+      }
+      if (compared === 0) {
+        compared = a.row - b.row;
+      }
+      return direction === 'asc' ? compared : -compared;
+    });
+
+    // Reorder rows by repeated single-row upward moves.
+    const desired = rows.map((entry) => entry.row);
+    const current = Array.from({ length: dataEnd - dataStart + 1 }, (_, i) => dataStart + i);
+    const moves: Array<{ srcIndex: number; dstIndex: number }> = [];
+
+    for (let i = 0; i < desired.length; i++) {
+      const wantedRow = desired[i];
+      const srcPos = current.indexOf(wantedRow);
+      if (srcPos === -1 || srcPos === i) continue;
+
+      const srcIndex = dataStart + srcPos;
+      const dstIndex = dataStart + i;
+      moves.push({ srcIndex, dstIndex });
+
+      current.splice(srcPos, 1);
+      current.splice(i, 0, wantedRow);
+    }
+
+    if (moves.length === 0) {
+      return true;
+    }
+
+    this.store.beginBatch();
+    try {
+      for (const move of moves) {
+        await this.moveCells(
+          'row',
+          move.srcIndex,
+          1,
+          move.dstIndex,
+          { skipPostRecalculate: true },
+        );
+      }
+      await this.recalculateAllFormulaCells();
+      await this.recomputeFilterHiddenRows();
+    } finally {
+      this.store.endBatch();
+    }
+
+    return true;
+  }
+
+  /**
    * `selectStart` sets the start cell of the selection.
    */
   selectStart(ref: Ref): void {
@@ -1518,14 +2253,24 @@ export class Sheet {
       direction,
       this.dimensionRange,
     );
-    const normalized = this.normalizeRefToAnchor(ref);
+    let target = this.normalizeRefToAnchor(ref);
+    if (
+      (direction === 'up' || direction === 'down') &&
+      this.hiddenRows.has(target.r)
+    ) {
+      const nextVisible = this.findNextVisibleRow(target.r, direction);
+      if (nextVisible === undefined) {
+        return false;
+      }
+      target = this.normalizeRefToAnchor({ r: nextVisible, c: target.c });
+    }
 
-    if (isSameRef(this.activeCell, normalized)) {
+    if (isSameRef(this.activeCell, target)) {
       return false;
     }
 
     this.range = undefined;
-    this.setActiveCell(normalized);
+    this.setActiveCell(target);
     return true;
   }
 
@@ -1553,6 +2298,14 @@ export class Sheet {
     } else {
       row += rowDelta;
       col += colDelta;
+    }
+
+    if ((direction === 'up' || direction === 'down') && this.hiddenRows.has(row)) {
+      const nextVisible = this.findNextVisibleRow(row, direction);
+      if (nextVisible === undefined) {
+        return false;
+      }
+      row = nextVisible;
     }
 
     if (!inRange({ r: row, c: col }, this.dimensionRange)) {
@@ -1979,6 +2732,7 @@ export class Sheet {
       await this.loadStyles();
       await this.loadMerges();
       await this.loadFreezePane();
+      await this.loadFilterState();
 
       if (result.affectedRange) {
         const [start, end] = result.affectedRange;
@@ -2005,6 +2759,7 @@ export class Sheet {
       await this.loadStyles();
       await this.loadMerges();
       await this.loadFreezePane();
+      await this.loadFilterState();
 
       if (result.affectedRange) {
         const [start, end] = result.affectedRange;

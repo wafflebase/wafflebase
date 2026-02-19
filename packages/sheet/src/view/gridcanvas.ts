@@ -35,12 +35,15 @@ type TextOverflowRenderData = {
   hiddenVerticalBoundaries: Set<string>;
 };
 
+const TablerFilter2IconPath = 'M4 6h16 M6 12h12 M9 18h6';
+
 /**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.
  */
 export class GridCanvas {
   private canvas: HTMLCanvasElement;
   private theme: Theme;
+  private static filterIconPath2D: Path2D | null | undefined;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -69,6 +72,9 @@ export class GridCanvas {
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
     merges?: Map<string, MergeSpan>,
+    filterRange?: Range,
+    filteredColumns?: Set<number>,
+    hoveredFilterButtonCol: number | null = null,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -102,6 +108,9 @@ export class GridCanvas {
         rowStyles,
         sheetStyle,
         mergeData,
+        filterRange,
+        filteredColumns,
+        hoveredFilterButtonCol,
       );
       this.renderColumnHeaders(
         ctx,
@@ -174,6 +183,9 @@ export class GridCanvas {
         rowStyles,
         sheetStyle,
         mergeData,
+        filterRange,
+        filteredColumns,
+        hoveredFilterButtonCol,
       );
       ctx.restore();
 
@@ -202,6 +214,9 @@ export class GridCanvas {
           rowStyles,
           sheetStyle,
           mergeData,
+          filterRange,
+          filteredColumns,
+          hoveredFilterButtonCol,
         );
         ctx.restore();
       }
@@ -231,6 +246,9 @@ export class GridCanvas {
           rowStyles,
           sheetStyle,
           mergeData,
+          filterRange,
+          filteredColumns,
+          hoveredFilterButtonCol,
         );
         ctx.restore();
       }
@@ -255,6 +273,9 @@ export class GridCanvas {
           rowStyles,
           sheetStyle,
           mergeData,
+          filterRange,
+          filteredColumns,
+          hoveredFilterButtonCol,
         );
         ctx.restore();
       }
@@ -359,6 +380,9 @@ export class GridCanvas {
       anchors: Map<string, MergeSpan>;
       coverToAnchor: Map<string, string>;
     },
+    filterRange?: Range,
+    filteredColumns?: Set<number>,
+    hoveredFilterButtonCol: number | null = null,
   ): void {
     const overflowData = this.buildTextOverflowRenderData(
       ctx,
@@ -478,6 +502,32 @@ export class GridCanvas {
         );
       }
     }
+
+    // Pass 4: Render filter dropdown buttons inside filter header row cells.
+    if (filterRange) {
+      const headerRow = filterRange[0].r;
+      if (headerRow >= rowStart && headerRow <= rowEnd) {
+        const startCol = Math.max(colStart, filterRange[0].c);
+        const endCol = Math.min(colEnd, filterRange[1].c);
+        for (let col = startCol; col <= endCol; col++) {
+          const sref = toSref({ r: headerRow, c: col });
+          if (mergeData?.coverToAnchor.has(sref)) {
+            continue;
+          }
+          const mergeSpan = mergeData?.anchors.get(sref);
+          this.renderCellFilterButton(
+            ctx,
+            { r: headerRow, c: col },
+            scroll,
+            rowDim,
+            colDim,
+            mergeSpan,
+            !!filteredColumns?.has(col),
+            hoveredFilterButtonCol === col,
+          );
+        }
+      }
+    }
   }
 
   /**
@@ -529,6 +579,78 @@ export class GridCanvas {
     ctx.restore();
   }
 
+  private renderCellFilterButton(
+    ctx: CanvasRenderingContext2D,
+    id: Ref,
+    scroll: Position,
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    mergeSpan?: MergeSpan,
+    active = false,
+    hovered = false,
+  ): void {
+    const rect = this.toCellRect(id, scroll, rowDim, colDim, mergeSpan);
+    const width = rect.width;
+    const height = rect.height;
+    if (width <= 6 || height <= 6) {
+      return;
+    }
+
+    const buttonWidth = Math.min(16, Math.max(12, width - 4));
+    const buttonHeight = Math.min(16, Math.max(12, height - 6));
+    const left = rect.left + width - buttonWidth - 2;
+    const top = rect.top + Math.max(3, (height - buttonHeight) / 2);
+
+    if (active || hovered) {
+      ctx.fillStyle = active
+        ? this.getThemeColor('selectionBGColor')
+        : this.getThemeColor('headerSelectedBGColor');
+      ctx.fillRect(left, top, buttonWidth, buttonHeight);
+    }
+
+    const iconColor = active || hovered
+      ? this.getThemeColor('resizeHandleColor')
+      : this.getThemeColor('cellTextColor');
+    const iconSize = Math.max(9, Math.min(12, Math.min(buttonWidth, buttonHeight) - 3));
+    const iconLeft = left + (buttonWidth - iconSize) / 2;
+    const iconTop = top + (buttonHeight - iconSize) / 2;
+
+    ctx.save();
+    ctx.translate(iconLeft, iconTop);
+    ctx.scale(iconSize / 24, iconSize / 24);
+    ctx.strokeStyle = iconColor;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const path2d = this.getFilterIconPath2D();
+    if (path2d) {
+      ctx.lineWidth = 2;
+      ctx.stroke(path2d);
+    } else {
+      // Fallback when Path2D is unavailable (e.g., some test environments).
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(4, 6);
+      ctx.lineTo(20, 6);
+      ctx.moveTo(6, 12);
+      ctx.lineTo(18, 12);
+      ctx.moveTo(9, 18);
+      ctx.lineTo(15, 18);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private getFilterIconPath2D(): Path2D | null {
+    if (typeof Path2D === 'undefined') {
+      return null;
+    }
+    if (GridCanvas.filterIconPath2D === undefined) {
+      GridCanvas.filterIconPath2D = new Path2D(TablerFilter2IconPath);
+    }
+    return GridCanvas.filterIconPath2D;
+  }
+
   /**
    * Renders row headers within a clip range.
    */
@@ -555,6 +677,9 @@ export class GridCanvas {
         ? rowDim.getOffset(row)
         : DefaultCellHeight * (row - 1);
       const rowHeight = rowDim ? rowDim.getSize(row) : DefaultCellHeight;
+      if (rowHeight <= 0) {
+        continue;
+      }
       const x = 0;
       const y = rowOffset + DefaultCellHeight - scrollTop;
       const isRowSelected =
@@ -655,6 +780,9 @@ export class GridCanvas {
     selected: boolean,
     fullSelected: boolean = false,
   ): void {
+    if (width <= 0 || height <= 0) {
+      return;
+    }
     ctx.fillStyle = fullSelected
       ? this.getThemeColor('headerSelectedBGColor')
       : selected

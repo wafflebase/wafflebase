@@ -3,6 +3,7 @@ import {
   Axis,
   Cell,
   CellStyle,
+  FilterState,
   Grid,
   MergeSpan,
   Ref,
@@ -189,6 +190,14 @@ export class ReadOnlyStore implements Store {
 
   async getMerges(): Promise<Map<Sref, MergeSpan>> {
     return new Map();
+  }
+
+  async setFilterState(_state: FilterState | undefined): Promise<void> {
+    // no-op
+  }
+
+  async getFilterState(): Promise<FilterState | undefined> {
+    return undefined;
   }
 
   async setFreezePane(_frozenRows: number, _frozenCols: number): Promise<void> {

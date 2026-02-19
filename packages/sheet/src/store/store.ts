@@ -2,6 +2,7 @@ import {
   Axis,
   Cell,
   CellStyle,
+  FilterState,
   Grid,
   MergeSpan,
   Ref,
@@ -141,6 +142,16 @@ export interface Store {
    * `getMerges` gets all merged range anchors in the worksheet.
    */
   getMerges(): Promise<Map<Sref, MergeSpan>>;
+
+  /**
+   * `setFilterState` sets worksheet-level filter state.
+   */
+  setFilterState(state: FilterState | undefined): Promise<void>;
+
+  /**
+   * `getFilterState` gets worksheet-level filter state.
+   */
+  getFilterState(): Promise<FilterState | undefined>;
 
   /**
    * `updateActiveCell` method updates the active cell of the current user.
