@@ -458,7 +458,8 @@ draws:
 - Selection range (semi-transparent fill + border; full-width for row
   selections, full-height for column selections)
 - Peer cursors (colored borders, one per remote user)
-- Resize hover indicator (line on header edge during drag-to-resize)
+- Resize hover indicator (line on header edge; suppressed while primary-button
+  drag selection is active, and cleared on pointer leave)
 - Resize drag UX:
   - Wider header-edge hit tolerance for easier grabbing
   - Live width/height tooltip during drag (includes multi-selection count)

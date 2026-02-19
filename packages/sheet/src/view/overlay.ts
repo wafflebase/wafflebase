@@ -82,9 +82,11 @@ export class Overlay {
 
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
     const mergeData = this.buildMergeRenderData(merges);
-    const selectionRange: Range = range
-      ? [range[0], range[1]]
-      : [activeCell, activeCell];
+    const selectionRange = this.resolveAutofillSelectionRange(
+      range,
+      activeCell,
+      mergeData,
+    );
 
     if (!hasFrozen) {
       // No freeze: render everything in a single pass (original behavior)
@@ -684,6 +686,37 @@ export class Overlay {
     ctx.strokeStyle = this.getThemeColor('cellBGColor');
     ctx.lineWidth = 1;
     ctx.strokeRect(left + 0.5, top + 0.5, size, size);
+  }
+
+  /**
+   * Resolves the selection range used to place the autofill handle.
+   * When no explicit range exists, merged active cells should use the merged span.
+   */
+  private resolveAutofillSelectionRange(
+    range: Range | undefined,
+    activeCell: Ref,
+    mergeData?: {
+      anchors: Map<string, MergeSpan>;
+      coverToAnchor: Map<string, string>;
+    },
+  ): Range {
+    if (range) {
+      return [range[0], range[1]];
+    }
+
+    const activeSref = toSref(activeCell);
+    const anchorSref = mergeData?.coverToAnchor.get(activeSref) || activeSref;
+    const anchor = parseRef(anchorSref);
+    const span = mergeData?.anchors.get(anchorSref);
+
+    if (!span || (span.rs === 1 && span.cs === 1)) {
+      return [anchor, anchor];
+    }
+
+    return [
+      anchor,
+      { r: anchor.r + span.rs - 1, c: anchor.c + span.cs - 1 },
+    ];
   }
 
   private getThemeColor(key: ThemeKey): string {

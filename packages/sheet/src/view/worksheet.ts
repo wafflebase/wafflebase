@@ -1725,9 +1725,7 @@ export class Worksheet {
       this.handleMouseMove(e);
     });
     this.addEventListener(scrollContainer, 'mouseleave', () => {
-      const scrollContainer = this.gridContainer.getScrollContainer();
-      scrollContainer.style.cursor = '';
-      this.setFilterButtonHoverCol(null);
+      this.handleScrollContainerMouseLeave();
     });
     this.addEventListener(scrollContainer, 'dblclick', (e) => {
       this.handleDblClick(e);
@@ -2119,6 +2117,15 @@ export class Worksheet {
   private handleMouseMove(e: MouseEvent): void {
     const scrollContainer = this.gridContainer.getScrollContainer();
 
+    // While dragging with the primary mouse button, suppress resize hover guides.
+    if ((e.buttons & 1) === 1) {
+      if (this.resizeHover) {
+        this.resizeHover = null;
+        this.renderOverlay();
+      }
+      return;
+    }
+
     // Check freeze handle hover first (highest priority)
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
     if (freezeHandle !== this.freezeHandleHover) {
@@ -2197,6 +2204,24 @@ export class Worksheet {
 
     if (changed) {
       this.renderOverlay();
+    }
+  }
+
+  private handleScrollContainerMouseLeave(): void {
+    const scrollContainer = this.gridContainer.getScrollContainer();
+    scrollContainer.style.cursor = '';
+
+    const changed =
+      this.filterButtonHoverCol !== null ||
+      this.resizeHover !== null ||
+      this.freezeHandleHover !== null;
+
+    this.filterButtonHoverCol = null;
+    this.resizeHover = null;
+    this.freezeHandleHover = null;
+
+    if (changed) {
+      this.render();
     }
   }
 
