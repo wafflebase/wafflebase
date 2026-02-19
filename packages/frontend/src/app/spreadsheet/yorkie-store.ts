@@ -55,12 +55,60 @@ export class YorkieStore implements Store {
     return this.doc.getRoot().sheets[this.tabId];
   }
 
+  private isDuplicateOwnKeysError(error: unknown): boolean {
+    return (
+      error instanceof TypeError &&
+      error.message.includes("ownKeys") &&
+      error.message.includes("duplicate")
+    );
+  }
+
+  private snapshotObject<T>(obj: Record<string, T>): Record<string, T> {
+    const maybeToJSON = (obj as { toJSON?: () => string }).toJSON;
+    if (typeof maybeToJSON === "function") {
+      return JSON.parse(maybeToJSON.call(obj)) as Record<string, T>;
+    }
+    return { ...obj };
+  }
+
+  private stableObjectKeys<T>(obj: Record<string, T>): string[] {
+    try {
+      return Object.keys(obj);
+    } catch (error) {
+      if (this.isDuplicateOwnKeysError(error)) {
+        console.warn(error);
+        return Object.keys(this.snapshotObject(obj));
+      }
+      throw error;
+    }
+  }
+
+  private stableObjectEntries<T>(obj: Record<string, T>): Array<[string, T]> {
+    try {
+      return Object.entries(obj);
+    } catch (error) {
+      if (this.isDuplicateOwnKeysError(error)) {
+        console.warn(error);
+        return Object.entries(this.snapshotObject(obj));
+      }
+      throw error;
+    }
+  }
+
+  private stableSheetKeys(sheet: Worksheet["sheet"]): Sref[] {
+    return this.stableObjectKeys<Cell>(sheet) as Sref[];
+  }
+
+  private stableSheetEntries(sheet: Worksheet["sheet"]): Array<[Sref, Cell]> {
+    return this.stableObjectEntries<Cell>(sheet) as Array<[Sref, Cell]>;
+  }
+
   private ensureIndex(): void {
     if (!this.dirty) return;
 
     const sheet = this.getSheet().sheet;
     const entries: Array<[number, number]> = [];
-    for (const sref of Object.keys(sheet)) {
+    for (const sref of this.stableSheetKeys(sheet)) {
       const ref = parseRef(sref);
       entries.push([ref.r, ref.c]);
     }
@@ -342,14 +390,11 @@ export class YorkieStore implements Store {
       const ws = root.sheets[tabId];
       // Collect all entries and compute new keys/formulas
       const entries: Array<[string, Cell]> = [];
-      for (const [sref, cell] of Object.entries(ws.sheet)) {
+      for (const [sref, cell] of this.stableSheetEntries(ws.sheet)) {
         entries.push([sref, { v: cell.v, f: cell.f, s: cell.s }]);
       }
 
-      // Delete all old keys
-      for (const [sref] of entries) {
-        delete ws.sheet[sref];
-      }
+      const nextSheet = new Map<Sref, Cell>();
 
       // Write all new keys with shifted positions and updated formulas
       for (const [sref, cell] of entries) {
@@ -370,8 +415,20 @@ export class YorkieStore implements Store {
 
         const normalized = this.normalizeCell(nextCell);
         if (normalized) {
-          ws.sheet[newSref] = normalized;
+          nextSheet.set(newSref, normalized);
         }
+      }
+
+      // Delete only keys removed by the remap.
+      for (const [sref] of entries) {
+        if (!nextSheet.has(sref) && ws.sheet[sref] !== undefined) {
+          delete ws.sheet[sref];
+        }
+      }
+
+      // Upsert remapped keys and formulas.
+      for (const [sref, cell] of nextSheet) {
+        ws.sheet[sref] = cell;
       }
 
       // Shift dimension sizes for the affected axis
@@ -479,14 +536,11 @@ export class YorkieStore implements Store {
       const ws = root.sheets[tabId];
       // Collect all entries
       const entries: Array<[string, Cell]> = [];
-      for (const [sref, cell] of Object.entries(ws.sheet)) {
+      for (const [sref, cell] of this.stableSheetEntries(ws.sheet)) {
         entries.push([sref, { v: cell.v, f: cell.f, s: cell.s }]);
       }
 
-      // Delete all old keys
-      for (const [sref] of entries) {
-        delete ws.sheet[sref];
-      }
+      const nextSheet = new Map<Sref, Cell>();
 
       // Write new keys with remapped positions and formulas
       for (const [sref, cell] of entries) {
@@ -506,8 +560,20 @@ export class YorkieStore implements Store {
 
         const normalized = this.normalizeCell(nextCell);
         if (normalized) {
-          ws.sheet[newSref] = normalized;
+          nextSheet.set(newSref, normalized);
         }
+      }
+
+      // Delete only keys removed by the remap.
+      for (const [sref] of entries) {
+        if (!nextSheet.has(sref) && ws.sheet[sref] !== undefined) {
+          delete ws.sheet[sref];
+        }
+      }
+
+      // Upsert remapped keys and formulas.
+      for (const [sref, cell] of nextSheet) {
+        ws.sheet[sref] = cell;
       }
 
       // Remap dimension sizes
@@ -573,7 +639,7 @@ export class YorkieStore implements Store {
   async getFormulaGrid(): Promise<Map<Sref, Cell>> {
     const grid = new Map<Sref, Cell>();
     const sheet = this.getSheet().sheet;
-    for (const [sref, cell] of Object.entries(sheet)) {
+    for (const [sref, cell] of this.stableSheetEntries(sheet)) {
       if (cell.f) {
         grid.set(sref, cell as Cell);
       }
@@ -590,7 +656,7 @@ export class YorkieStore implements Store {
 
     if (this.batchOverlay) {
       // Iterate document cells, skipping those deleted in overlay
-      for (const [sref, cell] of Object.entries(sheet)) {
+      for (const [sref, cell] of this.stableSheetEntries(sheet)) {
         if (this.batchOverlay.has(sref)) continue;
         if (!cell.f) continue;
         for (const r of toSrefs(extractReferences(cell.f))) {
@@ -611,7 +677,7 @@ export class YorkieStore implements Store {
       return dependantsMap;
     }
 
-    for (const [sref, cell] of Object.entries(sheet)) {
+    for (const [sref, cell] of this.stableSheetEntries(sheet)) {
       if (!cell.f) {
         continue;
       }
@@ -893,7 +959,7 @@ export class YorkieStore implements Store {
   async undo(): Promise<{ success: boolean; affectedRange?: Range }> {
     if (!this.doc.history.canUndo()) return { success: false };
 
-    const beforeCellKeys = new Set(Object.keys(this.getSheet().sheet));
+    const beforeCellKeys = new Set(this.stableSheetKeys(this.getSheet().sheet));
     const beforeMerges = new Map<Sref, MergeSpan>(
       Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
     );
@@ -907,7 +973,7 @@ export class YorkieStore implements Store {
   async redo(): Promise<{ success: boolean; affectedRange?: Range }> {
     if (!this.doc.history.canRedo()) return { success: false };
 
-    const beforeCellKeys = new Set(Object.keys(this.getSheet().sheet));
+    const beforeCellKeys = new Set(this.stableSheetKeys(this.getSheet().sheet));
     const beforeMerges = new Map<Sref, MergeSpan>(
       Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
     );
@@ -925,7 +991,7 @@ export class YorkieStore implements Store {
     beforeCellKeys: Set<string>,
     beforeMerges: Map<Sref, MergeSpan>,
   ): Range | undefined {
-    const afterKeys = new Set(Object.keys(this.getSheet().sheet));
+    const afterKeys = new Set(this.stableSheetKeys(this.getSheet().sheet));
     const afterMerges = new Map<Sref, MergeSpan>(
       Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
     );

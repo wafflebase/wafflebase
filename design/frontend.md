@@ -187,8 +187,8 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `setGrid(grid)` | Batch write to `root.sheet` |
 | `getGrid(range)` | Use CellIndex to iterate only populated cells in range |
 | `findEdge(ref, direction, dimension)` | Delegate to `findEdgeWithIndex` using CellIndex |
-| `shiftCells(axis, index, count)` | Rebuild `root.sheet` with shifted refs and formulas; also remap chart anchors |
-| `moveCells(axis, src, count, dst)` | Rebuild `root.sheet` with remapped refs and formulas; also remap chart anchors |
+| `shiftCells(axis, index, count)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors |
+| `moveCells(axis, src, count, dst)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
 | `setMerge(anchor, span)` | Write to `root.sheets[tabId].merges[anchorSref]` |
@@ -222,12 +222,15 @@ document at any time, YorkieStore uses a lazy rebuild strategy:
    events, sets `dirty = true`.
 2. **`ensureIndex()`** — Called before any query that uses the index
    (`getGrid`, `deleteRange`, `findEdge`). If dirty, rebuilds the index from
-   `Object.keys(doc.getRoot().sheet)` and clears the flag.
+   sheet keys and clears the flag. If Yorkie proxy key enumeration throws
+   duplicate-key `ownKeys` errors, YorkieStore falls back to
+   `sheet.toJSON()` + `JSON.parse(...)` snapshot enumeration so rendering
+   and navigation stay stable.
 3. **Local mutations** (`set`, `delete`, `setGrid`) update the index
    incrementally with a `if (!this.dirty)` guard — skip incremental update
    if the index is already stale.
 4. **Bulk operations** (`shiftCells`, `moveCells`) set `dirty = true` at the
-   end since they rewrite all keys.
+   end after key/formula remapping.
 
 ### Presence System
 
