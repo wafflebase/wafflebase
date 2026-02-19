@@ -201,13 +201,13 @@ These are known gaps in the current implementation that represent opportunities 
 7. **No schema browser** — Users must know table/column names; there is no database schema explorer.
 8. **Basic SQL editor** — Plain textarea without syntax highlighting, autocomplete, or formatting.
 9. **No column type mapping** — All values are displayed as strings regardless of the PostgreSQL data type.
-10. **Partial backend test coverage** — Unit tests now cover SQL validation and core `DataSourceService` flows, and controller-level e2e tests cover datasource/share-link routes with mocked services. Database-backed integration tests are still missing.
+10. **Authenticated HTTP coverage is still narrow** — Unit tests cover SQL validation and `DataSourceService` logic, controller-contract e2e tests cover route wiring with mocked services, DB-backed integration tests cover datasource/share-link service logic, and authenticated HTTP integration tests now cover core JWT-guarded datasource/share-link/document ownership paths. Broader edge-case coverage (auth/session failures, more negative permutations, and cross-module flows) is still missing.
 
 ## Next Steps
 
 ### Short-term (polish the current feature)
 
-- **Expand backend tests**: Add database-backed integration/e2e tests (Prisma + Postgres) for permission boundaries, encryption/decryption paths, and query failure edge cases.
+- **Expand backend tests**: Broaden authenticated HTTP integration tests (JWT guard + controllers + Prisma + Postgres) to cover auth/session failure modes and more cross-module edge cases.
 - **Schema browser**: Add an endpoint to list tables and columns (`information_schema.tables/columns`) and display them in a sidebar panel within `DataSourceView`.
 - **SQL editor upgrade**: Integrate a code editor (e.g., CodeMirror) with SQL syntax highlighting, basic autocomplete, and multi-line support.
 - **Query history**: Store recent queries per tab so users can recall previous queries.

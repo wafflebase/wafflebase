@@ -54,7 +54,20 @@ pnpm backend build
 
 ```bash
 pnpm backend test                 # Unit tests (Jest)
-pnpm backend test:e2e             # End-to-end tests
+pnpm backend test:e2e             # E2E + DB-backed integration tests
+```
+
+`test:e2e` includes database-backed tests for datasource/share-link services.
+Set `RUN_DB_INTEGRATION_TESTS=true` and provide a reachable `DATABASE_URL`
+before running it.
+
+It covers both DB-backed service integration and authenticated HTTP integration
+through JWT guards/controllers for core datasource/share-link/document flows.
+
+If the database schema is not up-to-date, apply migrations first:
+
+```bash
+pnpm --filter @wafflebase/backend exec prisma migrate deploy
 ```
 
 ## API Endpoints

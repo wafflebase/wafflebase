@@ -10,8 +10,26 @@ on:
     branches: ["main"]
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
+      DATASOURCE_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      RUN_DB_INTEGRATION_TESTS: "true"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wafflebase
+          POSTGRES_PASSWORD: wafflebase
+          POSTGRES_DB: wafflebase
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wafflebase -d wafflebase"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     strategy:
       matrix:
@@ -29,21 +47,26 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "pnpm"
 
-      - name: Cache pnpm store
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-
-
       - name: Install Dependencies
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint Frontend
+        run: pnpm frontend lint
+
+      - name: Test Frontend
+        run: pnpm frontend test
 
       - name: Build Frontend
         run: pnpm frontend build
+
+      - name: Apply Backend Migrations
+        run: pnpm --filter @wafflebase/backend exec prisma migrate deploy
+
+      - name: Test Backend
+        run: pnpm backend test
+
+      - name: Test Backend E2E
+        run: pnpm backend test:e2e
 
       - name: Build Backend
         run: pnpm backend build

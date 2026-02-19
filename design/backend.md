@@ -298,6 +298,20 @@ erDiagram
 | `NODE_ENV` | No | — | Affects cookie `secure` and `sameSite` settings |
 | `DATASOURCE_ENCRYPTION_KEY` | No* | — | 64-char hex string (32 bytes) for AES-256-GCM password encryption. *Required if DataSource feature is used. |
 
+### Testing Strategy
+
+- **Unit tests (`pnpm backend test`)** cover SQL validation and core
+  datasource behavior with mocked persistence/network clients.
+- **E2E tests (`pnpm backend test:e2e`)** include:
+  - controller contract tests with mocked services (`test/http.e2e-spec.ts`).
+  - DB-backed integration tests (`test/database.e2e-spec.ts`) for
+    datasource/share-link services using Prisma + PostgreSQL.
+  - authenticated HTTP integration tests
+    (`test/authenticated-http.e2e-spec.ts`) that run through JWT cookie auth,
+    guards, controllers, Prisma, and PostgreSQL for core ownership flows.
+- DB-backed tests are gated by `RUN_DB_INTEGRATION_TESTS=true` so local runs
+  can opt in explicitly.
+
 ### Security
 
 **CORS** — Configured in `main.ts`:

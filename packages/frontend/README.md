@@ -45,6 +45,14 @@ pnpm frontend dev
 pnpm frontend build
 ```
 
+### Testing
+
+```bash
+pnpm frontend lint                 # ESLint checks
+pnpm frontend test                 # Node unit tests
+pnpm frontend test:watch           # Node watch mode
+```
+
 ## App Structure
 
 ```
