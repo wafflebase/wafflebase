@@ -1,5 +1,5 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import { fetchMe } from "@/api/auth";
@@ -95,6 +95,7 @@ function migrateDocument(
         colStyles: r.colStyles || {},
         rowStyles: r.rowStyles || {},
         sheetStyle: r.sheetStyle,
+        conditionalFormats: [],
         merges: (r as Record<string, unknown>).merges || {},
         charts: {},
         frozenRows: r.frozenRows || 0,
@@ -178,6 +179,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         colWidths: {},
         colStyles: {},
         rowStyles: {},
+        conditionalFormats: [],
         merges: {},
         charts: {},
         frozenRows: 0,
@@ -354,7 +356,7 @@ export function DocumentDetail() {
   }
 
   if (isError || !currentUser) {
-    return <div>User not found</div>;
+    return <Navigate to="/login" replace />;
   }
 
   // Ensure all user data is available

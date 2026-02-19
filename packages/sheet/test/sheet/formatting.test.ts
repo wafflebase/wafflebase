@@ -672,4 +672,98 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     expect(await sheet.getStyle({ r: 2, c: 5 })).toEqual({ tc: '#333', i: true });
     expect(await sheet.getStyle({ r: 5, c: 5 })).toEqual({ tc: '#333' });
   });
+
+  it('should set and get conditional format rules', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    await sheet.setConditionalFormats([
+      {
+        id: 'rule-1',
+        range: [
+          { r: 1, c: 1 },
+          { r: 10, c: 1 },
+        ],
+        op: 'isNotEmpty',
+        style: { bg: '#fff59d' },
+      },
+    ]);
+
+    expect(sheet.getConditionalFormats()).toEqual([
+      {
+        id: 'rule-1',
+        range: [
+          { r: 1, c: 1 },
+          { r: 10, c: 1 },
+        ],
+        op: 'isNotEmpty',
+        style: { bg: '#fff59d' },
+      },
+    ]);
+    expect(await store.getConditionalFormats()).toEqual([
+      {
+        id: 'rule-1',
+        range: [
+          { r: 1, c: 1 },
+          { r: 10, c: 1 },
+        ],
+        op: 'isNotEmpty',
+        style: { bg: '#fff59d' },
+      },
+    ]);
+  });
+
+  it('should shift conditional format ranges on row insert/delete', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    await sheet.setConditionalFormats([
+      {
+        id: 'rule-1',
+        range: [
+          { r: 2, c: 1 },
+          { r: 4, c: 2 },
+        ],
+        op: 'greaterThan',
+        value: '10',
+        style: { tc: '#ff0000' },
+      },
+    ]);
+
+    await sheet.insertRows(3, 2);
+    expect(sheet.getConditionalFormats()[0].range).toEqual([
+      { r: 2, c: 1 },
+      { r: 6, c: 2 },
+    ]);
+
+    await sheet.deleteRows(2, 1);
+    expect(sheet.getConditionalFormats()[0].range).toEqual([
+      { r: 2, c: 1 },
+      { r: 5, c: 2 },
+    ]);
+  });
+
+  it('should move conditional format ranges on column move', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+
+    await sheet.setConditionalFormats([
+      {
+        id: 'rule-1',
+        range: [
+          { r: 1, c: 2 },
+          { r: 3, c: 4 },
+        ],
+        op: 'textContains',
+        value: 'todo',
+        style: { b: true },
+      },
+    ]);
+
+    await sheet.moveColumns(2, 1, 6);
+    expect(sheet.getConditionalFormats()[0].range).toEqual([
+      { r: 1, c: 3 },
+      { r: 3, c: 5 },
+    ]);
+  });
 });

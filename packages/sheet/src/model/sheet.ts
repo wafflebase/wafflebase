@@ -22,6 +22,7 @@ import {
   GridResolver,
   Cell,
   CellStyle,
+  ConditionalFormatRule,
   FilterCondition,
   FilterState,
   MergeSpan,
@@ -53,6 +54,12 @@ import {
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
 import { inferInput, type InferredInput } from './input';
+import {
+  cloneConditionalFormatRule,
+  moveConditionalFormatRules,
+  normalizeConditionalFormatRule,
+  shiftConditionalFormatRules,
+} from './conditional-format';
 import {
   RangeStylePatch,
   clipRangeStylePatches,
@@ -157,6 +164,11 @@ export class Sheet {
    * `rangeStyles` stores range-level style patches in apply order.
    */
   private rangeStyles: RangeStylePatch[] = [];
+
+  /**
+   * `conditionalFormats` stores conditional formatting rules in apply order.
+   */
+  private conditionalFormats: ConditionalFormatRule[] = [];
 
   /**
    * `merges` stores merged range spans keyed by anchor sref.
@@ -317,6 +329,7 @@ export class Sheet {
     this.rowStyles = await this.store.getRowStyles();
     this.sheetStyle = await this.store.getSheetStyle();
     this.rangeStyles = await this.store.getRangeStyles();
+    this.conditionalFormats = await this.store.getConditionalFormats();
   }
 
   /**
@@ -436,6 +449,15 @@ export class Sheet {
       range: cloneRange(patch.range),
       style: { ...patch.style },
     }));
+  }
+
+  /**
+   * `getConditionalFormats` returns conditional formatting rules in apply order.
+   */
+  getConditionalFormats(): ConditionalFormatRule[] {
+    return this.conditionalFormats.map((rule) =>
+      cloneConditionalFormatRule(rule),
+    );
   }
 
   /**
@@ -865,6 +887,12 @@ export class Sheet {
       index,
       count,
     );
+    this.conditionalFormats = shiftConditionalFormatRules(
+      this.conditionalFormats,
+      axis,
+      index,
+      count,
+    );
     this.merges = shiftMergeMap(this.merges, axis, index, count);
     this.rebuildMergeCoverMap();
     this.shiftFilterState(axis, index, count);
@@ -985,6 +1013,13 @@ export class Sheet {
     }
     this.rangeStyles = moveRangeStylePatches(
       this.rangeStyles,
+      axis,
+      src,
+      count,
+      dst,
+    );
+    this.conditionalFormats = moveConditionalFormatRules(
+      this.conditionalFormats,
       axis,
       src,
       count,
@@ -2936,6 +2971,19 @@ export class Sheet {
     } finally {
       this.store.endBatch();
     }
+  }
+
+  /**
+   * `setConditionalFormats` replaces all conditional formatting rules.
+   */
+  async setConditionalFormats(rules: ConditionalFormatRule[]): Promise<void> {
+    const normalized = rules
+      .map((rule) => normalizeConditionalFormatRule(rule))
+      .filter((rule): rule is ConditionalFormatRule => !!rule)
+      .map((rule) => cloneConditionalFormatRule(rule));
+
+    this.conditionalFormats = normalized;
+    await this.store.setConditionalFormats(this.conditionalFormats);
   }
 
   /**

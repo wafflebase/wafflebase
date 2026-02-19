@@ -25,6 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import { BG_COLORS, TEXT_COLORS } from "@/components/formatting-colors";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   IconBold,
@@ -37,7 +38,7 @@ import {
   IconAlignBoxCenterMiddle,
   IconAlignBoxBottomCenter,
   IconTypography,
-  IconPaint,
+  IconDropletHalf2Filled,
   IconDropletOff,
   IconArrowBackUp,
   IconArrowForwardUp,
@@ -61,53 +62,8 @@ import {
   IconBorderRight,
   IconBorderNone,
   IconDotsVertical,
+  IconPaint,
 } from "@tabler/icons-react";
-
-const TEXT_COLORS = [
-  "#000000",
-  "#434343",
-  "#666666",
-  "#999999",
-  "#cccccc",
-  "#d50000",
-  "#e67c73",
-  "#f4511e",
-  "#ef6c00",
-  "#f09300",
-  "#0b8043",
-  "#33b679",
-  "#039be5",
-  "#3f51b5",
-  "#7986cb",
-  "#8e24aa",
-  "#d81b60",
-  "#ad1457",
-  "#6a1b9a",
-  "#4a148c",
-];
-
-const BG_COLORS = [
-  "#ffffff",
-  "#f3f3f3",
-  "#e8e8e8",
-  "#d9d9d9",
-  "#cccccc",
-  "#fce4ec",
-  "#fff3e0",
-  "#fff9c4",
-  "#e8f5e9",
-  "#e0f7fa",
-  "#e3f2fd",
-  "#ede7f6",
-  "#fce4ec",
-  "#f3e5f5",
-  "#e8eaf6",
-  "#ffcdd2",
-  "#ffe0b2",
-  "#fff59d",
-  "#c8e6c9",
-  "#b2dfdb",
-];
 
 const ALIGN_ICONS = {
   left: IconAlignLeft,
@@ -137,11 +93,13 @@ const modKey = isMac ? "⌘" : "Ctrl";
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
   onInsertChart?: () => void;
+  onOpenConditionalFormat?: () => void;
 }
 
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
+  onOpenConditionalFormat,
 }: FormattingToolbarProps) {
   const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
@@ -230,6 +188,10 @@ export function FormattingToolbar({
   const handleInsertChart = useCallback(() => {
     onInsertChart?.();
   }, [onInsertChart]);
+
+  const handleOpenConditionalFormat = useCallback(() => {
+    onOpenConditionalFormat?.();
+  }, [onOpenConditionalFormat]);
 
   const handleNumberFormat = useCallback(
     (format: string) => {
@@ -519,7 +481,7 @@ export function FormattingToolbar({
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted">
-                <IconPaint size={16} />
+                <IconDropletHalf2Filled size={16} />
                 <span
                   className="absolute mt-5 h-0.5 w-3.5 rounded"
                   style={{
@@ -730,6 +692,18 @@ export function FormattingToolbar({
             </TooltipTrigger>
             <TooltipContent>Insert chart</TooltipContent>
           </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-[10px] font-semibold tracking-wide hover:bg-muted"
+                onClick={handleOpenConditionalFormat}
+              >
+                <IconPaint size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Conditional formatting</TooltipContent>
+          </Tooltip>
         </>
       )}
 
@@ -854,6 +828,10 @@ export function FormattingToolbar({
               <DropdownMenuItem onClick={handleInsertChart}>
                 <IconChartBar size={16} className="mr-2" />
                 Insert chart
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleOpenConditionalFormat}>
+                <IconPaint size={16} className="mr-2" />
+                Conditional formatting
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

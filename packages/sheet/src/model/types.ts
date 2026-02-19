@@ -93,6 +93,37 @@ export type CellStyle = {
 };
 
 /**
+ * Conditional formatting operators.
+ */
+export type ConditionalFormatOperator =
+  | 'isEmpty'
+  | 'isNotEmpty'
+  | 'textContains'
+  | 'greaterThan'
+  | 'between'
+  | 'dateBefore'
+  | 'dateAfter';
+
+/**
+ * Conditional formatting supports a focused subset of text/fill styles.
+ */
+export type ConditionalFormatStyle = Partial<
+  Pick<CellStyle, 'b' | 'i' | 'u' | 'tc' | 'bg'>
+>;
+
+/**
+ * Conditional formatting rule.
+ */
+export type ConditionalFormatRule = {
+  id: string;
+  range: Range;
+  op: ConditionalFormatOperator;
+  value?: string;
+  value2?: string;
+  style: ConditionalFormatStyle;
+};
+
+/**
  * Cell type represents a cell in the sheet.
  */
 export type Cell = {

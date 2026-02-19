@@ -1,6 +1,7 @@
 import {
   BorderPreset,
   CellStyle,
+  ConditionalFormatRule,
   FilterCondition,
   GridResolver,
   Range,
@@ -166,6 +167,25 @@ export class Spreadsheet {
   public async getActiveStyle(): Promise<CellStyle | undefined> {
     if (!this.sheet) return undefined;
     return this.sheet.getStyle(this.sheet.getActiveCell());
+  }
+
+  /**
+   * `getConditionalFormats` returns conditional formatting rules.
+   */
+  public getConditionalFormats(): ConditionalFormatRule[] {
+    return this.sheet?.getConditionalFormats() || [];
+  }
+
+  /**
+   * `setConditionalFormats` replaces conditional formatting rules and re-renders.
+   */
+  public async setConditionalFormats(
+    rules: ConditionalFormatRule[],
+  ): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.setConditionalFormats(rules);
+    this.worksheet.render();
+    this.notifySelectionChange();
   }
 
   /**

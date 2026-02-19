@@ -546,6 +546,9 @@ Key points:
 - Internal copy/paste carries and relocates `rangeStyles` so empty-range
   formatting is preserved.
 - Rendering resolves effective style from all layers.
+- Conditional formatting rules (`conditionalFormats`) are stored per worksheet
+  and evaluated at render time in list order; later matches override earlier
+  ones for supported keys (`b`, `i`, `u`, `tc`, `bg`).
 
 **Layout helpers for floating objects:** The `Spreadsheet` facade now exposes
 `getSelectionType()`, `getSelectionRangeOrActiveCell()`,

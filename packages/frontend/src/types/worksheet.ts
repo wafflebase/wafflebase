@@ -1,6 +1,7 @@
 import {
   Cell,
   CellStyle,
+  ConditionalFormatRule,
   FilterCondition,
   MergeSpan,
   RangeStylePatch,
@@ -53,6 +54,7 @@ export type Worksheet = {
   };
   sheetStyle?: CellStyle;
   rangeStyles?: RangeStylePatch[];
+  conditionalFormats?: ConditionalFormatRule[];
   merges?: {
     [key: Sref]: MergeSpan;
   };
@@ -98,6 +100,7 @@ export const initialSpreadsheetDocument: SpreadsheetDocument = {
       colWidths: {},
       colStyles: {},
       rowStyles: {},
+      conditionalFormats: [],
       merges: {},
       charts: {},
       frozenRows: 0,

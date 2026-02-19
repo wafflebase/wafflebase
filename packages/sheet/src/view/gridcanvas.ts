@@ -5,9 +5,11 @@ import {
   Range,
   SelectionType,
   CellStyle,
+  ConditionalFormatRule,
   MergeSpan,
 } from '../model/types';
 import { RangeStylePatch, resolveRangeStyleAt } from '../model/range-styles';
+import { resolveConditionalFormatStyleAt } from '../model/conditional-format';
 import { DimensionIndex } from '../model/dimensions';
 import { formatValue } from '../model/format';
 import { Theme, ThemeKey, getThemeColor } from './theme';
@@ -73,6 +75,7 @@ export class GridCanvas {
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
     rangeStyles?: RangeStylePatch[],
+    conditionalFormats?: ConditionalFormatRule[],
     merges?: Map<string, MergeSpan>,
     filterRange?: Range,
     filteredColumns?: Set<number>,
@@ -110,6 +113,7 @@ export class GridCanvas {
         rowStyles,
         sheetStyle,
         rangeStyles,
+        conditionalFormats,
         mergeData,
         filterRange,
         filteredColumns,
@@ -186,6 +190,7 @@ export class GridCanvas {
         rowStyles,
         sheetStyle,
         rangeStyles,
+        conditionalFormats,
         mergeData,
         filterRange,
         filteredColumns,
@@ -218,6 +223,7 @@ export class GridCanvas {
           rowStyles,
           sheetStyle,
           rangeStyles,
+          conditionalFormats,
           mergeData,
           filterRange,
           filteredColumns,
@@ -251,6 +257,7 @@ export class GridCanvas {
           rowStyles,
           sheetStyle,
           rangeStyles,
+          conditionalFormats,
           mergeData,
           filterRange,
           filteredColumns,
@@ -279,6 +286,7 @@ export class GridCanvas {
           rowStyles,
           sheetStyle,
           rangeStyles,
+          conditionalFormats,
           mergeData,
           filterRange,
           filteredColumns,
@@ -384,6 +392,7 @@ export class GridCanvas {
     rowStyles?: Map<number, CellStyle>,
     sheetStyle?: CellStyle,
     rangeStyles?: RangeStylePatch[],
+    conditionalFormats?: ConditionalFormatRule[],
     mergeData?: {
       anchors: Map<string, MergeSpan>;
       coverToAnchor: Map<string, string>;
@@ -392,6 +401,32 @@ export class GridCanvas {
     filteredColumns?: Set<number>,
     hoveredFilterButtonCol: number | null = null,
   ): void {
+    const styleCache = new Map<string, CellStyle | null>();
+    const resolveCellStyle = (
+      row: number,
+      col: number,
+      cell?: Cell,
+    ): CellStyle | undefined => {
+      const sref = toSref({ r: row, c: col });
+      if (styleCache.has(sref)) {
+        const cached = styleCache.get(sref);
+        return cached || undefined;
+      }
+
+      const resolved = this.resolveEffectiveStyle(
+        row,
+        col,
+        cell,
+        sheetStyle,
+        colStyles,
+        rowStyles,
+        rangeStyles,
+        conditionalFormats,
+      );
+      styleCache.set(sref, resolved || null);
+      return resolved;
+    };
+
     const overflowData = this.buildTextOverflowRenderData(
       ctx,
       rowStart,
@@ -400,11 +435,8 @@ export class GridCanvas {
       colEnd,
       grid,
       colDim,
-      colStyles,
-      rowStyles,
-      sheetStyle,
-      rangeStyles,
       mergeData,
+      resolveCellStyle,
     );
 
     // Three-pass rendering: backgrounds first, then custom borders, then text.
@@ -420,15 +452,7 @@ export class GridCanvas {
         }
         const cell = grid?.get(toSref({ r: row, c: col }));
         const mergeSpan = mergeData?.anchors.get(sref);
-        const effectiveStyle = this.resolveEffectiveStyle(
-          row,
-          col,
-          cell,
-          sheetStyle,
-          colStyles,
-          rowStyles,
-          rangeStyles,
-        );
+        const effectiveStyle = resolveCellStyle(row, col, cell);
         const hideLeftBorder = overflowData?.hiddenVerticalBoundaries.has(
           this.verticalBoundaryKey(row, col - 1),
         );
@@ -459,15 +483,7 @@ export class GridCanvas {
         }
         const cell = grid?.get(toSref({ r: row, c: col }));
         const mergeSpan = mergeData?.anchors.get(sref);
-        const effectiveStyle = this.resolveEffectiveStyle(
-          row,
-          col,
-          cell,
-          sheetStyle,
-          colStyles,
-          rowStyles,
-          rangeStyles,
-        );
+        const effectiveStyle = resolveCellStyle(row, col, cell);
         this.renderCellCustomBorders(
           ctx,
           { r: row, c: col },
@@ -489,15 +505,7 @@ export class GridCanvas {
         }
         const cell = grid?.get(toSref({ r: row, c: col }));
         const mergeSpan = mergeData?.anchors.get(sref);
-        const effectiveStyle = this.resolveEffectiveStyle(
-          row,
-          col,
-          cell,
-          sheetStyle,
-          colStyles,
-          rowStyles,
-          rangeStyles,
-        );
+        const effectiveStyle = resolveCellStyle(row, col, cell);
         const overflowEndCol = overflowData?.anchorToEndCol.get(sref);
         this.renderCellContent(
           ctx,
@@ -1036,14 +1044,15 @@ export class GridCanvas {
     colEnd: number,
     grid: Grid | undefined,
     colDim?: DimensionIndex,
-    colStyles?: Map<number, CellStyle>,
-    rowStyles?: Map<number, CellStyle>,
-    sheetStyle?: CellStyle,
-    rangeStyles?: RangeStylePatch[],
     mergeData?: {
       anchors: Map<string, MergeSpan>;
       coverToAnchor: Map<string, string>;
     },
+    resolveCellStyle?: (
+      row: number,
+      col: number,
+      cell?: Cell,
+    ) => CellStyle | undefined,
   ): TextOverflowRenderData | undefined {
     if (!grid || !colDim) return undefined;
 
@@ -1064,15 +1073,7 @@ export class GridCanvas {
           continue;
         }
 
-        const style = this.resolveEffectiveStyle(
-          row,
-          col,
-          cell,
-          sheetStyle,
-          colStyles,
-          rowStyles,
-          rangeStyles,
-        );
+        const style = resolveCellStyle?.(row, col, cell);
 
         const align = style?.al || 'left';
         if (align !== 'left') {
@@ -1095,23 +1096,15 @@ export class GridCanvas {
         let width = cellWidth;
         let overflowEndCol = col;
         for (let nextCol = col + 1; nextCol <= colEnd; nextCol++) {
-          const leftStyle = this.resolveEffectiveStyle(
+          const leftStyle = resolveCellStyle?.(
             row,
             nextCol - 1,
             grid.get(toSref({ r: row, c: nextCol - 1 })),
-            sheetStyle,
-            colStyles,
-            rowStyles,
-            rangeStyles,
           );
-          const rightStyle = this.resolveEffectiveStyle(
+          const rightStyle = resolveCellStyle?.(
             row,
             nextCol,
             grid.get(toSref({ r: row, c: nextCol })),
-            sheetStyle,
-            colStyles,
-            rowStyles,
-            rangeStyles,
           );
           if (leftStyle?.br || rightStyle?.bl) {
             break;
@@ -1166,16 +1159,34 @@ export class GridCanvas {
     colStyles?: Map<number, CellStyle>,
     rowStyles?: Map<number, CellStyle>,
     rangeStyles?: RangeStylePatch[],
+    conditionalFormats?: ConditionalFormatRule[],
   ): CellStyle | undefined {
     const cStyle = colStyles?.get(col);
     const rStyle = rowStyles?.get(row);
     const rangeStyle = rangeStyles
       ? resolveRangeStyleAt(rangeStyles, row, col)
       : undefined;
-    if (!sheetStyle && !cStyle && !rStyle && !rangeStyle && !cell?.s) {
+    const conditionalStyle = conditionalFormats
+      ? resolveConditionalFormatStyleAt(conditionalFormats, row, col, cell)
+      : undefined;
+    if (
+      !sheetStyle &&
+      !cStyle &&
+      !rStyle &&
+      !rangeStyle &&
+      !cell?.s &&
+      !conditionalStyle
+    ) {
       return undefined;
     }
-    return { ...sheetStyle, ...cStyle, ...rStyle, ...rangeStyle, ...cell?.s };
+    return {
+      ...sheetStyle,
+      ...cStyle,
+      ...rStyle,
+      ...rangeStyle,
+      ...cell?.s,
+      ...conditionalStyle,
+    };
   }
 
   /**

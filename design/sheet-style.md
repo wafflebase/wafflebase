@@ -19,10 +19,12 @@ Formatting is composed from five layers:
 - **Row styles** (`rowStyles[row]`) — per-row overrides
 - **Range style patches** (`rangeStyles[]`) — ordered rectangle patches
 - **Cell style** (`cell.s`) — per-cell overrides
+- **Conditional format rules** (`conditionalFormats[]`) — ordered rule styles
+  evaluated at render time
 
 Effective precedence is:
 
-`sheet -> column -> row -> range patch -> cell`
+`sheet -> column -> row -> range patch -> cell -> conditional`
 
 Each `Cell` can carry `s?: CellStyle`, but rectangular styling is represented
 through `rangeStyles` to avoid writing one style-only cell per coordinate.
@@ -114,12 +116,17 @@ preserving formatting even for empty copied ranges.
 
 ## Rendering
 
-`GridCanvas` resolves effective style from all five layers and then renders:
+`GridCanvas` resolves effective style from all base layers plus conditional
+rules and then renders:
 
 - backgrounds
 - custom borders (`bt/br/bb/bl`)
 - text/decorations
 - number format display
+
+Conditional formatting is applied at render time on top of static style layers,
+using rule list order (later matching rules override earlier ones). Supported
+rule style keys are `b`, `i`, `u`, `tc`, and `bg`.
 
 `CellInput.applyStyle` mirrors active-cell effective style in inline editor.
 

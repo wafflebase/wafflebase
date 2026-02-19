@@ -18,18 +18,25 @@ import {
   normalizeRangeStylePatch,
   shiftRangeStylePatches,
 } from '../model/range-styles';
+import {
+  cloneConditionalFormatRule,
+  moveConditionalFormatRules,
+  normalizeConditionalFormatRule,
+  shiftConditionalFormatRules,
+} from '../model/conditional-format';
 import { shiftMergeMap, moveMergeMap } from '../model/merging';
 import {
   Axis,
   Cell,
   CellStyle,
-  FilterState,
+  ConditionalFormatRule,
   Grid,
   MergeSpan,
   Ref,
   Range,
   Sref,
   Direction,
+  FilterState,
 } from '../model/types';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
@@ -48,6 +55,7 @@ export class MemStore implements Store {
   private rowStyles: Map<number, CellStyle> = new Map();
   private sheetStyle?: CellStyle;
   private rangeStyles: RangeStylePatch[] = [];
+  private conditionalFormats: ConditionalFormatRule[] = [];
   private merges: Map<Sref, MergeSpan> = new Map();
   private filterState?: FilterState;
   private frozenRows = 0;
@@ -159,6 +167,12 @@ export class MemStore implements Store {
       index,
       count,
     );
+    this.conditionalFormats = shiftConditionalFormatRules(
+      this.conditionalFormats,
+      axis,
+      index,
+      count,
+    );
     this.merges = shiftMergeMap(this.merges, axis, index, count);
   }
 
@@ -200,6 +214,13 @@ export class MemStore implements Store {
     }
     this.rangeStyles = moveRangeStylePatches(
       this.rangeStyles,
+      axis,
+      srcIndex,
+      count,
+      dstIndex,
+    );
+    this.conditionalFormats = moveConditionalFormatRules(
+      this.conditionalFormats,
       axis,
       srcIndex,
       count,
@@ -318,6 +339,17 @@ export class MemStore implements Store {
 
   async getRangeStyles(): Promise<RangeStylePatch[]> {
     return this.rangeStyles.map((patch) => cloneRangeStylePatch(patch));
+  }
+
+  async setConditionalFormats(rules: ConditionalFormatRule[]): Promise<void> {
+    this.conditionalFormats = rules
+      .map((rule) => normalizeConditionalFormatRule(rule))
+      .filter((rule): rule is ConditionalFormatRule => !!rule)
+      .map((rule) => cloneConditionalFormatRule(rule));
+  }
+
+  async getConditionalFormats(): Promise<ConditionalFormatRule[]> {
+    return this.conditionalFormats.map((rule) => cloneConditionalFormatRule(rule));
   }
 
   async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {

@@ -26,8 +26,13 @@ import {
   isCrossSheetRef,
   shiftMergeMap,
   moveMergeMap,
+  ConditionalFormatRule,
+  cloneConditionalFormatRule,
+  moveConditionalFormatRules,
+  normalizeConditionalFormatRule,
   RangeStylePatch,
   cloneRangeStylePatch,
+  shiftConditionalFormatRules,
   moveRangeStylePatches,
   normalizeRangeStylePatch,
   shiftRangeStylePatches,
@@ -580,6 +585,15 @@ export class YorkieStore implements Store {
         );
       }
 
+      if (ws.conditionalFormats) {
+        ws.conditionalFormats = shiftConditionalFormatRules(
+          ws.conditionalFormats as ConditionalFormatRule[],
+          axis,
+          index,
+          count,
+        );
+      }
+
       // Shift merged ranges for the affected axis
       const mergeMap = new Map<Sref, MergeSpan>(
         Object.entries(ws.merges || {}) as Array<[Sref, MergeSpan]>,
@@ -710,6 +724,16 @@ export class YorkieStore implements Store {
       if (ws.rangeStyles) {
         ws.rangeStyles = moveRangeStylePatches(
           ws.rangeStyles as RangeStylePatch[],
+          axis,
+          srcIndex,
+          count,
+          dstIndex,
+        );
+      }
+
+      if (ws.conditionalFormats) {
+        ws.conditionalFormats = moveConditionalFormatRules(
+          ws.conditionalFormats as ConditionalFormatRule[],
           axis,
           srcIndex,
           count,
@@ -1010,6 +1034,48 @@ export class YorkieStore implements Store {
     }
     return (ws.rangeStyles as RangeStylePatch[]).map((patch) =>
       cloneRangeStylePatch(patch),
+    );
+  }
+
+  async setConditionalFormats(rules: ConditionalFormatRule[]): Promise<void> {
+    const normalized = rules
+      .map((rule) => normalizeConditionalFormatRule(rule))
+      .filter((rule): rule is ConditionalFormatRule => !!rule)
+      .map((rule) => cloneConditionalFormatRule(rule));
+
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      this.batchOps.push((root) => {
+        if (normalized.length === 0) {
+          delete root.sheets[tabId].conditionalFormats;
+          return;
+        }
+        root.sheets[tabId].conditionalFormats = normalized.map((rule) =>
+          cloneConditionalFormatRule(rule),
+        );
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      if (normalized.length === 0) {
+        delete root.sheets[tabId].conditionalFormats;
+        return;
+      }
+      root.sheets[tabId].conditionalFormats = normalized.map((rule) =>
+        cloneConditionalFormatRule(rule),
+      );
+    });
+  }
+
+  async getConditionalFormats(): Promise<ConditionalFormatRule[]> {
+    const ws = this.getSheet();
+    if (!ws.conditionalFormats || ws.conditionalFormats.length === 0) {
+      return [];
+    }
+    return (ws.conditionalFormats as ConditionalFormatRule[]).map((rule) =>
+      cloneConditionalFormatRule(rule),
     );
   }
 

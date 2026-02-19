@@ -98,6 +98,9 @@ The toolbar also includes a `Borders` dropdown that applies border presets
 `spreadsheet.applyBorders(...)`. On mobile, the toolbar uses a compact set of
 inline actions (undo/redo, text style, colors, merge) and moves advanced
 format/alignment/border/function actions into a trailing overflow menu.
+It also exposes `Conditional formatting` (`CF`), which opens a right-side
+rules panel (same layout pattern as chart editor). Rules are applied to an A1
+range and persisted through the sheet engine/store APIs.
 It also exposes `Insert chart`, which creates a floating chart object from the
 current cell selection. Floating chart cards include a top-right context menu
 (`Edit chart`, `Delete chart`) and open a right-side chart editor panel for
@@ -165,6 +168,28 @@ type WorksheetFilterState = {
   hiddenRows: number[];
 };
 
+type ConditionalFormatRule = {
+  id: string;
+  range: [{ r: number; c: number }, { r: number; c: number }];
+  op:
+    | 'isEmpty'
+    | 'isNotEmpty'
+    | 'textContains'
+    | 'greaterThan'
+    | 'between'
+    | 'dateBefore'
+    | 'dateAfter';
+  value?: string;
+  value2?: string;
+  style: {
+    b?: boolean;
+    i?: boolean;
+    u?: boolean;
+    tc?: string;
+    bg?: string;
+  };
+};
+
 type Worksheet = {
   sheet: { [sref: Sref]: Cell };
   rowHeights: { [index: string]: number };
@@ -172,6 +197,7 @@ type Worksheet = {
   colStyles: { [index: string]: CellStyle };
   rowStyles: { [index: string]: CellStyle };
   sheetStyle?: CellStyle;
+  conditionalFormats?: ConditionalFormatRule[];
   merges?: { [anchor: Sref]: { rs: number; cs: number } };
   filter?: WorksheetFilterState;
   charts?: { [id: string]: SheetChart };
@@ -216,13 +242,15 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `setGrid(grid)` | Batch write to `root.sheet` |
 | `getGrid(range)` | Use CellIndex to iterate only populated cells in range |
 | `findEdge(ref, direction, dimension)` | Delegate to `findEdgeWithIndex` using CellIndex |
-| `shiftCells(axis, index, count)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors |
-| `moveCells(axis, src, count, dst)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors |
+| `shiftCells(axis, index, count)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors and conditional-format ranges |
+| `moveCells(axis, src, count, dst)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors and conditional-format ranges |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
 | `addRangeStyle(patch)` | Append to `root.sheets[tabId].rangeStyles` |
 | `setRangeStyles(patches)` | Replace/delete `root.sheets[tabId].rangeStyles` |
 | `getRangeStyles()` | Read `root.sheets[tabId].rangeStyles` (fallback `[]`) |
+| `setConditionalFormats(rules)` | Replace/delete `root.sheets[tabId].conditionalFormats` |
+| `getConditionalFormats()` | Read `root.sheets[tabId].conditionalFormats` (fallback `[]`) |
 | `setMerge(anchor, span)` | Write to `root.sheets[tabId].merges[anchorSref]` |
 | `deleteMerge(anchor)` | Delete `root.sheets[tabId].merges[anchorSref]` |
 | `getMerges()` | Read all merge anchors from `root.sheets[tabId].merges` |

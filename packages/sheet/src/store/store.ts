@@ -2,6 +2,7 @@ import {
   Axis,
   Cell,
   CellStyle,
+  ConditionalFormatRule,
   FilterState,
   Grid,
   MergeSpan,
@@ -143,6 +144,16 @@ export interface Store {
    * `getRangeStyles` method gets all range style patches in apply order.
    */
   getRangeStyles(): Promise<RangeStylePatch[]>;
+
+  /**
+   * `setConditionalFormats` replaces all conditional format rules.
+   */
+  setConditionalFormats(rules: ConditionalFormatRule[]): Promise<void>;
+
+  /**
+   * `getConditionalFormats` gets all conditional format rules in apply order.
+   */
+  getConditionalFormats(): Promise<ConditionalFormatRule[]>;
 
   /**
    * `setMerge` sets a merged range anchor with row/column span.

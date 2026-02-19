@@ -29,6 +29,11 @@ const ChartEditorPanel = lazy(() =>
     default: module.ChartEditorPanel,
   })),
 );
+const ConditionalFormatPanel = lazy(() =>
+  import("./conditional-format-panel").then((module) => ({
+    default: module.ConditionalFormatPanel,
+  })),
+);
 
 export function SheetView({
   tabId,
@@ -43,6 +48,7 @@ export function SheetView({
   const [sheetRenderVersion, setSheetRenderVersion] = useState(0);
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
+  const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
   const { doc, loading, error } = useDocument<
@@ -112,6 +118,7 @@ export function SheetView({
 
     setSelectedChartId(chartId);
     setChartEditorOpen(true);
+    setConditionalFormatOpen(false);
   }, [doc, readOnly, tabId]);
 
   const handleUpdateChart = useCallback(
@@ -161,6 +168,12 @@ export function SheetView({
   const handleEditChart = useCallback((chartId: string) => {
     setSelectedChartId(chartId);
     setChartEditorOpen(true);
+    setConditionalFormatOpen(false);
+  }, []);
+
+  const handleOpenConditionalFormat = useCallback(() => {
+    setConditionalFormatOpen(true);
+    setChartEditorOpen(false);
   }, []);
 
   const getSelectionRange = useCallback(() => {
@@ -180,11 +193,15 @@ export function SheetView({
     if (chartEditorOpen) {
       setChartEditorOpen(false);
     }
-  }, [chartEditorOpen, selectedChartId]);
+    if (conditionalFormatOpen) {
+      setConditionalFormatOpen(false);
+    }
+  }, [chartEditorOpen, conditionalFormatOpen, selectedChartId]);
 
   useEffect(() => {
     setSelectedChartId(null);
     setChartEditorOpen(false);
+    setConditionalFormatOpen(false);
   }, [tabId]);
 
   // NOTE(hackerwins): To prevent initialization of the spreadsheet
@@ -381,6 +398,7 @@ export function SheetView({
         <FormattingToolbar
           spreadsheet={sheetRef.current}
           onInsertChart={handleInsertChart}
+          onOpenConditionalFormat={handleOpenConditionalFormat}
         />
       )}
       <div className="relative flex-1 w-full">
@@ -414,6 +432,16 @@ export function SheetView({
               open={chartEditorOpen}
               onClose={() => setChartEditorOpen(false)}
               onUpdateChart={handleUpdateChart}
+              getSelectionRange={getSelectionRange}
+            />
+          </Suspense>
+        )}
+        {!readOnly && conditionalFormatOpen && (
+          <Suspense fallback={null}>
+            <ConditionalFormatPanel
+              spreadsheet={sheetRef.current}
+              open={conditionalFormatOpen}
+              onClose={() => setConditionalFormatOpen(false)}
               getSelectionRange={getSelectionRange}
             />
           </Suspense>

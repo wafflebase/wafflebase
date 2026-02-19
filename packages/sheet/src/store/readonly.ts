@@ -3,6 +3,7 @@ import {
   Axis,
   Cell,
   CellStyle,
+  ConditionalFormatRule,
   FilterState,
   Grid,
   MergeSpan,
@@ -190,6 +191,16 @@ export class ReadOnlyStore implements Store {
   }
 
   async getRangeStyles(): Promise<RangeStylePatch[]> {
+    return [];
+  }
+
+  async setConditionalFormats(
+    _rules: ConditionalFormatRule[],
+  ): Promise<void> {
+    // no-op
+  }
+
+  async getConditionalFormats(): Promise<ConditionalFormatRule[]> {
     return [];
   }
 
