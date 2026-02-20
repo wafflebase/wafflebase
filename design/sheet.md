@@ -323,6 +323,7 @@ Functions are registered in `FunctionMap`. Currently implemented:
   `COUNTA`, `COUNTBLANK`, `COUNTIF`, `SUMIF`, `COUNTIFS`, `SUMIFS`, `RAND`,
   `RANDBETWEEN`.
 - **Logical** — `IF`, `IFS`, `SWITCH`, `AND`, `OR`, `NOT`, `IFERROR`, `IFNA`.
+- **Lookup/Reference** — `MATCH`, `INDEX`, `VLOOKUP`, `HLOOKUP`.
 - **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `CONCAT`,
   `FIND`, `SEARCH`, `TEXTJOIN`, `LOWER`, `UPPER`, `PROPER`, `SUBSTITUTE`.
 - **Date/Time** — `TODAY`, `NOW`, `DATE`, `TIME`, `DAYS`, `YEAR`, `MONTH`,
@@ -566,7 +567,7 @@ canvas-rendered cells while respecting scroll remapping and freeze panes.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 65 built-in functions are implemented. New functions
+**Formula function coverage** — 69 built-in functions are implemented. New functions
 are added to `FunctionMap` following the same pattern: accept a
 `FunctionContext`, visitor, and optional grid; return an `EvalNode`.
 

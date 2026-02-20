@@ -3,7 +3,14 @@ import { FunctionContext } from '../../antlr/FormulaParser';
 import { EvalNode } from './formula';
 import { NumberArgs, BoolArgs, ref2str } from './arguments';
 import { Grid } from '../model/types';
-import { isSrng, toSrefs } from '../model/coordinates';
+import {
+  isCrossSheetRef,
+  isSrng,
+  parseCrossSheetRef,
+  parseRange,
+  toSref,
+  toSrefs,
+} from '../model/coordinates';
 
 /**
  * FunctionMap is a map of function name to the function implementation.
@@ -36,6 +43,10 @@ export const FunctionMap = new Map([
   ['SUMIF', sumifFunc],
   ['COUNTIFS', countifsFunc],
   ['SUMIFS', sumifsFunc],
+  ['MATCH', matchFunc],
+  ['INDEX', indexFunc],
+  ['VLOOKUP', vlookupFunc],
+  ['HLOOKUP', hlookupFunc],
   ['TRIM', trimFunc],
   ['LEN', lenFunc],
   ['LEFT', leftFunc],
@@ -169,10 +180,24 @@ type ParsedCriterion = {
   wildcardPattern?: RegExp;
 };
 
-function isFormulaError(
-  value: FormulaError | ParsedCriterion,
-): value is FormulaError {
-  return (value as FormulaError).t === 'err';
+type ReferenceMatrix = {
+  refs: string[];
+  rowCount: number;
+  colCount: number;
+};
+
+type LookupValue = {
+  normalized: string;
+  numericValue?: number;
+  boolValue?: boolean;
+};
+
+function isFormulaError(value: unknown): value is FormulaError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as FormulaError).t === 'err'
+  );
 }
 
 function getRefsFromExpression(
@@ -189,6 +214,119 @@ function getRefsFromExpression(
   }
 
   return { t: 'refs', v: Array.from(toSrefs([node.v])) };
+}
+
+function getReferenceMatrixFromExpression(
+  expr: ParseTree,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): { t: 'matrix'; v: ReferenceMatrix } | FormulaError {
+  const node = visit(expr);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t !== 'ref' || !grid) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  if (!isSrng(node.v)) {
+    return {
+      t: 'matrix',
+      v: {
+        refs: [node.v],
+        rowCount: 1,
+        colCount: 1,
+      },
+    };
+  }
+
+  try {
+    let localRange = node.v;
+    let prefix = '';
+    if (isCrossSheetRef(node.v)) {
+      const { sheetName, localRef } = parseCrossSheetRef(node.v);
+      localRange = localRef;
+      prefix = `${sheetName}!`;
+    }
+
+    const [from, to] = parseRange(localRange);
+    const refs: string[] = [];
+    for (let row = from.r; row <= to.r; row++) {
+      for (let col = from.c; col <= to.c; col++) {
+        refs.push(`${prefix}${toSref({ r: row, c: col })}`);
+      }
+    }
+
+    return {
+      t: 'matrix',
+      v: {
+        refs,
+        rowCount: to.r - from.r + 1,
+        colCount: to.c - from.c + 1,
+      },
+    };
+  } catch {
+    return { t: 'err', v: '#VALUE!' };
+  }
+}
+
+function toLookupValue(raw: string): LookupValue {
+  const numeric = raw === '' ? undefined : Number(raw);
+  const numericValue = numeric === undefined || isNaN(numeric) ? undefined : numeric;
+  const upper = raw.toUpperCase();
+  const boolValue =
+    upper === 'TRUE'
+      ? true
+      : upper === 'FALSE'
+        ? false
+        : undefined;
+
+  return {
+    normalized: raw.toLowerCase(),
+    numericValue,
+    boolValue,
+  };
+}
+
+function lookupValueFromNode(
+  node: EvalNode,
+  grid?: Grid,
+): LookupValue | FormulaError {
+  const str = toStr(node, grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  return toLookupValue(str.v);
+}
+
+function lookupValueFromRef(ref: string, grid?: Grid): LookupValue {
+  const raw = grid?.get(ref)?.v || '';
+  return toLookupValue(raw);
+}
+
+function equalLookupValues(left: LookupValue, right: LookupValue): boolean {
+  if (left.numericValue !== undefined && right.numericValue !== undefined) {
+    return left.numericValue === right.numericValue;
+  }
+
+  if (left.boolValue !== undefined && right.boolValue !== undefined) {
+    return left.boolValue === right.boolValue;
+  }
+
+  return left.normalized === right.normalized;
+}
+
+function compareLookupValues(left: LookupValue, right: LookupValue): number {
+  if (left.numericValue !== undefined && right.numericValue !== undefined) {
+    return left.numericValue - right.numericValue;
+  }
+
+  if (left.boolValue !== undefined && right.boolValue !== undefined) {
+    return Number(left.boolValue) - Number(right.boolValue);
+  }
+
+  return left.normalized.localeCompare(right.normalized);
 }
 
 function toNumberOrZero(value: string): number {
@@ -1258,6 +1396,331 @@ export function sumifsFunc(
   }
 
   return { t: 'num', v: total };
+}
+
+/**
+ * `matchFunc` is the implementation of the MATCH function.
+ * MATCH(search_key, range, [search_type]) — returns relative position in a 1D range.
+ */
+export function matchFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const lookup = lookupValueFromNode(visit(exprs[0]), grid);
+  if (isFormulaError(lookup)) {
+    return lookup;
+  }
+
+  const matrix = getReferenceMatrixFromExpression(exprs[1], visit, grid);
+  if (matrix.t === 'err') {
+    return matrix;
+  }
+  if (matrix.v.rowCount > 1 && matrix.v.colCount > 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let searchType = 1;
+  if (exprs.length === 3) {
+    const searchTypeNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (searchTypeNode.t === 'err') {
+      return searchTypeNode;
+    }
+    searchType = Math.trunc(searchTypeNode.v);
+  }
+
+  if (searchType !== -1 && searchType !== 0 && searchType !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  if (searchType === 0) {
+    for (let i = 0; i < matrix.v.refs.length; i++) {
+      const candidate = lookupValueFromRef(matrix.v.refs[i], grid);
+      if (equalLookupValues(candidate, lookup)) {
+        return { t: 'num', v: i + 1 };
+      }
+    }
+
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let bestIndex = -1;
+  if (searchType === 1) {
+    let bestCmp = -Infinity;
+    for (let i = 0; i < matrix.v.refs.length; i++) {
+      const candidate = lookupValueFromRef(matrix.v.refs[i], grid);
+      const cmp = compareLookupValues(candidate, lookup);
+      if (cmp <= 0 && cmp > bestCmp) {
+        bestCmp = cmp;
+        bestIndex = i;
+      }
+    }
+  } else {
+    let bestCmp = Infinity;
+    for (let i = 0; i < matrix.v.refs.length; i++) {
+      const candidate = lookupValueFromRef(matrix.v.refs[i], grid);
+      const cmp = compareLookupValues(candidate, lookup);
+      if (cmp >= 0 && cmp < bestCmp) {
+        bestCmp = cmp;
+        bestIndex = i;
+      }
+    }
+  }
+
+  if (bestIndex < 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  return { t: 'num', v: bestIndex + 1 };
+}
+
+/**
+ * `indexFunc` is the implementation of the INDEX function.
+ * INDEX(reference, [row], [column]) — returns a cell value from a range.
+ */
+export function indexFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const matrix = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if (matrix.t === 'err') {
+    return matrix;
+  }
+
+  let row = 1;
+  let col = 1;
+  if (exprs.length >= 2) {
+    const rowNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (rowNode.t === 'err') {
+      return rowNode;
+    }
+    const rowArg = Math.trunc(rowNode.v);
+
+    if (exprs.length === 2 && matrix.v.rowCount === 1 && matrix.v.colCount > 1) {
+      col = rowArg;
+    } else {
+      row = rowArg;
+    }
+  }
+
+  if (exprs.length === 3) {
+    const colNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (colNode.t === 'err') {
+      return colNode;
+    }
+    col = Math.trunc(colNode.v);
+  }
+
+  if (row <= 0 || col <= 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+  if (row > matrix.v.rowCount || col > matrix.v.colCount) {
+    return { t: 'err', v: '#REF!' };
+  }
+
+  return {
+    t: 'ref',
+    v: matrix.v.refs[(row - 1) * matrix.v.colCount + (col - 1)],
+  };
+}
+
+/**
+ * `vlookupFunc` is the implementation of the VLOOKUP function.
+ * VLOOKUP(search_key, range, index, [is_sorted]) — vertical lookup by first column.
+ */
+export function vlookupFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const lookup = lookupValueFromNode(visit(exprs[0]), grid);
+  if (isFormulaError(lookup)) {
+    return lookup;
+  }
+
+  const matrix = getReferenceMatrixFromExpression(exprs[1], visit, grid);
+  if (matrix.t === 'err') {
+    return matrix;
+  }
+
+  const indexNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (indexNode.t === 'err') {
+    return indexNode;
+  }
+  const targetCol = Math.trunc(indexNode.v);
+  if (targetCol <= 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+  if (targetCol > matrix.v.colCount) {
+    return { t: 'err', v: '#REF!' };
+  }
+
+  let isSorted = true;
+  if (exprs.length === 4) {
+    const sortedNode = BoolArgs.map(visit(exprs[3]), grid);
+    if (sortedNode.t === 'err') {
+      return sortedNode;
+    }
+    isSorted = sortedNode.v;
+  }
+
+  if (!isSorted) {
+    for (let row = 0; row < matrix.v.rowCount; row++) {
+      const keyRef = matrix.v.refs[row * matrix.v.colCount];
+      const key = lookupValueFromRef(keyRef, grid);
+      if (!equalLookupValues(key, lookup)) {
+        continue;
+      }
+
+      return {
+        t: 'ref',
+        v: matrix.v.refs[row * matrix.v.colCount + (targetCol - 1)],
+      };
+    }
+
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let bestRow = -1;
+  let bestCmp = -Infinity;
+  for (let row = 0; row < matrix.v.rowCount; row++) {
+    const keyRef = matrix.v.refs[row * matrix.v.colCount];
+    const key = lookupValueFromRef(keyRef, grid);
+    const cmp = compareLookupValues(key, lookup);
+    if (cmp <= 0 && cmp > bestCmp) {
+      bestCmp = cmp;
+      bestRow = row;
+    }
+  }
+
+  if (bestRow < 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  return {
+    t: 'ref',
+    v: matrix.v.refs[bestRow * matrix.v.colCount + (targetCol - 1)],
+  };
+}
+
+/**
+ * `hlookupFunc` is the implementation of the HLOOKUP function.
+ * HLOOKUP(search_key, range, index, [is_sorted]) — horizontal lookup by first row.
+ */
+export function hlookupFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const lookup = lookupValueFromNode(visit(exprs[0]), grid);
+  if (isFormulaError(lookup)) {
+    return lookup;
+  }
+
+  const matrix = getReferenceMatrixFromExpression(exprs[1], visit, grid);
+  if (matrix.t === 'err') {
+    return matrix;
+  }
+
+  const indexNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (indexNode.t === 'err') {
+    return indexNode;
+  }
+  const targetRow = Math.trunc(indexNode.v);
+  if (targetRow <= 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+  if (targetRow > matrix.v.rowCount) {
+    return { t: 'err', v: '#REF!' };
+  }
+
+  let isSorted = true;
+  if (exprs.length === 4) {
+    const sortedNode = BoolArgs.map(visit(exprs[3]), grid);
+    if (sortedNode.t === 'err') {
+      return sortedNode;
+    }
+    isSorted = sortedNode.v;
+  }
+
+  if (!isSorted) {
+    for (let col = 0; col < matrix.v.colCount; col++) {
+      const keyRef = matrix.v.refs[col];
+      const key = lookupValueFromRef(keyRef, grid);
+      if (!equalLookupValues(key, lookup)) {
+        continue;
+      }
+
+      return {
+        t: 'ref',
+        v: matrix.v.refs[(targetRow - 1) * matrix.v.colCount + col],
+      };
+    }
+
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let bestCol = -1;
+  let bestCmp = -Infinity;
+  for (let col = 0; col < matrix.v.colCount; col++) {
+    const keyRef = matrix.v.refs[col];
+    const key = lookupValueFromRef(keyRef, grid);
+    const cmp = compareLookupValues(key, lookup);
+    if (cmp <= 0 && cmp > bestCmp) {
+      bestCmp = cmp;
+      bestCol = col;
+    }
+  }
+
+  if (bestCol < 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  return {
+    t: 'ref',
+    v: matrix.v.refs[(targetRow - 1) * matrix.v.colCount + bestCol],
+  };
 }
 
 /**

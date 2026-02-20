@@ -69,6 +69,10 @@ describe('FunctionCatalog', () => {
       expect(findFunction('SUMIF')!.name).toBe('SUMIF');
       expect(findFunction('COUNTIFS')!.name).toBe('COUNTIFS');
       expect(findFunction('SUMIFS')!.name).toBe('SUMIFS');
+      expect(findFunction('MATCH')!.name).toBe('MATCH');
+      expect(findFunction('INDEX')!.name).toBe('INDEX');
+      expect(findFunction('VLOOKUP')!.name).toBe('VLOOKUP');
+      expect(findFunction('HLOOKUP')!.name).toBe('HLOOKUP');
       expect(findFunction('PRODUCT')!.name).toBe('PRODUCT');
       expect(findFunction('MEDIAN')!.name).toBe('MEDIAN');
       expect(findFunction('COUNTBLANK')!.name).toBe('COUNTBLANK');
@@ -132,6 +136,13 @@ describe('FunctionCatalog', () => {
       const info = findFunction('SUMIFS')!;
       expect(formatSignature(info)).toBe(
         'SUMIFS(sum_range, criteria_range1, criterion1, [criteria_range2], ..., [criterion2], ...)',
+      );
+    });
+
+    it('should format VLOOKUP signature', () => {
+      const info = findFunction('VLOOKUP')!;
+      expect(formatSignature(info)).toBe(
+        'VLOOKUP(search_key, range, index, [is_sorted])',
       );
     });
 

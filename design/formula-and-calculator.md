@@ -146,6 +146,8 @@ Functions are registered in `FunctionMap`. Each function receives a
 | `COUNTA` / `COUNTBLANK`  | Count of non-empty / blank values                   |
 | `COUNTIF` / `SUMIF`      | Single-criterion conditional count/sum              |
 | `COUNTIFS` / `SUMIFS`    | Multi-criteria conditional count/sum                |
+| `MATCH` / `INDEX`        | Lookup position and indexed value retrieval         |
+| `VLOOKUP` / `HLOOKUP`    | Vertical/horizontal table lookup                    |
 | `IF`                     | Conditional: `IF(condition, true_val, [false_val])` |
 | `IFS` / `SWITCH`         | Multi-branch conditional selection                  |
 | `AND` / `OR` / `NOT`     | Logical operators                                   |
@@ -335,7 +337,7 @@ changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 65 built-in functions are implemented. New
+**Formula function coverage** — 69 built-in functions are implemented. New
 functions are added to `FunctionMap` and `FunctionCatalog` following the same
 pattern: accept `(ctx, visit, grid?)`, return an `EvalNode`.
 

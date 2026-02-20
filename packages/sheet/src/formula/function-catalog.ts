@@ -227,6 +227,44 @@ export const FunctionCatalog: FunctionInfo[] = [
     ],
   },
   {
+    name: 'MATCH',
+    description: 'Returns the position of an item in a one-dimensional range',
+    args: [
+      { name: 'search_key' },
+      { name: 'range' },
+      { name: 'search_type', optional: true },
+    ],
+  },
+  {
+    name: 'INDEX',
+    description: 'Returns the value at a given row and column of a range',
+    args: [
+      { name: 'reference' },
+      { name: 'row', optional: true },
+      { name: 'column', optional: true },
+    ],
+  },
+  {
+    name: 'VLOOKUP',
+    description: 'Looks up a value in the first column of a range',
+    args: [
+      { name: 'search_key' },
+      { name: 'range' },
+      { name: 'index' },
+      { name: 'is_sorted', optional: true },
+    ],
+  },
+  {
+    name: 'HLOOKUP',
+    description: 'Looks up a value in the first row of a range',
+    args: [
+      { name: 'search_key' },
+      { name: 'range' },
+      { name: 'index' },
+      { name: 'is_sorted', optional: true },
+    ],
+  },
+  {
     name: 'TRIM',
     description: 'Removes leading and trailing whitespace from text',
     args: [{ name: 'text' }],

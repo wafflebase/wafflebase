@@ -306,6 +306,82 @@ describe('Formula', () => {
     );
   });
 
+  it('should correctly evaluate MATCH function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    grid.set('B1', { v: '30' });
+    grid.set('B2', { v: '20' });
+    grid.set('B3', { v: '10' });
+    grid.set('C1', { v: 'apple' });
+    grid.set('C2', { v: 'banana' });
+    grid.set('C3', { v: 'carrot' });
+
+    expect(evaluate('=MATCH(20,A1:A3,0)', grid)).toBe('2');
+    expect(evaluate('=MATCH("BANANA",C1:C3,0)', grid)).toBe('2');
+    expect(evaluate('=MATCH(25,A1:A3,1)', grid)).toBe('2');
+    expect(evaluate('=MATCH(25,B1:B3,0-1)', grid)).toBe('1');
+    expect(evaluate('=MATCH(25,A1:B3,0)', grid)).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate INDEX function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('B1', { v: '20' });
+    grid.set('C1', { v: '30' });
+    grid.set('A2', { v: '40' });
+    grid.set('B2', { v: '50' });
+    grid.set('C2', { v: '60' });
+
+    expect(evaluate('=INDEX(A1:C2,2,3)', grid)).toBe('60');
+    expect(evaluate('=INDEX(A1:C1,2)', grid)).toBe('20');
+    expect(evaluate('=INDEX(A1:C2)', grid)).toBe('10');
+    expect(evaluate('=INDEX(A1:C2,3,1)', grid)).toBe('#REF!');
+    expect(evaluate('=INDEX(A1:C2,0,1)', grid)).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate VLOOKUP function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'A' });
+    grid.set('A2', { v: 'B' });
+    grid.set('A3', { v: 'C' });
+    grid.set('B1', { v: '10' });
+    grid.set('B2', { v: '20' });
+    grid.set('B3', { v: '30' });
+    grid.set('D1', { v: '1' });
+    grid.set('D2', { v: '5' });
+    grid.set('D3', { v: '10' });
+    grid.set('E1', { v: '100' });
+    grid.set('E2', { v: '500' });
+    grid.set('E3', { v: '1000' });
+
+    expect(evaluate('=VLOOKUP("b",A1:B3,2,FALSE)', grid)).toBe('20');
+    expect(evaluate('=VLOOKUP(7,D1:E3,2,TRUE)', grid)).toBe('500');
+    expect(evaluate('=VLOOKUP(0,D1:E3,2,TRUE)', grid)).toBe('#N/A!');
+    expect(evaluate('=VLOOKUP("z",A1:B3,2,FALSE)', grid)).toBe('#N/A!');
+    expect(evaluate('=VLOOKUP("A",A1:B3,3,FALSE)', grid)).toBe('#REF!');
+  });
+
+  it('should correctly evaluate HLOOKUP function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('B1', { v: '5' });
+    grid.set('C1', { v: '10' });
+    grid.set('A2', { v: '10' });
+    grid.set('B2', { v: '50' });
+    grid.set('C2', { v: '100' });
+    grid.set('A3', { v: '100' });
+    grid.set('B3', { v: '500' });
+    grid.set('C3', { v: '1000' });
+
+    expect(evaluate('=HLOOKUP(5,A1:C3,2,FALSE)', grid)).toBe('50');
+    expect(evaluate('=HLOOKUP(7,A1:C3,3,TRUE)', grid)).toBe('500');
+    expect(evaluate('=HLOOKUP(0,A1:C3,2,TRUE)', grid)).toBe('#N/A!');
+    expect(evaluate('=HLOOKUP(8,A1:C3,2,FALSE)', grid)).toBe('#N/A!');
+    expect(evaluate('=HLOOKUP(5,A1:C3,4,FALSE)', grid)).toBe('#REF!');
+  });
+
   it('should correctly evaluate TRIM function', () => {
     expect(evaluate('=TRIM("  hello  ")')).toBe('hello');
     expect(evaluate('=TRIM("hello")')).toBe('hello');
