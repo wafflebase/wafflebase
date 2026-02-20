@@ -2396,7 +2396,48 @@ export class Sheet {
     }
 
     const range = this.getRangeOrActiveCell();
-    return this.setFilterRange(range);
+    const expandedRange = await this.expandFilterRangeForHeaderOnlySelection(range);
+    return this.setFilterRange(expandedRange);
+  }
+
+  /**
+   * `expandFilterRangeForHeaderOnlySelection` extends a single-row selection
+   * downward to contiguous data rows in the selected columns.
+   */
+  private async expandFilterRangeForHeaderOnlySelection(range: Range): Promise<Range> {
+    const normalized = toRange(range[0], range[1]);
+    if (normalized[0].r !== normalized[1].r) {
+      return normalized;
+    }
+
+    const headerRow = normalized[0].r;
+    if (headerRow >= this.dimension.rows) {
+      return normalized;
+    }
+
+    const scanRange: Range = [
+      { r: headerRow + 1, c: normalized[0].c },
+      { r: this.dimension.rows, c: normalized[1].c },
+    ];
+    const grid = await this.store.getGrid(scanRange);
+    if (grid.size === 0) {
+      return normalized;
+    }
+
+    const rowsWithContent = new Set<number>();
+    for (const [sref, cell] of grid) {
+      if (!this.hasCellContent(cell)) {
+        continue;
+      }
+      rowsWithContent.add(parseRef(sref).r);
+    }
+
+    let endRow = headerRow;
+    while (rowsWithContent.has(endRow + 1)) {
+      endRow += 1;
+    }
+
+    return toRange(normalized[0], { r: endRow, c: normalized[1].c });
   }
 
   /**

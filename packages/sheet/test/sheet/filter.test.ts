@@ -40,6 +40,56 @@ describe('Sheet.Filter', () => {
     expect(sheet.getHiddenRows()).toEqual(new Set([3]));
   });
 
+  it('expands header-only selection when creating a filter', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'Name');
+    await sheet.setData({ r: 1, c: 2 }, 'Team');
+    await sheet.setData({ r: 2, c: 1 }, 'Alice');
+    await sheet.setData({ r: 2, c: 2 }, 'Core');
+    await sheet.setData({ r: 3, c: 1 }, 'Bob');
+    await sheet.setData({ r: 3, c: 2 }, 'Infra');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    expect(await sheet.createFilterFromSelection()).toBe(true);
+    expect(sheet.getFilterState()?.range).toEqual([
+      { r: 1, c: 1 },
+      { r: 3, c: 2 },
+    ]);
+  });
+
+  it('does not create a filter from header-only selection without data rows', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'Name');
+    await sheet.setData({ r: 1, c: 2 }, 'Team');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    expect(await sheet.createFilterFromSelection()).toBe(false);
+    expect(sheet.hasFilter()).toBe(false);
+  });
+
+  it('expands header-only filter range only through contiguous data rows', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'Name');
+    await sheet.setData({ r: 1, c: 2 }, 'Team');
+    await sheet.setData({ r: 2, c: 1 }, 'Alice');
+    await sheet.setData({ r: 2, c: 2 }, 'Core');
+    await sheet.setData({ r: 4, c: 1 }, 'Bob');
+    await sheet.setData({ r: 4, c: 2 }, 'Infra');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    expect(await sheet.createFilterFromSelection()).toBe(true);
+    expect(sheet.getFilterState()?.range).toEqual([
+      { r: 1, c: 1 },
+      { r: 2, c: 2 },
+    ]);
+  });
+
   it('recomputes filtered rows when edited values change', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, 'Status');

@@ -101,6 +101,8 @@ all cell, selection, and navigation operations.
   scrollable quadrant but the handle position would fall under frozen panes.
 - **Filtering** — `createFilterFromSelection`, `setColumnFilter`, and
   `clearFilter` persist filter metadata and compute hidden row indices.
+  If the selection is header-only (single row), filter creation auto-expands
+  downward through contiguous data rows in the selected columns.
   Value-checklist filtering is represented as `{ op: 'in', values: [...] }`.
   Hidden
   rows are rendered as zero-height rows in `Worksheet` while preserving
