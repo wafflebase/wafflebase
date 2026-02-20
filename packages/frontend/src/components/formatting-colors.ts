@@ -34,7 +34,7 @@ export const BG_COLORS = [
   "#e0f7fa",
   "#e3f2fd",
   "#ede7f6",
-  "#fce4ec",
+  "#f8bbd0",
   "#f3e5f5",
   "#e8eaf6",
   "#ffcdd2",
