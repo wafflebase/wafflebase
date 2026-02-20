@@ -320,12 +320,15 @@ Functions are registered in `FunctionMap`. Currently implemented:
 
 - **Math** — `SUM`, `ABS`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `INT`, `MOD`,
   `SQRT`, `POWER`, `PRODUCT`, `MEDIAN`, `AVERAGE`, `MIN`, `MAX`, `COUNT`,
-  `COUNTA`, `COUNTBLANK`, `COUNTIF`, `SUMIF`, `COUNTIFS`, `SUMIFS`.
-- **Logical** — `IF`, `IFS`, `SWITCH`, `AND`, `OR`, `NOT`, `IFERROR`.
+  `COUNTA`, `COUNTBLANK`, `COUNTIF`, `SUMIF`, `COUNTIFS`, `SUMIFS`, `RAND`,
+  `RANDBETWEEN`.
+- **Logical** — `IF`, `IFS`, `SWITCH`, `AND`, `OR`, `NOT`, `IFERROR`, `IFNA`.
 - **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `CONCAT`,
   `FIND`, `SEARCH`, `TEXTJOIN`, `LOWER`, `UPPER`, `PROPER`, `SUBSTITUTE`.
-- **Date/Time** — `TODAY`, `NOW`, `YEAR`, `MONTH`, `DAY`.
-- **Information** — `ISBLANK`, `ISNUMBER`, `ISTEXT`.
+- **Date/Time** — `TODAY`, `NOW`, `DATE`, `TIME`, `DAYS`, `YEAR`, `MONTH`,
+  `DAY`, `HOUR`, `MINUTE`, `SECOND`, `WEEKDAY`.
+- **Information** — `ISBLANK`, `ISNUMBER`, `ISTEXT`, `ISERROR`, `ISERR`,
+  `ISNA`, `ISLOGICAL`, `ISNONTEXT`.
 
 Ranges are expanded to individual cells where relevant. Numeric coercion uses
 `NumberArgs` (booleans → 0/1, strings → `parseFloat`, refs → looked up and
@@ -563,7 +566,7 @@ canvas-rendered cells while respecting scroll remapping and freeze panes.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 50 built-in functions are implemented. New functions
+**Formula function coverage** — 65 built-in functions are implemented. New functions
 are added to `FunctionMap` following the same pattern: accept a
 `FunctionContext`, visitor, and optional grid; return an `EvalNode`.
 

@@ -82,6 +82,16 @@ export const FunctionCatalog: FunctionInfo[] = [
     ],
   },
   {
+    name: 'RAND',
+    description: 'Returns a random number between 0 and 1',
+    args: [],
+  },
+  {
+    name: 'RANDBETWEEN',
+    description: 'Returns a random integer between two values',
+    args: [{ name: 'low' }, { name: 'high' }],
+  },
+  {
     name: 'IF',
     description: 'Returns one value if true and another if false',
     args: [
@@ -323,6 +333,21 @@ export const FunctionCatalog: FunctionInfo[] = [
     args: [],
   },
   {
+    name: 'DATE',
+    description: 'Returns a date from year, month, and day values',
+    args: [{ name: 'year' }, { name: 'month' }, { name: 'day' }],
+  },
+  {
+    name: 'TIME',
+    description: 'Returns a time from hour, minute, and second values',
+    args: [{ name: 'hour' }, { name: 'minute' }, { name: 'second' }],
+  },
+  {
+    name: 'DAYS',
+    description: 'Returns the number of days between two dates',
+    args: [{ name: 'end_date' }, { name: 'start_date' }],
+  },
+  {
     name: 'YEAR',
     description: 'Returns the year from a date',
     args: [{ name: 'date' }],
@@ -336,6 +361,26 @@ export const FunctionCatalog: FunctionInfo[] = [
     name: 'DAY',
     description: 'Returns the day of the month from a date (1-31)',
     args: [{ name: 'date' }],
+  },
+  {
+    name: 'HOUR',
+    description: 'Returns the hour from a date/time (0-23)',
+    args: [{ name: 'time' }],
+  },
+  {
+    name: 'MINUTE',
+    description: 'Returns the minute from a date/time (0-59)',
+    args: [{ name: 'time' }],
+  },
+  {
+    name: 'SECOND',
+    description: 'Returns the second from a date/time (0-59)',
+    args: [{ name: 'time' }],
+  },
+  {
+    name: 'WEEKDAY',
+    description: 'Returns day of the week as a number',
+    args: [{ name: 'date' }, { name: 'type', optional: true }],
   },
   {
     name: 'ISBLANK',
@@ -353,9 +398,39 @@ export const FunctionCatalog: FunctionInfo[] = [
     args: [{ name: 'value' }],
   },
   {
+    name: 'ISERROR',
+    description: 'Checks whether a value is any error',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ISERR',
+    description: 'Checks whether a value is an error except #N/A!',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ISNA',
+    description: 'Checks whether a value is the #N/A! error',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ISLOGICAL',
+    description: 'Checks whether a value is boolean',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ISNONTEXT',
+    description: 'Checks whether a value is not text',
+    args: [{ name: 'value' }],
+  },
+  {
     name: 'IFERROR',
     description: 'Returns a value if no error, otherwise returns an alternate value',
     args: [{ name: 'value' }, { name: 'value_if_error' }],
+  },
+  {
+    name: 'IFNA',
+    description: 'Returns a value if no #N/A! error, otherwise returns an alternate value',
+    args: [{ name: 'value' }, { name: 'value_if_na' }],
   },
 ];
 

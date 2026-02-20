@@ -52,13 +52,28 @@ export const FunctionMap = new Map([
   ['SUBSTITUTE', substituteFunc],
   ['TODAY', todayFunc],
   ['NOW', nowFunc],
+  ['DATE', dateFunc],
+  ['TIME', timeFunc],
+  ['DAYS', daysFunc],
   ['YEAR', yearFunc],
   ['MONTH', monthFunc],
   ['DAY', dayFunc],
+  ['HOUR', hourFunc],
+  ['MINUTE', minuteFunc],
+  ['SECOND', secondFunc],
+  ['WEEKDAY', weekdayFunc],
+  ['RAND', randFunc],
+  ['RANDBETWEEN', randbetweenFunc],
   ['ISBLANK', isblankFunc],
   ['ISNUMBER', isnumberFunc],
   ['ISTEXT', istextFunc],
+  ['ISERROR', iserrorFunc],
+  ['ISERR', iserrFunc],
+  ['ISNA', isnaFunc],
+  ['ISLOGICAL', islogicalFunc],
+  ['ISNONTEXT', isnontextFunc],
   ['IFERROR', iferrorFunc],
+  ['IFNA', ifnaFunc],
 ]);
 
 /**
@@ -497,6 +512,61 @@ export function powerFunc(
   }
 
   return { t: 'num', v: result };
+}
+
+/**
+ * `randFunc` is the implementation of the RAND function.
+ * RAND() — returns a random number in [0, 1).
+ */
+export function randFunc(
+  ctx: FunctionContext,
+  _visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (args && args.expr().length > 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  return { t: 'num', v: Math.random() };
+}
+
+/**
+ * `randbetweenFunc` is the implementation of the RANDBETWEEN function.
+ * RANDBETWEEN(low, high) — returns a random integer in the inclusive range.
+ */
+export function randbetweenFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const lowNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (lowNode.t === 'err') {
+    return lowNode;
+  }
+
+  const highNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (highNode.t === 'err') {
+    return highNode;
+  }
+
+  const low = Math.ceil(lowNode.v);
+  const high = Math.floor(highNode.v);
+  if (low > high) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.floor(Math.random() * (high - low + 1)) + low };
 }
 
 /**
@@ -1764,6 +1834,20 @@ export function substituteFunc(
  * `todayFunc` is the implementation of the TODAY function.
  * TODAY() — returns the current date as YYYY-MM-DD.
  */
+function formatDate(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatTime(date: Date): string {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
 export function todayFunc(
   ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,
@@ -1774,11 +1858,7 @@ export function todayFunc(
     return { t: 'err', v: '#N/A!' };
   }
 
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  return { t: 'str', v: `${yyyy}-${mm}-${dd}` };
+  return { t: 'str', v: formatDate(new Date()) };
 }
 
 /**
@@ -1796,13 +1876,7 @@ export function nowFunc(
   }
 
   const now = new Date();
-  const yyyy = now.getFullYear();
-  const mo = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mi = String(now.getMinutes()).padStart(2, '0');
-  const ss = String(now.getSeconds()).padStart(2, '0');
-  return { t: 'str', v: `${yyyy}-${mo}-${dd} ${hh}:${mi}:${ss}` };
+  return { t: 'str', v: `${formatDate(now)} ${formatTime(now)}` };
 }
 
 /**
@@ -1820,6 +1894,173 @@ function parseDate(
     return { t: 'err', v: '#VALUE!' };
   }
   return date;
+}
+
+/**
+ * `parseDateTime` parses either a full datetime/date value or a time literal.
+ */
+function parseDateTime(
+  node: EvalNode,
+  grid?: Grid,
+): Date | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+  const str = toStr(node, grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  const timeOnly = /^(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/.exec(str.v.trim());
+  if (timeOnly) {
+    const hour = Number(timeOnly[1]);
+    const minute = Number(timeOnly[2]);
+    const second = Number(timeOnly[3] || '0');
+    if (
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59 ||
+      second < 0 ||
+      second > 59
+    ) {
+      return { t: 'err', v: '#VALUE!' };
+    }
+
+    return new Date(1970, 0, 1, hour, minute, second);
+  }
+
+  const date = new Date(str.v);
+  if (isNaN(date.getTime())) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return date;
+}
+
+/**
+ * `dateFunc` is the implementation of the DATE function.
+ * DATE(year, month, day) — returns a normalized date as YYYY-MM-DD.
+ */
+export function dateFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const yearNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (yearNode.t === 'err') {
+    return yearNode;
+  }
+  const monthNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (monthNode.t === 'err') {
+    return monthNode;
+  }
+  const dayNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (dayNode.t === 'err') {
+    return dayNode;
+  }
+
+  const year = Math.trunc(yearNode.v);
+  const month = Math.trunc(monthNode.v);
+  const day = Math.trunc(dayNode.v);
+  if (!isFinite(year) || !isFinite(month) || !isFinite(day)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'str', v: formatDate(new Date(year, month - 1, day)) };
+}
+
+/**
+ * `timeFunc` is the implementation of the TIME function.
+ * TIME(hour, minute, second) — returns a normalized time as HH:MM:SS.
+ */
+export function timeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const hourNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (hourNode.t === 'err') {
+    return hourNode;
+  }
+  const minuteNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (minuteNode.t === 'err') {
+    return minuteNode;
+  }
+  const secondNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (secondNode.t === 'err') {
+    return secondNode;
+  }
+
+  const hour = Math.trunc(hourNode.v);
+  const minute = Math.trunc(minuteNode.v);
+  const second = Math.trunc(secondNode.v);
+  if (!isFinite(hour) || !isFinite(minute) || !isFinite(second)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'str', v: formatTime(new Date(1970, 0, 1, hour, minute, second)) };
+}
+
+/**
+ * `daysFunc` is the implementation of the DAYS function.
+ * DAYS(end_date, start_date) — returns the number of days between two dates.
+ */
+export function daysFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const endDate = parseDate(visit(exprs[0]), grid);
+  if (!(endDate instanceof Date)) {
+    return endDate;
+  }
+
+  const startDate = parseDate(visit(exprs[1]), grid);
+  if (!(startDate instanceof Date)) {
+    return startDate;
+  }
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const endUtc = Date.UTC(
+    endDate.getFullYear(),
+    endDate.getMonth(),
+    endDate.getDate(),
+  );
+  const startUtc = Date.UTC(
+    startDate.getFullYear(),
+    startDate.getMonth(),
+    startDate.getDate(),
+  );
+
+  return { t: 'num', v: (endUtc - startUtc) / dayMs };
 }
 
 /**
@@ -1895,6 +2136,134 @@ export function dayFunc(
   if (!(date instanceof Date)) return date;
 
   return { t: 'num', v: date.getDate() };
+}
+
+/**
+ * `hourFunc` is the implementation of the HOUR function.
+ * HOUR(time) — returns hour (0-23) from a time/datetime value.
+ */
+export function hourFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDateTime(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  return { t: 'num', v: date.getHours() };
+}
+
+/**
+ * `minuteFunc` is the implementation of the MINUTE function.
+ * MINUTE(time) — returns minute (0-59) from a time/datetime value.
+ */
+export function minuteFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDateTime(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  return { t: 'num', v: date.getMinutes() };
+}
+
+/**
+ * `secondFunc` is the implementation of the SECOND function.
+ * SECOND(time) — returns second (0-59) from a time/datetime value.
+ */
+export function secondFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDateTime(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  return { t: 'num', v: date.getSeconds() };
+}
+
+/**
+ * `weekdayFunc` is the implementation of the WEEKDAY function.
+ * WEEKDAY(date, [type]) — returns day-of-week index based on numbering type.
+ */
+export function weekdayFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDate(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  let type = 1;
+  if (exprs.length === 2) {
+    const typeNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (typeNode.t === 'err') {
+      return typeNode;
+    }
+    type = Math.trunc(typeNode.v);
+  }
+
+  const day = date.getDay(); // Sunday = 0
+  if (type === 1) {
+    return { t: 'num', v: day + 1 };
+  }
+  if (type === 2) {
+    return { t: 'num', v: day === 0 ? 7 : day };
+  }
+  if (type === 3) {
+    return { t: 'num', v: day === 0 ? 6 : day - 1 };
+  }
+
+  return { t: 'err', v: '#VALUE!' };
 }
 
 /**
@@ -2018,6 +2387,160 @@ export function istextFunc(
 }
 
 /**
+ * `iserrorFunc` is the implementation of the ISERROR function.
+ * ISERROR(value) — returns TRUE if the value is any error.
+ */
+export function iserrorFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = visit(exprs[0]);
+  return { t: 'bool', v: value.t === 'err' };
+}
+
+/**
+ * `iserrFunc` is the implementation of the ISERR function.
+ * ISERR(value) — returns TRUE for all errors except #N/A!.
+ */
+export function iserrFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = visit(exprs[0]);
+  return { t: 'bool', v: value.t === 'err' && value.v !== '#N/A!' };
+}
+
+/**
+ * `isnaFunc` is the implementation of the ISNA function.
+ * ISNA(value) — returns TRUE only for #N/A! errors.
+ */
+export function isnaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = visit(exprs[0]);
+  return { t: 'bool', v: value.t === 'err' && value.v === '#N/A!' };
+}
+
+/**
+ * `islogicalFunc` is the implementation of the ISLOGICAL function.
+ * ISLOGICAL(value) — returns TRUE when value is a boolean.
+ */
+export function islogicalFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t === 'bool') {
+    return { t: 'bool', v: true };
+  }
+  if (node.t !== 'ref' || !grid) {
+    return { t: 'bool', v: false };
+  }
+  if (isSrng(node.v)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const value = grid.get(node.v)?.v || '';
+  const upper = value.toUpperCase();
+  return { t: 'bool', v: upper === 'TRUE' || upper === 'FALSE' };
+}
+
+/**
+ * `isnontextFunc` is the implementation of the ISNONTEXT function.
+ * ISNONTEXT(value) — returns TRUE when value is not text.
+ */
+export function isnontextFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return { t: 'bool', v: true };
+  }
+  if (node.t === 'str') {
+    return { t: 'bool', v: false };
+  }
+  if (node.t === 'num' || node.t === 'bool') {
+    return { t: 'bool', v: true };
+  }
+  if (node.t !== 'ref' || !grid) {
+    return { t: 'bool', v: false };
+  }
+  if (isSrng(node.v)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const value = grid.get(node.v)?.v || '';
+  if (value === '') {
+    return { t: 'bool', v: true };
+  }
+
+  const upper = value.toUpperCase();
+  const isBoolean = upper === 'TRUE' || upper === 'FALSE';
+  const isNumeric = !isNaN(Number(value));
+  return { t: 'bool', v: isBoolean || isNumeric };
+}
+
+/**
  * `iferrorFunc` is the implementation of the IFERROR function.
  * IFERROR(value, value_if_error) — returns value_if_error if value is an error.
  */
@@ -2038,6 +2561,33 @@ export function iferrorFunc(
 
   const value = visit(exprs[0]);
   if (value.t === 'err') {
+    return visit(exprs[1]);
+  }
+
+  return value;
+}
+
+/**
+ * `ifnaFunc` is the implementation of the IFNA function.
+ * IFNA(value, value_if_na) — returns fallback only when value is #N/A!.
+ */
+export function ifnaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const value = visit(exprs[0]);
+  if (value.t === 'err' && value.v === '#N/A!') {
     return visit(exprs[1]);
   }
 

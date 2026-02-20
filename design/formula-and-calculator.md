@@ -139,6 +139,7 @@ Functions are registered in `FunctionMap`. Each function receives a
 | `INT` / `MOD`            | Integer rounding and modular arithmetic             |
 | `SQRT` / `POWER`         | Square root and exponentiation                      |
 | `PRODUCT` / `MEDIAN`     | Multiplication and middle-value aggregation         |
+| `RAND` / `RANDBETWEEN`   | Volatile random values                              |
 | `AVERAGE`                | Arithmetic mean                                     |
 | `MIN` / `MAX`            | Minimum / maximum value                             |
 | `COUNT`                  | Count of numeric values                             |
@@ -157,9 +158,14 @@ Functions are registered in `FunctionMap`. Each function receives a
 | `LOWER` / `UPPER` / `PROPER` | Text case conversion                            |
 | `SUBSTITUTE`             | Replace text occurrences                            |
 | `TODAY` / `NOW`          | Current date / datetime                             |
+| `DATE` / `TIME` / `DAYS` | Date/time construction and date differences         |
 | `YEAR` / `MONTH` / `DAY` | Date component extraction                           |
-| `ISBLANK` / `ISNUMBER` / `ISTEXT` | Value-type checks                          |
-| `IFERROR`                | Error handling: `IFERROR(value, fallback)`          |
+| `HOUR` / `MINUTE` / `SECOND` | Time component extraction                       |
+| `WEEKDAY`                | Day-of-week indexing                                |
+| `ISBLANK` / `ISNUMBER` / `ISTEXT` | Core value-type checks                     |
+| `ISERROR` / `ISERR` / `ISNA` | Error-type checks                              |
+| `ISLOGICAL` / `ISNONTEXT` | Additional type predicates                         |
+| `IFERROR` / `IFNA`       | Error handling with broad / #N/A-specific fallback  |
 
 New functions follow the same pattern: accept `(ctx, visit, grid?)`, return
 an `EvalNode`.
@@ -329,7 +335,7 @@ changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 50 built-in functions are implemented. New
+**Formula function coverage** — 65 built-in functions are implemented. New
 functions are added to `FunctionMap` and `FunctionCatalog` following the same
 pattern: accept `(ctx, visit, grid?)`, return an `EvalNode`.
 

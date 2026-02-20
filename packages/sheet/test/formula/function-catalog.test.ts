@@ -73,9 +73,17 @@ describe('FunctionCatalog', () => {
       expect(findFunction('MEDIAN')!.name).toBe('MEDIAN');
       expect(findFunction('COUNTBLANK')!.name).toBe('COUNTBLANK');
       expect(findFunction('CONCAT')!.name).toBe('CONCAT');
+      expect(findFunction('DATE')!.name).toBe('DATE');
+      expect(findFunction('TIME')!.name).toBe('TIME');
+      expect(findFunction('DAYS')!.name).toBe('DAYS');
+      expect(findFunction('WEEKDAY')!.name).toBe('WEEKDAY');
+      expect(findFunction('RANDBETWEEN')!.name).toBe('RANDBETWEEN');
       expect(findFunction('ISBLANK')!.name).toBe('ISBLANK');
       expect(findFunction('ISNUMBER')!.name).toBe('ISNUMBER');
       expect(findFunction('ISTEXT')!.name).toBe('ISTEXT');
+      expect(findFunction('ISERROR')!.name).toBe('ISERROR');
+      expect(findFunction('ISNONTEXT')!.name).toBe('ISNONTEXT');
+      expect(findFunction('IFNA')!.name).toBe('IFNA');
     });
 
     it('should return undefined for unknown function', () => {
@@ -130,6 +138,16 @@ describe('FunctionCatalog', () => {
     it('should format ISNUMBER signature', () => {
       const info = findFunction('ISNUMBER')!;
       expect(formatSignature(info)).toBe('ISNUMBER(value)');
+    });
+
+    it('should format WEEKDAY signature', () => {
+      const info = findFunction('WEEKDAY')!;
+      expect(formatSignature(info)).toBe('WEEKDAY(date, [type])');
+    });
+
+    it('should format RAND signature', () => {
+      const info = findFunction('RAND')!;
+      expect(formatSignature(info)).toBe('RAND()');
     });
   });
 });

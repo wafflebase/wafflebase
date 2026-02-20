@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   evaluate,
   extractReferences,
@@ -102,6 +102,19 @@ describe('Formula', () => {
     expect(evaluate('=MEDIAN(1,3,2)')).toBe('2');
     expect(evaluate('=MEDIAN(1,2,3,4)')).toBe('2.5');
     expect(evaluate('=MEDIAN(10)')).toBe('10');
+  });
+
+  it('should correctly evaluate RAND function', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.25);
+    expect(evaluate('=RAND()')).toBe('0.25');
+    randomSpy.mockRestore();
+  });
+
+  it('should correctly evaluate RANDBETWEEN function', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    expect(evaluate('=RANDBETWEEN(1,3)')).toBe('2');
+    randomSpy.mockRestore();
+    expect(evaluate('=RANDBETWEEN(3,1)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate comparison operators', () => {
@@ -385,6 +398,21 @@ describe('Formula', () => {
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
 
+  it('should correctly evaluate DATE function', () => {
+    expect(evaluate('=DATE(2024,3,15)')).toBe('2024-03-15');
+    expect(evaluate('=DATE(2024,13,1)')).toBe('2025-01-01');
+  });
+
+  it('should correctly evaluate TIME function', () => {
+    expect(evaluate('=TIME(13,5,9)')).toBe('13:05:09');
+    expect(evaluate('=TIME(25,0,0)')).toBe('01:00:00');
+  });
+
+  it('should correctly evaluate DAYS function', () => {
+    expect(evaluate('=DAYS("2024-03-15","2024-03-10")')).toBe('5');
+    expect(evaluate('=DAYS("invalid","2024-03-10")')).toBe('#VALUE!');
+  });
+
   it('should correctly evaluate YEAR function', () => {
     expect(evaluate('=YEAR("2024-03-15")')).toBe('2024');
     expect(evaluate('=YEAR("invalid")')).toBe('#VALUE!');
@@ -398,6 +426,29 @@ describe('Formula', () => {
   it('should correctly evaluate DAY function', () => {
     expect(evaluate('=DAY("2024-03-15")')).toBe('15');
     expect(evaluate('=DAY("invalid")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate HOUR function', () => {
+    expect(evaluate('=HOUR("13:45:30")')).toBe('13');
+    expect(evaluate('=HOUR("2024-03-15T08:10:20")')).toBe('8');
+    expect(evaluate('=HOUR("25:00:00")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate MINUTE function', () => {
+    expect(evaluate('=MINUTE("13:45:30")')).toBe('45');
+    expect(evaluate('=MINUTE("2024-03-15T08:10:20")')).toBe('10');
+  });
+
+  it('should correctly evaluate SECOND function', () => {
+    expect(evaluate('=SECOND("13:45:30")')).toBe('30');
+    expect(evaluate('=SECOND("2024-03-15T08:10:20")')).toBe('20');
+  });
+
+  it('should correctly evaluate WEEKDAY function', () => {
+    expect(evaluate('=WEEKDAY("2024-03-17")')).toBe('1');
+    expect(evaluate('=WEEKDAY("2024-03-17",2)')).toBe('7');
+    expect(evaluate('=WEEKDAY("2024-03-17",3)')).toBe('6');
+    expect(evaluate('=WEEKDAY("2024-03-17",9)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate ISBLANK function', () => {
@@ -432,11 +483,58 @@ describe('Formula', () => {
     expect(evaluate('=ISTEXT(A2)', grid)).toBe('false');
   });
 
+  it('should correctly evaluate ISERROR function', () => {
+    expect(evaluate('=ISERROR(SUM())')).toBe('true');
+    expect(evaluate('=ISERROR(10)')).toBe('false');
+  });
+
+  it('should correctly evaluate ISERR function', () => {
+    expect(evaluate('=ISERR(MOD(1,0))')).toBe('true');
+    expect(evaluate('=ISERR(SUM())')).toBe('false');
+  });
+
+  it('should correctly evaluate ISNA function', () => {
+    expect(evaluate('=ISNA(SUM())')).toBe('true');
+    expect(evaluate('=ISNA(MOD(1,0))')).toBe('false');
+  });
+
+  it('should correctly evaluate ISLOGICAL function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'TRUE' });
+    grid.set('A2', { v: '10' });
+
+    expect(evaluate('=ISLOGICAL(TRUE)')).toBe('true');
+    expect(evaluate('=ISLOGICAL(A1)', grid)).toBe('true');
+    expect(evaluate('=ISLOGICAL(A2)', grid)).toBe('false');
+  });
+
+  it('should correctly evaluate ISNONTEXT function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '' });
+    grid.set('A2', { v: 'hello' });
+    grid.set('A3', { v: '10' });
+    grid.set('A4', { v: 'TRUE' });
+
+    expect(evaluate('=ISNONTEXT(10)')).toBe('true');
+    expect(evaluate('=ISNONTEXT("hello")')).toBe('false');
+    expect(evaluate('=ISNONTEXT(A1)', grid)).toBe('true');
+    expect(evaluate('=ISNONTEXT(A2)', grid)).toBe('false');
+    expect(evaluate('=ISNONTEXT(A3)', grid)).toBe('true');
+    expect(evaluate('=ISNONTEXT(A4)', grid)).toBe('true');
+    expect(evaluate('=ISNONTEXT(SUM())')).toBe('true');
+  });
+
   it('should correctly evaluate IFERROR function', () => {
     expect(evaluate('=IFERROR(10,"error")')).toBe('10');
     expect(evaluate('=IFERROR("hello","error")')).toBe('hello');
     expect(evaluate('=IFERROR(1+2,"error")')).toBe('3');
     expect(evaluate('=IFERROR(SUM(),"fallback")')).toBe('fallback');
+  });
+
+  it('should correctly evaluate IFNA function', () => {
+    expect(evaluate('=IFNA(SUM(),"fallback")')).toBe('fallback');
+    expect(evaluate('=IFNA(MOD(1,0),"fallback")')).toBe('#VALUE!');
+    expect(evaluate('=IFNA(10,"fallback")')).toBe('10');
   });
 
   it('should correctly extract references', () => {
