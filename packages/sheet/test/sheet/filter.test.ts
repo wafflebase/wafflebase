@@ -57,6 +57,10 @@ describe('Sheet.Filter', () => {
       { r: 1, c: 1 },
       { r: 3, c: 2 },
     ]);
+    expect(sheet.getRange()).toEqual([
+      { r: 1, c: 1 },
+      { r: 3, c: 2 },
+    ]);
   });
 
   it('does not create a filter from header-only selection without data rows', async () => {

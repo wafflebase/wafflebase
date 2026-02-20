@@ -2397,7 +2397,15 @@ export class Sheet {
 
     const range = this.getRangeOrActiveCell();
     const expandedRange = await this.expandFilterRangeForHeaderOnlySelection(range);
-    return this.setFilterRange(expandedRange);
+    const created = await this.setFilterRange(expandedRange);
+    if (!created) {
+      return false;
+    }
+
+    // Keep the selection in sync with the active filter table range.
+    this.selectionType = 'cell';
+    this.range = cloneRange(toRange(expandedRange[0], expandedRange[1]));
+    return true;
   }
 
   /**

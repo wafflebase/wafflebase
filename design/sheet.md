@@ -103,6 +103,8 @@ all cell, selection, and navigation operations.
   `clearFilter` persist filter metadata and compute hidden row indices.
   If the selection is header-only (single row), filter creation auto-expands
   downward through contiguous data rows in the selected columns.
+  On successful creation, the current selection is updated to the final filter
+  range so users can see the table area that filtering applies to.
   Value-checklist filtering is represented as `{ op: 'in', values: [...] }`.
   Hidden
   rows are rendered as zero-height rows in `Worksheet` while preserving
