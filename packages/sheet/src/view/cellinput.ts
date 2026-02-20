@@ -13,6 +13,7 @@ import {
 export class CellInput {
   private container: HTMLDivElement;
   private input: HTMLDivElement;
+  private cellPositionHint: HTMLDivElement;
   private theme: Theme;
   private boundHandleInput: () => void;
   private minWidth: number = DefaultCellWidth;
@@ -46,6 +47,23 @@ export class CellInput {
     this.input.style.whiteSpace = 'pre';
     this.input.style.overflow = 'hidden';
     this.container.appendChild(this.input);
+
+    this.cellPositionHint = document.createElement('div');
+    this.cellPositionHint.style.position = 'absolute';
+    this.cellPositionHint.style.right = '4px';
+    this.cellPositionHint.style.top = '4px';
+    this.cellPositionHint.style.padding = '0 4px';
+    this.cellPositionHint.style.borderRadius = '3px';
+    this.cellPositionHint.style.border = `1px solid ${this.getThemeColor('cellBorderColor')}`;
+    this.cellPositionHint.style.backgroundColor = this.getThemeColor('headerBGColor');
+    this.cellPositionHint.style.color = this.getThemeColor('cellTextColor');
+    this.cellPositionHint.style.fontSize = '10px';
+    this.cellPositionHint.style.lineHeight = '14px';
+    this.cellPositionHint.style.fontFamily = 'Arial, sans-serif';
+    this.cellPositionHint.style.pointerEvents = 'none';
+    this.cellPositionHint.style.display = 'none';
+    this.cellPositionHint.style.zIndex = '2';
+    this.container.appendChild(this.cellPositionHint);
 
     this.boundHandleInput = this.handleInput.bind(this);
     this.input.addEventListener('input', this.boundHandleInput);
@@ -81,14 +99,14 @@ export class CellInput {
     maxWidth?: number,
     maxHeight?: number,
   ): void {
-    this.minWidth = width ?? DefaultCellWidth;
-    this.minHeight = height ?? DefaultCellHeight;
-    this.maxWidth = maxWidth ?? Infinity;
-    this.maxHeight = maxHeight ?? Infinity;
-
-    this.container.style.left = left + 'px';
-    this.container.style.top = top + 'px';
-    this.container.style.pointerEvents = 'auto';
+    this.updateFrame(
+      left,
+      top,
+      width ?? DefaultCellWidth,
+      height ?? DefaultCellHeight,
+      maxWidth ?? Infinity,
+      maxHeight ?? Infinity,
+    );
     this.input.innerText = value;
 
     this.renderInput();
@@ -105,6 +123,7 @@ export class CellInput {
   public hide(): void {
     this.container.style.left = '-1000px';
     this.container.style.pointerEvents = 'none';
+    this.setCellPositionHint();
     this.input.innerText = '';
     this.input.blur();
   }
@@ -129,6 +148,28 @@ export class CellInput {
 
   public hasFormula(): boolean {
     return this.input.innerText.startsWith('=');
+  }
+
+  public updatePlacement(
+    left: number,
+    top: number,
+    width: number = DefaultCellWidth,
+    height: number = DefaultCellHeight,
+    maxWidth: number = Infinity,
+    maxHeight: number = Infinity,
+  ): void {
+    this.updateFrame(left, top, width, height, maxWidth, maxHeight);
+    this.adjustSize();
+  }
+
+  public setCellPositionHint(position?: string): void {
+    if (!position) {
+      this.cellPositionHint.style.display = 'none';
+      this.cellPositionHint.innerText = '';
+      return;
+    }
+    this.cellPositionHint.innerText = position;
+    this.cellPositionHint.style.display = 'block';
   }
 
   public applyStyle(style?: CellStyle): void {
@@ -159,6 +200,24 @@ export class CellInput {
     if (!this.composing) {
       this.adjustSize();
     }
+  }
+
+  private updateFrame(
+    left: number,
+    top: number,
+    width: number,
+    height: number,
+    maxWidth: number,
+    maxHeight: number,
+  ): void {
+    this.minWidth = width;
+    this.minHeight = height;
+    this.maxWidth = maxWidth;
+    this.maxHeight = maxHeight;
+
+    this.container.style.left = left + 'px';
+    this.container.style.top = top + 'px';
+    this.container.style.pointerEvents = 'auto';
   }
 
   private adjustSize(): void {

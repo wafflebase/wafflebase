@@ -49,6 +49,7 @@ const AutoScrollMaxSpeed = 1800;
 const AutofillHandleSize = 8;
 const AutofillHandleHitPadding = 4;
 const FilterPanelMaxVisibleValues = 200;
+const CellInputPinnedMargin = 8;
 type FilterPanelMode = 'values' | 'condition';
 type FilterPanelState = {
   col: number;
@@ -1713,9 +1714,13 @@ export class Worksheet {
    */
   private addEventListeners() {
     const scrollContainer = this.gridContainer.getScrollContainer();
-    this.addEventListener(window, 'resize', () => this.render());
+    this.addEventListener(window, 'resize', () => {
+      this.updateCellInputPosition();
+      this.render();
+    });
     this.addEventListener(scrollContainer, 'scroll', () => {
       this.hideFilterPanel();
+      this.updateCellInputPosition();
       this.render();
     });
     this.addEventListener(scrollContainer, 'mousedown', (e) => {
@@ -2560,6 +2565,8 @@ export class Worksheet {
       this.startMouseDragSession({
         onMove,
         onComplete: () => {
+          this.scrollIntoView();
+          this.updateCellInputPosition();
           // Refocus the active input
           if (this.activeFormulaInput === 'cellInput') {
             this.cellInput.getInput().focus();
@@ -3193,7 +3200,8 @@ export class Worksheet {
           this.isInFormulaRangeMode(),
         run: (event) => {
           event.preventDefault();
-          this.applyFormulaRangeArrowKey(event);
+          const target = this.applyFormulaRangeArrowKey(event);
+          this.scrollIntoView(target);
         },
       },
       {
@@ -3270,7 +3278,7 @@ export class Worksheet {
     );
   }
 
-  private applyFormulaRangeArrowKey(e: KeyboardEvent): void {
+  private applyFormulaRangeArrowKey(e: KeyboardEvent): Ref {
     // Arrow keys in formula range mode insert or expand references.
     const base = this.lastFormulaRefTarget || this.sheet!.getActiveCell();
     const targetRef = { ...base };
@@ -3299,6 +3307,7 @@ export class Worksheet {
       this.formulaRefInsertPos = null;
       this.insertReferenceAtCursor(targetRef);
     }
+    return targetRef;
   }
 
   private async copy(): Promise<void> {
@@ -3355,7 +3364,11 @@ export class Worksheet {
           : this.sheet!.move(direction);
       if (changed) {
         this.render();
-        this.scrollIntoView();
+        const scrollTarget =
+          event.shiftKey && this.sheet!.getSelectionType() === 'cell'
+          ? this.getRangeExtentRef()
+          : undefined;
+        this.scrollIntoView(scrollTarget);
       }
     };
 
@@ -3526,6 +3539,29 @@ export class Worksheet {
         },
       },
     ]);
+  }
+
+  /**
+   * `getRangeExtentRef` returns the selection extent (the corner farthest from
+   * the active cell). Used to keep Shift+Arrow range expansion in view.
+   */
+  private getRangeExtentRef(): Ref {
+    const activeCell = this.sheet!.getActiveCell();
+    const range = this.sheet!.getRange();
+    if (!range) {
+      return activeCell;
+    }
+
+    const extentRow =
+      Math.abs(activeCell.r - range[0].r) > Math.abs(range[1].r - activeCell.r)
+        ? range[0].r
+        : range[1].r;
+    const extentCol =
+      Math.abs(activeCell.c - range[0].c) > Math.abs(range[1].c - activeCell.c)
+        ? range[0].c
+        : range[1].c;
+
+    return { r: extentRow, c: extentCol };
   }
 
   /**
@@ -3822,6 +3858,144 @@ export class Worksheet {
   }
 
   /**
+   * `getCellInputRect` returns the editor rectangle for a cell, expanding merged
+   * anchors to the full merged block.
+   */
+  private getCellInputRect(ref: Ref): BoundingRect {
+    const rect = this.getCellRect(ref);
+    const mergeSpan = this.sheet!.getMerges().get(toSref(ref));
+    if (!mergeSpan) {
+      return rect;
+    }
+
+    const end = this.getCellRect({
+      r: ref.r + mergeSpan.rs - 1,
+      c: ref.c + mergeSpan.cs - 1,
+    });
+    rect.width = end.left + end.width - rect.left;
+    rect.height = end.top + end.height - rect.top;
+    return rect;
+  }
+
+  /**
+   * `resolveCellInputLayout` computes where to place the in-cell editor for the
+   * current viewport. When the active cell is offscreen, it pins the editor
+   * inside the viewport edge nearest to that cell.
+   */
+  private resolveCellInputLayout(ref: Ref): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    maxWidth: number;
+    maxHeight: number;
+    pinned: boolean;
+  } {
+    const rect = this.getCellInputRect(ref);
+    const viewport = this.viewport;
+    const gridLeft = RowHeaderWidth;
+    const gridTop = DefaultCellHeight;
+    const gridRight = viewport.width;
+    const gridBottom = viewport.height;
+
+    const isVisible =
+      rect.left < gridRight &&
+      rect.left + rect.width > gridLeft &&
+      rect.top < gridBottom &&
+      rect.top + rect.height > gridTop;
+
+    if (isVisible) {
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        maxWidth: Math.max(rect.width, viewport.width - rect.left),
+        maxHeight: Math.max(rect.height, viewport.height - rect.top),
+        pinned: false,
+      };
+    }
+
+    const minLeft = gridLeft + CellInputPinnedMargin;
+    const minTop = gridTop + CellInputPinnedMargin;
+    const maxLeft = Math.max(
+      minLeft,
+      viewport.width - rect.width - CellInputPinnedMargin,
+    );
+    const maxTop = Math.max(
+      minTop,
+      viewport.height - rect.height - CellInputPinnedMargin,
+    );
+    const left = Math.min(maxLeft, Math.max(minLeft, rect.left));
+    const top = Math.min(maxTop, Math.max(minTop, rect.top));
+
+    return {
+      left,
+      top,
+      width: rect.width,
+      height: rect.height,
+      maxWidth: Math.max(
+        rect.width,
+        viewport.width - left - CellInputPinnedMargin,
+      ),
+      maxHeight: Math.max(
+        rect.height,
+        viewport.height - top - CellInputPinnedMargin,
+      ),
+      pinned: true,
+    };
+  }
+
+  /**
+   * `updateAutocompletePositionForActiveInput` repositions an already-visible
+   * autocomplete popup so it stays anchored to the currently focused input.
+   */
+  private updateAutocompletePositionForActiveInput(): void {
+    if (!this.autocomplete.isListVisible() && !this.autocomplete.isHintVisible()) {
+      return;
+    }
+
+    let inputEl: HTMLDivElement | undefined;
+    if (this.cellInput.isFocused()) {
+      inputEl = this.cellInput.getInput();
+    } else if (this.formulaBar.isFocused()) {
+      inputEl = this.formulaBar.getFormulaInput();
+    }
+
+    if (!inputEl) {
+      return;
+    }
+
+    const rect = inputEl.getBoundingClientRect();
+    this.autocomplete.reposition({ left: rect.left, top: rect.bottom + 2 });
+  }
+
+  /**
+   * `updateCellInputPosition` keeps the in-cell editor aligned with the active
+   * cell while scrolling. When the active cell is out of view, the editor is
+   * pinned inside the viewport and shows the active cell address.
+   */
+  private updateCellInputPosition(): void {
+    if (!this.sheet || !this.cellInput.isShown()) {
+      return;
+    }
+
+    const activeCell = this.sheet.getActiveCell();
+    const layout = this.resolveCellInputLayout(activeCell);
+
+    this.cellInput.updatePlacement(
+      layout.left,
+      layout.top,
+      layout.width,
+      layout.height,
+      layout.maxWidth,
+      layout.maxHeight,
+    );
+    this.cellInput.setCellPositionHint(layout.pinned ? toSref(activeCell) : undefined);
+    this.updateAutocompletePositionForActiveInput();
+  }
+
+  /**
    * `showCellInput` shows the cell input.
    */
   private async showCellInput(
@@ -3833,50 +4007,19 @@ export class Worksheet {
     }
 
     const cell = this.sheet!.getActiveCell();
-    const freeze = this.freezeState;
-    const rect =
-      freeze.frozenRows > 0 || freeze.frozenCols > 0
-        ? toBoundingRectWithFreeze(
-            cell,
-            this.scroll,
-            this.rowDim,
-            this.colDim,
-            freeze,
-          )
-        : toBoundingRect(cell, this.scroll, this.rowDim, this.colDim);
-    const mergeSpan = this.sheet!.getMerges().get(toSref(cell));
-    if (mergeSpan) {
-      const end =
-        freeze.frozenRows > 0 || freeze.frozenCols > 0
-          ? toBoundingRectWithFreeze(
-              { r: cell.r + mergeSpan.rs - 1, c: cell.c + mergeSpan.cs - 1 },
-              this.scroll,
-              this.rowDim,
-              this.colDim,
-              freeze,
-            )
-          : toBoundingRect(
-              { r: cell.r + mergeSpan.rs - 1, c: cell.c + mergeSpan.cs - 1 },
-              this.scroll,
-              this.rowDim,
-              this.colDim,
-            );
-      rect.width = end.left + end.width - rect.left;
-      rect.height = end.top + end.height - rect.top;
-    }
+    const layout = this.resolveCellInputLayout(cell);
     const value = withoutValue ? '' : await this.sheet!.toInputString(cell);
-    const maxWidth = Math.max(rect.width, this.viewport.width - rect.left);
-    const maxHeight = Math.max(rect.height, this.viewport.height - rect.top);
     this.cellInput.show(
-      rect.left,
-      rect.top,
+      layout.left,
+      layout.top,
       value,
       !withoutFocus,
-      rect.width,
-      rect.height,
-      maxWidth,
-      maxHeight,
+      layout.width,
+      layout.height,
+      layout.maxWidth,
+      layout.maxHeight,
     );
+    this.cellInput.setCellPositionHint(layout.pinned ? toSref(cell) : undefined);
 
     const style = await this.sheet!.getStyle(cell);
     this.cellInput.applyStyle(style);

@@ -599,7 +599,20 @@ existing reference at the cursor, or inserts at the cursor position.
 
 **Arrow keys** — When in formula range mode and not in edit mode, arrow keys
 insert/update a cell reference based on the last referenced cell rather than
-moving the active cell.
+moving the active cell. Viewport scrolling follows that referenced target so
+Shift+Arrow range expansion stays visible while editing.
+
+**Editor placement while ranging** — The in-cell editor keeps tracking the
+active cell while the viewport scrolls to inspect formula references. If the
+active cell is offscreen, the editor is pinned inside the viewport edge nearest
+to that cell and shows the active cell address (for example `C12`).
+
+**Autocomplete anchoring** — When the formula autocomplete popup is visible, its
+anchor is repositioned together with the focused editor so suggestion/hint UI
+stays aligned during scroll and keyboard-driven viewport movement.
+
+**Range completion scroll restore** — After finishing a formula range drag, the
+viewport scrolls back to the active cell so editing can continue in context.
 
 **F4 absolute toggle** — Pressing F4 while the cursor is on a reference cycles
 through absolute modes: `A1` → `$A$1` → `A$1` → `$A1` → `A1`. The ANTLR

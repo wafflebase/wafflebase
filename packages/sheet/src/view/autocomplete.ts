@@ -154,6 +154,17 @@ export class FormulaAutocomplete {
   }
 
   /**
+   * `reposition` moves the visible autocomplete popup without changing mode or
+   * selection state.
+   */
+  reposition(anchor: { left: number; top: number }): void {
+    if (this.mode === 'hidden') {
+      return;
+    }
+    this.positionAt(anchor);
+  }
+
+  /**
    * `moveUp` moves the selection up in list mode.
    */
   moveUp(): void {

@@ -49,7 +49,7 @@ const createContext = (): EditorContext => {
     render: vi.fn(),
     scrollIntoView: vi.fn(),
     isInFormulaRangeMode: vi.fn().mockReturnValue(false),
-    applyFormulaRangeArrowKey: vi.fn(),
+    applyFormulaRangeArrowKey: vi.fn().mockReturnValue({ r: 1, c: 1 }),
     toggleAbsoluteReference: vi.fn(),
     showCellInput: vi.fn(),
     editMode: false,
@@ -129,14 +129,18 @@ describe('Worksheet editor keymap', () => {
     expect(ctx.showCellInput).toHaveBeenCalledWith(true, true);
   });
 
-  it('routes arrow key to formula-range reference update', async () => {
+  it('routes Shift+Arrow key to formula-range reference update', async () => {
     const ctx = createContext();
     ctx.isInFormulaRangeMode.mockReturnValue(true);
-    const { event, preventDefault } = createEvent('ArrowRight');
+    ctx.applyFormulaRangeArrowKey.mockReturnValue({ r: 8, c: 9 });
+    const { event, preventDefault } = createEvent('ArrowRight', {
+      shiftKey: true,
+    });
 
     await handleEditorKeydown.call(ctx, event, 'formulaBar');
 
     expect(ctx.applyFormulaRangeArrowKey).toHaveBeenCalledWith(event);
+    expect(ctx.scrollIntoView).toHaveBeenCalledWith({ r: 8, c: 9 });
     expect(preventDefault).toHaveBeenCalled();
     expect(ctx.finishEditing).not.toHaveBeenCalled();
   });

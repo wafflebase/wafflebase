@@ -156,6 +156,14 @@ flowchart TD
 - Drag selection auto-scroll uses `requestAnimationFrame` with distance-based
   velocity ramping. The further the pointer moves beyond a viewport edge, the
   faster scrolling becomes (capped to a max speed).
+- Keyboard Shift+Arrow range resize scrolls to the selection extent (the corner
+  farthest from the active cell), so viewport tracking follows the moving edge
+  instead of the fixed anchor cell.
+- When the in-cell editor is visible, scroll updates re-place it against the
+  active cell. If the active cell is offscreen, the editor is pinned inside the
+  viewport and shows the active cell address.
+- Formula range drag completion restores scroll to the active cell so editing
+  context is recovered immediately after selecting a reference range.
 - During mouse-drag selection, `Worksheet` temporarily disables native document
   text selection (`user-select: none` + `selectstart` prevention) and restores
   it on mouseup, preventing accidental system-level text highlighting outside
