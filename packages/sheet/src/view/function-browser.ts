@@ -1,7 +1,10 @@
 import {
   FunctionCatalog,
+  FunctionCategory,
   FunctionInfo,
+  SheetsFunctionCategoryOrder,
   formatSignature,
+  listFunctionCategories,
 } from '../formula/function-catalog';
 import { Theme, getThemeColor } from './theme';
 
@@ -244,9 +247,9 @@ export class FunctionBrowser {
 
   private filterAndRender(): void {
     const query = this.searchInput.value.trim().toUpperCase();
-    this.matches =
+    const queryFiltered =
       query.length === 0
-        ? [...FunctionCatalog]
+        ? FunctionCatalog
         : FunctionCatalog.filter((info) => {
             const name = info.name.toUpperCase();
             const description = info.description.toUpperCase();
@@ -257,6 +260,19 @@ export class FunctionBrowser {
               signature.includes(query)
             );
           });
+
+    const categoryOrder = new Map(
+      SheetsFunctionCategoryOrder.map((category, index) => [category, index]),
+    );
+    this.matches = [...queryFiltered].sort((left, right) => {
+      const leftCategory = categoryOrder.get(left.category) ?? Number.MAX_SAFE_INTEGER;
+      const rightCategory =
+        categoryOrder.get(right.category) ?? Number.MAX_SAFE_INTEGER;
+      if (leftCategory !== rightCategory) {
+        return leftCategory - rightCategory;
+      }
+      return left.name.localeCompare(right.name);
+    });
     if (this.selectedIndex >= this.matches.length) {
       this.selectedIndex = Math.max(0, this.matches.length - 1);
     }
@@ -266,7 +282,8 @@ export class FunctionBrowser {
   private renderList(): void {
     this.list.innerHTML = '';
     this.rows = [];
-    this.status.textContent = `${this.matches.length} functions`;
+    const categories = listFunctionCategories(this.matches);
+    this.status.textContent = `${this.matches.length} functions in ${categories.length} categories`;
 
     if (this.matches.length === 0) {
       const empty = document.createElement('div');
@@ -283,8 +300,24 @@ export class FunctionBrowser {
     this.listSelectedBG = getThemeColor(this.theme, 'selectionBGColor');
     this.listActiveColor = getThemeColor(this.theme, 'activeCellColor');
 
+    let lastCategory: FunctionCategory | null = null;
     for (let i = 0; i < this.matches.length; i++) {
       const info = this.matches[i];
+      if (info.category !== lastCategory) {
+        const heading = document.createElement('div');
+        heading.dataset.funcCategoryHeader = info.category;
+        heading.textContent = info.category;
+        heading.style.padding = '8px 14px 4px';
+        heading.style.font = '600 11px Arial';
+        heading.style.letterSpacing = '0.04em';
+        heading.style.textTransform = 'uppercase';
+        heading.style.opacity = '0.68';
+        heading.style.borderBottom = `1px solid ${borderColor}`;
+        heading.style.backgroundColor = getThemeColor(this.theme, 'headerBGColor');
+        this.list.appendChild(heading);
+        lastCategory = info.category;
+      }
+
       const row = document.createElement('div');
       row.dataset.funcName = info.name;
       row.dataset.funcIndex = String(i);
@@ -301,10 +334,23 @@ export class FunctionBrowser {
       details.style.minWidth = '0';
       details.style.flex = '1';
 
+      const titleRow = document.createElement('div');
+      titleRow.style.display = 'flex';
+      titleRow.style.alignItems = 'center';
+      titleRow.style.justifyContent = 'space-between';
+      titleRow.style.gap = '8px';
+
       const name = document.createElement('div');
       name.textContent = info.name;
       name.style.font = '600 13px Arial';
       name.style.color = this.listTextColor;
+      name.style.flex = '1';
+
+      const category = document.createElement('div');
+      category.textContent = info.category;
+      category.style.font = '11px Arial';
+      category.style.opacity = '0.66';
+      category.style.whiteSpace = 'nowrap';
 
       const signature = document.createElement('div');
       signature.textContent = formatSignature(info);
@@ -320,7 +366,9 @@ export class FunctionBrowser {
       description.style.marginTop = '2px';
       description.style.wordBreak = 'break-word';
 
-      details.appendChild(name);
+      titleRow.appendChild(name);
+      titleRow.appendChild(category);
+      details.appendChild(titleRow);
       details.appendChild(signature);
       details.appendChild(description);
       row.appendChild(details);

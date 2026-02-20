@@ -41,6 +41,26 @@ describe('FunctionBrowser', () => {
     expect(rows).not.toContain('SUM');
   });
 
+  it('does not render category selection control', () => {
+    browser.show();
+
+    const categoryFilter = browser
+      .getContainer()
+      .querySelector('[data-function-category-filter]');
+    expect(categoryFilter).toBeNull();
+  });
+
+  it('renders category headers in the list', () => {
+    browser.show();
+
+    const headers = Array.from(
+      browser.getContainer().querySelectorAll('[data-func-category-header]'),
+    ).map((header) => (header as HTMLElement).dataset.funcCategoryHeader);
+
+    expect(headers).toContain('Math');
+    expect(headers).toContain('Lookup');
+  });
+
   it('updates highlighted row on hover without rebuilding list rows', () => {
     browser.show();
 

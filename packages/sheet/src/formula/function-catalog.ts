@@ -7,8 +7,29 @@ export type FunctionArg = {
   repeating?: boolean;
 };
 
+export const SheetsFunctionCategoryOrder = [
+  'Date',
+  'Engineering',
+  'Filter',
+  'Financial',
+  'Info',
+  'Logical',
+  'Lookup',
+  'Math',
+  'Operator',
+  'Statistical',
+  'Text',
+  'Database',
+  'Parser',
+  'Array',
+  'Web',
+] as const;
+
+export type FunctionCategory = (typeof SheetsFunctionCategoryOrder)[number];
+
 export type FunctionInfo = {
   name: string;
+  category: FunctionCategory;
   description: string;
   args: FunctionArg[];
 };
@@ -16,7 +37,7 @@ export type FunctionInfo = {
 /**
  * FunctionCatalog lists all built-in functions with metadata for autocomplete.
  */
-export const FunctionCatalog: FunctionInfo[] = [
+const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
   {
     name: 'SUM',
     description: 'Returns the sum of a series of numbers',
@@ -471,6 +492,95 @@ export const FunctionCatalog: FunctionInfo[] = [
     args: [{ name: 'value' }, { name: 'value_if_na' }],
   },
 ];
+
+const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
+  Date: new Set([
+    'TODAY',
+    'NOW',
+    'DATE',
+    'TIME',
+    'DAYS',
+    'YEAR',
+    'MONTH',
+    'DAY',
+    'HOUR',
+    'MINUTE',
+    'SECOND',
+    'WEEKDAY',
+  ]),
+  Info: new Set([
+    'ISBLANK',
+    'ISNUMBER',
+    'ISTEXT',
+    'ISERROR',
+    'ISERR',
+    'ISNA',
+    'ISLOGICAL',
+    'ISNONTEXT',
+  ]),
+  Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP']),
+  Math: new Set([
+    'SUM',
+    'ABS',
+    'ROUND',
+    'ROUNDUP',
+    'ROUNDDOWN',
+    'INT',
+    'MOD',
+    'SQRT',
+    'POWER',
+    'PRODUCT',
+    'RAND',
+    'RANDBETWEEN',
+    'COUNTBLANK',
+    'COUNTIF',
+    'SUMIF',
+    'COUNTIFS',
+    'SUMIFS',
+  ]),
+  Statistical: new Set(['AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'MEDIAN']),
+  Text: new Set([
+    'TRIM',
+    'LEN',
+    'LEFT',
+    'RIGHT',
+    'MID',
+    'CONCATENATE',
+    'CONCAT',
+    'FIND',
+    'SEARCH',
+    'TEXTJOIN',
+    'LOWER',
+    'UPPER',
+    'PROPER',
+    'SUBSTITUTE',
+  ]),
+};
+
+function resolveFunctionCategory(name: string): FunctionCategory {
+  for (const category of SheetsFunctionCategoryOrder) {
+    if (FunctionNamesByCategory[category]?.has(name)) {
+      return category;
+    }
+  }
+
+  throw new Error(`Missing Sheets category for function: ${name}`);
+}
+
+export const FunctionCatalog: FunctionInfo[] = FunctionCatalogEntries.map((info) => ({
+  ...info,
+  category: resolveFunctionCategory(info.name),
+}));
+
+export function listFunctionCategories(
+  functions: readonly FunctionInfo[] = FunctionCatalog,
+): FunctionCategory[] {
+  const categories = new Set(functions.map((info) => info.category));
+  return SheetsFunctionCategoryOrder.filter((category) =>
+    categories.has(category),
+  );
+}
 
 /**
  * `searchFunctions` returns functions whose name starts with the given prefix (case-insensitive).

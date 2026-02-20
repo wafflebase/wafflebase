@@ -173,7 +173,8 @@ New functions follow the same pattern: accept `(ctx, visit, grid?)`, return
 an `EvalNode`.
 
 Autocomplete metadata is maintained separately in `src/formula/function-catalog.ts`
-(`FunctionCatalog` array) with name, description, and argument info.
+(`FunctionCatalog` array) with name, Google Sheets category, description, and
+argument info.
 
 ### Error Types
 

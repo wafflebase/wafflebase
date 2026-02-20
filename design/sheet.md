@@ -573,7 +573,10 @@ are added to `FunctionMap` following the same pattern: accept a
 
 **Function discoverability UI** — The engine exposes a function browser dialog
 that is backed by `formula/function-catalog.ts` and supports search by
-name/signature/description. Consumers can toggle it via
+name/signature/description, with functions grouped by Google Sheets-style
+categories (`Date`, `Info`, `Logical`, `Lookup`, `Math`, `Statistical`,
+`Text`).
+Consumers can toggle it via
 `Spreadsheet.toggleFunctionBrowser()`. Insertion writes `FUNCTION(` using the
 formula cursor context and then focuses the in-cell editor (`CellInput`) so the
 user can continue editing directly in the active cell. Existing autocomplete

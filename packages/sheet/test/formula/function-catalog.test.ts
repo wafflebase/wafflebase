@@ -4,6 +4,7 @@ import {
   findFunction,
   formatSignature,
   FunctionCatalog,
+  listFunctionCategories,
 } from '../../src/formula/function-catalog';
 
 describe('FunctionCatalog', () => {
@@ -92,6 +93,30 @@ describe('FunctionCatalog', () => {
 
     it('should return undefined for unknown function', () => {
       expect(findFunction('UNKNOWN')).toBeUndefined();
+    });
+
+    it('should expose Google Sheets categories for functions', () => {
+      expect(findFunction('SUM')!.category).toBe('Math');
+      expect(findFunction('AVERAGE')!.category).toBe('Statistical');
+      expect(findFunction('IF')!.category).toBe('Logical');
+      expect(findFunction('VLOOKUP')!.category).toBe('Lookup');
+      expect(findFunction('TODAY')!.category).toBe('Date');
+      expect(findFunction('LEN')!.category).toBe('Text');
+      expect(findFunction('ISERROR')!.category).toBe('Info');
+    });
+  });
+
+  describe('listFunctionCategories', () => {
+    it('should return used categories in Google Sheets order', () => {
+      expect(listFunctionCategories()).toEqual([
+        'Date',
+        'Info',
+        'Logical',
+        'Lookup',
+        'Math',
+        'Statistical',
+        'Text',
+      ]);
     });
   });
 
