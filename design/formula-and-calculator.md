@@ -60,7 +60,7 @@ REFERENCE: QUOTED_SHEET_NAME '!' REFRANGE
          ;
 fragment SHEET_NAME: [A-Za-z][A-Za-z0-9]* ;
 fragment QUOTED_SHEET_NAME: '\'' (~['])+ '\'' ;
-REF: '$'? [A-Za-z]{1,3} '$'? [1-9][0-9]* ;
+REF: '$'? [A-Za-z] [A-Za-z]? [A-Za-z]? '$'? [1-9][0-9]* ;
 REFRANGE: REF ':' REF ;
 ```
 

@@ -446,8 +446,23 @@ describe('Formula', () => {
     );
   });
 
+  it('should extract multi-letter column references', () => {
+    expect(extractReferences('=AA1+AB2')).toEqual(new Set(['AA1', 'AB2']));
+    expect(extractReferences('=SUM(AA1:AB2)')).toEqual(new Set(['AA1:AB2']));
+  });
+
   it('should convert lowercase references to uppercase', () => {
     expect(extractReferences('=a1+b1')).toEqual(new Set(['A1', 'B1']));
+    expect(extractReferences('=aa1+ab1')).toEqual(new Set(['AA1', 'AB1']));
+  });
+
+  it('should evaluate formulas with multi-letter column references', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('AA1', { v: '10' });
+    grid.set('AB1', { v: '20' });
+
+    expect(evaluate('=AA1+AB1', grid)).toBe('30');
+    expect(evaluate('=SUM(AA1:AB1)', grid)).toBe('30');
   });
 });
 
@@ -540,6 +555,14 @@ describe('Formula.findReferenceTokenAtCursor', () => {
     expect(result).toBeDefined();
     expect(result!.text).toBe('A1:B5');
   });
+
+  it('should find multi-letter reference', () => {
+    const result = findReferenceTokenAtCursor('=AA1+AB2', 2);
+    expect(result).toBeDefined();
+    expect(result!.text).toBe('AA1');
+    expect(result!.start).toBe(1);
+    expect(result!.end).toBe(4);
+  });
 });
 
 describe('Formula.extractTokens', () => {
@@ -581,6 +604,12 @@ describe('Formula.extractTokens', () => {
     expect(extractTokens('=A1:')).toEqual([
       { type: 'REFERENCE', start: 0, stop: 1, text: 'A1' },
       { type: 'STRING', start: 2, stop: 3, text: ':' },
+    ]);
+
+    expect(extractTokens('=AA1+AB2')).toEqual([
+      { type: 'REFERENCE', start: 0, stop: 2, text: 'AA1' },
+      { type: 'ADD', start: 3, stop: 3, text: '+' },
+      { type: 'REFERENCE', start: 4, stop: 6, text: 'AB2' },
     ]);
 
     expect(extractTokens('=MY_FUNC(1)')).toEqual([
