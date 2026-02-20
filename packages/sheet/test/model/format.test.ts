@@ -78,15 +78,13 @@ describe('formatValue', () => {
     );
   });
 
-  it('should format ISO dates with locale', () => {
+  it('should format dates as YYYY-MM-DD', () => {
     expect(formatValue('2026-02-18', 'date', undefined, { locale: 'en-US' })).toBe(
-      'Feb 18, 2026',
+      '2026-02-18',
     );
-    const koDate = formatValue('2026-02-18', 'date', undefined, {
-      locale: 'ko-KR',
-    });
-    expect(koDate).toContain('2026');
-    expect(koDate).not.toBe('2026-02-18');
+    expect(formatValue('2026-02-18', 'date', undefined, { locale: 'ko-KR' })).toBe(
+      '2026-02-18',
+    );
   });
 
   it('should return original value for invalid date input', () => {

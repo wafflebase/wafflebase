@@ -120,18 +120,11 @@ function safeFormatNumber(
   }
 }
 
-function safeFormatDate(value: Date, locale: string): string {
-  try {
-    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(
-      value,
-    );
-  } catch {
-    return new Intl.DateTimeFormat(DefaultLocale, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    }).format(value);
-  }
+function safeFormatDate(value: Date, _locale: string): string {
+  const year = String(value.getFullYear()).padStart(4, '0');
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export type LocaleFormatPreview = {

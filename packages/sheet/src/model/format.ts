@@ -42,21 +42,16 @@ function parseDateValue(value: string): Date | undefined {
   return parsed;
 }
 
-function safeFormatDate(value: string, locale: string): string {
+function safeFormatDate(value: string, _locale: string): string {
   const date = parseDateValue(value);
   if (!date) {
     return value;
   }
 
-  try {
-    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    }).format(date);
-  }
+  const year = String(date.getFullYear()).padStart(4, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
