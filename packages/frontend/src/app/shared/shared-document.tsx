@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
@@ -8,9 +8,17 @@ import { Loader } from "@/components/loader";
 import SheetView from "@/app/spreadsheet/sheet-view";
 import {
   SpreadsheetDocument,
+  TabMeta,
   initialSpreadsheetDocument,
 } from "@/types/worksheet";
 import type { UserPresence as UserPresenceType } from "@/types/users";
+import { IconDatabase, IconTable } from "@tabler/icons-react";
+
+const DataSourceView = lazy(() =>
+  import("@/app/spreadsheet/datasource-view").then((module) => ({
+    default: module.DataSourceView,
+  })),
+);
 
 function SharedDocumentLayout({
   resolved,
@@ -18,16 +26,33 @@ function SharedDocumentLayout({
   resolved: ResolvedShareLink;
 }) {
   const readOnly = resolved.role === "viewer";
-  const { doc } =
-    useDocument<SpreadsheetDocument, UserPresenceType>();
+  const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const root = doc?.getRoot();
+  const tabs: TabMeta[] = root
+    ? (root.tabOrder || []).map((id: string) => root.tabs[id]).filter(Boolean)
+    : [];
 
-  if (!doc) {
+  useEffect(() => {
+    if (!root) return;
+    if (!tabs.length) {
+      setActiveTabId(null);
+      return;
+    }
+    if (!activeTabId || !root.tabs[activeTabId]) {
+      setActiveTabId(tabs[0].id);
+    }
+  }, [activeTabId, root, tabs]);
+
+  if (!doc || !root) {
     return <Loader />;
   }
 
-  const root = doc.getRoot();
-  const tabId =
-    root.tabOrder && root.tabOrder.length > 0 ? root.tabOrder[0] : "tab-1";
+  if (!activeTabId) {
+    return <Loader />;
+  }
+
+  const activeTab = root.tabs[activeTabId];
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -40,7 +65,35 @@ function SharedDocumentLayout({
         )}
       </header>
       <div className="flex flex-1 flex-col">
-        <SheetView tabId={tabId} readOnly={readOnly} />
+        <div className="flex flex-1 flex-col">
+          <Suspense fallback={<Loader />}>
+            {activeTab?.type === "datasource" ? (
+              <DataSourceView tabId={activeTabId} readOnly={readOnly} />
+            ) : (
+              <SheetView tabId={activeTabId} readOnly={readOnly} />
+            )}
+          </Suspense>
+        </div>
+        <div className="flex items-center border-t bg-muted/30 px-1 h-9 shrink-0 overflow-x-auto">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={`flex shrink-0 items-center gap-1.5 px-3 py-1 text-sm rounded-t border-b-2 cursor-pointer select-none hover:bg-muted/50 transition-colors ${
+                tab.id === activeTabId
+                  ? "border-primary bg-background text-foreground font-medium"
+                  : "border-transparent text-muted-foreground"
+              }`}
+              onClick={() => setActiveTabId(tab.id)}
+            >
+              {tab.type === "datasource" ? (
+                <IconDatabase className="size-3.5" />
+              ) : (
+                <IconTable className="size-3.5" />
+              )}
+              <span>{tab.name}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

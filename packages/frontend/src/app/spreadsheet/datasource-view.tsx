@@ -11,7 +11,13 @@ import type { UserPresence } from "@/types/users";
 import type { QueryResult } from "@/types/datasource";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 
-export function DataSourceView({ tabId }: { tabId: string }) {
+export function DataSourceView({
+  tabId,
+  readOnly = false,
+}: {
+  tabId: string;
+  readOnly?: boolean;
+}) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
@@ -72,7 +78,7 @@ export function DataSourceView({ tabId }: { tabId: string }) {
   }, [didMount, theme]);
 
   const handleExecute = useCallback(async () => {
-    if (!doc || !query.trim()) return;
+    if (!doc || !query.trim() || readOnly) return;
 
     const root = doc.getRoot();
     const tab = root.tabs[tabId];
@@ -105,17 +111,18 @@ export function DataSourceView({ tabId }: { tabId: string }) {
     } finally {
       setExecuting(false);
     }
-  }, [doc, tabId, query]);
+  }, [doc, tabId, query, readOnly]);
 
   // Ctrl/Cmd+Enter shortcut
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        if (readOnly) return;
         e.preventDefault();
         handleExecute();
       }
     },
-    [handleExecute]
+    [handleExecute, readOnly],
   );
 
   if (loading) {
@@ -138,8 +145,13 @@ export function DataSourceView({ tabId }: { tabId: string }) {
           className="w-full h-24 p-2 font-mono text-sm border rounded resize-y bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           placeholder="SELECT * FROM users LIMIT 100"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            if (!readOnly) {
+              setQuery(e.target.value);
+            }
+          }}
           onKeyDown={handleKeyDown}
+          readOnly={readOnly}
         />
       </div>
 
@@ -148,7 +160,7 @@ export function DataSourceView({ tabId }: { tabId: string }) {
         <Button
           size="sm"
           onClick={handleExecute}
-          disabled={executing || !query.trim()}
+          disabled={readOnly || executing || !query.trim()}
         >
           <IconPlayerPlay className="size-4" />
           {executing ? "Executing..." : "Execute"}

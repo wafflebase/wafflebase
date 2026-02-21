@@ -62,13 +62,17 @@ URLs to clipboard, and revoking existing links.
 
 **Shared document route** (`/shared/:token`) — Placed outside `PrivateRoute` so
 anonymous users can access it. Resolves the token, sets up `YorkieProvider` and
-`DocumentProvider`, and renders the spreadsheet. Attempts to detect logged-in
-users for presence identity; falls back to "Anonymous".
+`DocumentProvider`, and renders the spreadsheet. The shared view follows the
+document's `tabOrder` and exposes tab switching across all tabs (sheet and
+datasource). Attempts to detect logged-in users for presence identity; falls
+back to "Anonymous". For `viewer` links, editing remains blocked across tab
+types (including datasource query editing).
 
 ### Sheet Package (Read-Only Mode)
 
 The `Spreadsheet` class accepts a `readOnly` option. When enabled:
 - Cell editing (keyboard input, double-click) is blocked
+- Formula bar editing/commit is blocked
 - Delete, paste, undo/redo operations are blocked
 - Formatting changes (bold, italic, style application) are blocked
 - Context menu (insert/delete rows/columns) is blocked

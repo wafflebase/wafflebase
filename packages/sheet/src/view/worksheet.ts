@@ -146,7 +146,7 @@ export class Worksheet {
     this.theme = theme;
     this.readOnly = readOnly;
 
-    this.formulaBar = new FormulaBar(theme);
+    this.formulaBar = new FormulaBar(theme, readOnly);
     this.gridContainer = new GridContainer(theme);
     this.overlay = new Overlay(theme);
     this.gridCanvas = new GridCanvas(theme);
@@ -476,12 +476,19 @@ export class Worksheet {
     this.functionBrowser.hide();
 
     const activeCell = this.sheet!.getActiveCell();
+    let didEdit = false;
     if (this.formulaBar.isFocused()) {
-      await this.sheet!.setData(activeCell, this.formulaBar.getValue());
+      if (!this.readOnly) {
+        await this.sheet!.setData(activeCell, this.formulaBar.getValue());
+        didEdit = true;
+      }
       this.formulaBar.blur();
       this.cellInput.hide();
     } else if (this.cellInput.isFocused()) {
-      await this.sheet!.setData(activeCell, this.cellInput.getValue());
+      if (!this.readOnly) {
+        await this.sheet!.setData(activeCell, this.cellInput.getValue());
+        didEdit = true;
+      }
       this.cellInput.hide();
     } else {
       return;
@@ -489,7 +496,9 @@ export class Worksheet {
 
     this.formulaRanges = [];
     this.resetFormulaRangeState();
-    await this.autoResizeRow(activeCell.r);
+    if (didEdit) {
+      await this.autoResizeRow(activeCell.r);
+    }
   }
 
   /**

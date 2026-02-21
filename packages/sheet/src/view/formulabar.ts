@@ -11,14 +11,16 @@ export const FormulaBarMargin = 10;
 export class FormulaBar {
   private sheet?: Sheet;
   private theme: Theme;
+  private readOnly: boolean;
 
   private container: HTMLDivElement;
   private cellLabel: HTMLDivElement;
   private formulaInput: HTMLDivElement;
   private boundRenderInput: () => void;
 
-  constructor(theme: Theme = 'light') {
+  constructor(theme: Theme = 'light', readOnly: boolean = false) {
     this.theme = theme;
+    this.readOnly = readOnly;
 
     this.container = document.createElement('div');
     this.container.style.height = `${FormulaBarHeight}px`;
@@ -37,7 +39,7 @@ export class FormulaBar {
     this.container.appendChild(this.cellLabel);
 
     this.formulaInput = document.createElement('div');
-    this.formulaInput.contentEditable = 'true';
+    this.formulaInput.contentEditable = this.readOnly ? 'false' : 'true';
     this.formulaInput.style.margin = '0 20px';
     this.formulaInput.style.width = '100%';
     this.formulaInput.style.height = '12px';
