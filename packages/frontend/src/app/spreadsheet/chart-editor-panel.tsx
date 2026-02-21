@@ -139,7 +139,10 @@ export function ChartEditorPanel({
     <aside className="absolute inset-y-0 right-0 z-20 flex w-80 flex-col overflow-hidden border-l bg-background shadow-lg">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold">Chart editor</p>
+          <div className="flex items-center gap-2">
+            <IconChartBar size={16} className="text-primary" />
+            <p className="text-sm font-semibold">Chart editor</p>
+          </div>
           <p className="truncate text-xs text-muted-foreground">Source: {sourceTabName}</p>
         </div>
         <button
