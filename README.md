@@ -6,6 +6,8 @@ Wafflebase is a web-based spreadsheet application designed to be a lightweight y
 
 Wafflebase is currently in the early stages of development. While core spreadsheet functionalities are implemented, it is not yet ready for production use. We are actively working on DataSource integration and advanced analysis features.
 
+Demo Sheet: https://wafflebase.io/shared/bed3dbe8-bdce-46ef-a76e-65fd67178cde
+
 ## Key Features
 Currently, Wafflebase supports the following core capabilities:
 
