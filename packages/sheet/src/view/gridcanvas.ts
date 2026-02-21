@@ -438,89 +438,81 @@ export class GridCanvas {
       mergeData,
       resolveCellStyle,
     );
+    const renderRefs = this.buildRenderableRefs(
+      rowStart,
+      rowEnd,
+      colStart,
+      colEnd,
+      mergeData,
+    );
 
     // Three-pass rendering: backgrounds first, then custom borders, then text.
     // This ensures text overflow into empty neighbor cells is not
     // overwritten by the neighbor's background fill.
 
     // Pass 1: Render all cell backgrounds and default grid borders.
-    for (let row = rowStart; row <= rowEnd; row++) {
-      for (let col = colStart; col <= colEnd; col++) {
-        const sref = toSref({ r: row, c: col });
-        if (mergeData?.coverToAnchor.has(sref)) {
-          continue;
-        }
-        const cell = grid?.get(toSref({ r: row, c: col }));
-        const mergeSpan = mergeData?.anchors.get(sref);
-        const effectiveStyle = resolveCellStyle(row, col, cell);
-        const hideLeftBorder = overflowData?.hiddenVerticalBoundaries.has(
-          this.verticalBoundaryKey(row, col - 1),
-        );
-        const hideRightBorder = overflowData?.hiddenVerticalBoundaries.has(
-          this.verticalBoundaryKey(row, col),
-        );
-        this.renderCellBackground(
-          ctx,
-          { r: row, c: col },
-          cell,
-          scroll,
-          rowDim,
-          colDim,
-          effectiveStyle,
-          mergeSpan,
-          hideLeftBorder,
-          hideRightBorder,
-        );
-      }
+    for (const { r: row, c: col } of renderRefs) {
+      const sref = toSref({ r: row, c: col });
+      const cell = grid?.get(sref);
+      const mergeSpan = mergeData?.anchors.get(sref);
+      const effectiveStyle = resolveCellStyle(row, col, cell);
+      const hideLeftBorder = overflowData?.hiddenVerticalBoundaries.has(
+        this.verticalBoundaryKey(row, col - 1),
+      );
+      const hideRightBorder = overflowData?.hiddenVerticalBoundaries.has(
+        this.verticalBoundaryKey(row, col),
+      );
+      this.renderCellBackground(
+        ctx,
+        { r: row, c: col },
+        cell,
+        scroll,
+        rowDim,
+        colDim,
+        effectiveStyle,
+        mergeSpan,
+        hideLeftBorder,
+        hideRightBorder,
+      );
     }
 
     // Pass 2: Render custom cell borders.
-    for (let row = rowStart; row <= rowEnd; row++) {
-      for (let col = colStart; col <= colEnd; col++) {
-        const sref = toSref({ r: row, c: col });
-        if (mergeData?.coverToAnchor.has(sref)) {
-          continue;
-        }
-        const cell = grid?.get(toSref({ r: row, c: col }));
-        const mergeSpan = mergeData?.anchors.get(sref);
-        const effectiveStyle = resolveCellStyle(row, col, cell);
-        this.renderCellCustomBorders(
-          ctx,
-          { r: row, c: col },
-          scroll,
-          rowDim,
-          colDim,
-          effectiveStyle,
-          mergeSpan,
-        );
-      }
+    for (const { r: row, c: col } of renderRefs) {
+      const sref = toSref({ r: row, c: col });
+      const cell = grid?.get(sref);
+      const mergeSpan = mergeData?.anchors.get(sref);
+      const effectiveStyle = resolveCellStyle(row, col, cell);
+      this.renderCellCustomBorders(
+        ctx,
+        { r: row, c: col },
+        scroll,
+        rowDim,
+        colDim,
+        effectiveStyle,
+        mergeSpan,
+      );
     }
 
     // Pass 3: Render all cell text content (with overflow clipping).
-    for (let row = rowStart; row <= rowEnd; row++) {
-      for (let col = colStart; col <= colEnd; col++) {
-        const sref = toSref({ r: row, c: col });
-        if (mergeData?.coverToAnchor.has(sref)) {
-          continue;
-        }
-        const cell = grid?.get(toSref({ r: row, c: col }));
-        const mergeSpan = mergeData?.anchors.get(sref);
-        const effectiveStyle = resolveCellStyle(row, col, cell);
-        const overflowEndCol = overflowData?.anchorToEndCol.get(sref);
-        this.renderCellContent(
-          ctx,
-          { r: row, c: col },
-          cell,
-          scroll,
-          rowDim,
-          colDim,
-          effectiveStyle,
-          grid,
-          colEnd,
-          mergeSpan,
-          overflowEndCol,
-        );
-      }
+    for (const { r: row, c: col } of renderRefs) {
+      const sref = toSref({ r: row, c: col });
+      const cell = grid?.get(sref);
+      const mergeSpan = mergeData?.anchors.get(sref);
+      const effectiveStyle = resolveCellStyle(row, col, cell);
+      const overflowEndCol = overflowData?.anchorToEndCol.get(sref);
+      this.renderCellContent(
+        ctx,
+        { r: row, c: col },
+        cell,
+        scroll,
+        rowDim,
+        colDim,
+        effectiveStyle,
+        grid,
+        colEnd,
+        mergeSpan,
+        overflowEndCol,
+      );
     }
 
     // Pass 4: Render filter dropdown buttons inside filter header row cells.
@@ -548,6 +540,60 @@ export class GridCanvas {
         }
       }
     }
+  }
+
+  /**
+   * Builds render refs for a quadrant: all in-range non-covered cells plus
+   * merged anchors whose blocks intersect this range even if the anchor itself
+   * is outside the range.
+   */
+  private buildRenderableRefs(
+    rowStart: number,
+    rowEnd: number,
+    colStart: number,
+    colEnd: number,
+    mergeData?: {
+      anchors: Map<string, MergeSpan>;
+      coverToAnchor: Map<string, string>;
+    },
+  ): Ref[] {
+    const refs: Ref[] = [];
+    const seen = new Set<string>();
+
+    for (let row = rowStart; row <= rowEnd; row++) {
+      for (let col = colStart; col <= colEnd; col++) {
+        const sref = toSref({ r: row, c: col });
+        if (mergeData?.coverToAnchor.has(sref)) {
+          continue;
+        }
+        refs.push({ r: row, c: col });
+        seen.add(sref);
+      }
+    }
+
+    if (!mergeData) {
+      return refs;
+    }
+
+    for (const [anchorSref, span] of mergeData.anchors) {
+      if (seen.has(anchorSref)) {
+        continue;
+      }
+      const anchor = parseRef(anchorSref);
+      const mergeEndRow = anchor.r + span.rs - 1;
+      const mergeEndCol = anchor.c + span.cs - 1;
+      const intersects =
+        anchor.r <= rowEnd &&
+        mergeEndRow >= rowStart &&
+        anchor.c <= colEnd &&
+        mergeEndCol >= colStart;
+      if (!intersects) {
+        continue;
+      }
+      refs.push(anchor);
+    }
+
+    return refs;
   }
 
   /**
