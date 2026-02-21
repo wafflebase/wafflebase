@@ -446,6 +446,9 @@ For touch-first hosts, `Spreadsheet` exposes mobile-friendly imperative hooks:
 `panBy(deltaX, deltaY)` to scroll the logical viewport and
 `handleMobileDoubleTap(clientX, clientY)` to trigger edit-mode behavior at a
 tapped point without wiring DOM-level double-click synthesis in the app layer.
+It also exposes `focusCell(ref)` so host apps can programmatically move
+selection (for example, jumping to a collaborator's active cell) while reusing
+the same edit-commit and scroll-into-view behavior as native grid navigation.
 
 **GridContainer** — Wraps a scrollable `<div>` with a dummy sized child. When
 the logical grid size exceeds `MAX_SCROLL_SIZE` (10M px), scroll positions are

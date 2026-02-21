@@ -38,9 +38,15 @@ const ConditionalFormatPanel = lazy(() =>
 export function SheetView({
   tabId,
   readOnly = false,
+  peerJumpTarget = null,
 }: {
   tabId: string;
   readOnly?: boolean;
+  peerJumpTarget?: {
+    activeCell: NonNullable<UserPresence["activeCell"]>;
+    targetTabId?: UserPresence["activeTabId"];
+    requestId: number;
+  } | null;
 }) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -49,6 +55,7 @@ export function SheetView({
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
+  const lastHandledPeerJumpRequestIdRef = useRef(0);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
   const { doc, loading, error } = useDocument<
@@ -379,6 +386,30 @@ export function SheetView({
       setChartEditorOpen(false);
     }
   }, [root, selectedChartId, tabId]);
+
+  useEffect(() => {
+    if (!peerJumpTarget) return;
+    if (peerJumpTarget.targetTabId && peerJumpTarget.targetTabId !== tabId) {
+      return;
+    }
+    if (peerJumpTarget.requestId === lastHandledPeerJumpRequestIdRef.current) {
+      return;
+    }
+
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    lastHandledPeerJumpRequestIdRef.current = peerJumpTarget.requestId;
+    setSelectedChartId(null);
+    setChartEditorOpen(false);
+    setConditionalFormatOpen(false);
+
+    try {
+      void sheet.focusCell(parseRef(peerJumpTarget.activeCell));
+    } catch {
+      // Ignore malformed presence values from remote peers.
+    }
+  }, [peerJumpTarget, sheetRenderVersion, tabId]);
 
   if (loading) {
     return <Loader />;

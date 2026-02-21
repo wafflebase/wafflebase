@@ -273,6 +273,18 @@ export class Worksheet {
     this.handleDblClickAt(x, y);
   }
 
+  /**
+   * `focusCell` commits pending edits, selects a target cell, and scrolls it
+   * into view.
+   */
+  public async focusCell(ref: Ref): Promise<void> {
+    await this.finishEditing();
+    this.focusGrid();
+    this.sheet!.selectStart(ref);
+    this.render();
+    this.scrollIntoView();
+  }
+
   public cleanup() {
     if (this.pendingRenderFrame !== null) {
       cancelAnimationFrame(this.pendingRenderFrame);

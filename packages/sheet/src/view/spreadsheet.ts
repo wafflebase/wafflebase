@@ -131,6 +131,15 @@ export class Spreadsheet {
   }
 
   /**
+   * `focusCell` selects the target cell and scrolls it into view.
+   */
+  public async focusCell(ref: Ref): Promise<void> {
+    if (!this.sheet) return;
+    await this.worksheet.focusCell(ref);
+    this.notifySelectionChange();
+  }
+
+  /**
    * `applyStyle` applies the given style to the current selection and re-renders.
    */
   public async applyStyle(style: Partial<CellStyle>) {

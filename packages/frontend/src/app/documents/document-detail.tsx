@@ -1,7 +1,14 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, useCallback, useEffect, lazy, Suspense } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  lazy,
+  Suspense,
+} from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { Loader } from "@/components/loader";
@@ -120,6 +127,12 @@ function generateTabId(): string {
   return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+type PeerJumpTarget = {
+  activeCell: NonNullable<UserPresenceType["activeCell"]>;
+  targetTabId?: UserPresenceType["activeTabId"];
+  requestId: number;
+};
+
 function DocumentLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const queryClient = useQueryClient();
@@ -127,6 +140,10 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [migrated, setMigrated] = useState(false);
   const [showDsSelector, setShowDsSelector] = useState(false);
+  const [peerJumpTarget, setPeerJumpTarget] = useState<PeerJumpTarget | null>(
+    null,
+  );
+  const jumpRequestSeq = useRef(0);
 
   const { data: documentData } = useQuery({
     queryKey: ["document", documentId],
@@ -276,6 +293,43 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc],
   );
 
+  const handleSelectPresenceCell = useCallback(
+    (
+      activeCell: NonNullable<UserPresenceType["activeCell"]>,
+      peerActiveTabId?: UserPresenceType["activeTabId"],
+    ) => {
+      if (!doc || !activeCell) return;
+
+      const root = doc.getRoot();
+      const activeTab = peerActiveTabId ? root.tabs[peerActiveTabId] : undefined;
+      let targetTabId: string | undefined;
+      if (activeTab?.type === "sheet") {
+        targetTabId = peerActiveTabId;
+      } else {
+        const currentTab = activeTabId ? root.tabs[activeTabId] : undefined;
+        if (currentTab?.type === "sheet") {
+          targetTabId = activeTabId;
+        } else {
+          targetTabId = root.tabOrder.find(
+            (id: string) => root.tabs[id]?.type === "sheet",
+          );
+        }
+      }
+      if (!targetTabId) return;
+
+      if (targetTabId !== activeTabId) {
+        setActiveTabId(targetTabId);
+      }
+      jumpRequestSeq.current += 1;
+      setPeerJumpTarget({
+        activeCell,
+        targetTabId,
+        requestId: jumpRequestSeq.current,
+      });
+    },
+    [doc, activeTabId],
+  );
+
   if (!doc || !migrated || !activeTabId) {
     return <Loader />;
   }
@@ -297,7 +351,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         >
           <div className="flex items-center gap-2">
             <ShareDialog documentId={documentId} />
-            <UserPresence />
+            <UserPresence onSelectActiveCell={handleSelectPresenceCell} />
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col">
@@ -307,7 +361,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 {activeTab?.type === "datasource" ? (
                   <DataSourceView tabId={activeTabId} />
                 ) : (
-                  <SheetView tabId={activeTabId} />
+                  <SheetView tabId={activeTabId} peerJumpTarget={peerJumpTarget} />
                 )}
               </Suspense>
             </div>

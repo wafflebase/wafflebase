@@ -256,8 +256,8 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `getMerges()` | Read all merge anchors from `root.sheets[tabId].merges` |
 | `setFilterState(state)` | Write/delete `root.sheets[tabId].filter` |
 | `getFilterState()` | Read `root.sheets[tabId].filter` |
-| `updateActiveCell(ref)` | `doc.update((_, presence) => presence.set(...))` |
-| `getPresences()` | `doc.getPresences()` filtered to other clients |
+| `updateActiveCell(ref)` | `doc.update((_, presence) => presence.set({ activeCell, activeTabId }))` |
+| `getPresences()` | `doc.getPresences()` filtered to other clients in the same `activeTabId` |
 
 All mutations go through `doc.update()`, which automatically syncs to the
 Yorkie server and broadcasts to all connected peers.
@@ -315,7 +315,8 @@ flowchart LR
 
 ```typescript
 type UserPresence = {
-  activeCell: Sref;   // e.g. "C5"
+  activeCell?: Sref;   // e.g. "C5"
+  activeTabId?: string; // current tab id, e.g. "tab-1"
   username: string;
   email: string;
   photo: string;
@@ -324,7 +325,20 @@ type UserPresence = {
 
 The `UserPresence` component (`src/components/user-presence.tsx`) displays up
 to 4 user avatars in the header. It uses the `usePresences()` hook from
-`@yorkie-js/react` to reactively track connected users.
+`@yorkie-js/react` to reactively track connected users, and each avatar is
+clickable to jump the local sheet selection to that peer's `activeCell`.
+The current user's own avatar is intentionally non-clickable.
+Presence entries are keyed by Yorkie `clientID` (not username), so multiple
+anonymous users are shown as separate avatars instead of collapsing into one.
+When there are more than 4 users, the component shows a `+N` overflow button
+with a dropdown list of the remaining users (including jump actions where
+available).
+
+`DocumentDetail` wires this through a lightweight request object
+(`{ activeCell, targetTabId, requestId }`) passed to `SheetView`, and
+`SheetView` consumes it by calling
+`spreadsheet.focusCell(parseRef(activeCell))` once per request on the matching
+tab.
 
 The `usePresenceUpdater` hook syncs the current user's profile information
 (username, email, photo) into the Yorkie presence when the document or user

@@ -55,6 +55,12 @@ export class YorkieStore implements Store {
     this.doc = doc;
     this.tabId = tabId;
 
+    // Keep presence aligned with the currently opened tab so peer cursors can
+    // be scoped to that tab.
+    this.doc.update((_, p) => {
+      p.set({ activeTabId: this.tabId });
+    });
+
     // Mark index as dirty on remote changes so it gets rebuilt lazily.
     doc.subscribe((e) => {
       if (e.type === "remote-change") {
@@ -877,12 +883,14 @@ export class YorkieStore implements Store {
 
   updateActiveCell(activeCell: Ref) {
     this.doc.update((_, p) => {
-      p.set({ activeCell: toSref(activeCell) });
+      p.set({ activeCell: toSref(activeCell), activeTabId: this.tabId });
     });
   }
 
   getPresences(): Array<{ clientID: string; presence: UserPresence }> {
-    return this.doc.getOthersPresences();
+    return this.doc
+      .getOthersPresences()
+      .filter((data) => data.presence?.activeTabId === this.tabId);
   }
 
   async setColumnStyle(col: number, style: CellStyle): Promise<void> {

@@ -8,5 +8,6 @@ export type User = {
 };
 
 export type UserPresence = {
-  activeCell: Sref;
+  activeCell?: Sref;
+  activeTabId?: string;
 } & User;
