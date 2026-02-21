@@ -90,10 +90,27 @@ const DefaultStyleValues: Partial<CellStyle> = {
   br: false,
   bb: false,
   bl: false,
+  tc: '',
+  bg: '',
   al: 'left',
   va: 'top',
   nf: 'plain',
   dp: 2,
+};
+const DefaultResetStylePatch: Partial<CellStyle> = {
+  b: false,
+  i: false,
+  u: false,
+  st: false,
+  bt: false,
+  br: false,
+  bb: false,
+  bl: false,
+  tc: '',
+  bg: '',
+  al: 'left',
+  va: 'top',
+  nf: 'plain',
 };
 
 /**
@@ -1844,6 +1861,32 @@ export class Sheet {
     }
   }
 
+  private async clearCellStylesInRange(range: Range): Promise<void> {
+    const grid = await this.store.getGrid(range);
+    const visited = new Set<Sref>();
+    for (const [sref] of grid) {
+      const ref = parseRef(sref);
+      const anchor = this.normalizeRefToAnchor(ref);
+      const anchorSref = toSref(anchor);
+      if (visited.has(anchorSref)) {
+        continue;
+      }
+      visited.add(anchorSref);
+
+      const existing = await this.store.get(anchor);
+      if (!existing?.s) {
+        continue;
+      }
+
+      const nextCell = this.compactCell(existing);
+      if (this.isEmptyCell(nextCell)) {
+        await this.store.delete(anchor);
+      } else {
+        await this.store.set(anchor, nextCell);
+      }
+    }
+  }
+
   /**
    * `compactCell` removes undefined fields to keep persisted cell payload minimal.
    */
@@ -3020,6 +3063,27 @@ export class Sheet {
     } finally {
       this.store.endBatch();
     }
+  }
+
+  /**
+   * `resetRangeStyleToDefault` clears cell-level styles in current selection,
+   * and appends a minimal default patch only when higher-level styles conflict.
+   */
+  async resetRangeStyleToDefault(): Promise<boolean> {
+    if (this.selectionType !== 'cell') {
+      return false;
+    }
+
+    const range = this.getRangeOrActiveCell();
+    this.store.beginBatch();
+    try {
+      await this.addRangeStylePatch(range, DefaultResetStylePatch);
+      await this.clearCellStylesInRange(range);
+    } finally {
+      this.store.endBatch();
+    }
+
+    return true;
   }
 
   /**

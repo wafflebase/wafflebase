@@ -98,6 +98,11 @@ The toolbar also includes a `Borders` dropdown that applies border presets
 `spreadsheet.applyBorders(...)`. On mobile, the toolbar uses a compact set of
 inline actions (undo/redo, text style, colors, merge) and moves advanced
 format/alignment/border/function actions into a trailing overflow menu.
+It also exposes `Paint format`, which copies the active cell's effective style
+and applies it once to the next range selected with the mouse. While dragging
+the target range, the source cell is highlighted as a visual indicator.
+When the source cell is effectively default-styled, paint format applies a
+default-style reset to the target range instead of a no-op/alert.
 It also exposes `Conditional formatting` (`CF`), which opens a right-side
 rules panel (same layout pattern as chart editor). Rules are applied to an A1
 range and persisted through the sheet engine/store APIs.

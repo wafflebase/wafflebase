@@ -63,6 +63,7 @@ import {
   IconBorderNone,
   IconDotsVertical,
   IconPaint,
+  IconBrush,
 } from "@tabler/icons-react";
 
 const ALIGN_ICONS = {
@@ -94,12 +95,16 @@ interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
   onInsertChart?: () => void;
   onOpenConditionalFormat?: () => void;
+  onTogglePaintFormat?: () => void;
+  paintFormatActive?: boolean;
 }
 
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
   onOpenConditionalFormat,
+  onTogglePaintFormat,
+  paintFormatActive = false,
 }: FormattingToolbarProps) {
   const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
@@ -193,6 +198,10 @@ export function FormattingToolbar({
     onOpenConditionalFormat?.();
   }, [onOpenConditionalFormat]);
 
+  const handleTogglePaintFormat = useCallback(() => {
+    onTogglePaintFormat?.();
+  }, [onTogglePaintFormat]);
+
   const handleNumberFormat = useCallback(
     (format: string) => {
       spreadsheet?.applyStyle({ nf: format as NumberFormat });
@@ -262,6 +271,22 @@ export function FormattingToolbar({
         </TooltipTrigger>
         <TooltipContent>
           Redo ({modKey}+{isMac ? "⇧Z" : "Y"})
+        </TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${
+              paintFormatActive ? "bg-muted" : ""
+            }`}
+            onClick={handleTogglePaintFormat}
+          >
+            <IconPaint size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {paintFormatActive ? "Cancel paint format" : "Paint format"}
         </TooltipContent>
       </Tooltip>
 
@@ -699,7 +724,7 @@ export function FormattingToolbar({
                 className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-[10px] font-semibold tracking-wide hover:bg-muted"
                 onClick={handleOpenConditionalFormat}
               >
-                <IconPaint size={16} />
+                <IconBrush size={16} />
               </button>
             </TooltipTrigger>
             <TooltipContent>Conditional formatting</TooltipContent>
@@ -829,8 +854,12 @@ export function FormattingToolbar({
                 <IconChartBar size={16} className="mr-2" />
                 Insert chart
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleOpenConditionalFormat}>
+              <DropdownMenuItem onClick={handleTogglePaintFormat}>
                 <IconPaint size={16} className="mr-2" />
+                {paintFormatActive ? "Cancel paint format" : "Paint format"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleOpenConditionalFormat}>
+                <IconBrush size={16} className="mr-2" />
                 Conditional formatting
               </DropdownMenuItem>
             </DropdownMenuContent>

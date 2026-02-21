@@ -150,6 +150,17 @@ export class Spreadsheet {
   }
 
   /**
+   * `applyDefaultStyle` resets the current cell selection to default style.
+   */
+  public async applyDefaultStyle() {
+    if (!this.sheet || this._readOnly) return;
+    if (await this.sheet.resetRangeStyleToDefault()) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
+  }
+
+  /**
    * `applyBorders` applies a border preset to the current selection and re-renders.
    */
   public async applyBorders(preset: BorderPreset) {
@@ -176,6 +187,13 @@ export class Spreadsheet {
   public async getActiveStyle(): Promise<CellStyle | undefined> {
     if (!this.sheet) return undefined;
     return this.sheet.getStyle(this.sheet.getActiveCell());
+  }
+
+  /**
+   * `getActiveCell` returns the active cell reference.
+   */
+  public getActiveCell(): Ref | undefined {
+    return this.sheet?.getActiveCell();
   }
 
   /**

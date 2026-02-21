@@ -552,6 +552,8 @@ Key points:
   remain valid overrides.
 - Cell-selection formatting uses `rangeStyles` patches with compaction/pruning
   to avoid style-only cell explosion in Yorkie.
+- Default-style reset clears cell-level `s` payloads in range and only appends
+  minimal default overrides when higher-priority style layers conflict.
 - Structural operations remap range patches consistently; inserts inside a style
   range expand it.
 - Internal copy/paste carries and relocates `rangeStyles` so empty-range

@@ -3,11 +3,21 @@ import {
   Spreadsheet,
   Grid,
   Cell,
+  CellStyle,
+  Ref,
   Sref,
   parseRef,
   toSref,
 } from "@wafflebase/sheet";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type PointerEvent as ReactPointerEvent,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
@@ -18,6 +28,39 @@ import { UserPresence } from "@/types/users";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
+
+function isDefaultLikeStyle(style: CellStyle | undefined): boolean {
+  if (!style) {
+    return true;
+  }
+
+  const isFalseOrUnset = (value: boolean | undefined) => value === undefined || value === false;
+  const isDefaultTextAlign = style.al === undefined || style.al === "left";
+  const isDefaultVerticalAlign = style.va === undefined || style.va === "top";
+  const isDefaultNumberFormat = style.nf === undefined || style.nf === "plain";
+  const isDefaultDecimalPlaces = style.dp === undefined || style.dp === 2;
+  const isDefaultTextColor = style.tc === undefined || style.tc === "";
+  const isDefaultBackgroundColor = style.bg === undefined || style.bg === "";
+  const isDefaultCurrency = style.cu === undefined || style.cu === "";
+
+  return (
+    isFalseOrUnset(style.b) &&
+    isFalseOrUnset(style.i) &&
+    isFalseOrUnset(style.u) &&
+    isFalseOrUnset(style.st) &&
+    isFalseOrUnset(style.bt) &&
+    isFalseOrUnset(style.br) &&
+    isFalseOrUnset(style.bb) &&
+    isFalseOrUnset(style.bl) &&
+    isDefaultTextColor &&
+    isDefaultBackgroundColor &&
+    isDefaultTextAlign &&
+    isDefaultVerticalAlign &&
+    isDefaultNumberFormat &&
+    isDefaultDecimalPlaces &&
+    isDefaultCurrency
+  );
+}
 
 const ChartObjectLayer = lazy(() =>
   import("./chart-object-layer").then((module) => ({
@@ -55,9 +98,22 @@ export function SheetView({
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
+  const [paintFormatActive, setPaintFormatActive] = useState(false);
+  const [paintFormatSourceRef, setPaintFormatSourceRef] = useState<Ref | null>(
+    null,
+  );
+  const [paintFormatSourceIndicatorVisible, setPaintFormatSourceIndicatorVisible] =
+    useState(false);
   const lastHandledPeerJumpRequestIdRef = useRef(0);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
+  const paintFormatActiveRef = useRef(false);
+  const paintFormatPointerDownRef = useRef(false);
+  const paintFormatApplyPendingRef = useRef(false);
+  const paintFormatApplyingRef = useRef(false);
+  const paintFormatUseDefaultStyleRef = useRef(false);
+  const paintFormatSourceIndicatorVisibleRef = useRef(false);
+  const paintFormatStyleRef = useRef<Partial<CellStyle> | undefined>(undefined);
   const { doc, loading, error } = useDocument<
     SpreadsheetDocument,
     UserPresence
@@ -72,6 +128,80 @@ export function SheetView({
   useEffect(() => {
     hasChartsRef.current = hasCharts;
   }, [hasCharts]);
+
+  const clearPaintFormatState = useCallback(() => {
+    paintFormatActiveRef.current = false;
+    paintFormatPointerDownRef.current = false;
+    paintFormatApplyPendingRef.current = false;
+    paintFormatApplyingRef.current = false;
+    paintFormatUseDefaultStyleRef.current = false;
+    paintFormatSourceIndicatorVisibleRef.current = false;
+    paintFormatStyleRef.current = undefined;
+    setPaintFormatActive(false);
+    setPaintFormatSourceRef(null);
+    setPaintFormatSourceIndicatorVisible(false);
+  }, []);
+
+  useEffect(() => {
+    paintFormatActiveRef.current = paintFormatActive;
+  }, [paintFormatActive]);
+
+  useEffect(() => {
+    paintFormatSourceIndicatorVisibleRef.current = paintFormatSourceIndicatorVisible;
+  }, [paintFormatSourceIndicatorVisible]);
+
+  useEffect(() => {
+    if (!paintFormatActive) return;
+
+    const handlePointerUp = () => {
+      if (!paintFormatPointerDownRef.current) return;
+      paintFormatPointerDownRef.current = false;
+      paintFormatApplyPendingRef.current = true;
+      paintFormatSourceIndicatorVisibleRef.current = false;
+      setPaintFormatSourceIndicatorVisible(false);
+    };
+
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [paintFormatActive]);
+
+  const handleTogglePaintFormat = useCallback(async () => {
+    const sheet = sheetRef.current;
+    if (readOnly || !sheet) return;
+
+    if (paintFormatActiveRef.current) {
+      clearPaintFormatState();
+      return;
+    }
+
+    const sourceStyle = await sheet.getActiveStyle();
+    const useDefaultStyle = isDefaultLikeStyle(sourceStyle);
+    const sourceRef = sheet.getActiveCell();
+    if (!sourceRef) {
+      return;
+    }
+
+    paintFormatStyleRef.current = useDefaultStyle
+      ? undefined
+      : { ...sourceStyle };
+    paintFormatPointerDownRef.current = false;
+    paintFormatApplyPendingRef.current = false;
+    paintFormatApplyingRef.current = false;
+    paintFormatUseDefaultStyleRef.current = useDefaultStyle;
+    paintFormatSourceIndicatorVisibleRef.current = false;
+    paintFormatActiveRef.current = true;
+    setPaintFormatActive(true);
+    setPaintFormatSourceRef({ ...sourceRef });
+    setPaintFormatSourceIndicatorVisible(false);
+    setSelectedChartId(null);
+    setChartEditorOpen(false);
+    setConditionalFormatOpen(false);
+  }, [clearPaintFormatState, readOnly]);
 
   const handleInsertChart = useCallback(() => {
     if (readOnly) return;
@@ -193,23 +323,43 @@ export function SheetView({
     return `${toSref(range[0])}:${toSref(range[1])}`;
   }, []);
 
-  const handleGridPointerDown = useCallback(() => {
-    if (selectedChartId !== null) {
-      setSelectedChartId(null);
-    }
-    if (chartEditorOpen) {
-      setChartEditorOpen(false);
-    }
-    if (conditionalFormatOpen) {
-      setConditionalFormatOpen(false);
-    }
-  }, [chartEditorOpen, conditionalFormatOpen, selectedChartId]);
+  const handleGridPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (
+        paintFormatActiveRef.current &&
+        event.pointerType === "mouse" &&
+        paintFormatSourceRef
+      ) {
+        paintFormatSourceIndicatorVisibleRef.current = true;
+        setPaintFormatSourceIndicatorVisible(true);
+      }
+      if (paintFormatActiveRef.current) {
+        if (event.pointerType !== "mouse") {
+          paintFormatSourceIndicatorVisibleRef.current = false;
+          setPaintFormatSourceIndicatorVisible(false);
+        }
+        paintFormatPointerDownRef.current = true;
+        paintFormatApplyPendingRef.current = false;
+      }
+      if (selectedChartId !== null) {
+        setSelectedChartId(null);
+      }
+      if (chartEditorOpen) {
+        setChartEditorOpen(false);
+      }
+      if (conditionalFormatOpen) {
+        setConditionalFormatOpen(false);
+      }
+    },
+    [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId],
+  );
 
   useEffect(() => {
     setSelectedChartId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
-  }, [tabId]);
+    clearPaintFormatState();
+  }, [clearPaintFormatState, tabId]);
 
   // NOTE(hackerwins): To prevent initialization of the spreadsheet
   // twice in development.
@@ -250,12 +400,38 @@ export function SheetView({
       // objects stay aligned with the canvas viewport.
       unsubs.push(
         s.onSelectionChange(() => {
-          if (!hasChartsRef.current || selectionFrame !== null) {
+          if (
+            (hasChartsRef.current || paintFormatSourceIndicatorVisibleRef.current) &&
+            selectionFrame === null
+          ) {
+            selectionFrame = requestAnimationFrame(() => {
+              selectionFrame = null;
+              setSheetRenderVersion((v) => v + 1);
+            });
+          }
+
+          if (
+            !paintFormatActiveRef.current ||
+            !paintFormatApplyPendingRef.current ||
+            paintFormatApplyingRef.current
+          ) {
             return;
           }
-          selectionFrame = requestAnimationFrame(() => {
-            selectionFrame = null;
-            setSheetRenderVersion((v) => v + 1);
+
+          paintFormatApplyPendingRef.current = false;
+          if (s.getSelectionType() !== "cell") {
+            return;
+          }
+
+          paintFormatApplyingRef.current = true;
+          const styleToApply = paintFormatStyleRef.current;
+          const applyPromise = paintFormatUseDefaultStyleRef.current
+            ? s.applyDefaultStyle()
+            : styleToApply
+              ? s.applyStyle(styleToApply)
+              : s.applyDefaultStyle();
+          void applyPromise.finally(() => {
+            clearPaintFormatState();
           });
         }),
       );
@@ -377,7 +553,7 @@ export function SheetView({
         unsub();
       }
     };
-  }, [didMount, containerRef, doc, tabId, readOnly, theme]);
+  }, [clearPaintFormatState, didMount, containerRef, doc, tabId, readOnly, theme]);
 
   useEffect(() => {
     if (!selectedChartId) return;
@@ -411,6 +587,34 @@ export function SheetView({
     }
   }, [peerJumpTarget, sheetRenderVersion, tabId]);
 
+  const paintFormatSourceIndicator = (() => {
+    if (!paintFormatSourceIndicatorVisible || !paintFormatSourceRef) {
+      return null;
+    }
+    const sheet = sheetRef.current;
+    if (!sheet) return null;
+
+    try {
+      const viewport = sheet.getGridViewportRect();
+      const sourceRect = sheet.getCellRect(paintFormatSourceRef);
+      return (
+        <div
+          className="absolute pointer-events-none rounded-[2px]"
+          style={{
+            left: viewport.left + sourceRect.left,
+            top: viewport.top + sourceRect.top,
+            width: sourceRect.width,
+            height: sourceRect.height,
+            boxShadow: "inset 0 0 0 2px var(--color-primary)",
+            zIndex: 12,
+          }}
+        />
+      );
+    } catch {
+      return null;
+    }
+  })();
+
   if (loading) {
     return <Loader />;
   }
@@ -430,6 +634,10 @@ export function SheetView({
           spreadsheet={sheetRef.current}
           onInsertChart={handleInsertChart}
           onOpenConditionalFormat={handleOpenConditionalFormat}
+          onTogglePaintFormat={() => {
+            void handleTogglePaintFormat();
+          }}
+          paintFormatActive={paintFormatActive}
         />
       )}
       <div className="relative flex-1 w-full">
@@ -439,6 +647,7 @@ export function SheetView({
           style={{ touchAction: "manipulation" }}
           onPointerDown={handleGridPointerDown}
         />
+        {paintFormatSourceIndicator}
         {root && hasCharts && (
           <Suspense fallback={null}>
             <ChartObjectLayer
