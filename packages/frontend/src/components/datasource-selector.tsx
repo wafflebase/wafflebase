@@ -20,6 +20,9 @@ type DataSourceSelectorProps = {
   onSelect: (ds: DataSource) => void;
 };
 
+/**
+ * Renders the DataSourceSelector component.
+ */
 export function DataSourceSelector({
   open,
   onOpenChange,

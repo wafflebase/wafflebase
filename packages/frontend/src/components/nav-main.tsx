@@ -9,6 +9,9 @@ import {
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/types/nav-items";
 
+/**
+ * Renders the NavMain component.
+ */
 export function NavMain({ items }: { items: Array<NavItem> }) {
   const location = useLocation();
 

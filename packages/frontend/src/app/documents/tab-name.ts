@@ -8,6 +8,9 @@ export type TabNamePatch = {
   name: string;
 };
 
+/**
+ * Trims surrounding whitespace from a tab name.
+ */
 export function normalizeTabName(name: string): string {
   return name.trim();
 }
@@ -16,6 +19,9 @@ function tabNameKey(name: string): string {
   return normalizeTabName(name).toUpperCase();
 }
 
+/**
+ * Returns true when a normalized tab name already exists.
+ */
 export function isTabNameTaken(
   tabs: Record<string, TabMeta>,
   name: string,
@@ -33,6 +39,9 @@ export function isTabNameTaken(
   return false;
 }
 
+/**
+ * Returns a unique tab name, adding a numeric suffix when needed.
+ */
 export function getUniqueTabName(
   tabs: Record<string, TabMeta>,
   preferredName: string,
@@ -54,6 +63,9 @@ export function getUniqueTabName(
   }
 }
 
+/**
+ * Returns the next available default sheet name (Sheet1, Sheet2, ...).
+ */
 export function getNextDefaultSheetName(tabs: Record<string, TabMeta>): string {
   let index = 1;
   while (isTabNameTaken(tabs, `${SHEET_NAME_PREFIX}${index}`)) {
@@ -62,6 +74,9 @@ export function getNextDefaultSheetName(tabs: Record<string, TabMeta>): string {
   return `${SHEET_NAME_PREFIX}${index}`;
 }
 
+/**
+ * Builds rename patches to normalize duplicate or blank tab names.
+ */
 export function buildTabNameNormalizationPatches(
   tabOrder: string[],
   tabs: Record<string, TabMeta>,

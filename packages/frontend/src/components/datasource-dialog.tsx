@@ -24,6 +24,9 @@ type DataSourceDialogProps = {
   onCreated: (ds: DataSource) => void;
 };
 
+/**
+ * Renders the DataSourceDialog component.
+ */
 export function DataSourceDialog({
   open,
   onOpenChange,

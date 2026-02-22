@@ -1,5 +1,8 @@
 import { Loader2 } from "lucide-react";
 
+/**
+ * Renders a loading indicator.
+ */
 export const Loader = () => {
   return (
     <div

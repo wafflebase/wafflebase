@@ -75,6 +75,9 @@ const plainTickFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
 });
 
+/**
+ * Renders the ChartObjectLayer component.
+ */
 export function ChartObjectLayer({
   spreadsheet,
   root,

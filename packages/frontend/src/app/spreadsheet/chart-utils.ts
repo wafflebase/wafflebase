@@ -32,6 +32,9 @@ export type ChartColumnSelection = {
   seriesColumns: string[];
 };
 
+/**
+ * Parses a1 range.
+ */
 export function parseA1Range(input: unknown): ParsedRange | null {
   if (typeof input !== "string") {
     return null;
@@ -59,10 +62,16 @@ export function parseA1Range(input: unknown): ParsedRange | null {
   }
 }
 
+/**
+ * Formats a1 range.
+ */
 export function formatA1Range(range: ParsedRange): string {
   return `${toSref(range[0])}:${toSref(range[1])}`;
 }
 
+/**
+ * Returns default chart columns.
+ */
 export function getDefaultChartColumns(range: ParsedRange): {
   xAxisColumn: string | null;
   seriesColumns: string[];
@@ -83,6 +92,9 @@ export function getDefaultChartColumns(range: ParsedRange): {
   };
 }
 
+/**
+ * Resolves chart columns.
+ */
 export function resolveChartColumns(
   root: SpreadsheetDocument,
   chart: Pick<SheetChart, "sourceTabId" | "sourceRange" | "xAxisColumn" | "seriesColumns">,
@@ -144,6 +156,9 @@ export function resolveChartColumns(
   return { columns, xAxisColumn, seriesColumns };
 }
 
+/**
+ * Builds chart dataset.
+ */
 export function buildChartDataset(
   root: SpreadsheetDocument,
   chart: Pick<

@@ -134,6 +134,9 @@ function SharedDocumentInner({
   );
 }
 
+/**
+ * Renders the SharedDocument component.
+ */
 export function SharedDocument() {
   const { token } = useParams<{ token: string }>();
   const [resolved, setResolved] = useState<ResolvedShareLink | null>(null);

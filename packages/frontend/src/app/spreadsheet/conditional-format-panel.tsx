@@ -117,6 +117,9 @@ function summarizeStyle(rule: ConditionalFormatRule): string {
   return tokens.length > 0 ? tokens.join(" · ") : "No style";
 }
 
+/**
+ * Renders the ConditionalFormatPanel component.
+ */
 export function ConditionalFormatPanel({
   spreadsheet,
   open,

@@ -20,6 +20,9 @@ function getKey(): Buffer {
   return buf;
 }
 
+/**
+ * Encrypts plaintext using AES-256-GCM and returns a base64 payload.
+ */
 export function encrypt(plaintext: string): string {
   const key = getKey();
   const iv = randomBytes(IV_LENGTH);
@@ -39,6 +42,9 @@ export function encrypt(plaintext: string): string {
   ].join(':');
 }
 
+/**
+ * Decrypts an AES-256-GCM payload produced by `encrypt`.
+ */
 export function decrypt(ciphertext: string): string {
   const key = getKey();
   const [ivB64, authTagB64, encryptedB64] = ciphertext.split(':');

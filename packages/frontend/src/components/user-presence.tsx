@@ -23,6 +23,9 @@ interface UserPresenceProps {
   ) => void;
 }
 
+/**
+ * Renders the UserPresence component.
+ */
 export function UserPresence({
   className,
   onSelectActiveCell,

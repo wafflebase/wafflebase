@@ -49,6 +49,9 @@ function formatExpiration(expiresAt: string | null): string {
   return `Expires in ${diffMinutes}m`;
 }
 
+/**
+ * Renders the ShareDialog component.
+ */
 export function ShareDialog({ documentId }: { documentId: string }) {
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState("viewer");

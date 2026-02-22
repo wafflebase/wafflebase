@@ -50,6 +50,9 @@ import { DataSourceDialog } from "@/components/datasource-dialog";
 import { DataSourceEditDialog } from "./datasource-edit-dialog";
 import { toast } from "sonner";
 
+/**
+ * Renders the DataSourceList component.
+ */
 export function DataSourceList({ data }: { data: DataSource[] }) {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);

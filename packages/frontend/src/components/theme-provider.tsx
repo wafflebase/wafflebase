@@ -24,6 +24,9 @@ const initialState: ThemeProviderState = {
 export const ThemeProviderContext =
   createContext<ThemeProviderState>(initialState);
 
+/**
+ * Renders the ThemeProvider component.
+ */
 export function ThemeProvider({
   children,
   defaultTheme = "system",
@@ -95,6 +98,9 @@ export function ThemeProvider({
   );
 }
 
+/**
+ * Reads the current theme context.
+ */
 export const useTheme = () => {
   const context = useContext(ThemeProviderContext);
 

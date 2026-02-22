@@ -16,6 +16,9 @@ export type ResolvedShareLink = {
   title: string;
 };
 
+/**
+ * Creates share link.
+ */
 export async function createShareLink(
   documentId: string,
   role: string,
@@ -35,6 +38,9 @@ export async function createShareLink(
   return response.json();
 }
 
+/**
+ * Returns share links.
+ */
 export async function getShareLinks(
   documentId: string
 ): Promise<ShareLink[]> {
@@ -47,6 +53,9 @@ export async function getShareLinks(
   return response.json();
 }
 
+/**
+ * Deletes share link.
+ */
 export async function deleteShareLink(id: string): Promise<void> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${id}`,
@@ -57,6 +66,9 @@ export async function deleteShareLink(id: string): Promise<void> {
   }
 }
 
+/**
+ * Resolves share link.
+ */
 export async function resolveShareLink(
   token: string
 ): Promise<ResolvedShareLink> {

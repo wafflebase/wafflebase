@@ -12,6 +12,9 @@ import type { UserPresence } from "@/types/users";
 import type { QueryResult } from "@/types/datasource";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 
+/**
+ * Renders the DataSourceView component.
+ */
 export function DataSourceView({
   tabId,
   readOnly = false,

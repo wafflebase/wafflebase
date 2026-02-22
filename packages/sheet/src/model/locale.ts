@@ -136,10 +136,16 @@ export type LocaleFormatPreview = {
   date: string;
 };
 
+/**
+ * Resolves the runtime locale with browser and Intl fallbacks.
+ */
 export function resolveSystemLocale(): string {
   return normalizeLocale();
 }
 
+/**
+ * Returns the default currency code for a locale's inferred region.
+ */
 export function resolveCurrencyForLocale(locale?: string): string {
   const normalizedLocale = normalizeLocale(locale);
   const cachedCurrency = currencyByLocaleCache.get(normalizedLocale);
@@ -160,6 +166,9 @@ export function resolveCurrencyForLocale(locale?: string): string {
   return currency;
 }
 
+/**
+ * Builds sample formatted values for the locale formatting UI preview.
+ */
 export function buildLocaleFormatPreview(locale?: string): LocaleFormatPreview {
   const normalizedLocale = normalizeLocale(locale);
   const currency = resolveCurrencyForLocale(normalizedLocale);

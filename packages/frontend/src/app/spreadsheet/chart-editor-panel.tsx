@@ -30,6 +30,9 @@ type ChartEditorPanelProps = {
   getSelectionRange: () => string | null;
 };
 
+/**
+ * Renders the ChartEditorPanel component.
+ */
 export function ChartEditorPanel({
   root,
   chart,

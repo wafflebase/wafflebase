@@ -4,6 +4,9 @@ import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { DataSourceList } from "./datasource-list";
 
+/**
+ * Renders the data sources page.
+ */
 export default function DataSourcesPage() {
   const {
     data: datasources = [],

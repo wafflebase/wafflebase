@@ -22,6 +22,9 @@ type DataSourceEditDialogProps = {
   onSaved: () => void;
 };
 
+/**
+ * Renders the DataSourceEditDialog component.
+ */
 export function DataSourceEditDialog({
   datasource,
   open,

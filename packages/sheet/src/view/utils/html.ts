@@ -1,3 +1,6 @@
+/**
+ * Escapes text for safe HTML rendering while preserving spaces and newlines.
+ */
 export function escapeHTML(text: string): string {
   text = text.replace(/&/g, '&amp;');
   text = text.replace(/</g, '&lt;');

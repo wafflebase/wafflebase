@@ -121,6 +121,9 @@ function SortableTab({
   );
 }
 
+/**
+ * Renders the TabBar component.
+ */
 export function TabBar({
   tabs,
   activeTabId,

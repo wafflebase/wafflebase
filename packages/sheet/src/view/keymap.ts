@@ -21,9 +21,15 @@ const normalizeKey = (key: string): string =>
 export const isModPressed = (event: KeyEventLike): boolean =>
   event.metaKey || event.ctrlKey;
 
+/**
+ * Compares a keyboard event key with a target key using normalized casing.
+ */
 export const keyEquals = (event: KeyEventLike, key: string): boolean =>
   normalizeKey(event.key) === normalizeKey(key);
 
+/**
+ * Checks whether an event matches a key combo definition.
+ */
 export const matchesKeyCombo = (
   event: KeyEventLike,
   combo: KeyCombo,
@@ -48,6 +54,9 @@ export type KeyRule = {
   run: (e: KeyboardEvent) => Promise<void> | void;
 };
 
+/**
+ * Runs the first matching keyboard rule and returns whether a rule handled it.
+ */
 export const runKeyRules = async (
   e: KeyboardEvent,
   rules: Array<KeyRule>,
@@ -59,4 +68,3 @@ export const runKeyRules = async (
   }
   return false;
 };
-

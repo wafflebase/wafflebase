@@ -70,6 +70,9 @@ export const DarkTheme = {
 
 export type ThemeKey = keyof typeof LightTheme;
 
+/**
+ * Returns the color for a specific theme key in light or dark mode.
+ */
 export function getThemeColor(theme: Theme, key: ThemeKey): string {
   if (theme === 'light') {
     return LightTheme[key];

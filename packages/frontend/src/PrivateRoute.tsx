@@ -5,6 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchMe } from "./api/auth";
 import { YorkieProvider } from "@yorkie-js/react";
 
+/**
+ * Guards routes that require authenticated access.
+ */
 export const PrivateRoute = (): ReactElement => {
   const { data: me, isLoading } = useQuery({
     queryKey: ["me"],

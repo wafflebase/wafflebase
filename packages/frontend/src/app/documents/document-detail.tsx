@@ -442,6 +442,9 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
 }
 
+/**
+ * Renders the DocumentDetail component.
+ */
 export function DocumentDetail() {
   const { id } = useParams();
 

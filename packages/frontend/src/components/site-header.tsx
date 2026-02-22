@@ -2,6 +2,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
+/**
+ * Renders the SiteHeader component.
+ */
 export function SiteHeader({
   title,
   editable = false,

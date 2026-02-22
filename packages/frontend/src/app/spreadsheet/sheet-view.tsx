@@ -78,6 +78,9 @@ const ConditionalFormatPanel = lazy(() =>
   })),
 );
 
+/**
+ * Renders the SheetView component.
+ */
 export function SheetView({
   tabId,
   readOnly = false,

@@ -7,6 +7,9 @@ import type {
 
 const BASE = `${import.meta.env.VITE_BACKEND_API_URL}/datasources`;
 
+/**
+ * Creates data source.
+ */
 export async function createDataSource(payload: {
   name: string;
   host: string;
@@ -25,18 +28,27 @@ export async function createDataSource(payload: {
   return res.json();
 }
 
+/**
+ * Fetches data sources.
+ */
 export async function fetchDataSources(): Promise<DataSource[]> {
   const res = await fetchWithAuth(BASE);
   if (!res.ok) throw new Error("Failed to fetch datasources");
   return res.json();
 }
 
+/**
+ * Fetches data source.
+ */
 export async function fetchDataSource(id: string): Promise<DataSource> {
   const res = await fetchWithAuth(`${BASE}/${id}`);
   if (!res.ok) throw new Error("Failed to fetch datasource");
   return res.json();
 }
 
+/**
+ * Updates data source.
+ */
 export async function updateDataSource(
   id: string,
   payload: Partial<{
@@ -58,6 +70,9 @@ export async function updateDataSource(
   return res.json();
 }
 
+/**
+ * Deletes data source.
+ */
 export async function deleteDataSource(id: string): Promise<void> {
   const res = await fetchWithAuth(`${BASE}/${id}`, {
     method: "DELETE",
@@ -65,6 +80,9 @@ export async function deleteDataSource(id: string): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete datasource");
 }
 
+/**
+ * Tests data source connection.
+ */
 export async function testDataSourceConnection(
   id: string
 ): Promise<TestConnectionResult> {
@@ -75,6 +93,9 @@ export async function testDataSourceConnection(
   return res.json();
 }
 
+/**
+ * Executes data source query.
+ */
 export async function executeDataSourceQuery(
   id: string,
   query: string

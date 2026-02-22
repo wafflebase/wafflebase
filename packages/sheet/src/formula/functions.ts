@@ -2311,6 +2311,10 @@ function formatTime(date: Date): string {
   return `${hh}:${mm}:${ss}`;
 }
 
+/**
+ * `todayFunc` is the implementation of the TODAY function.
+ * TODAY() — returns the current date as YYYY-MM-DD.
+ */
 export function todayFunc(
   ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,

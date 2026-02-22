@@ -4,6 +4,9 @@ import { Loader } from "./components/loader";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMeOptional } from "./api/auth";
 
+/**
+ * Redirects authenticated users away from public-only routes.
+ */
 export const PublicRoute = (): ReactElement => {
   const { data: me, isLoading } = useQuery({
     queryKey: ["me", "optional"],

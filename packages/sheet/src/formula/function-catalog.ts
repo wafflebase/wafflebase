@@ -573,6 +573,9 @@ export const FunctionCatalog: FunctionInfo[] = FunctionCatalogEntries.map((info)
   category: resolveFunctionCategory(info.name),
 }));
 
+/**
+ * Lists categories in display order for the provided function set.
+ */
 export function listFunctionCategories(
   functions: readonly FunctionInfo[] = FunctionCatalog,
 ): FunctionCategory[] {

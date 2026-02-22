@@ -2,6 +2,9 @@ import { Grid2x2PlusIcon } from "lucide-react";
 
 import { LoginForm } from "@/components/login-form";
 
+/**
+ * Renders the login page.
+ */
 export default function LoginPage() {
   return (
     <div className="grid min-h-svh">

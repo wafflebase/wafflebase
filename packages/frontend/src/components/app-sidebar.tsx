@@ -18,6 +18,9 @@ import { NavItem } from "@/types/nav-items";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMe } from "@/api/auth";
 
+/**
+ * Renders the AppSidebar component.
+ */
 export function AppSidebar({
   items,
   ...props

@@ -4,6 +4,9 @@ import { isAuthExpiredError } from "@/api/auth";
 import { Document } from "@/types/documents";
 import { DocumentList } from "@/app/documents/document-list";
 
+/**
+ * Renders the documents page entry component.
+ */
 export default function Page() {
   const {
     data: documents = [],

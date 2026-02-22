@@ -49,6 +49,9 @@ import {
   renameDocument,
 } from "@/api/documents";
 
+/**
+ * Renders the DocumentList component.
+ */
 export function DocumentList({ data }: { data: Document[] }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();

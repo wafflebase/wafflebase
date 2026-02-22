@@ -5,6 +5,9 @@ import { useEffect } from "react";
 import { Worksheet } from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
 
+/**
+ * React hook for presence updater.
+ */
 export function usePresenceUpdater() {
   const { doc } = useDocument<Worksheet, UserPresence>();
   const { data: currentUser } = useQuery({

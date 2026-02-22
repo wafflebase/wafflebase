@@ -2,6 +2,9 @@ import { useContext } from "react";
 import { ThemeProviderContext } from "@/components/theme-provider";
 import { Switch } from "@/components/ui/switch";
 
+/**
+ * Renders the application settings page.
+ */
 export default function Settings() {
   const { theme, setTheme } = useContext(ThemeProviderContext);
 

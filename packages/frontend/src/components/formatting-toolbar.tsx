@@ -99,6 +99,9 @@ interface FormattingToolbarProps {
   paintFormatActive?: boolean;
 }
 
+/**
+ * Renders the FormattingToolbar component.
+ */
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,

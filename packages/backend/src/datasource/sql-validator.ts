@@ -12,6 +12,9 @@ const FORBIDDEN_KEYWORDS = [
   'EXECUTE',
 ];
 
+/**
+ * Validates that a SQL query is a single read-only SELECT statement.
+ */
 export function validateSelectQuery(sql: string): {
   valid: boolean;
   error?: string;

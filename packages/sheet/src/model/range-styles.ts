@@ -7,6 +7,9 @@ export type RangeStylePatch = {
 
 type Interval = [number, number];
 
+/**
+ * Removes undefined keys from a style patch and returns undefined if empty.
+ */
 export function normalizeStylePatch(
   style: Partial<CellStyle>,
 ): CellStyle | undefined {
@@ -23,6 +26,9 @@ export function normalizeStylePatch(
     : undefined;
 }
 
+/**
+ * Applies a style patch on top of an existing style object.
+ */
 export function mergeStylePatch(
   base: CellStyle | undefined,
   patch: Partial<CellStyle>,
@@ -60,6 +66,9 @@ function normalizeRange(range: Range): Range {
   ];
 }
 
+/**
+ * Creates a deep copy of a range-style patch with normalized coordinates.
+ */
 export function cloneRangeStylePatch(patch: RangeStylePatch): RangeStylePatch {
   return {
     range: normalizeRange(patch.range),
@@ -67,6 +76,9 @@ export function cloneRangeStylePatch(patch: RangeStylePatch): RangeStylePatch {
   };
 }
 
+/**
+ * Normalizes range coordinates and drops patches with no concrete style values.
+ */
 export function normalizeRangeStylePatch(
   patch: RangeStylePatch,
 ): RangeStylePatch | undefined {
@@ -80,6 +92,9 @@ export function normalizeRangeStylePatch(
   };
 }
 
+/**
+ * Compares two style objects by key/value pairs.
+ */
 export function stylesEqual(a: CellStyle, b: CellStyle): boolean {
   const aKeys = Object.keys(a) as Array<keyof CellStyle>;
   const bKeys = Object.keys(b) as Array<keyof CellStyle>;
@@ -272,6 +287,9 @@ function patchesFromIntervals(
   return next;
 }
 
+/**
+ * Merges consecutive patches with the same style along a row or column axis.
+ */
 export function coalesceAdjacentRangeStylePatches(
   patches: RangeStylePatch[],
   axis: Axis,
@@ -322,6 +340,9 @@ export function coalesceAdjacentRangeStylePatches(
   return coalesced;
 }
 
+/**
+ * Applies row/column insert-delete shifts to style patch ranges.
+ */
 export function shiftRangeStylePatches(
   patches: RangeStylePatch[],
   axis: Axis,
@@ -357,6 +378,9 @@ export function shiftRangeStylePatches(
   );
 }
 
+/**
+ * Applies row/column move operations to style patch ranges.
+ */
 export function moveRangeStylePatches(
   patches: RangeStylePatch[],
   axis: Axis,
@@ -395,6 +419,9 @@ export function moveRangeStylePatches(
   );
 }
 
+/**
+ * Intersects style patches with a clip range.
+ */
 export function clipRangeStylePatches(
   patches: RangeStylePatch[],
   clipRange: Range,
@@ -428,6 +455,9 @@ export function clipRangeStylePatches(
   return clipped;
 }
 
+/**
+ * Translates style patch ranges by row and column deltas.
+ */
 export function translateRangeStylePatches(
   patches: RangeStylePatch[],
   rowDelta: number,
@@ -461,6 +491,9 @@ export function translateRangeStylePatches(
   return translated;
 }
 
+/**
+ * Resolves the effective style at a cell by applying matching patches in order.
+ */
 export function resolveRangeStyleAt(
   patches: RangeStylePatch[],
   row: number,

@@ -8,6 +8,9 @@ export class AuthExpiredError extends Error {
   }
 }
 
+/**
+ * Returns true when the thrown error represents an expired auth session.
+ */
 export function isAuthExpiredError(error: unknown): error is AuthExpiredError {
   return error instanceof Error && error.name === "AuthExpiredError";
 }
@@ -103,6 +106,9 @@ export async function fetchMeOptional(): Promise<User | null> {
   return res.json();
 }
 
+/**
+ * Performs an authenticated fetch and redirects to login on 401 responses.
+ */
 export async function fetchWithAuth(input: RequestInfo, init?: RequestInit) {
   const response = await fetch(input, {
     ...init,

@@ -18,6 +18,9 @@ import {
 import { logout } from "@/api/auth";
 import { User } from "@/types/users";
 
+/**
+ * Renders the NavUser component.
+ */
 export function NavUser({ user }: { user: User }) {
   const { isMobile } = useSidebar();
   const handleLogout = async () => {

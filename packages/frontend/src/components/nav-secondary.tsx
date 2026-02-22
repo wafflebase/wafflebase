@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/types/nav-items";
 
+/**
+ * Renders the NavSecondary component.
+ */
 export function NavSecondary({
   items,
   ...props

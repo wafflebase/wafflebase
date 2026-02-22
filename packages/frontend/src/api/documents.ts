@@ -2,6 +2,9 @@ import type { Document } from "@/types/documents";
 import { toast } from "sonner";
 import { fetchWithAuth } from "./auth";
 
+/**
+ * Creates document.
+ */
 export async function createDocument(payload: {
   title: string;
 }): Promise<Document> {
@@ -21,6 +24,9 @@ export async function createDocument(payload: {
   return response.json();
 }
 
+/**
+ * Fetches documents.
+ */
 export async function fetchDocuments(): Promise<Array<Document>> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents`
@@ -31,6 +37,9 @@ export async function fetchDocuments(): Promise<Array<Document>> {
   return await response.json();
 }
 
+/**
+ * Fetches document.
+ */
 export async function fetchDocument(id: string): Promise<Document> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`
@@ -45,6 +54,9 @@ export async function fetchDocument(id: string): Promise<Document> {
   return document;
 }
 
+/**
+ * Renames document.
+ */
 export async function renameDocument(
   id: string,
   title: string
@@ -65,6 +77,9 @@ export async function renameDocument(
   return response.json();
 }
 
+/**
+ * Deletes document.
+ */
 export async function deleteDocument(id: string): Promise<void> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`,

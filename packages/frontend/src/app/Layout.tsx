@@ -26,6 +26,9 @@ const items = {
   ],
 };
 
+/**
+ * Renders the root app layout and providers.
+ */
 export default function Layout() {
   const location = useLocation();
 
