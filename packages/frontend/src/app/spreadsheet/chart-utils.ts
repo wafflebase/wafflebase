@@ -97,7 +97,10 @@ export function getDefaultChartColumns(range: ParsedRange): {
  */
 export function resolveChartColumns(
   root: SpreadsheetDocument,
-  chart: Pick<SheetChart, "sourceTabId" | "sourceRange" | "xAxisColumn" | "seriesColumns">,
+  chart: Pick<
+    SheetChart,
+    "sourceTabId" | "sourceRange" | "xAxisColumn" | "seriesColumns"
+  >,
 ): ChartColumnSelection {
   const sourceSheet = root.sheets[chart.sourceTabId];
   if (!sourceSheet) {
@@ -132,7 +135,12 @@ export function resolveChartColumns(
 
   const seen = new Set<string>();
   const seriesColumns: string[] = [];
-  for (const rawColumn of chart.seriesColumns || []) {
+
+  const configuredSeries = chart.seriesColumns;
+  // Yorkie array proxies can yield wrapped values via `for...of`.
+  // Read by index so each value is the plain column name.
+  for (let index = 0; index < (configuredSeries?.length ?? 0); index++) {
+    const rawColumn = configuredSeries[index];
     const column = normalizeColumnName(rawColumn);
     if (
       column &&
@@ -145,7 +153,7 @@ export function resolveChartColumns(
     }
   }
 
-  if (seriesColumns.length === 0) {
+  if (configuredSeries === undefined) {
     for (const column of columns) {
       if (column.column !== xAxisColumn) {
         seriesColumns.push(column.column);
@@ -184,7 +192,10 @@ export function buildChartDataset(
   }
 
   const columnSelection = resolveChartColumns(root, chart);
-  if (!columnSelection.xAxisColumn || columnSelection.seriesColumns.length === 0) {
+  if (
+    !columnSelection.xAxisColumn ||
+    columnSelection.seriesColumns.length === 0
+  ) {
     return { xKey: "category", rows: [], series: [], config: {} };
   }
 
@@ -222,11 +233,14 @@ export function buildChartDataset(
   const rows: Array<Record<string, string | number>> = [];
   for (let r = from.r + 1; r <= to.r; r++) {
     const row: Record<string, string | number> = {};
-    row[xKey] = getCellDisplayValue(sourceSheet, r, xAxisIndex) || `Row ${r - from.r}`;
+    row[xKey] =
+      getCellDisplayValue(sourceSheet, r, xAxisIndex) || `Row ${r - from.r}`;
 
     let hasNumericSeries = false;
     for (const seriesInfo of resolvedSeries) {
-      const numeric = toNumeric(getCellDisplayValue(sourceSheet, r, seriesInfo.index));
+      const numeric = toNumeric(
+        getCellDisplayValue(sourceSheet, r, seriesInfo.index),
+      );
       if (numeric !== null) {
         row[seriesInfo.key] = numeric;
         hasNumericSeries = true;
@@ -241,7 +255,11 @@ export function buildChartDataset(
   return { xKey, rows, series, config };
 }
 
-function getCellDisplayValue(sheet: ChartSourceSheet, row: number, col: number): string {
+function getCellDisplayValue(
+  sheet: ChartSourceSheet,
+  row: number,
+  col: number,
+): string {
   const value = sheet.sheet[toSref({ r: row, c: col })]?.v;
   if (typeof value === "string") {
     return value;

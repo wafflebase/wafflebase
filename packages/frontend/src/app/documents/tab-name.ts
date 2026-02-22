@@ -84,7 +84,10 @@ export function buildTabNameNormalizationPatches(
   const orderedTabIds: string[] = [];
   const seenTabIds = new Set<string>();
 
-  for (const tabId of tabOrder) {
+  // Yorkie array proxies can yield wrapped values via `for...of`.
+  // Read by index so tab ids are plain strings.
+  for (let index = 0; index < tabOrder.length; index++) {
+    const tabId = tabOrder[index];
     if (!tabs[tabId] || seenTabIds.has(tabId)) continue;
     orderedTabIds.push(tabId);
     seenTabIds.add(tabId);
