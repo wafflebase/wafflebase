@@ -30,7 +30,7 @@ type TabBarProps = {
   activeTabId: string;
   onSelectTab: (tabId: string) => void;
   onAddTab: (type: TabType) => void;
-  onRenameTab: (tabId: string, name: string) => void;
+  onRenameTab: (tabId: string, name: string) => boolean;
   onDeleteTab: (tabId: string) => void;
   onMoveTab?: (fromIndex: number, toIndex: number) => void;
 };
@@ -162,9 +162,28 @@ export function TabBar({
   }, []);
 
   const commitRename = useCallback(() => {
-    if (editingTabId && editValue.trim()) {
-      onRenameTab(editingTabId, editValue.trim());
+    if (!editingTabId) {
+      setEditingTabId(null);
+      return;
     }
+
+    const nextName = editValue.trim();
+    if (!nextName) {
+      setEditingTabId(null);
+      return;
+    }
+
+    const renamed = onRenameTab(editingTabId, nextName);
+    if (!renamed) {
+      requestAnimationFrame(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      });
+      return;
+    }
+
     setEditingTabId(null);
   }, [editingTabId, editValue, onRenameTab]);
 

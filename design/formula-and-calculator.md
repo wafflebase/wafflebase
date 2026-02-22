@@ -315,8 +315,9 @@ Instead, cross-sheet recalculation is handled explicitly:
 Source: `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
 
 1. **GridResolver setup** — When a `SheetView` mounts, it sets a resolver that
-   looks up other tabs in the Yorkie document by name (case-insensitive) and
-   returns their cell data.
+   looks up other **sheet tabs** in the Yorkie document by name
+   (case-insensitive) and returns their cell data. Tab names are enforced as
+   case-insensitive unique, so cross-sheet references map to exactly one tab.
 
 2. **Remote changes** — `doc.subscribe("remote-change")` triggers a coalesced
    recalculation flow. If multiple remote-change events arrive while

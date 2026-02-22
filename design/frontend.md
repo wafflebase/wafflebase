@@ -130,7 +130,7 @@ type TabType = 'sheet' | 'datasource';
 
 type TabMeta = {
   id: string;           // e.g., "tab-1"
-  name: string;         // e.g., "Sheet1", "Users DB"
+  name: string;         // Case-insensitive unique tab name (trimmed)
   type: TabType;
   datasourceId?: string; // Backend DataSource ID (datasource tabs only)
   query?: string;        // SQL query (datasource tabs only)

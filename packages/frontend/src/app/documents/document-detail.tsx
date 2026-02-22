@@ -19,6 +19,7 @@ import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { toast } from "sonner";
 import { TabBar } from "@/components/tab-bar";
 import {
   SpreadsheetDocument,
@@ -29,6 +30,13 @@ import {
 } from "@/types/worksheet";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import type { DataSource } from "@/types/datasource";
+import {
+  buildTabNameNormalizationPatches,
+  getNextDefaultSheetName,
+  getUniqueTabName,
+  isTabNameTaken,
+  normalizeTabName,
+} from "./tab-name";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
 const DataSourceView = lazy(() =>
@@ -175,18 +183,48 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     }
   }, [doc, migrated, activeTabId]);
 
+  // Backfill old documents that may already contain duplicate tab names.
+  useEffect(() => {
+    if (!doc || !migrated) return;
+
+    let normalizing = false;
+
+    const normalizeTabNames = () => {
+      if (normalizing) return;
+      const root = doc.getRoot();
+      const patches = buildTabNameNormalizationPatches(root.tabOrder, root.tabs);
+      if (patches.length === 0) return;
+
+      normalizing = true;
+      doc.update((r) => {
+        for (const patch of patches) {
+          if (r.tabs[patch.tabId]) {
+            r.tabs[patch.tabId].name = patch.name;
+          }
+        }
+      });
+      normalizing = false;
+    };
+
+    normalizeTabNames();
+
+    return doc.subscribe((event) => {
+      if (event.type === "local-change" || event.type === "remote-change") {
+        normalizeTabNames();
+      }
+    });
+  }, [doc, migrated]);
+
   const addSheetTab = useCallback(() => {
     if (!doc) return;
     const root = doc.getRoot();
     const tabId = generateTabId();
-    const count =
-      root.tabOrder.filter((id: string) => root.tabs[id]?.type === "sheet")
-        .length + 1;
+    const tabName = getNextDefaultSheetName(root.tabs);
 
     doc.update((r) => {
       r.tabs[tabId] = {
         id: tabId,
-        name: `Sheet${count}`,
+        name: tabName,
         type: "sheet",
       } as TabMeta;
       r.tabOrder.push(tabId);
@@ -211,15 +249,16 @@ function DocumentLayout({ documentId }: { documentId: string }) {
       if (!doc) return;
       const root = doc.getRoot();
       const tabId = generateTabId();
-      const count =
-        root.tabOrder.filter(
-          (id: string) => root.tabs[id]?.type === "datasource",
-        ).length + 1;
+      const tabName = getUniqueTabName(
+        root.tabs,
+        ds.name,
+        "DataSource",
+      );
 
       doc.update((r) => {
         r.tabs[tabId] = {
           id: tabId,
-          name: ds.name || `DataSource${count}`,
+          name: tabName,
           type: "datasource",
           datasourceId: ds.id,
           query: "",
@@ -243,13 +282,25 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
 
   const handleRenameTab = useCallback(
-    (tabId: string, name: string) => {
-      if (!doc) return;
+    (tabId: string, name: string): boolean => {
+      if (!doc) return false;
+      const root = doc.getRoot();
+      if (!root.tabs[tabId]) return false;
+
+      const normalizedName = normalizeTabName(name);
+      if (!normalizedName) return false;
+
+      if (isTabNameTaken(root.tabs, normalizedName, tabId)) {
+        toast.error(`Tab name "${normalizedName}" already exists.`);
+        return false;
+      }
+
       doc.update((r) => {
         if (r.tabs[tabId]) {
-          r.tabs[tabId].name = name;
+          r.tabs[tabId].name = normalizedName;
         }
       });
+      return true;
     },
     [doc],
   );

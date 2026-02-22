@@ -481,13 +481,17 @@ export function SheetView({
       s.setGridResolver(
         (sheetName: string, refs: Set<Sref>): Grid | undefined => {
           const root = doc.getRoot();
-          // Find tab by name (case-insensitive)
-          const targetTab = Object.values(root.tabs).find(
-            (tab) => tab.name.toUpperCase() === sheetName,
-          );
-          if (!targetTab) return undefined;
+          // Find a worksheet tab by name (case-insensitive).
+          const targetTabId = root.tabOrder.find((candidateTabId: string) => {
+            const tab = root.tabs[candidateTabId];
+            return (
+              tab?.type === "sheet" &&
+              tab.name.toUpperCase() === sheetName
+            );
+          });
+          if (!targetTabId) return undefined;
 
-          const ws = root.sheets[targetTab.id];
+          const ws = root.sheets[targetTabId];
           if (!ws) return undefined;
 
           const coverToAnchor = new Map<Sref, Sref>();
