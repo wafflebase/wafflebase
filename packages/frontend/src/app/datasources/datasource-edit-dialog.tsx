@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { updateDataSource, testDataSourceConnection } from "@/api/datasources";
+import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { toast } from "sonner";
 
@@ -65,7 +66,8 @@ export function DataSourceEditDialog({
       await updateDataSource(datasource.id, payload);
       toast.success("DataSource updated");
       onSaved();
-    } catch {
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
       toast.error("Failed to update datasource");
     } finally {
       setSaving(false);
@@ -82,7 +84,8 @@ export function DataSourceEditDialog({
       } else {
         toast.error(`Connection failed: ${result.error}`);
       }
-    } catch {
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
       toast.error("Failed to test connection");
     } finally {
       setTesting(false);

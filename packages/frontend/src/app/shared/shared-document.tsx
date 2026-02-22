@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
 import { resolveShareLink, ResolvedShareLink } from "@/api/share-links";
-import { fetchMe } from "@/api/auth";
+import { fetchMeOptional } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import SheetView from "@/app/spreadsheet/sheet-view";
 import {
@@ -105,8 +105,8 @@ function SharedDocumentInner({
   resolved: ResolvedShareLink;
 }) {
   const { data: currentUser } = useQuery({
-    queryKey: ["me"],
-    queryFn: fetchMe,
+    queryKey: ["me", "optional"],
+    queryFn: fetchMeOptional,
     retry: false,
   });
 

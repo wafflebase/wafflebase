@@ -358,10 +358,14 @@ cookies). The frontend's role is:
 2. **Session check** — `PrivateRoute` calls `fetchMe()` (GET `/auth/me` with
    `credentials: "include"`) on mount. If the cookie is valid, the backend
    returns the user object.
-3. **Logout** — POST `/auth/logout` clears the cookie; frontend redirects to
+3. **Anonymous-safe session checks** — Public contexts like `PublicRoute` and
+   shared-link pages call `fetchMeOptional()`, which treats `401` as
+   unauthenticated (`null`) instead of redirecting.
+4. **Logout** — POST `/auth/logout` clears the cookie; frontend redirects to
    `/login`.
-4. **401 handling** — `fetchWithAuth()` wraps all API calls. If any response
-   returns 401, the user is redirected to `/login`.
+5. **401 handling** — `fetchWithAuth()` wraps authenticated API calls. On
+   `401`, it performs best-effort logout cleanup, redirects to `/login`, and
+   throws `AuthExpiredError` so UI handlers can avoid showing generic API toasts.
 
 ### Document Management
 

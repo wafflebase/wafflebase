@@ -22,7 +22,6 @@ export class AuthController {
   }
 
   @Post('logout')
-  @UseGuards(JwtAuthGuard)
   async logout(@Res() res: Response) {
     res.clearCookie('wafflebase_session', {
       httpOnly: true,

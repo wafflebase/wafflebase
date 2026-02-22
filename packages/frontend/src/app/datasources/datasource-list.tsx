@@ -45,6 +45,7 @@ import { Badge } from "@/components/ui/badge";
 
 import type { DataSource } from "@/types/datasource";
 import { deleteDataSource, testDataSourceConnection } from "@/api/datasources";
+import { isAuthExpiredError } from "@/api/auth";
 import { DataSourceDialog } from "@/components/datasource-dialog";
 import { DataSourceEditDialog } from "./datasource-edit-dialog";
 import { toast } from "sonner";
@@ -64,7 +65,8 @@ export function DataSourceList({ data }: { data: DataSource[] }) {
       queryClient.invalidateQueries({ queryKey: ["datasources"] });
       toast.success("DataSource deleted");
     },
-    onError: () => {
+    onError: (error) => {
+      if (isAuthExpiredError(error)) return;
       toast.error("Failed to delete datasource");
     },
   });
@@ -80,7 +82,8 @@ export function DataSourceList({ data }: { data: DataSource[] }) {
       } else {
         toast.error(`Connection failed: ${result.error}`);
       }
-    } catch {
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
       setTestResults((prev) => ({ ...prev, [id]: false }));
       toast.error("Failed to test connection");
     } finally {

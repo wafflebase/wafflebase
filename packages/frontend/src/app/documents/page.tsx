@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchDocuments } from "@/api/documents";
+import { isAuthExpiredError } from "@/api/auth";
 import { Document } from "@/types/documents";
 import { DocumentList } from "@/app/documents/document-list";
 
@@ -8,6 +9,7 @@ export default function Page() {
     data: documents = [],
     isLoading,
     isError,
+    error,
   } = useQuery<Array<Document>>({
     queryKey: ["documents"],
     queryFn: fetchDocuments,
@@ -22,6 +24,9 @@ export default function Page() {
   }
 
   if (isError) {
+    if (isAuthExpiredError(error)) {
+      return null;
+    }
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <p className="text-red-500 text-lg">Failed to load documents.</p>

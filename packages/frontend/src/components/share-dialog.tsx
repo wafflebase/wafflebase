@@ -25,6 +25,7 @@ import {
   deleteShareLink,
   ShareLink,
 } from "@/api/share-links";
+import { isAuthExpiredError } from "@/api/auth";
 
 const EXPIRATION_OPTIONS = [
   { value: "none", label: "No limit" },
@@ -75,7 +76,8 @@ export function ShareDialog({ documentId }: { documentId: string }) {
       const url = `${window.location.origin}/shared/${link.token}`;
       await navigator.clipboard.writeText(url);
       toast.success("Link created and copied to clipboard");
-    } catch {
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
       toast.error("Failed to create share link");
     } finally {
       setLoading(false);
@@ -93,7 +95,8 @@ export function ShareDialog({ documentId }: { documentId: string }) {
       await deleteShareLink(id);
       setLinks((prev) => prev.filter((l) => l.id !== id));
       toast.success("Share link revoked");
-    } catch {
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
       toast.error("Failed to revoke share link");
     }
   };

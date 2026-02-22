@@ -14,6 +14,7 @@ import {
   createDataSource,
   testDataSourceConnection,
 } from "@/api/datasources";
+import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { toast } from "sonner";
 
@@ -67,7 +68,8 @@ export function DataSourceDialog({
       onCreated(ds);
       resetForm();
       onOpenChange(false);
-    } catch {
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
       toast.error("Failed to create datasource");
     } finally {
       setSaving(false);
@@ -97,7 +99,8 @@ export function DataSourceDialog({
         } else {
           toast.error(`Connection failed: ${result.error}`);
         }
-      } catch {
+      } catch (error) {
+        if (isAuthExpiredError(error)) return;
         toast.error("Failed to test connection");
       } finally {
         setSaving(false);
@@ -114,7 +117,8 @@ export function DataSourceDialog({
       } else {
         toast.error(`Connection failed: ${result.error}`);
       }
-    } catch {
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
       toast.error("Failed to test connection");
     } finally {
       setTesting(false);

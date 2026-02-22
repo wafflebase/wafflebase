@@ -4,6 +4,7 @@ import { useDocument } from "@yorkie-js/react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { executeDataSourceQuery } from "@/api/datasources";
+import { isAuthExpiredError } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { IconPlayerPlay } from "@tabler/icons-react";
 import type { SpreadsheetDocument } from "@/types/worksheet";
@@ -107,6 +108,7 @@ export function DataSourceView({
         sheetRef.current.render();
       }
     } catch (err) {
+      if (isAuthExpiredError(err)) return;
       setQueryError((err as Error).message);
     } finally {
       setExecuting(false);

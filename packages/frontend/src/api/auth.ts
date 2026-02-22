@@ -1,25 +1,65 @@
 import { User } from "@/types/users";
 import { toast } from "sonner";
 
+export class AuthExpiredError extends Error {
+  constructor() {
+    super("Session expired");
+    this.name = "AuthExpiredError";
+  }
+}
+
+export function isAuthExpiredError(error: unknown): error is AuthExpiredError {
+  return error instanceof Error && error.name === "AuthExpiredError";
+}
+
+type LogoutOptions = {
+  redirect?: boolean;
+  showSuccessToast?: boolean;
+  suppressFailure?: boolean;
+};
+
+let isRedirectingToLogin = false;
+
+function redirectToLogin() {
+  if (isRedirectingToLogin) return;
+  isRedirectingToLogin = true;
+  window.location.href = "/login";
+}
+
 /**
  * Logs out the user by making a POST request to the logout endpoint.
  * Throws an error if the request fails.
  */
-export async function logout(): Promise<void> {
-  const res = await fetch(
-    `${import.meta.env.VITE_BACKEND_API_URL}/auth/logout`,
-    {
+export async function logout(options: LogoutOptions = {}): Promise<void> {
+  const {
+    redirect = true,
+    showSuccessToast = true,
+    suppressFailure = false,
+  } = options;
+  let res: Response | null = null;
+
+  try {
+    res = await fetch(`${import.meta.env.VITE_BACKEND_API_URL}/auth/logout`, {
       method: "POST",
       credentials: "include",
+    });
+  } catch (error) {
+    if (!suppressFailure) {
+      throw error;
     }
-  );
+  }
 
-  if (!res.ok) {
+  if (res && !res.ok && !suppressFailure) {
     throw new Error("Failed to log out");
   }
 
-  toast.success("Logged out successfully");
-  window.location.href = "/login";
+  if (showSuccessToast && res?.ok) {
+    toast.success("Logged out successfully");
+  }
+
+  if (redirect) {
+    redirectToLogin();
+  }
 }
 
 /**
@@ -42,6 +82,27 @@ export async function fetchMe(): Promise<User> {
   return res.json();
 }
 
+/**
+ * Fetches the current authenticated user if present.
+ * Returns null when there is no valid session.
+ */
+export async function fetchMeOptional(): Promise<User | null> {
+  const res = await fetch(`${import.meta.env.VITE_BACKEND_API_URL}/auth/me`, {
+    method: "GET",
+    credentials: "include",
+  });
+
+  if (res.status === 401) {
+    return null;
+  }
+
+  if (!res.ok) {
+    throw new Error("Failed to fetch user");
+  }
+
+  return res.json();
+}
+
 export async function fetchWithAuth(input: RequestInfo, init?: RequestInit) {
   const response = await fetch(input, {
     ...init,
@@ -49,8 +110,13 @@ export async function fetchWithAuth(input: RequestInfo, init?: RequestInit) {
   });
 
   if (response.status === 401) {
-    await logout();
-    throw new Error("Unauthorized");
+    await logout({
+      redirect: false,
+      showSuccessToast: false,
+      suppressFailure: true,
+    });
+    redirectToLogin();
+    throw new AuthExpiredError();
   }
 
   return response;

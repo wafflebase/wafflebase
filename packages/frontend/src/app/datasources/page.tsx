@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchDataSources } from "@/api/datasources";
+import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { DataSourceList } from "./datasource-list";
 
@@ -8,6 +9,7 @@ export default function DataSourcesPage() {
     data: datasources = [],
     isLoading,
     isError,
+    error,
   } = useQuery<Array<DataSource>>({
     queryKey: ["datasources"],
     queryFn: fetchDataSources,
@@ -22,6 +24,9 @@ export default function DataSourcesPage() {
   }
 
   if (isError) {
+    if (isAuthExpiredError(error)) {
+      return null;
+    }
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <p className="text-red-500 text-lg">Failed to load datasources.</p>

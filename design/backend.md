@@ -93,7 +93,7 @@ flowchart TD
 - Returns the authenticated user object from the JWT payload.
 
 **`POST /auth/logout`**
-- Guard: `JwtAuthGuard`
+- Guard: none (public endpoint)
 - Clears the `wafflebase_session` cookie.
 
 #### Documents (`/documents`)
