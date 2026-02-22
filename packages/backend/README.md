@@ -1,6 +1,8 @@
 # Wafflebase Backend
 
-NestJS API server for Wafflebase. Handles GitHub OAuth authentication, JWT session management, and document CRUD operations.
+NestJS API server for Wafflebase. Handles GitHub OAuth authentication, JWT
+session management, document CRUD operations, and image asset upload/streaming
+through S3-compatible storage.
 
 ## Tech Stack
 
@@ -24,15 +26,27 @@ JWT_SECRET=your_jwt_secret
 GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
+ASSET_STORAGE_BUCKET=wafflebase-assets
+ASSET_STORAGE_REGION=us-east-1
+ASSET_STORAGE_ENDPOINT=http://localhost:9000
+ASSET_STORAGE_FORCE_PATH_STYLE=true
+ASSET_STORAGE_ACCESS_KEY=minioadmin
+ASSET_STORAGE_SECRET_KEY=minioadmin
 PORT=3000
 ```
+
+For development with Docker Compose, the default MinIO credentials
+(`minioadmin` / `minioadmin`) and endpoint (`http://localhost:9000`) work as-is.
+For production AWS S3, set `ASSET_STORAGE_BUCKET`, `ASSET_STORAGE_REGION`,
+`ASSET_STORAGE_ACCESS_KEY`, and `ASSET_STORAGE_SECRET_KEY`, then unset
+`ASSET_STORAGE_ENDPOINT` and `ASSET_STORAGE_FORCE_PATH_STYLE`.
 
 ### Development
 
 ```bash
 # From the monorepo root:
 pnpm install
-docker compose up -d              # Start PostgreSQL + Yorkie
+docker compose up -d              # Start PostgreSQL + Yorkie + MinIO
 
 # Run database migrations:
 pnpm backend migrate
@@ -92,6 +106,13 @@ All document endpoints require JWT authentication.
 | `POST` | `/documents` | Create a new document (`{ title }`) |
 | `DELETE` | `/documents/:id` | Delete document (owner only) |
 
+### Assets (`/assets`)
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/assets/images` | JWT | Upload image file (`multipart/form-data`, field: `file`) |
+| `GET` | `/assets/images/:key` | - | Stream uploaded image by object key |
+
 ## Auth Flow
 
 ```
@@ -133,7 +154,11 @@ Two models managed by Prisma:
 ```
 src/
 ├── main.ts                    # Bootstrap: cookie-parser, CORS, listen
-├── app.module.ts              # Root module (ConfigModule, AuthModule, DocumentModule)
+├── app.module.ts              # Root module (ConfigModule + feature modules)
+├── asset/
+│   ├── asset.module.ts
+│   ├── asset.controller.ts    # Image upload + image streaming endpoints
+│   └── asset.service.ts       # S3-compatible storage client (AWS S3/MinIO)
 ├── auth/
 │   ├── auth.module.ts         # JwtModule config, strategies, controller
 │   ├── auth.controller.ts     # OAuth + session endpoints

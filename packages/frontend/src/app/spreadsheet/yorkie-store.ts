@@ -37,7 +37,12 @@ import {
   normalizeRangeStylePatch,
   shiftRangeStylePatches,
 } from "@wafflebase/sheet";
-import { SheetChart, SpreadsheetDocument, Worksheet } from "@/types/worksheet";
+import {
+  SheetChart,
+  SheetImage,
+  SpreadsheetDocument,
+  Worksheet,
+} from "@/types/worksheet";
 import { UserPresence } from "@/types/users";
 
 export class YorkieStore implements Store {
@@ -629,6 +634,26 @@ export class YorkieStore implements Store {
           chart.anchor = toSref(fallback);
         }
       }
+
+      // Shift image anchor refs.
+      if (ws.images) {
+        for (const image of Object.values(ws.images as Record<string, SheetImage>)) {
+          const shiftedAnchor = shiftSref(image.anchor, axis, index, count);
+          if (shiftedAnchor) {
+            image.anchor = shiftedAnchor;
+            continue;
+          }
+
+          // If anchor cell was deleted, pin to the deletion boundary.
+          const fallback = parseRef(image.anchor);
+          if (axis === "row") {
+            fallback.r = Math.max(1, index);
+          } else {
+            fallback.c = Math.max(1, index);
+          }
+          image.anchor = toSref(fallback);
+        }
+      }
     };
 
     if (this.batchOps) {
@@ -768,6 +793,20 @@ export class YorkieStore implements Store {
             dstIndex,
           );
           chart.anchor = toSref(nextAnchor);
+        }
+      }
+
+      // Remap image anchor refs.
+      if (ws.images) {
+        for (const image of Object.values(ws.images as Record<string, SheetImage>)) {
+          const nextAnchor = moveRef(
+            parseRef(image.anchor),
+            axis,
+            srcIndex,
+            count,
+            dstIndex,
+          );
+          image.anchor = toSref(nextAnchor);
         }
       }
     };

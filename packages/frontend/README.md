@@ -32,7 +32,7 @@ VITE_YORKIE_API_KEY=              # Yorkie server API key
 ```bash
 # From the monorepo root:
 pnpm install
-docker compose up -d          # Start PostgreSQL + Yorkie
+docker compose up -d          # Start PostgreSQL + Yorkie + MinIO
 pnpm dev                      # Starts frontend (:5173) + backend (:3000)
 
 # Or run the frontend only:
@@ -72,7 +72,8 @@ src/
 │   └── settings/page.tsx     # Settings page
 ├── api/
 │   ├── auth.ts               # fetchMe(), logout(), fetchWithAuth()
-│   └── documents.ts          # CRUD operations for documents
+│   ├── documents.ts          # CRUD operations for documents
+│   └── image-assets.ts       # Image upload API
 ├── components/
 │   ├── ui/                   # Radix UI + Tailwind components (23 components)
 │   ├── app-sidebar.tsx       # Navigation sidebar
@@ -105,6 +106,13 @@ src/
 ### Real-time Collaboration
 
 The `YorkieStore` class implements the `Store` interface from `@wafflebase/sheet`, persisting all cell data, row heights, and column widths to a Yorkie CRDT document. Changes sync automatically across all connected clients.
+
+### Floating Objects
+
+`SheetView` supports floating chart cards and floating image cards above the
+canvas grid. Images are uploaded through the backend (`/assets/images`) and
+stored in object storage (S3-compatible), while chart/image position and size
+are synced through Yorkie so all collaborators see the same layout.
 
 ### Presence
 
