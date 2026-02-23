@@ -136,11 +136,8 @@ export function resolveChartColumns(
   const seen = new Set<string>();
   const seriesColumns: string[] = [];
 
-  const configuredSeries = chart.seriesColumns;
-  // Yorkie array proxies can yield wrapped values via `for...of`.
-  // Read by index so each value is the plain column name.
-  for (let index = 0; index < (configuredSeries?.length ?? 0); index++) {
-    const rawColumn = configuredSeries[index];
+  const configuredSeries = chart.seriesColumns ?? [];
+  for (const rawColumn of configuredSeries) {
     const column = normalizeColumnName(rawColumn);
     if (
       column &&
@@ -153,7 +150,7 @@ export function resolveChartColumns(
     }
   }
 
-  if (configuredSeries === undefined) {
+  if (chart.seriesColumns === undefined) {
     for (const column of columns) {
       if (column.column !== xAxisColumn) {
         seriesColumns.push(column.column);
