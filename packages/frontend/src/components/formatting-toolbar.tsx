@@ -53,6 +53,7 @@ import {
   IconFilter,
   IconMathFunction,
   IconChartBar,
+  IconPhoto,
   IconBorderAll,
   IconBorderOuter,
   IconBorderInner,
@@ -94,6 +95,7 @@ const modKey = isMac ? "⌘" : "Ctrl";
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
   onInsertChart?: () => void;
+  onInsertImage?: () => void;
   onOpenConditionalFormat?: () => void;
   onTogglePaintFormat?: () => void;
   paintFormatActive?: boolean;
@@ -105,6 +107,7 @@ interface FormattingToolbarProps {
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
+  onInsertImage,
   onOpenConditionalFormat,
   onTogglePaintFormat,
   paintFormatActive = false,
@@ -196,6 +199,10 @@ export function FormattingToolbar({
   const handleInsertChart = useCallback(() => {
     onInsertChart?.();
   }, [onInsertChart]);
+
+  const handleInsertImage = useCallback(() => {
+    onInsertImage?.();
+  }, [onInsertImage]);
 
   const handleOpenConditionalFormat = useCallback(() => {
     onOpenConditionalFormat?.();
@@ -724,6 +731,18 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
+                onClick={handleInsertImage}
+              >
+                <IconPhoto size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Insert image</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
                 className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-[10px] font-semibold tracking-wide hover:bg-muted"
                 onClick={handleOpenConditionalFormat}
               >
@@ -856,6 +875,10 @@ export function FormattingToolbar({
               <DropdownMenuItem onClick={handleInsertChart}>
                 <IconChartBar size={16} className="mr-2" />
                 Insert chart
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleInsertImage}>
+                <IconPhoto size={16} className="mr-2" />
+                Insert image
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePaintFormat}>
                 <IconPaint size={16} className="mr-2" />

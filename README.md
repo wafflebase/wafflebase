@@ -64,7 +64,10 @@ pnpm run test
 
 #### Running
 
-Wafflebase depends on [Yorkie](https://yorkie.dev) and [Postgres](https://www.postgresql.org/). You can run them locally using Docker.
+Wafflebase depends on [Yorkie](https://yorkie.dev),
+[Postgres](https://www.postgresql.org/), and
+[MinIO](https://min.io/) (S3-compatible object storage for image uploads).
+You can run them locally using Docker.
 
 ```bash
 docker compose up -d

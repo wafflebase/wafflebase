@@ -111,10 +111,15 @@ It also exposes `Insert chart`, which creates a floating chart object from the
 current cell selection. Floating chart cards include a top-right context menu
 (`Edit chart`, `Delete chart`) and open a right-side chart editor panel for
 configuring chart type, data range, X-axis column, and visible series columns.
+It also exposes `Insert image`, which uploads an image file through the backend
+asset API and creates a floating image card anchored to the selected cell.
+Floating image cards include a top-right context menu (`Edit image`,
+`Delete image`) and open a right-side image editor panel for title, alt text,
+display fit mode, and replacement upload.
 Chart series colors are derived from theme tokens (`primary` with tonal
 variants), so they stay visually consistent across light and dark mode.
-Chart overlay/editor UI is lazy-loaded, and chart overlay render-version
-tracking is enabled only when the current tab actually has charts.
+Chart/image overlay and editor UI is lazy-loaded, and overlay render-version
+tracking is enabled only when the current tab actually has floating objects.
 
 A `didMount` ref guards against React 19 StrictMode double-mounting in
 development.
@@ -150,6 +155,20 @@ type SheetChart = {
   offsetY: number;       // px offset from anchor cell top
   width: number;         // px
   height: number;        // px
+};
+
+type SheetImage = {
+  id: string;
+  title?: string;
+  alt?: string;
+  key: string;           // object-storage key (resolved via backend API)
+  contentType: string;   // e.g. "image/png"
+  anchor: Sref;          // top-left anchor cell in current sheet
+  offsetX: number;       // px offset from anchor cell left
+  offsetY: number;       // px offset from anchor cell top
+  width: number;         // px
+  height: number;        // px
+  fit: 'cover' | 'contain';
 };
 
 type WorksheetFilterState = {
@@ -207,6 +226,7 @@ type Worksheet = {
   merges?: { [anchor: Sref]: { rs: number; cs: number } };
   filter?: WorksheetFilterState;
   charts?: { [id: string]: SheetChart };
+  images?: { [id: string]: SheetImage };
   frozenRows: number;
   frozenCols: number;
 };
@@ -220,13 +240,13 @@ type SpreadsheetDocument = {
 
 Tab metadata and sheet data are synced via Yorkie. Datasource query results
 are fetched from the backend on demand and displayed using `ReadOnlyStore`.
-Chart objects are stored in each worksheet and rendered as floating DOM cards
-above the sheet canvas. Chart geometry and editor fields are updated through
-`doc.update()` so chart edits are collaborative in real time. Rendering is
-clipped to the unfrozen scrollable quadrant, so charts are hidden underneath
-frozen rows/columns. Chart anchor layout also uses scrollable-quadrant
-coordinates, so charts continue moving with scroll even if their anchor refs
-fall inside frozen rows/columns.
+Chart and image objects are stored in each worksheet and rendered as floating
+DOM cards above the sheet canvas. Object geometry and editor fields are
+updated through `doc.update()` so floating-object edits are collaborative in
+real time. Rendering is clipped to the unfrozen scrollable quadrant, so
+floating objects are hidden underneath frozen rows/columns. Anchor layout also
+uses scrollable-quadrant coordinates, so objects continue moving with scroll
+even if their anchor refs fall inside frozen rows/columns.
 
 **Migration:** Old documents (flat `Worksheet` format with `root.sheet`) are
 automatically migrated to the new `SpreadsheetDocument` structure on load,
@@ -248,8 +268,8 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `setGrid(grid)` | Batch write to `root.sheet` |
 | `getGrid(range)` | Use CellIndex to iterate only populated cells in range |
 | `findEdge(ref, direction, dimension)` | Delegate to `findEdgeWithIndex` using CellIndex |
-| `shiftCells(axis, index, count)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors and conditional-format ranges |
-| `moveCells(axis, src, count, dst)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors and conditional-format ranges |
+| `shiftCells(axis, index, count)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart/image anchors and conditional-format ranges |
+| `moveCells(axis, src, count, dst)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart/image anchors and conditional-format ranges |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
 | `addRangeStyle(patch)` | Append to `root.sheets[tabId].rangeStyles` |

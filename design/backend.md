@@ -8,16 +8,18 @@ target-version: 0.1.0
 ## Summary
 
 The backend is a NestJS 11 API server that provides authentication (GitHub
-OAuth2 + JWT sessions) and document CRUD operations. It stores user and
-document metadata in PostgreSQL via Prisma. The actual spreadsheet data lives
-in Yorkie (managed by the frontend); the backend only manages document
-ownership and user accounts.
+OAuth2 + JWT sessions), document CRUD operations, datasource APIs, share-link
+APIs, and image asset upload/streaming endpoints. It stores user and document
+metadata in PostgreSQL via Prisma and stores uploaded images in S3-compatible
+object storage. The actual spreadsheet cell data lives in Yorkie (managed by
+the frontend).
 
 ### Goals
 
 - Authenticate users via GitHub OAuth2 and issue JWT session cookies.
 - Provide a REST API for creating, listing, and deleting spreadsheet documents.
 - Enforce document ownership — users can only access their own documents.
+- Support image uploads for floating sheet objects via S3-compatible storage.
 
 ### Non-Goals
 
@@ -37,6 +39,7 @@ flowchart TD
   APP --> DOC["DocumentModule"]
   APP --> SHARE["ShareLinkModule"]
   APP --> DSRC["DataSourceModule"]
+  APP --> ASSET["AssetModule"]
 
   AUTH --> JWT_MOD["JwtModule (1h expiry)"]
   AUTH --> USER_MOD["UserModule"]
@@ -60,6 +63,9 @@ flowchart TD
   DSRC --> DSC["DataSourceController"]
   DSRC --> DSS["DataSourceService"]
   DSRC --> PS4["PrismaService"]
+
+  ASSET --> ASC["AssetController"]
+  ASSET --> ASS["AssetService"]
 ```
 
 | Module | Responsibility |
@@ -70,6 +76,7 @@ flowchart TD
 | **DocumentModule** | Document REST endpoints. Uses DocumentService + UserService + PrismaService. |
 | **ShareLinkModule** | URL-based document sharing with token-based access. Manages share link CRUD and public token resolution for anonymous access. |
 | **DataSourceModule** | External PostgreSQL connection management. CRUD for connection configs, test connection, execute SELECT queries. Passwords encrypted at rest with AES-256-GCM. |
+| **AssetModule** | Image upload and retrieval backed by S3-compatible object storage (AWS S3 in production, MinIO in development). |
 
 ### API Reference
 
@@ -168,6 +175,20 @@ All endpoints require `JwtAuthGuard`. Ownership is enforced on every request.
 - Executes the query with a 30-second timeout and 10,000 row limit.
 - Returns `{ columns, rows, rowCount, truncated, executionTime }`.
 - Uses an ephemeral `pg.Client` (not the app's Prisma connection).
+
+#### Assets (`/assets`)
+
+**`POST /assets/images`**
+- Guard: `JwtAuthGuard`
+- Content-Type: `multipart/form-data` (`file` field)
+- Validates image MIME type (`jpeg/png/gif/webp/avif`) and max size (10MB).
+- Uploads object to S3-compatible storage and returns:
+  `{ key, contentType, size }`.
+
+**`GET /assets/images/:key`** *(public — no auth required)*
+- Streams image bytes from object storage for embedding in sheet views.
+- Returns `404 Not Found` for unknown keys.
+- Returns response headers from stored object metadata (content type, cache control).
 
 ### Auth System
 
@@ -297,6 +318,13 @@ erDiagram
 | `PORT` | No | `3000` | Server listen port |
 | `NODE_ENV` | No | — | Affects cookie `secure` and `sameSite` settings |
 | `DATASOURCE_ENCRYPTION_KEY` | No* | — | 64-char hex string (32 bytes) for AES-256-GCM password encryption. *Required if DataSource feature is used. |
+| `ASSET_STORAGE_BUCKET` | No | `wafflebase-assets` | S3 bucket name for uploaded images |
+| `ASSET_STORAGE_REGION` | No | `us-east-1` | S3 region / signing region |
+| `ASSET_STORAGE_ENDPOINT` | No | — | S3 endpoint override (set for MinIO in dev) |
+| `ASSET_STORAGE_FORCE_PATH_STYLE` | No | auto (`true` with endpoint) | Enables path-style bucket URLs (required by MinIO) |
+| `ASSET_STORAGE_ACCESS_KEY` | Yes | — | S3 access key ID |
+| `ASSET_STORAGE_SECRET_KEY` | Yes | — | S3 secret access key |
+| `ASSET_STORAGE_SESSION_TOKEN` | No | — | Optional session token for temporary AWS credentials |
 
 ### Testing Strategy
 
@@ -330,6 +358,10 @@ theft.
 **Authorization checks** — Document endpoints verify that `req.user.id`
 matches the document's `authorID`. Unauthorized access throws
 `ForbiddenException` (HTTP 403).
+
+**Asset delivery** — `GET /assets/images/:key` is intentionally public so
+anonymous share-link viewers can load embedded images. Object keys are random
+UUID-based identifiers and image uploads are authenticated.
 
 **Middleware pipeline:**
 

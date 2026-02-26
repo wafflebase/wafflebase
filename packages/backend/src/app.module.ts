@@ -4,6 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { DocumentModule } from './document/document.module';
 import { ShareLinkModule } from './share-link/share-link.module';
 import { DataSourceModule } from './datasource/datasource.module';
+import { AssetModule } from './asset/asset.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { DataSourceModule } from './datasource/datasource.module';
     DocumentModule,
     ShareLinkModule,
     DataSourceModule,
+    AssetModule,
   ],
   controllers: [],
   providers: [],

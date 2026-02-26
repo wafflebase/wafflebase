@@ -24,7 +24,7 @@ The frontend depends on `@wafflebase/sheet` as a workspace dependency.
 
 ```bash
 pnpm install                # Install all dependencies
-docker compose up -d        # Start PostgreSQL + Yorkie server
+docker compose up -d        # Start PostgreSQL + Yorkie + MinIO
 pnpm dev                    # Start frontend (:5173) + backend (:3000)
 ```
 

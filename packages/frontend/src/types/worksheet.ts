@@ -25,6 +25,22 @@ export type SheetChart = {
   height: number;
 };
 
+export type ImageFit = "cover" | "contain";
+
+export type SheetImage = {
+  id: string;
+  title?: string;
+  alt?: string;
+  key: string;
+  contentType: string;
+  anchor: Sref;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+  fit: ImageFit;
+};
+
 export type WorksheetFilterState = {
   startRow: number;
   endRow: number;
@@ -61,6 +77,9 @@ export type Worksheet = {
   filter?: WorksheetFilterState;
   charts?: {
     [id: string]: SheetChart;
+  };
+  images?: {
+    [id: string]: SheetImage;
   };
   frozenRows: number;
   frozenCols: number;
@@ -103,6 +122,7 @@ export const initialSpreadsheetDocument: SpreadsheetDocument = {
       conditionalFormats: [],
       merges: {},
       charts: {},
+      images: {},
       frozenRows: 0,
       frozenCols: 0,
     },

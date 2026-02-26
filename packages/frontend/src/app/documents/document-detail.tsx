@@ -113,6 +113,7 @@ function migrateDocument(
         conditionalFormats: [],
         merges: (r as Record<string, unknown>).merges || {},
         charts: {},
+        images: {},
         frozenRows: r.frozenRows || 0,
         frozenCols: r.frozenCols || 0,
       },
@@ -237,6 +238,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         conditionalFormats: [],
         merges: {},
         charts: {},
+        images: {},
         frozenRows: 0,
         frozenCols: 0,
       } as Worksheet;

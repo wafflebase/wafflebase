@@ -11,6 +11,7 @@ import {
 } from "@wafflebase/sheet";
 import {
   type PointerEvent as ReactPointerEvent,
+  type ChangeEvent as ReactChangeEvent,
   lazy,
   Suspense,
   useCallback,
@@ -22,7 +23,8 @@ import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
-import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
+import { uploadImageAsset } from "@/api/image-assets";
+import { SheetChart, SheetImage, SpreadsheetDocument } from "@/types/worksheet";
 import { YorkieStore } from "./yorkie-store";
 import { UserPresence } from "@/types/users";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
@@ -62,14 +64,87 @@ function isDefaultLikeStyle(style: CellStyle | undefined): boolean {
   );
 }
 
+const DEFAULT_IMAGE_WIDTH = 360;
+const DEFAULT_IMAGE_HEIGHT = 240;
+const MIN_IMAGE_WIDTH = 160;
+const MIN_IMAGE_HEIGHT = 120;
+const MAX_IMAGE_WIDTH = 640;
+const MAX_IMAGE_HEIGHT = 420;
+
+function normalizeImageTitle(fileName: string): string {
+  const trimmed = fileName.trim();
+  if (!trimmed) return "Image";
+  const dotIndex = trimmed.lastIndexOf(".");
+  if (dotIndex <= 0) return trimmed;
+  return trimmed.slice(0, dotIndex) || "Image";
+}
+
+function fitImageDimensions(size: { width: number; height: number } | null): {
+  width: number;
+  height: number;
+} {
+  if (!size || size.width <= 0 || size.height <= 0) {
+    return { width: DEFAULT_IMAGE_WIDTH, height: DEFAULT_IMAGE_HEIGHT };
+  }
+
+  const scale = Math.min(
+    MAX_IMAGE_WIDTH / size.width,
+    MAX_IMAGE_HEIGHT / size.height,
+    1,
+  );
+  const scaledWidth = Math.max(MIN_IMAGE_WIDTH, Math.round(size.width * scale));
+  const scaledHeight = Math.max(MIN_IMAGE_HEIGHT, Math.round(size.height * scale));
+  return {
+    width: scaledWidth,
+    height: scaledHeight,
+  };
+}
+
+async function readImageDimensions(file: File): Promise<{
+  width: number;
+  height: number;
+} | null> {
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const size = await new Promise<{ width: number; height: number } | null>(
+      (resolve) => {
+        const image = new Image();
+        image.onload = () => {
+          resolve({
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+          });
+        };
+        image.onerror = () => resolve(null);
+        image.src = objectUrl;
+      },
+    );
+
+    return size;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 const ChartObjectLayer = lazy(() =>
   import("./chart-object-layer").then((module) => ({
     default: module.ChartObjectLayer,
   })),
 );
+const ImageObjectLayer = lazy(() =>
+  import("./image-object-layer").then((module) => ({
+    default: module.ImageObjectLayer,
+  })),
+);
 const ChartEditorPanel = lazy(() =>
   import("./chart-editor-panel").then((module) => ({
     default: module.ChartEditorPanel,
+  })),
+);
+const ImageEditorPanel = lazy(() =>
+  import("./image-editor-panel").then((module) => ({
+    default: module.ImageEditorPanel,
   })),
 );
 const ConditionalFormatPanel = lazy(() =>
@@ -99,7 +174,9 @@ export function SheetView({
   const [didMount, setDidMount] = useState(false);
   const [sheetRenderVersion, setSheetRenderVersion] = useState(0);
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
   const [paintFormatActive, setPaintFormatActive] = useState(false);
   const [paintFormatSourceRef, setPaintFormatSourceRef] = useState<Ref | null>(
@@ -109,7 +186,8 @@ export function SheetView({
     useState(false);
   const lastHandledPeerJumpRequestIdRef = useRef(0);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
-  const hasChartsRef = useRef(false);
+  const imageUploadInputRef = useRef<HTMLInputElement>(null);
+  const hasFloatingObjectsRef = useRef(false);
   const paintFormatActiveRef = useRef(false);
   const paintFormatPointerDownRef = useRef(false);
   const paintFormatApplyPendingRef = useRef(false);
@@ -125,12 +203,16 @@ export function SheetView({
 
   const root = doc?.getRoot();
   const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
+  const hasImages = !!root && Object.keys(root.sheets[tabId]?.images || {}).length > 0;
+  const hasFloatingObjects = hasCharts || hasImages;
   const selectedChart =
     root && selectedChartId ? root.sheets[tabId]?.charts?.[selectedChartId] : undefined;
+  const selectedImage =
+    root && selectedImageId ? root.sheets[tabId]?.images?.[selectedImageId] : undefined;
 
   useEffect(() => {
-    hasChartsRef.current = hasCharts;
-  }, [hasCharts]);
+    hasFloatingObjectsRef.current = hasFloatingObjects;
+  }, [hasFloatingObjects]);
 
   const clearPaintFormatState = useCallback(() => {
     paintFormatActiveRef.current = false;
@@ -202,7 +284,9 @@ export function SheetView({
     setPaintFormatSourceRef({ ...sourceRef });
     setPaintFormatSourceIndicatorVisible(false);
     setSelectedChartId(null);
+    setSelectedImageId(null);
     setChartEditorOpen(false);
+    setImageEditorOpen(false);
     setConditionalFormatOpen(false);
   }, [clearPaintFormatState, readOnly]);
 
@@ -258,8 +342,104 @@ export function SheetView({
 
     setSelectedChartId(chartId);
     setChartEditorOpen(true);
+    setSelectedImageId(null);
+    setImageEditorOpen(false);
     setConditionalFormatOpen(false);
   }, [doc, readOnly, tabId]);
+
+  const handleInsertImage = useCallback(() => {
+    if (readOnly) return;
+    imageUploadInputRef.current?.click();
+  }, [readOnly]);
+
+  const uploadImage = useCallback(
+    async (file: File, targetImageId?: string): Promise<void> => {
+      if (readOnly || !doc) return;
+
+      if (!file.type.startsWith("image/")) {
+        toast.error("Select a valid image file.");
+        return;
+      }
+
+      const sheet = sheetRef.current;
+      if (!sheet) return;
+
+      let anchorRef: Ref | null = null;
+      if (!targetImageId) {
+        const range =
+          sheet.getSelectionType() === "cell"
+            ? sheet.getSelectionRangeOrActiveCell()
+            : null;
+        anchorRef = range ? range[0] : sheet.getActiveCell();
+        if (!anchorRef) {
+          toast.error("Select a cell to anchor the image.");
+          return;
+        }
+      }
+
+      const uploaded = await uploadImageAsset(file);
+
+      if (targetImageId) {
+        doc.update((root) => {
+          const image = root.sheets[tabId]?.images?.[targetImageId];
+          if (!image) return;
+          image.key = uploaded.key;
+          image.contentType = uploaded.contentType;
+        });
+        return;
+      }
+
+      const naturalSize = await readImageDimensions(file);
+      const fitted = fitImageDimensions(naturalSize);
+      const imageId = `image-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      doc.update((root) => {
+        const ws = root.sheets[tabId];
+        if (!ws.images) {
+          ws.images = {};
+        }
+
+        ws.images[imageId] = {
+          id: imageId,
+          title: normalizeImageTitle(file.name),
+          alt: normalizeImageTitle(file.name),
+          key: uploaded.key,
+          contentType: uploaded.contentType,
+          anchor: toSref(anchorRef!),
+          offsetX: 8,
+          offsetY: 8,
+          width: fitted.width,
+          height: fitted.height,
+          fit: "cover",
+        } as SheetImage;
+      });
+
+      setSelectedImageId(imageId);
+      setImageEditorOpen(true);
+      setSelectedChartId(null);
+      setChartEditorOpen(false);
+      setConditionalFormatOpen(false);
+    },
+    [doc, readOnly, tabId],
+  );
+
+  const handleImageFileChange = useCallback(
+    (event: ReactChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+
+      void (async () => {
+        try {
+          await uploadImage(file);
+          toast.success("Image inserted.");
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "Failed to upload image.");
+        }
+      })();
+    },
+    [uploadImage],
+  );
 
   const handleUpdateChart = useCallback(
     (chartId: string, patch: Partial<SheetChart>) => {
@@ -307,13 +487,86 @@ export function SheetView({
 
   const handleEditChart = useCallback((chartId: string) => {
     setSelectedChartId(chartId);
+    setSelectedImageId(null);
     setChartEditorOpen(true);
+    setImageEditorOpen(false);
     setConditionalFormatOpen(false);
   }, []);
 
+  const handleSelectChart = useCallback((chartId: string) => {
+    setSelectedChartId(chartId);
+    setSelectedImageId(null);
+    setImageEditorOpen(false);
+  }, []);
+
+  const handleUpdateImage = useCallback(
+    (imageId: string, patch: Partial<SheetImage>) => {
+      if (readOnly || !doc) return;
+
+      doc.update((root) => {
+        const image = root.sheets[tabId]?.images?.[imageId];
+        if (!image) return;
+
+        if (patch.anchor !== undefined) image.anchor = patch.anchor;
+        if (patch.offsetX !== undefined) image.offsetX = patch.offsetX;
+        if (patch.offsetY !== undefined) image.offsetY = patch.offsetY;
+        if (patch.width !== undefined) image.width = patch.width;
+        if (patch.height !== undefined) image.height = patch.height;
+        if (patch.title !== undefined) image.title = patch.title;
+        if (patch.alt !== undefined) image.alt = patch.alt;
+        if (patch.key !== undefined) image.key = patch.key;
+        if (patch.contentType !== undefined) image.contentType = patch.contentType;
+        if (patch.fit !== undefined) image.fit = patch.fit;
+      });
+    },
+    [doc, readOnly, tabId],
+  );
+
+  const handleDeleteImage = useCallback(
+    (imageId: string) => {
+      if (readOnly || !doc) return;
+
+      doc.update((root) => {
+        const ws = root.sheets[tabId];
+        if (!ws?.images?.[imageId]) return;
+        delete ws.images[imageId];
+      });
+
+      if (selectedImageId === imageId) {
+        setSelectedImageId(null);
+        setImageEditorOpen(false);
+      }
+    },
+    [doc, readOnly, selectedImageId, tabId],
+  );
+
+  const handleEditImage = useCallback((imageId: string) => {
+    setSelectedImageId(imageId);
+    setSelectedChartId(null);
+    setImageEditorOpen(true);
+    setChartEditorOpen(false);
+    setConditionalFormatOpen(false);
+  }, []);
+
+  const handleSelectImage = useCallback((imageId: string) => {
+    setSelectedImageId(imageId);
+    setSelectedChartId(null);
+    setChartEditorOpen(false);
+  }, []);
+
+  const handleReplaceImage = useCallback(
+    async (imageId: string, file: File) => {
+      await uploadImage(file, imageId);
+    },
+    [uploadImage],
+  );
+
   const handleOpenConditionalFormat = useCallback(() => {
     setConditionalFormatOpen(true);
+    setSelectedChartId(null);
+    setSelectedImageId(null);
     setChartEditorOpen(false);
+    setImageEditorOpen(false);
   }, []);
 
   const getSelectionRange = useCallback(() => {
@@ -347,19 +600,34 @@ export function SheetView({
       if (selectedChartId !== null) {
         setSelectedChartId(null);
       }
+      if (selectedImageId !== null) {
+        setSelectedImageId(null);
+      }
       if (chartEditorOpen) {
         setChartEditorOpen(false);
+      }
+      if (imageEditorOpen) {
+        setImageEditorOpen(false);
       }
       if (conditionalFormatOpen) {
         setConditionalFormatOpen(false);
       }
     },
-    [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId],
+    [
+      chartEditorOpen,
+      conditionalFormatOpen,
+      imageEditorOpen,
+      paintFormatSourceRef,
+      selectedChartId,
+      selectedImageId,
+    ],
   );
 
   useEffect(() => {
     setSelectedChartId(null);
+    setSelectedImageId(null);
     setChartEditorOpen(false);
+    setImageEditorOpen(false);
     setConditionalFormatOpen(false);
     clearPaintFormatState();
   }, [clearPaintFormatState, tabId]);
@@ -399,12 +667,13 @@ export function SheetView({
       sheetRef.current = s;
       setSheetRenderVersion((v) => v + 1);
 
-      // Track sheet render cycles (scroll/selection/edits) so floating chart
-      // objects stay aligned with the canvas viewport.
+      // Track sheet render cycles (scroll/selection/edits) so floating objects
+      // stay aligned with the canvas viewport.
       unsubs.push(
         s.onSelectionChange(() => {
           if (
-            (hasChartsRef.current || paintFormatSourceIndicatorVisibleRef.current) &&
+            (hasFloatingObjectsRef.current ||
+              paintFormatSourceIndicatorVisibleRef.current) &&
             selectionFrame === null
           ) {
             selectionFrame = requestAnimationFrame(() => {
@@ -571,6 +840,14 @@ export function SheetView({
   }, [root, selectedChartId, tabId]);
 
   useEffect(() => {
+    if (!selectedImageId) return;
+    if (!root?.sheets[tabId]?.images?.[selectedImageId]) {
+      setSelectedImageId(null);
+      setImageEditorOpen(false);
+    }
+  }, [root, selectedImageId, tabId]);
+
+  useEffect(() => {
     if (!peerJumpTarget) return;
     if (peerJumpTarget.targetTabId && peerJumpTarget.targetTabId !== tabId) {
       return;
@@ -584,7 +861,9 @@ export function SheetView({
 
     lastHandledPeerJumpRequestIdRef.current = peerJumpTarget.requestId;
     setSelectedChartId(null);
+    setSelectedImageId(null);
     setChartEditorOpen(false);
+    setImageEditorOpen(false);
     setConditionalFormatOpen(false);
 
     try {
@@ -640,6 +919,7 @@ export function SheetView({
         <FormattingToolbar
           spreadsheet={sheetRef.current}
           onInsertChart={handleInsertChart}
+          onInsertImage={handleInsertImage}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {
             void handleTogglePaintFormat();
@@ -648,6 +928,15 @@ export function SheetView({
         />
       )}
       <div className="relative flex-1 w-full">
+        {!readOnly && (
+          <input
+            ref={imageUploadInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageFileChange}
+          />
+        )}
         <div
           ref={containerRef}
           className="h-full w-full"
@@ -663,10 +952,26 @@ export function SheetView({
               tabId={tabId}
               readOnly={readOnly}
               selectedChartId={selectedChartId}
-              onSelectChart={setSelectedChartId}
+              onSelectChart={handleSelectChart}
               onRequestEditChart={handleEditChart}
               onDeleteChart={handleDeleteChart}
               onUpdateChart={handleUpdateChart}
+              renderVersion={sheetRenderVersion}
+            />
+          </Suspense>
+        )}
+        {root && hasImages && (
+          <Suspense fallback={null}>
+            <ImageObjectLayer
+              spreadsheet={sheetRef.current}
+              root={root}
+              tabId={tabId}
+              readOnly={readOnly}
+              selectedImageId={selectedImageId}
+              onSelectImage={handleSelectImage}
+              onRequestEditImage={handleEditImage}
+              onDeleteImage={handleDeleteImage}
+              onUpdateImage={handleUpdateImage}
               renderVersion={sheetRenderVersion}
             />
           </Suspense>
@@ -680,6 +985,17 @@ export function SheetView({
               onClose={() => setChartEditorOpen(false)}
               onUpdateChart={handleUpdateChart}
               getSelectionRange={getSelectionRange}
+            />
+          </Suspense>
+        )}
+        {root && !readOnly && imageEditorOpen && (
+          <Suspense fallback={null}>
+            <ImageEditorPanel
+              image={selectedImage}
+              open={imageEditorOpen}
+              onClose={() => setImageEditorOpen(false)}
+              onUpdateImage={handleUpdateImage}
+              onReplaceImage={handleReplaceImage}
             />
           </Suspense>
         )}
