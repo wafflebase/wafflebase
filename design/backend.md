@@ -38,7 +38,7 @@ flowchart TD
   APP --> SHARE["ShareLinkModule"]
   APP --> DSRC["DataSourceModule"]
 
-  AUTH --> JWT_MOD["JwtModule (1h expiry)"]
+  AUTH --> JWT_MOD["JwtModule (access token expiry)"]
   AUTH --> USER_MOD["UserModule"]
   AUTH --> GH["GitHubStrategy"]
   AUTH --> JW["JwtStrategy"]
@@ -84,17 +84,23 @@ flowchart TD
 - GitHub redirects here after user consents. The `GitHubStrategy` validates the
   profile and returns user data. The controller then:
   1. Calls `UserService.findOrCreateUser()` to upsert the user in the database.
-  2. Calls `AuthService.createToken()` to sign a JWT.
-  3. Sets the JWT as an httpOnly cookie named `wafflebase_session`.
+  2. Calls `AuthService.createTokens()` to sign access/refresh JWTs.
+  3. Sets httpOnly cookies named `wafflebase_session` and
+     `wafflebase_refresh`.
   4. Redirects to `FRONTEND_URL`.
 
 **`GET /auth/me`**
 - Guard: `JwtAuthGuard`
 - Returns the authenticated user object from the JWT payload.
 
+**`POST /auth/refresh`**
+- Guard: none (refresh cookie required)
+- Verifies `wafflebase_refresh` and rotates both auth cookies.
+- Returns `401` when the refresh token is missing/invalid or user is gone.
+
 **`POST /auth/logout`**
 - Guard: none (public endpoint)
-- Clears the `wafflebase_session` cookie.
+- Clears `wafflebase_session` and `wafflebase_refresh`.
 
 #### Documents (`/documents`)
 
@@ -191,31 +197,30 @@ All endpoints require `JwtAuthGuard`. Ownership is enforced on every request.
 - **Validation:** Extracts `id` (from `sub`), `username`, `email`, `photo`
   from the JWT payload and attaches to `req.user`.
 
-#### JWT Token
+#### JWT Tokens
 
-Created by `AuthService.createToken()`:
+Created by `AuthService.createTokens()`:
 
 ```typescript
 {
   sub: user.id,           // User database ID
   username: user.username,
   email: user.email,
-  photo: user.photo       // nullable
+  photo: user.photo,      // nullable
+  tokenType: "access" | "refresh"
 }
 ```
 
-Expires in **1 hour** (configured in `AuthModule`'s `JwtModule.registerAsync`).
+- Access token default expiry: **1 hour** (`JWT_ACCESS_EXPIRES_IN`)
+- Refresh token default expiry: **7 days** (`JWT_REFRESH_EXPIRES_IN`)
+- Refresh token secret: `JWT_REFRESH_SECRET` (falls back to `JWT_SECRET`)
 
 #### Cookie Configuration
 
-| Property | Production | Development |
-|----------|-----------|-------------|
-| `httpOnly` | `true` | `true` |
-| `secure` | `true` | `false` |
-| `sameSite` | `'none'` | `'lax'` |
-| `maxAge` | 3,600,000 ms (1h) | 3,600,000 ms (1h) |
-
-The cookie name is `wafflebase_session`.
+| Cookie | Production | Development |
+|--------|------------|-------------|
+| `wafflebase_session` | httpOnly, secure, sameSite=`none`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
+| `wafflebase_refresh` | httpOnly, secure, sameSite=`none`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
 
 ### Database Schema
 
@@ -291,6 +296,11 @@ erDiagram
 | `FRONTEND_URL` | Yes | — | Frontend origin for CORS and OAuth redirect |
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
 | `JWT_SECRET` | Yes | — | Secret for signing JWT tokens |
+| `JWT_REFRESH_SECRET` | No | `JWT_SECRET` | Secret for refresh-token signing |
+| `JWT_ACCESS_EXPIRES_IN` | No | `1h` | Access-token expiry passed to `jsonwebtoken` |
+| `JWT_REFRESH_EXPIRES_IN` | No | `7d` | Refresh-token expiry passed to `jsonwebtoken` |
+| `JWT_ACCESS_COOKIE_MAX_AGE_MS` | No | `3600000` | Access-cookie max-age in milliseconds |
+| `JWT_REFRESH_COOKIE_MAX_AGE_MS` | No | `604800000` | Refresh-cookie max-age in milliseconds |
 | `GITHUB_CLIENT_ID` | Yes | — | GitHub OAuth app client ID |
 | `GITHUB_CLIENT_SECRET` | Yes | — | GitHub OAuth app client secret |
 | `GITHUB_CALLBACK_URL` | No | `http://localhost:3000/auth/github/callback` | OAuth callback URL |
@@ -320,9 +330,9 @@ erDiagram
 - Allowed methods: GET, POST, PUT, DELETE, PATCH, OPTIONS.
 - Allowed headers: Content-Type, Authorization.
 
-**httpOnly cookies** — The JWT is stored in an httpOnly cookie, preventing
-client-side JavaScript from reading the token. This mitigates XSS-based token
-theft.
+**httpOnly cookies** — Access/refresh tokens are stored in httpOnly cookies,
+preventing client-side JavaScript from reading them. This mitigates XSS-based
+token theft.
 
 **SameSite** — Set to `'lax'` in development and `'none'` in production
 (required when frontend and backend are on different origins with HTTPS).

@@ -21,6 +21,11 @@ Create a `.env` file in this package:
 FRONTEND_URL=http://localhost:5173
 DATABASE_URL=postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
 JWT_SECRET=your_jwt_secret
+JWT_REFRESH_SECRET=your_refresh_secret   # Optional, defaults to JWT_SECRET
+JWT_ACCESS_EXPIRES_IN=1h                # Optional
+JWT_REFRESH_EXPIRES_IN=7d               # Optional
+JWT_ACCESS_COOKIE_MAX_AGE_MS=3600000    # Optional
+JWT_REFRESH_COOKIE_MAX_AGE_MS=604800000 # Optional
 GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
@@ -77,9 +82,10 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
 | `GET` | `/auth/github` | - | Initiate GitHub OAuth flow |
-| `GET` | `/auth/github/callback` | - | OAuth callback, sets JWT cookie, redirects to frontend |
+| `GET` | `/auth/github/callback` | - | OAuth callback, sets access/refresh cookies, redirects to frontend |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
-| `POST` | `/auth/logout` | JWT | Clear session cookie |
+| `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
+| `POST` | `/auth/logout` | - | Clear session cookies |
 
 ### Documents (`/documents`)
 
@@ -99,10 +105,11 @@ All document endpoints require JWT authentication.
 2. Passport redirects to GitHub OAuth consent screen
 3. GitHub redirects to GET /auth/github/callback
 4. GitHubStrategy validates profile, calls UserService.findOrCreateUser()
-5. AuthService signs a JWT with { sub, username, email, photo }
-6. JWT is set as an httpOnly cookie (wafflebase_session, 1h TTL)
+5. AuthService signs access and refresh JWTs with { sub, username, email, photo }
+6. Tokens are set as httpOnly cookies (`wafflebase_session`, `wafflebase_refresh`)
 7. Response redirects to FRONTEND_URL
 8. Frontend calls GET /auth/me on subsequent loads to verify session
+9. If access token expires, frontend calls POST /auth/refresh and retries once
 ```
 
 ## Database Schema

@@ -116,7 +116,10 @@ Light, dark, and system themes are supported via a custom `ThemeProvider` that a
 
 ### Authentication
 
-Cookie-based JWT auth via the backend. `PrivateRoute` calls `fetchMe()` on mount; unauthenticated users are redirected to `/login`. All API requests use `credentials: "include"`.
+Cookie-based access/refresh token auth via the backend. `PrivateRoute` calls
+`fetchMe()` on mount, and authenticated API calls use `fetchWithAuth()` to do
+one-time `/auth/refresh` + retry on `401` before redirecting to `/login`. All
+API requests use `credentials: "include"`.
 
 ## Further Reading
 

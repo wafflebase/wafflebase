@@ -22,11 +22,35 @@ type LogoutOptions = {
 };
 
 let isRedirectingToLogin = false;
+let pendingRefresh: Promise<boolean> | null = null;
 
 function redirectToLogin() {
   if (isRedirectingToLogin) return;
   isRedirectingToLogin = true;
   window.location.href = "/login";
+}
+
+async function refreshSession(): Promise<boolean> {
+  if (!pendingRefresh) {
+    pendingRefresh = (async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_BACKEND_API_URL}/auth/refresh`,
+          {
+            method: "POST",
+            credentials: "include",
+          }
+        );
+        return res.ok;
+      } catch {
+        return false;
+      } finally {
+        pendingRefresh = null;
+      }
+    })();
+  }
+
+  return pendingRefresh;
 }
 
 /**
@@ -90,13 +114,24 @@ export async function fetchMe(): Promise<User> {
  * Returns null when there is no valid session.
  */
 export async function fetchMeOptional(): Promise<User | null> {
-  const res = await fetch(`${import.meta.env.VITE_BACKEND_API_URL}/auth/me`, {
-    method: "GET",
-    credentials: "include",
-  });
+  const requestMe = () =>
+    fetch(`${import.meta.env.VITE_BACKEND_API_URL}/auth/me`, {
+      method: "GET",
+      credentials: "include",
+    });
+
+  let res = await requestMe();
 
   if (res.status === 401) {
-    return null;
+    const refreshed = await refreshSession();
+    if (!refreshed) {
+      return null;
+    }
+
+    res = await requestMe();
+    if (res.status === 401) {
+      return null;
+    }
   }
 
   if (!res.ok) {
@@ -109,11 +144,22 @@ export async function fetchMeOptional(): Promise<User | null> {
 /**
  * Performs an authenticated fetch and redirects to login on 401 responses.
  */
-export async function fetchWithAuth(input: RequestInfo, init?: RequestInit) {
+export async function fetchWithAuth(
+  input: RequestInfo,
+  init?: RequestInit,
+  skipRefresh = false
+) {
   const response = await fetch(input, {
     ...init,
     credentials: "include",
   });
+
+  if (response.status === 401 && !skipRefresh) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      return fetchWithAuth(input, init, true);
+    }
+  }
 
   if (response.status === 401) {
     await logout({
