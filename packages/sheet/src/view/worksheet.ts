@@ -50,6 +50,11 @@ const AutofillHandleSize = 8;
 const AutofillHandleHitPadding = 4;
 const FilterPanelMaxVisibleValues = 200;
 const CellInputPinnedMargin = 8;
+
+function isImeComposingKeyEvent(e: KeyboardEvent): boolean {
+  return e.isComposing || e.key === 'Process' || e.keyCode === 229;
+}
+
 type FilterPanelMode = 'values' | 'condition';
 type FilterPanelState = {
   col: number;
@@ -561,7 +566,7 @@ export class Worksheet {
     if (this.functionBrowser.isVisible()) {
       return;
     }
-    if (this.isImeComposingKeyEvent(e)) {
+    if (isImeComposingKeyEvent(e)) {
       return;
     }
 
@@ -3155,7 +3160,7 @@ export class Worksheet {
   ): Promise<void> {
     // Ignore key events during IME composition to prevent composition
     // cancellation or duplicate commit handling.
-    if (this.isImeComposingKeyEvent(e)) return;
+    if (isImeComposingKeyEvent(e)) return;
 
     const inputEl =
       source === 'formulaBar'
@@ -3300,10 +3305,6 @@ export class Worksheet {
       keyEquals(e, 'ArrowLeft') ||
       keyEquals(e, 'ArrowRight')
     );
-  }
-
-  private isImeComposingKeyEvent(e: KeyboardEvent): boolean {
-    return e.isComposing || e.key === 'Process' || e.keyCode === 229;
   }
 
   private applyFormulaRangeArrowKey(e: KeyboardEvent): Ref {
