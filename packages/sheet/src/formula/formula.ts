@@ -1,4 +1,6 @@
 import { CharStreams, CommonTokenStream } from 'antlr4ts';
+import { ANTLRErrorListener } from 'antlr4ts/ANTLRErrorListener';
+import { Token as AntlrToken } from 'antlr4ts/Token';
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FormulaLexer } from '../../antlr/FormulaLexer';
 import { FormulaVisitor } from '../../antlr/FormulaVisitor';
@@ -33,6 +35,125 @@ export type Token = {
   stop: number;
   text: string;
 };
+
+type FormulaSyntaxError = {
+  message: string;
+  line: number;
+  charPositionInLine: number;
+};
+
+type ParsedExpression = {
+  tree: ParseTree;
+  syntaxErrors: FormulaSyntaxError[];
+  parser: FormulaParser;
+};
+
+function createSyntaxErrorListener<TSymbol>(
+  syntaxErrors: FormulaSyntaxError[],
+): ANTLRErrorListener<TSymbol> {
+  return {
+    syntaxError: (
+      _recognizer,
+      _offendingSymbol,
+      line,
+      charPositionInLine,
+      msg,
+    ) => {
+      syntaxErrors.push({ message: msg, line, charPositionInLine });
+    },
+  };
+}
+
+function parseExpression(formula: string): ParsedExpression | undefined {
+  const stream = CharStreams.fromString(formula.slice(1));
+  const lexer = new FormulaLexer(stream);
+  const tokens = new CommonTokenStream(lexer);
+  const parser = new FormulaParser(tokens);
+  const syntaxErrors: FormulaSyntaxError[] = [];
+
+  lexer.removeErrorListeners();
+  parser.removeErrorListeners();
+  lexer.addErrorListener(createSyntaxErrorListener<number>(syntaxErrors));
+  parser.addErrorListener(createSyntaxErrorListener<AntlrToken>(syntaxErrors));
+
+  try {
+    const tree = parser.expr();
+    return { tree, syntaxErrors, parser };
+  } catch {
+    return undefined;
+  }
+}
+
+function hasSyntaxErrors(parsed: ParsedExpression): boolean {
+  return parsed.syntaxErrors.length > 0 || parsed.parser.numberOfSyntaxErrors > 0;
+}
+
+function isOnlyMissingClosingParenAtEof(
+  syntaxErrors: FormulaSyntaxError[],
+): boolean {
+  return (
+    syntaxErrors.length > 0 &&
+    syntaxErrors.every((error) =>
+      error.message.includes("missing ')' at '<EOF>'"),
+    )
+  );
+}
+
+function countUnclosedLeftParens(formula: string): number {
+  const stream = CharStreams.fromString(formula.slice(1));
+  const lexer = new FormulaLexer(stream);
+  const tokens = new CommonTokenStream(lexer);
+  lexer.removeErrorListeners();
+  tokens.fill();
+
+  let openParens = 0;
+  for (const token of tokens.getTokens()) {
+    if (token.type === FormulaLexer.T__0) {
+      openParens += 1;
+      continue;
+    }
+    if (token.type === FormulaLexer.T__1 && openParens > 0) {
+      openParens -= 1;
+    }
+  }
+
+  return openParens;
+}
+
+/**
+ * `normalizeFormulaOnCommit` auto-fixes safe, incomplete formulas on commit.
+ * Currently it appends missing trailing `)` when syntax errors are only
+ * `missing ')' at '<EOF>'`.
+ */
+export function normalizeFormulaOnCommit(formula: string): string {
+  if (!formula.startsWith('=')) {
+    return formula;
+  }
+
+  const parsed = parseExpression(formula);
+  if (!parsed) {
+    return formula;
+  }
+  if (!hasSyntaxErrors(parsed)) {
+    return formula;
+  }
+  if (!isOnlyMissingClosingParenAtEof(parsed.syntaxErrors)) {
+    return formula;
+  }
+
+  const missingClosingParens = countUnclosedLeftParens(formula);
+  if (missingClosingParens <= 0) {
+    return formula;
+  }
+
+  const candidate = formula + ')'.repeat(missingClosingParens);
+  const reparsed = parseExpression(candidate);
+  if (!reparsed || hasSyntaxErrors(reparsed)) {
+    return formula;
+  }
+
+  return candidate;
+}
 
 /**
  * `extractReferences` returns references in the expression.
@@ -236,16 +357,13 @@ export function findReferenceTokenAtCursor(
  */
 export function evaluate(formula: string, grid?: Grid): string {
   try {
-    const stream = CharStreams.fromString(formula.slice(1));
-    const lexer = new FormulaLexer(stream);
-    const tokens = new CommonTokenStream(lexer);
-    const parser = new FormulaParser(tokens);
-    const tree = parser.expr();
-    const evaluator = new Evaluator(grid);
-    lexer.removeErrorListeners();
-    parser.removeErrorListeners();
+    const parsed = parseExpression(formula);
+    if (!parsed || hasSyntaxErrors(parsed)) {
+      return '#ERROR!';
+    }
 
-    const node = evaluator.visit(tree);
+    const evaluator = new Evaluator(grid);
+    const node = evaluator.visit(parsed.tree);
     if (node.t === 'ref' && grid) {
       if (isSrng(node.v)) {
         return '#VALUE!';

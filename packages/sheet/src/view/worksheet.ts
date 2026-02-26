@@ -561,6 +561,9 @@ export class Worksheet {
     if (this.functionBrowser.isVisible()) {
       return;
     }
+    if (this.isImeComposingKeyEvent(e)) {
+      return;
+    }
 
     // Ignore key events originating from interactive elements outside the
     // sheet container (e.g. dialog inputs) so they can type normally.
@@ -3150,9 +3153,9 @@ export class Worksheet {
     e: KeyboardEvent,
     source: EditorInputSource,
   ): Promise<void> {
-    // Ignore keydown events during IME composition to prevent
-    // duplicate characters (e.g. Korean input commit + Enter).
-    if (e.isComposing) return;
+    // Ignore key events during IME composition to prevent composition
+    // cancellation or duplicate commit handling.
+    if (this.isImeComposingKeyEvent(e)) return;
 
     const inputEl =
       source === 'formulaBar'
@@ -3297,6 +3300,10 @@ export class Worksheet {
       keyEquals(e, 'ArrowLeft') ||
       keyEquals(e, 'ArrowRight')
     );
+  }
+
+  private isImeComposingKeyEvent(e: KeyboardEvent): boolean {
+    return e.isComposing || e.key === 'Process' || e.keyCode === 229;
   }
 
   private applyFormulaRangeArrowKey(e: KeyboardEvent): Ref {

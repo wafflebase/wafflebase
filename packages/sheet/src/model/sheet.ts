@@ -15,6 +15,7 @@ import {
   isCrossSheetRef,
   parseCrossSheetRef,
 } from './coordinates';
+import { extractReferences, normalizeFormulaOnCommit } from '../formula/formula';
 import {
   Axis,
   BorderPreset,
@@ -748,7 +749,7 @@ export class Sheet {
       const style = this.applyInferredFormat(cell.s, inferred);
       const base =
         inferred.type === 'formula'
-          ? { f: `=${inferred.value}` }
+          ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
           : { v: this.toStoredValue(inferred) };
       normalized.set(sref, this.compactCell(base, style));
     }
@@ -768,7 +769,7 @@ export class Sheet {
       const style = this.applyInferredFormat(existing?.s, inferred);
       const base =
         inferred.type === 'formula'
-          ? { f: `=${inferred.value}` }
+          ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
           : { v: this.toStoredValue(inferred) };
       const cell = this.compactCell(base, style);
 
@@ -2276,7 +2277,14 @@ export class Sheet {
   public async recalculateCrossSheetFormulas(): Promise<void> {
     const formulaGrid = await this.store.getFormulaGrid();
     const formulaSrefs = new Set<Sref>();
-    for (const [sref] of formulaGrid) {
+    for (const [sref, cell] of formulaGrid) {
+      if (!cell.f) continue;
+      const hasCrossSheetReference = Array.from(extractReferences(cell.f)).some(
+        (reference) => isCrossSheetRef(reference),
+      );
+      if (!hasCrossSheetReference) {
+        continue;
+      }
       formulaSrefs.add(sref);
     }
 

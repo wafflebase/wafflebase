@@ -21,6 +21,8 @@ export class CellInput {
   private maxWidth: number = Infinity;
   private maxHeight: number = Infinity;
   private composing: boolean = false;
+  private boundHandleCompositionStart: () => void;
+  private boundHandleCompositionEnd: () => void;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -66,18 +68,23 @@ export class CellInput {
     this.container.appendChild(this.cellPositionHint);
 
     this.boundHandleInput = this.handleInput.bind(this);
+    this.boundHandleCompositionStart = this.handleCompositionStart.bind(this);
+    this.boundHandleCompositionEnd = this.handleCompositionEnd.bind(this);
     this.input.addEventListener('input', this.boundHandleInput);
-    this.input.addEventListener('compositionstart', () => {
-      this.composing = true;
-    });
-    this.input.addEventListener('compositionend', () => {
-      this.composing = false;
-      this.adjustSize();
-    });
+    this.input.addEventListener(
+      'compositionstart',
+      this.boundHandleCompositionStart,
+    );
+    this.input.addEventListener('compositionend', this.boundHandleCompositionEnd);
   }
 
   public cleanup(): void {
     this.input.removeEventListener('input', this.boundHandleInput);
+    this.input.removeEventListener(
+      'compositionstart',
+      this.boundHandleCompositionStart,
+    );
+    this.input.removeEventListener('compositionend', this.boundHandleCompositionEnd);
     this.container.remove();
   }
 
@@ -196,10 +203,22 @@ export class CellInput {
   }
 
   private handleInput(): void {
-    this.renderInput();
-    if (!this.composing) {
+    if (this.composing) {
       this.adjustSize();
+      return;
     }
+    this.renderInput();
+    this.adjustSize();
+  }
+
+  private handleCompositionStart(): void {
+    this.composing = true;
+  }
+
+  private handleCompositionEnd(): void {
+    this.composing = false;
+    this.renderInput();
+    this.adjustSize();
   }
 
   private updateFrame(
@@ -243,6 +262,10 @@ export class CellInput {
   }
 
   private renderInput(): void {
+    if (this.composing) {
+      return;
+    }
+
     const text = this.input.innerText;
     if (!text.startsWith('=')) {
       return;

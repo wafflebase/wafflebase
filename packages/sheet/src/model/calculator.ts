@@ -1,7 +1,32 @@
 import { evaluate, extractReferences } from '../formula/formula';
 import { parseRef } from './coordinates';
 import { Sheet } from './sheet';
-import { Sref } from './types';
+import { CellStyle, Sref } from './types';
+
+function stylesEqual(
+  left: CellStyle | undefined,
+  right: CellStyle | undefined,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+
+  const leftKeys = Object.keys(left) as Array<keyof CellStyle>;
+  const rightKeys = Object.keys(right) as Array<keyof CellStyle>;
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  for (const key of leftKeys) {
+    if (left[key] !== right[key]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * `calculate` calculates recursively the given cell and its dependencies.
@@ -20,22 +45,38 @@ export async function calculate(
 
     const cell = (await sheet.getCell(ref))!;
     if (cycled.has(sref)) {
-      await sheet.setCell(ref, {
+      const nextCell = {
         v: '#REF!',
         f: cell.f,
         s: cell.s,
-      });
+      };
+      if (
+        cell.v === nextCell.v &&
+        cell.f === nextCell.f &&
+        stylesEqual(cell.s, nextCell.s)
+      ) {
+        continue;
+      }
+      await sheet.setCell(ref, nextCell);
       continue;
     }
 
     const references = extractReferences(cell.f!);
     const grid = await sheet.fetchGridByReferences(references);
     const value = await evaluate(cell.f!, grid);
-    await sheet.setCell(ref, {
+    const nextCell = {
       v: value,
       f: cell.f,
       s: cell.s,
-    });
+    };
+    if (
+      cell.v === nextCell.v &&
+      cell.f === nextCell.f &&
+      stylesEqual(cell.s, nextCell.s)
+    ) {
+      continue;
+    }
+    await sheet.setCell(ref, nextCell);
   }
 }
 

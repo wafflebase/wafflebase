@@ -16,7 +16,10 @@ export class FormulaBar {
   private container: HTMLDivElement;
   private cellLabel: HTMLDivElement;
   private formulaInput: HTMLDivElement;
-  private boundRenderInput: () => void;
+  private boundHandleInput: () => void;
+  private boundHandleCompositionStart: () => void;
+  private boundHandleCompositionEnd: () => void;
+  private composing: boolean = false;
 
   constructor(theme: Theme = 'light', readOnly: boolean = false) {
     this.theme = theme;
@@ -51,8 +54,18 @@ export class FormulaBar {
     this.formulaInput.style.lineHeight = '12px';
     this.container.appendChild(this.formulaInput);
 
-    this.boundRenderInput = this.renderInput.bind(this);
-    this.formulaInput.addEventListener('input', this.boundRenderInput);
+    this.boundHandleInput = this.handleInput.bind(this);
+    this.boundHandleCompositionStart = this.handleCompositionStart.bind(this);
+    this.boundHandleCompositionEnd = this.handleCompositionEnd.bind(this);
+    this.formulaInput.addEventListener('input', this.boundHandleInput);
+    this.formulaInput.addEventListener(
+      'compositionstart',
+      this.boundHandleCompositionStart,
+    );
+    this.formulaInput.addEventListener(
+      'compositionend',
+      this.boundHandleCompositionEnd,
+    );
   }
 
   public getContainer(): HTMLElement {
@@ -64,7 +77,15 @@ export class FormulaBar {
   }
 
   public cleanup() {
-    this.formulaInput.removeEventListener('input', this.boundRenderInput);
+    this.formulaInput.removeEventListener('input', this.boundHandleInput);
+    this.formulaInput.removeEventListener(
+      'compositionstart',
+      this.boundHandleCompositionStart,
+    );
+    this.formulaInput.removeEventListener(
+      'compositionend',
+      this.boundHandleCompositionEnd,
+    );
     this.sheet = undefined;
     this.container.remove();
   }
@@ -118,7 +139,27 @@ export class FormulaBar {
     return document.activeElement === this.formulaInput;
   }
 
+  private handleInput(): void {
+    if (this.composing) {
+      return;
+    }
+    this.renderInput();
+  }
+
+  private handleCompositionStart(): void {
+    this.composing = true;
+  }
+
+  private handleCompositionEnd(): void {
+    this.composing = false;
+    this.renderInput();
+  }
+
   private renderInput(): void {
+    if (this.composing) {
+      return;
+    }
+
     const text = this.formulaInput.innerText;
     if (!text.startsWith('=')) {
       return;

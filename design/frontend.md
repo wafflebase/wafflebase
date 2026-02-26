@@ -75,7 +75,8 @@ React and the `@wafflebase/sheet` engine:
    `store` is a `YorkieStore` wrapping the current Yorkie document.
 2. Subscribes to `doc.subscribe("remote-change")` and coalesces cross-sheet
    recalculation to animation frames so bursty updates do not trigger
-   redundant recalculations.
+   redundant recalculations. The sheet engine recalculates from cross-sheet
+   formula roots only, and skips no-op formula writes.
 3. Subscribes to `doc.subscribe("presence")` and coalesces overlay redraws
    to animation frames so rapid presence updates do not flood rerenders.
 4. On unmount, calls `spreadsheet.cleanup()` to remove event listeners and

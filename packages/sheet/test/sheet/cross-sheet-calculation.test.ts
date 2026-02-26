@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { MemStore } from '../../src/store/memory';
 import { Sheet } from '../../src/model/sheet';
 import { Grid, Cell, Sref, GridResolver } from '../../src/model/types';
@@ -213,5 +213,51 @@ describe('Cross-Sheet Calculation', () => {
 
     expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('2');
     expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('4');
+  });
+
+  it('should skip local-only formulas during cross-sheet recalculation', async () => {
+    const store = new MemStore();
+    const setSpy = vi.spyOn(store, 'set');
+    const sheet = new Sheet(store);
+
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '=A1+1');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('2');
+
+    setSpy.mockClear();
+    await sheet.recalculateCrossSheetFormulas();
+
+    expect(setSpy).not.toHaveBeenCalled();
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('2');
+  });
+
+  it('should avoid no-op writes when cross-sheet value is unchanged', async () => {
+    const store = new MemStore();
+    const setSpy = vi.spyOn(store, 'set');
+    const sheet = new Sheet(store);
+
+    const resolver: GridResolver = (
+      sheetName: string,
+      refs: Set<Sref>,
+    ): Grid | undefined => {
+      if (sheetName !== 'SHEET2') return undefined;
+      const grid: Grid = new Map<Sref, Cell>();
+      for (const ref of refs) {
+        if (ref === 'A1') {
+          grid.set(ref, { v: '7' });
+        }
+      }
+      return grid;
+    };
+
+    sheet.setGridResolver(resolver);
+    await sheet.setData({ r: 1, c: 1 }, '=Sheet2!A1');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('7');
+
+    setSpy.mockClear();
+    await sheet.recalculateCrossSheetFormulas();
+
+    expect(setSpy).not.toHaveBeenCalled();
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('7');
   });
 });

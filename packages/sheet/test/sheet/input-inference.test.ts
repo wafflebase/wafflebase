@@ -46,6 +46,16 @@ describe('Sheet.setData input inference', () => {
     expect(await sheet.toInputString({ r: 1, c: 1 })).toBe('=SUM(1,2)');
   });
 
+  it('auto-completes missing closing parenthesis for formulas on commit', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '=sum(1,2,3');
+
+    const cell = await sheet.getCell({ r: 1, c: 1 });
+    expect(cell?.f).toBe('=sum(1,2,3)');
+    expect(cell?.v).toBe('6');
+    expect(await sheet.toInputString({ r: 1, c: 1 })).toBe('=sum(1,2,3)');
+  });
+
   it('keeps leading-zero identifiers as text', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '00123');

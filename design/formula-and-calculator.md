@@ -83,6 +83,8 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
 
 1. **Parse** — The formula string (minus the leading `=`) is tokenized and
    parsed by the ANTLR-generated lexer/parser into an AST.
+   On evaluation, any parser syntax error is treated as `#ERROR!` (no
+   recovery-based partial evaluation).
 2. **Visit** — An `Evaluator` class (implementing the ANTLR visitor pattern)
    walks the AST. Each node evaluates to an `EvalNode`:
    - `NumNode { t: 'num', v: number }`
@@ -184,6 +186,10 @@ argument info.
 | `#REF!`   | Invalid cell reference (deleted cell, circular dependency, out-of-range) |
 | `#N/A!`   | Function returned no applicable result (missing args)                    |
 | `#ERROR!` | Catch-all for unexpected evaluation errors                               |
+
+On commit (`Sheet.setData`), formula input is normalized for one safe case:
+if syntax errors are only `missing ')' at '<EOF>'`, the engine appends the
+required trailing `)` and stores the corrected formula.
 
 ### Calculator
 
@@ -301,11 +307,12 @@ across sheets.
 
 Instead, cross-sheet recalculation is handled explicitly:
 
-- **`Sheet.recalculateCrossSheetFormulas()`** — Scans all formula cells and
-  runs a single dependency recalculation pass using the
-  existing calculator (`buildDependantsMap` + topological evaluation). This
-  avoids separate cross-sheet vs local-chain code paths and ensures updates
-  propagate through local dependants of cross-sheet formulas.
+- **`Sheet.recalculateCrossSheetFormulas()`** — Scans formula cells, selects
+  only formulas that include at least one cross-sheet reference, and runs a
+  single dependency recalculation pass using the existing calculator
+  (`buildDependantsMap` + topological evaluation). Starting from cross-sheet
+  roots still propagates through local dependant chains while avoiding
+  unrelated local-only formula recalculation.
 
 - **`Spreadsheet.recalculateCrossSheetFormulas()`** — Calls the Sheet method
   and then re-renders.
@@ -351,9 +358,10 @@ local dependants map, values can become stale until
 `recalculateCrossSheetFormulas()` is called. The frontend mitigates this by
 calling it on tab switch and remote changes.
 
-**Performance** — The simplified model recalculates all formulas on
-cross-sheet refresh. This is easier to reason about and more robust for
-dependency chains, but can be slower on very large sheets. Mitigations:
+**Performance** — Cross-sheet refresh starts from cross-sheet formula roots
+only (not all formulas), and calculator writes are skipped when evaluated
+results are unchanged. This keeps dependency behavior deterministic while
+reducing unnecessary CRDT writes and sync churn. Additional mitigations:
 
 1. Batched writes during recalculation to reduce transaction overhead.
 2. Coalesced remote-change triggers in the frontend to avoid overlapping

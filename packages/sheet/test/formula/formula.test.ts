@@ -5,6 +5,7 @@ import {
   extractTokens,
   isReferenceInsertPosition,
   findReferenceTokenAtCursor,
+  normalizeFormulaOnCommit,
 } from '../../src/formula/formula';
 import { Grid, Cell } from '../../src/model/types';
 
@@ -198,6 +199,15 @@ describe('Formula', () => {
   it('should display #ERROR! for invalid formulas', () => {
     expect(evaluate('abc')).toBe('#ERROR!');
     expect(evaluate('=1+')).toBe('#ERROR!');
+    expect(evaluate('=SUM(1,2,3')).toBe('#ERROR!');
+  });
+
+  it('should normalize missing trailing function parenthesis on commit', () => {
+    expect(normalizeFormulaOnCommit('=SUM(1,2,3')).toBe('=SUM(1,2,3)');
+  });
+
+  it('should not normalize unrelated invalid formulas on commit', () => {
+    expect(normalizeFormulaOnCommit('=1+')).toBe('=1+');
   });
 
   it('should display #N/A for invalid arguments', () => {
