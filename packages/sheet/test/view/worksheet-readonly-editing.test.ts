@@ -20,6 +20,7 @@ type FinishEditingContext = {
   };
   cellInput: {
     isFocused: ReturnType<typeof vi.fn>;
+    isPrimed: ReturnType<typeof vi.fn>;
     getValue: ReturnType<typeof vi.fn>;
     hide: ReturnType<typeof vi.fn>;
   };
@@ -53,6 +54,7 @@ const createContext = (readOnly: boolean): FinishEditingContext => ({
   },
   cellInput: {
     isFocused: vi.fn().mockReturnValue(false),
+    isPrimed: vi.fn().mockReturnValue(false),
     getValue: vi.fn(),
     hide: vi.fn(),
   },
@@ -70,6 +72,22 @@ describe('Worksheet read-only editing', () => {
     expect(ctx.sheet.setData).not.toHaveBeenCalled();
     expect(ctx.autoResizeRow).not.toHaveBeenCalled();
     expect(ctx.formulaBar.blur).toHaveBeenCalledTimes(1);
+    expect(ctx.cellInput.hide).toHaveBeenCalledTimes(1);
+    expect(ctx.resetFormulaRangeState).toHaveBeenCalledTimes(1);
+    expect(ctx.formulaRanges).toEqual([]);
+  });
+
+  it('does not commit primed cell-input focus state', async () => {
+    const ctx = createContext(false);
+    ctx.formulaBar.isFocused.mockReturnValue(false);
+    ctx.cellInput.isFocused.mockReturnValue(true);
+    ctx.cellInput.isPrimed.mockReturnValue(true);
+    ctx.cellInput.getValue.mockReturnValue('');
+
+    await finishEditing.call(ctx);
+
+    expect(ctx.sheet.setData).not.toHaveBeenCalled();
+    expect(ctx.autoResizeRow).not.toHaveBeenCalled();
     expect(ctx.cellInput.hide).toHaveBeenCalledTimes(1);
     expect(ctx.resetFormulaRangeState).toHaveBeenCalledTimes(1);
     expect(ctx.formulaRanges).toEqual([]);

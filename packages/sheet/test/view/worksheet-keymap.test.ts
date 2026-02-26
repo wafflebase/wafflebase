@@ -21,6 +21,11 @@ type GridContext = {
   copy: ReturnType<typeof vi.fn>;
   paste: ReturnType<typeof vi.fn>;
   renderOverlay: ReturnType<typeof vi.fn>;
+  primeCellInputForSelection: ReturnType<typeof vi.fn>;
+  cellInput: {
+    isFocused: ReturnType<typeof vi.fn>;
+    isPrimed: ReturnType<typeof vi.fn>;
+  };
 };
 
 const handleGridKeydown = (
@@ -53,11 +58,21 @@ const createContext = (): GridContext => ({
   copy: vi.fn(),
   paste: vi.fn(),
   renderOverlay: vi.fn(),
+  primeCellInputForSelection: vi.fn(),
+  cellInput: {
+    isFocused: vi.fn().mockReturnValue(false),
+    isPrimed: vi.fn().mockReturnValue(false),
+  },
 });
 
 const createEvent = (
   key: string,
-  modifiers: Partial<Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>>,
+  modifiers: Partial<
+    Pick<
+      KeyboardEvent,
+      'ctrlKey' | 'metaKey' | 'shiftKey' | 'isComposing' | 'keyCode'
+    >
+  >,
 ) => {
   const preventDefault = vi.fn();
   const event = {
@@ -65,6 +80,8 @@ const createEvent = (
     ctrlKey: modifiers.ctrlKey ?? false,
     metaKey: modifiers.metaKey ?? false,
     shiftKey: modifiers.shiftKey ?? false,
+    isComposing: modifiers.isComposing ?? false,
+    keyCode: modifiers.keyCode ?? 0,
     altKey: false,
     preventDefault,
   } as unknown as KeyboardEvent;
@@ -129,5 +146,37 @@ describe('Worksheet grid keymap', () => {
     expect(ctx.sheet.getRange).not.toHaveBeenCalled();
     expect(ctx.sheet.getActiveCell).not.toHaveBeenCalled();
     expect(ctx.scrollIntoView).toHaveBeenCalledWith(undefined);
+  });
+
+  it('starts in-cell editing for printable grid input', async () => {
+    const ctx = createContext();
+    ctx.isValidCellInput.mockReturnValue(true);
+    const { event } = createEvent('a', {});
+
+    await handleGridKeydown.call(ctx, event);
+
+    expect(ctx.showCellInput).toHaveBeenCalledWith(true, false, true);
+  });
+
+  it('starts in-cell editing for IME composition key events', async () => {
+    const ctx = createContext();
+    const { event } = createEvent('ㄱ', { keyCode: 229 });
+
+    await handleGridKeydown.call(ctx, event);
+
+    expect(ctx.showCellInput).toHaveBeenCalledWith(true, false, true);
+    expect(ctx.isValidCellInput).not.toHaveBeenCalled();
+  });
+
+  it('keeps primed input open instead of reopening editor on typing', async () => {
+    const ctx = createContext();
+    ctx.cellInput.isFocused.mockReturnValue(true);
+    ctx.cellInput.isPrimed.mockReturnValue(true);
+    ctx.isValidCellInput.mockReturnValue(true);
+    const { event } = createEvent('a', {});
+
+    await handleGridKeydown.call(ctx, event);
+
+    expect(ctx.showCellInput).not.toHaveBeenCalled();
   });
 });

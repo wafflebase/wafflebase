@@ -21,8 +21,10 @@ export class CellInput {
   private maxWidth: number = Infinity;
   private maxHeight: number = Infinity;
   private composing: boolean = false;
+  private primed: boolean = false;
   private boundHandleCompositionStart: () => void;
   private boundHandleCompositionEnd: () => void;
+  private onPrimedActivate?: () => void;
 
   constructor(theme: Theme = 'light') {
     this.theme = theme;
@@ -105,7 +107,10 @@ export class CellInput {
     height?: number,
     maxWidth?: number,
     maxHeight?: number,
+    placeCaretAtEnd: boolean = true,
   ): void {
+    this.primed = false;
+    this.applyEditingAppearance();
     this.updateFrame(
       left,
       top,
@@ -119,15 +124,43 @@ export class CellInput {
     this.renderInput();
     this.adjustSize();
     if (focus) {
-      setTextRange(this.input, {
-        start: this.input.innerText.length,
-        end: this.input.innerText.length,
-      });
       this.input.focus();
+      if (placeCaretAtEnd) {
+        setTextRange(this.input, {
+          start: this.input.innerText.length,
+          end: this.input.innerText.length,
+        });
+      }
     }
   }
 
+  public prime(
+    left: number,
+    top: number,
+    width?: number,
+    height?: number,
+    maxWidth?: number,
+    maxHeight?: number,
+  ): void {
+    this.primed = true;
+    this.updateFrame(
+      left,
+      top,
+      width ?? DefaultCellWidth,
+      height ?? DefaultCellHeight,
+      maxWidth ?? Infinity,
+      maxHeight ?? Infinity,
+    );
+    this.input.innerText = '';
+    this.renderInput();
+    this.adjustSize();
+    this.applyPrimedAppearance();
+    this.input.focus();
+  }
+
   public hide(): void {
+    this.primed = false;
+    this.applyEditingAppearance();
     this.container.style.left = '-1000px';
     this.container.style.pointerEvents = 'none';
     this.setCellPositionHint();
@@ -141,6 +174,18 @@ export class CellInput {
 
   public isFocused(): boolean {
     return document.activeElement === this.input;
+  }
+
+  public isComposing(): boolean {
+    return this.composing;
+  }
+
+  public isPrimed(): boolean {
+    return this.primed;
+  }
+
+  public setOnPrimedActivate(callback: () => void): void {
+    this.onPrimedActivate = callback;
   }
 
   public getValue(): string {
@@ -203,6 +248,7 @@ export class CellInput {
   }
 
   private handleInput(): void {
+    this.activatePrimedInput();
     if (this.composing) {
       this.adjustSize();
       return;
@@ -212,6 +258,7 @@ export class CellInput {
   }
 
   private handleCompositionStart(): void {
+    this.activatePrimedInput();
     this.composing = true;
   }
 
@@ -236,7 +283,6 @@ export class CellInput {
 
     this.container.style.left = left + 'px';
     this.container.style.top = top + 'px';
-    this.container.style.pointerEvents = 'auto';
   }
 
   private adjustSize(): void {
@@ -301,5 +347,30 @@ export class CellInput {
 
   private getThemeColor(key: ThemeKey): string {
     return getThemeColor(this.theme, key);
+  }
+
+  private activatePrimedInput(): void {
+    if (!this.primed) {
+      return;
+    }
+    this.primed = false;
+    this.applyEditingAppearance();
+    this.onPrimedActivate?.();
+  }
+
+  private applyEditingAppearance(): void {
+    this.container.style.pointerEvents = 'auto';
+    this.input.style.outline = `2px solid ${this.getThemeColor('activeCellColor')}`;
+    this.input.style.color = this.getThemeColor('cellTextColor');
+    this.input.style.backgroundColor = this.getThemeColor('cellBGColor');
+    this.input.style.caretColor = this.getThemeColor('cellTextColor');
+  }
+
+  private applyPrimedAppearance(): void {
+    this.container.style.pointerEvents = 'none';
+    this.input.style.outline = 'none';
+    this.input.style.color = 'transparent';
+    this.input.style.backgroundColor = 'transparent';
+    this.input.style.caretColor = 'transparent';
   }
 }

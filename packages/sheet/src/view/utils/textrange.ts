@@ -91,6 +91,14 @@ export function setTextRange(
   }
   traverse(container);
 
+  if (startNode === null || endNode === null) {
+    const childCount = container.childNodes.length;
+    const safeStart = Math.max(0, Math.min(textRange.start, childCount));
+    const safeEnd = Math.max(safeStart, Math.min(textRange.end, childCount));
+    range.setStart(container, safeStart);
+    range.setEnd(container, safeEnd);
+  }
+
   const selection = window.getSelection()!;
 
   selection.removeAllRanges();

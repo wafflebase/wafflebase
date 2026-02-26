@@ -10,6 +10,7 @@ type EditorContext = {
   focusGrid: ReturnType<typeof vi.fn>;
   render: ReturnType<typeof vi.fn>;
   scrollIntoView: ReturnType<typeof vi.fn>;
+  primeCellInputForSelection: ReturnType<typeof vi.fn>;
   isInFormulaRangeMode: ReturnType<typeof vi.fn>;
   applyFormulaRangeArrowKey: ReturnType<typeof vi.fn>;
   toggleAbsoluteReference: ReturnType<typeof vi.fn>;
@@ -48,6 +49,7 @@ const createContext = (): EditorContext => {
     focusGrid: vi.fn(),
     render: vi.fn(),
     scrollIntoView: vi.fn(),
+    primeCellInputForSelection: vi.fn(),
     isInFormulaRangeMode: vi.fn().mockReturnValue(false),
     applyFormulaRangeArrowKey: vi.fn().mockReturnValue({ r: 1, c: 1 }),
     toggleAbsoluteReference: vi.fn(),
@@ -101,6 +103,7 @@ describe('Worksheet editor keymap', () => {
     expect(ctx.sheet.moveInRange).not.toHaveBeenCalled();
     expect(ctx.render).toHaveBeenCalledTimes(1);
     expect(ctx.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(ctx.primeCellInputForSelection).toHaveBeenCalledTimes(1);
     expect(preventDefault).toHaveBeenCalled();
   });
 
@@ -116,6 +119,7 @@ describe('Worksheet editor keymap', () => {
     expect(ctx.sheet.moveInRange).toHaveBeenCalledWith(-1, 0);
     expect(ctx.render).toHaveBeenCalledTimes(1);
     expect(ctx.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(ctx.primeCellInputForSelection).toHaveBeenCalledTimes(1);
     expect(preventDefault).toHaveBeenCalled();
   });
 
@@ -155,6 +159,7 @@ describe('Worksheet editor keymap', () => {
     expect(ctx.sheet.move).toHaveBeenCalledWith('up');
     expect(ctx.render).toHaveBeenCalledTimes(1);
     expect(ctx.scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(ctx.primeCellInputForSelection).toHaveBeenCalledTimes(1);
     expect(preventDefault).toHaveBeenCalled();
   });
 });

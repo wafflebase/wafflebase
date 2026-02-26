@@ -125,4 +125,13 @@ Each package has a README for getting started, and the `design/` directory has i
 - [`design/sharing.md`](design/sharing.md) — URL-based token sharing with anonymous access and role-based permissions
 - [`design/datasource.md`](design/datasource.md) — External PostgreSQL datasources, multi-tab documents, SQL editor, ReadOnlyStore
 
+## Task Notes
+
+- Use task-specific files in `tasks/` instead of shared `todo.md`/`lessons.md`.
+- File naming:
+  - `tasks/YYYYMMDD-<slug>-todo.md`
+  - `tasks/YYYYMMDD-<slug>-lessons.md`
+- Maintain `tasks/README.md` as a table of contents for task docs.
+- When task docs change, update `tasks/README.md` in the same commit.
+
 IMPORTANT: Always refer to these documents for architectural context and design decisions. And We should keep them up to date after making changes.

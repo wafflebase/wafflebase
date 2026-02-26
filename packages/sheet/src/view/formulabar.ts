@@ -139,6 +139,10 @@ export class FormulaBar {
     return document.activeElement === this.formulaInput;
   }
 
+  public isComposing(): boolean {
+    return this.composing;
+  }
+
   private handleInput(): void {
     if (this.composing) {
       return;

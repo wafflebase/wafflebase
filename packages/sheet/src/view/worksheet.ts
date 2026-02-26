@@ -156,6 +156,9 @@ export class Worksheet {
     this.overlay = new Overlay(theme);
     this.gridCanvas = new GridCanvas(theme);
     this.cellInput = new CellInput(theme);
+    this.cellInput.setOnPrimedActivate(() => {
+      void this.syncCellInputStyleForActiveCell();
+    });
     this.contextMenu = new ContextMenu(theme);
     this.autocomplete = new FormulaAutocomplete(theme);
     this.functionBrowser = new FunctionBrowser(theme);
@@ -228,6 +231,7 @@ export class Worksheet {
     this.addEventListeners();
     this.resizeObserver.observe(this.container);
     this.render();
+    this.primeCellInputForSelection();
   }
 
   /**
@@ -288,6 +292,7 @@ export class Worksheet {
     this.sheet!.selectStart(ref);
     this.render();
     this.scrollIntoView();
+    this.primeCellInputForSelection();
   }
 
   public cleanup() {
@@ -502,11 +507,17 @@ export class Worksheet {
       this.formulaBar.blur();
       this.cellInput.hide();
     } else if (this.cellInput.isFocused()) {
-      if (!this.readOnly) {
-        await this.sheet!.setData(activeCell, this.cellInput.getValue());
-        didEdit = true;
+      if (this.cellInput.isPrimed()) {
+        // Primed input is selection-idle focus state, not an active edit.
+        // Never commit it as a data change.
+        this.cellInput.hide();
+      } else {
+        if (!this.readOnly) {
+          await this.sheet!.setData(activeCell, this.cellInput.getValue());
+          didEdit = true;
+        }
+        this.cellInput.hide();
       }
-      this.cellInput.hide();
     } else {
       return;
     }
@@ -555,6 +566,10 @@ export class Worksheet {
       void this.handleFormulaKeydown(e);
       return;
     } else if (this.cellInput.isFocused()) {
+      if (this.cellInput.isPrimed()) {
+        void this.handleGridKeydown(e);
+        return;
+      }
       void this.handleCellInputKeydown(e);
       return;
     }
@@ -562,11 +577,33 @@ export class Worksheet {
     void this.handleGridKeydown(e);
   }
 
+  private handleDocumentCompositionStart(e: CompositionEvent): void {
+    if (this.readOnly) {
+      return;
+    }
+    if (this.functionBrowser.isVisible()) {
+      return;
+    }
+    if (this.isExternalInput(e.target)) {
+      return;
+    }
+    if (this.formulaBar.isFocused() || this.cellInput.isFocused()) {
+      return;
+    }
+
+    // IME can begin composition while the grid itself is focused; open the
+    // in-cell editor immediately so composition continues in the editor.
+    void this.showCellInput(true, false, true);
+  }
+
   private handleKeyUp(e: KeyboardEvent): void {
     if (this.functionBrowser.isVisible()) {
       return;
     }
     if (isImeComposingKeyEvent(e)) {
+      return;
+    }
+    if (this.formulaBar.isComposing() || this.cellInput.isComposing()) {
       return;
     }
 
@@ -596,7 +633,7 @@ export class Worksheet {
       value = this.formulaBar.getValue();
       activeInput = this.formulaBar.getFormulaInput();
       this.cellInput.setValue(value);
-    } else if (this.cellInput.isFocused()) {
+    } else if (this.cellInput.isFocused() && !this.cellInput.isPrimed()) {
       value = this.cellInput.getValue();
       activeInput = this.cellInput.getInput();
       this.formulaBar.setValue(value);
@@ -1774,6 +1811,9 @@ export class Worksheet {
     this.addEventListener(document, 'keyup', (e) => {
       this.handleKeyUp(e);
     });
+    this.addEventListener(document, 'compositionstart', (e) => {
+      this.handleDocumentCompositionStart(e);
+    });
   }
 
   /**
@@ -2716,6 +2756,7 @@ export class Worksheet {
         // Finalize drag selection with a full render so toolbar listeners
         // subscribed via onSelectionChange receive the updated range state.
         this.render();
+        this.primeCellInputForSelection();
       },
       onCleanup: () => {
         stopAutoScroll();
@@ -3205,6 +3246,7 @@ export class Worksheet {
           }
           this.render();
           this.scrollIntoView();
+          this.primeCellInputForSelection();
         },
       },
       {
@@ -3219,6 +3261,7 @@ export class Worksheet {
           this.sheet!.moveInRange(0, event.shiftKey ? -1 : 1);
           this.render();
           this.scrollIntoView();
+          this.primeCellInputForSelection();
         },
       },
       {
@@ -3245,6 +3288,7 @@ export class Worksheet {
           moveByArrow(event);
           this.render();
           this.scrollIntoView();
+          this.primeCellInputForSelection();
         },
       },
       {
@@ -3395,9 +3439,10 @@ export class Worksheet {
         this.render();
         const scrollTarget =
           event.shiftKey && this.sheet!.getSelectionType() === 'cell'
-          ? this.getRangeExtentRef()
-          : undefined;
+            ? this.getRangeExtentRef()
+            : undefined;
         this.scrollIntoView(scrollTarget);
+        this.primeCellInputForSelection();
       }
     };
 
@@ -3433,6 +3478,7 @@ export class Worksheet {
           this.sheet!.moveInRange(0, event.shiftKey ? -1 : 1);
           this.render();
           this.scrollIntoView();
+          this.primeCellInputForSelection();
         },
       },
       {
@@ -3444,6 +3490,7 @@ export class Worksheet {
             this.sheet!.moveInRange(event.shiftKey ? -1 : 1, 0);
             this.render();
             this.scrollIntoView();
+            this.primeCellInputForSelection();
           } else if (!this.readOnly) {
             this.showCellInput();
           }
@@ -3463,10 +3510,22 @@ export class Worksheet {
       },
       {
         match: (event) =>
-          !isModPressed(event) && this.isValidCellInput(event.key),
+          !isModPressed(event) && isImeComposingKeyEvent(event),
         run: () => {
           if (this.readOnly) return;
-          this.showCellInput(true);
+          if (this.cellInput.isFocused() && this.cellInput.isPrimed()) return;
+          this.showCellInput(true, false, true);
+        },
+      },
+      {
+        match: (event) =>
+          !isModPressed(event) &&
+          !isImeComposingKeyEvent(event) &&
+          this.isValidCellInput(event.key),
+        run: () => {
+          if (this.readOnly) return;
+          if (this.cellInput.isFocused() && this.cellInput.isPrimed()) return;
+          this.showCellInput(true, false, true);
         },
       },
       {
@@ -4024,12 +4083,57 @@ export class Worksheet {
     this.updateAutocompletePositionForActiveInput();
   }
 
+  private primeCellInputForSelection(): void {
+    if (this.readOnly || !this.sheet) {
+      return;
+    }
+    if (this.formulaBar.isFocused()) {
+      return;
+    }
+    if (this.sheet.getSelectionType() !== 'cell' || this.sheet.hasRange()) {
+      return;
+    }
+
+    this.editMode = false;
+    const cell = this.sheet.getActiveCell();
+    const layout = this.resolveCellInputLayout(cell);
+    this.cellInput.prime(
+      layout.left,
+      layout.top,
+      layout.width,
+      layout.height,
+      layout.maxWidth,
+      layout.maxHeight,
+    );
+    this.cellInput.setCellPositionHint(layout.pinned ? toSref(cell) : undefined);
+  }
+
+  private async syncCellInputStyleForActiveCell(): Promise<void> {
+    if (!this.sheet || !this.cellInput.isFocused()) {
+      return;
+    }
+    if (this.cellInput.isPrimed()) {
+      return;
+    }
+    const cell = this.sheet.getActiveCell();
+    const style = await this.sheet.getStyle(cell);
+    if (!this.sheet || !this.cellInput.isFocused() || this.cellInput.isPrimed()) {
+      return;
+    }
+    const current = this.sheet.getActiveCell();
+    if (current.r !== cell.r || current.c !== cell.c) {
+      return;
+    }
+    this.cellInput.applyStyle(style);
+  }
+
   /**
    * `showCellInput` shows the cell input.
    */
   private async showCellInput(
     withoutValue: boolean = false,
     withoutFocus: boolean = false,
+    keyboardEntry: boolean = false,
   ) {
     if (!withoutFocus) {
       this.editMode = !withoutValue;
@@ -4047,6 +4151,7 @@ export class Worksheet {
       layout.height,
       layout.maxWidth,
       layout.maxHeight,
+      !keyboardEntry,
     );
     this.cellInput.setCellPositionHint(layout.pinned ? toSref(cell) : undefined);
 
@@ -4063,7 +4168,7 @@ export class Worksheet {
    * `isValidCellInput` checks if the key is a valid cell input.
    */
   private isValidCellInput(key: string): boolean {
-    return key.length === 1 || key === 'Process';
+    return key.length === 1;
   }
 
   /**

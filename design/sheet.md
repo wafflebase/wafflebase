@@ -450,6 +450,15 @@ It also exposes `focusCell(ref)` so host apps can programmatically move
 selection (for example, jumping to a collaborator's active cell) while reusing
 the same edit-commit and scroll-into-view behavior as native grid navigation.
 
+Keyboard edit entry uses a "primed input" model for selected-cell idle state.
+When a single cell is selected, focus is parked on an invisible in-cell editor
+(`CellInput`) so first keystrokes (including IME composition) start inside a
+real editable target immediately. Non-text/navigation keys still flow through
+the grid keymap, while printable/composition input is handled natively by the
+focused editor and promotes the primed editor into visible editing mode.
+While composition is active, keyup-driven formula-bar/autocomplete sync is
+skipped to avoid interrupting IME state.
+
 **GridContainer** — Wraps a scrollable `<div>` with a dummy sized child. When
 the logical grid size exceeds `MAX_SCROLL_SIZE` (10M px), scroll positions are
 linearly remapped. All downstream code works in logical coordinates.
