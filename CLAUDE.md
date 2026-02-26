@@ -52,18 +52,13 @@ pnpm sheet build:formula            # Regenerate ANTLR formula parser
 pnpm backend migrate                # Run Prisma database migrations
 ```
 
-## Key Files
+## High-Signal Entry Points
 
-- `packages/sheet/src/model/sheet.ts` — Main Sheet class (core data model)
-- `packages/sheet/src/formula/formula.ts` — Formula parser and evaluator
-- `packages/sheet/src/formula/functions.ts` — Built-in spreadsheet functions
-- `packages/sheet/src/formula/antlr/Formula.g4` — ANTLR grammar definition
-- `packages/sheet/src/view/worksheet.ts` — Canvas-based worksheet renderer
-- `packages/sheet/src/store/store.ts` — Store interface (MemStore / YorkieStore)
-- `packages/frontend/src/app/spreadsheet/sheet-view.tsx` — Spreadsheet React component
-- `packages/frontend/src/app/spreadsheet/yorkie-store.ts` — Yorkie store implementation
-- `packages/backend/src/auth/` — GitHub OAuth2 + JWT authentication
-- `packages/backend/prisma/schema.prisma` — Database schema
+- `packages/sheet/src/model/sheet.ts` — core spreadsheet model behavior
+- `packages/sheet/src/formula/formula.ts` — formula parse/evaluate pipeline
+- `packages/sheet/src/view/worksheet.ts` — canvas worksheet rendering and input
+- `packages/frontend/src/app/spreadsheet/sheet-view.tsx` — frontend sheet integration
+- `packages/backend/src/auth/` — GitHub OAuth + JWT authentication flow
 
 ## Conventions
 
@@ -82,6 +77,8 @@ Use commit messages that answer two questions: what changed and why.
 - Body: describe why the change was needed.
 - Keep line 2 blank.
 - Wrap body lines at 80 characters.
+- In shell commits, do not place `\n` inside regular quoted `-m` strings.
+  Use multiple `-m` flags or `$'...'` so body line breaks are real newlines.
 
 Example:
 
@@ -105,33 +102,23 @@ detached.
 
 ## Documentation
 
-Each package has a README for getting started, and the `design/` directory has in-depth technical documents.
+Start from these indexes, then open specific docs only as needed.
 
-### Package READMEs
+- [`design/README.md`](design/README.md) — central index for architecture/design docs
+- [`packages/sheet/README.md`](packages/sheet/README.md) — sheet engine concepts and APIs
+- [`packages/frontend/README.md`](packages/frontend/README.md) — frontend structure and features
+- [`packages/backend/README.md`](packages/backend/README.md) — backend modules and API behavior
 
-- [`packages/sheet/README.md`](packages/sheet/README.md) — Architecture, key concepts, public API, dev commands
-- [`packages/frontend/README.md`](packages/frontend/README.md) — Tech stack, app structure, routing, features
-- [`packages/backend/README.md`](packages/backend/README.md) — API endpoints, auth flow, database schema
+## Operational Pitfalls
 
-### Design Documents
+- Formula grammar changes require regeneration: run `pnpm sheet build:formula` and commit generated outputs.
+- ANTLR-generated files intentionally include `@ts-nocheck`; do not hand-edit generated parser/lexer files.
+- Backend and realtime flows assume local services are up (`docker compose up -d`) before running integration/e2e workflows.
+- Spreadsheet behavior should go through the `Store` abstraction; avoid bypassing it with ad-hoc persistence paths.
 
-- [`design/README.md`](design/README.md) — Index of all design documents
-- [`design/sheet.md`](design/sheet.md) — Data model, Store interface, formula engine, rendering pipeline, coordinate system
-- [`design/formula-and-calculator.md`](design/formula-and-calculator.md) — Formula parsing/evaluation, dependency recalculation, and cross-sheet reference behavior
-- [`design/frontend.md`](design/frontend.md) — Yorkie integration, presence system, auth flow, document management
-- [`design/backend.md`](design/backend.md) — Module architecture, API reference, auth system, security model
-- [`design/scroll-and-rendering.md`](design/scroll-and-rendering.md) — Viewport-based Canvas rendering, proportional scroll remapping
-- [`design/batch-transactions.md`](design/batch-transactions.md) — Store-level batch transactions for atomic undo/redo
-- [`design/sharing.md`](design/sharing.md) — URL-based token sharing with anonymous access and role-based permissions
-- [`design/datasource.md`](design/datasource.md) — External PostgreSQL datasources, multi-tab documents, SQL editor, ReadOnlyStore
+## Task Documentation
 
-## Task Notes
-
-- Use task-specific files in `tasks/` instead of shared `todo.md`/`lessons.md`.
-- File naming:
+- Track non-trivial tasks in `tasks/` using paired files:
   - `tasks/YYYYMMDD-<slug>-todo.md`
   - `tasks/YYYYMMDD-<slug>-lessons.md`
-- Maintain `tasks/README.md` as a table of contents for task docs.
-- When task docs change, update `tasks/README.md` in the same commit.
-
-IMPORTANT: Always refer to these documents for architectural context and design decisions. And We should keep them up to date after making changes.
+- Keep `tasks/README.md` updated when adding task files.
