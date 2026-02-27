@@ -44,8 +44,9 @@ pnpm frontend dev
 ```bash
 pnpm frontend build
 pnpm verify:frontend:chunks  # run after build to enforce JS chunk budget
-pnpm verify:frontend:visual  # run after build to enforce visual snapshots
+pnpm verify:frontend:visual  # run after build to enforce SSR visual snapshots
 pnpm verify:frontend:visual:browser  # browser-rendered visual snapshots
+pnpm verify:frontend:visual:all  # run both visual lanes together
 ```
 
 `pnpm verify:frontend:chunks` checks default limits of `500 kB` per chunk and
@@ -58,8 +59,7 @@ from `/harness/visual` via Vite SSR.
 
 `pnpm verify:frontend:visual:browser` compares deterministic screenshot
 baselines rendered in headless Chromium.
-Install prerequisites:
-- `pnpm --filter @wafflebase/frontend add -D playwright`
+Install Chromium once per environment:
 - `pnpm --filter @wafflebase/frontend exec playwright install chromium`
 
 ### Testing
@@ -71,6 +71,8 @@ pnpm frontend test:visual          # Visual baseline regression check
 pnpm frontend test:visual:update   # Update visual baseline file
 pnpm frontend test:visual:browser  # Browser visual baseline check
 pnpm frontend test:visual:browser:update # Update browser baseline
+pnpm frontend test:visual:all      # Run SSR + browser visual checks
+pnpm frontend test:visual:all:update # Update SSR + browser visual baselines
 pnpm frontend test:watch           # Node watch mode
 ```
 

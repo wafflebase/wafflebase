@@ -44,6 +44,8 @@ browser-rendered visual lane command wiring and interruption-safe cleanup in
 - `pnpm verify:frontend:visual:browser`: browser-rendered visual screenshot
   baseline gate (Playwright/Chromium, baseline at
   `packages/frontend/tests/visual/baselines/harness-visual.browser.png`)
+- `pnpm verify:frontend:visual:all`: convenience alias that runs both frontend
+  visual gates (`verify:frontend:visual` + `verify:frontend:visual:browser`)
 - `pnpm verify:integration`: Prisma migrate deploy + backend e2e (DB-backed)
 - `pnpm verify:integration:local`: skip integration when DB is unreachable
 - `pnpm verify:integration:docker`: one-command postgres up + integration + stop

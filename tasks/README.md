@@ -11,6 +11,8 @@ Track task-specific plan/review and lessons files.
 
 | Task | Todo | Lessons |
 |---|---|---|
+| Harness phase 18 verify simplification (2026-02-27) | [20260227-harness-phase18-verify-simplify-todo.md](./20260227-harness-phase18-verify-simplify-todo.md) | [20260227-harness-phase18-verify-simplify-lessons.md](./20260227-harness-phase18-verify-simplify-lessons.md) |
+| Harness phase 18 sheet visual baselines (2026-02-27) | [20260227-harness-phase18-sheet-visual-baselines-todo.md](./20260227-harness-phase18-sheet-visual-baselines-todo.md) | [20260227-harness-phase18-sheet-visual-baselines-lessons.md](./20260227-harness-phase18-sheet-visual-baselines-lessons.md) |
 | Move frontend tests/baselines outside src (2026-02-27) | [20260227-frontend-tests-outside-src-todo.md](./20260227-frontend-tests-outside-src-todo.md) | [20260227-frontend-tests-outside-src-lessons.md](./20260227-frontend-tests-outside-src-lessons.md) |
 | Harness phase 17 browser visual lane + docker cleanup hardening (2026-02-27) | [20260227-harness-phase17-browser-visual-cleanup-todo.md](./20260227-harness-phase17-browser-visual-cleanup-todo.md) | [20260227-harness-phase17-browser-visual-cleanup-lessons.md](./20260227-harness-phase17-browser-visual-cleanup-lessons.md) |
 | Harness phase complexity review (1..16 + 17..19) (2026-02-27) | [20260227-harness-complexity-review-todo.md](./20260227-harness-complexity-review-todo.md) | [20260227-harness-complexity-review-lessons.md](./20260227-harness-complexity-review-lessons.md) |
@@ -34,5 +36,5 @@ Track task-specific plan/review and lessons files.
 | CLAUDE.md tightening pass (2026-02-26) | [20260226-claude-md-tighten-todo.md](./20260226-claude-md-tighten-todo.md) | [20260226-claude-md-tighten-lessons.md](./20260226-claude-md-tighten-lessons.md) |
 | Refresh-token auth flow (2026-02-26) | [20260226-refresh-token-auth-todo.md](./20260226-refresh-token-auth-todo.md) | [20260226-refresh-token-auth-lessons.md](./20260226-refresh-token-auth-lessons.md) |
 
-Latest follow-up: moved frontend tests and visual baselines to `packages/frontend/tests`
-and rewired frontend test/visual scripts to keep runtime `src` clean.
+Latest follow-up: simplified frontend visual verification usage with aggregate
+commands and trimmed redundant Playwright dependency install guidance.

@@ -15,6 +15,8 @@
     "test:visual:update": "UPDATE_VISUAL_BASELINE=true node ./scripts/verify-visual.mjs",
     "test:visual:browser": "node ./scripts/verify-visual-browser.mjs",
     "test:visual:browser:update": "UPDATE_VISUAL_BROWSER_BASELINE=true node ./scripts/verify-visual-browser.mjs",
+    "test:visual:all": "pnpm test:visual && pnpm test:visual:browser",
+    "test:visual:all:update": "pnpm test:visual:update && pnpm test:visual:browser:update",
     "preview": "vite preview"
   },
   "dependencies": {

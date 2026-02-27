@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SheetVisualScenarios } from "./sheet-scenarios";
 
 const documents = [
   {
@@ -138,6 +139,8 @@ export default function VisualHarnessPage() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        <SheetVisualScenarios />
       </div>
     </main>
   );

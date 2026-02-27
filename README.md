@@ -64,31 +64,25 @@ pnpm run verify:architecture
 pnpm run verify:fast
 pnpm run verify:self
 pnpm run verify:frontend:chunks  # checks built frontend JS chunk sizes
-pnpm run verify:frontend:visual  # checks visual snapshot regressions
+pnpm run verify:frontend:visual  # checks SSR visual snapshot regressions
 pnpm run verify:frontend:visual:browser # checks browser-rendered snapshots
+pnpm run verify:frontend:visual:all # runs both visual lanes
 pnpm run verify:integration   # requires PostgreSQL
 pnpm run verify:integration:local  # skips when local PostgreSQL is unavailable
 pnpm run verify:integration:docker # starts postgres, runs integration, stops
 pnpm run verify:full          # alias: verify:self + verify:integration
 ```
 
-`verify:frontend:chunks` defaults to a `500 kB` per-chunk limit and a `60`
-chunk count limit. Override via `FRONTEND_CHUNK_LIMIT_KB` and
-`FRONTEND_CHUNK_COUNT_LIMIT`.
-Default values are versioned in `harness.config.json`.
+Quick verify guide:
+- Use `pnpm run verify:self` as the default pre-PR lane.
+- Use `pnpm run verify:frontend:visual:all` to run SSR + browser visual checks.
+- Browser visual checks need one-time Chromium install per environment:
+  `pnpm --filter @wafflebase/frontend exec playwright install chromium`
+- Use `pnpm run verify:integration` (or `:local` / `:docker`) for DB-backed e2e.
 
-`verify:frontend:visual` compares deterministic baseline markup rendered from
-`/harness/visual` (via Vite SSR).
-
-`verify:frontend:visual:browser` compares deterministic screenshot baselines
-rendered in headless Chromium from `/harness/visual`.
-Install prerequisites:
-- `pnpm --filter @wafflebase/frontend add -D playwright`
-- `pnpm --filter @wafflebase/frontend exec playwright install chromium`
-
-`verify:integration` now always enables DB-backed e2e coverage by forcing
-`RUN_DB_INTEGRATION_TESTS=true` and providing local defaults for
-`DATABASE_URL`/`DATASOURCE_ENCRYPTION_KEY` when unset.
+`verify:frontend:chunks` uses defaults from `harness.config.json`
+(`maxChunkKb=500`, `maxChunkCount=60`) and supports
+`FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT` overrides.
 
 #### Running
 

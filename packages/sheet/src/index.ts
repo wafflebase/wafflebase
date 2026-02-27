@@ -74,6 +74,7 @@ import {
 } from './model/merging';
 import { DimensionIndex } from './model/dimensions';
 import { type Store } from './store/store';
+import { MemStore } from './store/memory';
 import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
 import { ReadOnlyStore } from './store/readonly';
@@ -97,6 +98,7 @@ export {
   Spreadsheet,
   LayoutRect,
   Store,
+  MemStore,
   CellIndex,
   ReadOnlyStore,
   findEdgeWithIndex,

@@ -7,19 +7,43 @@ import { createServer } from "vite";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
 const baselineDir = path.resolve(frontendRoot, "tests/visual/baselines");
-const baselinePath = path.resolve(baselineDir, "harness-visual.browser.png");
-const actualPath = path.resolve(
-  baselineDir,
-  "harness-visual.browser.actual.png",
-);
 const host = "127.0.0.1";
 const port = Number(process.env.VISUAL_BROWSER_PORT || 4175);
 const targetUrl = `http://${host}:${port}/harness/visual`;
-const updateBaseline =
-  process.env.UPDATE_VISUAL_BROWSER_BASELINE === "true";
+const updateBaseline = process.env.UPDATE_VISUAL_BROWSER_BASELINE === "true";
+
+const scenarioIds = [
+  "sheet-freeze-selection",
+  "sheet-overflow-clip",
+  "sheet-merge-layout",
+  "sheet-formula-errors",
+  "sheet-dimensions-freeze",
+];
+
+const visualTargets = [
+  {
+    id: "harness-root",
+    locator: "[data-testid='visual-harness-root']",
+    baselineFile: "harness-visual.browser.png",
+  },
+  ...scenarioIds.map((scenarioId) => ({
+    id: scenarioId,
+    locator: `[data-visual-scenario-id='${scenarioId}']`,
+    baselineFile: `harness-visual.browser.${scenarioId}.png`,
+  })),
+];
 
 function shortHash(value) {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+function baselinePathFor(target) {
+  return path.resolve(baselineDir, target.baselineFile);
+}
+
+function actualPathFor(target) {
+  const parsed = path.parse(target.baselineFile);
+  return path.resolve(baselineDir, `${parsed.name}.actual${parsed.ext}`);
 }
 
 function printPlaywrightInstallHelp() {
@@ -27,11 +51,10 @@ function printPlaywrightInstallHelp() {
     "[verify:visual:browser] Playwright is required for browser visual checks.",
   );
   console.error(
-    "[verify:visual:browser] Install dependency: " +
-      "`pnpm --filter @wafflebase/frontend add -D playwright`",
+    "[verify:visual:browser] Install project dependencies first: `pnpm install`.",
   );
   console.error(
-    "[verify:visual:browser] Install browser: " +
+    "[verify:visual:browser] Install Chromium once per environment: " +
       "`pnpm --filter @wafflebase/frontend exec playwright install chromium`",
   );
 }
@@ -56,9 +79,9 @@ async function loadPlaywright() {
   }
 }
 
-async function readBaseline() {
+async function readBaseline(target) {
   try {
-    return await readFile(baselinePath);
+    return await readFile(baselinePathFor(target));
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       return null;
@@ -67,7 +90,7 @@ async function readBaseline() {
   }
 }
 
-async function captureScreenshot(playwright) {
+async function captureScreenshots(playwright) {
   const server = await createServer({
     configFile: path.resolve(frontendRoot, "vite.config.ts"),
     root: frontendRoot,
@@ -85,7 +108,7 @@ async function captureScreenshot(playwright) {
     browser = await playwright.chromium.launch({ headless: true });
 
     const context = await browser.newContext({
-      viewport: { width: 1440, height: 1200 },
+      viewport: { width: 1800, height: 3400 },
       deviceScaleFactor: 1,
       locale: "en-US",
       timezoneId: "UTC",
@@ -106,12 +129,25 @@ async function captureScreenshot(playwright) {
 
     const root = page.locator("[data-testid='visual-harness-root']");
     await root.waitFor({ state: "visible" });
-    const screenshot = await root.screenshot({
-      type: "png",
-      animations: "disabled",
-    });
+
+    const sheetSection = page.locator(
+      "[data-testid='visual-harness-sheet-section'][data-visual-sheet-ready='true']",
+    );
+    await sheetSection.waitFor({ state: "visible", timeout: 20000 });
+
+    const captures = new Map();
+    for (const target of visualTargets) {
+      const locator = page.locator(target.locator).first();
+      await locator.waitFor({ state: "visible" });
+      const screenshot = await locator.screenshot({
+        type: "png",
+        animations: "disabled",
+      });
+      captures.set(target.id, screenshot);
+    }
+
     await context.close();
-    return screenshot;
+    return captures;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const needsBrowserInstall =
@@ -131,48 +167,80 @@ async function captureScreenshot(playwright) {
 }
 
 const playwright = await loadPlaywright();
-const actual = await captureScreenshot(playwright);
+const capturedById = await captureScreenshots(playwright);
 
 await mkdir(baselineDir, { recursive: true });
 
 if (updateBaseline) {
-  await writeFile(baselinePath, actual);
-  console.log(
-    "[verify:visual:browser] Updated baseline at " + `${baselinePath}.`,
-  );
+  for (const target of visualTargets) {
+    const captured = capturedById.get(target.id);
+    if (!captured) {
+      throw new Error(`Missing captured screenshot for ${target.id}.`);
+    }
+    const baselinePath = baselinePathFor(target);
+    await writeFile(baselinePath, captured);
+    console.log(`[verify:visual:browser] Updated baseline ${target.baselineFile}.`);
+  }
   process.exit(0);
 }
 
-const baseline = await readBaseline();
-if (!baseline) {
+const missingTargets = [];
+const mismatchedTargets = [];
+
+for (const target of visualTargets) {
+  const baseline = await readBaseline(target);
+  if (!baseline) {
+    missingTargets.push(target);
+    continue;
+  }
+
+  const captured = capturedById.get(target.id);
+  if (!captured) {
+    throw new Error(`Missing captured screenshot for ${target.id}.`);
+  }
+
+  if (baseline.equals(captured)) {
+    console.log(
+      `[verify:visual:browser] Baseline matched ${target.baselineFile} (${shortHash(captured)}).`,
+    );
+    continue;
+  }
+
+  const actualPath = actualPathFor(target);
+  await writeFile(actualPath, captured);
+  mismatchedTargets.push({
+    target,
+    baselineHash: shortHash(baseline),
+    actualHash: shortHash(captured),
+    actualPath,
+  });
+}
+
+if (missingTargets.length > 0) {
+  console.error("[verify:visual:browser] Missing baseline screenshots:");
+  for (const target of missingTargets) {
+    console.error(`- ${target.baselineFile}`);
+  }
+}
+
+if (mismatchedTargets.length > 0) {
+  console.error("[verify:visual:browser] Visual baseline mismatches detected:");
+  for (const mismatch of mismatchedTargets) {
+    console.error(`- ${mismatch.target.baselineFile}`);
+    console.error(`  baseline hash: ${mismatch.baselineHash}`);
+    console.error(`  actual hash:   ${mismatch.actualHash}`);
+    console.error(`  actual output: ${mismatch.actualPath}`);
+  }
+}
+
+if (missingTargets.length > 0 || mismatchedTargets.length > 0) {
   console.error(
-    "[verify:visual:browser] Baseline screenshot is missing. Run " +
-      "`pnpm frontend test:visual:browser:update` to create it.",
+    "[verify:visual:browser] Inspect mismatches and refresh intended baselines: " +
+      "`pnpm frontend test:visual:browser:update`.",
   );
   process.exit(1);
 }
 
-if (baseline.equals(actual)) {
-  console.log(
-    "[verify:visual:browser] Baseline matched " +
-      `(${shortHash(actual)}).`,
-  );
-  process.exit(0);
-}
-
-await writeFile(actualPath, actual);
-console.error("[verify:visual:browser] Visual baseline mismatch detected.");
-console.error(
-  `[verify:visual:browser] baseline hash: ${shortHash(baseline)}`,
+console.log(
+  `[verify:visual:browser] All ${visualTargets.length} visual targets matched.`,
 );
-console.error(
-  `[verify:visual:browser] actual hash:   ${shortHash(actual)}`,
-);
-console.error(
-  "[verify:visual:browser] Inspect the mismatch and update baseline if " +
-    "intended: `pnpm frontend test:visual:browser:update`.",
-);
-console.error(
-  `[verify:visual:browser] Wrote actual output to ${actualPath}.`,
-);
-process.exit(1);
