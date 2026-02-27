@@ -11,6 +11,8 @@
     "lint:arch": "eslint -c eslint.arch.config.js \"src/**/*.{ts,tsx}\"",
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "test:watch": "node --experimental-strip-types --test --watch \"src/**/*.test.ts\"",
+    "test:visual": "node ./scripts/verify-visual.mjs",
+    "test:visual:update": "UPDATE_VISUAL_BASELINE=true node ./scripts/verify-visual.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

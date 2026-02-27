@@ -64,6 +64,7 @@ pnpm run verify:architecture
 pnpm run verify:fast
 pnpm run verify:self
 pnpm run verify:frontend:chunks  # checks built frontend JS chunk sizes
+pnpm run verify:frontend:visual  # checks visual snapshot regressions
 pnpm run verify:integration   # requires PostgreSQL
 pnpm run verify:integration:local  # skips when local PostgreSQL is unavailable
 pnpm run verify:integration:docker # starts postgres, runs integration, stops
@@ -74,6 +75,9 @@ pnpm run verify:full          # alias: verify:self + verify:integration
 chunk count limit. Override via `FRONTEND_CHUNK_LIMIT_KB` and
 `FRONTEND_CHUNK_COUNT_LIMIT`.
 Default values are versioned in `harness.config.json`.
+
+`verify:frontend:visual` compares deterministic baseline markup rendered from
+`/harness/visual` (via Vite SSR).
 
 `verify:integration` now always enables DB-backed e2e coverage by forcing
 `RUN_DB_INTEGRATION_TESTS=true` and providing local defaults for

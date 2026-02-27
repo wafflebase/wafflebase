@@ -44,6 +44,7 @@ pnpm frontend dev
 ```bash
 pnpm frontend build
 pnpm verify:frontend:chunks  # run after build to enforce JS chunk budget
+pnpm verify:frontend:visual  # run after build to enforce visual snapshots
 ```
 
 `pnpm verify:frontend:chunks` checks default limits of `500 kB` per chunk and
@@ -51,11 +52,16 @@ pnpm verify:frontend:chunks  # run after build to enforce JS chunk budget
 `FRONTEND_CHUNK_COUNT_LIMIT`.
 Default limits are defined in `/harness.config.json`.
 
+`pnpm verify:frontend:visual` compares deterministic baseline markup rendered
+from `/harness/visual` via Vite SSR.
+
 ### Testing
 
 ```bash
 pnpm frontend lint                 # ESLint checks
 pnpm frontend test                 # Node unit tests
+pnpm frontend test:visual          # Visual baseline regression check
+pnpm frontend test:visual:update   # Update visual baseline file
 pnpm frontend test:watch           # Node watch mode
 ```
 

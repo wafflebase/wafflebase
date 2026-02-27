@@ -11,6 +11,8 @@ Track task-specific plan/review and lessons files.
 
 | Task | Todo | Lessons |
 |---|---|---|
+| Harness phase complexity review (1..16 + 17..19) (2026-02-27) | [20260227-harness-complexity-review-todo.md](./20260227-harness-complexity-review-todo.md) | [20260227-harness-complexity-review-lessons.md](./20260227-harness-complexity-review-lessons.md) |
+| Harness phase 16 frontend visual regression automation (2026-02-27) | [20260227-harness-phase16-visual-regression-todo.md](./20260227-harness-phase16-visual-regression-todo.md) | [20260227-harness-phase16-visual-regression-lessons.md](./20260227-harness-phase16-visual-regression-lessons.md) |
 | Harness phase 15 harness policy config externalization (2026-02-27) | [20260227-harness-phase15-policy-config-todo.md](./20260227-harness-phase15-policy-config-todo.md) | [20260227-harness-phase15-policy-config-lessons.md](./20260227-harness-phase15-policy-config-lessons.md) |
 | Harness phase 14 integration docker reproducibility (2026-02-27) | [20260227-harness-phase14-integration-docker-todo.md](./20260227-harness-phase14-integration-docker-todo.md) | [20260227-harness-phase14-integration-docker-lessons.md](./20260227-harness-phase14-integration-docker-lessons.md) |
 | Harness phase 13 frontend chunk count gate (2026-02-27) | [20260227-harness-phase13-frontend-chunk-count-gate-todo.md](./20260227-harness-phase13-frontend-chunk-count-gate-todo.md) | [20260227-harness-phase13-frontend-chunk-count-gate-lessons.md](./20260227-harness-phase13-frontend-chunk-count-gate-lessons.md) |
@@ -30,5 +32,5 @@ Track task-specific plan/review and lessons files.
 | CLAUDE.md tightening pass (2026-02-26) | [20260226-claude-md-tighten-todo.md](./20260226-claude-md-tighten-todo.md) | [20260226-claude-md-tighten-lessons.md](./20260226-claude-md-tighten-lessons.md) |
 | Refresh-token auth flow (2026-02-26) | [20260226-refresh-token-auth-todo.md](./20260226-refresh-token-auth-todo.md) | [20260226-refresh-token-auth-lessons.md](./20260226-refresh-token-auth-lessons.md) |
 
-Latest follow-up: completed phase-15 harness policy config externalization by
-moving frontend chunk gate defaults into `harness.config.json`.
+Latest follow-up: completed phase-16 frontend visual regression automation with
+`verify:frontend:visual` in the self verification lane.

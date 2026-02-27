@@ -11,7 +11,7 @@ This document defines the end-to-end harness engineering plan for Wafflebase:
 verification lanes, quality gates, local/CI reproducibility, and rollout
 status by phase.
 
-As of 2026-02-27, phases 1 through 15 are completed.
+As of 2026-02-27, phases 1 through 16 are completed.
 
 ## Goals
 
@@ -33,7 +33,10 @@ As of 2026-02-27, phases 1 through 15 are completed.
 - `pnpm verify:architecture`: frontend/backend import boundary checks
 - `pnpm verify:fast`: lint + unit tests
 - `pnpm verify:self`: `verify:fast` + frontend/backend/sheet builds + frontend
-  chunk gate
+  chunk/visual gates
+- `pnpm verify:frontend:chunks`: frontend built JS chunk size/count gate
+- `pnpm verify:frontend:visual`: deterministic frontend markup baseline gate
+  (SSR HTML snapshot)
 - `pnpm verify:integration`: Prisma migrate deploy + backend e2e (DB-backed)
 - `pnpm verify:integration:local`: skip integration when DB is unreachable
 - `pnpm verify:integration:docker`: one-command postgres up + integration + stop
@@ -64,12 +67,30 @@ As of 2026-02-27, phases 1 through 15 are completed.
 | 13 | Frontend chunk count guardrail | Completed |
 | 14 | Deterministic integration runner + docker local path | Completed |
 | 15 | Chunk-gate policy externalized to config | Completed |
+| 16 | Deterministic frontend visual regression harness | Completed |
 
 Detailed task records are tracked in `tasks/20260227-harness-phase*-{todo,lessons}.md`.
 
-## Baseline Remaining Work (Recommended)
+## Top-Level Plan Status (A-E)
 
-### Phase 16: E2E Determinism Hardening
+| ID | Goal | Current status | Evidence | Next focus |
+|---|---|---|---|---|
+| A | Fail on breakage by default | Mostly complete | `verify:architecture`, zero-warning lint, chunk/visual gates, smoke tests | Add integration determinism guardrails to reduce flaky pass/fail drift |
+| B | Two-lane verification split for speed + merge safety | Completed | `verify:self` + `verify:integration` split in scripts and CI | Keep lane contracts stable while improving integration determinism |
+| C | Frontend regression harness automation | Phase-1 complete | Phase-16 adds deterministic `/harness/visual` baseline in `verify:self` | Expand coverage to more UI states and key user-path surfaces |
+| D | Distributed contracts for agent execution | In progress | Root verification scripts, PR evidence contract, per-phase todo/lessons records | Add machine-readable lane reports and shared contract templates |
+| E | Anti-slop cleanup loop | In progress | Lint warning cleanup + strict gate, build chunk cleanup, lessons tracking | Automate report-based triage loop and enforce fix-or-fail follow-through |
+
+## Remaining Work (Recommended)
+
+### Immediate Next Work (From Current Gaps)
+
+- Add a browser-rendered visual regression lane (pixel/screenshot diff) to
+  complement the existing SSR markup baseline gate.
+- Harden `verify:integration:docker` cleanup for interruption paths
+  (SIGINT/SIGTERM), not only normal completion/timeout flows.
+
+### Phase 17: Integration Determinism Hardening
 
 Goal:
 - Reduce flake by standardizing DB state and nondeterministic dependencies.
@@ -77,12 +98,14 @@ Goal:
 Deliverables:
 - Shared integration test seed/reset helpers.
 - Time/random dependency isolation helpers (or fixed test clocks/seeds).
+- Interrupt-safe cleanup for `verify:integration:docker` via `finally` path and
+  signal handlers.
 - Repeat-run stability check (same commit, repeated integration execution).
 
 Done criteria:
 - Consecutive integration runs on same commit are stable.
 
-### Phase 17: Harness Report Artifacts
+### Phase 18: Harness Report Artifacts
 
 Goal:
 - Make lane outputs machine-readable for faster triage and automation.
@@ -95,7 +118,7 @@ Deliverables:
 Done criteria:
 - CI failures can be diagnosed from structured report + concise log summary.
 
-### Phase 18: PR Evidence Trust Automation
+### Phase 19: PR Evidence Trust Automation
 
 Goal:
 - Reduce manual verification evidence drift in PRs.
