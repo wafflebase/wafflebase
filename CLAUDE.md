@@ -31,6 +31,7 @@ pnpm dev                    # Start frontend (:5173) + backend (:3000)
 ### Testing
 
 ```bash
+pnpm verify:architecture            # Frontend/backend import boundary checks
 pnpm verify:fast                    # Lint + unit tests (local/default lane)
 pnpm verify:full                    # Build + migrations + backend e2e lane
 pnpm test                           # Run sheet package tests (Vitest)
