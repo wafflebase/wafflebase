@@ -46,6 +46,10 @@ pnpm frontend build
 pnpm verify:frontend:chunks  # run after build to enforce JS chunk budget
 ```
 
+`pnpm verify:frontend:chunks` checks default limits of `500 kB` per chunk and
+`60` total JS chunks. Override with `FRONTEND_CHUNK_LIMIT_KB` and
+`FRONTEND_CHUNK_COUNT_LIMIT`.
+
 ### Testing
 
 ```bash

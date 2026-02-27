@@ -69,6 +69,10 @@ pnpm run verify:integration:local  # skips when local PostgreSQL is unavailable
 pnpm run verify:full          # alias: verify:self + verify:integration
 ```
 
+`verify:frontend:chunks` defaults to a `500 kB` per-chunk limit and a `60`
+chunk count limit. Override via `FRONTEND_CHUNK_LIMIT_KB` and
+`FRONTEND_CHUNK_COUNT_LIMIT`.
+
 #### Running
 
 Wafflebase depends on [Yorkie](https://yorkie.dev) and [Postgres](https://www.postgresql.org/). You can run them locally using Docker.

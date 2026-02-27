@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DefaultChunkLimitKb = 500;
+const DefaultChunkCountLimit = 60;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const frontendAssetsDir = path.resolve(
   scriptDir,
@@ -13,17 +14,16 @@ const frontendAssetsDir = path.resolve(
   "assets",
 );
 
-function parseChunkLimitKb() {
-  const value = process.env.FRONTEND_CHUNK_LIMIT_KB;
+function parsePositiveLimit(name, fallback) {
+  const value = process.env[name];
   if (!value) {
-    return DefaultChunkLimitKb;
+    return fallback;
   }
 
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     console.error(
-      "[verify:frontend:chunks] FRONTEND_CHUNK_LIMIT_KB must be a positive " +
-        "number.",
+      `[verify:frontend:chunks] ${name} must be a positive number.`,
     );
     process.exit(1);
   }
@@ -56,7 +56,14 @@ function formatChunk(chunk) {
   return `${chunk.name} (${chunk.sizeKb.toFixed(2)} kB)`;
 }
 
-const chunkLimitKb = parseChunkLimitKb();
+const chunkLimitKb = parsePositiveLimit(
+  "FRONTEND_CHUNK_LIMIT_KB",
+  DefaultChunkLimitKb,
+);
+const chunkCountLimit = parsePositiveLimit(
+  "FRONTEND_CHUNK_COUNT_LIMIT",
+  DefaultChunkCountLimit,
+);
 let chunks;
 
 try {
@@ -77,6 +84,14 @@ if (chunks.length === 0) {
   process.exit(1);
 }
 
+if (chunks.length > chunkCountLimit) {
+  console.error(
+    "[verify:frontend:chunks] Found too many JavaScript chunks: " +
+      `${chunks.length} (limit: ${chunkCountLimit}).`,
+  );
+  process.exit(1);
+}
+
 const overBudgetChunks = chunks.filter((chunk) => chunk.sizeKb > chunkLimitKb);
 
 if (overBudgetChunks.length > 0) {
@@ -92,7 +107,8 @@ if (overBudgetChunks.length > 0) {
 
 console.log(
   "[verify:frontend:chunks] Checked " +
-    `${chunks.length} JS chunks against ${chunkLimitKb} kB.`,
+    `${chunks.length} JS chunks (limit: ${chunkCountLimit}) against ` +
+    `${chunkLimitKb} kB.`,
 );
 console.log(
   `[verify:frontend:chunks] Largest chunk: ${formatChunk(chunks[0])}.`,
