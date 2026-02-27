@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "./auth";
+import { assertOk } from "./http-error";
 import type {
   DataSource,
   QueryResult,
@@ -24,7 +25,7 @@ export async function createDataSource(payload: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to create datasource");
+  await assertOk(res, "Failed to create datasource");
   return res.json();
 }
 
@@ -33,7 +34,7 @@ export async function createDataSource(payload: {
  */
 export async function fetchDataSources(): Promise<DataSource[]> {
   const res = await fetchWithAuth(BASE);
-  if (!res.ok) throw new Error("Failed to fetch datasources");
+  await assertOk(res, "Failed to fetch datasources");
   return res.json();
 }
 
@@ -42,7 +43,7 @@ export async function fetchDataSources(): Promise<DataSource[]> {
  */
 export async function fetchDataSource(id: string): Promise<DataSource> {
   const res = await fetchWithAuth(`${BASE}/${id}`);
-  if (!res.ok) throw new Error("Failed to fetch datasource");
+  await assertOk(res, "Failed to fetch datasource");
   return res.json();
 }
 
@@ -66,7 +67,7 @@ export async function updateDataSource(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to update datasource");
+  await assertOk(res, "Failed to update datasource");
   return res.json();
 }
 
@@ -77,7 +78,7 @@ export async function deleteDataSource(id: string): Promise<void> {
   const res = await fetchWithAuth(`${BASE}/${id}`, {
     method: "DELETE",
   });
-  if (!res.ok) throw new Error("Failed to delete datasource");
+  await assertOk(res, "Failed to delete datasource");
 }
 
 /**
@@ -89,7 +90,7 @@ export async function testDataSourceConnection(
   const res = await fetchWithAuth(`${BASE}/${id}/test`, {
     method: "POST",
   });
-  if (!res.ok) throw new Error("Failed to test connection");
+  await assertOk(res, "Failed to test connection");
   return res.json();
 }
 
@@ -105,9 +106,6 @@ export async function executeDataSourceQuery(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.message || "Query execution failed");
-  }
+  await assertOk(res, "Query execution failed");
   return res.json();
 }
