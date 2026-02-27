@@ -7,68 +7,183 @@ target-version: 0.1.0
 
 ## Summary
 
-This document defines the end-to-end harness engineering plan for Wafflebase:
-verification lanes, quality gates, local/CI reproducibility, and rollout
-status by phase.
+This document defines the harness engineering strategy for Wafflebase:
+verification lanes, architectural constraints, quality gates, agent-oriented
+feedback loops, and local/CI reproducibility.
 
-As of 2026-02-27, phases 1 through 16 are completed.
-Phase 17 hardening is in progress, with two follow-up items already completed:
-browser-rendered visual lane command wiring and interruption-safe cleanup in
-`verify:integration:docker`.
+The term "harness engineering" describes the practice of building tooling and
+constraints that keep AI agents — and human engineers — producing reliable,
+maintainable software. Where context engineering asks *what should the agent
+see*, harness engineering asks *what should the system prevent, measure, and
+correct*.
+
+As of 2026-02-27, phases 1 through 16 and Phase 17 follow-up items are
+completed. The harness is fully operational for day-to-day development.
+Remaining phases focus on determinism hardening, observability, and automation.
+
+## Principles
+
+These five principles, adapted from
+[OpenAI's harness engineering practice](https://openai.com/index/harness-engineering/),
+guide how we design and evolve the Wafflebase harness.
+
+### 1. Information Accessibility — "A Map, Not a Manual"
+
+What agents can't see doesn't exist. Keep institutional knowledge in the
+repository as structured, queryable artifacts — not in external docs or tribal
+knowledge.
+
+**How we apply this:**
+- `CLAUDE.md` at repo root serves as a concise map (~100 lines) pointing to
+  deeper sources of truth in `design/`, `packages/*/README.md`.
+- Design documents live in `design/` and are cross-linked from the root.
+- Task history is tracked in `tasks/` with paired todo/lessons files.
+- Harness policy is externalized to `harness.config.json` (versioned,
+  reviewable).
+
+### 2. Mechanical Enforcement — "Constraints Over Documentation"
+
+Text-based guidelines drift. Enforce architectural rules programmatically so
+that violation is technically impossible, not merely discouraged.
+
+**How we apply this:**
+- Frontend architecture boundaries enforced via ESLint
+  (`packages/frontend/eslint.arch.config.js`): API, hooks, components, UI, and
+  types layers cannot import across boundaries.
+- Backend architecture boundaries enforced via ESLint
+  (`packages/backend/eslint.arch.config.mjs`): controller, database, auth,
+  user, and document modules are isolated.
+- Zero-warning lint gate: no warning suppression, warnings are build failures.
+- Frontend chunk budgets enforced mechanically
+  (`scripts/verify-frontend-chunks.mjs`), not by code review.
+- ANTLR generated files are `@ts-nocheck` by convention — regeneration is the
+  only valid edit path.
+
+### 3. Visual Feedback — "Give the Agent Eyes"
+
+Agents need observable, verifiable feedback — not just pass/fail. Visual
+baselines, interaction replays, and deterministic screenshots let agents (and
+humans) see what changed.
+
+**How we apply this:**
+- SSR markup baselines for deterministic HTML snapshot comparison.
+- Browser screenshot baselines via Playwright (desktop + mobile profiles).
+- Interaction regression tests replay cell input, formula evaluation, and
+  scroll behavior in a real browser.
+- Canvas-based rendering makes visual regression testing essential — DOM
+  diffing alone is insufficient.
+
+### 4. Capability-First Debugging
+
+When the harness fails or agents struggle, ask "what capability is missing in
+the environment?" rather than "why is the agent broken?" Treat agent failure
+as a signal to improve the harness.
+
+**How we apply this:**
+- Each completed phase has a paired lessons file
+  (`tasks/archive/*/lessons.md`) capturing what went wrong and what harness
+  improvement fixed it.
+- Flaky tests are treated as harness bugs (missing determinism), not test bugs.
+- New verification lanes are added when a class of regression goes undetected.
+
+### 5. Entropy Management — "Garbage Collection for Codebases"
+
+Codebases accumulate entropy: dead code, inconsistent patterns, documentation
+decay. The harness must include cleanup loops that detect and reduce entropy
+systematically.
+
+**How we apply this:**
+- Lint warning cleanup phases (9-10) established a zero-warning baseline.
+- Build chunk cleanup (phase 11) removed dead manual chunk splits.
+- Task lessons files capture recurring patterns for future prevention.
+- Architecture lint prevents new boundary violations from accumulating.
 
 ## Goals
 
 - Keep verification deterministic and reproducible between local and CI.
-- Fail fast on signal-quality regressions (lint noise, oversized bundles).
+- Fail fast on signal-quality regressions (lint noise, oversized bundles,
+  visual drift).
 - Make integration validation executable with one local command.
 - Keep harness policy configurable and reviewable in versioned files.
+- Enforce architectural boundaries mechanically, not by code review.
+- Provide observable feedback loops for both human and agent workflows.
 
 ## Non-Goals
 
 - Replace the CI provider or pipeline framework.
 - Add broad test sharding/optimization before reliability goals are met.
 - Introduce path-based selective execution ahead of baseline stability.
+- Build custom LLM-based linters before deterministic rules are exhausted.
 
-## Current State
+## Lane Contract
 
-### Lane Contract
+### Self-Contained Lanes (no external services)
 
-- `pnpm verify:architecture`: frontend/backend import boundary checks
-- `pnpm verify:fast`: lint + unit tests
-- `pnpm verify:self`: `verify:fast` + frontend/backend/sheet builds + frontend
-  chunk/visual gates
-- `pnpm verify:frontend:chunks`: frontend built JS chunk size/count gate
-- `pnpm verify:frontend:visual`: deterministic frontend markup baseline gate
-  (SSR HTML snapshot at
-  `packages/frontend/tests/visual/baselines/harness-visual.html`)
-- `pnpm verify:frontend:visual:browser`: browser-rendered visual screenshot
-  baseline gate (Playwright/Chromium, desktop+mobile profile matrix; examples:
-  `packages/frontend/tests/visual/baselines/harness-visual.browser.png`,
-  `packages/frontend/tests/visual/baselines/harness-visual.browser.mobile.png`)
-- `pnpm verify:frontend:visual:all`: convenience alias that runs both frontend
-  visual gates (`verify:frontend:visual` + `verify:frontend:visual:browser`)
-- `pnpm verify:frontend:interaction:browser`: deterministic browser interaction
-  regression gate for `/harness/interaction` (cell input, formula input, wheel
-  scroll)
-- `pnpm verify:integration`: Prisma migrate deploy + backend e2e (DB-backed)
-- `pnpm verify:integration:local`: skip integration when DB is unreachable
-- `pnpm verify:integration:docker`: one-command postgres up + integration + stop
-- `pnpm verify:full`: `verify:self && verify:integration`
+| Command | Purpose |
+|---|---|
+| `pnpm verify:architecture` | Frontend/backend import boundary checks |
+| `pnpm verify:fast` | Architecture + lint + unit tests |
+| `pnpm verify:frontend:chunks` | Built JS chunk size/count gate |
+| `pnpm verify:frontend:visual` | SSR HTML markup baseline gate |
+| `pnpm verify:frontend:visual:browser` | Playwright screenshot baseline (desktop+mobile) |
+| `pnpm verify:frontend:visual:all` | Both visual gates combined |
+| `pnpm verify:frontend:interaction:browser` | Browser interaction regression (cell input, formula, scroll) |
+| `pnpm verify:self` | `verify:fast` + builds + chunk/visual/interaction gates |
+
+### Integration Lanes (require database)
+
+| Command | Purpose |
+|---|---|
+| `pnpm verify:integration` | Prisma migrate + backend e2e |
+| `pnpm verify:integration:local` | Skip integration when DB is unreachable |
+| `pnpm verify:integration:docker` | One-command: postgres up + integration + stop |
+
+### Composite Lanes
+
+| Command | Purpose |
+|---|---|
+| `pnpm verify:full` | `verify:self` + `verify:integration` |
 
 ### CI Contract
 
-- `verify-self` job runs first.
-- `verify-integration` runs after `verify-self` and provisions PostgreSQL.
-- PR template requires verification evidence for self/integration lanes.
+- `verify-self` job runs first (no external services).
+- `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
+- PR template requires verification evidence for both lanes.
 
-## Phase Status (Completed)
+## Dependency Layering
+
+Architectural boundaries enforce a directed dependency flow. Violations are
+caught by lint, not code review.
+
+### Frontend
+
+```
+types/lib → api → hooks → components/ui → app (pages)
+```
+
+- `types/lib`: no imports from other layers
+- `api`: cannot import `app`, `components`, `hooks`
+- `hooks`: cannot import `app`
+- `components/ui`: cannot import `app`, `api`
+
+### Backend
+
+```
+database → auth/user/document → controllers/modules
+```
+
+- `database`: cannot import auth, user, document, datasource, share-link
+- `auth`: cannot import document, datasource, share-link
+- `user`: cannot import auth, document, datasource, share-link
+
+## Completed Phases (1-16 + Phase 17 Follow-up)
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Root verification lanes + PR evidence baseline | Completed |
-| 2 | Frontend/backend architecture boundary lint lanes | Completed |
+| 2 | Frontend/backend architecture boundary lint | Completed |
 | 3 | Self-contained vs integration lane split in CI | Completed |
-| 4 | Frontend migration smoke tests (self-contained) | Completed |
+| 4 | Frontend migration smoke tests | Completed |
 | 5 | Local integration reachability wrapper | Completed |
 | 6 | Auth refresh single-flight smoke coverage | Completed |
 | 7 | Shared frontend API HTTP error helper + tests | Completed |
@@ -81,79 +196,107 @@ browser-rendered visual lane command wiring and interruption-safe cleanup in
 | 14 | Deterministic integration runner + docker local path | Completed |
 | 15 | Chunk-gate policy externalized to config | Completed |
 | 16 | Deterministic frontend visual regression harness | Completed |
+| 17f | Browser visual lane + interaction tests + interrupt-safe cleanup | Completed |
 
-Detailed task records are tracked in:
+Phase 17 follow-up delivered:
+- `pnpm verify:frontend:visual:browser` command (Playwright/Chromium)
+- `pnpm verify:frontend:interaction:browser` command (cell input, formula, scroll)
+- Interrupt-safe cleanup in `verify:integration:docker` (SIGINT/SIGTERM + finally)
+- Test/baseline assets relocated to `packages/frontend/tests/`
+
+Detailed task records:
 - `tasks/active/` for in-progress work
-- `tasks/archive/2026/02/20260227-harness-phase*-{todo,lessons}.md` for the
-  completed phase history
+- `tasks/archive/2026/02/` for completed phase history
 
-## Phase 17 Follow-up Status (Completed)
+## Top-Level Plan Status
 
-- Browser-rendered visual lane command added:
-  - `pnpm verify:frontend:visual:browser`
-- `verify:integration:docker` cleanup hardened for interruption handling:
-  - signal handlers (`SIGINT`/`SIGTERM`) + `finally` cleanup path
-- Frontend test and visual baseline assets moved out of runtime `src` into:
-  - `packages/frontend/tests/`
-
-## Top-Level Plan Status (A-E)
-
-| ID | Goal | Current status | Evidence | Next focus |
+| ID | Goal | Principle | Status | Next |
 |---|---|---|---|---|
-| A | Fail on breakage by default | Mostly complete | `verify:architecture`, zero-warning lint, chunk/visual gates, smoke tests | Add integration determinism guardrails to reduce flaky pass/fail drift |
-| B | Two-lane verification split for speed + merge safety | Completed | `verify:self` + `verify:integration` split in scripts and CI | Keep lane contracts stable while improving integration determinism |
-| C | Frontend regression harness automation | Phase-1 complete | Phase-16 adds deterministic `/harness/visual` markup baseline and browser screenshot command | Promote browser lane into default self-verification once Playwright provisioning is standardized |
-| D | Distributed contracts for agent execution | In progress | Root verification scripts, PR evidence contract, per-phase todo/lessons records | Add machine-readable lane reports and shared contract templates |
-| E | Anti-slop cleanup loop | In progress | Lint warning cleanup + strict gate, build chunk cleanup, lessons tracking | Automate report-based triage loop and enforce fix-or-fail follow-through |
+| A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
+| B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
+| C | Frontend regression harness | Visual Feedback | Completed | Promote browser lanes into CI once Playwright is standardized |
+| D | Agent-oriented contracts | Information Accessibility | In progress | Machine-readable lane reports (Phase 18) |
+| E | Entropy cleanup loop | Entropy Management | In progress | Automate triage loop (Phase 18-19) |
 
-## Remaining Work (Recommended)
+## Remaining Work
 
-### Immediate Next Work (From Current Gaps)
+### Immediate Next
 
-- Standardize Playwright dependency + Chromium provisioning (local + CI), then
-  compose `verify:frontend:visual:browser` into `verify:self`.
-- Add an interruption smoke test path for `verify:integration:docker` to keep
-  signal-handler cleanup behavior regression-resistant.
+- Standardize Playwright + Chromium provisioning (local + CI), then compose
+  `verify:frontend:visual:browser` and `verify:frontend:interaction:browser`
+  into `verify:self`.
 
 ### Phase 17: Integration Determinism Hardening
 
-Goal:
-- Reduce flake by standardizing DB state and nondeterministic dependencies.
+**Principle:** Capability-First Debugging — treat flaky integration as a
+harness gap, not a test problem.
+
+Goal: Reduce flake by standardizing DB state and nondeterministic dependencies.
 
 Deliverables:
 - Shared integration test seed/reset helpers.
-- Time/random dependency isolation helpers (or fixed test clocks/seeds).
-- Interrupt-safe cleanup for `verify:integration:docker` via `finally` path and
-  signal handlers.
-- Repeat-run stability check (same commit, repeated integration execution).
+- Time/random dependency isolation helpers (fixed test clocks/seeds).
+- Repeat-run stability check (same commit, consecutive runs are stable).
 
-Done criteria:
-- Consecutive integration runs on same commit are stable.
+Done criteria: Consecutive integration runs on same commit produce identical
+results.
 
 ### Phase 18: Harness Report Artifacts
 
-Goal:
-- Make lane outputs machine-readable for faster triage and automation.
+**Principle:** Visual Feedback — make lane results observable and
+machine-readable for agents and humans.
+
+Goal: Structured lane outputs for faster triage and agent consumption.
 
 Deliverables:
-- JSON summaries per lane (status, duration, key failures).
+- JSON summary per lane (status, duration, key failures).
 - CI artifact publishing for lane reports.
 - Standardized failure summary emitted to logs.
 
-Done criteria:
-- CI failures can be diagnosed from structured report + concise log summary.
+Done criteria: CI failures diagnosable from structured report without log
+scrolling.
 
 ### Phase 19: PR Evidence Trust Automation
 
-Goal:
-- Reduce manual verification evidence drift in PRs.
+**Principle:** Mechanical Enforcement — replace manual verification evidence
+with automated trust.
+
+Goal: Eliminate manual verification evidence drift in PRs.
 
 Deliverables:
 - PR checks linked to lane results (self/integration) as source of truth.
-- Evidence section can reference generated reports instead of manual paste.
+- Evidence section references generated reports instead of manual paste.
 
-Done criteria:
-- Required verification evidence is automatically trustworthy.
+Done criteria: Required verification evidence is automatically trustworthy.
+
+### Phase 20: Agent Observability Stack
+
+**Principle:** Visual Feedback + Capability-First Debugging — give agents
+direct access to runtime signals.
+
+Goal: Enable agents to self-diagnose failures using structured telemetry.
+
+Deliverables:
+- Structured logging format for backend services (JSON, correlation IDs).
+- Per-branch or per-PR observability context (log grouping by change).
+- Agent-queryable failure summaries from lane report artifacts.
+
+Done criteria: An agent can diagnose a CI failure from report artifacts
+without human interpretation.
+
+### Phase 21: Entropy Detection Automation
+
+**Principle:** Entropy Management — automate the detection of codebase decay.
+
+Goal: Systematically detect and surface entropy before it accumulates.
+
+Deliverables:
+- Dead-code detection gate (unused exports, unreachable modules).
+- Documentation staleness check (design docs vs actual code drift).
+- Dependency freshness report (outdated/vulnerable packages).
+
+Done criteria: Entropy signals are surfaced automatically in CI or periodic
+reports.
 
 ## Harness Policy
 
@@ -170,14 +313,24 @@ Frontend chunk gate defaults are managed in `harness.config.json`:
 }
 ```
 
-Environment overrides remain available:
+Environment overrides:
 - `FRONTEND_CHUNK_LIMIT_KB`
 - `FRONTEND_CHUNK_COUNT_LIMIT`
 
 ## Definition of Harness v1 Completion
 
-Harness v1 is considered complete when all are true:
+Harness v1 is complete when all are true:
 
 1. Integration lane is reproducible locally without manual orchestration.
+   **Status: Done** (`verify:integration:docker`).
 2. CI failures are diagnosable in under 5 minutes from logs/reports.
+   **Status: Partially done** (clear lane output, but no structured reports
+   yet — Phase 18).
 3. PR required verification evidence is automatically trustworthy.
+   **Status: Not started** — Phase 19.
+
+## References
+
+- [OpenAI: Harness engineering — leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/)
+- [Martin Fowler: Harness Engineering](https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html)
+- [Mitchell Hashimoto: Harness, not AGENTS.md](https://mitchellh.com/writing/agents-harness-not-agents-md)
