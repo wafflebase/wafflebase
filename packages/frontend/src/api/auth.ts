@@ -1,5 +1,6 @@
 import { User } from "@/types/users";
 import { toast } from "sonner";
+import { createSingleFlightRunner } from "./single-flight";
 
 export class AuthExpiredError extends Error {
   constructor() {
@@ -22,7 +23,6 @@ type LogoutOptions = {
 };
 
 let isRedirectingToLogin = false;
-let pendingRefresh: Promise<boolean> | null = null;
 
 function redirectToLogin() {
   if (isRedirectingToLogin) return;
@@ -30,28 +30,17 @@ function redirectToLogin() {
   window.location.href = "/login";
 }
 
-async function refreshSession(): Promise<boolean> {
-  if (!pendingRefresh) {
-    pendingRefresh = (async () => {
-      try {
-        const res = await fetch(
-          `${import.meta.env.VITE_BACKEND_API_URL}/auth/refresh`,
-          {
-            method: "POST",
-            credentials: "include",
-          }
-        );
-        return res.ok;
-      } catch {
-        return false;
-      } finally {
-        pendingRefresh = null;
-      }
-    })();
+const refreshSession = createSingleFlightRunner(async (): Promise<boolean> => {
+  try {
+    const res = await fetch(`${import.meta.env.VITE_BACKEND_API_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
-
-  return pendingRefresh;
-}
+});
 
 /**
  * Logs out the user by making a POST request to the logout endpoint.
