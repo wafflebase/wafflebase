@@ -130,7 +130,9 @@ Start from these indexes, then open specific docs only as needed.
 
 ## Task Documentation
 
-- Track non-trivial tasks in `tasks/` using paired files:
-  - `tasks/YYYYMMDD-<slug>-todo.md`
-  - `tasks/YYYYMMDD-<slug>-lessons.md`
-- Keep `tasks/README.md` updated when adding task files.
+- Track non-trivial tasks in `tasks/active/` using paired files:
+  - `tasks/active/YYYYMMDD-<slug>-todo.md`
+  - `tasks/active/YYYYMMDD-<slug>-lessons.md`
+- Completed task records are archived in `tasks/archive/YYYY/MM/`.
+- Use `pnpm tasks:archive` to move completed tasks and `pnpm tasks:index` to
+  regenerate `tasks/README.md` and `tasks/archive/README.md`.

@@ -78,7 +78,10 @@ browser-rendered visual lane command wiring and interruption-safe cleanup in
 | 15 | Chunk-gate policy externalized to config | Completed |
 | 16 | Deterministic frontend visual regression harness | Completed |
 
-Detailed task records are tracked in `tasks/20260227-harness-phase*-{todo,lessons}.md`.
+Detailed task records are tracked in:
+- `tasks/active/` for in-progress work
+- `tasks/archive/2026/02/20260227-harness-phase*-{todo,lessons}.md` for the
+  completed phase history
 
 ## Phase 17 Follow-up Status (Completed)
 

@@ -18,6 +18,8 @@
     "verify:integration:local": "node ./scripts/verify-integration-local.mjs",
     "verify:integration:docker": "node ./scripts/verify-integration-docker.mjs",
     "verify:full": "pnpm verify:self && pnpm verify:integration",
+    "tasks:index": "node ./scripts/tasks-index.mjs",
+    "tasks:archive": "node ./scripts/tasks-archive.mjs && pnpm tasks:index",
     "frontend": "pnpm --filter @wafflebase/frontend",
     "backend": "pnpm --filter @wafflebase/backend",
     "sheet": "pnpm --filter @wafflebase/sheet"
