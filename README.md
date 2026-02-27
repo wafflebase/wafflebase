@@ -76,6 +76,7 @@ pnpm run verify:full          # alias: verify:self + verify:integration
 Quick verify guide:
 - Use `pnpm run verify:self` as the default pre-PR lane.
 - Use `pnpm run verify:frontend:visual:all` to run SSR + browser visual checks.
+- Browser visual lane captures deterministic desktop + mobile baselines.
 - Browser visual checks need one-time Chromium install per environment:
   `pnpm --filter @wafflebase/frontend exec playwright install chromium`
 - Use `pnpm run verify:integration` (or `:local` / `:docker`) for DB-backed e2e.

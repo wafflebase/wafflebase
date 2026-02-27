@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 25
+Total archived tasks: 26
 
-## 2026/02 (25 tasks)
+## 2026/02 (26 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -34,6 +34,7 @@ Total archived tasks: 25
 | harness phase8 datasource error smoke (2026-02-27) | [20260227-harness-phase8-datasource-error-smoke-todo.md](./2026/02/20260227-harness-phase8-datasource-error-smoke-todo.md) | [20260227-harness-phase8-datasource-error-smoke-lessons.md](./2026/02/20260227-harness-phase8-datasource-error-smoke-lessons.md) |
 | harness phase9 frontend lint signal (2026-02-27) | [20260227-harness-phase9-frontend-lint-signal-todo.md](./2026/02/20260227-harness-phase9-frontend-lint-signal-todo.md) | [20260227-harness-phase9-frontend-lint-signal-lessons.md](./2026/02/20260227-harness-phase9-frontend-lint-signal-lessons.md) |
 | tasks archive structure (2026-02-27) | [20260227-tasks-archive-structure-todo.md](./2026/02/20260227-tasks-archive-structure-todo.md) | [20260227-tasks-archive-structure-lessons.md](./2026/02/20260227-tasks-archive-structure-lessons.md) |
+| visual test hardening (2026-02-27) | [20260227-visual-test-hardening-todo.md](./2026/02/20260227-visual-test-hardening-todo.md) | [20260227-visual-test-hardening-lessons.md](./2026/02/20260227-visual-test-hardening-lessons.md) |
 | claude md tighten (2026-02-26) | [20260226-claude-md-tighten-todo.md](./2026/02/20260226-claude-md-tighten-todo.md) | [20260226-claude-md-tighten-lessons.md](./2026/02/20260226-claude-md-tighten-lessons.md) |
 | ime focus (2026-02-26) | [20260226-ime-focus-todo.md](./2026/02/20260226-ime-focus-todo.md) | [20260226-ime-focus-lessons.md](./2026/02/20260226-ime-focus-lessons.md) |
 | refresh token auth (2026-02-26) | [20260226-refresh-token-auth-todo.md](./2026/02/20260226-refresh-token-auth-todo.md) | [20260226-refresh-token-auth-lessons.md](./2026/02/20260226-refresh-token-auth-lessons.md) |

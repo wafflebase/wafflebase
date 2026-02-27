@@ -58,7 +58,7 @@ Default limits are defined in `/harness.config.json`.
 from `/harness/visual` via Vite SSR.
 
 `pnpm verify:frontend:visual:browser` compares deterministic screenshot
-baselines rendered in headless Chromium.
+baselines rendered in headless Chromium across desktop + mobile profiles.
 Install Chromium once per environment:
 - `pnpm --filter @wafflebase/frontend exec playwright install chromium`
 
