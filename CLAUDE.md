@@ -138,3 +138,17 @@ Start from these indexes, then open specific docs only as needed.
 - Completed task records are archived in `tasks/archive/YYYY/MM/`.
 - Use `pnpm tasks:archive` to move completed tasks and `pnpm tasks:index` to
   regenerate `tasks/README.md` and `tasks/archive/README.md`.
+
+## Post-Task Checklist
+
+Every non-trivial task must complete these steps before marking done:
+
+1. **Design docs** — If the change alters architecture, data flow, or public
+   API behavior described in `design/`, update the relevant design doc to
+   match the new implementation.
+2. **Task files** — Create `tasks/active/YYYYMMDD-<slug>-todo.md` and
+   `tasks/active/YYYYMMDD-<slug>-lessons.md` for the task. Mark items
+   complete, then archive with `pnpm tasks:archive` and reindex with
+   `pnpm tasks:index`.
+3. **Tests pass** — Run `pnpm verify:fast` (or the relevant verify command)
+   and confirm all tests pass.
