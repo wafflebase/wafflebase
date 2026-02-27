@@ -64,6 +64,7 @@ pnpm run verify:architecture
 pnpm run verify:fast
 pnpm run verify:self
 pnpm run verify:integration   # requires PostgreSQL
+pnpm run verify:integration:local  # skips when local PostgreSQL is unavailable
 pnpm run verify:full          # alias: verify:self + verify:integration
 ```
 
