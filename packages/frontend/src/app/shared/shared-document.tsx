@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
@@ -29,9 +29,15 @@ function SharedDocumentLayout({
   const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const root = doc?.getRoot();
-  const tabs: TabMeta[] = root
-    ? (root.tabOrder || []).map((id: string) => root.tabs[id]).filter(Boolean)
-    : [];
+  const tabs: TabMeta[] = useMemo(
+    () =>
+      root
+        ? (root.tabOrder || [])
+            .map((id: string) => root.tabs[id])
+            .filter(Boolean)
+        : [],
+    [root]
+  );
 
   useEffect(() => {
     if (!root) return;

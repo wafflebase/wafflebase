@@ -11,6 +11,7 @@ Track task-specific plan/review and lessons files.
 
 | Task | Todo | Lessons |
 |---|---|---|
+| Harness phase 9 frontend lint signal cleanup (2026-02-27) | [20260227-harness-phase9-frontend-lint-signal-todo.md](./20260227-harness-phase9-frontend-lint-signal-todo.md) | [20260227-harness-phase9-frontend-lint-signal-lessons.md](./20260227-harness-phase9-frontend-lint-signal-lessons.md) |
 | Harness phase 8 datasource error smoke tests (2026-02-27) | [20260227-harness-phase8-datasource-error-smoke-todo.md](./20260227-harness-phase8-datasource-error-smoke-todo.md) | [20260227-harness-phase8-datasource-error-smoke-lessons.md](./20260227-harness-phase8-datasource-error-smoke-lessons.md) |
 | Harness phase 7 API error smoke tests (2026-02-27) | [20260227-harness-phase7-api-error-smoke-todo.md](./20260227-harness-phase7-api-error-smoke-todo.md) | [20260227-harness-phase7-api-error-smoke-lessons.md](./20260227-harness-phase7-api-error-smoke-lessons.md) |
 | Harness phase 6 auth refresh smoke tests (2026-02-27) | [20260227-harness-phase6-auth-refresh-smoke-todo.md](./20260227-harness-phase6-auth-refresh-smoke-todo.md) | [20260227-harness-phase6-auth-refresh-smoke-lessons.md](./20260227-harness-phase6-auth-refresh-smoke-lessons.md) |
@@ -23,5 +24,5 @@ Track task-specific plan/review and lessons files.
 | CLAUDE.md tightening pass (2026-02-26) | [20260226-claude-md-tighten-todo.md](./20260226-claude-md-tighten-todo.md) | [20260226-claude-md-tighten-lessons.md](./20260226-claude-md-tighten-lessons.md) |
 | Refresh-token auth flow (2026-02-26) | [20260226-refresh-token-auth-todo.md](./20260226-refresh-token-auth-todo.md) | [20260226-refresh-token-auth-lessons.md](./20260226-refresh-token-auth-lessons.md) |
 
-Latest follow-up: completed phase-8 datasource API error consistency update
-and verification in `20260227-harness-phase8-datasource-error-smoke-*.md`.
+Latest follow-up: completed phase-9 frontend lint signal cleanup and
+verification in `20260227-harness-phase9-frontend-lint-signal-*.md`.
