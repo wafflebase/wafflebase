@@ -12,7 +12,9 @@ verification lanes, quality gates, local/CI reproducibility, and rollout
 status by phase.
 
 As of 2026-02-27, phases 1 through 16 are completed.
-Phase 17 hardening work has started with initial follow-up tasks.
+Phase 17 hardening is in progress, with two follow-up items already completed:
+browser-rendered visual lane command wiring and interruption-safe cleanup in
+`verify:integration:docker`.
 
 ## Goals
 
@@ -37,9 +39,11 @@ Phase 17 hardening work has started with initial follow-up tasks.
   chunk/visual gates
 - `pnpm verify:frontend:chunks`: frontend built JS chunk size/count gate
 - `pnpm verify:frontend:visual`: deterministic frontend markup baseline gate
-  (SSR HTML snapshot)
+  (SSR HTML snapshot at
+  `packages/frontend/tests/visual/baselines/harness-visual.html`)
 - `pnpm verify:frontend:visual:browser`: browser-rendered visual screenshot
-  baseline gate (Playwright/Chromium)
+  baseline gate (Playwright/Chromium, baseline at
+  `packages/frontend/tests/visual/baselines/harness-visual.browser.png`)
 - `pnpm verify:integration`: Prisma migrate deploy + backend e2e (DB-backed)
 - `pnpm verify:integration:local`: skip integration when DB is unreachable
 - `pnpm verify:integration:docker`: one-command postgres up + integration + stop
@@ -73,6 +77,15 @@ Phase 17 hardening work has started with initial follow-up tasks.
 | 16 | Deterministic frontend visual regression harness | Completed |
 
 Detailed task records are tracked in `tasks/20260227-harness-phase*-{todo,lessons}.md`.
+
+## Phase 17 Follow-up Status (Completed)
+
+- Browser-rendered visual lane command added:
+  - `pnpm verify:frontend:visual:browser`
+- `verify:integration:docker` cleanup hardened for interruption handling:
+  - signal handlers (`SIGINT`/`SIGTERM`) + `finally` cleanup path
+- Frontend test and visual baseline assets moved out of runtime `src` into:
+  - `packages/frontend/tests/`
 
 ## Top-Level Plan Status (A-E)
 

@@ -9,3 +9,5 @@
 - When dependency installation is blocked by network/store constraints and the
   user chooses to run install manually, update `package.json`/lock metadata
   first and hand off exact follow-up install commands.
+- When implementation scope changes test/baseline locations, ensure design
+  docs reflect the new canonical paths, not only command additions.

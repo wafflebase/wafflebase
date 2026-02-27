@@ -34,6 +34,10 @@
 - Updated docs:
   - `README.md`, `packages/frontend/README.md`, `CLAUDE.md`
   - `design/harness-engineering.md` lane contract + immediate next work.
+- Follow-up doc sync:
+  - Expanded `design/harness-engineering.md` to explicitly record phase-17
+    follow-up completion status and the moved frontend visual baseline paths
+    under `packages/frontend/tests/visual/baselines`.
 - Verification:
   - `node --check packages/frontend/scripts/verify-visual-browser.mjs` (pass)
   - `node --check scripts/verify-integration-docker.mjs` (pass)
