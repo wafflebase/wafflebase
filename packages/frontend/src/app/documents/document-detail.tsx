@@ -37,6 +37,10 @@ import {
   isTabNameTaken,
   normalizeTabName,
 } from "./tab-name";
+import {
+  buildLegacySpreadsheetDocument,
+  shouldMigrateLegacyDocument,
+} from "./migration";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
 const DataSourceView = lazy(() =>
@@ -82,41 +86,16 @@ function migrateDocument(
 ) {
   if (!doc) return;
 
-  const root = doc.getRoot();
+  const root = doc.getRoot() as unknown as Record<string, unknown>;
+  if (!shouldMigrateLegacyDocument(root)) return;
 
-  // If `tabs` already exists, no migration needed.
-  if (root.tabs) return;
-
-  // Old format detected: root has `sheet` but no `tabs`.
-  const oldRoot = root as unknown as Record<string, unknown>;
-  if (!oldRoot.sheet) return;
-
-  const tabId = "tab-1";
   doc.update((r: Record<string, unknown>) => {
-    // Build the new structure, preserving existing data
-    r.tabs = {
-      [tabId]: {
-        id: tabId,
-        name: "Sheet1",
-        type: "sheet" as const,
-      },
-    };
-    r.tabOrder = [tabId];
-    r.sheets = {
-      [tabId]: {
-        sheet: r.sheet || {},
-        rowHeights: r.rowHeights || {},
-        colWidths: r.colWidths || {},
-        colStyles: r.colStyles || {},
-        rowStyles: r.rowStyles || {},
-        sheetStyle: r.sheetStyle,
-        conditionalFormats: [],
-        merges: (r as Record<string, unknown>).merges || {},
-        charts: {},
-        frozenRows: r.frozenRows || 0,
-        frozenCols: r.frozenCols || 0,
-      },
-    };
+    const migrated = buildLegacySpreadsheetDocument(r);
+    if (!migrated) return;
+
+    r.tabs = migrated.tabs;
+    r.tabOrder = migrated.tabOrder;
+    r.sheets = migrated.sheets;
 
     // Remove old flat keys
     delete r.sheet;

@@ -9,8 +9,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "lint:arch": "eslint -c eslint.arch.config.js \"src/**/*.{ts,tsx}\"",
-    "test": "node --experimental-strip-types --test src/lib/utils.test.ts src/app/documents/tab-name.test.ts",
-    "test:watch": "node --experimental-strip-types --test --watch src/lib/utils.test.ts src/app/documents/tab-name.test.ts",
+    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
+    "test:watch": "node --experimental-strip-types --test --watch \"src/**/*.test.ts\"",
     "preview": "vite preview"
   },
   "dependencies": {
