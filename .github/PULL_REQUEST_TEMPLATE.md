@@ -1,19 +1,35 @@
-<!--  Thanks for sending a pull request! -->
+## Summary
 
-### What this PR does / why we need it?
+## Why
 
-### Any background context you want to provide?
-
-### What are the relevant tickets?
-
-<!--
-*Automatically closes linked issue when PR is merged.
-Usage: `Fixes #<issue number>`, or `Fixes (paste link of issue)`.
--->
+## Linked Issues
 
 Fixes #
 
-### Checklist
+## Verification
 
-- [ ] Added relevant tests or not required
-- [ ] Didn't break anything
+### Required Commands
+
+- [ ] `pnpm verify:fast`
+- [ ] `pnpm verify:full` (or explain why it was not run)
+
+### Command Evidence
+
+```text
+pnpm verify:fast
+# paste key pass/fail lines
+
+pnpm verify:full
+# paste key pass/fail lines, or explicit skip reason
+```
+
+## Risk Assessment
+
+- User-facing risk:
+- Data/security risk:
+- Rollback plan:
+
+## Notes for Reviewers
+
+- UI changes (screenshots/gifs if applicable):
+- Follow-up work (if any):

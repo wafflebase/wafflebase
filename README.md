@@ -60,6 +60,8 @@ You need to have the following software installed on your system:
 pnpm i
 pnpm run build
 pnpm run test
+pnpm run verify:fast
+pnpm run verify:full
 ```
 
 #### Running

@@ -50,28 +50,8 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint Frontend
-        run: pnpm frontend lint
+      - name: Verify Fast Lane
+        run: pnpm verify:fast
 
-      - name: Test Frontend
-        run: pnpm frontend test
-
-      - name: Build Frontend
-        run: pnpm frontend build
-
-      - name: Apply Backend Migrations
-        run: pnpm --filter @wafflebase/backend exec prisma migrate deploy
-
-      - name: Test Backend
-        run: pnpm backend test
-
-      - name: Test Backend E2E
-        run: pnpm backend test:e2e
-
-      - name: Build Backend
-        run: pnpm backend build
-
-      - name: Build And Test Sheet
-        run: |
-          pnpm sheet build
-          pnpm sheet test
+      - name: Verify Full Lane
+        run: pnpm verify:full
