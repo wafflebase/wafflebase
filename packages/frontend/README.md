@@ -43,6 +43,7 @@ pnpm frontend dev
 
 ```bash
 pnpm frontend build
+pnpm verify:frontend:chunks  # run after build to enforce JS chunk budget
 ```
 
 ### Testing
