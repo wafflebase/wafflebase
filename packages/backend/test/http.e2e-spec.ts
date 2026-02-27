@@ -41,6 +41,7 @@ describe('Controller contracts (e2e)', () => {
 
   afterEach(async () => {
     jest.clearAllMocks();
+    jest.useRealTimers();
     await moduleRef.close();
   });
 
@@ -83,8 +84,10 @@ describe('Controller contracts (e2e)', () => {
   });
 
   it('maps role/expiration on share-link creation endpoint', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2025-06-15T12:00:00Z'));
+
     shareLinkService.create.mockResolvedValue({ id: 'link-1', role: 'editor' });
-    const now = Date.now();
 
     const result = await shareLinkController.create(
       'doc-1',
@@ -101,8 +104,7 @@ describe('Controller contracts (e2e)', () => {
     );
 
     const expiresAt = shareLinkService.create.mock.calls[0][3] as Date;
-    expect(expiresAt.getTime()).toBeGreaterThanOrEqual(now + 60 * 60 * 1000 - 1000);
-    expect(expiresAt.getTime()).toBeLessThanOrEqual(now + 60 * 60 * 1000 + 1000);
+    expect(expiresAt).toEqual(new Date('2025-06-15T13:00:00Z'));
   });
 
   it('forwards authenticated user id on share-link list and delete endpoints', async () => {

@@ -7,54 +7,23 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from 'src/database/prisma.service';
 import { DataSourceService } from 'src/datasource/datasource.service';
 import { ShareLinkService } from 'src/share-link/share-link.service';
-
-const TEST_ENCRYPTION_KEY =
-  '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-const DEFAULT_TEST_DATABASE_URL =
-  'postgresql://wafflebase:wafflebase@localhost:5432/wafflebase';
-
-const runDbIntegrationTests = process.env.RUN_DB_INTEGRATION_TESTS === 'true';
-const describeDb = runDbIntegrationTests ? describe : describe.skip;
-
-function parseDatabaseUrl(databaseUrl: string) {
-  const url = new URL(databaseUrl);
-  return {
-    host: url.hostname,
-    port: Number(url.port || 5432),
-    database: url.pathname.replace(/^\//, ''),
-    username: decodeURIComponent(url.username),
-    password: decodeURIComponent(url.password),
-  };
-}
+import {
+  describeDb,
+  parseDatabaseUrl,
+  clearDatabase,
+  createUserFactory,
+  setIntegrationEnvDefaults,
+} from './helpers/integration-helpers';
 
 describeDb('Database-backed integration', () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let datasourceService: DataSourceService;
   let shareLinkService: ShareLinkService;
-  let userSeq = 0;
-
-  async function clearDatabase() {
-    await prisma.shareLink.deleteMany();
-    await prisma.dataSource.deleteMany();
-    await prisma.document.deleteMany();
-    await prisma.user.deleteMany();
-  }
-
-  async function createUser() {
-    userSeq += 1;
-    return prisma.user.create({
-      data: {
-        authProvider: 'github',
-        username: `user-${userSeq}`,
-        email: `user-${userSeq}@example.com`,
-      },
-    });
-  }
+  let createUser: ReturnType<typeof createUserFactory>;
 
   beforeAll(async () => {
-    process.env.DATASOURCE_ENCRYPTION_KEY ??= TEST_ENCRYPTION_KEY;
-    process.env.DATABASE_URL ??= DEFAULT_TEST_DATABASE_URL;
+    setIntegrationEnvDefaults();
 
     moduleRef = await Test.createTestingModule({
       providers: [PrismaService, DataSourceService, ShareLinkService],
@@ -63,16 +32,17 @@ describeDb('Database-backed integration', () => {
     prisma = moduleRef.get(PrismaService);
     datasourceService = moduleRef.get(DataSourceService);
     shareLinkService = moduleRef.get(ShareLinkService);
+    createUser = createUserFactory(prisma, 'db');
 
     await prisma.$connect();
   });
 
   beforeEach(async () => {
-    await clearDatabase();
+    await clearDatabase(prisma);
   });
 
   afterAll(async () => {
-    await clearDatabase();
+    await clearDatabase(prisma);
     await moduleRef.close();
   });
 

@@ -17,9 +17,9 @@ maintainable software. Where context engineering asks *what should the agent
 see*, harness engineering asks *what should the system prevent, measure, and
 correct*.
 
-As of 2026-02-27, phases 1 through 16 and Phase 17 follow-up items are
-completed. The harness is fully operational for day-to-day development.
-Remaining phases focus on determinism hardening, observability, and automation.
+As of 2026-02-27, phases 1 through 17 are completed. The harness is fully
+operational for day-to-day development. Remaining phases focus on
+observability, evidence automation, and entropy detection.
 
 ## Principles
 
@@ -137,6 +137,7 @@ systematically.
 | `pnpm verify:integration` | Prisma migrate + backend e2e |
 | `pnpm verify:integration:local` | Skip integration when DB is unreachable |
 | `pnpm verify:integration:docker` | One-command: postgres up + integration + stop |
+| `pnpm verify:integration:repeat` | Repeat-run stability check (default 3 runs) |
 
 ### Composite Lanes
 
@@ -176,7 +177,7 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
-## Completed Phases (1-16 + Phase 17 Follow-up)
+## Completed Phases (1-17)
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -197,12 +198,15 @@ database → auth/user/document → controllers/modules
 | 15 | Chunk-gate policy externalized to config | Completed |
 | 16 | Deterministic frontend visual regression harness | Completed |
 | 17f | Browser visual lane + interaction tests + interrupt-safe cleanup | Completed |
+| 17 | Integration determinism hardening | Completed |
 
-Phase 17 follow-up delivered:
-- `pnpm verify:frontend:visual:browser` command (Playwright/Chromium)
-- `pnpm verify:frontend:interaction:browser` command (cell input, formula, scroll)
-- Interrupt-safe cleanup in `verify:integration:docker` (SIGINT/SIGTERM + finally)
-- Test/baseline assets relocated to `packages/frontend/tests/`
+Phase 17 delivered:
+- Shared integration test helpers (`test/helpers/integration-helpers.ts`):
+  clearDatabase, createUserFactory, describeDb, parseDatabaseUrl, env defaults.
+- Timestamp nondeterminism eliminated via `jest.useFakeTimers()` in controller
+  contract tests.
+- Postgres version pinned to 16 in `docker-compose.yaml` (matches CI).
+- Repeat-run stability script: `pnpm verify:integration:repeat`.
 
 Detailed task records:
 - `tasks/active/` for in-progress work
@@ -225,21 +229,6 @@ Detailed task records:
 - Standardize Playwright + Chromium provisioning (local + CI), then compose
   `verify:frontend:visual:browser` and `verify:frontend:interaction:browser`
   into `verify:self`.
-
-### Phase 17: Integration Determinism Hardening
-
-**Principle:** Capability-First Debugging — treat flaky integration as a
-harness gap, not a test problem.
-
-Goal: Reduce flake by standardizing DB state and nondeterministic dependencies.
-
-Deliverables:
-- Shared integration test seed/reset helpers.
-- Time/random dependency isolation helpers (fixed test clocks/seeds).
-- Repeat-run stability check (same commit, consecutive runs are stable).
-
-Done criteria: Consecutive integration runs on same commit produce identical
-results.
 
 ### Phase 18: Harness Report Artifacts
 

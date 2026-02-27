@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 27
+Total archived tasks: 28
 
-## 2026/02 (27 tasks)
+## 2026/02 (28 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -22,6 +22,7 @@ Total archived tasks: 27
 | harness phase14 integration docker (2026-02-27) | [20260227-harness-phase14-integration-docker-todo.md](./2026/02/20260227-harness-phase14-integration-docker-todo.md) | [20260227-harness-phase14-integration-docker-lessons.md](./2026/02/20260227-harness-phase14-integration-docker-lessons.md) |
 | harness phase15 policy config (2026-02-27) | [20260227-harness-phase15-policy-config-todo.md](./2026/02/20260227-harness-phase15-policy-config-todo.md) | [20260227-harness-phase15-policy-config-lessons.md](./2026/02/20260227-harness-phase15-policy-config-lessons.md) |
 | harness phase16 visual regression (2026-02-27) | [20260227-harness-phase16-visual-regression-todo.md](./2026/02/20260227-harness-phase16-visual-regression-todo.md) | [20260227-harness-phase16-visual-regression-lessons.md](./2026/02/20260227-harness-phase16-visual-regression-lessons.md) |
+| harness phase17 (2026-02-27) | [20260227-harness-phase17-todo.md](./2026/02/20260227-harness-phase17-todo.md) | [20260227-harness-phase17-lessons.md](./2026/02/20260227-harness-phase17-lessons.md) |
 | harness phase17 browser visual cleanup (2026-02-27) | [20260227-harness-phase17-browser-visual-cleanup-todo.md](./2026/02/20260227-harness-phase17-browser-visual-cleanup-todo.md) | [20260227-harness-phase17-browser-visual-cleanup-lessons.md](./2026/02/20260227-harness-phase17-browser-visual-cleanup-lessons.md) |
 | harness phase18 sheet visual baselines (2026-02-27) | [20260227-harness-phase18-sheet-visual-baselines-todo.md](./2026/02/20260227-harness-phase18-sheet-visual-baselines-todo.md) | [20260227-harness-phase18-sheet-visual-baselines-lessons.md](./2026/02/20260227-harness-phase18-sheet-visual-baselines-lessons.md) |
 | harness phase18 verify simplify (2026-02-27) | [20260227-harness-phase18-verify-simplify-todo.md](./2026/02/20260227-harness-phase18-verify-simplify-todo.md) | [20260227-harness-phase18-verify-simplify-lessons.md](./2026/02/20260227-harness-phase18-verify-simplify-lessons.md) |

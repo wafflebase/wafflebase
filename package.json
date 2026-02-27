@@ -18,6 +18,7 @@
     "verify:integration": "node ./scripts/verify-integration.mjs",
     "verify:integration:local": "node ./scripts/verify-integration-local.mjs",
     "verify:integration:docker": "node ./scripts/verify-integration-docker.mjs",
+    "verify:integration:repeat": "node ./scripts/verify-integration-repeat.mjs",
     "verify:full": "pnpm verify:self && pnpm verify:integration",
     "tasks:index": "node ./scripts/tasks-index.mjs",
     "tasks:archive": "node ./scripts/tasks-archive.mjs && pnpm tasks:index",
