@@ -94,6 +94,27 @@ Wafflebase depends on [Yorkie](https://yorkie.dev) and [Postgres](https://www.po
 
 ```bash
 docker compose up -d
+```
+
+Create `packages/backend/.env` with the required environment variables:
+
+```env
+FRONTEND_URL=http://localhost:5173
+DATABASE_URL=postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
+JWT_SECRET=your_jwt_secret
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
+```
+
+To obtain `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, create a GitHub OAuth App at https://github.com/settings/developers with the callback URL above.
+
+See [`packages/backend/README.md`](packages/backend/README.md) for the full list of environment variables including optional ones.
+
+Run database migrations and start the dev server:
+
+```bash
+pnpm backend migrate
 pnpm run dev
 ```
 
