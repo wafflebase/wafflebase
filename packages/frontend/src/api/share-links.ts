@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "./auth";
+import { assertOk } from "./http-error";
 
 export type ShareLink = {
   id: string;
@@ -32,9 +33,7 @@ export async function createShareLink(
       body: JSON.stringify({ role, expiration }),
     }
   );
-  if (!response.ok) {
-    throw new Error("Failed to create share link");
-  }
+  await assertOk(response, "Failed to create share link");
   return response.json();
 }
 
@@ -47,9 +46,7 @@ export async function getShareLinks(
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${documentId}/share-links`
   );
-  if (!response.ok) {
-    throw new Error("Failed to fetch share links");
-  }
+  await assertOk(response, "Failed to fetch share links");
   return response.json();
 }
 
@@ -61,9 +58,7 @@ export async function deleteShareLink(id: string): Promise<void> {
     `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${id}`,
     { method: "DELETE" }
   );
-  if (!response.ok) {
-    throw new Error("Failed to delete share link");
-  }
+  await assertOk(response, "Failed to delete share link");
 }
 
 /**
@@ -75,11 +70,10 @@ export async function resolveShareLink(
   const response = await fetch(
     `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${token}/resolve`
   );
-  if (response.status === 410) {
-    throw new Error("Share link has expired");
-  }
-  if (!response.ok) {
-    throw new Error("Invalid share link");
-  }
+  await assertOk(response, "Invalid share link", {
+    statusMessages: {
+      410: "Share link has expired",
+    },
+  });
   return response.json();
 }

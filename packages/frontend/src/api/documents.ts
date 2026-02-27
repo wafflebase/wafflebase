@@ -1,6 +1,7 @@
 import type { Document } from "@/types/documents";
 import { toast } from "sonner";
 import { fetchWithAuth } from "./auth";
+import { assertOk } from "./http-error";
 
 /**
  * Creates document.
@@ -17,9 +18,7 @@ export async function createDocument(payload: {
     }
   );
 
-  if (!response.ok) {
-    throw new Error("Failed to create document");
-  }
+  await assertOk(response, "Failed to create document");
 
   return response.json();
 }
@@ -31,9 +30,7 @@ export async function fetchDocuments(): Promise<Array<Document>> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents`
   );
-  if (!response.ok) {
-    throw new Error("Failed to fetch documents");
-  }
+  await assertOk(response, "Failed to fetch documents");
   return await response.json();
 }
 
@@ -44,9 +41,7 @@ export async function fetchDocument(id: string): Promise<Document> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`
   );
-  if (!response.ok) {
-    throw new Error("Failed to fetch document");
-  }
+  await assertOk(response, "Failed to fetch document");
   const document = await response.json();
   if (!document) {
     throw new Error("Document not found");
@@ -70,9 +65,7 @@ export async function renameDocument(
     }
   );
 
-  if (!response.ok) {
-    throw new Error("Failed to rename document");
-  }
+  await assertOk(response, "Failed to rename document");
 
   return response.json();
 }
@@ -92,6 +85,6 @@ export async function deleteDocument(id: string): Promise<void> {
     toast.success("Document deleted successfully");
   } else {
     toast.error("Failed to delete document");
-    throw new Error("Failed to delete document");
+    await assertOk(response, "Failed to delete document");
   }
 }
