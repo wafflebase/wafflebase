@@ -2732,39 +2732,46 @@ export class Sheet {
       return direction === 'asc' ? compared : -compared;
     });
 
-    // Reorder rows by repeated single-row upward moves.
     const desired = rows.map((entry) => entry.row);
-    const current = Array.from({ length: dataEnd - dataStart + 1 }, (_, i) => dataStart + i);
-    const moves: Array<{ srcIndex: number; dstIndex: number }> = [];
 
-    for (let i = 0; i < desired.length; i++) {
-      const wantedRow = desired[i];
-      const srcPos = current.indexOf(wantedRow);
-      if (srcPos === -1 || srcPos === i) continue;
-
-      const srcIndex = dataStart + srcPos;
-      const dstIndex = dataStart + i;
-      moves.push({ srcIndex, dstIndex });
-
-      current.splice(srcPos, 1);
-      current.splice(i, 0, wantedRow);
-    }
-
-    if (moves.length === 0) {
+    // Check if already in desired order.
+    const alreadySorted = desired.every((row, i) => row === dataStart + i);
+    if (alreadySorted) {
       return true;
     }
 
+    // Build row mapping: oldRow → newRow.
+    const rowMap = new Map<number, number>();
+    for (let i = 0; i < desired.length; i++) {
+      rowMap.set(desired[i], dataStart + i);
+    }
+
+    const colStart = this.filterRange[0].c;
+    const colEnd = this.filterRange[1].c;
+    const sortRange: Range = [
+      { r: dataStart, c: colStart },
+      { r: dataEnd, c: colEnd },
+    ];
+
     this.store.beginBatch();
     try {
-      for (const move of moves) {
-        await this.moveCells(
-          'row',
-          move.srcIndex,
-          1,
-          move.dstIndex,
-          { skipPostRecalculate: true },
-        );
+      // Read cells within the filter column range only.
+      const grid = await this.store.getGrid(sortRange);
+
+      // Build new grid with remapped row positions.
+      const newGrid: Grid = new Map();
+      for (const [sref, cell] of grid) {
+        const ref = parseRef(sref);
+        const newRow = rowMap.get(ref.r);
+        if (newRow !== undefined) {
+          newGrid.set(toSref({ r: newRow, c: ref.c }), cell);
+        }
       }
+
+      // Replace cells: delete the old range, then write the new grid.
+      await this.store.deleteRange(sortRange);
+      await this.store.setGrid(newGrid);
+
       await this.recalculateAllFormulaCells();
       await this.recomputeFilterHiddenRows();
     } finally {

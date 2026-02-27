@@ -222,6 +222,26 @@ Filter state is stored as worksheet-level metadata (`FilterState`):
 maps hidden rows to zero-height rows in `DimensionIndex` so rendering, hit
 testing, and scrolling all stay consistent without deleting underlying data.
 
+#### Filter-Range Sorting
+
+`sortFilterByColumn(col, direction)` sorts the data rows within the filter
+range by a single column's values. Sorting only affects cells **inside the
+filter column range** — columns outside the filter boundaries are left
+untouched (matching Google Sheets behavior).
+
+**Algorithm:**
+
+1. Read each data row's value in the sort column; build a sort key array with
+   numeric-first, then locale-compared text, then empty-last ordering.
+2. Compute a row mapping (`oldRow → newRow`) from the sorted order.
+3. Use `store.getGrid()` to read all cells within the filter column range.
+4. Remap each cell's row position, then `store.deleteRange()` the original
+   range and `store.setGrid()` the remapped cells.
+5. `recalculateAllFormulaCells()` and `recomputeFilterHiddenRows()` run
+   afterward.
+
+The entire operation is wrapped in a batch transaction for single-step undo.
+
 #### CellIndex
 
 `CellIndex` (`src/store/cell-index.ts`) is a spatial index that tracks which
