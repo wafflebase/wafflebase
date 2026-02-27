@@ -1,4 +1,4 @@
-import{c as r}from"./IconDotsVertical-CEsfNypO.js";import{a as n}from"./index-DOEcKwRD.js";import{a as t}from"./http-error-XKKRT0jQ.js";/**
+import{c as r}from"./IconDotsVertical-CEsfNypO.js";import{a as n}from"./index-CRq-in8K.js";import{a as t}from"./http-error-XKKRT0jQ.js";/**
  * @license @tabler/icons-react v3.31.0 - MIT
  *
  * This source code is licensed under the MIT license.
