@@ -1,0 +1,8 @@
+{
+  "frontend": {
+    "chunkBudgets": {
+      "maxChunkKb": 500,
+      "maxChunkCount": 60
+    }
+  }
+}

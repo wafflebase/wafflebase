@@ -73,6 +73,7 @@ pnpm run verify:full          # alias: verify:self + verify:integration
 `verify:frontend:chunks` defaults to a `500 kB` per-chunk limit and a `60`
 chunk count limit. Override via `FRONTEND_CHUNK_LIMIT_KB` and
 `FRONTEND_CHUNK_COUNT_LIMIT`.
+Default values are versioned in `harness.config.json`.
 
 `verify:integration` now always enables DB-backed e2e coverage by forcing
 `RUN_DB_INTEGRATION_TESTS=true` and providing local defaults for

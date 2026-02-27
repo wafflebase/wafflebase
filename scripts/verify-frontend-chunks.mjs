@@ -1,10 +1,11 @@
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DefaultChunkLimitKb = 500;
-const DefaultChunkCountLimit = 60;
+const HardDefaultChunkLimitKb = 500;
+const HardDefaultChunkCountLimit = 60;
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const harnessConfigPath = path.resolve(scriptDir, "..", "harness.config.json");
 const frontendAssetsDir = path.resolve(
   scriptDir,
   "..",
@@ -14,21 +15,53 @@ const frontendAssetsDir = path.resolve(
   "assets",
 );
 
+function parsePositiveNumber(label, value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(`[verify:frontend:chunks] ${label} must be a positive number.`);
+    process.exit(1);
+  }
+  return parsed;
+}
+
+async function readHarnessConfig() {
+  try {
+    const raw = await readFile(harnessConfigPath, "utf8");
+    return JSON.parse(raw);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return {};
+    }
+    console.error(
+      "[verify:frontend:chunks] Could not parse harness config at " +
+        `${harnessConfigPath}.`,
+    );
+    process.exit(1);
+  }
+}
+
+function readConfiguredBudget(config, key, fallback) {
+  const value = config?.frontend?.chunkBudgets?.[key];
+  if (value === undefined) {
+    return fallback;
+  }
+  return parsePositiveNumber(
+    `harness.config.json frontend.chunkBudgets.${key}`,
+    value,
+  );
+}
+
 function parsePositiveLimit(name, fallback) {
   const value = process.env[name];
   if (!value) {
     return fallback;
   }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    console.error(
-      `[verify:frontend:chunks] ${name} must be a positive number.`,
-    );
-    process.exit(1);
-  }
-
-  return parsed;
+  return parsePositiveNumber(name, value);
 }
 
 async function readChunkSizes() {
@@ -56,13 +89,25 @@ function formatChunk(chunk) {
   return `${chunk.name} (${chunk.sizeKb.toFixed(2)} kB)`;
 }
 
+const harnessConfig = await readHarnessConfig();
+const defaultChunkLimitKb = readConfiguredBudget(
+  harnessConfig,
+  "maxChunkKb",
+  HardDefaultChunkLimitKb,
+);
+const defaultChunkCountLimit = readConfiguredBudget(
+  harnessConfig,
+  "maxChunkCount",
+  HardDefaultChunkCountLimit,
+);
+
 const chunkLimitKb = parsePositiveLimit(
   "FRONTEND_CHUNK_LIMIT_KB",
-  DefaultChunkLimitKb,
+  defaultChunkLimitKb,
 );
 const chunkCountLimit = parsePositiveLimit(
   "FRONTEND_CHUNK_COUNT_LIMIT",
-  DefaultChunkCountLimit,
+  defaultChunkCountLimit,
 );
 let chunks;
 

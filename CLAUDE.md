@@ -121,6 +121,8 @@ Start from these indexes, then open specific docs only as needed.
 - Formula grammar changes require regeneration: run `pnpm sheet build:formula` and commit generated outputs.
 - ANTLR-generated files intentionally include `@ts-nocheck`; do not hand-edit generated parser/lexer files.
 - Backend and realtime flows assume local services are up (`docker compose up -d`) before running integration/e2e workflows.
+- Frontend chunk-gate defaults are defined in `harness.config.json` and can be
+  overridden with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT`.
 - Spreadsheet behavior should go through the `Store` abstraction; avoid bypassing it with ad-hoc persistence paths.
 
 ## Task Documentation
