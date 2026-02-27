@@ -10,8 +10,34 @@ on:
     branches: ["main"]
 
 jobs:
-  verify:
+  verify-self:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Self-Contained Lane
+        run: pnpm verify:self
+
+  verify-integration:
+    runs-on: ubuntu-latest
+    needs: verify-self
     env:
       DATABASE_URL: postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
       DATASOURCE_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
@@ -34,7 +60,6 @@ jobs:
     strategy:
       matrix:
         node-version: [22.x]
-        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     steps:
       - uses: actions/checkout@v4
@@ -50,8 +75,5 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify Fast Lane
-        run: pnpm verify:fast
-
-      - name: Verify Full Lane
-        run: pnpm verify:full
+      - name: Verify Integration Lane
+        run: pnpm verify:integration

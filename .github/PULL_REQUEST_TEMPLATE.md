@@ -10,16 +10,16 @@ Fixes #
 
 ### Required Commands
 
-- [ ] `pnpm verify:fast`
-- [ ] `pnpm verify:full` (or explain why it was not run)
+- [ ] `pnpm verify:self`
+- [ ] `pnpm verify:integration` (or explicit skip reason)
 
 ### Command Evidence
 
 ```text
-pnpm verify:fast
+pnpm verify:self
 # paste key pass/fail lines
 
-pnpm verify:full
+pnpm verify:integration
 # paste key pass/fail lines, or explicit skip reason
 ```
 

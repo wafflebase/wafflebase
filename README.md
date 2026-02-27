@@ -62,7 +62,9 @@ pnpm run build
 pnpm run test
 pnpm run verify:architecture
 pnpm run verify:fast
-pnpm run verify:full
+pnpm run verify:self
+pnpm run verify:integration   # requires PostgreSQL
+pnpm run verify:full          # alias: verify:self + verify:integration
 ```
 
 #### Running
