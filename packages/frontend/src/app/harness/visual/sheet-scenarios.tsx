@@ -342,31 +342,31 @@ const SCENARIOS: Scenario[] = [
   {
     id: "sheet-freeze-selection",
     title: "Freeze + Selection",
-    description: "고정 행/열과 스크롤된 선택 셀 오버레이를 고정 스냅샷으로 검증합니다.",
+    description: "Verifies frozen row/column panes and scrolled selection cell overlay via baseline snapshot.",
     setup: createFreezeScenarioStore,
   },
   {
     id: "sheet-overflow-clip",
     title: "Text Overflow + Clip",
-    description: "텍스트 overflow와 인접 셀 데이터에 따른 clipping 회귀를 검증합니다.",
+    description: "Verifies text overflow and clipping regression based on neighboring cell data.",
     setup: createOverflowScenarioStore,
   },
   {
     id: "sheet-merge-layout",
     title: "Merge Layout",
-    description: "병합 셀 렌더링(배경/정렬/테두리/선택 박스) 정합성을 검증합니다.",
+    description: "Verifies merged cell rendering (background, alignment, borders, selection box) consistency.",
     setup: createMergeScenarioStore,
   },
   {
     id: "sheet-formula-errors",
     title: "Formula Errors",
-    description: "#VALUE!, #REF!, #ERROR!, #N/A! 표현 회귀를 검증합니다.",
+    description: "Verifies rendering regression of #VALUE!, #REF!, #ERROR!, and #N/A! error displays.",
     setup: createErrorScenarioStore,
   },
   {
     id: "sheet-dimensions-freeze",
     title: "Custom Dimensions",
-    description: "커스텀 행/열 크기와 상단 freeze 동작의 레이아웃 회귀를 검증합니다.",
+    description: "Verifies layout regression of custom row/column sizes with top freeze pane.",
     setup: createDimensionScenarioStore,
   },
 ];
@@ -492,7 +492,7 @@ export function SheetVisualScenarios() {
       <header className="space-y-1">
         <h2 className="text-xl font-semibold tracking-tight">Spreadsheet Engine Visual Scenarios</h2>
         <p className="text-sm text-muted-foreground">
-          캔버스 기반 스프레드시트 핵심 렌더링 상태를 브라우저 baseline으로 검증합니다.
+          Validates core rendering states of the canvas-based spreadsheet against browser baselines.
         </p>
       </header>
       <div className="grid gap-4 xl:grid-cols-2">
