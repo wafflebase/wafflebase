@@ -3832,6 +3832,7 @@ export class Worksheet {
       this.autofillPreview,
       this.shouldShowAutofillHandle(),
       this.sheet!.getMerges(),
+      this.sheet!.getFilterRange(),
     );
   }
 

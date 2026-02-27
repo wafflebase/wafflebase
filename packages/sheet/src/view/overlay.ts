@@ -67,6 +67,7 @@ export class Overlay {
     autofillPreview?: Range,
     showAutofillHandle: boolean = true,
     merges?: Map<string, MergeSpan>,
+    filterRange?: Range,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -108,6 +109,7 @@ export class Overlay {
         colDim,
         mergeData,
       );
+      this.renderFilterRangeSimple(ctx, filterRange, scroll, rowDim, colDim);
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
       this.renderCopyRangeSimple(ctx, copyRange, scroll, rowDim, colDim);
     } else {
@@ -163,6 +165,27 @@ export class Overlay {
             ctx.lineWidth = 2;
             ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
           }
+
+          ctx.restore();
+        }
+      }
+
+      // Render filter range per quadrant
+      if (filterRange) {
+        for (const q of quadrants) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(q.x, q.y, q.width, q.height);
+          ctx.clip();
+
+          const qScroll = { left: q.scrollLeft, top: q.scrollTop };
+          const rangeRect = expandBoundingRect(
+            toBoundingRect(filterRange[0], qScroll, rowDim, colDim),
+            toBoundingRect(filterRange[1], qScroll, rowDim, colDim),
+          );
+          ctx.strokeStyle = this.getThemeColor('filterRangeBorderColor');
+          ctx.lineWidth = 1;
+          ctx.strokeRect(rangeRect.left, rangeRect.top, rangeRect.width, rangeRect.height);
 
           ctx.restore();
         }
@@ -414,6 +437,23 @@ export class Overlay {
         ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
       }
     }
+  }
+
+  private renderFilterRangeSimple(
+    ctx: CanvasRenderingContext2D,
+    filterRange: Range | undefined,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+  ): void {
+    if (!filterRange) return;
+    const rect = expandBoundingRect(
+      toBoundingRect(filterRange[0], scroll, rowDim, colDim),
+      toBoundingRect(filterRange[1], scroll, rowDim, colDim),
+    );
+    ctx.strokeStyle = this.getThemeColor('filterRangeBorderColor');
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
   }
 
   private renderFormulaRangesSimple(
