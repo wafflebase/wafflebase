@@ -60,6 +60,8 @@ pnpm backend build
 ```bash
 pnpm backend test                 # Unit tests (Jest)
 pnpm backend test:e2e             # E2E + DB-backed integration tests
+pnpm verify:integration           # Root integration lane (forced DB-backed)
+pnpm verify:integration:docker    # One-command local postgres + integration
 ```
 
 `test:e2e` includes database-backed tests for datasource/share-link services.

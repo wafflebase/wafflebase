@@ -66,12 +66,17 @@ pnpm run verify:self
 pnpm run verify:frontend:chunks  # checks built frontend JS chunk sizes
 pnpm run verify:integration   # requires PostgreSQL
 pnpm run verify:integration:local  # skips when local PostgreSQL is unavailable
+pnpm run verify:integration:docker # starts postgres, runs integration, stops
 pnpm run verify:full          # alias: verify:self + verify:integration
 ```
 
 `verify:frontend:chunks` defaults to a `500 kB` per-chunk limit and a `60`
 chunk count limit. Override via `FRONTEND_CHUNK_LIMIT_KB` and
 `FRONTEND_CHUNK_COUNT_LIMIT`.
+
+`verify:integration` now always enables DB-backed e2e coverage by forcing
+`RUN_DB_INTEGRATION_TESTS=true` and providing local defaults for
+`DATABASE_URL`/`DATASOURCE_ENCRYPTION_KEY` when unset.
 
 #### Running
 

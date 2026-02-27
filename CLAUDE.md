@@ -36,6 +36,7 @@ pnpm verify:fast                    # Lint + unit tests (local/default lane)
 pnpm verify:self                    # verify:fast + frontend/backend/sheet build
 pnpm verify:integration             # Prisma migrate + backend e2e (DB required)
 pnpm verify:integration:local       # Skip integration if local DB is unreachable
+pnpm verify:integration:docker      # Start local postgres, run integration, stop
 pnpm verify:full                    # Alias: verify:self + verify:integration
 pnpm test                           # Run sheet package tests (Vitest)
 pnpm backend test                   # Run backend tests (Jest)

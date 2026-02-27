@@ -67,7 +67,8 @@ if (!reachable) {
   );
   console.log(
     "[verify:integration:local] Start local services (for example: " +
-      "`docker compose up -d`) and rerun to execute integration checks.",
+      "`docker compose up -d`), or run `pnpm verify:integration:docker` " +
+      "for one-command local integration verification.",
   );
   process.exit(0);
 }
