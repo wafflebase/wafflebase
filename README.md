@@ -65,6 +65,7 @@ pnpm run verify:fast
 pnpm run verify:self
 pnpm run verify:frontend:chunks  # checks built frontend JS chunk sizes
 pnpm run verify:frontend:visual  # checks visual snapshot regressions
+pnpm run verify:frontend:visual:browser # checks browser-rendered snapshots
 pnpm run verify:integration   # requires PostgreSQL
 pnpm run verify:integration:local  # skips when local PostgreSQL is unavailable
 pnpm run verify:integration:docker # starts postgres, runs integration, stops
@@ -78,6 +79,12 @@ Default values are versioned in `harness.config.json`.
 
 `verify:frontend:visual` compares deterministic baseline markup rendered from
 `/harness/visual` (via Vite SSR).
+
+`verify:frontend:visual:browser` compares deterministic screenshot baselines
+rendered in headless Chromium from `/harness/visual`.
+Install prerequisites:
+- `pnpm --filter @wafflebase/frontend add -D playwright`
+- `pnpm --filter @wafflebase/frontend exec playwright install chromium`
 
 `verify:integration` now always enables DB-backed e2e coverage by forcing
 `RUN_DB_INTEGRATION_TESTS=true` and providing local defaults for

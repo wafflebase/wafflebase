@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createSingleFlightRunner } from "./single-flight.ts";
+import { createSingleFlightRunner } from "../../src/api/single-flight.ts";
 
 test("createSingleFlightRunner coalesces concurrent calls", async () => {
   let runs = 0;

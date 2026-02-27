@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cn } from "./utils.ts";
+import { cn } from "../../src/lib/utils.ts";
 
 test("cn merges optional classes", () => {
   assert.equal(cn("base", undefined, "active"), "base active");

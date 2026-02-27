@@ -11,6 +11,7 @@
     "verify:fast": "pnpm verify:architecture && pnpm frontend lint && pnpm frontend test && pnpm backend test && pnpm sheet test",
     "verify:frontend:chunks": "node ./scripts/verify-frontend-chunks.mjs",
     "verify:frontend:visual": "pnpm frontend test:visual",
+    "verify:frontend:visual:browser": "pnpm frontend test:visual:browser",
     "verify:self": "pnpm verify:fast && pnpm frontend build && pnpm verify:frontend:chunks && pnpm verify:frontend:visual && pnpm backend build && pnpm sheet build",
     "verify:integration": "node ./scripts/verify-integration.mjs",
     "verify:integration:local": "node ./scripts/verify-integration-local.mjs",

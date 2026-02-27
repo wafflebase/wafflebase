@@ -11,6 +11,8 @@ Track task-specific plan/review and lessons files.
 
 | Task | Todo | Lessons |
 |---|---|---|
+| Move frontend tests/baselines outside src (2026-02-27) | [20260227-frontend-tests-outside-src-todo.md](./20260227-frontend-tests-outside-src-todo.md) | [20260227-frontend-tests-outside-src-lessons.md](./20260227-frontend-tests-outside-src-lessons.md) |
+| Harness phase 17 browser visual lane + docker cleanup hardening (2026-02-27) | [20260227-harness-phase17-browser-visual-cleanup-todo.md](./20260227-harness-phase17-browser-visual-cleanup-todo.md) | [20260227-harness-phase17-browser-visual-cleanup-lessons.md](./20260227-harness-phase17-browser-visual-cleanup-lessons.md) |
 | Harness phase complexity review (1..16 + 17..19) (2026-02-27) | [20260227-harness-complexity-review-todo.md](./20260227-harness-complexity-review-todo.md) | [20260227-harness-complexity-review-lessons.md](./20260227-harness-complexity-review-lessons.md) |
 | Harness phase 16 frontend visual regression automation (2026-02-27) | [20260227-harness-phase16-visual-regression-todo.md](./20260227-harness-phase16-visual-regression-todo.md) | [20260227-harness-phase16-visual-regression-lessons.md](./20260227-harness-phase16-visual-regression-lessons.md) |
 | Harness phase 15 harness policy config externalization (2026-02-27) | [20260227-harness-phase15-policy-config-todo.md](./20260227-harness-phase15-policy-config-todo.md) | [20260227-harness-phase15-policy-config-lessons.md](./20260227-harness-phase15-policy-config-lessons.md) |
@@ -32,5 +34,5 @@ Track task-specific plan/review and lessons files.
 | CLAUDE.md tightening pass (2026-02-26) | [20260226-claude-md-tighten-todo.md](./20260226-claude-md-tighten-todo.md) | [20260226-claude-md-tighten-lessons.md](./20260226-claude-md-tighten-lessons.md) |
 | Refresh-token auth flow (2026-02-26) | [20260226-refresh-token-auth-todo.md](./20260226-refresh-token-auth-todo.md) | [20260226-refresh-token-auth-lessons.md](./20260226-refresh-token-auth-lessons.md) |
 
-Latest follow-up: completed phase-16 frontend visual regression automation with
-`verify:frontend:visual` in the self verification lane.
+Latest follow-up: moved frontend tests and visual baselines to `packages/frontend/tests`
+and rewired frontend test/visual scripts to keep runtime `src` clean.

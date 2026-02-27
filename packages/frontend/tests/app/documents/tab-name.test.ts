@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TabMeta } from "../../types/worksheet.ts";
+import type { TabMeta } from "../../../src/types/worksheet.ts";
 import {
   buildTabNameNormalizationPatches,
   getNextDefaultSheetName,
   getUniqueTabName,
   isTabNameTaken,
   normalizeTabName,
-} from "./tab-name.ts";
+} from "../../../src/app/documents/tab-name.ts";
 
 function buildTabs(entries: Array<[string, string, TabMeta["type"]]>): Record<string, TabMeta> {
   const tabs: Record<string, TabMeta> = {};

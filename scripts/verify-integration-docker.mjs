@@ -89,62 +89,128 @@ async function waitForDatabase(host, port, timeoutMs = 30_000) {
   return false;
 }
 
-const composeCheck = await run("docker", ["compose", "version"], {
-  capture: true,
-});
-if (composeCheck.code !== 0) {
-  console.error(
-    "[verify:integration:docker] Docker Compose is required. " +
-      "Install/start Docker and retry.",
-  );
-  if (composeCheck.stderr.trim()) {
-    console.error(composeCheck.stderr.trim());
-  }
-  process.exit(1);
-}
-
-const runningCheck = await run(
-  "docker",
-  ["compose", "ps", "--status", "running", "-q", "postgres"],
-  { capture: true },
-);
-if (runningCheck.code !== 0) {
-  console.error(
-    "[verify:integration:docker] Could not inspect postgres service state.",
-  );
-  if (runningCheck.stderr.trim()) {
-    console.error(runningCheck.stderr.trim());
-  }
-  process.exit(1);
-}
-
-const postgresWasRunning = runningCheck.stdout.trim().length > 0;
 let postgresStartedByScript = false;
-if (!postgresWasRunning) {
-  const upResult = await run("docker", ["compose", "up", "-d", "postgres"]);
-  if (upResult.code !== 0) {
-    process.exit(upResult.code);
+let cleanupPromise = null;
+
+function installSignalHandlers() {
+  const handlers = new Map();
+  const signals = ["SIGINT", "SIGTERM"];
+
+  for (const signal of signals) {
+    const handler = () => {
+      console.error(
+        `[verify:integration:docker] Received ${signal}. ` +
+          "Stopping local postgres before exit.",
+      );
+      void (async () => {
+        const stopCode = await stopPostgresIfNeeded(signal);
+        process.exit(stopCode === 0 ? 130 : 1);
+      })();
+    };
+    handlers.set(signal, handler);
+    process.on(signal, handler);
   }
-  postgresStartedByScript = true;
+
+  return () => {
+    for (const [signal, handler] of handlers) {
+      process.off(signal, handler);
+    }
+  };
 }
 
-const { host, port } = parseDatabaseAddress();
-const ready = await waitForDatabase(host, port);
-if (!ready) {
-  console.error(
-    "[verify:integration:docker] PostgreSQL did not become reachable at " +
-      `${host}:${port} within the timeout.`,
-  );
-  if (postgresStartedByScript) {
-    await run("docker", ["compose", "stop", "postgres"]);
+async function stopPostgresIfNeeded(reason) {
+  if (!postgresStartedByScript) {
+    return 0;
   }
-  process.exit(1);
+
+  if (!cleanupPromise) {
+    cleanupPromise = (async () => {
+      const stopResult = await run(
+        "docker",
+        ["compose", "stop", "postgres"],
+        { capture: true },
+      );
+      if (stopResult.code !== 0) {
+        console.error(
+          "[verify:integration:docker] Failed to stop postgres during cleanup" +
+            ` (${reason}).`,
+        );
+        if (stopResult.stderr.trim()) {
+          console.error(stopResult.stderr.trim());
+        }
+      }
+      return stopResult.code;
+    })();
+  }
+
+  return cleanupPromise;
 }
 
-const integrationResult = await run("pnpm", ["verify:integration"]);
+async function main() {
+  const removeSignalHandlers = installSignalHandlers();
+  let exitCode = 1;
 
-if (postgresStartedByScript) {
-  await run("docker", ["compose", "stop", "postgres"]);
+  try {
+    const composeCheck = await run("docker", ["compose", "version"], {
+      capture: true,
+    });
+    if (composeCheck.code !== 0) {
+      console.error(
+        "[verify:integration:docker] Docker Compose is required. " +
+          "Install/start Docker and retry.",
+      );
+      if (composeCheck.stderr.trim()) {
+        console.error(composeCheck.stderr.trim());
+      }
+      return exitCode;
+    }
+
+    const runningCheck = await run(
+      "docker",
+      ["compose", "ps", "--status", "running", "-q", "postgres"],
+      { capture: true },
+    );
+    if (runningCheck.code !== 0) {
+      console.error(
+        "[verify:integration:docker] Could not inspect postgres service state.",
+      );
+      if (runningCheck.stderr.trim()) {
+        console.error(runningCheck.stderr.trim());
+      }
+      return exitCode;
+    }
+
+    const postgresWasRunning = runningCheck.stdout.trim().length > 0;
+    if (!postgresWasRunning) {
+      const upResult = await run("docker", ["compose", "up", "-d", "postgres"]);
+      if (upResult.code !== 0) {
+        exitCode = upResult.code;
+        return exitCode;
+      }
+      postgresStartedByScript = true;
+    }
+
+    const { host, port } = parseDatabaseAddress();
+    const ready = await waitForDatabase(host, port);
+    if (!ready) {
+      console.error(
+        "[verify:integration:docker] PostgreSQL did not become reachable at " +
+          `${host}:${port} within the timeout.`,
+      );
+      return exitCode;
+    }
+
+    const integrationResult = await run("pnpm", ["verify:integration"]);
+    exitCode = integrationResult.code;
+  } finally {
+    removeSignalHandlers();
+    const stopCode = await stopPostgresIfNeeded("finally");
+    if (exitCode === 0 && stopCode !== 0) {
+      exitCode = stopCode;
+    }
+  }
+
+  return exitCode;
 }
 
-process.exit(integrationResult.code);
+process.exit(await main());

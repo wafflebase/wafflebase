@@ -8,7 +8,7 @@ import { createServer } from "vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
-const baselineDir = path.resolve(frontendRoot, "src/visual-tests/baselines");
+const baselineDir = path.resolve(frontendRoot, "tests/visual/baselines");
 const baselinePath = path.resolve(baselineDir, "harness-visual.html");
 const actualPath = path.resolve(baselineDir, "harness-visual.actual.html");
 

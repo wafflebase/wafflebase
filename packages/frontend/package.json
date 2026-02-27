@@ -9,10 +9,12 @@
     "build": "vite build",
     "lint": "eslint . --max-warnings 0",
     "lint:arch": "eslint -c eslint.arch.config.js \"src/**/*.{ts,tsx}\"",
-    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
-    "test:watch": "node --experimental-strip-types --test --watch \"src/**/*.test.ts\"",
+    "test": "node --experimental-strip-types --test \"tests/**/*.test.ts\"",
+    "test:watch": "node --experimental-strip-types --test --watch \"tests/**/*.test.ts\"",
     "test:visual": "node ./scripts/verify-visual.mjs",
     "test:visual:update": "UPDATE_VISUAL_BASELINE=true node ./scripts/verify-visual.mjs",
+    "test:visual:browser": "node ./scripts/verify-visual-browser.mjs",
+    "test:visual:browser:update": "UPDATE_VISUAL_BROWSER_BASELINE=true node ./scripts/verify-visual-browser.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -65,6 +67,7 @@
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.0.0",
+    "playwright": "^1.58.2",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.24.1",
     "vite": "^6.2.0"

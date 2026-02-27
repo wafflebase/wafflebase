@@ -12,6 +12,7 @@ verification lanes, quality gates, local/CI reproducibility, and rollout
 status by phase.
 
 As of 2026-02-27, phases 1 through 16 are completed.
+Phase 17 hardening work has started with initial follow-up tasks.
 
 ## Goals
 
@@ -37,6 +38,8 @@ As of 2026-02-27, phases 1 through 16 are completed.
 - `pnpm verify:frontend:chunks`: frontend built JS chunk size/count gate
 - `pnpm verify:frontend:visual`: deterministic frontend markup baseline gate
   (SSR HTML snapshot)
+- `pnpm verify:frontend:visual:browser`: browser-rendered visual screenshot
+  baseline gate (Playwright/Chromium)
 - `pnpm verify:integration`: Prisma migrate deploy + backend e2e (DB-backed)
 - `pnpm verify:integration:local`: skip integration when DB is unreachable
 - `pnpm verify:integration:docker`: one-command postgres up + integration + stop
@@ -77,7 +80,7 @@ Detailed task records are tracked in `tasks/20260227-harness-phase*-{todo,lesson
 |---|---|---|---|---|
 | A | Fail on breakage by default | Mostly complete | `verify:architecture`, zero-warning lint, chunk/visual gates, smoke tests | Add integration determinism guardrails to reduce flaky pass/fail drift |
 | B | Two-lane verification split for speed + merge safety | Completed | `verify:self` + `verify:integration` split in scripts and CI | Keep lane contracts stable while improving integration determinism |
-| C | Frontend regression harness automation | Phase-1 complete | Phase-16 adds deterministic `/harness/visual` baseline in `verify:self` | Expand coverage to more UI states and key user-path surfaces |
+| C | Frontend regression harness automation | Phase-1 complete | Phase-16 adds deterministic `/harness/visual` markup baseline and browser screenshot command | Promote browser lane into default self-verification once Playwright provisioning is standardized |
 | D | Distributed contracts for agent execution | In progress | Root verification scripts, PR evidence contract, per-phase todo/lessons records | Add machine-readable lane reports and shared contract templates |
 | E | Anti-slop cleanup loop | In progress | Lint warning cleanup + strict gate, build chunk cleanup, lessons tracking | Automate report-based triage loop and enforce fix-or-fail follow-through |
 
@@ -85,10 +88,10 @@ Detailed task records are tracked in `tasks/20260227-harness-phase*-{todo,lesson
 
 ### Immediate Next Work (From Current Gaps)
 
-- Add a browser-rendered visual regression lane (pixel/screenshot diff) to
-  complement the existing SSR markup baseline gate.
-- Harden `verify:integration:docker` cleanup for interruption paths
-  (SIGINT/SIGTERM), not only normal completion/timeout flows.
+- Standardize Playwright dependency + Chromium provisioning (local + CI), then
+  compose `verify:frontend:visual:browser` into `verify:self`.
+- Add an interruption smoke test path for `verify:integration:docker` to keep
+  signal-handler cleanup behavior regression-resistant.
 
 ### Phase 17: Integration Determinism Hardening
 

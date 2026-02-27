@@ -45,6 +45,7 @@ pnpm frontend dev
 pnpm frontend build
 pnpm verify:frontend:chunks  # run after build to enforce JS chunk budget
 pnpm verify:frontend:visual  # run after build to enforce visual snapshots
+pnpm verify:frontend:visual:browser  # browser-rendered visual snapshots
 ```
 
 `pnpm verify:frontend:chunks` checks default limits of `500 kB` per chunk and
@@ -55,6 +56,12 @@ Default limits are defined in `/harness.config.json`.
 `pnpm verify:frontend:visual` compares deterministic baseline markup rendered
 from `/harness/visual` via Vite SSR.
 
+`pnpm verify:frontend:visual:browser` compares deterministic screenshot
+baselines rendered in headless Chromium.
+Install prerequisites:
+- `pnpm --filter @wafflebase/frontend add -D playwright`
+- `pnpm --filter @wafflebase/frontend exec playwright install chromium`
+
 ### Testing
 
 ```bash
@@ -62,8 +69,14 @@ pnpm frontend lint                 # ESLint checks
 pnpm frontend test                 # Node unit tests
 pnpm frontend test:visual          # Visual baseline regression check
 pnpm frontend test:visual:update   # Update visual baseline file
+pnpm frontend test:visual:browser  # Browser visual baseline check
+pnpm frontend test:visual:browser:update # Update browser baseline
 pnpm frontend test:watch           # Node watch mode
 ```
+
+Frontend test code and visual baselines live under `packages/frontend/tests`
+to keep runtime source code in `packages/frontend/src` focused on shipped app
+logic.
 
 ## App Structure
 

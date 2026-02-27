@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   buildLegacySpreadsheetDocument,
   shouldMigrateLegacyDocument,
-} from "./migration.ts";
+} from "../../../src/app/documents/migration.ts";
 
 type UnknownRecord = Record<string, unknown>;
 

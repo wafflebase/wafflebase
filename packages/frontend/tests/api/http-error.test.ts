@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertOk, readResponseErrorMessage } from "./http-error.ts";
+import {
+  assertOk,
+  readResponseErrorMessage,
+} from "../../src/api/http-error.ts";
 
 test("readResponseErrorMessage reads JSON message string", async () => {
   const response = new Response(JSON.stringify({ message: "Bad request" }), {
