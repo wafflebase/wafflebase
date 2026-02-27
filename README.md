@@ -67,6 +67,7 @@ pnpm run verify:frontend:chunks  # checks built frontend JS chunk sizes
 pnpm run verify:frontend:visual  # checks SSR visual snapshot regressions
 pnpm run verify:frontend:visual:browser # checks browser-rendered snapshots
 pnpm run verify:frontend:visual:all # runs both visual lanes
+pnpm run verify:frontend:interaction:browser # checks browser interaction flows
 pnpm run verify:integration   # requires PostgreSQL
 pnpm run verify:integration:local  # skips when local PostgreSQL is unavailable
 pnpm run verify:integration:docker # starts postgres, runs integration, stops
@@ -76,8 +77,10 @@ pnpm run verify:full          # alias: verify:self + verify:integration
 Quick verify guide:
 - Use `pnpm run verify:self` as the default pre-PR lane.
 - Use `pnpm run verify:frontend:visual:all` to run SSR + browser visual checks.
+- Use `pnpm run verify:frontend:interaction:browser` to run deterministic
+  browser interaction checks (cell input/formula input/wheel scroll).
 - Browser visual lane captures deterministic desktop + mobile baselines.
-- Browser visual checks need one-time Chromium install per environment:
+- Browser lanes need one-time Chromium install per environment:
   `pnpm --filter @wafflebase/frontend exec playwright install chromium`
 - Use `pnpm run verify:integration` (or `:local` / `:docker`) for DB-backed e2e.
 

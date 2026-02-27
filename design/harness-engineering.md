@@ -47,6 +47,9 @@ browser-rendered visual lane command wiring and interruption-safe cleanup in
   `packages/frontend/tests/visual/baselines/harness-visual.browser.mobile.png`)
 - `pnpm verify:frontend:visual:all`: convenience alias that runs both frontend
   visual gates (`verify:frontend:visual` + `verify:frontend:visual:browser`)
+- `pnpm verify:frontend:interaction:browser`: deterministic browser interaction
+  regression gate for `/harness/interaction` (cell input, formula input, wheel
+  scroll)
 - `pnpm verify:integration`: Prisma migrate deploy + backend e2e (DB-backed)
 - `pnpm verify:integration:local`: skip integration when DB is unreachable
 - `pnpm verify:integration:docker`: one-command postgres up + integration + stop
