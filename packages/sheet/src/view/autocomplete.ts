@@ -96,7 +96,9 @@ export class FormulaAutocomplete {
     this.container.style.fontSize = '13px';
     this.container.style.fontFamily =
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    this.container.style.overflow = 'hidden';
+    this.container.style.maxHeight = '300px';
+    this.container.style.overflowY = 'auto';
+    this.container.style.overflowX = 'hidden';
     this.applyTheme();
   }
 
@@ -172,6 +174,7 @@ export class FormulaAutocomplete {
     this.selectedIndex =
       (this.selectedIndex - 1 + this.matches.length) % this.matches.length;
     this.renderList();
+    this.scrollToSelected();
   }
 
   /**
@@ -181,6 +184,7 @@ export class FormulaAutocomplete {
     if (this.mode !== 'list' || this.matches.length === 0) return;
     this.selectedIndex = (this.selectedIndex + 1) % this.matches.length;
     this.renderList();
+    this.scrollToSelected();
   }
 
   /**
@@ -202,6 +206,13 @@ export class FormulaAutocomplete {
   cleanup(): void {
     this.hide();
     this.container.remove();
+  }
+
+  private scrollToSelected(): void {
+    const row = this.container.children[this.selectedIndex] as HTMLElement;
+    if (row) {
+      row.scrollIntoView({ block: 'nearest' });
+    }
   }
 
   private positionAt(anchor: { left: number; top: number }): void {
