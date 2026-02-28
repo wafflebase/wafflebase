@@ -727,6 +727,36 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns a number indicating the data type of a value',
     args: [{ name: 'value' }],
   },
+  {
+    name: 'EDATE',
+    description: 'Returns a date a specified number of months before or after another date',
+    args: [{ name: 'start_date' }, { name: 'months' }],
+  },
+  {
+    name: 'EOMONTH',
+    description: 'Returns the last day of the month a specified number of months away',
+    args: [{ name: 'start_date' }, { name: 'months' }],
+  },
+  {
+    name: 'NETWORKDAYS',
+    description: 'Returns the number of net working days between two dates',
+    args: [{ name: 'start_date' }, { name: 'end_date' }, { name: 'holidays', optional: true }],
+  },
+  {
+    name: 'DATEVALUE',
+    description: 'Converts a date string to a date value',
+    args: [{ name: 'date_string' }],
+  },
+  {
+    name: 'TIMEVALUE',
+    description: 'Returns the fraction of the day a time represents',
+    args: [{ name: 'time_string' }],
+  },
+  {
+    name: 'DATEDIF',
+    description: 'Calculates the number of days, months, or years between two dates',
+    args: [{ name: 'start_date' }, { name: 'end_date' }, { name: 'unit' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -743,6 +773,12 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'MINUTE',
     'SECOND',
     'WEEKDAY',
+    'EDATE',
+    'EOMONTH',
+    'NETWORKDAYS',
+    'DATEVALUE',
+    'TIMEVALUE',
+    'DATEDIF',
   ]),
   Info: new Set([
     'ISBLANK',

@@ -918,6 +918,40 @@ describe('Formula', () => {
     expect(evaluate('=TYPE(SUM())')).toBe('16');
   });
 
+  it('should correctly evaluate EDATE function', () => {
+    expect(evaluate('=EDATE("2024-01-31",1)')).toBe('2024-03-02');
+    expect(evaluate('=EDATE("2024-03-15",0-1)')).toBe('2024-02-15');
+    expect(evaluate('=EDATE("2024-01-15",12)')).toBe('2025-01-15');
+  });
+
+  it('should correctly evaluate EOMONTH function', () => {
+    expect(evaluate('=EOMONTH("2024-01-15",0)')).toBe('2024-01-31');
+    expect(evaluate('=EOMONTH("2024-01-15",1)')).toBe('2024-02-29');
+    expect(evaluate('=EOMONTH("2024-01-15",0-1)')).toBe('2023-12-31');
+  });
+
+  it('should correctly evaluate NETWORKDAYS function', () => {
+    expect(evaluate('=NETWORKDAYS("2024-03-11","2024-03-15")')).toBe('5');
+    expect(evaluate('=NETWORKDAYS("2024-03-11","2024-03-17")')).toBe('5');
+  });
+
+  it('should correctly evaluate DATEVALUE function', () => {
+    expect(evaluate('=DATEVALUE("2024-03-15")')).toBe('2024-03-15');
+    expect(evaluate('=DATEVALUE("invalid")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate TIMEVALUE function', () => {
+    expect(evaluate('=TIMEVALUE("12:00:00")')).toBe('0.5');
+    expect(evaluate('=TIMEVALUE("06:00:00")')).toBe('0.25');
+  });
+
+  it('should correctly evaluate DATEDIF function', () => {
+    expect(evaluate('=DATEDIF("2024-01-01","2024-12-31","D")')).toBe('365');
+    expect(evaluate('=DATEDIF("2024-01-01","2024-06-01","M")')).toBe('5');
+    expect(evaluate('=DATEDIF("2022-01-01","2024-06-01","Y")')).toBe('2');
+    expect(evaluate('=DATEDIF("2024-06-01","2024-01-01","D")')).toBe('#VALUE!');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

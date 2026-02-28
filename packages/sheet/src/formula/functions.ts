@@ -127,6 +127,12 @@ export const FunctionMap = new Map([
   ['XOR', xorFunc],
   ['CHOOSE', chooseFunc],
   ['TYPE', typeFunc],
+  ['EDATE', edateFunc],
+  ['EOMONTH', eomonthFunc],
+  ['NETWORKDAYS', networkdaysFunc],
+  ['DATEVALUE', datevalueFunc],
+  ['TIMEVALUE', timevalueFunc],
+  ['DATEDIF', datedifFunc],
 ]);
 
 /**
@@ -4627,4 +4633,277 @@ export function typeFunc(
     default:
       return { t: 'num', v: 1 };
   }
+}
+
+/**
+ * EDATE(start_date, months) — returns a date that is a given number of months before/after.
+ */
+export function edateFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDate(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  const monthsNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (monthsNode.t === 'err') {
+    return monthsNode;
+  }
+
+  const months = Math.trunc(monthsNode.v);
+  const result = new Date(date.getFullYear(), date.getMonth() + months, date.getDate());
+  return { t: 'str', v: formatDate(result) };
+}
+
+/**
+ * EOMONTH(start_date, months) — returns the last day of a month a given number of months away.
+ */
+export function eomonthFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDate(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  const monthsNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (monthsNode.t === 'err') {
+    return monthsNode;
+  }
+
+  const months = Math.trunc(monthsNode.v);
+  // Day 0 of the next month = last day of the target month
+  const result = new Date(date.getFullYear(), date.getMonth() + months + 1, 0);
+  return { t: 'str', v: formatDate(result) };
+}
+
+/**
+ * NETWORKDAYS(start_date, end_date) — returns the number of working days between two dates.
+ * Excludes weekends (Saturday and Sunday). Holidays parameter not supported.
+ */
+export function networkdaysFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const startDate = parseDate(visit(exprs[0]), grid);
+  if (!(startDate instanceof Date)) {
+    return startDate;
+  }
+
+  const endDate = parseDate(visit(exprs[1]), grid);
+  if (!(endDate instanceof Date)) {
+    return endDate;
+  }
+
+  const direction = startDate <= endDate ? 1 : -1;
+  const start = direction === 1 ? startDate : endDate;
+  const end = direction === 1 ? endDate : startDate;
+
+  let count = 0;
+  const current = new Date(start);
+  while (current <= end) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+
+  return { t: 'num', v: count * direction };
+}
+
+/**
+ * DATEVALUE(date_string) — converts a date string to a date value.
+ */
+export function datevalueFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDate(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  return { t: 'str', v: formatDate(date) };
+}
+
+/**
+ * TIMEVALUE(time_string) — converts a time string to a time value (fraction of a day).
+ */
+export function timevalueFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDateTime(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const seconds = date.getSeconds();
+  const fraction = (hours * 3600 + minutes * 60 + seconds) / 86400;
+
+  return { t: 'num', v: fraction };
+}
+
+/**
+ * DATEDIF(start_date, end_date, unit) — calculates the difference between two dates.
+ * Units: "Y" (years), "M" (months), "D" (days).
+ */
+export function datedifFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const startDate = parseDate(visit(exprs[0]), grid);
+  if (!(startDate instanceof Date)) {
+    return startDate;
+  }
+
+  const endDate = parseDate(visit(exprs[1]), grid);
+  if (!(endDate instanceof Date)) {
+    return endDate;
+  }
+
+  if (startDate > endDate) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const unitStr = toStr(visit(exprs[2]), grid);
+  if (unitStr.t === 'err') {
+    return unitStr;
+  }
+
+  const unit = unitStr.v.toUpperCase();
+
+  if (unit === 'D') {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const startUtc = Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const endUtc = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    return { t: 'num', v: (endUtc - startUtc) / dayMs };
+  }
+
+  if (unit === 'M') {
+    let months =
+      (endDate.getFullYear() - startDate.getFullYear()) * 12 +
+      (endDate.getMonth() - startDate.getMonth());
+    if (endDate.getDate() < startDate.getDate()) {
+      months--;
+    }
+    return { t: 'num', v: months };
+  }
+
+  if (unit === 'Y') {
+    let years = endDate.getFullYear() - startDate.getFullYear();
+    if (
+      endDate.getMonth() < startDate.getMonth() ||
+      (endDate.getMonth() === startDate.getMonth() && endDate.getDate() < startDate.getDate())
+    ) {
+      years--;
+    }
+    return { t: 'num', v: years };
+  }
+
+  if (unit === 'MD') {
+    let days = endDate.getDate() - startDate.getDate();
+    if (days < 0) {
+      const prevMonth = new Date(endDate.getFullYear(), endDate.getMonth(), 0);
+      days += prevMonth.getDate();
+    }
+    return { t: 'num', v: days };
+  }
+
+  if (unit === 'YM') {
+    let months = endDate.getMonth() - startDate.getMonth();
+    if (months < 0) {
+      months += 12;
+    }
+    if (endDate.getDate() < startDate.getDate()) {
+      months--;
+      if (months < 0) months += 12;
+    }
+    return { t: 'num', v: months };
+  }
+
+  if (unit === 'YD') {
+    const startAdjusted = new Date(endDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    if (startAdjusted > endDate) {
+      startAdjusted.setFullYear(startAdjusted.getFullYear() - 1);
+    }
+    const dayMs = 24 * 60 * 60 * 1000;
+    const startUtc = Date.UTC(startAdjusted.getFullYear(), startAdjusted.getMonth(), startAdjusted.getDate());
+    const endUtc = Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    return { t: 'num', v: (endUtc - startUtc) / dayMs };
+  }
+
+  return { t: 'err', v: '#VALUE!' };
 }
