@@ -128,7 +128,8 @@ systematically.
 | `pnpm verify:frontend:visual:browser` | Playwright screenshot baseline (desktop+mobile) |
 | `pnpm verify:frontend:visual:all` | Both visual gates combined |
 | `pnpm verify:frontend:interaction:browser` | Browser interaction regression (cell input, formula, scroll) |
-| `pnpm verify:self` | `verify:fast` + builds + chunk/visual/interaction gates |
+| `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
+| `pnpm verify:self` | `verify:fast` + builds + chunk/visual/interaction + entropy gates |
 
 ### Integration Lanes (require database)
 
@@ -199,6 +200,7 @@ database → auth/user/document → controllers/modules
 | 16 | Deterministic frontend visual regression harness | Completed |
 | 17f | Browser visual lane + interaction tests + interrupt-safe cleanup | Completed |
 | 17 | Integration determinism hardening | Completed |
+| 18 | Entropy detection automation (dead-code + doc-staleness) | Completed |
 
 Phase 17 delivered:
 - Shared integration test helpers (`packages/backend/test/helpers/integration-helpers.ts`):
@@ -220,7 +222,7 @@ Detailed task records:
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
 | C | Frontend regression harness | Visual Feedback | Completed | Promote browser lanes into CI once Playwright is standardized |
 | D | Agent-oriented contracts | Information Accessibility | In progress | Machine-readable lane reports (Phase 18) |
-| E | Entropy cleanup loop | Entropy Management | In progress | Automate triage loop (Phase 18-19) |
+| E | Entropy cleanup loop | Entropy Management | In progress | Dead-code + doc-staleness gate delivered; dependency freshness next |
 
 ## Remaining Work
 
@@ -280,16 +282,20 @@ without human interpretation.
 Goal: Systematically detect and surface entropy before it accumulates.
 
 Deliverables:
-- Dead-code detection gate (unused exports, unreachable modules).
-- Documentation staleness check (design docs vs actual code drift).
+- Dead-code detection gate (unused exports, unreachable modules). **Delivered
+  (Phase 18).**
+- Documentation staleness check (design docs vs actual code drift). **Delivered
+  (Phase 18).**
 - Dependency freshness report (outdated/vulnerable packages).
 
 Done criteria: Entropy signals are surfaced automatically in CI or periodic
-reports.
+reports. Dead-code and doc-staleness gates are delivered as `pnpm
+verify:entropy` and integrated into `verify:self`. Dependency freshness
+remains for future work.
 
 ## Harness Policy
 
-Frontend chunk gate defaults are managed in `harness.config.json`:
+Harness policy is managed in `harness.config.json`:
 
 ```json
 {
@@ -298,13 +304,20 @@ Frontend chunk gate defaults are managed in `harness.config.json`:
       "maxChunkKb": 500,
       "maxChunkCount": 60
     }
+  },
+  "entropy": {
+    "deadCode": { "enabled": true },
+    "docStaleness": { "enabled": true, "designDir": "design" }
   }
 }
 ```
 
-Environment overrides:
+Frontend chunk environment overrides:
 - `FRONTEND_CHUNK_LIMIT_KB`
 - `FRONTEND_CHUNK_COUNT_LIMIT`
+
+Entropy detectors default to enabled; set `"enabled": false` to disable
+individually for debugging.
 
 ## Definition of Harness v1 Completion
 

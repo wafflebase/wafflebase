@@ -38,6 +38,7 @@ pnpm verify:frontend:visual         # Frontend visual snapshot regression lane
 pnpm verify:frontend:visual:browser # Browser-rendered visual regression lane
 pnpm verify:frontend:visual:all     # Run both frontend visual lanes
 pnpm verify:frontend:interaction:browser # Browser interaction regression lane
+pnpm verify:entropy                 # Dead-code + doc-staleness entropy gate
 pnpm verify:integration             # Prisma migrate + backend e2e (DB required)
 pnpm verify:integration:local       # Skip integration if local DB is unreachable
 pnpm verify:integration:docker      # Start local postgres, run integration, stop
