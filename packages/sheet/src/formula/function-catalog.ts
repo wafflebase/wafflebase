@@ -922,6 +922,74 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Formats a number as currency with a dollar sign',
     args: [{ name: 'number' }, { name: 'decimals', optional: true }],
   },
+  {
+    name: 'WEEKNUM',
+    description: 'Returns the week number of the year',
+    args: [{ name: 'date' }, { name: 'type', optional: true }],
+  },
+  {
+    name: 'ISOWEEKNUM',
+    description: 'Returns the ISO week number of the year',
+    args: [{ name: 'date' }],
+  },
+  {
+    name: 'WORKDAY',
+    description: 'Returns a date that is a specified number of working days away',
+    args: [{ name: 'start_date' }, { name: 'days' }, { name: 'holidays', optional: true }],
+  },
+  {
+    name: 'YEARFRAC',
+    description: 'Returns the fraction of the year between two dates',
+    args: [{ name: 'start_date' }, { name: 'end_date' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'LOOKUP',
+    description: 'Searches a sorted range for a key',
+    args: [
+      { name: 'search_key' },
+      { name: 'search_range' },
+      { name: 'result_range', optional: true },
+    ],
+  },
+  {
+    name: 'INDIRECT',
+    description: 'Returns the reference specified by a text string',
+    args: [{ name: 'cell_reference' }, { name: 'is_A1_notation', optional: true }],
+  },
+  {
+    name: 'ERROR.TYPE',
+    description: 'Returns a number corresponding to the error type',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ISDATE',
+    description: 'Checks whether a value is a date',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'SPLIT',
+    description: 'Splits text around a delimiter',
+    args: [
+      { name: 'text' },
+      { name: 'delimiter' },
+      { name: 'split_by_each', optional: true },
+      { name: 'remove_empty', optional: true },
+    ],
+  },
+  {
+    name: 'JOIN',
+    description: 'Joins values with a delimiter',
+    args: [
+      { name: 'delimiter' },
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'REGEXMATCH',
+    description: 'Returns whether text matches a regular expression',
+    args: [{ name: 'text' }, { name: 'regular_expression' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -944,6 +1012,10 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'DATEVALUE',
     'TIMEVALUE',
     'DATEDIF',
+    'WEEKNUM',
+    'ISOWEEKNUM',
+    'WORKDAY',
+    'YEARFRAC',
   ]),
   Info: new Set([
     'ISBLANK',
@@ -957,9 +1029,11 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'N',
     'TYPE',
     'NA',
+    'ERROR.TYPE',
+    'ISDATE',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
-  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT']),
   Math: new Set([
     'SUM',
     'ABS',
@@ -1056,6 +1130,9 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'NUMBERVALUE',
     'FIXED',
     'DOLLAR',
+    'SPLIT',
+    'JOIN',
+    'REGEXMATCH',
   ]),
 };
 

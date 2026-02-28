@@ -164,6 +164,17 @@ export const FunctionMap = new Map([
   ['COUNTUNIQUE', countuniqueFunc],
   ['FIXED', fixedFunc],
   ['DOLLAR', dollarFunc],
+  ['WEEKNUM', weeknumFunc],
+  ['ISOWEEKNUM', isoweeknumFunc],
+  ['WORKDAY', workdayFunc],
+  ['YEARFRAC', yearfracFunc],
+  ['LOOKUP', lookupFunc],
+  ['INDIRECT', indirectFunc],
+  ['ERROR.TYPE', errortypeFunc],
+  ['ISDATE', isdateFunc],
+  ['SPLIT', splitFunc],
+  ['JOIN', joinFunc],
+  ['REGEXMATCH', regexmatchFunc],
 ]);
 
 /**
@@ -5964,4 +5975,545 @@ export function dollarFunc(
   const formatted = parts.join('.');
 
   return { t: 'str', v: isNeg ? `($${formatted})` : `$${formatted}` };
+}
+
+/**
+ * WEEKNUM(date, [type]) — returns the week number of the year.
+ * type=1 (default): week starts Sunday. type=2: week starts Monday.
+ */
+export function weeknumFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDate(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  let type = 1;
+  if (exprs.length === 2) {
+    const typeNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (typeNode.t === 'err') {
+      return typeNode;
+    }
+    type = Math.trunc(typeNode.v);
+  }
+
+  const jan1 = new Date(date.getFullYear(), 0, 1);
+  const startDay = type === 2 ? 1 : 0;
+  const jan1Day = jan1.getDay();
+  const dayOffset = (jan1Day - startDay + 7) % 7;
+  const weekStart = new Date(jan1.getTime() - dayOffset * 86400000);
+  const diff = date.getTime() - weekStart.getTime();
+  const weekNum = Math.floor(diff / (7 * 86400000)) + 1;
+
+  return { t: 'num', v: weekNum };
+}
+
+/**
+ * ISOWEEKNUM(date) — returns the ISO week number of the year.
+ */
+export function isoweeknumFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const date = parseDate(visit(exprs[0]), grid);
+  if (!(date instanceof Date)) {
+    return date;
+  }
+
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+
+  return { t: 'num', v: weekNo };
+}
+
+/**
+ * WORKDAY(start_date, days, [holidays]) — returns a date that is a specified number of working days away.
+ */
+export function workdayFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const startDate = parseDate(visit(exprs[0]), grid);
+  if (!(startDate instanceof Date)) {
+    return startDate;
+  }
+
+  const daysNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (daysNode.t === 'err') {
+    return daysNode;
+  }
+
+  const holidayDates = new Set<string>();
+  if (exprs.length === 3) {
+    const holNode = visit(exprs[2]);
+    if (holNode.t === 'err') {
+      return holNode;
+    }
+    if (holNode.t === 'ref' && grid) {
+      for (const ref of toSrefs([holNode.v])) {
+        const cellVal = grid.get(ref)?.v || '';
+        if (cellVal) {
+          holidayDates.add(cellVal);
+        }
+      }
+    } else if (holNode.t === 'str') {
+      holidayDates.add(holNode.v);
+    }
+  }
+
+  let remaining = Math.trunc(daysNode.v);
+  const direction = remaining > 0 ? 1 : -1;
+  remaining = Math.abs(remaining);
+  const current = new Date(startDate);
+
+  while (remaining > 0) {
+    current.setDate(current.getDate() + direction);
+    const day = current.getDay();
+    if (day !== 0 && day !== 6 && !holidayDates.has(formatDate(current))) {
+      remaining--;
+    }
+  }
+
+  return { t: 'str', v: formatDate(current) };
+}
+
+/**
+ * YEARFRAC(start_date, end_date, [basis]) — returns the fraction of the year between two dates.
+ * basis: 0=US 30/360, 1=actual/actual, 2=actual/360, 3=actual/365, 4=European 30/360.
+ */
+export function yearfracFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const startDate = parseDate(visit(exprs[0]), grid);
+  if (!(startDate instanceof Date)) {
+    return startDate;
+  }
+
+  const endDate = parseDate(visit(exprs[1]), grid);
+  if (!(endDate instanceof Date)) {
+    return endDate;
+  }
+
+  let basis = 0;
+  if (exprs.length === 3) {
+    const basisNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (basisNode.t === 'err') {
+      return basisNode;
+    }
+    basis = Math.trunc(basisNode.v);
+  }
+
+  if (basis < 0 || basis > 4) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const s = startDate < endDate ? startDate : endDate;
+  const e = startDate < endDate ? endDate : startDate;
+  const diff = Math.round((e.getTime() - s.getTime()) / 86400000);
+
+  switch (basis) {
+    case 0:
+    case 4:
+      return { t: 'num', v: diff / 360 };
+    case 1: {
+      const sy = s.getFullYear();
+      const ey = e.getFullYear();
+      if (sy === ey) {
+        const yearDays = (new Date(sy + 1, 0, 1).getTime() - new Date(sy, 0, 1).getTime()) / 86400000;
+        return { t: 'num', v: diff / yearDays };
+      }
+      const years = ey - sy + 1;
+      const totalDays = (new Date(ey + 1, 0, 1).getTime() - new Date(sy, 0, 1).getTime()) / 86400000;
+      const avgYear = totalDays / years;
+      return { t: 'num', v: diff / avgYear };
+    }
+    case 2:
+      return { t: 'num', v: diff / 360 };
+    case 3:
+      return { t: 'num', v: diff / 365 };
+    default:
+      return { t: 'err', v: '#VALUE!' };
+  }
+}
+
+/**
+ * LOOKUP(search_key, search_range, [result_range]) — searches a sorted range for a key.
+ */
+export function lookupFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const keyNode = visit(exprs[0]);
+  if (keyNode.t === 'err') {
+    return keyNode;
+  }
+
+  const searchRefs = getRefsFromExpression(exprs[1], visit, grid);
+  if (isFormulaError(searchRefs)) {
+    return searchRefs;
+  }
+
+  let resultRefsList = searchRefs.v;
+  if (exprs.length === 3) {
+    const rr = getRefsFromExpression(exprs[2], visit, grid);
+    if (isFormulaError(rr)) {
+      return rr;
+    }
+    resultRefsList = rr.v;
+  }
+
+  const keyVal = keyNode.t === 'num' ? keyNode.v : keyNode.t === 'str' ? keyNode.v : '';
+  const keyIsNum = keyNode.t === 'num';
+
+  let matchIdx = -1;
+  for (let i = 0; i < searchRefs.v.length; i++) {
+    const cellVal = grid?.get(searchRefs.v[i])?.v || '';
+    if (keyIsNum) {
+      const cellNum = Number(cellVal);
+      if (cellVal !== '' && !isNaN(cellNum) && cellNum <= (keyVal as number)) {
+        matchIdx = i;
+      }
+    } else {
+      if (cellVal.toLowerCase() <= String(keyVal).toLowerCase()) {
+        matchIdx = i;
+      }
+    }
+  }
+
+  if (matchIdx === -1 || matchIdx >= resultRefsList.length) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const resultVal = grid?.get(resultRefsList[matchIdx])?.v || '';
+  const num = Number(resultVal);
+  if (resultVal !== '' && !isNaN(num)) {
+    return { t: 'num', v: num };
+  }
+  return { t: 'str', v: resultVal };
+}
+
+/**
+ * INDIRECT(ref_string) — returns the reference specified by a text string.
+ */
+export function indirectFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  if (!grid) {
+    return { t: 'err', v: '#REF!' };
+  }
+
+  const ref = str.v.trim();
+  const cellVal = grid.get(ref)?.v;
+  if (cellVal === undefined) {
+    return { t: 'str', v: '' };
+  }
+
+  const num = Number(cellVal);
+  if (cellVal !== '' && !isNaN(num)) {
+    return { t: 'num', v: num };
+  }
+  return { t: 'str', v: cellVal };
+}
+
+/**
+ * ERROR.TYPE(value) — returns a number corresponding to the error type.
+ * 1=#NULL!, 2=#DIV/0!, 3=#VALUE!, 4=#REF!, 5=#NAME?, 6=#NUM!, 7=#N/A!, 8=#ERROR!
+ */
+export function errortypeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t !== 'err') {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const errorMap: Record<string, number> = {
+    '#NULL!': 1,
+    '#DIV/0!': 2,
+    '#VALUE!': 3,
+    '#REF!': 4,
+    '#NAME?': 5,
+    '#NUM!': 6,
+    '#N/A!': 7,
+    '#ERROR!': 8,
+  };
+
+  const code = errorMap[node.v];
+  if (code !== undefined) {
+    return { t: 'num', v: code };
+  }
+
+  return { t: 'err', v: '#N/A!' };
+}
+
+/**
+ * ISDATE(value) — checks whether a value is a date.
+ */
+export function isdateFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return { t: 'bool', v: false };
+  }
+
+  if (node.t !== 'str' || node.v === '') {
+    return { t: 'bool', v: false };
+  }
+
+  // Only accept strings with date-like separators (-, /)
+  if (!/[\-\/]/.test(node.v)) {
+    return { t: 'bool', v: false };
+  }
+
+  const d = new Date(node.v);
+  return { t: 'bool', v: !isNaN(d.getTime()) };
+}
+
+/**
+ * SPLIT(text, delimiter, [split_by_each], [remove_empty]) — splits text around a delimiter.
+ * Returns the first segment (spreadsheet arrays not supported yet).
+ */
+export function splitFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 4) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const text = toStr(visit(exprs[0]), grid);
+  if (text.t === 'err') {
+    return text;
+  }
+
+  const delimiter = toStr(visit(exprs[1]), grid);
+  if (delimiter.t === 'err') {
+    return delimiter;
+  }
+
+  // split_by_each: if true (default), each character in delimiter is a separate delimiter
+  let splitByEach = true;
+  if (exprs.length >= 3) {
+    const sbeNode = BoolArgs.map(visit(exprs[2]), grid);
+    if (sbeNode.t === 'err') {
+      return sbeNode;
+    }
+    splitByEach = sbeNode.v;
+  }
+
+  let removeEmpty = true;
+  if (exprs.length === 4) {
+    const reNode = BoolArgs.map(visit(exprs[3]), grid);
+    if (reNode.t === 'err') {
+      return reNode;
+    }
+    removeEmpty = reNode.v;
+  }
+
+  let parts: string[];
+  if (splitByEach && delimiter.v.length > 1) {
+    const regex = new RegExp('[' + delimiter.v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ']');
+    parts = text.v.split(regex);
+  } else {
+    parts = text.v.split(delimiter.v);
+  }
+
+  if (removeEmpty) {
+    parts = parts.filter((p) => p !== '');
+  }
+
+  // Return first segment since we don't support array spilling
+  return { t: 'str', v: parts.length > 0 ? parts[0] : '' };
+}
+
+/**
+ * JOIN(delimiter, value_or_array1, [value_or_array2], ...) — joins values with a delimiter.
+ */
+export function joinFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const delimiter = toStr(visit(exprs[0]), grid);
+  if (delimiter.t === 'err') {
+    return delimiter;
+  }
+
+  const parts: string[] = [];
+  for (let i = 1; i < exprs.length; i++) {
+    const node = visit(exprs[i]);
+    if (node.t === 'err') {
+      return node;
+    }
+    if (node.t === 'ref' && grid) {
+      for (const ref of toSrefs([node.v])) {
+        const cellVal = grid.get(ref)?.v || '';
+        parts.push(cellVal);
+      }
+    } else if (node.t === 'num') {
+      parts.push(String(node.v));
+    } else if (node.t === 'str') {
+      parts.push(node.v);
+    } else if (node.t === 'bool') {
+      parts.push(node.v ? 'TRUE' : 'FALSE');
+    }
+  }
+
+  return { t: 'str', v: parts.join(delimiter.v) };
+}
+
+/**
+ * REGEXMATCH(text, regular_expression) — returns whether a piece of text matches a regex.
+ */
+export function regexmatchFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const text = toStr(visit(exprs[0]), grid);
+  if (text.t === 'err') {
+    return text;
+  }
+
+  const pattern = toStr(visit(exprs[1]), grid);
+  if (pattern.t === 'err') {
+    return pattern;
+  }
+
+  try {
+    const regex = new RegExp(pattern.v);
+    return { t: 'bool', v: regex.test(text.v) };
+  } catch {
+    return { t: 'err', v: '#VALUE!' };
+  }
 }

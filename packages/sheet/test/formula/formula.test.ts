@@ -1142,6 +1142,83 @@ describe('Formula', () => {
     expect(evaluate('=NUMBERVALUE("abc")')).toBe('#VALUE!');
   });
 
+  it('should correctly evaluate WEEKNUM function', () => {
+    // DATE(2024,1,1) is Monday, serial 45292
+    expect(evaluate('=WEEKNUM(DATE(2024,1,1))')).toBe('1');
+    expect(evaluate('=WEEKNUM(DATE(2024,1,7))')).toBe('2');
+  });
+
+  it('should correctly evaluate ISOWEEKNUM function', () => {
+    // 2024-01-01 is Monday, ISO week 1
+    expect(evaluate('=ISOWEEKNUM(DATE(2024,1,1))')).toBe('1');
+  });
+
+  it('should correctly evaluate WORKDAY function', () => {
+    // DATE(2024,1,1) is Monday, 5 working days → 2024-01-08 (next Monday)
+    expect(evaluate('=WORKDAY("2024-01-01",5)')).toBe('2024-01-08');
+    // 1 working day from Friday → Monday
+    expect(evaluate('=WORKDAY("2024-01-05",1)')).toBe('2024-01-08');
+  });
+
+  it('should correctly evaluate YEARFRAC function', () => {
+    // 366 days (2024 is leap) / 365 ≈ 1.0027
+    const result = Number(evaluate('=YEARFRAC("2024-01-01","2025-01-01",3)'));
+    expect(result).toBeCloseTo(1.003, 2);
+    // 2023 is not a leap year: 365/365 = 1
+    expect(evaluate('=YEARFRAC("2023-01-01","2024-01-01",3)')).toBe('1');
+  });
+
+  it('should correctly evaluate LOOKUP function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    grid.set('B1', { v: 'ten' });
+    grid.set('B2', { v: 'twenty' });
+    grid.set('B3', { v: 'thirty' });
+    expect(evaluate('=LOOKUP(20,A1:A3,B1:B3)', grid)).toBe('twenty');
+    expect(evaluate('=LOOKUP(25,A1:A3,B1:B3)', grid)).toBe('twenty');
+    expect(evaluate('=LOOKUP(30,A1:A3,B1:B3)', grid)).toBe('thirty');
+  });
+
+  it('should correctly evaluate INDIRECT function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '42' });
+    expect(evaluate('=INDIRECT("A1")', grid)).toBe('42');
+  });
+
+  it('should correctly evaluate ERROR.TYPE function', () => {
+    expect(evaluate('=ERROR.TYPE(NA())')).toBe('7'); // #N/A!
+    // Non-error returns #N/A!
+    expect(evaluate('=ERROR.TYPE(1)')).toBe('#N/A!');
+    expect(evaluate('=ERROR.TYPE("hello")')).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate ISDATE function', () => {
+    expect(evaluate('=ISDATE("2024-01-01")')).toBe('true');
+    expect(evaluate('=ISDATE("not a date")')).toBe('false');
+    expect(evaluate('=ISDATE(123)')).toBe('false');
+  });
+
+  it('should correctly evaluate SPLIT function', () => {
+    expect(evaluate('=SPLIT("a,b,c",",")')).toBe('a');
+  });
+
+  it('should correctly evaluate JOIN function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'a' });
+    grid.set('A2', { v: 'b' });
+    grid.set('A3', { v: 'c' });
+    expect(evaluate('=JOIN(",",A1:A3)', grid)).toBe('a,b,c');
+    expect(evaluate('=JOIN("-","x","y","z")')).toBe('x-y-z');
+  });
+
+  it('should correctly evaluate REGEXMATCH function', () => {
+    expect(evaluate('=REGEXMATCH("hello world","hello")')).toBe('true');
+    expect(evaluate('=REGEXMATCH("hello","^h.*o$")')).toBe('true');
+    expect(evaluate('=REGEXMATCH("hello","xyz")')).toBe('false');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

@@ -108,6 +108,17 @@ describe('FunctionCatalog', () => {
       expect(findFunction('COUNTUNIQUE')!.name).toBe('COUNTUNIQUE');
       expect(findFunction('FIXED')!.name).toBe('FIXED');
       expect(findFunction('DOLLAR')!.name).toBe('DOLLAR');
+      expect(findFunction('WEEKNUM')!.name).toBe('WEEKNUM');
+      expect(findFunction('ISOWEEKNUM')!.name).toBe('ISOWEEKNUM');
+      expect(findFunction('WORKDAY')!.name).toBe('WORKDAY');
+      expect(findFunction('YEARFRAC')!.name).toBe('YEARFRAC');
+      expect(findFunction('LOOKUP')!.name).toBe('LOOKUP');
+      expect(findFunction('INDIRECT')!.name).toBe('INDIRECT');
+      expect(findFunction('ERROR.TYPE')!.name).toBe('ERROR.TYPE');
+      expect(findFunction('ISDATE')!.name).toBe('ISDATE');
+      expect(findFunction('SPLIT')!.name).toBe('SPLIT');
+      expect(findFunction('JOIN')!.name).toBe('JOIN');
+      expect(findFunction('REGEXMATCH')!.name).toBe('REGEXMATCH');
     });
 
     it('should return undefined for unknown function', () => {
