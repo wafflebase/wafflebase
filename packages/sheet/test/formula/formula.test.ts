@@ -2306,6 +2306,80 @@ describe('Formula', () => {
     expect(evaluate('=IMAGINARY("2i")')).toBe('2');
   });
 
+  it('should correctly evaluate IMSUM and IMSUB functions', () => {
+    expect(evaluate('=IMSUM("3+4i","1+2i")')).toBe('4+6i');
+    expect(evaluate('=IMSUM("1+i","2+3i","3+4i")')).toBe('6+8i');
+    expect(evaluate('=IMSUB("5+3i","2+i")')).toBe('3+2i');
+    expect(evaluate('=IMSUB("1+i","1+i")')).toBe('0');
+  });
+
+  it('should correctly evaluate IMPRODUCT and IMDIV functions', () => {
+    // (1+2i)*(3+4i) = 3+4i+6i+8i² = 3+10i-8 = -5+10i
+    expect(evaluate('=IMPRODUCT("1+2i","3+4i")')).toBe('-5+10i');
+    // (10+5i)/(3+4i) = (10+5i)(3-4i)/(9+16) = (30-40i+15i-20i²)/25 = (50-25i)/25 = 2-i
+    expect(evaluate('=IMDIV("10+5i","3+4i")')).toBe('2-i');
+  });
+
+  it('should correctly evaluate IMCONJUGATE function', () => {
+    expect(evaluate('=IMCONJUGATE("3+4i")')).toBe('3-4i');
+    expect(evaluate('=IMCONJUGATE("3-4i")')).toBe('3+4i');
+    expect(evaluate('=IMCONJUGATE("5")')).toBe('5');
+  });
+
+  it('should correctly evaluate IMARGUMENT function', () => {
+    // arg(1+i) = PI/4
+    expect(Number(evaluate('=IMARGUMENT("1+i")'))).toBeCloseTo(Math.PI / 4, 10);
+    // arg(1) = 0
+    expect(Number(evaluate('=IMARGUMENT("1")'))).toBe(0);
+  });
+
+  it('should correctly evaluate IMPOWER function', () => {
+    // (1+i)^2 = 2i — use IMREAL/IMAGINARY to check numerically
+    expect(Number(evaluate('=IMREAL(IMPOWER("1+i",2))'))).toBeCloseTo(0, 10);
+    expect(Number(evaluate('=IMAGINARY(IMPOWER("1+i",2))'))).toBeCloseTo(2, 10);
+    // (2)^3 = 8
+    expect(evaluate('=IMPOWER("2",3)')).toBe('8');
+  });
+
+  it('should correctly evaluate IMSQRT function', () => {
+    // sqrt(4) = 2
+    expect(evaluate('=IMSQRT("4")')).toBe('2');
+    // sqrt(-1) = i
+    const sqrtNeg1 = evaluate('=IMSQRT("-1")');
+    expect(sqrtNeg1).toBe('i');
+  });
+
+  it('should correctly evaluate IMEXP function', () => {
+    // e^0 = 1
+    expect(evaluate('=IMEXP("0")')).toBe('1');
+    // e^1 = e
+    expect(Number(evaluate('=IMEXP("1")'))).toBeCloseTo(Math.E, 10);
+  });
+
+  it('should correctly evaluate IMLN function', () => {
+    // ln(1) = 0
+    expect(evaluate('=IMLN("1")')).toBe('0');
+    // ln(e) = 1
+    const lnE = evaluate('=IMLN("' + Math.E + '")');
+    expect(Number(lnE)).toBeCloseTo(1, 10);
+  });
+
+  it('should correctly evaluate IMLOG2 and IMLOG10 functions', () => {
+    // log2(8) = 3
+    expect(Number(evaluate('=IMLOG2("8")'))).toBeCloseTo(3, 10);
+    // log10(100) = 2
+    expect(Number(evaluate('=IMLOG10("100")'))).toBeCloseTo(2, 10);
+  });
+
+  it('should correctly evaluate IMSIN and IMCOS functions', () => {
+    // sin(0) = 0, cos(0) = 1
+    expect(evaluate('=IMSIN("0")')).toBe('0');
+    expect(evaluate('=IMCOS("0")')).toBe('1');
+    // sin(PI/2) ≈ 1
+    const sinPiHalf = evaluate('=IMSIN("' + (Math.PI / 2) + '")');
+    expect(Number(sinPiHalf)).toBeCloseTo(1, 10);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

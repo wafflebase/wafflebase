@@ -2002,6 +2002,76 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the absolute value (modulus) of a complex number',
     args: [{ name: 'complex_number' }],
   },
+  {
+    name: 'IMSUM',
+    description: 'Returns the sum of complex numbers',
+    args: [{ name: 'complex1' }, { name: 'complex2', optional: true, repeating: true }],
+  },
+  {
+    name: 'IMSUB',
+    description: 'Returns the difference of two complex numbers',
+    args: [{ name: 'complex1' }, { name: 'complex2' }],
+  },
+  {
+    name: 'IMPRODUCT',
+    description: 'Returns the product of complex numbers',
+    args: [{ name: 'complex1' }, { name: 'complex2', optional: true, repeating: true }],
+  },
+  {
+    name: 'IMDIV',
+    description: 'Returns the quotient of two complex numbers',
+    args: [{ name: 'complex1' }, { name: 'complex2' }],
+  },
+  {
+    name: 'IMCONJUGATE',
+    description: 'Returns the complex conjugate of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMARGUMENT',
+    description: 'Returns the argument (angle) of a complex number in radians',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMPOWER',
+    description: 'Returns a complex number raised to a power',
+    args: [{ name: 'complex_number' }, { name: 'power' }],
+  },
+  {
+    name: 'IMSQRT',
+    description: 'Returns the square root of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMEXP',
+    description: 'Returns e raised to a complex power',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMLN',
+    description: 'Returns the natural logarithm of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMLOG2',
+    description: 'Returns the base-2 logarithm of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMLOG10',
+    description: 'Returns the base-10 logarithm of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMSIN',
+    description: 'Returns the sine of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMCOS',
+    description: 'Returns the cosine of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2029,7 +2099,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WORKDAY',
     'YEARFRAC',
   ]),
-  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS']),
+  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV', 'IMCONJUGATE', 'IMARGUMENT', 'IMPOWER', 'IMSQRT', 'IMEXP', 'IMLN', 'IMLOG2', 'IMLOG10', 'IMSIN', 'IMCOS']),
   Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR']),
   Info: new Set([
     'ISBLANK',

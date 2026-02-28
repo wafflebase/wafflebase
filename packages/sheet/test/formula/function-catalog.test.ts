@@ -280,6 +280,20 @@ describe('FunctionCatalog', () => {
       expect(findFunction('IMREAL')!.name).toBe('IMREAL');
       expect(findFunction('IMAGINARY')!.name).toBe('IMAGINARY');
       expect(findFunction('IMABS')!.name).toBe('IMABS');
+      expect(findFunction('IMSUM')!.name).toBe('IMSUM');
+      expect(findFunction('IMSUB')!.name).toBe('IMSUB');
+      expect(findFunction('IMPRODUCT')!.name).toBe('IMPRODUCT');
+      expect(findFunction('IMDIV')!.name).toBe('IMDIV');
+      expect(findFunction('IMCONJUGATE')!.name).toBe('IMCONJUGATE');
+      expect(findFunction('IMARGUMENT')!.name).toBe('IMARGUMENT');
+      expect(findFunction('IMPOWER')!.name).toBe('IMPOWER');
+      expect(findFunction('IMSQRT')!.name).toBe('IMSQRT');
+      expect(findFunction('IMEXP')!.name).toBe('IMEXP');
+      expect(findFunction('IMLN')!.name).toBe('IMLN');
+      expect(findFunction('IMLOG2')!.name).toBe('IMLOG2');
+      expect(findFunction('IMLOG10')!.name).toBe('IMLOG10');
+      expect(findFunction('IMSIN')!.name).toBe('IMSIN');
+      expect(findFunction('IMCOS')!.name).toBe('IMCOS');
     });
 
     it('should return undefined for unknown function', () => {

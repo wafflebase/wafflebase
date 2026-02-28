@@ -341,6 +341,20 @@ export const FunctionMap = new Map([
   ['IMREAL', imrealFunc],
   ['IMAGINARY', imaginaryFunc],
   ['IMABS', imabsFunc],
+  ['IMSUM', imsumFunc],
+  ['IMSUB', imsubFunc],
+  ['IMPRODUCT', improductFunc],
+  ['IMDIV', imdivFunc],
+  ['IMCONJUGATE', imconjugateFunc],
+  ['IMARGUMENT', imargumentFunc],
+  ['IMPOWER', impowerFunc],
+  ['IMSQRT', imsqrtFunc],
+  ['IMEXP', imexpFunc],
+  ['IMLN', imlnFunc],
+  ['IMLOG2', imlog2Func],
+  ['IMLOG10', imlog10Func],
+  ['IMSIN', imsinFunc],
+  ['IMCOS', imcosFunc],
 ]);
 
 /**
@@ -12018,8 +12032,11 @@ function parseComplex(s: string): { re: number; im: number } | null {
     const splitIdx = Math.max(plusIdx, minusIdx);
     if (splitIdx <= 0) return null;
     const re = Number(body.slice(0, splitIdx));
-    const im = Number(body.slice(splitIdx));
-    if (isNaN(re) || isNaN(im)) return null;
+    if (isNaN(re)) return null;
+    const imStr = body.slice(splitIdx);
+    // Handle "+i" or "-i" where coefficient is implied 1 or -1
+    const im = imStr === '+' ? 1 : imStr === '-' ? -1 : Number(imStr);
+    if (isNaN(im)) return null;
     return { re, im };
   }
   // Pure real
@@ -12120,4 +12137,323 @@ export function imabsFunc(
   const c = parseComplex(s.v);
   if (!c) return { t: 'err', v: '#VALUE!' };
   return { t: 'num', v: Math.sqrt(c.re * c.re + c.im * c.im) };
+}
+
+/**
+ * Helper: format a complex number {re, im} as a string like "a+bi".
+ */
+function formatComplex(re: number, im: number): string {
+  if (im === 0) return String(re);
+  if (re === 0) {
+    if (im === 1) return 'i';
+    if (im === -1) return '-i';
+    return im + 'i';
+  }
+  const sign = im > 0 ? '+' : '';
+  if (im === 1) return re + '+i';
+  if (im === -1) return re + '-i';
+  return re + sign + im + 'i';
+}
+
+/**
+ * Helper: parse a complex string argument from ctx, return {re, im} or error.
+ */
+function parseComplexArg(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): { re: number; im: number } | EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const c = parseComplex(s.v);
+  if (!c) return { t: 'err', v: '#VALUE!' };
+  return c;
+}
+
+/**
+ * IMSUM(complex1, complex2, ...) — sum of complex numbers.
+ */
+export function imsumFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1) return { t: 'err', v: '#N/A!' };
+  let re = 0, im = 0;
+  for (const expr of exprs) {
+    const s = toStr(visit(expr), grid);
+    if (s.t === 'err') return s;
+    const c = parseComplex(s.v);
+    if (!c) return { t: 'err', v: '#VALUE!' };
+    re += c.re;
+    im += c.im;
+  }
+  return { t: 'str', v: formatComplex(re, im) };
+}
+
+/**
+ * IMSUB(complex1, complex2) — difference of two complex numbers.
+ */
+export function imsubFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const s1 = toStr(visit(exprs[0]), grid);
+  if (s1.t === 'err') return s1;
+  const c1 = parseComplex(s1.v);
+  if (!c1) return { t: 'err', v: '#VALUE!' };
+  const s2 = toStr(visit(exprs[1]), grid);
+  if (s2.t === 'err') return s2;
+  const c2 = parseComplex(s2.v);
+  if (!c2) return { t: 'err', v: '#VALUE!' };
+  return { t: 'str', v: formatComplex(c1.re - c2.re, c1.im - c2.im) };
+}
+
+/**
+ * IMPRODUCT(complex1, complex2, ...) — product of complex numbers.
+ */
+export function improductFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1) return { t: 'err', v: '#N/A!' };
+  let re = 1, im = 0;
+  for (const expr of exprs) {
+    const s = toStr(visit(expr), grid);
+    if (s.t === 'err') return s;
+    const c = parseComplex(s.v);
+    if (!c) return { t: 'err', v: '#VALUE!' };
+    const newRe = re * c.re - im * c.im;
+    const newIm = re * c.im + im * c.re;
+    re = newRe;
+    im = newIm;
+  }
+  return { t: 'str', v: formatComplex(re, im) };
+}
+
+/**
+ * IMDIV(complex1, complex2) — division of two complex numbers.
+ */
+export function imdivFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const s1 = toStr(visit(exprs[0]), grid);
+  if (s1.t === 'err') return s1;
+  const c1 = parseComplex(s1.v);
+  if (!c1) return { t: 'err', v: '#VALUE!' };
+  const s2 = toStr(visit(exprs[1]), grid);
+  if (s2.t === 'err') return s2;
+  const c2 = parseComplex(s2.v);
+  if (!c2) return { t: 'err', v: '#VALUE!' };
+  const denom = c2.re * c2.re + c2.im * c2.im;
+  if (denom === 0) return { t: 'err', v: '#VALUE!' };
+  const re = (c1.re * c2.re + c1.im * c2.im) / denom;
+  const im = (c1.im * c2.re - c1.re * c2.im) / denom;
+  return { t: 'str', v: formatComplex(re, im) };
+}
+
+/**
+ * IMCONJUGATE(complex_number) — complex conjugate.
+ */
+export function imconjugateFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  return { t: 'str', v: formatComplex(result.re, -result.im) };
+}
+
+/**
+ * IMARGUMENT(complex_number) — angle (argument) in radians.
+ */
+export function imargumentFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  if (result.re === 0 && result.im === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.atan2(result.im, result.re) };
+}
+
+/**
+ * IMPOWER(complex_number, power) — complex number raised to a power.
+ */
+export function impowerFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const c = parseComplex(s.v);
+  if (!c) return { t: 'err', v: '#VALUE!' };
+  const n = NumberArgs.map(visit(exprs[1]), grid);
+  if (n.t === 'err') return n;
+  const r = Math.sqrt(c.re * c.re + c.im * c.im);
+  const theta = Math.atan2(c.im, c.re);
+  const rn = Math.pow(r, n.v);
+  const re = rn * Math.cos(n.v * theta);
+  const im = rn * Math.sin(n.v * theta);
+  return { t: 'str', v: formatComplex(
+    Math.abs(re) < 1e-14 ? 0 : re,
+    Math.abs(im) < 1e-14 ? 0 : im,
+  ) };
+}
+
+/**
+ * IMSQRT(complex_number) — square root of a complex number.
+ */
+export function imsqrtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const r = Math.sqrt(result.re * result.re + result.im * result.im);
+  const theta = Math.atan2(result.im, result.re);
+  const sqrtR = Math.sqrt(r);
+  const re = sqrtR * Math.cos(theta / 2);
+  const im = sqrtR * Math.sin(theta / 2);
+  return { t: 'str', v: formatComplex(
+    Math.abs(re) < 1e-14 ? 0 : re,
+    Math.abs(im) < 1e-14 ? 0 : im,
+  ) };
+}
+
+/**
+ * IMEXP(complex_number) — e raised to a complex power.
+ */
+export function imexpFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const ea = Math.exp(result.re);
+  const re = ea * Math.cos(result.im);
+  const im = ea * Math.sin(result.im);
+  return { t: 'str', v: formatComplex(
+    Math.abs(re) < 1e-14 ? 0 : re,
+    Math.abs(im) < 1e-14 ? 0 : im,
+  ) };
+}
+
+/**
+ * IMLN(complex_number) — natural logarithm of a complex number.
+ */
+export function imlnFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const r = Math.sqrt(result.re * result.re + result.im * result.im);
+  if (r === 0) return { t: 'err', v: '#VALUE!' };
+  const theta = Math.atan2(result.im, result.re);
+  return { t: 'str', v: formatComplex(Math.log(r), theta) };
+}
+
+/**
+ * IMLOG2(complex_number) — base-2 logarithm of a complex number.
+ */
+export function imlog2Func(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const r = Math.sqrt(result.re * result.re + result.im * result.im);
+  if (r === 0) return { t: 'err', v: '#VALUE!' };
+  const theta = Math.atan2(result.im, result.re);
+  const ln2 = Math.log(2);
+  return { t: 'str', v: formatComplex(Math.log(r) / ln2, theta / ln2) };
+}
+
+/**
+ * IMLOG10(complex_number) — base-10 logarithm of a complex number.
+ */
+export function imlog10Func(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const r = Math.sqrt(result.re * result.re + result.im * result.im);
+  if (r === 0) return { t: 'err', v: '#VALUE!' };
+  const theta = Math.atan2(result.im, result.re);
+  const ln10 = Math.log(10);
+  return { t: 'str', v: formatComplex(Math.log(r) / ln10, theta / ln10) };
+}
+
+/**
+ * IMSIN(complex_number) — sine of a complex number.
+ * sin(a+bi) = sin(a)cosh(b) + i*cos(a)sinh(b)
+ */
+export function imsinFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const re = Math.sin(result.re) * Math.cosh(result.im);
+  const im = Math.cos(result.re) * Math.sinh(result.im);
+  return { t: 'str', v: formatComplex(
+    Math.abs(re) < 1e-14 ? 0 : re,
+    Math.abs(im) < 1e-14 ? 0 : im,
+  ) };
+}
+
+/**
+ * IMCOS(complex_number) — cosine of a complex number.
+ * cos(a+bi) = cos(a)cosh(b) - i*sin(a)sinh(b)
+ */
+export function imcosFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const re = Math.cos(result.re) * Math.cosh(result.im);
+  const im = -(Math.sin(result.re) * Math.sinh(result.im));
+  return { t: 'str', v: formatComplex(
+    Math.abs(re) < 1e-14 ? 0 : re,
+    Math.abs(im) < 1e-14 ? 0 : im,
+  ) };
 }
