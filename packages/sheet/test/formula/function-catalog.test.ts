@@ -336,6 +336,18 @@ describe('FunctionCatalog', () => {
       expect(findFunction('FVSCHEDULE')!.name).toBe('FVSCHEDULE');
       expect(findFunction('PDURATION')!.name).toBe('PDURATION');
       expect(findFunction('RRI')!.name).toBe('RRI');
+      expect(findFunction('DSUM')!.name).toBe('DSUM');
+      expect(findFunction('DCOUNT')!.name).toBe('DCOUNT');
+      expect(findFunction('DCOUNTA')!.name).toBe('DCOUNTA');
+      expect(findFunction('DAVERAGE')!.name).toBe('DAVERAGE');
+      expect(findFunction('DMAX')!.name).toBe('DMAX');
+      expect(findFunction('DMIN')!.name).toBe('DMIN');
+      expect(findFunction('DPRODUCT')!.name).toBe('DPRODUCT');
+      expect(findFunction('DGET')!.name).toBe('DGET');
+      expect(findFunction('DSTDEV')!.name).toBe('DSTDEV');
+      expect(findFunction('DSTDEVP')!.name).toBe('DSTDEVP');
+      expect(findFunction('DVAR')!.name).toBe('DVAR');
+      expect(findFunction('DVARP')!.name).toBe('DVARP');
     });
 
     it('should return undefined for unknown function', () => {
@@ -366,6 +378,7 @@ describe('FunctionCatalog', () => {
         'Math',
         'Statistical',
         'Text',
+        'Database',
       ]);
     });
   });

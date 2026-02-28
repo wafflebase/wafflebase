@@ -2550,6 +2550,57 @@ describe('Formula', () => {
     expect(Number(evaluate('=FVSCHEDULE(1,A1:A3)', grid))).toBeCloseTo(1.33089, 4);
   });
 
+  it('should correctly evaluate DSUM, DCOUNT, DAVERAGE, DMAX, DMIN functions', () => {
+    // Database: A1=Name, B1=Score, C1=Grade
+    // A2=Alice, B2=90, C2=A
+    // A3=Bob, B3=80, C3=B
+    // A4=Alice, B4=85, C4=B
+    // Criteria: E1=Name, E2=Alice
+    const grid = new Map([
+      ['A1', { v: 'Name' } as Cell],
+      ['B1', { v: 'Score' } as Cell],
+      ['C1', { v: 'Grade' } as Cell],
+      ['A2', { v: 'Alice' } as Cell],
+      ['B2', { v: '90' } as Cell],
+      ['C2', { v: 'A' } as Cell],
+      ['A3', { v: 'Bob' } as Cell],
+      ['B3', { v: '80' } as Cell],
+      ['C3', { v: 'B' } as Cell],
+      ['A4', { v: 'Alice' } as Cell],
+      ['B4', { v: '85' } as Cell],
+      ['C4', { v: 'B' } as Cell],
+      ['E1', { v: 'Name' } as Cell],
+      ['E2', { v: 'Alice' } as Cell],
+    ]);
+    // DSUM: sum Score for Alice = 90+85 = 175
+    expect(evaluate('=DSUM(A1:C4,"Score",E1:E2)', grid)).toBe('175');
+    // DCOUNT: count numeric values for Alice = 2
+    expect(evaluate('=DCOUNT(A1:C4,"Score",E1:E2)', grid)).toBe('2');
+    // DAVERAGE: avg = 87.5
+    expect(evaluate('=DAVERAGE(A1:C4,"Score",E1:E2)', grid)).toBe('87.5');
+    // DMAX: max = 90
+    expect(evaluate('=DMAX(A1:C4,"Score",E1:E2)', grid)).toBe('90');
+    // DMIN: min = 85
+    expect(evaluate('=DMIN(A1:C4,"Score",E1:E2)', grid)).toBe('85');
+  });
+
+  it('should correctly evaluate DGET and DPRODUCT functions', () => {
+    const grid = new Map([
+      ['A1', { v: 'Name' } as Cell],
+      ['B1', { v: 'Score' } as Cell],
+      ['A2', { v: 'Alice' } as Cell],
+      ['B2', { v: '90' } as Cell],
+      ['A3', { v: 'Bob' } as Cell],
+      ['B3', { v: '80' } as Cell],
+      ['E1', { v: 'Name' } as Cell],
+      ['E2', { v: 'Bob' } as Cell],
+    ]);
+    // DGET: exactly one match
+    expect(evaluate('=DGET(A1:B3,"Score",E1:E2)', grid)).toBe('80');
+    // DPRODUCT: product for Bob = 80
+    expect(evaluate('=DPRODUCT(A1:B3,"Score",E1:E2)', grid)).toBe('80');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

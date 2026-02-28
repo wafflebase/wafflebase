@@ -2272,6 +2272,66 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the equivalent interest rate for the growth of an investment',
     args: [{ name: 'nper' }, { name: 'pv' }, { name: 'fv' }],
   },
+  {
+    name: 'DSUM',
+    description: 'Sums values in a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DCOUNT',
+    description: 'Counts numeric values in a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DCOUNTA',
+    description: 'Counts non-empty values in a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DAVERAGE',
+    description: 'Averages values in a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DMAX',
+    description: 'Returns the maximum value in a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DMIN',
+    description: 'Returns the minimum value in a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DPRODUCT',
+    description: 'Returns the product of values in a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DGET',
+    description: 'Returns a single value from a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DSTDEV',
+    description: 'Returns the sample standard deviation of a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DSTDEVP',
+    description: 'Returns the population standard deviation of a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DVAR',
+    description: 'Returns the sample variance of a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
+  {
+    name: 'DVARP',
+    description: 'Returns the population variance of a database field matching criteria',
+    args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2526,6 +2586,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'TEXTAFTER',
     'VALUETOTEXT',
   ]),
+  Database: new Set(['DSUM', 'DCOUNT', 'DCOUNTA', 'DAVERAGE', 'DMAX', 'DMIN', 'DPRODUCT', 'DGET', 'DSTDEV', 'DSTDEVP', 'DVAR', 'DVARP']),
 };
 
 function resolveFunctionCategory(name: string): FunctionCategory {
