@@ -306,7 +306,7 @@ Harness v1 is complete when all are true:
    **Status: Done** (`verify:integration:docker`).
 2. CI failures are diagnosable in under 5 minutes from logs/reports.
    **Status: Done** (structured JSON reports per lane + summary via
-   `verify-self.mjs` runner — Phase 19).
+   `scripts/verify-self.mjs` runner — Phase 19).
 3. PR required verification evidence is automatically trustworthy.
    **Status: Not started** — Phase 20.
 
