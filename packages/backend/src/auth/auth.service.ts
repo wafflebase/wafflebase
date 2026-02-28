@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@prisma/client';
+import type ms from 'ms';
 
 type AuthPayloadBase = {
   sub: number;
@@ -27,8 +28,8 @@ export type AuthTokens = {
 export class AuthService {
   private readonly accessSecret: string;
   private readonly refreshSecret: string;
-  private readonly accessExpiresIn: string;
-  private readonly refreshExpiresIn: string;
+  private readonly accessExpiresIn: ms.StringValue;
+  private readonly refreshExpiresIn: ms.StringValue;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -38,9 +39,9 @@ export class AuthService {
     this.refreshSecret =
       this.configService.get<string>('JWT_REFRESH_SECRET') ?? this.accessSecret;
     this.accessExpiresIn =
-      this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '1h';
+      (this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '1h') as ms.StringValue;
     this.refreshExpiresIn =
-      this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d';
+      (this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') ?? '7d') as ms.StringValue;
   }
 
   createTokens(user: User): AuthTokens {

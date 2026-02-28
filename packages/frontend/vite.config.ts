@@ -3,6 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
+
 function manualChunks(id: string): string | undefined {
   const normalizedId = id.replace(/\\/g, "/");
 
@@ -59,11 +61,27 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      util: path.resolve(__dirname, "./src/lib/util-shim.js"),
+      util: utilShimPath,
     },
   },
   define: {
     "process.env": {},
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      plugins: [
+        {
+          name: "util-shim",
+          setup(build) {
+            // Intercept all `util` and `util/` imports during dep
+            // pre-bundling so assert@2.x and antlr4ts get our shim.
+            build.onResolve({ filter: /^util(\/)?$/ }, () => ({
+              path: utilShimPath,
+            }));
+          },
+        },
+      ],
+    },
   },
   build: {
     rollupOptions: {
