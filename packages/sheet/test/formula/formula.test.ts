@@ -2720,6 +2720,64 @@ describe('Formula', () => {
     expect(evaluate('=CELL("address",B3)', grid)).toBe('$B$3');
   });
 
+  it('should correctly evaluate MMULT function', () => {
+    const grid = new Map<string, Cell>();
+    // 2x2 matrix A: [[1,2],[3,4]]
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('B1', { v: '2' } as Cell);
+    grid.set('A2', { v: '3' } as Cell);
+    grid.set('B2', { v: '4' } as Cell);
+    // 2x2 matrix B: [[5,6],[7,8]]
+    grid.set('C1', { v: '5' } as Cell);
+    grid.set('D1', { v: '6' } as Cell);
+    grid.set('C2', { v: '7' } as Cell);
+    grid.set('D2', { v: '8' } as Cell);
+    // Result top-left: 1*5 + 2*7 = 19
+    expect(evaluate('=MMULT(A1:B2,C1:D2)', grid)).toBe('19');
+  });
+
+  it('should correctly evaluate MINVERSE function', () => {
+    const grid = new Map<string, Cell>();
+    // 2x2 identity matrix
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('B1', { v: '0' } as Cell);
+    grid.set('A2', { v: '0' } as Cell);
+    grid.set('B2', { v: '1' } as Cell);
+    // Inverse of identity is identity, top-left = 1
+    expect(evaluate('=MINVERSE(A1:B2)', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate XMATCH function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'apple' } as Cell);
+    grid.set('A2', { v: 'banana' } as Cell);
+    grid.set('A3', { v: 'cherry' } as Cell);
+    expect(evaluate('=XMATCH("banana",A1:A3)', grid)).toBe('2');
+    expect(evaluate('=XMATCH("cherry",A1:A3)', grid)).toBe('3');
+  });
+
+  it('should correctly evaluate TOCOL function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('B1', { v: '2' } as Cell);
+    grid.set('A2', { v: '3' } as Cell);
+    grid.set('B2', { v: '4' } as Cell);
+    // Returns first value of flattened range
+    expect(evaluate('=TOCOL(A1:B2)', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate TOROW function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' } as Cell);
+    grid.set('A2', { v: '20' } as Cell);
+    expect(evaluate('=TOROW(A1:A2)', grid)).toBe('10');
+  });
+
+  it('should correctly evaluate TEXTSPLIT function', () => {
+    expect(evaluate('=TEXTSPLIT("a,b,c",",")')).toBe('a');
+    expect(evaluate('=TEXTSPLIT("hello world"," ")')).toBe('hello');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

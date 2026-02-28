@@ -420,6 +420,12 @@ export const FunctionMap = new Map([
   ['Z.TEST', ztestFunc],
   ['AREAS', areasFunc],
   ['CELL', cellInfoFunc],
+  ['MMULT', mmultFunc],
+  ['MINVERSE', minverseFunc],
+  ['XMATCH', xmatchFunc],
+  ['TOCOL', tocolFunc],
+  ['TOROW', torowFunc],
+  ['TEXTSPLIT', textsplitFunc],
 ]);
 
 /**
@@ -14610,4 +14616,320 @@ export function cellInfoFunc(
     }
     default: return { t: 'str', v: '' };
   }
+}
+
+/**
+ * MMULT(array1, array2) — matrix multiplication of two ranges.
+ * Returns flattened result as comma-separated string for single-cell output.
+ */
+export function mmultFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const m1 = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m1 && m1.t === 'err') return m1;
+  const m2 = getReferenceMatrixFromExpression(exprs[1], visit, grid);
+  if ('t' in m2 && m2.t === 'err') return m2;
+  if (m1.t !== 'matrix' || m2.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const a = m1.v;
+  const b = m2.v;
+  // a.colCount must equal b.rowCount
+  if (a.colCount !== b.rowCount) return { t: 'err', v: '#VALUE!' };
+
+  const getVal = (refs: string[], row: number, col: number, cols: number): number => {
+    const cellVal = grid?.get(refs[row * cols + col])?.v;
+    return cellVal != null && cellVal !== '' ? Number(cellVal) : 0;
+  };
+
+  const resultRows = a.rowCount;
+  const resultCols = b.colCount;
+  const result: number[] = [];
+  for (let i = 0; i < resultRows; i++) {
+    for (let j = 0; j < resultCols; j++) {
+      let sum = 0;
+      for (let k = 0; k < a.colCount; k++) {
+        sum += getVal(a.refs, i, k, a.colCount) * getVal(b.refs, k, j, b.colCount);
+      }
+      result.push(sum);
+    }
+  }
+  // Return top-left value for single-cell evaluation
+  return { t: 'num', v: result[0] };
+}
+
+/**
+ * MINVERSE(array) — returns the inverse of a square matrix.
+ * Returns the top-left element for single-cell evaluation.
+ */
+export function minverseFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const n = m.v.rowCount;
+  if (n !== m.v.colCount) return { t: 'err', v: '#VALUE!' };
+
+  // Build augmented matrix [A | I]
+  const aug: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: number[] = [];
+    for (let j = 0; j < n; j++) {
+      const cellVal = grid?.get(m.v.refs[i * n + j])?.v;
+      row.push(cellVal != null && cellVal !== '' ? Number(cellVal) : 0);
+    }
+    for (let j = 0; j < n; j++) {
+      row.push(i === j ? 1 : 0);
+    }
+    aug.push(row);
+  }
+
+  // Gauss-Jordan elimination
+  for (let col = 0; col < n; col++) {
+    // Find pivot
+    let maxRow = col;
+    let maxVal = Math.abs(aug[col][col]);
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(aug[row][col]) > maxVal) {
+        maxVal = Math.abs(aug[row][col]);
+        maxRow = row;
+      }
+    }
+    if (maxVal < 1e-12) return { t: 'err', v: '#VALUE!' }; // Singular
+    if (maxRow !== col) {
+      [aug[col], aug[maxRow]] = [aug[maxRow], aug[col]];
+    }
+    const pivot = aug[col][col];
+    for (let j = 0; j < 2 * n; j++) {
+      aug[col][j] /= pivot;
+    }
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = aug[row][col];
+      for (let j = 0; j < 2 * n; j++) {
+        aug[row][j] -= factor * aug[col][j];
+      }
+    }
+  }
+
+  // Return top-left element of inverse
+  return { t: 'num', v: aug[0][n] };
+}
+
+/**
+ * XMATCH(lookup_value, lookup_array, [match_mode], [search_mode])
+ * Returns the relative position of a value in an array.
+ */
+export function xmatchFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+
+  const keyNode = visit(exprs[0]);
+  if (keyNode.t === 'err') return keyNode;
+
+  const lookupRefs = getRefsFromExpression(exprs[1], visit, grid);
+  if ('t' in lookupRefs && lookupRefs.t === 'err') return lookupRefs as EvalNode;
+  if (!('v' in lookupRefs) || !Array.isArray((lookupRefs as { v: string[] }).v)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+  const refs = (lookupRefs as { t: 'refs'; v: string[] }).v;
+
+  let matchMode = 0;
+  if (exprs.length >= 3) {
+    const mm = NumberArgs.map(visit(exprs[2]), grid);
+    if (mm.t === 'err') return mm;
+    matchMode = Math.trunc(mm.v);
+  }
+
+  const keyVal = keyNode.t === 'num' ? keyNode.v
+    : keyNode.t === 'str' ? keyNode.v
+    : keyNode.t === 'bool' ? keyNode.v
+    : '';
+  const keyIsNum = keyNode.t === 'num';
+
+  if (matchMode === 0) {
+    // Exact match
+    for (let i = 0; i < refs.length; i++) {
+      const cellVal = grid?.get(refs[i])?.v || '';
+      if (keyIsNum) {
+        if (cellVal !== '' && Number(cellVal) === keyVal) {
+          return { t: 'num', v: i + 1 };
+        }
+      } else {
+        if (String(cellVal).toLowerCase() === String(keyVal).toLowerCase()) {
+          return { t: 'num', v: i + 1 };
+        }
+      }
+    }
+    return { t: 'err', v: '#N/A!' };
+  } else if (matchMode === -1) {
+    // Exact or next smaller
+    let bestIdx = -1;
+    let bestVal = -Infinity;
+    const numKey = Number(keyVal);
+    for (let i = 0; i < refs.length; i++) {
+      const cellVal = grid?.get(refs[i])?.v || '';
+      const numVal = Number(cellVal);
+      if (!isNaN(numVal) && numVal <= numKey && numVal > bestVal) {
+        bestVal = numVal;
+        bestIdx = i;
+      }
+    }
+    return bestIdx >= 0 ? { t: 'num', v: bestIdx + 1 } : { t: 'err', v: '#N/A!' };
+  } else if (matchMode === 1) {
+    // Exact or next larger
+    let bestIdx = -1;
+    let bestVal = Infinity;
+    const numKey = Number(keyVal);
+    for (let i = 0; i < refs.length; i++) {
+      const cellVal = grid?.get(refs[i])?.v || '';
+      const numVal = Number(cellVal);
+      if (!isNaN(numVal) && numVal >= numKey && numVal < bestVal) {
+        bestVal = numVal;
+        bestIdx = i;
+      }
+    }
+    return bestIdx >= 0 ? { t: 'num', v: bestIdx + 1 } : { t: 'err', v: '#N/A!' };
+  } else if (matchMode === 2) {
+    // Wildcard match
+    const pattern = String(keyVal).replace(/\*/g, '.*').replace(/\?/g, '.');
+    const re = new RegExp('^' + pattern + '$', 'i');
+    for (let i = 0; i < refs.length; i++) {
+      const cellVal = grid?.get(refs[i])?.v || '';
+      if (re.test(cellVal)) {
+        return { t: 'num', v: i + 1 };
+      }
+    }
+    return { t: 'err', v: '#N/A!' };
+  }
+  return { t: 'err', v: '#N/A!' };
+}
+
+/**
+ * TOCOL(array, [ignore], [scan_by_column]) — flattens a range to a single column.
+ * Returns all values as comma-separated string for single-cell evaluation.
+ */
+export function tocolFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  let ignore = 0; // 0=keep all, 1=ignore blanks, 2=ignore errors, 3=ignore blanks+errors
+  if (exprs.length >= 2) {
+    const ig = NumberArgs.map(visit(exprs[1]), grid);
+    if (ig.t === 'err') return ig;
+    ignore = Math.trunc(ig.v);
+  }
+
+  let scanByCol = false;
+  if (exprs.length >= 3) {
+    const sc = visit(exprs[2]);
+    scanByCol = sc.t === 'bool' ? sc.v === true : sc.t === 'num' ? sc.v !== 0 : false;
+  }
+
+  const values: string[] = [];
+  const { refs, rowCount, colCount } = m.v;
+  if (scanByCol) {
+    for (let c = 0; c < colCount; c++) {
+      for (let r = 0; r < rowCount; r++) {
+        const val = grid?.get(refs[r * colCount + c])?.v ?? '';
+        if (ignore === 1 && val === '') continue;
+        values.push(val);
+      }
+    }
+  } else {
+    for (const ref of refs) {
+      const val = grid?.get(ref)?.v ?? '';
+      if (ignore === 1 && val === '') continue;
+      values.push(val);
+    }
+  }
+
+  // Return first value for single-cell evaluation
+  return values.length > 0
+    ? { t: 'str', v: values[0] }
+    : { t: 'err', v: '#N/A!' };
+}
+
+/**
+ * TOROW(array, [ignore], [scan_by_column]) — flattens a range to a single row.
+ * Identical to TOCOL in single-cell evaluation context.
+ */
+export function torowFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  return tocolFunc(ctx, visit, grid);
+}
+
+/**
+ * TEXTSPLIT(text, col_delimiter, [row_delimiter], [ignore_empty], [match_mode], [pad_with])
+ * Splits text by delimiter. Returns first part for single-cell evaluation.
+ */
+export function textsplitFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+
+  const textNode = visit(exprs[0]);
+  const text = textNode.t === 'str' ? textNode.v : textNode.t === 'num' ? String(textNode.v) : '';
+  if (textNode.t === 'err') return textNode;
+
+  const delimNode = visit(exprs[1]);
+  if (delimNode.t === 'err') return delimNode;
+  const colDelim = delimNode.t === 'str' ? delimNode.v : String(delimNode.v);
+
+  if (colDelim === '') return { t: 'err', v: '#VALUE!' };
+
+  let ignoreEmpty = false;
+  if (exprs.length >= 4) {
+    const ie = visit(exprs[3]);
+    ignoreEmpty = ie.t === 'bool' ? ie.v === true : ie.t === 'num' ? ie.v !== 0 : false;
+  }
+
+  let parts = text.split(colDelim);
+  if (ignoreEmpty) {
+    parts = parts.filter((p) => p !== '');
+  }
+
+  // Return first part for single-cell evaluation
+  return parts.length > 0
+    ? { t: 'str', v: parts[0] }
+    : { t: 'err', v: '#N/A!' };
 }

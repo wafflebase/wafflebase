@@ -361,6 +361,12 @@ describe('FunctionCatalog', () => {
       expect(findFunction('Z.TEST')!.name).toBe('Z.TEST');
       expect(findFunction('AREAS')!.name).toBe('AREAS');
       expect(findFunction('CELL')!.name).toBe('CELL');
+      expect(findFunction('MMULT')!.name).toBe('MMULT');
+      expect(findFunction('MINVERSE')!.name).toBe('MINVERSE');
+      expect(findFunction('XMATCH')!.name).toBe('XMATCH');
+      expect(findFunction('TOCOL')!.name).toBe('TOCOL');
+      expect(findFunction('TOROW')!.name).toBe('TOROW');
+      expect(findFunction('TEXTSPLIT')!.name).toBe('TEXTSPLIT');
     });
 
     it('should return undefined for unknown function', () => {

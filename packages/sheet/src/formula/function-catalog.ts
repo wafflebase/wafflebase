@@ -2397,6 +2397,36 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns information about a cell',
     args: [{ name: 'info_type' }, { name: 'reference', optional: true }],
   },
+  {
+    name: 'MMULT',
+    description: 'Returns the matrix product of two arrays',
+    args: [{ name: 'array1' }, { name: 'array2' }],
+  },
+  {
+    name: 'MINVERSE',
+    description: 'Returns the inverse matrix of a square array',
+    args: [{ name: 'array' }],
+  },
+  {
+    name: 'XMATCH',
+    description: 'Returns the relative position of a value in an array',
+    args: [{ name: 'lookup_value' }, { name: 'lookup_array' }, { name: 'match_mode', optional: true }, { name: 'search_mode', optional: true }],
+  },
+  {
+    name: 'TOCOL',
+    description: 'Transforms an array into a single column',
+    args: [{ name: 'array' }, { name: 'ignore', optional: true }, { name: 'scan_by_column', optional: true }],
+  },
+  {
+    name: 'TOROW',
+    description: 'Transforms an array into a single row',
+    args: [{ name: 'array' }, { name: 'ignore', optional: true }, { name: 'scan_by_column', optional: true }],
+  },
+  {
+    name: 'TEXTSPLIT',
+    description: 'Splits text by delimiter into parts',
+    args: [{ name: 'text' }, { name: 'col_delimiter' }, { name: 'row_delimiter', optional: true }, { name: 'ignore_empty', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2450,7 +2480,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'CELL',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
-  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE', 'XMATCH', 'TOCOL', 'TOROW']),
   Math: new Set([
     'SUM',
     'ABS',
@@ -2527,6 +2557,8 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SUBTOTAL',
     'MDETERM',
     'COMBINA',
+    'MMULT',
+    'MINVERSE',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -2663,6 +2695,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'TEXTBEFORE',
     'TEXTAFTER',
     'VALUETOTEXT',
+    'TEXTSPLIT',
   ]),
   Database: new Set(['DSUM', 'DCOUNT', 'DCOUNTA', 'DAVERAGE', 'DMAX', 'DMIN', 'DPRODUCT', 'DGET', 'DSTDEV', 'DSTDEVP', 'DVAR', 'DVARP']),
 };
