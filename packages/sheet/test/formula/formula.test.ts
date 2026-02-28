@@ -623,6 +623,54 @@ describe('Formula', () => {
     expect(evaluate('=IFNA(10,"fallback")')).toBe('10');
   });
 
+  it('should correctly evaluate PI function', () => {
+    expect(evaluate('=PI()')).toBe(String(Math.PI));
+    expect(evaluate('=PI(1)')).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate SIGN function', () => {
+    expect(evaluate('=SIGN(5)')).toBe('1');
+    expect(evaluate('=SIGN(0-3)')).toBe('-1');
+    expect(evaluate('=SIGN(0)')).toBe('0');
+  });
+
+  it('should correctly evaluate EVEN function', () => {
+    expect(evaluate('=EVEN(1)')).toBe('2');
+    expect(evaluate('=EVEN(2)')).toBe('2');
+    expect(evaluate('=EVEN(3)')).toBe('4');
+    expect(evaluate('=EVEN(0-1)')).toBe('-2');
+    expect(evaluate('=EVEN(0)')).toBe('0');
+    expect(evaluate('=EVEN(1.5)')).toBe('2');
+  });
+
+  it('should correctly evaluate ODD function', () => {
+    expect(evaluate('=ODD(1)')).toBe('1');
+    expect(evaluate('=ODD(2)')).toBe('3');
+    expect(evaluate('=ODD(4)')).toBe('5');
+    expect(evaluate('=ODD(0-1)')).toBe('-1');
+    expect(evaluate('=ODD(0)')).toBe('1');
+    expect(evaluate('=ODD(1.5)')).toBe('3');
+  });
+
+  it('should correctly evaluate EXP function', () => {
+    expect(evaluate('=EXP(0)')).toBe('1');
+    expect(evaluate('=EXP(1)')).toBe(String(Math.E));
+  });
+
+  it('should correctly evaluate LN function', () => {
+    expect(evaluate('=LN(1)')).toBe('0');
+    expect(evaluate('=LN(EXP(1))')).toBe('1');
+    expect(evaluate('=LN(0)')).toBe('#VALUE!');
+    expect(evaluate('=LN(0-1)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate LOG function', () => {
+    expect(evaluate('=LOG(100)')).toBe('2');
+    expect(evaluate('=LOG(8,2)')).toBe('3');
+    expect(evaluate('=LOG(0)')).toBe('#VALUE!');
+    expect(evaluate('=LOG(10,1)')).toBe('#VALUE!');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

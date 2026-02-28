@@ -85,6 +85,13 @@ export const FunctionMap = new Map([
   ['ISNONTEXT', isnontextFunc],
   ['IFERROR', iferrorFunc],
   ['IFNA', ifnaFunc],
+  ['PI', piFunc],
+  ['SIGN', signFunc],
+  ['EVEN', evenFunc],
+  ['ODD', oddFunc],
+  ['EXP', expFunc],
+  ['LN', lnFunc],
+  ['LOG', logFunc],
 ]);
 
 /**
@@ -3060,3 +3067,209 @@ export function ifnaFunc(
 
   return value;
 }
+
+/**
+ * PI() — returns the value of π.
+ */
+export function piFunc(
+  ctx: FunctionContext,
+  _visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (args && args.expr().length > 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  return { t: 'num', v: Math.PI };
+}
+
+/**
+ * SIGN(number) — returns -1, 0, or 1 indicating the sign of a number.
+ */
+export function signFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: Math.sign(num.v) };
+}
+
+/**
+ * EVEN(number) — rounds a number up to the nearest even integer.
+ */
+export function evenFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  const v = num.v;
+  if (v === 0) {
+    return { t: 'num', v: 0 };
+  }
+
+  const rounded = v > 0 ? Math.ceil(v) : Math.floor(v);
+  const result = rounded % 2 === 0 ? rounded : (v > 0 ? rounded + 1 : rounded - 1);
+  return { t: 'num', v: result };
+}
+
+/**
+ * ODD(number) — rounds a number up to the nearest odd integer.
+ */
+export function oddFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  const v = num.v;
+  if (v === 0) {
+    return { t: 'num', v: 1 };
+  }
+
+  const rounded = v > 0 ? Math.ceil(v) : Math.floor(v);
+  const absRounded = Math.abs(rounded);
+  const result = absRounded % 2 === 1 ? rounded : (v > 0 ? rounded + 1 : rounded - 1);
+  return { t: 'num', v: result };
+}
+
+/**
+ * EXP(number) — returns e raised to the power of a number.
+ */
+export function expFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: Math.exp(num.v) };
+}
+
+/**
+ * LN(number) — returns the natural logarithm of a number.
+ */
+export function lnFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+  if (num.v <= 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.log(num.v) };
+}
+
+/**
+ * LOG(number, [base]) — returns the logarithm of a number to the given base (default 10).
+ */
+export function logFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+  if (num.v <= 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let base = 10;
+  if (exprs.length === 2) {
+    const baseNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (baseNode.t === 'err') {
+      return baseNode;
+    }
+    if (baseNode.v <= 0 || baseNode.v === 1) {
+      return { t: 'err', v: '#VALUE!' };
+    }
+    base = baseNode.v;
+  }
+
+  return { t: 'num', v: Math.log(num.v) / Math.log(base) };
+}
+

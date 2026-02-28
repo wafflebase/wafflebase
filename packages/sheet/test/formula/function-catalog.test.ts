@@ -32,10 +32,12 @@ describe('FunctionCatalog', () => {
       expect(searchFunctions('SUM').map((f) => f.name)).toContain('SUM');
     });
 
-    it('should find OR and NOT but not AND with "O"', () => {
+    it('should find OR and ODD but not AND with "O"', () => {
       const results = searchFunctions('O');
-      expect(results).toHaveLength(1);
-      expect(results[0].name).toBe('OR');
+      expect(results).toHaveLength(2);
+      const names = results.map((r) => r.name);
+      expect(names).toContain('OR');
+      expect(names).toContain('ODD');
     });
 
     it('should find AND and AVERAGE with "A"', () => {

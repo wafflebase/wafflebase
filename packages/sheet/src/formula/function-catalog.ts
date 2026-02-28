@@ -491,6 +491,41 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns a value if no #N/A! error, otherwise returns an alternate value',
     args: [{ name: 'value' }, { name: 'value_if_na' }],
   },
+  {
+    name: 'PI',
+    description: 'Returns the value of Pi',
+    args: [],
+  },
+  {
+    name: 'SIGN',
+    description: 'Returns the sign of a number (-1, 0, or 1)',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'EVEN',
+    description: 'Rounds a number up to the nearest even integer',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'ODD',
+    description: 'Rounds a number up to the nearest odd integer',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'EXP',
+    description: 'Returns Euler\'s number raised to a power',
+    args: [{ name: 'exponent' }],
+  },
+  {
+    name: 'LN',
+    description: 'Returns the natural logarithm of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'LOG',
+    description: 'Returns the logarithm of a number given a base',
+    args: [{ name: 'number' }, { name: 'base', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -538,6 +573,13 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SUMIF',
     'COUNTIFS',
     'SUMIFS',
+    'PI',
+    'SIGN',
+    'EVEN',
+    'ODD',
+    'EXP',
+    'LN',
+    'LOG',
   ]),
   Statistical: new Set(['AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'MEDIAN']),
   Text: new Set([
