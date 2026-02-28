@@ -15,7 +15,7 @@
     "verify:frontend:visual:all": "pnpm frontend test:visual:all",
     "verify:frontend:interaction:browser": "pnpm frontend test:interaction:browser",
     "verify:entropy": "node ./scripts/verify-entropy.mjs",
-    "verify:self": "pnpm verify:fast && pnpm frontend build && pnpm verify:frontend:chunks && pnpm verify:frontend:visual && pnpm backend build && pnpm sheet build && pnpm verify:entropy && node ./scripts/verify-browser-lanes.mjs",
+    "verify:self": "node ./scripts/verify-self.mjs",
     "verify:integration": "node ./scripts/verify-integration.mjs",
     "verify:integration:local": "node ./scripts/verify-integration-local.mjs",
     "verify:integration:docker": "node ./scripts/verify-integration-docker.mjs",

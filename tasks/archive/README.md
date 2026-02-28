@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 33
+Total archived tasks: 34
 
-## 2026/02 (33 tasks)
+## 2026/02 (34 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| browser lane integration (2026-02-28) | [20260228-browser-lane-integration-todo.md](./2026/02/20260228-browser-lane-integration-todo.md) | [20260228-browser-lane-integration-lessons.md](./2026/02/20260228-browser-lane-integration-lessons.md) |
 | entropy detection lane (2026-02-28) | [20260228-entropy-detection-lane-todo.md](./2026/02/20260228-entropy-detection-lane-todo.md) | [20260228-entropy-detection-lane-lessons.md](./2026/02/20260228-entropy-detection-lane-lessons.md) |
 | filter sort column scoped (2026-02-28) | [20260228-filter-sort-column-scoped-todo.md](./2026/02/20260228-filter-sort-column-scoped-todo.md) | [20260228-filter-sort-column-scoped-lessons.md](./2026/02/20260228-filter-sort-column-scoped-lessons.md) |
 | hidden indicator click (2026-02-28) | [20260228-hidden-indicator-click-todo.md](./2026/02/20260228-hidden-indicator-click-todo.md) | [20260228-hidden-indicator-click-lessons.md](./2026/02/20260228-hidden-indicator-click-lessons.md) |

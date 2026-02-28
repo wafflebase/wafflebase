@@ -16,5 +16,4 @@ numbering conflicts, stale summary).
 - [x] harness-engineering.md updated: Phase numbering resolved, summary
       corrected, browser integration recorded as Phase 18a
 - [x] Local `pnpm verify:self` passes with browser lanes included
-- [ ] CI `pnpm verify:self` passes with browser lanes gracefully skipped
-      (will verify after push)
+- [x] CI `pnpm verify:self` passes with browser lanes gracefully skipped

@@ -17,10 +17,10 @@ maintainable software. Where context engineering asks *what should the agent
 see*, harness engineering asks *what should the system prevent, measure, and
 correct*.
 
-As of 2026-02-28, phases 1 through 18 are completed. Browser visual and
+As of 2026-02-28, phases 1 through 19 are completed. Browser visual and
 interaction lanes are integrated into `verify:self` with graceful Chromium
-skip. Remaining phases focus on structured reporting, evidence automation,
-and observability.
+skip. Structured JSON lane reports are generated per lane and as a summary.
+Remaining phases focus on evidence automation and observability.
 
 ## Principles
 
@@ -130,7 +130,7 @@ systematically.
 | `pnpm verify:frontend:visual:all` | Both visual gates combined |
 | `pnpm verify:frontend:interaction:browser` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
-| `pnpm verify:self` | `verify:fast` + builds + chunk/visual/interaction + entropy + browser gates |
+| `pnpm verify:self` | Runner: `verify:fast` + builds + chunk/visual/interaction + entropy + browser; generates `.harness-reports/` JSON |
 
 ### Integration Lanes (require database)
 
@@ -179,7 +179,7 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
-## Completed Phases (1-18)
+## Completed Phases (1-19)
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -203,6 +203,7 @@ database → auth/user/document → controllers/modules
 | 17 | Integration determinism hardening | Completed |
 | 18 | Entropy detection automation (dead-code + doc-staleness) | Completed |
 | 18a | Browser lanes integrated into verify:self (graceful Chromium skip) | Completed |
+| 19 | Harness report artifacts (per-lane JSON + summary via verify-self runner) | Completed |
 
 Phase 17 delivered:
 - Shared integration test helpers (`packages/backend/test/helpers/integration-helpers.ts`):
@@ -223,25 +224,10 @@ Detailed task records:
 | A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
 | C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Playwright CI provisioning deferred |
-| D | Agent-oriented contracts | Information Accessibility | In progress | Structured lane reports (Phase 19) |
+| D | Agent-oriented contracts | Information Accessibility | In progress | Structured lane reports delivered (Phase 19); agent observability next (Phase 21) |
 | E | Entropy cleanup loop | Entropy Management | In progress | Dead-code + doc-staleness delivered; dependency freshness next |
 
 ## Remaining Work
-
-### Phase 19: Harness Report Artifacts
-
-**Principle:** Visual Feedback — make lane results observable and
-machine-readable for agents and humans.
-
-Goal: Structured lane outputs for faster triage and agent consumption.
-
-Deliverables:
-- JSON summary per lane (status, duration, key failures).
-- CI artifact publishing for lane reports.
-- Standardized failure summary emitted to logs.
-
-Done criteria: CI failures diagnosable from structured report without log
-scrolling.
 
 ### Phase 20: PR Evidence Trust Automation
 
@@ -319,8 +305,8 @@ Harness v1 is complete when all are true:
 1. Integration lane is reproducible locally without manual orchestration.
    **Status: Done** (`verify:integration:docker`).
 2. CI failures are diagnosable in under 5 minutes from logs/reports.
-   **Status: Partially done** (clear lane output, but no structured reports
-   yet — Phase 19).
+   **Status: Done** (structured JSON reports per lane + summary via
+   `verify-self.mjs` runner — Phase 19).
 3. PR required verification evidence is automatically trustworthy.
    **Status: Not started** — Phase 20.
 
