@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
 const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
-const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.js");
+const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.cjs");
 
 /**
  * Vite plugin that resolves `require("assert")` in antlr4ts to our
