@@ -55,8 +55,12 @@ function extractFailureSummary(output) {
   return lines.length > 0 ? lines[lines.length - 1].trim().slice(0, 500) : null;
 }
 
+function laneFileName(lane) {
+  return lane.replaceAll(":", "-");
+}
+
 function writeLaneReport(report) {
-  const filePath = path.resolve(reportDir, `${report.lane}.json`);
+  const filePath = path.resolve(reportDir, `${laneFileName(report.lane)}.json`);
   writeFileSync(filePath, JSON.stringify(report, null, 2) + "\n");
 }
 
