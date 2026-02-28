@@ -59,10 +59,13 @@ function manualChunks(id: string): string | undefined {
 
   if (
     normalizedId.includes("node_modules/antlr4ts") ||
-    normalizedId.includes("/packages/sheet/antlr/") ||
-    normalizedId.includes("/packages/sheet/src/formula/")
+    normalizedId.includes("/packages/sheet/antlr/")
   ) {
-    return "sheet-formula";
+    return "sheet-formula-parser";
+  }
+
+  if (normalizedId.includes("/packages/sheet/src/formula/")) {
+    return "sheet-formula-eval";
   }
 
   if (
