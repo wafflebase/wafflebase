@@ -240,7 +240,7 @@ named functions.
 1. Implement in `packages/sheet/src/formula/functions.ts` — follow the
    existing `(ctx, visit, grid?) → EvalNode` pattern.
 2. Register in `FunctionMap`.
-3. Add catalog entry in `function-catalog.ts` with name, category,
+3. Add catalog entry in `packages/sheet/src/formula/function-catalog.ts` with name, category,
    description, and args.
 4. Add tests in `packages/sheet/test/formula/`.
 5. Run `pnpm verify:fast`.
