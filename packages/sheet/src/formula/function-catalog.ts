@@ -2472,6 +2472,51 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Wraps a row or column of values into rows',
     args: [{ name: 'vector' }, { name: 'wrap_count' }, { name: 'pad_with', optional: true }],
   },
+  {
+    name: 'GAUSS',
+    description: 'Returns the probability between 0 and z standard deviations',
+    args: [{ name: 'z' }],
+  },
+  {
+    name: 'PHI',
+    description: 'Returns the value of the standard normal density function',
+    args: [{ name: 'x' }],
+  },
+  {
+    name: 'STDEVA',
+    description: 'Standard deviation of a sample, including text and logical values',
+    args: [{ name: 'value1' }, { name: 'value2', optional: true }],
+  },
+  {
+    name: 'STDEVPA',
+    description: 'Standard deviation of a population, including text and logical values',
+    args: [{ name: 'value1' }, { name: 'value2', optional: true }],
+  },
+  {
+    name: 'SKEW.P',
+    description: 'Returns the population skewness of a distribution',
+    args: [{ name: 'number1' }, { name: 'number2', optional: true }],
+  },
+  {
+    name: 'CHISQ.TEST',
+    description: 'Returns the chi-squared test for independence',
+    args: [{ name: 'actual_range' }, { name: 'expected_range' }],
+  },
+  {
+    name: 'F.TEST',
+    description: 'Returns the result of an F-test',
+    args: [{ name: 'array1' }, { name: 'array2' }],
+  },
+  {
+    name: 'ISO.CEILING',
+    description: 'Rounds a number up to the nearest integer or multiple of significance',
+    args: [{ name: 'number' }, { name: 'significance', optional: true }],
+  },
+  {
+    name: 'FILTER',
+    description: 'Filters an array based on a boolean array',
+    args: [{ name: 'array' }, { name: 'include' }, { name: 'if_empty', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2525,7 +2570,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'CELL',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
-  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE', 'XMATCH', 'TOCOL', 'TOROW', 'CHOOSEROWS', 'CHOOSECOLS', 'TAKE', 'DROP', 'HSTACK', 'VSTACK', 'SORTBY', 'WRAPCOLS', 'WRAPROWS']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE', 'XMATCH', 'TOCOL', 'TOROW', 'CHOOSEROWS', 'CHOOSECOLS', 'TAKE', 'DROP', 'HSTACK', 'VSTACK', 'SORTBY', 'WRAPCOLS', 'WRAPROWS', 'FILTER']),
   Math: new Set([
     'SUM',
     'ABS',
@@ -2604,6 +2649,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'COMBINA',
     'MMULT',
     'MINVERSE',
+    'ISO.CEILING',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -2701,6 +2747,13 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'T.TEST',
     'Z.TEST',
     'PERMUTATIONA',
+    'GAUSS',
+    'PHI',
+    'STDEVA',
+    'STDEVPA',
+    'SKEW.P',
+    'CHISQ.TEST',
+    'F.TEST',
   ]),
   Text: new Set([
     'TRIM',

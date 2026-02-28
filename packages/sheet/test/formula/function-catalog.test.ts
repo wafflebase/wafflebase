@@ -376,6 +376,15 @@ describe('FunctionCatalog', () => {
       expect(findFunction('SORTBY')!.name).toBe('SORTBY');
       expect(findFunction('WRAPCOLS')!.name).toBe('WRAPCOLS');
       expect(findFunction('WRAPROWS')!.name).toBe('WRAPROWS');
+      expect(findFunction('GAUSS')!.name).toBe('GAUSS');
+      expect(findFunction('PHI')!.name).toBe('PHI');
+      expect(findFunction('STDEVA')!.name).toBe('STDEVA');
+      expect(findFunction('STDEVPA')!.name).toBe('STDEVPA');
+      expect(findFunction('SKEW.P')!.name).toBe('SKEW.P');
+      expect(findFunction('CHISQ.TEST')!.name).toBe('CHISQ.TEST');
+      expect(findFunction('F.TEST')!.name).toBe('F.TEST');
+      expect(findFunction('ISO.CEILING')!.name).toBe('ISO.CEILING');
+      expect(findFunction('FILTER')!.name).toBe('FILTER');
     });
 
     it('should return undefined for unknown function', () => {

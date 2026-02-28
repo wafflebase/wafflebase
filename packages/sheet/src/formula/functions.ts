@@ -435,6 +435,15 @@ export const FunctionMap = new Map([
   ['SORTBY', sortbyFunc],
   ['WRAPCOLS', wrapcolsFunc],
   ['WRAPROWS', wraprowsFunc],
+  ['GAUSS', gaussFunc],
+  ['PHI', phiFunc],
+  ['STDEVA', stdevaFunc],
+  ['STDEVPA', stdevpaFunc],
+  ['SKEW.P', skewpFunc],
+  ['CHISQ.TEST', chisqtestFunc],
+  ['F.TEST', ftestFunc],
+  ['ISO.CEILING', isoceilingFunc],
+  ['FILTER', filterFunc],
 ]);
 
 /**
@@ -15220,4 +15229,346 @@ export function wraprowsFunc(
   grid?: Grid,
 ): EvalNode {
   return wrapcolsFunc(ctx, visit, grid);
+}
+
+/**
+ * GAUSS(z) — returns the probability that a standard normal random variable
+ * falls between the mean and z standard deviations from the mean.
+ * GAUSS(z) = NORM.S.DIST(z, TRUE) - 0.5
+ */
+export function gaussFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const z = NumberArgs.map(visit(exprs[0]), grid);
+  if (z.t === 'err') return z;
+  return { t: 'num', v: normCdf(z.v) - 0.5 };
+}
+
+/**
+ * PHI(x) — returns the value of the standard normal density function.
+ */
+export function phiFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  return { t: 'num', v: normPdf(x.v) };
+}
+
+/**
+ * STDEVA(value1, [value2], ...) — standard deviation of a sample,
+ * including text (as 0) and logical values.
+ */
+export function stdevaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  const values: number[] = [];
+  for (const expr of exprs) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'num') {
+      values.push(node.v);
+    } else if (node.t === 'bool') {
+      values.push(node.v ? 1 : 0);
+    } else if (node.t === 'ref' && grid) {
+      for (const sref of toSrefs([node.v])) {
+        const cell = grid.get(sref);
+        if (cell?.v != null && cell.v !== '') {
+          const n = Number(cell.v);
+          values.push(isNaN(n) ? 0 : n);
+        }
+      }
+    } else if (node.t === 'str') {
+      values.push(0);
+    }
+  }
+  if (values.length < 2) return { t: 'err', v: '#VALUE!' };
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1);
+  return { t: 'num', v: Math.sqrt(variance) };
+}
+
+/**
+ * STDEVPA(value1, [value2], ...) — standard deviation of a population,
+ * including text (as 0) and logical values.
+ */
+export function stdevpaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  const values: number[] = [];
+  for (const expr of exprs) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'num') {
+      values.push(node.v);
+    } else if (node.t === 'bool') {
+      values.push(node.v ? 1 : 0);
+    } else if (node.t === 'ref' && grid) {
+      for (const sref of toSrefs([node.v])) {
+        const cell = grid.get(sref);
+        if (cell?.v != null && cell.v !== '') {
+          const n = Number(cell.v);
+          values.push(isNaN(n) ? 0 : n);
+        }
+      }
+    } else if (node.t === 'str') {
+      values.push(0);
+    }
+  }
+  if (values.length < 1) return { t: 'err', v: '#VALUE!' };
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+  return { t: 'num', v: Math.sqrt(variance) };
+}
+
+/**
+ * SKEW.P(number1, [number2], ...) — population skewness.
+ */
+export function skewpFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  const values: number[] = [];
+  for (const expr of exprs) {
+    const result = collectNumericValues(expr, visit, grid);
+    if (!Array.isArray(result)) return result;
+    values.push(...result);
+  }
+  if (values.length < 3) return { t: 'err', v: '#VALUE!' };
+  const n = values.length;
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  const stdev = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
+  if (stdev === 0) return { t: 'err', v: '#VALUE!' };
+  const m3 = values.reduce((s, v) => s + ((v - mean) / stdev) ** 3, 0) / n;
+  return { t: 'num', v: m3 };
+}
+
+/**
+ * CHISQ.TEST(actual_range, expected_range) — chi-squared test p-value.
+ */
+export function chisqtestFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const actual = result.ys;
+  const expected = result.xs;
+  if (actual.length < 1) return { t: 'err', v: '#VALUE!' };
+
+  // Chi-squared statistic
+  let chiSq = 0;
+  for (let i = 0; i < actual.length; i++) {
+    if (expected[i] === 0) return { t: 'err', v: '#VALUE!' };
+    chiSq += (actual[i] - expected[i]) ** 2 / expected[i];
+  }
+
+  const df = actual.length - 1;
+  if (df < 1) return { t: 'err', v: '#VALUE!' };
+
+  // p-value from chi-squared distribution using regularized gamma
+  // P(X > chiSq) = 1 - regularizedGamma(df/2, chiSq/2)
+  const pValue = 1 - regularizedLowerGamma(df / 2, chiSq / 2);
+  return { t: 'num', v: pValue };
+}
+
+/**
+ * Regularized lower incomplete gamma function P(a, x) = gamma(a,x) / Gamma(a)
+ */
+function regularizedLowerGamma(a: number, x: number): number {
+  if (x < 0) return 0;
+  if (x === 0) return 0;
+
+  // Series expansion for small x
+  if (x < a + 1) {
+    let sum = 1 / a;
+    let term = 1 / a;
+    for (let n = 1; n < 200; n++) {
+      term *= x / (a + n);
+      sum += term;
+      if (Math.abs(term) < 1e-14 * Math.abs(sum)) break;
+    }
+    return sum * Math.exp(-x + a * Math.log(x) - lnGamma(a));
+  }
+
+  // Continued fraction for large x
+  return 1 - regularizedUpperGamma(a, x);
+}
+
+function regularizedUpperGamma(a: number, x: number): number {
+  let f = 1e-30;
+  let c = 1e-30;
+  let d = 1 / (x + 1 - a);
+  let result = d;
+  for (let i = 1; i < 200; i++) {
+    const an = i * (a - i);
+    const bn = x + 2 * i + 1 - a;
+    d = bn + an * d;
+    if (Math.abs(d) < 1e-30) d = 1e-30;
+    c = bn + an / c;
+    if (Math.abs(c) < 1e-30) c = 1e-30;
+    d = 1 / d;
+    const delta = d * c;
+    result *= delta;
+    if (Math.abs(delta - 1) < 1e-14) break;
+  }
+  return result * Math.exp(-x + a * Math.log(x) - lnGamma(a));
+}
+
+function lnGamma(x: number): number {
+  // Stirling-Lanczos approximation
+  const g = 7;
+  const coef = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+  ];
+  if (x < 0.5) {
+    return Math.log(Math.PI / Math.sin(Math.PI * x)) - lnGamma(1 - x);
+  }
+  x -= 1;
+  let a = coef[0];
+  for (let i = 1; i < g + 2; i++) {
+    a += coef[i] / (x + i);
+  }
+  const t = x + g + 0.5;
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+
+/**
+ * F.TEST(array1, array2) — returns the two-tailed probability of an F-test.
+ */
+export function ftestFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const arr1 = result.ys;
+  const arr2 = result.xs;
+  if (arr1.length < 2 || arr2.length < 2) return { t: 'err', v: '#VALUE!' };
+
+  const mean1 = arr1.reduce((a, b) => a + b, 0) / arr1.length;
+  const mean2 = arr2.reduce((a, b) => a + b, 0) / arr2.length;
+  const var1 = arr1.reduce((s, v) => s + (v - mean1) ** 2, 0) / (arr1.length - 1);
+  const var2 = arr2.reduce((s, v) => s + (v - mean2) ** 2, 0) / (arr2.length - 1);
+
+  if (var2 === 0) return { t: 'err', v: '#VALUE!' };
+  const f = var1 / var2;
+  const df1 = arr1.length - 1;
+  const df2 = arr2.length - 1;
+
+  // Two-tailed p-value using regularized beta
+  const x = df2 / (df2 + df1 * f);
+  const p = regularizedBeta(x, df2 / 2, df1 / 2);
+  const pValue = 2 * Math.min(p, 1 - p);
+  return { t: 'num', v: pValue };
+}
+
+/**
+ * ISO.CEILING(number, [significance]) — rounds up to nearest multiple,
+ * always rounding away from zero regardless of sign.
+ */
+export function isoceilingFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+
+  let sig = 1;
+  if (exprs.length >= 2) {
+    const s = NumberArgs.map(visit(exprs[1]), grid);
+    if (s.t === 'err') return s;
+    sig = Math.abs(s.v);
+  }
+  if (sig === 0) return { t: 'num', v: 0 };
+
+  return { t: 'num', v: Math.ceil(n.v / sig) * sig };
+}
+
+/**
+ * FILTER(array, include, [if_empty]) — filters rows based on criteria.
+ * Returns first matching row's first value for single-cell evaluation.
+ */
+export function filterFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const includeRefs = getRefsFromExpression(exprs[1], visit, grid);
+  if ('t' in includeRefs && includeRefs.t === 'err') return includeRefs as EvalNode;
+  const includes = (includeRefs as { t: 'refs'; v: string[] }).v;
+
+  // Find first row where include is truthy
+  for (let r = 0; r < m.v.rowCount; r++) {
+    const includeIdx = r < includes.length ? r : includes.length - 1;
+    const incVal = grid?.get(includes[includeIdx])?.v ?? '';
+    const isTruthy = incVal === 'TRUE' || incVal === '1' || (incVal !== '' && incVal !== '0' && incVal !== 'FALSE');
+    if (isTruthy) {
+      const cellVal = grid?.get(m.v.refs[r * m.v.colCount])?.v ?? '';
+      return cellVal !== '' && !isNaN(Number(cellVal))
+        ? { t: 'num', v: Number(cellVal) }
+        : { t: 'str', v: cellVal };
+    }
+  }
+
+  // No match found
+  if (exprs.length >= 3) {
+    return visit(exprs[2]);
+  }
+  return { t: 'err', v: '#N/A!' };
 }

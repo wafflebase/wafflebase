@@ -2855,6 +2855,85 @@ describe('Formula', () => {
     expect(evaluate('=WRAPROWS(A1:A2,1)', grid)).toBe('10');
   });
 
+  it('should correctly evaluate GAUSS function', () => {
+    expect(Number(evaluate('=GAUSS(0)'))).toBeCloseTo(0, 5);
+    expect(Number(evaluate('=GAUSS(1)'))).toBeCloseTo(0.3413, 3);
+    expect(Number(evaluate('=GAUSS(2)'))).toBeCloseTo(0.4772, 3);
+  });
+
+  it('should correctly evaluate PHI function', () => {
+    expect(Number(evaluate('=PHI(0)'))).toBeCloseTo(0.3989, 3);
+    expect(Number(evaluate('=PHI(1)'))).toBeCloseTo(0.2420, 3);
+  });
+
+  it('should correctly evaluate STDEVA function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '2' } as Cell);
+    grid.set('A2', { v: '4' } as Cell);
+    grid.set('A3', { v: '6' } as Cell);
+    expect(Number(evaluate('=STDEVA(A1:A3)', grid))).toBeCloseTo(2, 5);
+  });
+
+  it('should correctly evaluate STDEVPA function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '2' } as Cell);
+    grid.set('A2', { v: '4' } as Cell);
+    grid.set('A3', { v: '6' } as Cell);
+    expect(Number(evaluate('=STDEVPA(A1:A3)', grid))).toBeCloseTo(1.6330, 3);
+  });
+
+  it('should correctly evaluate SKEW.P function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('A2', { v: '2' } as Cell);
+    grid.set('A3', { v: '3' } as Cell);
+    grid.set('A4', { v: '4' } as Cell);
+    expect(Number(evaluate('=SKEW.P(A1:A4)', grid))).toBeCloseTo(0, 10);
+  });
+
+  it('should correctly evaluate CHISQ.TEST function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' } as Cell);
+    grid.set('A2', { v: '20' } as Cell);
+    grid.set('A3', { v: '30' } as Cell);
+    grid.set('B1', { v: '15' } as Cell);
+    grid.set('B2', { v: '15' } as Cell);
+    grid.set('B3', { v: '30' } as Cell);
+    const p = Number(evaluate('=CHISQ.TEST(A1:A3,B1:B3)', grid));
+    expect(p).toBeGreaterThan(0);
+    expect(p).toBeLessThan(1);
+  });
+
+  it('should correctly evaluate F.TEST function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('A2', { v: '2' } as Cell);
+    grid.set('A3', { v: '3' } as Cell);
+    grid.set('B1', { v: '10' } as Cell);
+    grid.set('B2', { v: '20' } as Cell);
+    grid.set('B3', { v: '30' } as Cell);
+    const p = Number(evaluate('=F.TEST(A1:A3,B1:B3)', grid));
+    expect(p).toBeGreaterThan(0);
+    expect(p).toBeLessThan(1);
+  });
+
+  it('should correctly evaluate ISO.CEILING function', () => {
+    expect(evaluate('=ISO.CEILING(4.3)')).toBe('5');
+    expect(evaluate('=ISO.CEILING(4.3,2)')).toBe('6');
+    expect(Number(evaluate('=ISO.CEILING(0-4.3,2)'))).toBe(-4);
+  });
+
+  it('should correctly evaluate FILTER function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'apple' } as Cell);
+    grid.set('A2', { v: 'banana' } as Cell);
+    grid.set('A3', { v: 'cherry' } as Cell);
+    grid.set('B1', { v: 'TRUE' } as Cell);
+    grid.set('B2', { v: 'FALSE' } as Cell);
+    grid.set('B3', { v: 'TRUE' } as Cell);
+    expect(evaluate('=FILTER(A1:A3,B1:B3)', grid)).toBe('apple');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
