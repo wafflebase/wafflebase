@@ -91,6 +91,12 @@ describe('FunctionCatalog', () => {
       expect(findFunction('ISERROR')!.name).toBe('ISERROR');
       expect(findFunction('ISNONTEXT')!.name).toBe('ISNONTEXT');
       expect(findFunction('IFNA')!.name).toBe('IFNA');
+      expect(findFunction('MINIFS')!.name).toBe('MINIFS');
+      expect(findFunction('MAXIFS')!.name).toBe('MAXIFS');
+      expect(findFunction('RANK')!.name).toBe('RANK');
+      expect(findFunction('PERCENTILE')!.name).toBe('PERCENTILE');
+      expect(findFunction('CLEAN')!.name).toBe('CLEAN');
+      expect(findFunction('NUMBERVALUE')!.name).toBe('NUMBERVALUE');
     });
 
     it('should return undefined for unknown function', () => {

@@ -141,6 +141,12 @@ export const FunctionMap = new Map([
   ['COLUMNS', columnsFunc],
   ['ADDRESS', addressFunc],
   ['HYPERLINK', hyperlinkFunc],
+  ['MINIFS', minifsFunc],
+  ['MAXIFS', maxifsFunc],
+  ['RANK', rankFunc],
+  ['PERCENTILE', percentileFunc],
+  ['CLEAN', cleanFunc],
+  ['NUMBERVALUE', numbervalueFunc],
 ]);
 
 /**
@@ -5172,4 +5178,362 @@ export function hyperlinkFunc(
   }
 
   return { t: 'str', v: url.v };
+}
+
+/**
+ * MINIFS(min_range, criteria_range1, criterion1, ...) — returns the minimum of a range meeting all criteria.
+ */
+export function minifsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || (exprs.length - 1) % 2 !== 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const minRefs = getRefsFromExpression(exprs[0], visit, grid);
+  if (minRefs.t === 'err') {
+    return minRefs;
+  }
+
+  const ranges: string[][] = [];
+  const criteria: ParsedCriterion[] = [];
+  for (let i = 1; i < exprs.length; i += 2) {
+    const refs = getRefsFromExpression(exprs[i], visit, grid);
+    if (refs.t === 'err') {
+      return refs;
+    }
+    ranges.push(refs.v);
+
+    const criterion = parseCriterion(visit(exprs[i + 1]), grid);
+    if (isFormulaError(criterion)) {
+      return criterion;
+    }
+    criteria.push(criterion);
+  }
+
+  if (ranges.some((r) => r.length !== minRefs.v.length)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let min = Infinity;
+  for (let i = 0; i < minRefs.v.length; i++) {
+    let matched = true;
+    for (let j = 0; j < ranges.length; j++) {
+      const value = grid?.get(ranges[j][i])?.v || '';
+      if (!matchesCriterion(value, criteria[j])) {
+        matched = false;
+        break;
+      }
+    }
+
+    if (matched) {
+      const val = grid?.get(minRefs.v[i])?.v || '';
+      const num = Number(val);
+      if (val !== '' && !isNaN(num) && num < min) {
+        min = num;
+      }
+    }
+  }
+
+  if (min === Infinity) {
+    return { t: 'num', v: 0 };
+  }
+
+  return { t: 'num', v: min };
+}
+
+/**
+ * MAXIFS(max_range, criteria_range1, criterion1, ...) — returns the maximum of a range meeting all criteria.
+ */
+export function maxifsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || (exprs.length - 1) % 2 !== 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const maxRefs = getRefsFromExpression(exprs[0], visit, grid);
+  if (maxRefs.t === 'err') {
+    return maxRefs;
+  }
+
+  const ranges: string[][] = [];
+  const criteria: ParsedCriterion[] = [];
+  for (let i = 1; i < exprs.length; i += 2) {
+    const refs = getRefsFromExpression(exprs[i], visit, grid);
+    if (refs.t === 'err') {
+      return refs;
+    }
+    ranges.push(refs.v);
+
+    const criterion = parseCriterion(visit(exprs[i + 1]), grid);
+    if (isFormulaError(criterion)) {
+      return criterion;
+    }
+    criteria.push(criterion);
+  }
+
+  if (ranges.some((r) => r.length !== maxRefs.v.length)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let max = -Infinity;
+  for (let i = 0; i < maxRefs.v.length; i++) {
+    let matched = true;
+    for (let j = 0; j < ranges.length; j++) {
+      const value = grid?.get(ranges[j][i])?.v || '';
+      if (!matchesCriterion(value, criteria[j])) {
+        matched = false;
+        break;
+      }
+    }
+
+    if (matched) {
+      const val = grid?.get(maxRefs.v[i])?.v || '';
+      const num = Number(val);
+      if (val !== '' && !isNaN(num) && num > max) {
+        max = num;
+      }
+    }
+  }
+
+  if (max === -Infinity) {
+    return { t: 'num', v: 0 };
+  }
+
+  return { t: 'num', v: max };
+}
+
+/**
+ * RANK(value, data, [order]) — returns the rank of a value within a data set.
+ * order=0 (default): descending. order=1: ascending.
+ */
+export function rankFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const valueNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (valueNode.t === 'err') {
+    return valueNode;
+  }
+
+  const dataNode = visit(exprs[1]);
+  if (dataNode.t === 'err') {
+    return dataNode;
+  }
+
+  const values: number[] = [];
+  if (dataNode.t === 'num') {
+    values.push(dataNode.v);
+  } else if (dataNode.t === 'ref' && grid) {
+    for (const ref of toSrefs([dataNode.v])) {
+      const cellVal = grid.get(ref)?.v || '';
+      if (cellVal !== '' && !isNaN(Number(cellVal))) {
+        values.push(Number(cellVal));
+      }
+    }
+  }
+
+  let order = 0;
+  if (exprs.length === 3) {
+    const orderNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (orderNode.t === 'err') {
+      return orderNode;
+    }
+    order = Math.trunc(orderNode.v);
+  }
+
+  const target = valueNode.v;
+  if (!values.includes(target)) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  if (order === 0) {
+    // Descending: count values greater than target
+    const rank = values.filter((v) => v > target).length + 1;
+    return { t: 'num', v: rank };
+  } else {
+    // Ascending: count values less than target
+    const rank = values.filter((v) => v < target).length + 1;
+    return { t: 'num', v: rank };
+  }
+}
+
+/**
+ * PERCENTILE(data, k) — returns the k-th percentile of a data set (k in 0..1).
+ */
+export function percentileFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  const dataNode = visit(exprs[0]);
+  if (dataNode.t === 'err') {
+    return dataNode;
+  }
+  if (dataNode.t === 'num') {
+    values.push(dataNode.v);
+  } else if (dataNode.t === 'ref' && grid) {
+    for (const ref of toSrefs([dataNode.v])) {
+      const cellVal = grid.get(ref)?.v || '';
+      if (cellVal !== '' && !isNaN(Number(cellVal))) {
+        values.push(Number(cellVal));
+      }
+    }
+  }
+
+  const kNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (kNode.t === 'err') {
+    return kNode;
+  }
+
+  const k = kNode.v;
+  if (k < 0 || k > 1 || values.length === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  values.sort((a, b) => a - b);
+  const n = values.length;
+  const rank = k * (n - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  const fraction = rank - lower;
+
+  if (lower === upper) {
+    return { t: 'num', v: values[lower] };
+  }
+
+  return { t: 'num', v: values[lower] + fraction * (values[upper] - values[lower]) };
+}
+
+/**
+ * CLEAN(text) — removes all non-printable characters from text.
+ */
+export function cleanFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  // Remove characters 0-31 (non-printable ASCII control characters)
+  // eslint-disable-next-line no-control-regex
+  return { t: 'str', v: str.v.replace(/[\x00-\x1F]/g, '') };
+}
+
+/**
+ * NUMBERVALUE(text, [decimal_separator], [group_separator]) — converts text to number.
+ */
+export function numbervalueFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  let decimalSep = '.';
+  if (exprs.length >= 2) {
+    const decNode = toStr(visit(exprs[1]), grid);
+    if (decNode.t === 'err') {
+      return decNode;
+    }
+    decimalSep = decNode.v || '.';
+  }
+
+  let groupSep = ',';
+  if (exprs.length === 3) {
+    const grpNode = toStr(visit(exprs[2]), grid);
+    if (grpNode.t === 'err') {
+      return grpNode;
+    }
+    groupSep = grpNode.v || ',';
+  }
+
+  let cleaned = str.v.trim();
+  if (groupSep) {
+    cleaned = cleaned.split(groupSep).join('');
+  }
+  if (decimalSep !== '.') {
+    cleaned = cleaned.replace(decimalSep, '.');
+  }
+
+  // Handle percentage
+  if (cleaned.endsWith('%')) {
+    const num = Number(cleaned.slice(0, -1));
+    if (isNaN(num)) {
+      return { t: 'err', v: '#VALUE!' };
+    }
+    return { t: 'num', v: num / 100 };
+  }
+
+  const num = Number(cleaned);
+  if (cleaned === '' || isNaN(num)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: num };
 }

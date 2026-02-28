@@ -995,6 +995,79 @@ describe('Formula', () => {
     expect(evaluate('=HYPERLINK("https://example.com")')).toBe('https://example.com');
   });
 
+  it('should correctly evaluate MINIFS function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    grid.set('A4', { v: '5' });
+    grid.set('B1', { v: 'yes' });
+    grid.set('B2', { v: 'no' });
+    grid.set('B3', { v: 'yes' });
+    grid.set('B4', { v: 'yes' });
+    expect(evaluate('=MINIFS(A1:A4,B1:B4,"yes")', grid)).toBe('5');
+    expect(evaluate('=MINIFS(A1:A4,B1:B4,"no")', grid)).toBe('20');
+  });
+
+  it('should correctly evaluate MAXIFS function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    grid.set('A4', { v: '5' });
+    grid.set('B1', { v: 'yes' });
+    grid.set('B2', { v: 'no' });
+    grid.set('B3', { v: 'yes' });
+    grid.set('B4', { v: 'yes' });
+    expect(evaluate('=MAXIFS(A1:A4,B1:B4,"yes")', grid)).toBe('30');
+    expect(evaluate('=MAXIFS(A1:A4,B1:B4,"no")', grid)).toBe('20');
+  });
+
+  it('should correctly evaluate RANK function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '30' });
+    grid.set('A3', { v: '20' });
+    grid.set('A4', { v: '40' });
+    // Descending (default)
+    expect(evaluate('=RANK(40,A1:A4)', grid)).toBe('1');
+    expect(evaluate('=RANK(10,A1:A4)', grid)).toBe('4');
+    expect(evaluate('=RANK(20,A1:A4,0)', grid)).toBe('3');
+    // Ascending
+    expect(evaluate('=RANK(10,A1:A4,1)', grid)).toBe('1');
+    expect(evaluate('=RANK(40,A1:A4,1)', grid)).toBe('4');
+    // Not found
+    expect(evaluate('=RANK(99,A1:A4)', grid)).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate PERCENTILE function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    grid.set('A4', { v: '40' });
+    grid.set('A5', { v: '50' });
+    expect(evaluate('=PERCENTILE(A1:A5,0)', grid)).toBe('10');
+    expect(evaluate('=PERCENTILE(A1:A5,1)', grid)).toBe('50');
+    expect(evaluate('=PERCENTILE(A1:A5,0.5)', grid)).toBe('30');
+    expect(evaluate('=PERCENTILE(A1:A5,0.25)', grid)).toBe('20');
+    // Invalid k
+    expect(evaluate('=PERCENTILE(A1:A5,1.5)', grid)).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate CLEAN function', () => {
+    expect(evaluate('=CLEAN("hello")')).toBe('hello');
+    expect(evaluate('=CLEAN("abc")')).toBe('abc');
+  });
+
+  it('should correctly evaluate NUMBERVALUE function', () => {
+    expect(evaluate('=NUMBERVALUE("123")')).toBe('123');
+    expect(evaluate('=NUMBERVALUE("1,234.56")')).toBe('1234.56');
+    expect(evaluate('=NUMBERVALUE("1.234,56",",",".")')).toBe('1234.56');
+    expect(evaluate('=NUMBERVALUE("50%")')).toBe('0.5');
+    expect(evaluate('=NUMBERVALUE("abc")')).toBe('#VALUE!');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

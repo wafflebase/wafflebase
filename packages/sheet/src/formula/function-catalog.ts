@@ -792,6 +792,56 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Creates a hyperlink in a cell',
     args: [{ name: 'url' }, { name: 'link_label', optional: true }],
   },
+  {
+    name: 'MINIFS',
+    description: 'Returns the minimum value in a range that meets multiple criteria',
+    args: [
+      { name: 'min_range' },
+      { name: 'criteria_range1' },
+      { name: 'criterion1' },
+      { name: 'criteria_range2', optional: true, repeating: true },
+      { name: 'criterion2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'MAXIFS',
+    description: 'Returns the maximum value in a range that meets multiple criteria',
+    args: [
+      { name: 'max_range' },
+      { name: 'criteria_range1' },
+      { name: 'criterion1' },
+      { name: 'criteria_range2', optional: true, repeating: true },
+      { name: 'criterion2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'RANK',
+    description: 'Returns the rank of a value within a data set',
+    args: [
+      { name: 'value' },
+      { name: 'data' },
+      { name: 'order', optional: true },
+    ],
+  },
+  {
+    name: 'PERCENTILE',
+    description: 'Returns the k-th percentile of a data set',
+    args: [{ name: 'data' }, { name: 'k' }],
+  },
+  {
+    name: 'CLEAN',
+    description: 'Removes all non-printable characters from text',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'NUMBERVALUE',
+    description: 'Converts text to a number in a locale-independent way',
+    args: [
+      { name: 'text' },
+      { name: 'decimal_separator', optional: true },
+      { name: 'group_separator', optional: true },
+    ],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -885,6 +935,10 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'AVERAGEIFS',
     'LARGE',
     'SMALL',
+    'MINIFS',
+    'MAXIFS',
+    'RANK',
+    'PERCENTILE',
   ]),
   Text: new Set([
     'TRIM',
@@ -909,6 +963,8 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'TEXT',
     'CHAR',
     'CODE',
+    'CLEAN',
+    'NUMBERVALUE',
   ]),
 };
 
