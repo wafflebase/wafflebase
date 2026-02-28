@@ -526,6 +526,51 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the logarithm of a number given a base',
     args: [{ name: 'number' }, { name: 'base', optional: true }],
   },
+  {
+    name: 'SIN',
+    description: 'Returns the sine of an angle in radians',
+    args: [{ name: 'angle' }],
+  },
+  {
+    name: 'COS',
+    description: 'Returns the cosine of an angle in radians',
+    args: [{ name: 'angle' }],
+  },
+  {
+    name: 'TAN',
+    description: 'Returns the tangent of an angle in radians',
+    args: [{ name: 'angle' }],
+  },
+  {
+    name: 'ASIN',
+    description: 'Returns the inverse sine of a value in radians',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ACOS',
+    description: 'Returns the inverse cosine of a value in radians',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ATAN',
+    description: 'Returns the inverse tangent of a value in radians',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ATAN2',
+    description: 'Returns the angle between the x-axis and a point',
+    args: [{ name: 'x' }, { name: 'y' }],
+  },
+  {
+    name: 'DEGREES',
+    description: 'Converts an angle from radians to degrees',
+    args: [{ name: 'angle' }],
+  },
+  {
+    name: 'RADIANS',
+    description: 'Converts an angle from degrees to radians',
+    args: [{ name: 'angle' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -580,6 +625,15 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'EXP',
     'LN',
     'LOG',
+    'SIN',
+    'COS',
+    'TAN',
+    'ASIN',
+    'ACOS',
+    'ATAN',
+    'ATAN2',
+    'DEGREES',
+    'RADIANS',
   ]),
   Statistical: new Set(['AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'MEDIAN']),
   Text: new Set([

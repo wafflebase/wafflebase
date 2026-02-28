@@ -92,6 +92,15 @@ export const FunctionMap = new Map([
   ['EXP', expFunc],
   ['LN', lnFunc],
   ['LOG', logFunc],
+  ['SIN', sinFunc],
+  ['COS', cosFunc],
+  ['TAN', tanFunc],
+  ['ASIN', asinFunc],
+  ['ACOS', acosFunc],
+  ['ATAN', atanFunc],
+  ['ATAN2', atan2Func],
+  ['DEGREES', degreesFunc],
+  ['RADIANS', radiansFunc],
 ]);
 
 /**
@@ -3273,3 +3282,251 @@ export function logFunc(
   return { t: 'num', v: Math.log(num.v) / Math.log(base) };
 }
 
+/**
+ * SIN(angle) — returns the sine of an angle (in radians).
+ */
+export function sinFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: Math.sin(num.v) };
+}
+
+/**
+ * COS(angle) — returns the cosine of an angle (in radians).
+ */
+export function cosFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: Math.cos(num.v) };
+}
+
+/**
+ * TAN(angle) — returns the tangent of an angle (in radians).
+ */
+export function tanFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: Math.tan(num.v) };
+}
+
+/**
+ * ASIN(value) — returns the arcsine in radians.
+ */
+export function asinFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+  if (num.v < -1 || num.v > 1) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.asin(num.v) };
+}
+
+/**
+ * ACOS(value) — returns the arccosine in radians.
+ */
+export function acosFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+  if (num.v < -1 || num.v > 1) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.acos(num.v) };
+}
+
+/**
+ * ATAN(value) — returns the arctangent in radians.
+ */
+export function atanFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: Math.atan(num.v) };
+}
+
+/**
+ * ATAN2(x, y) — returns the angle in radians between the x-axis and a line from the origin to (x, y).
+ */
+export function atan2Func(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') {
+    return x;
+  }
+
+  const y = NumberArgs.map(visit(exprs[1]), grid);
+  if (y.t === 'err') {
+    return y;
+  }
+
+  if (x.v === 0 && y.v === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.atan2(y.v, x.v) };
+}
+
+/**
+ * DEGREES(angle) — converts radians to degrees.
+ */
+export function degreesFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: (num.v * 180) / Math.PI };
+}
+
+/**
+ * RADIANS(angle) — converts degrees to radians.
+ */
+export function radiansFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  return { t: 'num', v: (num.v * Math.PI) / 180 };
+}

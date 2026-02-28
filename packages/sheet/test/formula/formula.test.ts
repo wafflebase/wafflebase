@@ -671,6 +671,53 @@ describe('Formula', () => {
     expect(evaluate('=LOG(10,1)')).toBe('#VALUE!');
   });
 
+  it('should correctly evaluate SIN function', () => {
+    expect(evaluate('=SIN(0)')).toBe('0');
+    expect(evaluate('=SIN(PI()/2)')).toBe('1');
+  });
+
+  it('should correctly evaluate COS function', () => {
+    expect(evaluate('=COS(0)')).toBe('1');
+    expect(evaluate('=COS(PI())')).toBe('-1');
+  });
+
+  it('should correctly evaluate TAN function', () => {
+    expect(evaluate('=TAN(0)')).toBe('0');
+  });
+
+  it('should correctly evaluate ASIN function', () => {
+    expect(evaluate('=ASIN(0)')).toBe('0');
+    expect(evaluate('=ASIN(1)')).toBe(String(Math.PI / 2));
+    expect(evaluate('=ASIN(2)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate ACOS function', () => {
+    expect(evaluate('=ACOS(1)')).toBe('0');
+    expect(evaluate('=ACOS(0)')).toBe(String(Math.PI / 2));
+    expect(evaluate('=ACOS(2)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate ATAN function', () => {
+    expect(evaluate('=ATAN(0)')).toBe('0');
+    expect(evaluate('=ATAN(1)')).toBe(String(Math.PI / 4));
+  });
+
+  it('should correctly evaluate ATAN2 function', () => {
+    expect(evaluate('=ATAN2(1,0)')).toBe('0');
+    expect(evaluate('=ATAN2(0,1)')).toBe(String(Math.PI / 2));
+    expect(evaluate('=ATAN2(0,0)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate DEGREES function', () => {
+    expect(evaluate('=DEGREES(PI())')).toBe('180');
+    expect(evaluate('=DEGREES(0)')).toBe('0');
+  });
+
+  it('should correctly evaluate RADIANS function', () => {
+    expect(evaluate('=RADIANS(180)')).toBe(String(Math.PI));
+    expect(evaluate('=RADIANS(0)')).toBe('0');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
