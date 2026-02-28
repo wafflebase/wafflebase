@@ -41,6 +41,7 @@ jobs:
         with:
           name: harness-reports
           path: .harness-reports/
+          include-hidden-files: true
           retention-days: 14
 
       - name: Post verification summary on PR
