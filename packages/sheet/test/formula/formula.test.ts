@@ -1846,6 +1846,132 @@ describe('Formula', () => {
     expect(Number(result)).toBeCloseTo(0.2089, 2);
   });
 
+  it('should correctly evaluate SUMX2MY2 function', () => {
+    const grid = new Map([
+      ['A1', { v: '2' } as Cell],
+      ['A2', { v: '3' } as Cell],
+      ['A3', { v: '4' } as Cell],
+      ['B1', { v: '5' } as Cell],
+      ['B2', { v: '6' } as Cell],
+      ['B3', { v: '7' } as Cell],
+    ]);
+    // (2²-5²)+(3²-6²)+(4²-7²) = -21-27-33 = -81
+    const result = evaluate('=SUMX2MY2(A1:A3,B1:B3)', grid);
+    expect(Number(result)).toBe(-81);
+  });
+
+  it('should correctly evaluate SUMX2PY2 function', () => {
+    const grid = new Map([
+      ['A1', { v: '2' } as Cell],
+      ['A2', { v: '3' } as Cell],
+      ['A3', { v: '4' } as Cell],
+      ['B1', { v: '5' } as Cell],
+      ['B2', { v: '6' } as Cell],
+      ['B3', { v: '7' } as Cell],
+    ]);
+    // (4+9+16) + (25+36+49) = 29 + 110 = 139
+    const result = evaluate('=SUMX2PY2(A1:A3,B1:B3)', grid);
+    expect(Number(result)).toBe(139);
+  });
+
+  it('should correctly evaluate SUMXMY2 function', () => {
+    const grid = new Map([
+      ['A1', { v: '2' } as Cell],
+      ['A2', { v: '3' } as Cell],
+      ['A3', { v: '4' } as Cell],
+      ['B1', { v: '5' } as Cell],
+      ['B2', { v: '6' } as Cell],
+      ['B3', { v: '7' } as Cell],
+    ]);
+    // (2-5)² + (3-6)² + (4-7)² = 9 + 9 + 9 = 27
+    const result = evaluate('=SUMXMY2(A1:A3,B1:B3)', grid);
+    expect(Number(result)).toBe(27);
+  });
+
+  it('should correctly evaluate PERCENTILE.EXC function', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['A4', { v: '4' } as Cell],
+    ]);
+    const result = evaluate('=PERCENTILE.EXC(A1:A4,0.4)', grid);
+    expect(Number(result)).toBe(2);
+  });
+
+  it('should correctly evaluate QUARTILE.EXC function', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['A4', { v: '4' } as Cell],
+      ['A5', { v: '5' } as Cell],
+      ['A6', { v: '6' } as Cell],
+    ]);
+    const result = evaluate('=QUARTILE.EXC(A1:A6,1)', grid);
+    expect(Number(result)).toBeCloseTo(1.75, 2);
+  });
+
+  it('should correctly evaluate RANK.AVG function', () => {
+    const grid = new Map([
+      ['A1', { v: '3' } as Cell],
+      ['A2', { v: '5' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['A4', { v: '7' } as Cell],
+    ]);
+    // Descending: 7=1st, 5=2nd, 3 tied 3rd&4th → avg 3.5
+    const result = evaluate('=RANK.AVG(3,A1:A4)', grid);
+    expect(Number(result)).toBe(3.5);
+  });
+
+  it('should correctly evaluate PERCENTRANK function', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['A4', { v: '4' } as Cell],
+      ['A5', { v: '5' } as Cell],
+    ]);
+    const result = evaluate('=PERCENTRANK(A1:A5,3)', grid);
+    expect(Number(result)).toBe(0.5);
+  });
+
+  it('should correctly evaluate PERCENTRANK.EXC function', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['A4', { v: '4' } as Cell],
+      ['A5', { v: '5' } as Cell],
+    ]);
+    const result = evaluate('=PERCENTRANK.EXC(A1:A5,3)', grid);
+    expect(Number(result)).toBe(0.5);
+  });
+
+  it('should correctly evaluate BETA.DIST function', () => {
+    // BETA.DIST(0.5, 2, 5, TRUE) — CDF
+    const result = evaluate('=BETA.DIST(0.5,2,5,TRUE)', undefined);
+    expect(Number(result)).toBeCloseTo(0.8906, 3);
+  });
+
+  it('should correctly evaluate BETA.INV function', () => {
+    // BETA.INV(0.8906, 2, 5)
+    const result = evaluate('=BETA.INV(0.8906,2,5)', undefined);
+    expect(Number(result)).toBeCloseTo(0.5, 1);
+  });
+
+  it('should correctly evaluate F.DIST function', () => {
+    // F.DIST(2, 5, 10, TRUE)
+    const result = evaluate('=F.DIST(2,5,10,TRUE)', undefined);
+    expect(Number(result)).toBeCloseTo(0.8358, 2);
+  });
+
+  it('should correctly evaluate F.INV function', () => {
+    // F.INV(0.85, 5, 10)
+    const result = evaluate('=F.INV(0.85,5,10)', undefined);
+    expect(Number(result)).toBeCloseTo(2.0922, 2);
+  });
+
   it('should correctly evaluate STEYX function', () => {
     const grid = new Map([
       ['A1', { v: '2' } as Cell],

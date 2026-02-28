@@ -279,6 +279,21 @@ export const FunctionMap = new Map([
   ['COVARIANCE.S', covarsFunc],
   ['RSQ', rsqFunc],
   ['STEYX', steyxFunc],
+  ['SUMX2MY2', sumx2my2Func],
+  ['SUMX2PY2', sumx2py2Func],
+  ['SUMXMY2', sumxmy2Func],
+  ['PERCENTILE.INC', percentileFunc],
+  ['PERCENTILE.EXC', percentileexcFunc],
+  ['QUARTILE.EXC', quartileexcFunc],
+  ['RANK.AVG', rankavgFunc],
+  ['RANK.EQ', rankFunc],
+  ['PERCENTRANK', percentrankFunc],
+  ['PERCENTRANK.INC', percentrankFunc],
+  ['PERCENTRANK.EXC', percentrankexcFunc],
+  ['BETA.DIST', betadistFunc],
+  ['BETA.INV', betainvFunc],
+  ['F.DIST', fdistFunc],
+  ['F.INV', finvFunc],
 ]);
 
 /**
@@ -10013,4 +10028,512 @@ export function steyxFunc(
     return a + (y - predicted) * (y - predicted);
   }, 0);
   return { t: 'num', v: Math.sqrt(sse / (n - 2)) };
+}
+
+/**
+ * Helper to collect numeric values from a range expression.
+ */
+function collectNumericValues(
+  expr: ParseTree,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): number[] | EvalNode {
+  const node = visit(expr);
+  if (node.t === 'err') return node;
+  const values: number[] = [];
+  if (node.t === 'num') {
+    values.push(node.v);
+  } else if (node.t === 'ref' && grid) {
+    for (const ref of toSrefs([node.v])) {
+      const cellVal = grid.get(ref)?.v || '';
+      if (cellVal !== '' && !isNaN(Number(cellVal))) {
+        values.push(Number(cellVal));
+      }
+    }
+  }
+  return values;
+}
+
+/**
+ * SUMX2MY2(array_x, array_y) — sum of x²-y² for paired arrays.
+ * Note: extractPairedArrays(expr1, expr2) maps expr1→ys, expr2→xs.
+ * So we pass array_x as expr2 and array_y as expr1 (swapped), or
+ * just use ys as our x-array and xs as our y-array.
+ */
+export function sumx2my2Func(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  // ys = values from exprs[0] (array_x), xs = values from exprs[1] (array_y)
+  const arrX = result.ys;
+  const arrY = result.xs;
+  let sum = 0;
+  for (let i = 0; i < arrX.length; i++) {
+    sum += arrX[i] * arrX[i] - arrY[i] * arrY[i];
+  }
+  return { t: 'num', v: sum };
+}
+
+/**
+ * SUMX2PY2(array_x, array_y) — sum of x²+y² for paired arrays.
+ */
+export function sumx2py2Func(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const arrX = result.ys;
+  const arrY = result.xs;
+  let sum = 0;
+  for (let i = 0; i < arrX.length; i++) {
+    sum += arrX[i] * arrX[i] + arrY[i] * arrY[i];
+  }
+  return { t: 'num', v: sum };
+}
+
+/**
+ * SUMXMY2(array_x, array_y) — sum of (x-y)² for paired arrays.
+ */
+export function sumxmy2Func(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const arrX = result.ys;
+  const arrY = result.xs;
+  let sum = 0;
+  for (let i = 0; i < arrX.length; i++) {
+    const d = arrX[i] - arrY[i];
+    sum += d * d;
+  }
+  return { t: 'num', v: sum };
+}
+
+/**
+ * PERCENTILE.EXC(data, k) — returns the k-th percentile using exclusive interpolation.
+ * k must be in (0, 1) exclusive.
+ */
+export function percentileexcFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const vals = collectNumericValues(exprs[0], visit, grid);
+  if (!Array.isArray(vals)) return vals;
+  const kNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (kNode.t === 'err') return kNode;
+  const k = kNode.v;
+  if (k <= 0 || k >= 1 || vals.length === 0) return { t: 'err', v: '#VALUE!' };
+
+  vals.sort((a, b) => a - b);
+  const n = vals.length;
+  const rank = k * (n + 1) - 1; // 0-indexed
+  if (rank < 0 || rank > n - 1) return { t: 'err', v: '#VALUE!' };
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  const fraction = rank - lower;
+  if (lower === upper || upper >= n) return { t: 'num', v: vals[Math.min(lower, n - 1)] };
+  return { t: 'num', v: vals[lower] + fraction * (vals[upper] - vals[lower]) };
+}
+
+/**
+ * QUARTILE.EXC(data, quart) — returns the exclusive quartile.
+ */
+export function quartileexcFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const vals = collectNumericValues(exprs[0], visit, grid);
+  if (!Array.isArray(vals)) return vals;
+  const qNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (qNode.t === 'err') return qNode;
+  const q = Math.trunc(qNode.v);
+  if (q < 1 || q > 3 || vals.length === 0) return { t: 'err', v: '#VALUE!' };
+
+  vals.sort((a, b) => a - b);
+  const n = vals.length;
+  const k = q / 4;
+  const rank = k * (n + 1) - 1;
+  if (rank < 0 || rank > n - 1) return { t: 'err', v: '#VALUE!' };
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  const fraction = rank - lower;
+  if (lower === upper) return { t: 'num', v: vals[lower] };
+  return { t: 'num', v: vals[lower] + fraction * (vals[upper] - vals[lower]) };
+}
+
+/**
+ * RANK.AVG(value, data, [order]) — returns average rank for ties.
+ */
+export function rankavgFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const valueNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (valueNode.t === 'err') return valueNode;
+
+  const vals = collectNumericValues(exprs[1], visit, grid);
+  if (!Array.isArray(vals)) return vals;
+
+  let order = 0;
+  if (exprs.length === 3) {
+    const orderNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (orderNode.t === 'err') return orderNode;
+    order = Math.trunc(orderNode.v);
+  }
+
+  const target = valueNode.v;
+  if (!vals.includes(target)) return { t: 'err', v: '#N/A!' };
+
+  const count = vals.filter((v) => v === target).length;
+  if (order === 0) {
+    const higherCount = vals.filter((v) => v > target).length;
+    return { t: 'num', v: higherCount + 1 + (count - 1) / 2 };
+  } else {
+    const lowerCount = vals.filter((v) => v < target).length;
+    return { t: 'num', v: lowerCount + 1 + (count - 1) / 2 };
+  }
+}
+
+/**
+ * PERCENTRANK / PERCENTRANK.INC(data, x, [significance]) — returns percentage rank (inclusive).
+ */
+export function percentrankFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const vals = collectNumericValues(exprs[0], visit, grid);
+  if (!Array.isArray(vals)) return vals;
+  if (vals.length === 0) return { t: 'err', v: '#N/A!' };
+
+  const xNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (xNode.t === 'err') return xNode;
+  const x = xNode.v;
+
+  let sig = 3;
+  if (exprs.length === 3) {
+    const sigNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (sigNode.t === 'err') return sigNode;
+    sig = Math.trunc(sigNode.v);
+    if (sig < 1) return { t: 'err', v: '#VALUE!' };
+  }
+
+  vals.sort((a, b) => a - b);
+  if (x < vals[0] || x > vals[vals.length - 1]) return { t: 'err', v: '#N/A!' };
+
+  const n = vals.length;
+  // Find position via interpolation
+  let smaller = 0;
+  for (const v of vals) {
+    if (v < x) smaller++;
+  }
+  // Check if x is in array
+  const idx = vals.indexOf(x);
+  let rank: number;
+  if (idx >= 0) {
+    rank = smaller / (n - 1);
+  } else {
+    // Interpolate between adjacent values
+    const lower = vals[smaller - 1];
+    const upper = vals[smaller];
+    rank = (smaller - 1 + (x - lower) / (upper - lower)) / (n - 1);
+  }
+
+  const factor = Math.pow(10, sig);
+  return { t: 'num', v: Math.trunc(rank * factor) / factor };
+}
+
+/**
+ * PERCENTRANK.EXC(data, x, [significance]) — returns percentage rank (exclusive).
+ */
+export function percentrankexcFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const vals = collectNumericValues(exprs[0], visit, grid);
+  if (!Array.isArray(vals)) return vals;
+  if (vals.length === 0) return { t: 'err', v: '#N/A!' };
+
+  const xNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (xNode.t === 'err') return xNode;
+  const x = xNode.v;
+
+  let sig = 3;
+  if (exprs.length === 3) {
+    const sigNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (sigNode.t === 'err') return sigNode;
+    sig = Math.trunc(sigNode.v);
+    if (sig < 1) return { t: 'err', v: '#VALUE!' };
+  }
+
+  vals.sort((a, b) => a - b);
+  if (x < vals[0] || x > vals[vals.length - 1]) return { t: 'err', v: '#N/A!' };
+
+  const n = vals.length;
+  let smaller = 0;
+  for (const v of vals) {
+    if (v < x) smaller++;
+  }
+  const idx = vals.indexOf(x);
+  let rank: number;
+  if (idx >= 0) {
+    rank = (smaller + 1) / (n + 1);
+  } else {
+    const lower = vals[smaller - 1];
+    const upper = vals[smaller];
+    rank = (smaller + (x - lower) / (upper - lower)) / (n + 1);
+  }
+
+  const factor = Math.pow(10, sig);
+  return { t: 'num', v: Math.trunc(rank * factor) / factor };
+}
+
+/**
+ * BETA.DIST(x, alpha, beta, cumulative, [A], [B]) — beta distribution.
+ */
+export function betadistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+
+  const xNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (xNode.t === 'err') return xNode;
+  const alphaNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (alphaNode.t === 'err') return alphaNode;
+  const betaNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (betaNode.t === 'err') return betaNode;
+  const cumNode = BoolArgs.map(visit(exprs[3]), grid);
+  if (cumNode.t === 'err') return cumNode;
+
+  let A = 0, B = 1;
+  if (exprs.length >= 5) {
+    const aNode = NumberArgs.map(visit(exprs[4]), grid);
+    if (aNode.t === 'err') return aNode;
+    A = aNode.v;
+  }
+  if (exprs.length === 6) {
+    const bNode = NumberArgs.map(visit(exprs[5]), grid);
+    if (bNode.t === 'err') return bNode;
+    B = bNode.v;
+  }
+
+  const a = alphaNode.v;
+  const b = betaNode.v;
+  if (a <= 0 || b <= 0 || A >= B) return { t: 'err', v: '#VALUE!' };
+
+  const x = (xNode.v - A) / (B - A);
+  if (x < 0 || x > 1) return { t: 'err', v: '#VALUE!' };
+
+  if (cumNode.v) {
+    return { t: 'num', v: regularizedBeta(x, a, b) };
+  } else {
+    // PDF: x^(a-1) * (1-x)^(b-1) / Beta(a,b)
+    const lnBeta = gammaLnHelper(a) + gammaLnHelper(b) - gammaLnHelper(a + b);
+    const pdf = Math.exp((a - 1) * Math.log(x) + (b - 1) * Math.log(1 - x) - lnBeta) / (B - A);
+    return { t: 'num', v: pdf };
+  }
+}
+
+/**
+ * Helper: log-gamma using Lanczos approximation.
+ */
+function gammaLnHelper(z: number): number {
+  return Math.log(gammaLanczos(z));
+}
+
+/**
+ * BETA.INV(probability, alpha, beta, [A], [B]) — inverse of beta CDF.
+ */
+export function betainvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+
+  const pNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (pNode.t === 'err') return pNode;
+  const alphaNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (alphaNode.t === 'err') return alphaNode;
+  const betaNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (betaNode.t === 'err') return betaNode;
+
+  let A = 0, B = 1;
+  if (exprs.length >= 4) {
+    const aNode = NumberArgs.map(visit(exprs[3]), grid);
+    if (aNode.t === 'err') return aNode;
+    A = aNode.v;
+  }
+  if (exprs.length === 5) {
+    const bNode = NumberArgs.map(visit(exprs[4]), grid);
+    if (bNode.t === 'err') return bNode;
+    B = bNode.v;
+  }
+
+  const p = pNode.v;
+  const a = alphaNode.v;
+  const b = betaNode.v;
+  if (p < 0 || p > 1 || a <= 0 || b <= 0 || A >= B) return { t: 'err', v: '#VALUE!' };
+
+  // Newton's method to find x where regularizedBeta(x, a, b) = p
+  let x = 0.5;
+  const lnBeta = gammaLnHelper(a) + gammaLnHelper(b) - gammaLnHelper(a + b);
+  for (let i = 0; i < 200; i++) {
+    const cdf = regularizedBeta(x, a, b);
+    const diff = cdf - p;
+    if (Math.abs(diff) < 1e-12) break;
+    // PDF of beta distribution
+    const pdf = Math.exp((a - 1) * Math.log(Math.max(x, 1e-300)) + (b - 1) * Math.log(Math.max(1 - x, 1e-300)) - lnBeta);
+    if (pdf === 0) break;
+    x = Math.max(1e-15, Math.min(1 - 1e-15, x - diff / pdf));
+  }
+
+  return { t: 'num', v: A + x * (B - A) };
+}
+
+/**
+ * F.DIST(x, deg_freedom1, deg_freedom2, cumulative) — F distribution.
+ */
+export function fdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const xNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (xNode.t === 'err') return xNode;
+  const d1Node = NumberArgs.map(visit(exprs[1]), grid);
+  if (d1Node.t === 'err') return d1Node;
+  const d2Node = NumberArgs.map(visit(exprs[2]), grid);
+  if (d2Node.t === 'err') return d2Node;
+  const cumNode = BoolArgs.map(visit(exprs[3]), grid);
+  if (cumNode.t === 'err') return cumNode;
+
+  const x = xNode.v;
+  const d1 = Math.trunc(d1Node.v);
+  const d2 = Math.trunc(d2Node.v);
+  if (x < 0 || d1 < 1 || d2 < 1) return { t: 'err', v: '#VALUE!' };
+
+  if (cumNode.v) {
+    // CDF using regularized incomplete beta
+    const z = (d1 * x) / (d1 * x + d2);
+    return { t: 'num', v: regularizedBeta(z, d1 / 2, d2 / 2) };
+  } else {
+    // PDF
+    const lnNum = (d1 / 2) * Math.log(d1) + (d2 / 2) * Math.log(d2) +
+      ((d1 / 2) - 1) * Math.log(x);
+    const lnDen = ((d1 + d2) / 2) * Math.log(d1 * x + d2) +
+      gammaLnHelper(d1 / 2) + gammaLnHelper(d2 / 2) - gammaLnHelper((d1 + d2) / 2);
+    return { t: 'num', v: Math.exp(lnNum - lnDen) };
+  }
+}
+
+/**
+ * F.INV(probability, deg_freedom1, deg_freedom2) — inverse of F distribution CDF.
+ */
+export function finvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const pNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (pNode.t === 'err') return pNode;
+  const d1Node = NumberArgs.map(visit(exprs[1]), grid);
+  if (d1Node.t === 'err') return d1Node;
+  const d2Node = NumberArgs.map(visit(exprs[2]), grid);
+  if (d2Node.t === 'err') return d2Node;
+
+  const p = pNode.v;
+  const d1 = Math.trunc(d1Node.v);
+  const d2 = Math.trunc(d2Node.v);
+  if (p < 0 || p >= 1 || d1 < 1 || d2 < 1) return { t: 'err', v: '#VALUE!' };
+
+  if (p === 0) return { t: 'num', v: 0 };
+
+  // Newton's method
+  let x = 1.0;
+  for (let i = 0; i < 200; i++) {
+    const z = (d1 * x) / (d1 * x + d2);
+    const cdf = regularizedBeta(z, d1 / 2, d2 / 2);
+    const diff = cdf - p;
+    if (Math.abs(diff) < 1e-12) break;
+    // PDF of F
+    const lnNum = (d1 / 2) * Math.log(d1) + (d2 / 2) * Math.log(d2) +
+      ((d1 / 2) - 1) * Math.log(Math.max(x, 1e-300));
+    const lnDen = ((d1 + d2) / 2) * Math.log(d1 * x + d2) +
+      gammaLnHelper(d1 / 2) + gammaLnHelper(d2 / 2) - gammaLnHelper((d1 + d2) / 2);
+    const pdf = Math.exp(lnNum - lnDen);
+    if (pdf === 0) break;
+    x = Math.max(1e-15, x - diff / pdf);
+  }
+
+  return { t: 'num', v: x };
 }

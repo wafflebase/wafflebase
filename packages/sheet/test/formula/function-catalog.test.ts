@@ -220,6 +220,18 @@ describe('FunctionCatalog', () => {
       expect(findFunction('COVARIANCE.S')!.name).toBe('COVARIANCE.S');
       expect(findFunction('RSQ')!.name).toBe('RSQ');
       expect(findFunction('STEYX')!.name).toBe('STEYX');
+      expect(findFunction('SUMX2MY2')!.name).toBe('SUMX2MY2');
+      expect(findFunction('SUMX2PY2')!.name).toBe('SUMX2PY2');
+      expect(findFunction('SUMXMY2')!.name).toBe('SUMXMY2');
+      expect(findFunction('PERCENTILE.EXC')!.name).toBe('PERCENTILE.EXC');
+      expect(findFunction('QUARTILE.EXC')!.name).toBe('QUARTILE.EXC');
+      expect(findFunction('RANK.AVG')!.name).toBe('RANK.AVG');
+      expect(findFunction('PERCENTRANK')!.name).toBe('PERCENTRANK');
+      expect(findFunction('PERCENTRANK.EXC')!.name).toBe('PERCENTRANK.EXC');
+      expect(findFunction('BETA.DIST')!.name).toBe('BETA.DIST');
+      expect(findFunction('BETA.INV')!.name).toBe('BETA.INV');
+      expect(findFunction('F.DIST')!.name).toBe('F.DIST');
+      expect(findFunction('F.INV')!.name).toBe('F.INV');
     });
 
     it('should return undefined for unknown function', () => {

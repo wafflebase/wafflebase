@@ -1616,6 +1616,100 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the standard error of the predicted y-value in a regression',
     args: [{ name: 'known_ys' }, { name: 'known_xs' }],
   },
+  {
+    name: 'SUMX2MY2',
+    description: 'Returns the sum of differences of squares of corresponding values',
+    args: [{ name: 'array_x' }, { name: 'array_y' }],
+  },
+  {
+    name: 'SUMX2PY2',
+    description: 'Returns the sum of sums of squares of corresponding values',
+    args: [{ name: 'array_x' }, { name: 'array_y' }],
+  },
+  {
+    name: 'SUMXMY2',
+    description: 'Returns the sum of squares of differences of corresponding values',
+    args: [{ name: 'array_x' }, { name: 'array_y' }],
+  },
+  {
+    name: 'PERCENTILE.EXC',
+    description: 'Returns the k-th percentile of values using exclusive interpolation',
+    args: [{ name: 'data' }, { name: 'k' }],
+  },
+  {
+    name: 'QUARTILE.EXC',
+    description: 'Returns the exclusive quartile of a dataset',
+    args: [{ name: 'data' }, { name: 'quart' }],
+  },
+  {
+    name: 'RANK.AVG',
+    description: 'Returns the rank of a value with average ranking for ties',
+    args: [
+      { name: 'value' },
+      { name: 'data' },
+      { name: 'is_ascending', optional: true },
+    ],
+  },
+  {
+    name: 'PERCENTRANK',
+    description: 'Returns the percentage rank of a value in a dataset (inclusive)',
+    args: [
+      { name: 'data' },
+      { name: 'x' },
+      { name: 'significance', optional: true },
+    ],
+  },
+  {
+    name: 'PERCENTRANK.EXC',
+    description: 'Returns the percentage rank of a value in a dataset (exclusive)',
+    args: [
+      { name: 'data' },
+      { name: 'x' },
+      { name: 'significance', optional: true },
+    ],
+  },
+  {
+    name: 'BETA.DIST',
+    description: 'Returns the beta distribution probability',
+    args: [
+      { name: 'x' },
+      { name: 'alpha' },
+      { name: 'beta' },
+      { name: 'cumulative' },
+      { name: 'A', optional: true },
+      { name: 'B', optional: true },
+    ],
+  },
+  {
+    name: 'BETA.INV',
+    description: 'Returns the inverse of the beta cumulative distribution',
+    args: [
+      { name: 'probability' },
+      { name: 'alpha' },
+      { name: 'beta' },
+      { name: 'A', optional: true },
+      { name: 'B', optional: true },
+    ],
+  },
+  {
+    name: 'F.DIST',
+    description: 'Returns the F probability distribution',
+    args: [
+      { name: 'x' },
+      { name: 'deg_freedom1' },
+      { name: 'deg_freedom2' },
+      { name: 'cumulative' },
+    ],
+  },
+  {
+    name: 'F.INV',
+    description: 'Returns the inverse of the F probability distribution',
+    args: [
+      { name: 'probability' },
+      { name: 'deg_freedom1' },
+      { name: 'deg_freedom2' },
+    ],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1733,6 +1827,9 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'FLOOR.MATH',
     'CEILING.PRECISE',
     'FLOOR.PRECISE',
+    'SUMX2MY2',
+    'SUMX2PY2',
+    'SUMXMY2',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -1794,6 +1891,15 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'COVARIANCE.S',
     'RSQ',
     'STEYX',
+    'PERCENTILE.EXC',
+    'QUARTILE.EXC',
+    'RANK.AVG',
+    'PERCENTRANK',
+    'PERCENTRANK.EXC',
+    'BETA.DIST',
+    'BETA.INV',
+    'F.DIST',
+    'F.INV',
   ]),
   Text: new Set([
     'TRIM',
