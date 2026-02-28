@@ -369,6 +369,20 @@ export const FunctionMap = new Map([
   ['OCT2BIN', oct2binFunc],
   ['BESSELJ', besseljFunc],
   ['BESSELY', besselyFunc],
+  ['BESSELI', besseliFunc],
+  ['BESSELK', besselkFunc],
+  ['ACCRINT', accrintFunc],
+  ['ACCRINTM', accrintmFunc],
+  ['COUPDAYBS', coupdaybsFunc],
+  ['COUPDAYS', coupdaysFunc],
+  ['COUPDAYSNC', coupdaysncFunc],
+  ['COUPNCD', coupncdFunc],
+  ['COUPNUM', coupnumFunc],
+  ['COUPPCD', couppcdFunc],
+  ['DISC', discFunc],
+  ['PRICEDISC', pricediscFunc],
+  ['YIELDDISC', yielddiscFunc],
+  ['DURATION', durationFunc],
 ]);
 
 /**
@@ -12884,4 +12898,511 @@ export function besselyFunc(
   if (order < 0) return { t: 'err', v: '#VALUE!' };
   if (x.v <= 0) return { t: 'err', v: '#VALUE!' };
   return { t: 'num', v: besselY(order, x.v) };
+}
+
+/**
+ * Helper: Modified Bessel function of the first kind In(x).
+ * In(x) = sum_{m=0}^inf (1/(m! * (m+n)!)) * (x/2)^(2m+n)
+ */
+function besselI(n: number, x: number): number {
+  let sum = 0;
+  for (let m = 0; m <= 100; m++) {
+    let factM = 1;
+    for (let i = 2; i <= m; i++) factM *= i;
+    let factNM = 1;
+    for (let i = 2; i <= n + m; i++) factNM *= i;
+    const term = (1 / (factM * factNM)) * Math.pow(x / 2, 2 * m + n);
+    sum += term;
+    if (Math.abs(term) < 1e-15 * Math.abs(sum) && m > 5) break;
+  }
+  return sum;
+}
+
+/**
+ * Helper: Modified Bessel function of the second kind Kn(x).
+ * Uses K0, K1 series and recurrence.
+ */
+function besselK(n: number, x: number): number {
+  if (x <= 0) return NaN;
+  const euler = 0.5772156649015329;
+
+  function k0(xv: number): number {
+    let sum = 0;
+    for (let m = 1; m <= 100; m++) {
+      let factM = 1;
+      for (let i = 2; i <= m; i++) factM *= i;
+      let hm = 0;
+      for (let k = 1; k <= m; k++) hm += 1 / k;
+      const term = (hm / (factM * factM)) * Math.pow(xv / 2, 2 * m);
+      sum += term;
+      if (Math.abs(term) < 1e-15 * Math.abs(sum) && m > 5) break;
+    }
+    return -(Math.log(xv / 2) + euler) * besselI(0, xv) + sum;
+  }
+
+  function k1(xv: number): number {
+    let sum = 0;
+    for (let m = 0; m <= 100; m++) {
+      let factM = 1;
+      for (let i = 2; i <= m; i++) factM *= i;
+      let factM1 = 1;
+      for (let i = 2; i <= m + 1; i++) factM1 *= i;
+      let hm = 0;
+      for (let k = 1; k <= m; k++) hm += 1 / k;
+      let hm1 = 0;
+      for (let k = 1; k <= m + 1; k++) hm1 += 1 / k;
+      const term = ((hm + hm1) / (2 * factM * factM1)) * Math.pow(xv / 2, 2 * m + 1);
+      sum += term;
+      if (Math.abs(term) < 1e-15 * Math.abs(sum) && m > 5) break;
+    }
+    return (1 / xv) + (Math.log(xv / 2) + euler) * besselI(1, xv) - sum;
+  }
+
+  if (n === 0) return k0(x);
+  if (n === 1) return k1(x);
+
+  let km1 = k0(x);
+  let km = k1(x);
+  for (let k = 1; k < n; k++) {
+    const knext = (2 * k / x) * km + km1;
+    km1 = km;
+    km = knext;
+  }
+  return km;
+}
+
+/**
+ * BESSELI(x, n) — Modified Bessel function of the first kind.
+ */
+export function besseliFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const n = NumberArgs.map(visit(exprs[1]), grid);
+  if (n.t === 'err') return n;
+  const order = Math.trunc(n.v);
+  if (order < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: besselI(order, x.v) };
+}
+
+/**
+ * BESSELK(x, n) — Modified Bessel function of the second kind.
+ */
+export function besselkFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const n = NumberArgs.map(visit(exprs[1]), grid);
+  if (n.t === 'err') return n;
+  const order = Math.trunc(n.v);
+  if (order < 0) return { t: 'err', v: '#VALUE!' };
+  if (x.v <= 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: besselK(order, x.v) };
+}
+
+/**
+ * Helper: day count fraction between two dates based on basis.
+ * basis: 0=US 30/360, 1=actual/actual, 2=actual/360, 3=actual/365, 4=European 30/360
+ */
+function yearFrac(startDate: Date, endDate: Date, basis: number): number {
+  const sd = new Date(startDate);
+  const ed = new Date(endDate);
+  const y1 = sd.getFullYear(), m1 = sd.getMonth() + 1, d1Orig = sd.getDate();
+  const y2 = ed.getFullYear(), m2 = ed.getMonth() + 1, d2Orig = ed.getDate();
+  const actualDays = (ed.getTime() - sd.getTime()) / 86400000;
+
+  switch (basis) {
+    case 0: { // US 30/360
+      let dd1 = d1Orig;
+      let dd2 = d2Orig;
+      if (dd1 === 31) dd1 = 30;
+      if (dd2 === 31 && dd1 >= 30) dd2 = 30;
+      return ((y2 - y1) * 360 + (m2 - m1) * 30 + (dd2 - dd1)) / 360;
+    }
+    case 1: { // actual/actual
+      const daysInYear = (new Date(y1 + 1, 0, 1).getTime() - new Date(y1, 0, 1).getTime()) / 86400000;
+      return actualDays / daysInYear;
+    }
+    case 2: return actualDays / 360;
+    case 3: return actualDays / 365;
+    case 4: { // European 30/360
+      const dd1 = Math.min(d1Orig, 30);
+      const dd2 = Math.min(d2Orig, 30);
+      return ((y2 - y1) * 360 + (m2 - m1) * 30 + (dd2 - dd1)) / 360;
+    }
+    default: return actualDays / 360;
+  }
+}
+
+/**
+ * Helper: find the next coupon date on or after a reference date.
+ */
+function nextCouponDate(settlement: Date, maturity: Date, frequency: number): Date {
+  const monthsPer = 12 / frequency;
+  const d = new Date(maturity);
+  // Walk backward from maturity to find coupon date just after settlement
+  while (d > settlement) {
+    d.setMonth(d.getMonth() - monthsPer);
+  }
+  d.setMonth(d.getMonth() + monthsPer);
+  return d;
+}
+
+/**
+ * Helper: find the previous coupon date before settlement.
+ */
+function prevCouponDate(settlement: Date, maturity: Date, frequency: number): Date {
+  const ncd = nextCouponDate(settlement, maturity, frequency);
+  const monthsPer = 12 / frequency;
+  const d = new Date(ncd);
+  d.setMonth(d.getMonth() - monthsPer);
+  return d;
+}
+
+/**
+ * ACCRINT(issue, first_interest, settlement, rate, par, frequency, [basis])
+ * Accrued interest for a security that pays periodic interest.
+ */
+export function accrintFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A!' };
+  const issue = parseDate(visit(exprs[0]), grid);
+  if (!(issue instanceof Date)) return issue;
+  // first_interest is ignored in simplified calculation
+  const settlement = parseDate(visit(exprs[2]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const rate = NumberArgs.map(visit(exprs[3]), grid);
+  if (rate.t === 'err') return rate;
+  const par = NumberArgs.map(visit(exprs[4]), grid);
+  if (par.t === 'err') return par;
+  const freq = NumberArgs.map(visit(exprs[5]), grid);
+  if (freq.t === 'err') return freq;
+  const basis = exprs.length >= 7 ? NumberArgs.map(visit(exprs[6]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const yf = yearFrac(issue, settlement, Math.trunc(basis.v));
+  return { t: 'num', v: par.v * rate.v * yf };
+}
+
+/**
+ * ACCRINTM(issue, settlement, rate, par, [basis])
+ * Accrued interest for a security that pays at maturity.
+ */
+export function accrintmFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  const issue = parseDate(visit(exprs[0]), grid);
+  if (!(issue instanceof Date)) return issue;
+  const settlement = parseDate(visit(exprs[1]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const rate = NumberArgs.map(visit(exprs[2]), grid);
+  if (rate.t === 'err') return rate;
+  const par = NumberArgs.map(visit(exprs[3]), grid);
+  if (par.t === 'err') return par;
+  const basis = exprs.length >= 5 ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const yf = yearFrac(issue, settlement, Math.trunc(basis.v));
+  return { t: 'num', v: par.v * rate.v * yf };
+}
+
+/**
+ * COUPDAYBS(settlement, maturity, frequency, [basis])
+ * Number of days from beginning of coupon period to settlement.
+ */
+export function coupdaybsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const freq = NumberArgs.map(visit(exprs[2]), grid);
+  if (freq.t === 'err') return freq;
+  const pcd = prevCouponDate(settlement, maturity, Math.trunc(freq.v));
+  const days = Math.round((settlement.getTime() - pcd.getTime()) / 86400000);
+  return { t: 'num', v: days };
+}
+
+/**
+ * COUPDAYS(settlement, maturity, frequency, [basis])
+ * Number of days in the coupon period that contains settlement.
+ */
+export function coupdaysFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const freq = NumberArgs.map(visit(exprs[2]), grid);
+  if (freq.t === 'err') return freq;
+  const f = Math.trunc(freq.v);
+  const pcd = prevCouponDate(settlement, maturity, f);
+  const ncd = nextCouponDate(settlement, maturity, f);
+  const days = Math.round((ncd.getTime() - pcd.getTime()) / 86400000);
+  return { t: 'num', v: days };
+}
+
+/**
+ * COUPDAYSNC(settlement, maturity, frequency, [basis])
+ * Number of days from settlement to next coupon date.
+ */
+export function coupdaysncFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const freq = NumberArgs.map(visit(exprs[2]), grid);
+  if (freq.t === 'err') return freq;
+  const ncd = nextCouponDate(settlement, maturity, Math.trunc(freq.v));
+  const days = Math.round((ncd.getTime() - settlement.getTime()) / 86400000);
+  return { t: 'num', v: days };
+}
+
+/**
+ * COUPNCD(settlement, maturity, frequency, [basis])
+ * Next coupon date after settlement.
+ */
+export function coupncdFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const freq = NumberArgs.map(visit(exprs[2]), grid);
+  if (freq.t === 'err') return freq;
+  const ncd = nextCouponDate(settlement, maturity, Math.trunc(freq.v));
+  return { t: 'str', v: formatDate(ncd) };
+}
+
+/**
+ * COUPNUM(settlement, maturity, frequency, [basis])
+ * Number of coupon periods between settlement and maturity.
+ */
+export function coupnumFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const freq = NumberArgs.map(visit(exprs[2]), grid);
+  if (freq.t === 'err') return freq;
+  const f = Math.trunc(freq.v);
+  const monthsPer = 12 / f;
+  let count = 0;
+  const d = new Date(maturity);
+  while (d > settlement) {
+    d.setMonth(d.getMonth() - monthsPer);
+    count++;
+  }
+  return { t: 'num', v: count };
+}
+
+/**
+ * COUPPCD(settlement, maturity, frequency, [basis])
+ * Previous coupon date before settlement.
+ */
+export function couppcdFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const freq = NumberArgs.map(visit(exprs[2]), grid);
+  if (freq.t === 'err') return freq;
+  const pcd = prevCouponDate(settlement, maturity, Math.trunc(freq.v));
+  return { t: 'str', v: formatDate(pcd) };
+}
+
+/**
+ * DISC(settlement, maturity, price, redemption, [basis])
+ * Discount rate for a security.
+ */
+export function discFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const price = NumberArgs.map(visit(exprs[2]), grid);
+  if (price.t === 'err') return price;
+  const redemption = NumberArgs.map(visit(exprs[3]), grid);
+  if (redemption.t === 'err') return redemption;
+  const basis = exprs.length >= 5 ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
+  if (yf === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: (redemption.v - price.v) / redemption.v / yf };
+}
+
+/**
+ * PRICEDISC(settlement, maturity, discount, redemption, [basis])
+ * Price of a discounted security.
+ */
+export function pricediscFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const discount = NumberArgs.map(visit(exprs[2]), grid);
+  if (discount.t === 'err') return discount;
+  const redemption = NumberArgs.map(visit(exprs[3]), grid);
+  if (redemption.t === 'err') return redemption;
+  const basis = exprs.length >= 5 ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
+  return { t: 'num', v: redemption.v * (1 - discount.v * yf) };
+}
+
+/**
+ * YIELDDISC(settlement, maturity, price, redemption, [basis])
+ * Annual yield for a discounted security.
+ */
+export function yielddiscFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const price = NumberArgs.map(visit(exprs[2]), grid);
+  if (price.t === 'err') return price;
+  const redemption = NumberArgs.map(visit(exprs[3]), grid);
+  if (redemption.t === 'err') return redemption;
+  const basis = exprs.length >= 5 ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
+  if (yf === 0 || price.v === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: (redemption.v - price.v) / price.v / yf };
+}
+
+/**
+ * DURATION(settlement, maturity, coupon, yield, frequency, [basis])
+ * Macaulay duration of a security.
+ */
+export function durationFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const coupon = NumberArgs.map(visit(exprs[2]), grid);
+  if (coupon.t === 'err') return coupon;
+  const yld = NumberArgs.map(visit(exprs[3]), grid);
+  if (yld.t === 'err') return yld;
+  const freq = NumberArgs.map(visit(exprs[4]), grid);
+  if (freq.t === 'err') return freq;
+  const basis = exprs.length >= 6 ? NumberArgs.map(visit(exprs[5]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const f = Math.trunc(freq.v);
+  const n = Math.ceil(yearFrac(settlement, maturity, Math.trunc(basis.v)) * f);
+  if (n <= 0) return { t: 'err', v: '#VALUE!' };
+  const cpn = coupon.v / f;
+  const y = yld.v / f;
+  let numerator = 0;
+  let denominator = 0;
+  for (let i = 1; i <= n; i++) {
+    const pv = cpn / Math.pow(1 + y, i);
+    numerator += (i / f) * pv;
+    denominator += pv;
+  }
+  // Add redemption at maturity
+  const pvRedemption = 1 / Math.pow(1 + y, n);
+  numerator += (n / f) * pvRedemption;
+  denominator += pvRedemption;
+  return { t: 'num', v: numerator / denominator };
 }

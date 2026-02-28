@@ -2437,6 +2437,61 @@ describe('Formula', () => {
     expect(Number(evaluate('=BESSELY(1,1)'))).toBeCloseTo(-0.7812, 3);
   });
 
+  it('should correctly evaluate BESSELI function', () => {
+    // I0(0) = 1
+    expect(Number(evaluate('=BESSELI(0,0)'))).toBeCloseTo(1, 10);
+    // I0(1) ≈ 1.2661
+    expect(Number(evaluate('=BESSELI(1,0)'))).toBeCloseTo(1.2661, 3);
+    // I1(1) ≈ 0.5652
+    expect(Number(evaluate('=BESSELI(1,1)'))).toBeCloseTo(0.5652, 3);
+  });
+
+  it('should correctly evaluate BESSELK function', () => {
+    // K0(1) ≈ 0.4211
+    expect(Number(evaluate('=BESSELK(1,0)'))).toBeCloseTo(0.4211, 3);
+    // K1(1) ≈ 0.6019
+    expect(Number(evaluate('=BESSELK(1,1)'))).toBeCloseTo(0.6019, 3);
+  });
+
+  it('should correctly evaluate ACCRINT function', () => {
+    // ACCRINT(issue, first, settlement, rate, par, freq)
+    // 1000 par, 10% rate, semiannual, ~0.5 year = 50
+    expect(Number(evaluate('=ACCRINT("2024-01-01","2024-07-01","2024-07-01",0.1,1000,2)'))).toBeCloseTo(50, 0);
+  });
+
+  it('should correctly evaluate ACCRINTM function', () => {
+    // 1000 par, 10% rate, ~0.5 year = 50
+    expect(Number(evaluate('=ACCRINTM("2024-01-01","2024-07-01",0.1,1000)'))).toBeCloseTo(50, 0);
+  });
+
+  it('should correctly evaluate COUPNUM function', () => {
+    // 2 years, semiannual = 4 coupons
+    expect(evaluate('=COUPNUM("2024-01-15","2026-01-15",2)')).toBe('4');
+  });
+
+  it('should correctly evaluate DISC and PRICEDISC functions', () => {
+    // DISC: (100-98)/100 / yearfrac ≈ some rate
+    const disc = Number(evaluate('=DISC("2024-01-01","2025-01-01",98,100)'));
+    expect(disc).toBeCloseTo(0.02, 2);
+    // PRICEDISC: redemption * (1 - discount * yearfrac)
+    // 100 * (1 - 0.02 * 1) = 98
+    const price = Number(evaluate('=PRICEDISC("2024-01-01","2025-01-01",0.02,100)'));
+    expect(price).toBeCloseTo(98, 0);
+  });
+
+  it('should correctly evaluate YIELDDISC function', () => {
+    // (100-98)/98 / yearfrac
+    const yld = Number(evaluate('=YIELDDISC("2024-01-01","2025-01-01",98,100)'));
+    expect(yld).toBeCloseTo(0.0204, 2);
+  });
+
+  it('should correctly evaluate DURATION function', () => {
+    // Simple bond: settlement, maturity, coupon, yield, frequency
+    const dur = Number(evaluate('=DURATION("2024-01-01","2027-01-01",0.08,0.09,2)'));
+    expect(dur).toBeGreaterThan(2);
+    expect(dur).toBeLessThan(3);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

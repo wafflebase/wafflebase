@@ -2142,6 +2142,76 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the Bessel function of the second kind Yn(x)',
     args: [{ name: 'x' }, { name: 'n' }],
   },
+  {
+    name: 'BESSELI',
+    description: 'Returns the modified Bessel function of the first kind In(x)',
+    args: [{ name: 'x' }, { name: 'n' }],
+  },
+  {
+    name: 'BESSELK',
+    description: 'Returns the modified Bessel function of the second kind Kn(x)',
+    args: [{ name: 'x' }, { name: 'n' }],
+  },
+  {
+    name: 'ACCRINT',
+    description: 'Returns the accrued interest for a security that pays periodic interest',
+    args: [{ name: 'issue' }, { name: 'first_interest' }, { name: 'settlement' }, { name: 'rate' }, { name: 'par' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'ACCRINTM',
+    description: 'Returns the accrued interest for a security that pays at maturity',
+    args: [{ name: 'issue' }, { name: 'settlement' }, { name: 'rate' }, { name: 'par' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'COUPDAYBS',
+    description: 'Returns the number of days from the coupon period start to settlement',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'COUPDAYS',
+    description: 'Returns the number of days in the coupon period containing settlement',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'COUPDAYSNC',
+    description: 'Returns the number of days from settlement to the next coupon date',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'COUPNCD',
+    description: 'Returns the next coupon date after settlement',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'COUPNUM',
+    description: 'Returns the number of coupons between settlement and maturity',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'COUPPCD',
+    description: 'Returns the previous coupon date before settlement',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'DISC',
+    description: 'Returns the discount rate for a security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'price' }, { name: 'redemption' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'PRICEDISC',
+    description: 'Returns the price of a discounted security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'discount' }, { name: 'redemption' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'YIELDDISC',
+    description: 'Returns the annual yield for a discounted security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'price' }, { name: 'redemption' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'DURATION',
+    description: 'Returns the Macaulay duration of a security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'coupon' }, { name: 'yield' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2169,8 +2239,8 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WORKDAY',
     'YEARFRAC',
   ]),
-  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV', 'IMCONJUGATE', 'IMARGUMENT', 'IMPOWER', 'IMSQRT', 'IMEXP', 'IMLN', 'IMLOG2', 'IMLOG10', 'IMSIN', 'IMCOS', 'IMTAN', 'IMSINH', 'IMCOSH', 'IMSEC', 'IMCSC', 'IMCOT', 'HEX2BIN', 'HEX2OCT', 'BIN2HEX', 'BIN2OCT', 'OCT2HEX', 'OCT2BIN', 'BESSELJ', 'BESSELY']),
-  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR']),
+  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV', 'IMCONJUGATE', 'IMARGUMENT', 'IMPOWER', 'IMSQRT', 'IMEXP', 'IMLN', 'IMLOG2', 'IMLOG10', 'IMSIN', 'IMCOS', 'IMTAN', 'IMSINH', 'IMCOSH', 'IMSEC', 'IMCSC', 'IMCOT', 'HEX2BIN', 'HEX2OCT', 'BIN2HEX', 'BIN2OCT', 'OCT2HEX', 'OCT2BIN', 'BESSELJ', 'BESSELY', 'BESSELI', 'BESSELK']),
+  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR', 'ACCRINT', 'ACCRINTM', 'COUPDAYBS', 'COUPDAYS', 'COUPDAYSNC', 'COUPNCD', 'COUPNUM', 'COUPPCD', 'DISC', 'PRICEDISC', 'YIELDDISC', 'DURATION']),
   Info: new Set([
     'ISBLANK',
     'ISNUMBER',

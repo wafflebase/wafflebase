@@ -310,6 +310,20 @@ describe('FunctionCatalog', () => {
       expect(findFunction('OCT2BIN')!.name).toBe('OCT2BIN');
       expect(findFunction('BESSELJ')!.name).toBe('BESSELJ');
       expect(findFunction('BESSELY')!.name).toBe('BESSELY');
+      expect(findFunction('BESSELI')!.name).toBe('BESSELI');
+      expect(findFunction('BESSELK')!.name).toBe('BESSELK');
+      expect(findFunction('ACCRINT')!.name).toBe('ACCRINT');
+      expect(findFunction('ACCRINTM')!.name).toBe('ACCRINTM');
+      expect(findFunction('COUPDAYBS')!.name).toBe('COUPDAYBS');
+      expect(findFunction('COUPDAYS')!.name).toBe('COUPDAYS');
+      expect(findFunction('COUPDAYSNC')!.name).toBe('COUPDAYSNC');
+      expect(findFunction('COUPNCD')!.name).toBe('COUPNCD');
+      expect(findFunction('COUPNUM')!.name).toBe('COUPNUM');
+      expect(findFunction('COUPPCD')!.name).toBe('COUPPCD');
+      expect(findFunction('DISC')!.name).toBe('DISC');
+      expect(findFunction('PRICEDISC')!.name).toBe('PRICEDISC');
+      expect(findFunction('YIELDDISC')!.name).toBe('YIELDDISC');
+      expect(findFunction('DURATION')!.name).toBe('DURATION');
     });
 
     it('should return undefined for unknown function', () => {
