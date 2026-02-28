@@ -232,6 +232,16 @@ describe('FunctionCatalog', () => {
       expect(findFunction('BETA.INV')!.name).toBe('BETA.INV');
       expect(findFunction('F.DIST')!.name).toBe('F.DIST');
       expect(findFunction('F.INV')!.name).toBe('F.INV');
+      expect(findFunction('GAMMA.DIST')!.name).toBe('GAMMA.DIST');
+      expect(findFunction('GAMMA.INV')!.name).toBe('GAMMA.INV');
+      expect(findFunction('CHISQ.DIST.RT')!.name).toBe('CHISQ.DIST.RT');
+      expect(findFunction('CHISQ.INV.RT')!.name).toBe('CHISQ.INV.RT');
+      expect(findFunction('T.DIST.RT')!.name).toBe('T.DIST.RT');
+      expect(findFunction('T.DIST.2T')!.name).toBe('T.DIST.2T');
+      expect(findFunction('T.INV.2T')!.name).toBe('T.INV.2T');
+      expect(findFunction('F.DIST.RT')!.name).toBe('F.DIST.RT');
+      expect(findFunction('F.INV.RT')!.name).toBe('F.INV.RT');
+      expect(findFunction('BINOM.INV')!.name).toBe('BINOM.INV');
     });
 
     it('should return undefined for unknown function', () => {

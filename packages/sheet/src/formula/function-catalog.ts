@@ -1710,6 +1710,69 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
       { name: 'deg_freedom2' },
     ],
   },
+  {
+    name: 'GAMMA.DIST',
+    description: 'Returns the gamma distribution probability',
+    args: [
+      { name: 'x' },
+      { name: 'alpha' },
+      { name: 'beta' },
+      { name: 'cumulative' },
+    ],
+  },
+  {
+    name: 'GAMMA.INV',
+    description: 'Returns the inverse of the gamma cumulative distribution',
+    args: [{ name: 'probability' }, { name: 'alpha' }, { name: 'beta' }],
+  },
+  {
+    name: 'CHISQ.DIST.RT',
+    description: 'Returns the right-tailed chi-squared distribution probability',
+    args: [{ name: 'x' }, { name: 'degrees_freedom' }],
+  },
+  {
+    name: 'CHISQ.INV.RT',
+    description: 'Returns the inverse right-tailed chi-squared distribution',
+    args: [{ name: 'probability' }, { name: 'degrees_freedom' }],
+  },
+  {
+    name: 'T.DIST.RT',
+    description: 'Returns the right-tailed Student t-distribution',
+    args: [{ name: 'x' }, { name: 'degrees_freedom' }],
+  },
+  {
+    name: 'T.DIST.2T',
+    description: 'Returns the two-tailed Student t-distribution',
+    args: [{ name: 'x' }, { name: 'degrees_freedom' }],
+  },
+  {
+    name: 'T.INV.2T',
+    description: 'Returns the inverse two-tailed Student t-distribution',
+    args: [{ name: 'probability' }, { name: 'degrees_freedom' }],
+  },
+  {
+    name: 'F.DIST.RT',
+    description: 'Returns the right-tailed F probability distribution',
+    args: [
+      { name: 'x' },
+      { name: 'deg_freedom1' },
+      { name: 'deg_freedom2' },
+    ],
+  },
+  {
+    name: 'F.INV.RT',
+    description: 'Returns the inverse right-tailed F probability distribution',
+    args: [
+      { name: 'probability' },
+      { name: 'deg_freedom1' },
+      { name: 'deg_freedom2' },
+    ],
+  },
+  {
+    name: 'BINOM.INV',
+    description: 'Returns the smallest value for which the cumulative binomial distribution is >= alpha',
+    args: [{ name: 'trials' }, { name: 'probability_s' }, { name: 'alpha' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1900,6 +1963,16 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'BETA.INV',
     'F.DIST',
     'F.INV',
+    'GAMMA.DIST',
+    'GAMMA.INV',
+    'CHISQ.DIST.RT',
+    'CHISQ.INV.RT',
+    'T.DIST.RT',
+    'T.DIST.2T',
+    'T.INV.2T',
+    'F.DIST.RT',
+    'F.INV.RT',
+    'BINOM.INV',
   ]),
   Text: new Set([
     'TRIM',

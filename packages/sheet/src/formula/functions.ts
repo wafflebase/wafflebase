@@ -294,6 +294,16 @@ export const FunctionMap = new Map([
   ['BETA.INV', betainvFunc],
   ['F.DIST', fdistFunc],
   ['F.INV', finvFunc],
+  ['GAMMA.DIST', gammadistFunc],
+  ['GAMMA.INV', gammainvFunc],
+  ['CHISQ.DIST.RT', chisqdistrtFunc],
+  ['CHISQ.INV.RT', chisqinvrtFunc],
+  ['T.DIST.RT', tdistrtFunc],
+  ['T.DIST.2T', tdist2tFunc],
+  ['T.INV.2T', tinv2tFunc],
+  ['F.DIST.RT', fdistrtFunc],
+  ['F.INV.RT', finvrtFunc],
+  ['BINOM.INV', biominvFunc],
 ]);
 
 /**
@@ -10536,4 +10546,328 @@ export function finvFunc(
   }
 
   return { t: 'num', v: x };
+}
+
+/**
+ * GAMMA.DIST(x, alpha, beta, cumulative) — gamma distribution.
+ */
+export function gammadistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const xNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (xNode.t === 'err') return xNode;
+  const alphaNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (alphaNode.t === 'err') return alphaNode;
+  const betaNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (betaNode.t === 'err') return betaNode;
+  const cumNode = BoolArgs.map(visit(exprs[3]), grid);
+  if (cumNode.t === 'err') return cumNode;
+
+  const x = xNode.v;
+  const a = alphaNode.v;
+  const b = betaNode.v;
+  if (x < 0 || a <= 0 || b <= 0) return { t: 'err', v: '#VALUE!' };
+
+  if (cumNode.v) {
+    return { t: 'num', v: lowerIncompleteGamma(a, x / b) };
+  }
+  // PDF: x^(a-1) * exp(-x/b) / (b^a * Gamma(a))
+  const pdf = Math.pow(x, a - 1) * Math.exp(-x / b) / (Math.pow(b, a) * gammaLanczos(a));
+  return { t: 'num', v: pdf };
+}
+
+/**
+ * GAMMA.INV(probability, alpha, beta) — inverse gamma distribution CDF.
+ */
+export function gammainvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const pNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (pNode.t === 'err') return pNode;
+  const alphaNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (alphaNode.t === 'err') return alphaNode;
+  const betaNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (betaNode.t === 'err') return betaNode;
+
+  const p = pNode.v;
+  const a = alphaNode.v;
+  const b = betaNode.v;
+  if (p < 0 || p > 1 || a <= 0 || b <= 0) return { t: 'err', v: '#VALUE!' };
+  if (p === 0) return { t: 'num', v: 0 };
+  if (p === 1) return { t: 'err', v: '#VALUE!' };
+
+  // Newton's method: find x where lowerIncompleteGamma(a, x/b) = p
+  let x = a * b; // initial guess at the mean
+  for (let i = 0; i < 200; i++) {
+    const cdf = lowerIncompleteGamma(a, x / b);
+    const diff = cdf - p;
+    if (Math.abs(diff) < 1e-12) break;
+    const pdf = Math.pow(x, a - 1) * Math.exp(-x / b) / (Math.pow(b, a) * gammaLanczos(a));
+    if (pdf === 0) break;
+    x = Math.max(1e-15, x - diff / pdf);
+  }
+  return { t: 'num', v: x };
+}
+
+/**
+ * CHISQ.DIST.RT(x, degrees_freedom) — right-tailed chi-squared distribution.
+ */
+export function chisqdistrtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (x.v < 0 || df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const k = Math.trunc(df.v);
+  return { t: 'num', v: 1 - lowerIncompleteGamma(k / 2, x.v / 2) };
+}
+
+/**
+ * CHISQ.INV.RT(probability, degrees_freedom) — inverse right-tailed chi-squared.
+ */
+export function chisqinvrtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const p = NumberArgs.map(visit(exprs[0]), grid);
+  if (p.t === 'err') return p;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (p.v <= 0 || p.v >= 1 || df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const k = Math.trunc(df.v);
+  // Right-tail: find x where 1 - lowerIncompleteGamma(k/2, x/2) = p
+  // Same as lowerIncompleteGamma(k/2, x/2) = 1 - p
+  const target = 1 - p.v;
+  let x = k * Math.pow(1 - 2 / (9 * k) + normInv(target) * Math.sqrt(2 / (9 * k)), 3);
+  if (x <= 0) x = 0.01;
+
+  for (let i = 0; i < 100; i++) {
+    const cdf = lowerIncompleteGamma(k / 2, x / 2);
+    const halfK = k / 2;
+    const pdf = Math.pow(x, halfK - 1) * Math.exp(-x / 2) / (Math.pow(2, halfK) * gammaLanczos(halfK));
+    if (Math.abs(pdf) < 1e-15) break;
+    const newX = x - (cdf - target) / pdf;
+    if (Math.abs(newX - x) < 1e-10) { x = newX; break; }
+    x = Math.max(newX, 1e-10);
+  }
+  return { t: 'num', v: x };
+}
+
+/**
+ * T.DIST.RT(x, degrees_freedom) — right-tailed Student's t-distribution.
+ */
+export function tdistrtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const v = Math.trunc(df.v);
+  const t2 = x.v * x.v;
+  const xi = v / (v + t2);
+  const ibeta = regularizedBeta(xi, v / 2, 0.5);
+  const leftCdf = x.v >= 0 ? 1 - 0.5 * ibeta : 0.5 * ibeta;
+  return { t: 'num', v: 1 - leftCdf };
+}
+
+/**
+ * T.DIST.2T(x, degrees_freedom) — two-tailed Student's t-distribution.
+ */
+export function tdist2tFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (x.v < 0 || df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const v = Math.trunc(df.v);
+  const t2 = x.v * x.v;
+  const xi = v / (v + t2);
+  const ibeta = regularizedBeta(xi, v / 2, 0.5);
+  return { t: 'num', v: ibeta };
+}
+
+/**
+ * T.INV.2T(probability, degrees_freedom) — inverse two-tailed t-distribution.
+ */
+export function tinv2tFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const p = NumberArgs.map(visit(exprs[0]), grid);
+  if (p.t === 'err') return p;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (p.v <= 0 || p.v > 1 || df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const v = Math.trunc(df.v);
+  // Two-tailed: P(|T| > x) = p, so P(T > x) = p/2, hence x = T.INV(1 - p/2)
+  return { t: 'num', v: computeTInv(1 - p.v / 2, v) };
+}
+
+/**
+ * F.DIST.RT(x, deg_freedom1, deg_freedom2) — right-tailed F distribution.
+ */
+export function fdistrtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const xNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (xNode.t === 'err') return xNode;
+  const d1Node = NumberArgs.map(visit(exprs[1]), grid);
+  if (d1Node.t === 'err') return d1Node;
+  const d2Node = NumberArgs.map(visit(exprs[2]), grid);
+  if (d2Node.t === 'err') return d2Node;
+
+  const x = xNode.v;
+  const d1 = Math.trunc(d1Node.v);
+  const d2 = Math.trunc(d2Node.v);
+  if (x < 0 || d1 < 1 || d2 < 1) return { t: 'err', v: '#VALUE!' };
+
+  const z = (d1 * x) / (d1 * x + d2);
+  return { t: 'num', v: 1 - regularizedBeta(z, d1 / 2, d2 / 2) };
+}
+
+/**
+ * F.INV.RT(probability, deg_freedom1, deg_freedom2) — inverse right-tailed F.
+ */
+export function finvrtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const pNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (pNode.t === 'err') return pNode;
+  const d1Node = NumberArgs.map(visit(exprs[1]), grid);
+  if (d1Node.t === 'err') return d1Node;
+  const d2Node = NumberArgs.map(visit(exprs[2]), grid);
+  if (d2Node.t === 'err') return d2Node;
+
+  const p = pNode.v;
+  const d1 = Math.trunc(d1Node.v);
+  const d2 = Math.trunc(d2Node.v);
+  if (p <= 0 || p >= 1 || d1 < 1 || d2 < 1) return { t: 'err', v: '#VALUE!' };
+
+  // Right-tail: find x where 1 - F.DIST.CDF(x) = p → F.DIST.CDF(x) = 1 - p
+  const target = 1 - p;
+  let x = 1.0;
+  for (let i = 0; i < 200; i++) {
+    const z = (d1 * x) / (d1 * x + d2);
+    const cdf = regularizedBeta(z, d1 / 2, d2 / 2);
+    const diff = cdf - target;
+    if (Math.abs(diff) < 1e-12) break;
+    const lnNum = (d1 / 2) * Math.log(d1) + (d2 / 2) * Math.log(d2) +
+      ((d1 / 2) - 1) * Math.log(Math.max(x, 1e-300));
+    const lnDen = ((d1 + d2) / 2) * Math.log(d1 * x + d2) +
+      gammaLnHelper(d1 / 2) + gammaLnHelper(d2 / 2) - gammaLnHelper((d1 + d2) / 2);
+    const pdf = Math.exp(lnNum - lnDen);
+    if (pdf === 0) break;
+    x = Math.max(1e-15, x - diff / pdf);
+  }
+  return { t: 'num', v: x };
+}
+
+/**
+ * BINOM.INV(trials, probability_s, alpha) — returns the smallest value for which
+ * the cumulative binomial distribution is >= alpha.
+ */
+export function biominvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const nNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (nNode.t === 'err') return nNode;
+  const pNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (pNode.t === 'err') return pNode;
+  const aNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (aNode.t === 'err') return aNode;
+
+  const n = Math.trunc(nNode.v);
+  const ps = pNode.v;
+  const alpha = aNode.v;
+  if (n < 0 || ps < 0 || ps > 1 || alpha < 0 || alpha > 1) return { t: 'err', v: '#VALUE!' };
+
+  // Iterate through cumulative probabilities
+  let cumProb = 0;
+  for (let k = 0; k <= n; k++) {
+    // Binomial PMF: C(n,k) * p^k * (1-p)^(n-k)
+    const lnPmf = gammaLnHelper(n + 1) - gammaLnHelper(k + 1) - gammaLnHelper(n - k + 1) +
+      k * Math.log(Math.max(ps, 1e-300)) + (n - k) * Math.log(Math.max(1 - ps, 1e-300));
+    cumProb += Math.exp(lnPmf);
+    if (cumProb >= alpha) return { t: 'num', v: k };
+  }
+  return { t: 'num', v: n };
 }

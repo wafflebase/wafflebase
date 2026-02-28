@@ -1989,6 +1989,64 @@ describe('Formula', () => {
     expect(Number(result)).toBeCloseTo(3.7456, 2);
   });
 
+  it('should correctly evaluate GAMMA.DIST function', () => {
+    // CDF: GAMMA.DIST(2, 3, 2, TRUE) = P(3, 1) ≈ 0.0803
+    const result = evaluate('=GAMMA.DIST(2,3,2,TRUE)', undefined);
+    expect(Number(result)).toBeCloseTo(0.0803, 2);
+    // PDF
+    const result2 = evaluate('=GAMMA.DIST(2,3,2,FALSE)', undefined);
+    expect(Number(result2)).toBeCloseTo(0.0902, 2);
+  });
+
+  it('should correctly evaluate GAMMA.INV function', () => {
+    const result = evaluate('=GAMMA.INV(0.0803,3,2)', undefined);
+    expect(Number(result)).toBeCloseTo(2, 0);
+  });
+
+  it('should correctly evaluate CHISQ.DIST.RT function', () => {
+    // Right-tail: P(X > 9.488) with df=4 should be about 0.05
+    const result = evaluate('=CHISQ.DIST.RT(9.488,4)', undefined);
+    expect(Number(result)).toBeCloseTo(0.05, 2);
+  });
+
+  it('should correctly evaluate CHISQ.INV.RT function', () => {
+    const result = evaluate('=CHISQ.INV.RT(0.05,4)', undefined);
+    expect(Number(result)).toBeCloseTo(9.488, 1);
+  });
+
+  it('should correctly evaluate T.DIST.RT function', () => {
+    // Right tail of t(10) at x=2 ≈ 0.0368
+    const result = evaluate('=T.DIST.RT(2,10)', undefined);
+    expect(Number(result)).toBeCloseTo(0.0368, 2);
+  });
+
+  it('should correctly evaluate T.DIST.2T function', () => {
+    // Two-tailed at x=2, df=10 ≈ 0.0734
+    const result = evaluate('=T.DIST.2T(2,10)', undefined);
+    expect(Number(result)).toBeCloseTo(0.0734, 2);
+  });
+
+  it('should correctly evaluate T.INV.2T function', () => {
+    const result = evaluate('=T.INV.2T(0.05,10)', undefined);
+    expect(Number(result)).toBeCloseTo(2.228, 2);
+  });
+
+  it('should correctly evaluate F.DIST.RT function', () => {
+    const result = evaluate('=F.DIST.RT(2,5,10)', undefined);
+    expect(Number(result)).toBeCloseTo(0.1642, 2);
+  });
+
+  it('should correctly evaluate F.INV.RT function', () => {
+    const result = evaluate('=F.INV.RT(0.05,5,10)', undefined);
+    expect(Number(result)).toBeCloseTo(3.3258, 2);
+  });
+
+  it('should correctly evaluate BINOM.INV function', () => {
+    // BINOM.INV(10, 0.5, 0.75) — smallest k where CDF >= 0.75
+    const result = evaluate('=BINOM.INV(10,0.5,0.75)', undefined);
+    expect(Number(result)).toBe(6);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
