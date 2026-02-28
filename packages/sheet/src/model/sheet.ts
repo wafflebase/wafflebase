@@ -40,6 +40,7 @@ import {
   shiftDimensionMap,
   moveDimensionMap,
   relocateFormula,
+  redirectFormula,
 } from './shifting';
 import {
   isMergeSplitByMove,
@@ -233,6 +234,7 @@ export class Sheet {
     grid: Grid;
     rangeStyles: RangeStylePatch[];
     text: string;
+    isCut: boolean;
   };
 
   /**
@@ -2117,6 +2119,13 @@ export class Sheet {
   }
 
   /**
+   * `isCutMode` returns true if the current copy buffer is from a cut operation.
+   */
+  public isCutMode(): boolean {
+    return this.copyBuffer?.isCut === true;
+  }
+
+  /**
    * `clearCopyBuffer` clears the internal copy buffer.
    */
   public clearCopyBuffer(): void {
@@ -2133,7 +2142,20 @@ export class Sheet {
     const grid = await this.fetchGrid(range);
     const rangeStyles = clipRangeStylePatches(this.rangeStyles, range);
     const text = grid2string(grid);
-    this.copyBuffer = { sourceRange: range, grid, rangeStyles, text };
+    this.copyBuffer = { sourceRange: range, grid, rangeStyles, text, isCut: false };
+    return { text };
+  }
+
+  /**
+   * `cut` cuts the selected range and returns the TSV text for the system clipboard.
+   * Like copy, but marks the buffer so paste will clear the source cells.
+   */
+  public async cut(): Promise<{ text: string }> {
+    const range: Range = this.getRangeOrActiveCell();
+    const grid = await this.fetchGrid(range);
+    const rangeStyles = clipRangeStylePatches(this.rangeStyles, range);
+    const text = grid2string(grid);
+    this.copyBuffer = { sourceRange: range, grid, rangeStyles, text, isCut: true };
     return { text };
   }
 
@@ -2148,6 +2170,9 @@ export class Sheet {
     let grid: Grid;
     let rangeStylePatches: RangeStylePatch[] = [];
     let shouldInferPastedInput = false;
+    let isCut = false;
+    let cutSourceRange: Range | undefined;
+    let cutRefMap: Map<Sref, Sref> | undefined;
 
     if (this.copyBuffer && text === this.copyBuffer.text) {
       // Internal paste: relocate formulas based on position delta
@@ -2163,6 +2188,18 @@ export class Sheet {
         deltaRow,
         deltaCol,
       );
+
+      if (this.copyBuffer.isCut) {
+        isCut = true;
+        cutSourceRange = this.copyBuffer.sourceRange;
+        cutRefMap = this.buildCutRefMap(
+          this.copyBuffer.sourceRange,
+          deltaRow,
+          deltaCol,
+        );
+        // Cut pastes only once
+        this.copyBuffer = undefined;
+      }
     } else if (html && isSpreadsheetHtml(html)) {
       // Spreadsheet HTML paste (Google Sheets / Excel)
       grid = html2grid(html, this.activeCell);
@@ -2197,6 +2234,14 @@ export class Sheet {
         const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
         const dependantsMap = await this.store.buildDependantsMap(expanded);
         await calculate(this, dependantsMap, expanded);
+      }
+
+      // Cut-paste: clear source cells, remove source styles, redirect references
+      if (isCut && cutSourceRange && cutRefMap) {
+        await this.store.deleteRange(cutSourceRange);
+        this.removeRangeStylesOverlapping(cutSourceRange);
+        await this.store.setRangeStyles(this.rangeStyles);
+        await this.redirectFormulasForCut(cutRefMap);
       }
 
       if (this.filterRange) {
@@ -2239,6 +2284,64 @@ export class Sheet {
         { r: maxR, c: maxC },
       ];
       this.store.updateActiveCell(this.activeCell);
+    }
+  }
+
+  /**
+   * `buildCutRefMap` builds a mapping from source srefs to destination srefs
+   * for redirecting formula references after a cut-paste operation.
+   */
+  private buildCutRefMap(
+    sourceRange: Range,
+    deltaRow: number,
+    deltaCol: number,
+  ): Map<Sref, Sref> {
+    const refMap = new Map<Sref, Sref>();
+    for (let r = sourceRange[0].r; r <= sourceRange[1].r; r++) {
+      for (let c = sourceRange[0].c; c <= sourceRange[1].c; c++) {
+        const oldSref = toSref({ r, c });
+        const newSref = toSref({ r: r + deltaRow, c: c + deltaCol });
+        refMap.set(oldSref, newSref);
+      }
+    }
+    return refMap;
+  }
+
+  /**
+   * `removeRangeStylesOverlapping` removes range style patches that overlap
+   * with the given range. Used to clear styles from cut source cells.
+   */
+  private removeRangeStylesOverlapping(range: Range): void {
+    this.rangeStyles = this.rangeStyles.filter(
+      (patch) => !this.rangesIntersect(range, patch.range),
+    );
+  }
+
+  /**
+   * `redirectFormulasForCut` scans all formula cells and rewrites references
+   * that point to cells that were moved by a cut-paste operation.
+   */
+  private async redirectFormulasForCut(
+    refMap: Map<Sref, Sref>,
+  ): Promise<void> {
+    const formulaGrid = await this.store.getFormulaGrid();
+    const updatedGrid: Grid = new Map();
+    const changedSrefs = new Set<Sref>();
+
+    for (const [sref, cell] of formulaGrid) {
+      if (!cell.f) continue;
+      const newFormula = redirectFormula(cell.f, refMap);
+      if (newFormula !== cell.f) {
+        updatedGrid.set(sref, { ...cell, f: newFormula });
+        changedSrefs.add(sref);
+      }
+    }
+
+    if (updatedGrid.size > 0) {
+      await this.store.setGrid(updatedGrid);
+      const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+      const dependantsMap = await this.store.buildDependantsMap(expanded);
+      await calculate(this, dependantsMap, expanded);
     }
   }
 

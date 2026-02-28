@@ -3661,6 +3661,13 @@ export class Worksheet {
     await navigator.clipboard.writeText(text);
   }
 
+  private async cut(): Promise<void> {
+    if (this.readOnly) return;
+    const { text } = await this.sheet!.cut();
+    await navigator.clipboard.writeText(text);
+    this.renderOverlay();
+  }
+
   private async paste(): Promise<void> {
     try {
       let text: string | undefined;
@@ -3841,6 +3848,14 @@ export class Worksheet {
         run: async (event) => {
           event.preventDefault();
           await this.copy();
+        },
+      },
+      {
+        match: (event) => matchesKeyCombo(event, { key: 'x', mod: true }),
+        run: async (event) => {
+          if (this.readOnly) return;
+          event.preventDefault();
+          await this.cut();
         },
       },
       {
@@ -4107,6 +4122,7 @@ export class Worksheet {
       this.freezeState,
       this.freezeDrag,
       this.sheet!.getCopyRange(),
+      this.sheet!.isCutMode(),
       this.autofillPreview,
       this.shouldShowAutofillHandle(),
       this.sheet!.getMerges(),

@@ -65,6 +65,7 @@ export class Overlay {
     freeze: FreezeState = NoFreeze,
     freezeDrag?: { axis: 'row' | 'column'; targetIndex: number } | null,
     copyRange?: Range,
+    isCut: boolean = false,
     autofillPreview?: Range,
     showAutofillHandle: boolean = true,
     merges?: Map<string, MergeSpan>,
@@ -112,7 +113,7 @@ export class Overlay {
       );
       this.renderFilterRangeSimple(ctx, filterRange, scroll, rowDim, colDim);
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
-      this.renderCopyRangeSimple(ctx, copyRange, scroll, rowDim, colDim);
+      this.renderCopyRangeSimple(ctx, copyRange, isCut, scroll, rowDim, colDim);
     } else {
       // Freeze: render per-quadrant with clipping
       const quadrants = this.buildQuadrants(port, scroll, freeze, rowDim, colDim);
@@ -229,7 +230,7 @@ export class Overlay {
           ctx.clip();
 
           const qScroll = { left: q.scrollLeft, top: q.scrollTop };
-          this.drawCopyRangeBorder(ctx, copyRange, qScroll, rowDim, colDim);
+          this.drawCopyRangeBorder(ctx, copyRange, isCut, qScroll, rowDim, colDim);
 
           ctx.restore();
         }
@@ -484,17 +485,19 @@ export class Overlay {
   private renderCopyRangeSimple(
     ctx: CanvasRenderingContext2D,
     copyRange: Range | undefined,
+    isCut: boolean,
     scroll: { left: number; top: number },
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
   ): void {
     if (!copyRange) return;
-    this.drawCopyRangeBorder(ctx, copyRange, scroll, rowDim, colDim);
+    this.drawCopyRangeBorder(ctx, copyRange, isCut, scroll, rowDim, colDim);
   }
 
   private drawCopyRangeBorder(
     ctx: CanvasRenderingContext2D,
     copyRange: Range,
+    isCut: boolean,
     scroll: { left: number; top: number },
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
@@ -508,6 +511,11 @@ export class Overlay {
     ctx.setLineDash([5, 3]);
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
     ctx.setLineDash([]);
+
+    if (isCut) {
+      ctx.fillStyle = this.getThemeColor('activeCellColor') + '15';
+      ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+    }
   }
 
   // ---- Freeze-aware selection rendering ----

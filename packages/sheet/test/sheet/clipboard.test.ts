@@ -251,3 +251,178 @@ describe('Sheet.paste - formula recalculation', () => {
     expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('20');
   });
 });
+
+describe('Sheet.cut', () => {
+  it('should return TSV text of selected range', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 1, c: 2 }, '20');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    const { text } = await sheet.cut();
+    expect(text).toBe('10\t20');
+  });
+
+  it('should set cut mode', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    sheet.selectStart({ r: 1, c: 1 });
+
+    expect(sheet.isCutMode()).toBe(false);
+    await sheet.cut();
+    expect(sheet.isCutMode()).toBe(true);
+  });
+
+  it('should not be in cut mode after copy', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    sheet.selectStart({ r: 1, c: 1 });
+
+    await sheet.cut();
+    expect(sheet.isCutMode()).toBe(true);
+
+    await sheet.copy();
+    expect(sheet.isCutMode()).toBe(false);
+  });
+
+  it('should clear cut mode on clearCopyBuffer', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    sheet.selectStart({ r: 1, c: 1 });
+
+    await sheet.cut();
+    expect(sheet.isCutMode()).toBe(true);
+
+    sheet.clearCopyBuffer();
+    expect(sheet.isCutMode()).toBe(false);
+  });
+});
+
+describe('Sheet.cut & paste', () => {
+  it('should clear source cells after cut-paste', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 1, c: 2 }, '20');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    const { text } = await sheet.cut();
+
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    // Destination has values
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('20');
+
+    // Source is cleared
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('');
+  });
+
+  it('should relocate formula on cut-paste', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 2, c: 1 }, '=A1+5');
+
+    sheet.selectStart({ r: 2, c: 1 });
+    const { text } = await sheet.cut();
+
+    sheet.selectStart({ r: 4, c: 1 });
+    await sheet.paste({ text });
+
+    // Formula relocated
+    expect(await sheet.toInputString({ r: 4, c: 1 })).toBe('=A3+5');
+    // Source cleared
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
+  });
+
+  it('should redirect dependent formulas after cut-paste', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 2, c: 1 }, '=A1*2'); // depends on A1
+
+    // Cut A1 to C1
+    sheet.selectStart({ r: 1, c: 1 });
+    const { text } = await sheet.cut();
+
+    sheet.selectStart({ r: 1, c: 3 });
+    await sheet.paste({ text });
+
+    // A2's formula should now reference C1 instead of A1
+    expect(await sheet.toInputString({ r: 2, c: 1 })).toBe('=C1*2');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('20');
+  });
+
+  it('should redirect range references in dependent formulas', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 2, c: 1 }, '20');
+    await sheet.setData({ r: 3, c: 1 }, '30');
+    await sheet.setData({ r: 4, c: 1 }, '=SUM(A1:A3)');
+
+    // Cut A1:A3 to C1:C3
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 1 });
+    const { text } = await sheet.cut();
+
+    sheet.selectStart({ r: 1, c: 3 });
+    await sheet.paste({ text });
+
+    // A4's formula should now reference C1:C3
+    expect(await sheet.toInputString({ r: 4, c: 1 })).toBe('=SUM(C1:C3)');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('60');
+  });
+
+  it('should clear cut mode after paste (single use)', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    const { text } = await sheet.cut();
+    expect(sheet.isCutMode()).toBe(true);
+
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.paste({ text });
+    expect(sheet.isCutMode()).toBe(false);
+  });
+
+  it('should clear source styles after cut-paste', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.setRangeStyle({ b: true, bg: '#ff0000' });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    const { text } = await sheet.cut();
+
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    // Destination has style
+    expect(await sheet.getStyle({ r: 3, c: 1 })).toEqual({
+      b: true,
+      bg: '#ff0000',
+    });
+
+    // Source style is cleared
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toBeUndefined();
+  });
+
+  it('should not clear source on copy-paste (only cut)', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    const { text } = await sheet.copy();
+
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.paste({ text });
+
+    // Source still has value (copy, not cut)
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+  });
+});

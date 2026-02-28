@@ -196,6 +196,51 @@ export function relocateFormula(
 }
 
 /**
+ * `redirectFormula` rewrites cell references in a formula using an explicit
+ * old->new mapping. Used when cut-pasting cells so that other formulas
+ * pointing at the moved cells are updated to the new locations.
+ *
+ * Range references (e.g. `A1:B3`) are only redirected when both endpoints
+ * appear in the map. Cross-sheet references are never redirected.
+ */
+export function redirectFormula(
+  formula: string,
+  refMap: Map<Sref, Sref>,
+): string {
+  const tokens = extractTokens(formula);
+
+  let result = '=';
+  for (const token of tokens) {
+    if (token.type === 'REFERENCE') {
+      const text = token.text;
+      if (text.includes('!')) {
+        // Cross-sheet ref — don't redirect
+        result += text;
+      } else if (text.includes(':')) {
+        const [startStr, endStr] = text.split(':');
+        const startSref = toSref(parseRef(startStr.toUpperCase()));
+        const endSref = toSref(parseRef(endStr.toUpperCase()));
+        const newStart = refMap.get(startSref);
+        const newEnd = refMap.get(endSref);
+        if (newStart && newEnd) {
+          result += newStart + ':' + newEnd;
+        } else {
+          result += text;
+        }
+      } else {
+        const sref = toSref(parseRef(text.toUpperCase()));
+        const newSref = refMap.get(sref);
+        result += newSref ?? text;
+      }
+    } else {
+      result += token.text;
+    }
+  }
+
+  return result;
+}
+
+/**
  * `shiftRef` shifts a Ref along the given axis.
  * Returns `null` if the ref falls in a deleted zone.
  *
