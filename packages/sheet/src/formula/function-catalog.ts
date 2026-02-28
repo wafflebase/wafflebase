@@ -757,6 +757,41 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Calculates the number of days, months, or years between two dates',
     args: [{ name: 'start_date' }, { name: 'end_date' }, { name: 'unit' }],
   },
+  {
+    name: 'ROW',
+    description: 'Returns the row number of a reference',
+    args: [{ name: 'reference', optional: true }],
+  },
+  {
+    name: 'COLUMN',
+    description: 'Returns the column number of a reference',
+    args: [{ name: 'reference', optional: true }],
+  },
+  {
+    name: 'ROWS',
+    description: 'Returns the number of rows in a range',
+    args: [{ name: 'range' }],
+  },
+  {
+    name: 'COLUMNS',
+    description: 'Returns the number of columns in a range',
+    args: [{ name: 'range' }],
+  },
+  {
+    name: 'ADDRESS',
+    description: 'Returns a cell reference as text given row and column numbers',
+    args: [
+      { name: 'row' },
+      { name: 'column' },
+      { name: 'abs_num', optional: true },
+      { name: 'a1', optional: true },
+    ],
+  },
+  {
+    name: 'HYPERLINK',
+    description: 'Creates a hyperlink in a cell',
+    args: [{ name: 'url' }, { name: 'link_label', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -793,7 +828,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'TYPE',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
-  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK']),
   Math: new Set([
     'SUM',
     'ABS',

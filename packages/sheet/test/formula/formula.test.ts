@@ -952,6 +952,49 @@ describe('Formula', () => {
     expect(evaluate('=DATEDIF("2024-06-01","2024-01-01","D")')).toBe('#VALUE!');
   });
 
+  it('should correctly evaluate ROW function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A5', { v: '10' });
+    expect(evaluate('=ROW(A5)', grid)).toBe('5');
+    expect(evaluate('=ROW(B10)', grid)).toBe('10');
+  });
+
+  it('should correctly evaluate COLUMN function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('C1', { v: '10' });
+    expect(evaluate('=COLUMN(A1)', grid)).toBe('1');
+    expect(evaluate('=COLUMN(C1)', grid)).toBe('3');
+  });
+
+  it('should correctly evaluate ROWS function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    expect(evaluate('=ROWS(A1:A5)', grid)).toBe('5');
+    expect(evaluate('=ROWS(A1:C3)', grid)).toBe('3');
+    expect(evaluate('=ROWS(A1)', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate COLUMNS function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    expect(evaluate('=COLUMNS(A1:C1)', grid)).toBe('3');
+    expect(evaluate('=COLUMNS(A1:C3)', grid)).toBe('3');
+    expect(evaluate('=COLUMNS(A1)', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate ADDRESS function', () => {
+    expect(evaluate('=ADDRESS(1,1)')).toBe('$A$1');
+    expect(evaluate('=ADDRESS(1,1,2)')).toBe('A$1');
+    expect(evaluate('=ADDRESS(1,1,3)')).toBe('$A1');
+    expect(evaluate('=ADDRESS(1,1,4)')).toBe('A1');
+    expect(evaluate('=ADDRESS(5,27)')).toBe('$AA$5');
+  });
+
+  it('should correctly evaluate HYPERLINK function', () => {
+    expect(evaluate('=HYPERLINK("https://example.com","Click")')).toBe('Click');
+    expect(evaluate('=HYPERLINK("https://example.com")')).toBe('https://example.com');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

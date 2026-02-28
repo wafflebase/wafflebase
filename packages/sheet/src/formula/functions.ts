@@ -8,6 +8,8 @@ import {
   isSrng,
   parseCrossSheetRef,
   parseRange,
+  parseRef,
+  toColumnLabel,
   toSref,
   toSrefs,
 } from '../model/coordinates';
@@ -133,6 +135,12 @@ export const FunctionMap = new Map([
   ['DATEVALUE', datevalueFunc],
   ['TIMEVALUE', timevalueFunc],
   ['DATEDIF', datedifFunc],
+  ['ROW', rowFunc],
+  ['COLUMN', columnFunc],
+  ['ROWS', rowsFunc],
+  ['COLUMNS', columnsFunc],
+  ['ADDRESS', addressFunc],
+  ['HYPERLINK', hyperlinkFunc],
 ]);
 
 /**
@@ -4906,4 +4914,262 @@ export function datedifFunc(
   }
 
   return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * ROW([reference]) — returns the row number of a reference.
+ */
+export function rowFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args || args.expr().length === 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t !== 'ref') {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const refStr = isSrng(node.v) ? node.v.split(':')[0] : node.v;
+  let localRef = refStr;
+  if (isCrossSheetRef(refStr)) {
+    localRef = parseCrossSheetRef(refStr).localRef;
+  }
+
+  try {
+    const ref = parseRef(localRef);
+    return { t: 'num', v: ref.r };
+  } catch {
+    return { t: 'err', v: '#REF!' };
+  }
+}
+
+/**
+ * COLUMN([reference]) — returns the column number of a reference.
+ */
+export function columnFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args || args.expr().length === 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t !== 'ref') {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const refStr = isSrng(node.v) ? node.v.split(':')[0] : node.v;
+  let localRef = refStr;
+  if (isCrossSheetRef(refStr)) {
+    localRef = parseCrossSheetRef(refStr).localRef;
+  }
+
+  try {
+    const ref = parseRef(localRef);
+    return { t: 'num', v: ref.c };
+  } catch {
+    return { t: 'err', v: '#REF!' };
+  }
+}
+
+/**
+ * ROWS(range) — returns the number of rows in a range.
+ */
+export function rowsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t !== 'ref') {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  if (!isSrng(node.v)) {
+    return { t: 'num', v: 1 };
+  }
+
+  let localRange = node.v;
+  if (isCrossSheetRef(node.v)) {
+    localRange = parseCrossSheetRef(node.v).localRef;
+  }
+
+  try {
+    const [from, to] = parseRange(localRange);
+    return { t: 'num', v: Math.abs(to.r - from.r) + 1 };
+  } catch {
+    return { t: 'err', v: '#REF!' };
+  }
+}
+
+/**
+ * COLUMNS(range) — returns the number of columns in a range.
+ */
+export function columnsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t !== 'ref') {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  if (!isSrng(node.v)) {
+    return { t: 'num', v: 1 };
+  }
+
+  let localRange = node.v;
+  if (isCrossSheetRef(node.v)) {
+    localRange = parseCrossSheetRef(node.v).localRef;
+  }
+
+  try {
+    const [from, to] = parseRange(localRange);
+    return { t: 'num', v: Math.abs(to.c - from.c) + 1 };
+  } catch {
+    return { t: 'err', v: '#REF!' };
+  }
+}
+
+/**
+ * ADDRESS(row, column, [abs_num]) — returns a cell reference as a string.
+ */
+export function addressFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 4) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const rowNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (rowNode.t === 'err') {
+    return rowNode;
+  }
+  const colNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (colNode.t === 'err') {
+    return colNode;
+  }
+
+  const row = Math.trunc(rowNode.v);
+  const col = Math.trunc(colNode.v);
+  if (row < 1 || col < 1) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let absNum = 1;
+  if (exprs.length >= 3) {
+    const absNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (absNode.t === 'err') {
+      return absNode;
+    }
+    absNum = Math.trunc(absNode.v);
+  }
+
+  const colLabel = toColumnLabel(col);
+
+  switch (absNum) {
+    case 1:
+      return { t: 'str', v: `$${colLabel}$${row}` };
+    case 2:
+      return { t: 'str', v: `${colLabel}$${row}` };
+    case 3:
+      return { t: 'str', v: `$${colLabel}${row}` };
+    case 4:
+      return { t: 'str', v: `${colLabel}${row}` };
+    default:
+      return { t: 'err', v: '#VALUE!' };
+  }
+}
+
+/**
+ * HYPERLINK(url, [link_label]) — creates a hyperlink. Returns the label text.
+ */
+export function hyperlinkFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const url = toStr(visit(exprs[0]), grid);
+  if (url.t === 'err') {
+    return url;
+  }
+
+  if (exprs.length === 2) {
+    const label = toStr(visit(exprs[1]), grid);
+    if (label.t === 'err') {
+      return label;
+    }
+    return { t: 'str', v: label.v };
+  }
+
+  return { t: 'str', v: url.v };
 }
