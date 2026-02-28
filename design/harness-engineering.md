@@ -17,10 +17,12 @@ maintainable software. Where context engineering asks *what should the agent
 see*, harness engineering asks *what should the system prevent, measure, and
 correct*.
 
-As of 2026-02-28, phases 1 through 19 are completed. Browser visual and
-interaction lanes are integrated into `verify:self` with graceful Chromium
-skip. Structured JSON lane reports are generated per lane and as a summary.
-Remaining phases focus on evidence automation and observability.
+As of 2026-02-28, phases 1 through 19 and 22 are completed. Browser visual
+and interaction lanes are integrated into `verify:self` with graceful
+Chromium skip. Structured JSON lane reports are generated per lane and as a
+summary. Dependency freshness (vulnerability + outdated package detection) is
+integrated into `verify:entropy`. Remaining phases focus on PR evidence
+automation and agent observability.
 
 ## Principles
 
@@ -179,7 +181,7 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
-## Completed Phases (1-19)
+## Completed Phases (1-19, 22)
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -204,6 +206,7 @@ database → auth/user/document → controllers/modules
 | 18 | Entropy detection automation (dead-code + doc-staleness) | Completed |
 | 18a | Browser lanes integrated into verify:self (graceful Chromium skip) | Completed |
 | 19 | Harness report artifacts (per-lane JSON + summary via verify-self runner) | Completed |
+| 22 | Dependency freshness detection (vulnerability + outdated in verify:entropy) | Completed |
 
 Phase 17 delivered:
 - Shared integration test helpers (`packages/backend/test/helpers/integration-helpers.ts`):
@@ -225,7 +228,7 @@ Detailed task records:
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
 | C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Playwright CI provisioning deferred |
 | D | Agent-oriented contracts | Information Accessibility | In progress | Structured lane reports delivered (Phase 19); agent observability next (Phase 21) |
-| E | Entropy cleanup loop | Entropy Management | In progress | Dead-code + doc-staleness delivered; dependency freshness next |
+| E | Entropy cleanup loop | Entropy Management | Completed | Dead-code + doc-staleness + dependency freshness delivered |
 
 ## Remaining Work
 
@@ -257,21 +260,6 @@ Deliverables:
 Done criteria: An agent can diagnose a CI failure from report artifacts
 without human interpretation.
 
-### Phase 22: Dependency Freshness Detection
-
-**Principle:** Entropy Management — automate the detection of codebase decay.
-
-Goal: Surface outdated or vulnerable dependencies automatically.
-
-Deliverables:
-- Dependency freshness report (outdated/vulnerable packages).
-
-Done criteria: Dependency freshness signals surfaced automatically in CI or
-periodic reports.
-
-Note: Dead-code and doc-staleness gates were delivered in Phase 18 as `pnpm
-verify:entropy`.
-
 ## Harness Policy
 
 Harness policy is managed in `harness.config.json`:
@@ -286,7 +274,8 @@ Harness policy is managed in `harness.config.json`:
   },
   "entropy": {
     "deadCode": { "enabled": true },
-    "docStaleness": { "enabled": true, "designDir": "design" }
+    "docStaleness": { "enabled": true, "designDir": "design" },
+    "dependencyFreshness": { "enabled": true, "failOnCritical": false }
   }
 }
 ```
@@ -296,7 +285,9 @@ Frontend chunk environment overrides:
 - `FRONTEND_CHUNK_COUNT_LIMIT`
 
 Entropy detectors default to enabled; set `"enabled": false` to disable
-individually for debugging.
+individually for debugging. Dependency freshness `failOnCritical` controls
+whether critical vulnerabilities fail the gate (currently `false` due to
+transitive dependency vulnerabilities in build/test tooling).
 
 ## Definition of Harness v1 Completion
 

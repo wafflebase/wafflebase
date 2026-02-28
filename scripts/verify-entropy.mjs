@@ -212,6 +212,70 @@ async function runKnip() {
   };
 }
 
+async function runDependencyFreshness(failOnCritical) {
+  const findings = [];
+
+  // Run pnpm audit
+  const auditResult = await spawnAsync(
+    "pnpm",
+    ["audit", "--json"],
+    { cwd: repoRoot, maxBuffer: 10 * 1024 * 1024 },
+  );
+
+  let vulnCounts = { info: 0, low: 0, moderate: 0, high: 0, critical: 0 };
+  if (auditResult.stdout && auditResult.stdout.trim()) {
+    try {
+      const auditReport = JSON.parse(auditResult.stdout);
+      vulnCounts = auditReport.metadata?.vulnerabilities ?? vulnCounts;
+    } catch {
+      // pnpm audit may output non-JSON on some errors
+    }
+  }
+
+  const totalVulns = vulnCounts.low + vulnCounts.moderate + vulnCounts.high + vulnCounts.critical;
+  if (totalVulns > 0) {
+    const parts = [];
+    if (vulnCounts.low > 0) parts.push(`${vulnCounts.low} low`);
+    if (vulnCounts.moderate > 0) parts.push(`${vulnCounts.moderate} moderate`);
+    if (vulnCounts.high > 0) parts.push(`${vulnCounts.high} high`);
+    if (vulnCounts.critical > 0) parts.push(`${vulnCounts.critical} critical`);
+    console.log(`${PREFIX}   Vulnerabilities: ${parts.join(", ")}`);
+  } else {
+    console.log(`${PREFIX}   Vulnerabilities: none`);
+  }
+
+  // Run pnpm outdated
+  const outdatedResult = await spawnAsync(
+    "pnpm",
+    ["outdated", "--recursive", "--json"],
+    { cwd: repoRoot, maxBuffer: 10 * 1024 * 1024 },
+  );
+
+  let outdatedCount = 0;
+  if (outdatedResult.stdout && outdatedResult.stdout.trim()) {
+    try {
+      const outdatedReport = JSON.parse(outdatedResult.stdout);
+      outdatedCount = Object.keys(outdatedReport).length;
+    } catch {
+      // pnpm outdated may output non-JSON on some errors
+    }
+  }
+
+  console.log(`${PREFIX}   Outdated packages: ${outdatedCount}`);
+
+  // Only fail on critical vulnerabilities
+  if (failOnCritical && vulnCounts.critical > 0) {
+    findings.push(
+      `${vulnCounts.critical} critical vulnerabilities found (run \`pnpm audit\` for details)`,
+    );
+  }
+
+  return {
+    passed: findings.length === 0,
+    findings,
+  };
+}
+
 async function readHarnessConfig() {
   try {
     const raw = await readFile(harnessConfigPath, "utf8");
@@ -259,6 +323,23 @@ async function main() {
       `${PREFIX} Doc staleness: ${stalenessResult.findings.length} issues found.`,
     );
     totalFindings = totalFindings.concat(stalenessResult.findings);
+  }
+
+  // Dependency freshness check
+  if (entropyConfig.dependencyFreshness?.enabled !== false) {
+    const failOnCritical =
+      entropyConfig.dependencyFreshness?.failOnCritical !== false;
+    console.log(`${PREFIX} Running dependency freshness check...`);
+    const freshnessResult = await runDependencyFreshness(failOnCritical);
+    if (freshnessResult.findings.length > 0) {
+      for (const finding of freshnessResult.findings) {
+        console.log(`${PREFIX}   ${finding}`);
+      }
+    }
+    console.log(
+      `${PREFIX} Dependency freshness: ${freshnessResult.findings.length} issues found.`,
+    );
+    totalFindings = totalFindings.concat(freshnessResult.findings);
   }
 
   if (totalFindings.length === 0) {

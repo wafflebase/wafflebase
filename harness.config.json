@@ -12,6 +12,10 @@
     "docStaleness": {
       "enabled": true,
       "designDir": "design"
+    },
+    "dependencyFreshness": {
+      "enabled": true,
+      "failOnCritical": false
     }
   }
 }

@@ -21,4 +21,4 @@ captures per-lane timing, status, and failure summaries.
 - [x] `package.json` verify:self updated to use runner
 - [x] Local `pnpm verify:self` passes with reports generated
 - [x] `design/harness-engineering.md` Phase 19 marked complete
-- [ ] Task files archived
+- [x] Task files archived
