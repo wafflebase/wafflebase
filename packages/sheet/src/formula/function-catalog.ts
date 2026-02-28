@@ -571,6 +571,26 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Converts an angle from degrees to radians',
     args: [{ name: 'angle' }],
   },
+  {
+    name: 'CEILING',
+    description: 'Rounds a number up to the nearest multiple of significance',
+    args: [{ name: 'number' }, { name: 'significance', optional: true }],
+  },
+  {
+    name: 'FLOOR',
+    description: 'Rounds a number down to the nearest multiple of significance',
+    args: [{ name: 'number' }, { name: 'significance', optional: true }],
+  },
+  {
+    name: 'TRUNC',
+    description: 'Truncates a number to a given number of decimal places',
+    args: [{ name: 'number' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'MROUND',
+    description: 'Rounds a number to the nearest specified multiple',
+    args: [{ name: 'number' }, { name: 'multiple' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -634,6 +654,10 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ATAN2',
     'DEGREES',
     'RADIANS',
+    'CEILING',
+    'FLOOR',
+    'TRUNC',
+    'MROUND',
   ]),
   Statistical: new Set(['AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'MEDIAN']),
   Text: new Set([

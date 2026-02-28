@@ -101,6 +101,10 @@ export const FunctionMap = new Map([
   ['ATAN2', atan2Func],
   ['DEGREES', degreesFunc],
   ['RADIANS', radiansFunc],
+  ['CEILING', ceilingFunc],
+  ['FLOOR', floorFunc],
+  ['TRUNC', truncFunc],
+  ['MROUND', mroundFunc],
 ]);
 
 /**
@@ -3529,4 +3533,165 @@ export function radiansFunc(
   }
 
   return { t: 'num', v: (num.v * Math.PI) / 180 };
+}
+
+/**
+ * CEILING(number, [significance]) — rounds a number up to the nearest multiple of significance.
+ */
+export function ceilingFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  let significance = 1;
+  if (exprs.length === 2) {
+    const sigNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (sigNode.t === 'err') {
+      return sigNode;
+    }
+    significance = sigNode.v;
+  }
+
+  if (significance === 0) {
+    return { t: 'num', v: 0 };
+  }
+
+  if (num.v > 0 && significance < 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.ceil(num.v / significance) * significance };
+}
+
+/**
+ * FLOOR(number, [significance]) — rounds a number down to the nearest multiple of significance.
+ */
+export function floorFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  let significance = 1;
+  if (exprs.length === 2) {
+    const sigNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (sigNode.t === 'err') {
+      return sigNode;
+    }
+    significance = sigNode.v;
+  }
+
+  if (significance === 0) {
+    return { t: 'num', v: 0 };
+  }
+
+  if (num.v > 0 && significance < 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.floor(num.v / significance) * significance };
+}
+
+/**
+ * TRUNC(number, [places]) — truncates a number to a given number of decimal places.
+ */
+export function truncFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  let places = 0;
+  if (exprs.length === 2) {
+    const placesNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (placesNode.t === 'err') {
+      return placesNode;
+    }
+    places = Math.trunc(placesNode.v);
+  }
+
+  const factor = Math.pow(10, places);
+  return { t: 'num', v: Math.trunc(num.v * factor) / factor };
+}
+
+/**
+ * MROUND(number, multiple) — rounds a number to the nearest specified multiple.
+ */
+export function mroundFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  const multiple = NumberArgs.map(visit(exprs[1]), grid);
+  if (multiple.t === 'err') {
+    return multiple;
+  }
+
+  if (multiple.v === 0) {
+    return { t: 'num', v: 0 };
+  }
+
+  if ((num.v > 0 && multiple.v < 0) || (num.v < 0 && multiple.v > 0)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.round(num.v / multiple.v) * multiple.v };
 }

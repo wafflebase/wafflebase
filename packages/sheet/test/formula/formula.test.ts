@@ -718,6 +718,38 @@ describe('Formula', () => {
     expect(evaluate('=RADIANS(0)')).toBe('0');
   });
 
+  it('should correctly evaluate CEILING function', () => {
+    expect(evaluate('=CEILING(2.5,1)')).toBe('3');
+    expect(evaluate('=CEILING(1.5,0.5)')).toBe('1.5');
+    expect(evaluate('=CEILING(0-2.5,1)')).toBe('-2');
+    expect(evaluate('=CEILING(2.5,0)')).toBe('0');
+    expect(evaluate('=CEILING(2.5,0-1)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate FLOOR function', () => {
+    expect(evaluate('=FLOOR(2.5,1)')).toBe('2');
+    expect(evaluate('=FLOOR(1.7,0.5)')).toBe('1.5');
+    expect(evaluate('=FLOOR(0-2.5,1)')).toBe('-3');
+    expect(evaluate('=FLOOR(2.5,0)')).toBe('0');
+    expect(evaluate('=FLOOR(2.5,0-1)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate TRUNC function', () => {
+    expect(evaluate('=TRUNC(8.9)')).toBe('8');
+    expect(evaluate('=TRUNC(0-8.9)')).toBe('-8');
+    expect(evaluate('=TRUNC(1.234,2)')).toBe('1.23');
+    expect(evaluate('=TRUNC(1234,0-2)')).toBe('1200');
+  });
+
+  it('should correctly evaluate MROUND function', () => {
+    expect(evaluate('=MROUND(10,3)')).toBe('9');
+    expect(evaluate('=MROUND(12,5)')).toBe('10');
+    expect(evaluate('=MROUND(13,5)')).toBe('15');
+    expect(evaluate('=MROUND(0-10,0-3)')).toBe('-9');
+    expect(evaluate('=MROUND(10,0-3)')).toBe('#VALUE!');
+    expect(evaluate('=MROUND(10,0)')).toBe('0');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
