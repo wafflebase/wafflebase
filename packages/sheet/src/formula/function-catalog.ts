@@ -1170,6 +1170,93 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the number of permutations for a given number of objects',
     args: [{ name: 'n' }, { name: 'k' }],
   },
+  {
+    name: 'PMT',
+    description: 'Returns the periodic payment for an annuity',
+    args: [
+      { name: 'rate' },
+      { name: 'nper' },
+      { name: 'pv' },
+      { name: 'fv', optional: true },
+      { name: 'type', optional: true },
+    ],
+  },
+  {
+    name: 'FV',
+    description: 'Returns the future value of an investment',
+    args: [
+      { name: 'rate' },
+      { name: 'nper' },
+      { name: 'pmt' },
+      { name: 'pv', optional: true },
+      { name: 'type', optional: true },
+    ],
+  },
+  {
+    name: 'PV',
+    description: 'Returns the present value of an investment',
+    args: [
+      { name: 'rate' },
+      { name: 'nper' },
+      { name: 'pmt' },
+      { name: 'fv', optional: true },
+      { name: 'type', optional: true },
+    ],
+  },
+  {
+    name: 'NPV',
+    description: 'Returns the net present value of an investment',
+    args: [
+      { name: 'rate' },
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'NPER',
+    description: 'Returns the number of periods for an investment',
+    args: [
+      { name: 'rate' },
+      { name: 'pmt' },
+      { name: 'pv' },
+      { name: 'fv', optional: true },
+      { name: 'type', optional: true },
+    ],
+  },
+  {
+    name: 'IPMT',
+    description: 'Returns the interest portion of a payment',
+    args: [
+      { name: 'rate' },
+      { name: 'period' },
+      { name: 'nper' },
+      { name: 'pv' },
+      { name: 'fv', optional: true },
+      { name: 'type', optional: true },
+    ],
+  },
+  {
+    name: 'PPMT',
+    description: 'Returns the principal portion of a payment',
+    args: [
+      { name: 'rate' },
+      { name: 'period' },
+      { name: 'nper' },
+      { name: 'pv' },
+      { name: 'fv', optional: true },
+      { name: 'type', optional: true },
+    ],
+  },
+  {
+    name: 'SLN',
+    description: 'Returns the straight-line depreciation of an asset',
+    args: [{ name: 'cost' }, { name: 'salvage' }, { name: 'life' }],
+  },
+  {
+    name: 'EFFECT',
+    description: 'Returns the effective annual interest rate',
+    args: [{ name: 'nominal_rate' }, { name: 'periods_per_year' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1197,6 +1284,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WORKDAY',
     'YEARFRAC',
   ]),
+  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT']),
   Info: new Set([
     'ISBLANK',
     'ISNUMBER',

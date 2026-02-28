@@ -1393,6 +1393,59 @@ describe('Formula', () => {
     expect(evaluate('=PERMUT(4,4)')).toBe('24'); // 4! = 24
   });
 
+  // --- Batch 16: Financial functions ---
+  it('should correctly evaluate PMT function', () => {
+    // PMT(0.05/12, 360, 200000) — monthly payment on $200k mortgage at 5%
+    const result = evaluate('=PMT(0.05/12,360,200000)');
+    expect(Number(result)).toBeCloseTo(-1073.64, 1);
+  });
+
+  it('should correctly evaluate FV function', () => {
+    // FV(0.06/12, 120, 0-200, 0) — $200/month at 6% for 10 years
+    const result = evaluate('=FV(0.06/12,120,0-200,0)');
+    expect(Number(result)).toBeCloseTo(32775.87, 0);
+  });
+
+  it('should correctly evaluate PV function', () => {
+    // PV(0.08/12, 240, 0-500) — present value of $500/month at 8% for 20 years
+    const result = evaluate('=PV(0.08/12,240,0-500)');
+    expect(Number(result)).toBeCloseTo(59777.15, 0);
+  });
+
+  it('should correctly evaluate NPV function', () => {
+    // NPV(0.1, 100, 200, 300) — cash flows at 10% discount
+    const result = evaluate('=NPV(0.1,100,200,300)');
+    expect(Number(result)).toBeCloseTo(481.59, 1);
+  });
+
+  it('should correctly evaluate NPER function', () => {
+    // NPER(0.06/12, 0-200, 10000) — how many months to pay off $10k at 6%
+    const result = evaluate('=NPER(0.06/12,0-200,10000)');
+    expect(Number(result)).toBeCloseTo(57.68, 1);
+  });
+
+  it('should correctly evaluate IPMT function', () => {
+    // IPMT(0.1/12, 1, 36, 8000) — interest in period 1 on $8000 loan at 10%
+    const result = evaluate('=IPMT(0.1/12,1,36,8000)');
+    expect(Number(result)).toBeCloseTo(66.67, 1);
+  });
+
+  it('should correctly evaluate PPMT function', () => {
+    // PPMT(0.1/12, 1, 36, 8000) — principal in period 1 on $8000 loan at 10%
+    const result = evaluate('=PPMT(0.1/12,1,36,8000)');
+    expect(Number(result)).toBeCloseTo(-324.76, 0);
+  });
+
+  it('should correctly evaluate SLN function', () => {
+    expect(evaluate('=SLN(10000,1000,5)')).toBe('1800'); // (10000-1000)/5
+  });
+
+  it('should correctly evaluate EFFECT function', () => {
+    // EFFECT(0.1, 4) — 10% nominal compounded quarterly
+    const result = evaluate('=EFFECT(0.1,4)');
+    expect(Number(result)).toBeCloseTo(0.10381, 4);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

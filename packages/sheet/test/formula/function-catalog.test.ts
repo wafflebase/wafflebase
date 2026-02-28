@@ -151,6 +151,15 @@ describe('FunctionCatalog', () => {
       expect(findFunction('DEVSQ')!.name).toBe('DEVSQ');
       expect(findFunction('TRIMMEAN')!.name).toBe('TRIMMEAN');
       expect(findFunction('PERMUT')!.name).toBe('PERMUT');
+      expect(findFunction('PMT')!.name).toBe('PMT');
+      expect(findFunction('FV')!.name).toBe('FV');
+      expect(findFunction('PV')!.name).toBe('PV');
+      expect(findFunction('NPV')!.name).toBe('NPV');
+      expect(findFunction('NPER')!.name).toBe('NPER');
+      expect(findFunction('IPMT')!.name).toBe('IPMT');
+      expect(findFunction('PPMT')!.name).toBe('PPMT');
+      expect(findFunction('SLN')!.name).toBe('SLN');
+      expect(findFunction('EFFECT')!.name).toBe('EFFECT');
     });
 
     it('should return undefined for unknown function', () => {
@@ -165,6 +174,7 @@ describe('FunctionCatalog', () => {
       expect(findFunction('TODAY')!.category).toBe('Date');
       expect(findFunction('LEN')!.category).toBe('Text');
       expect(findFunction('ISERROR')!.category).toBe('Info');
+      expect(findFunction('PMT')!.category).toBe('Financial');
     });
   });
 
@@ -172,6 +182,7 @@ describe('FunctionCatalog', () => {
     it('should return used categories in Google Sheets order', () => {
       expect(listFunctionCategories()).toEqual([
         'Date',
+        'Financial',
         'Info',
         'Logical',
         'Lookup',
