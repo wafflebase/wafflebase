@@ -15,7 +15,7 @@
     },
     "dependencyFreshness": {
       "enabled": true,
-      "failOnCritical": false
+      "failOnCritical": true
     }
   }
 }

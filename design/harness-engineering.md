@@ -275,7 +275,7 @@ Harness policy is managed in `harness.config.json`:
   "entropy": {
     "deadCode": { "enabled": true },
     "docStaleness": { "enabled": true, "designDir": "design" },
-    "dependencyFreshness": { "enabled": true, "failOnCritical": false }
+    "dependencyFreshness": { "enabled": true, "failOnCritical": true }
   }
 }
 ```
@@ -285,9 +285,8 @@ Frontend chunk environment overrides:
 - `FRONTEND_CHUNK_COUNT_LIMIT`
 
 Entropy detectors default to enabled; set `"enabled": false` to disable
-individually for debugging. Dependency freshness `failOnCritical` controls
-whether critical vulnerabilities fail the gate (currently `false` due to
-transitive dependency vulnerabilities in build/test tooling).
+individually for debugging. Dependency freshness `failOnCritical` fails the
+gate when critical vulnerabilities are found.
 
 ## Definition of Harness v1 Completion
 

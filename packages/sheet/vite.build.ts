@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import dts from 'vite-plugin-dts';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 export default defineConfig({
   build: {
@@ -17,6 +16,5 @@ export default defineConfig({
     dts({
       rollupTypes: true,
     }),
-    nodePolyfills(),
   ],
 });
