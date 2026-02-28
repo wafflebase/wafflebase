@@ -1,102 +1,73 @@
-# wafflebase
+# Wafflebase
 
-Wafflebase is a web-based spreadsheet application designed to be a lightweight yet powerful tool for data analysis. It bridges the gap between traditional spreadsheets and database tools, offering real-time collaboration and scalable performance for handling large datasets.
+Wafflebase is a web-based collaborative spreadsheet application. It bridges
+the gap between traditional spreadsheets and database tools, offering
+real-time collaboration and scalable performance for handling large datasets.
 
-## Status of Wafflebase
+> **Status:** Early development. Core spreadsheet features work, but the
+> project is not yet production-ready. We are actively working on DataSource
+> integration and advanced analysis features.
 
-Wafflebase is currently in the early stages of development. While core spreadsheet functionalities are implemented, it is not yet ready for production use. We are actively working on DataSource integration and advanced analysis features.
+**Demo:** https://wafflebase.io/shared/bed3dbe8-bdce-46ef-a76e-65fd67178cde
 
-Demo Sheet: https://wafflebase.io/shared/bed3dbe8-bdce-46ef-a76e-65fd67178cde
+## Features
 
-## Key Features
-Currently, Wafflebase supports the following core capabilities:
+- **High-performance rendering** — Canvas-based virtualized grid that handles
+  large row/column counts smoothly.
+- **Formulas** — ANTLR4-based formula engine with SUM, AVERAGE, MIN, MAX,
+  and more.
+- **Cell formatting** — Font, color, alignment, freeze panes.
+- **Undo/Redo & Copy/Paste** — Google Sheets-compatible clipboard handling.
+- **Real-time collaboration** — Multi-user editing powered by
+  [Yorkie](https://yorkie.dev) CRDT.
+- **Data Source integration** *(coming soon)* — Connect directly to
+  PostgreSQL/MySQL to query live data.
 
-- ⚡️ High Performance: Virtualized rendering engine designed to handle large row/column counts smoothly.
-- 📊 Core Spreadsheet Functions:
-  - Essential Formulas (SUM, AVERAGE, MIN, MAX)
-  - Cell Formatting (Font, Color, Alignment) & Freeze Panes
-  - Reliable Undo/Redo & Copy/Paste (Google Docs compatible)
-- 🤝 Real-Time Collaboration: Multi-user editing powered by Yorkie (CRDT).
-- 🔌 Data Source Integration (Coming Soon): Connect directly to databases (PostgreSQL, MySQL) to query and analyze live data without CSV exports.
+## Tech Stack
 
-## Contributing
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, Vite, TailwindCSS, Radix UI |
+| Spreadsheet engine | Canvas rendering, ANTLR4 formula parser, Yorkie CRDT |
+| Backend | NestJS, Prisma, PostgreSQL, GitHub OAuth + JWT |
 
-We welcome contributions! If you're interested in helping build the next generation of data analysis tools, please check out the below or look for open issues.
-
-### Commit Message Format
-
-We follow a rough convention for commit messages that is designed to answer
-two questions: what changed and why. The subject line should feature the what
-and the body of the commit should describe the why.
+## Project Structure
 
 ```
-Remove the synced seq when detaching the document
-
-To collect garbage like CRDT tombstones left on the document, all
-the changes should be applied to other replicas before GC. For this,
-if the document is no longer used by this client, it should be
-detached.
+packages/
+  sheet/      — Core spreadsheet engine (data model, formulas, Canvas rendering)
+  frontend/   — React web app (pages, components, hooks)
+  backend/    — NestJS API server (auth, documents, data sources)
 ```
 
-The first line is the subject and should be no longer than 70 characters. The
-second line is always blank, and other lines should be wrapped at 80
-characters.
+The frontend depends on `@wafflebase/sheet` as a workspace dependency.
 
-### Setting Development Environment
+## Getting Started
 
-Follow these instructions to set up your development environment.
+### Prerequisites
 
-#### Prerequisites
+- [Node.js](https://nodejs.org/) v22+
+- [pnpm](https://pnpm.io/) v10+
+- [Docker](https://www.docker.com/)
 
-You need to have the following software installed on your system:
-
-- [Node.js](https://nodejs.org/en/) (version 18 or later)
-- [pnpm](https://pnpm.io/) (version 10 or later)
-- [Docker](https://www.docker.com/) (for running the application in a container)
-
-#### Building & Testing
+### 1. Install dependencies
 
 ```bash
-pnpm i
-pnpm run build
-pnpm run test
-pnpm run verify:architecture
-pnpm run verify:fast
-pnpm run verify:self
-pnpm run verify:frontend:chunks  # checks built frontend JS chunk sizes
-pnpm run verify:frontend:visual  # checks SSR visual snapshot regressions
-pnpm run verify:frontend:visual:browser # checks browser-rendered snapshots
-pnpm run verify:frontend:visual:all # runs both visual lanes
-pnpm run verify:frontend:interaction:browser # checks browser interaction flows
-pnpm run verify:integration   # requires PostgreSQL
-pnpm run verify:integration:local  # skips when local PostgreSQL is unavailable
-pnpm run verify:integration:docker # starts postgres, runs integration, stops
-pnpm run verify:full          # alias: verify:self + verify:integration
+pnpm install
 ```
 
-Quick verify guide:
-- Use `pnpm run verify:self` as the default pre-PR lane.
-- Use `pnpm run verify:frontend:visual:all` to run SSR + browser visual checks.
-- Use `pnpm run verify:frontend:interaction:browser` to run deterministic
-  browser interaction checks (cell input/formula input/wheel scroll).
-- Browser visual lane captures deterministic desktop + mobile baselines.
-- Browser lanes need one-time Chromium install per environment:
-  `pnpm --filter @wafflebase/frontend exec playwright install chromium`
-- Use `pnpm run verify:integration` (or `:local` / `:docker`) for DB-backed e2e.
+### 2. Start infrastructure
 
-`verify:frontend:chunks` uses defaults from `harness.config.json`
-(`maxChunkKb=500`, `maxChunkCount=60`) and supports
-`FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT` overrides.
-
-#### Running
-
-Wafflebase depends on [Yorkie](https://yorkie.dev) and [Postgres](https://www.postgresql.org/). You can run them locally using Docker.
+Wafflebase depends on PostgreSQL and [Yorkie](https://yorkie.dev) for
+real-time collaboration. Both run via Docker:
 
 ```bash
 docker compose up -d
 ```
 
-Create `packages/backend/.env` with the required environment variables:
+### 3. Configure environment
+
+Create `packages/backend/.env`:
 
 ```env
 FRONTEND_URL=http://localhost:5173
@@ -107,15 +78,59 @@ GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
 ```
 
-To obtain `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, create a GitHub OAuth App at https://github.com/settings/developers with the callback URL above.
+To obtain `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, create a GitHub
+OAuth App at https://github.com/settings/developers with the callback URL
+above. See [`packages/backend/README.md`](packages/backend/README.md) for
+the full list of environment variables.
 
-See [`packages/backend/README.md`](packages/backend/README.md) for the full list of environment variables including optional ones.
-
-Run database migrations and start the dev server:
+### 4. Run migrations and start dev server
 
 ```bash
 pnpm backend migrate
-pnpm run dev
+pnpm dev
 ```
 
-Then open `http://localhost:5173` in your browser.
+Open http://localhost:5173 in your browser.
+
+## Testing
+
+Before submitting a PR, run the self-contained verification lane:
+
+```bash
+pnpm verify:self
+```
+
+This runs lint, unit tests, builds all packages, and checks chunk budgets,
+visual regressions, and code entropy in one command. CI runs this
+automatically and posts results as a PR comment.
+
+For database-backed end-to-end tests (starts a temporary PostgreSQL
+container):
+
+```bash
+pnpm verify:integration:docker
+```
+
+## Contributing
+
+We welcome contributions! Check out open issues or propose new ideas.
+
+### Commit messages
+
+Commit messages should answer *what changed* and *why*:
+
+```
+Remove the synced seq when detaching the document
+
+To collect garbage like CRDT tombstones left on the document, all
+the changes should be applied to other replicas before GC. For this,
+if the document is no longer used by this client, it should be
+detached.
+```
+
+- Subject line: what changed, max 70 characters
+- Body: why, wrapped at 80 characters
+
+## License
+
+[Apache License 2.0](LICENSE)
