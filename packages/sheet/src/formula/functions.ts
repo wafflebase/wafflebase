@@ -355,6 +355,20 @@ export const FunctionMap = new Map([
   ['IMLOG10', imlog10Func],
   ['IMSIN', imsinFunc],
   ['IMCOS', imcosFunc],
+  ['IMTAN', imtanFunc],
+  ['IMSINH', imsinhFunc],
+  ['IMCOSH', imcoshFunc],
+  ['IMSEC', imsecFunc],
+  ['IMCSC', imcscFunc],
+  ['IMCOT', imcotFunc],
+  ['HEX2BIN', hex2binFunc],
+  ['HEX2OCT', hex2octFunc],
+  ['BIN2HEX', bin2hexFunc],
+  ['BIN2OCT', bin2octFunc],
+  ['OCT2HEX', oct2hexFunc],
+  ['OCT2BIN', oct2binFunc],
+  ['BESSELJ', besseljFunc],
+  ['BESSELY', besselyFunc],
 ]);
 
 /**
@@ -12456,4 +12470,418 @@ export function imcosFunc(
     Math.abs(re) < 1e-14 ? 0 : re,
     Math.abs(im) < 1e-14 ? 0 : im,
   ) };
+}
+
+/**
+ * Helper: complex division (a+bi)/(c+di).
+ */
+function complexDiv(
+  aRe: number, aIm: number, bRe: number, bIm: number,
+): { re: number; im: number } {
+  const d = bRe * bRe + bIm * bIm;
+  return {
+    re: (aRe * bRe + aIm * bIm) / d,
+    im: (aIm * bRe - aRe * bIm) / d,
+  };
+}
+
+/**
+ * IMTAN(complex_number) — tangent of a complex number.
+ * tan(z) = sin(z)/cos(z)
+ */
+export function imtanFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const sinRe = Math.sin(result.re) * Math.cosh(result.im);
+  const sinIm = Math.cos(result.re) * Math.sinh(result.im);
+  const cosRe = Math.cos(result.re) * Math.cosh(result.im);
+  const cosIm = -(Math.sin(result.re) * Math.sinh(result.im));
+  const r = complexDiv(sinRe, sinIm, cosRe, cosIm);
+  return { t: 'str', v: formatComplex(
+    Math.abs(r.re) < 1e-14 ? 0 : r.re,
+    Math.abs(r.im) < 1e-14 ? 0 : r.im,
+  ) };
+}
+
+/**
+ * IMSINH(complex_number) — hyperbolic sine.
+ * sinh(a+bi) = sinh(a)cos(b) + i*cosh(a)sin(b)
+ */
+export function imsinhFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const re = Math.sinh(result.re) * Math.cos(result.im);
+  const im = Math.cosh(result.re) * Math.sin(result.im);
+  return { t: 'str', v: formatComplex(
+    Math.abs(re) < 1e-14 ? 0 : re,
+    Math.abs(im) < 1e-14 ? 0 : im,
+  ) };
+}
+
+/**
+ * IMCOSH(complex_number) — hyperbolic cosine.
+ * cosh(a+bi) = cosh(a)cos(b) + i*sinh(a)sin(b)
+ */
+export function imcoshFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const re = Math.cosh(result.re) * Math.cos(result.im);
+  const im = Math.sinh(result.re) * Math.sin(result.im);
+  return { t: 'str', v: formatComplex(
+    Math.abs(re) < 1e-14 ? 0 : re,
+    Math.abs(im) < 1e-14 ? 0 : im,
+  ) };
+}
+
+/**
+ * IMSEC(complex_number) — secant = 1/cos(z).
+ */
+export function imsecFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const cosRe = Math.cos(result.re) * Math.cosh(result.im);
+  const cosIm = -(Math.sin(result.re) * Math.sinh(result.im));
+  const r = complexDiv(1, 0, cosRe, cosIm);
+  return { t: 'str', v: formatComplex(
+    Math.abs(r.re) < 1e-14 ? 0 : r.re,
+    Math.abs(r.im) < 1e-14 ? 0 : r.im,
+  ) };
+}
+
+/**
+ * IMCSC(complex_number) — cosecant = 1/sin(z).
+ */
+export function imcscFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const sinRe = Math.sin(result.re) * Math.cosh(result.im);
+  const sinIm = Math.cos(result.re) * Math.sinh(result.im);
+  const r = complexDiv(1, 0, sinRe, sinIm);
+  return { t: 'str', v: formatComplex(
+    Math.abs(r.re) < 1e-14 ? 0 : r.re,
+    Math.abs(r.im) < 1e-14 ? 0 : r.im,
+  ) };
+}
+
+/**
+ * IMCOT(complex_number) — cotangent = cos(z)/sin(z).
+ */
+export function imcotFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const result = parseComplexArg(ctx, visit, grid);
+  if ('t' in result) return result;
+  const sinRe = Math.sin(result.re) * Math.cosh(result.im);
+  const sinIm = Math.cos(result.re) * Math.sinh(result.im);
+  const cosRe = Math.cos(result.re) * Math.cosh(result.im);
+  const cosIm = -(Math.sin(result.re) * Math.sinh(result.im));
+  const r = complexDiv(cosRe, cosIm, sinRe, sinIm);
+  return { t: 'str', v: formatComplex(
+    Math.abs(r.re) < 1e-14 ? 0 : r.re,
+    Math.abs(r.im) < 1e-14 ? 0 : r.im,
+  ) };
+}
+
+/**
+ * HEX2BIN(hex_string, [places]) — converts hexadecimal to binary.
+ */
+export function hex2binFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const dec = parseInt(s.v, 16);
+  if (isNaN(dec)) return { t: 'err', v: '#VALUE!' };
+  let bin = dec.toString(2);
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < bin.length) return { t: 'err', v: '#VALUE!' };
+    bin = bin.padStart(p, '0');
+  }
+  return { t: 'str', v: bin };
+}
+
+/**
+ * HEX2OCT(hex_string, [places]) — converts hexadecimal to octal.
+ */
+export function hex2octFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const dec = parseInt(s.v, 16);
+  if (isNaN(dec)) return { t: 'err', v: '#VALUE!' };
+  let oct = dec.toString(8);
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < oct.length) return { t: 'err', v: '#VALUE!' };
+    oct = oct.padStart(p, '0');
+  }
+  return { t: 'str', v: oct };
+}
+
+/**
+ * BIN2HEX(bin_string, [places]) — converts binary to hexadecimal.
+ */
+export function bin2hexFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const dec = parseInt(s.v, 2);
+  if (isNaN(dec)) return { t: 'err', v: '#VALUE!' };
+  let hex = dec.toString(16).toUpperCase();
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < hex.length) return { t: 'err', v: '#VALUE!' };
+    hex = hex.padStart(p, '0');
+  }
+  return { t: 'str', v: hex };
+}
+
+/**
+ * BIN2OCT(bin_string, [places]) — converts binary to octal.
+ */
+export function bin2octFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const dec = parseInt(s.v, 2);
+  if (isNaN(dec)) return { t: 'err', v: '#VALUE!' };
+  let oct = dec.toString(8);
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < oct.length) return { t: 'err', v: '#VALUE!' };
+    oct = oct.padStart(p, '0');
+  }
+  return { t: 'str', v: oct };
+}
+
+/**
+ * OCT2HEX(oct_string, [places]) — converts octal to hexadecimal.
+ */
+export function oct2hexFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const dec = parseInt(s.v, 8);
+  if (isNaN(dec)) return { t: 'err', v: '#VALUE!' };
+  let hex = dec.toString(16).toUpperCase();
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < hex.length) return { t: 'err', v: '#VALUE!' };
+    hex = hex.padStart(p, '0');
+  }
+  return { t: 'str', v: hex };
+}
+
+/**
+ * OCT2BIN(oct_string, [places]) — converts octal to binary.
+ */
+export function oct2binFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const dec = parseInt(s.v, 8);
+  if (isNaN(dec)) return { t: 'err', v: '#VALUE!' };
+  let bin = dec.toString(2);
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < bin.length) return { t: 'err', v: '#VALUE!' };
+    bin = bin.padStart(p, '0');
+  }
+  return { t: 'str', v: bin };
+}
+
+/**
+ * Helper: Bessel function of the first kind Jn(x) using series expansion.
+ */
+function besselJ(n: number, x: number): number {
+  let sum = 0;
+  for (let m = 0; m <= 100; m++) {
+    const sign = m % 2 === 0 ? 1 : -1;
+    let factM = 1;
+    for (let i = 2; i <= m; i++) factM *= i;
+    let factNM = 1;
+    for (let i = 2; i <= n + m; i++) factNM *= i;
+    const term = (sign / (factM * factNM)) * Math.pow(x / 2, 2 * m + n);
+    sum += term;
+    if (Math.abs(term) < 1e-15 * Math.abs(sum) && m > 5) break;
+  }
+  return sum;
+}
+
+/**
+ * Helper: Bessel function of the second kind Yn(x) for integer n >= 0.
+ * Uses Y0 and Y1 series, then recurrence for higher orders.
+ */
+function besselY(n: number, x: number): number {
+  if (x <= 0) return NaN;
+  const euler = 0.5772156649015329;
+
+  // Y0(x) via Neumann series
+  function y0(xv: number): number {
+    let sum = 0;
+    for (let m = 1; m <= 100; m++) {
+      const sign = m % 2 === 0 ? 1 : -1;
+      let factM = 1;
+      for (let i = 2; i <= m; i++) factM *= i;
+      let hm = 0;
+      for (let k = 1; k <= m; k++) hm += 1 / k;
+      const term = (sign * hm / (factM * factM)) * Math.pow(xv / 2, 2 * m);
+      sum += term;
+      if (Math.abs(term) < 1e-15 * Math.abs(sum) && m > 5) break;
+    }
+    return (2 / Math.PI) * ((Math.log(xv / 2) + euler) * besselJ(0, xv) - sum);
+  }
+
+  // Y1(x) via Neumann series
+  function y1(xv: number): number {
+    // Y1(x) = (2/PI)*((ln(x/2)+gamma)*J1(x) - 1/x) - (1/PI)*sum
+    let sum = 0;
+    for (let m = 0; m <= 100; m++) {
+      const sign = m % 2 === 0 ? 1 : -1;
+      let factM = 1;
+      for (let i = 2; i <= m; i++) factM *= i;
+      let factM1 = 1;
+      for (let i = 2; i <= m + 1; i++) factM1 *= i;
+      let hm = 0;
+      for (let k = 1; k <= m; k++) hm += 1 / k;
+      let hm1 = 0;
+      for (let k = 1; k <= m + 1; k++) hm1 += 1 / k;
+      const term = (sign * (hm + hm1) / (factM * factM1)) * Math.pow(xv / 2, 2 * m + 1);
+      sum += term;
+      if (Math.abs(term) < 1e-15 * Math.abs(sum) && m > 5) break;
+    }
+    return (2 / Math.PI) * ((Math.log(xv / 2) + euler) * besselJ(1, xv) - 1 / xv) - (1 / Math.PI) * sum;
+  }
+
+  if (n === 0) return y0(x);
+  if (n === 1) return y1(x);
+
+  // Recurrence: Yn+1(x) = (2n/x)*Yn(x) - Yn-1(x)
+  let ym1 = y0(x);
+  let ym = y1(x);
+  for (let k = 1; k < n; k++) {
+    const ynext = (2 * k / x) * ym - ym1;
+    ym1 = ym;
+    ym = ynext;
+  }
+  return ym;
+}
+
+/**
+ * BESSELJ(x, n) — Bessel function of the first kind.
+ */
+export function besseljFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const n = NumberArgs.map(visit(exprs[1]), grid);
+  if (n.t === 'err') return n;
+  const order = Math.trunc(n.v);
+  if (order < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: besselJ(order, x.v) };
+}
+
+/**
+ * BESSELY(x, n) — Bessel function of the second kind.
+ */
+export function besselyFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const n = NumberArgs.map(visit(exprs[1]), grid);
+  if (n.t === 'err') return n;
+  const order = Math.trunc(n.v);
+  if (order < 0) return { t: 'err', v: '#VALUE!' };
+  if (x.v <= 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: besselY(order, x.v) };
 }

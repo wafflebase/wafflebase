@@ -2072,6 +2072,76 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the cosine of a complex number',
     args: [{ name: 'complex_number' }],
   },
+  {
+    name: 'IMTAN',
+    description: 'Returns the tangent of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMSINH',
+    description: 'Returns the hyperbolic sine of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMCOSH',
+    description: 'Returns the hyperbolic cosine of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMSEC',
+    description: 'Returns the secant of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMCSC',
+    description: 'Returns the cosecant of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMCOT',
+    description: 'Returns the cotangent of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'HEX2BIN',
+    description: 'Converts a hexadecimal number to binary',
+    args: [{ name: 'hex_string' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'HEX2OCT',
+    description: 'Converts a hexadecimal number to octal',
+    args: [{ name: 'hex_string' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'BIN2HEX',
+    description: 'Converts a binary number to hexadecimal',
+    args: [{ name: 'bin_string' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'BIN2OCT',
+    description: 'Converts a binary number to octal',
+    args: [{ name: 'bin_string' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'OCT2HEX',
+    description: 'Converts an octal number to hexadecimal',
+    args: [{ name: 'oct_string' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'OCT2BIN',
+    description: 'Converts an octal number to binary',
+    args: [{ name: 'oct_string' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'BESSELJ',
+    description: 'Returns the Bessel function of the first kind Jn(x)',
+    args: [{ name: 'x' }, { name: 'n' }],
+  },
+  {
+    name: 'BESSELY',
+    description: 'Returns the Bessel function of the second kind Yn(x)',
+    args: [{ name: 'x' }, { name: 'n' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2099,7 +2169,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WORKDAY',
     'YEARFRAC',
   ]),
-  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV', 'IMCONJUGATE', 'IMARGUMENT', 'IMPOWER', 'IMSQRT', 'IMEXP', 'IMLN', 'IMLOG2', 'IMLOG10', 'IMSIN', 'IMCOS']),
+  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV', 'IMCONJUGATE', 'IMARGUMENT', 'IMPOWER', 'IMSQRT', 'IMEXP', 'IMLN', 'IMLOG2', 'IMLOG10', 'IMSIN', 'IMCOS', 'IMTAN', 'IMSINH', 'IMCOSH', 'IMSEC', 'IMCSC', 'IMCOT', 'HEX2BIN', 'HEX2OCT', 'BIN2HEX', 'BIN2OCT', 'OCT2HEX', 'OCT2BIN', 'BESSELJ', 'BESSELY']),
   Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR']),
   Info: new Set([
     'ISBLANK',

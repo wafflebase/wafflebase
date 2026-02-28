@@ -2380,6 +2380,63 @@ describe('Formula', () => {
     expect(Number(sinPiHalf)).toBeCloseTo(1, 10);
   });
 
+  it('should correctly evaluate IMTAN function', () => {
+    // tan(0) = 0
+    expect(evaluate('=IMTAN("0")')).toBe('0');
+  });
+
+  it('should correctly evaluate IMSINH and IMCOSH functions', () => {
+    // sinh(0) = 0, cosh(0) = 1
+    expect(evaluate('=IMSINH("0")')).toBe('0');
+    expect(evaluate('=IMCOSH("0")')).toBe('1');
+    // sinh(1) ≈ 1.1752
+    expect(Number(evaluate('=IMSINH("1")'))).toBeCloseTo(Math.sinh(1), 10);
+    // cosh(1) ≈ 1.5431
+    expect(Number(evaluate('=IMCOSH("1")'))).toBeCloseTo(Math.cosh(1), 10);
+  });
+
+  it('should correctly evaluate IMSEC, IMCSC, IMCOT functions', () => {
+    // sec(0) = 1/cos(0) = 1
+    expect(evaluate('=IMSEC("0")')).toBe('1');
+    // csc(PI/2) = 1/sin(PI/2) = 1
+    expect(Number(evaluate('=IMCSC("' + (Math.PI / 2) + '")'))).toBeCloseTo(1, 10);
+  });
+
+  it('should correctly evaluate HEX2BIN, HEX2OCT functions', () => {
+    expect(evaluate('=HEX2BIN("F")')).toBe('1111');
+    expect(evaluate('=HEX2BIN("A",8)')).toBe('00001010');
+    expect(evaluate('=HEX2OCT("FF")')).toBe('377');
+  });
+
+  it('should correctly evaluate BIN2HEX, BIN2OCT functions', () => {
+    expect(evaluate('=BIN2HEX("1111")')).toBe('F');
+    expect(evaluate('=BIN2HEX("1010",4)')).toBe('000A');
+    expect(evaluate('=BIN2OCT("1111")')).toBe('17');
+  });
+
+  it('should correctly evaluate OCT2HEX, OCT2BIN functions', () => {
+    expect(evaluate('=OCT2HEX("77")')).toBe('3F');
+    expect(evaluate('=OCT2HEX("12",4)')).toBe('000A');
+    expect(evaluate('=OCT2BIN("17")')).toBe('1111');
+    expect(evaluate('=OCT2BIN("7",8)')).toBe('00000111');
+  });
+
+  it('should correctly evaluate BESSELJ function', () => {
+    // J0(0) = 1
+    expect(Number(evaluate('=BESSELJ(0,0)'))).toBeCloseTo(1, 10);
+    // J0(1) ≈ 0.7652
+    expect(Number(evaluate('=BESSELJ(1,0)'))).toBeCloseTo(0.7652, 3);
+    // J1(1) ≈ 0.4401
+    expect(Number(evaluate('=BESSELJ(1,1)'))).toBeCloseTo(0.4401, 3);
+  });
+
+  it('should correctly evaluate BESSELY function', () => {
+    // Y0(1) ≈ 0.0883
+    expect(Number(evaluate('=BESSELY(1,0)'))).toBeCloseTo(0.0883, 3);
+    // Y1(1) ≈ -0.7812
+    expect(Number(evaluate('=BESSELY(1,1)'))).toBeCloseTo(-0.7812, 3);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

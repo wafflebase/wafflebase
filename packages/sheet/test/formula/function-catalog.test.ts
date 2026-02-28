@@ -32,14 +32,16 @@ describe('FunctionCatalog', () => {
       expect(searchFunctions('SUM').map((f) => f.name)).toContain('SUM');
     });
 
-    it('should find OR, ODD, OFFSET, and OCT2DEC but not AND with "O"', () => {
+    it('should find functions starting with O', () => {
       const results = searchFunctions('O');
-      expect(results).toHaveLength(4);
       const names = results.map((r) => r.name);
       expect(names).toContain('OR');
       expect(names).toContain('ODD');
       expect(names).toContain('OFFSET');
       expect(names).toContain('OCT2DEC');
+      expect(names).toContain('OCT2HEX');
+      expect(names).toContain('OCT2BIN');
+      expect(names).not.toContain('AND');
     });
 
     it('should find AND and AVERAGE with "A"', () => {
@@ -294,6 +296,20 @@ describe('FunctionCatalog', () => {
       expect(findFunction('IMLOG10')!.name).toBe('IMLOG10');
       expect(findFunction('IMSIN')!.name).toBe('IMSIN');
       expect(findFunction('IMCOS')!.name).toBe('IMCOS');
+      expect(findFunction('IMTAN')!.name).toBe('IMTAN');
+      expect(findFunction('IMSINH')!.name).toBe('IMSINH');
+      expect(findFunction('IMCOSH')!.name).toBe('IMCOSH');
+      expect(findFunction('IMSEC')!.name).toBe('IMSEC');
+      expect(findFunction('IMCSC')!.name).toBe('IMCSC');
+      expect(findFunction('IMCOT')!.name).toBe('IMCOT');
+      expect(findFunction('HEX2BIN')!.name).toBe('HEX2BIN');
+      expect(findFunction('HEX2OCT')!.name).toBe('HEX2OCT');
+      expect(findFunction('BIN2HEX')!.name).toBe('BIN2HEX');
+      expect(findFunction('BIN2OCT')!.name).toBe('BIN2OCT');
+      expect(findFunction('OCT2HEX')!.name).toBe('OCT2HEX');
+      expect(findFunction('OCT2BIN')!.name).toBe('OCT2BIN');
+      expect(findFunction('BESSELJ')!.name).toBe('BESSELJ');
+      expect(findFunction('BESSELY')!.name).toBe('BESSELY');
     });
 
     it('should return undefined for unknown function', () => {
