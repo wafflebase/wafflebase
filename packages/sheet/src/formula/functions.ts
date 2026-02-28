@@ -223,6 +223,23 @@ export const FunctionMap = new Map([
   ['NOMINAL', nominalFunc],
   ['CUMIPMT', cumipmtFunc],
   ['CUMPRINC', cumprincFunc],
+  ['AVERAGEA', averageaFunc],
+  ['MINA', minaFunc],
+  ['MAXA', maxaFunc],
+  ['FISHER', fisherFunc],
+  ['FISHERINV', fisherinvFunc],
+  ['GAMMA', gammaFunc],
+  ['GAMMALN', gammalnFunc],
+  ['NORMDIST', normdistFunc],
+  ['NORM.DIST', normdistFunc],
+  ['NORMINV', norminvFunc],
+  ['NORM.INV', norminvFunc],
+  ['LOGNORMAL.DIST', lognormdistFunc],
+  ['LOGNORMAL.INV', lognorminvFunc],
+  ['STANDARDIZE', standardizeFunc],
+  ['WEIBULL.DIST', weibulldistFunc],
+  ['POISSON.DIST', poissondistFunc],
+  ['BINOM.DIST', binomdistFunc],
 ]);
 
 /**
@@ -8120,4 +8137,521 @@ export function cumprincFunc(
   }
 
   return { t: 'num', v: cumPrincipal };
+}
+
+/**
+ * AVERAGEA(value1, [value2], ...) — average including text (as 0) and booleans.
+ */
+export function averageaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+
+  let sum = 0;
+  let count = 0;
+  for (const expr of args.expr()) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'ref' && grid) {
+      const refs = Array.from(toSrefs([node.v]));
+      for (const ref of refs) {
+        const cell = grid.get(ref);
+        if (!cell || cell.v === undefined || cell.v === '') continue;
+        const n = Number(cell.v);
+        sum += isNaN(n) ? 0 : n;
+        count++;
+      }
+    } else if (node.t === 'num') {
+      sum += node.v;
+      count++;
+    } else if (node.t === 'bool') {
+      sum += node.v ? 1 : 0;
+      count++;
+    } else if (node.t === 'str') {
+      sum += 0;
+      count++;
+    }
+  }
+  if (count === 0) return { t: 'err', v: '#DIV/0!' };
+  return { t: 'num', v: sum / count };
+}
+
+/**
+ * MINA(value1, [value2], ...) — minimum including text (as 0) and booleans.
+ */
+export function minaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+
+  let min = Infinity;
+  let hasValue = false;
+  for (const expr of args.expr()) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'ref' && grid) {
+      const refs = Array.from(toSrefs([node.v]));
+      for (const ref of refs) {
+        const cell = grid.get(ref);
+        if (!cell || cell.v === undefined || cell.v === '') continue;
+        const n = Number(cell.v);
+        const val = isNaN(n) ? 0 : n;
+        if (val < min) min = val;
+        hasValue = true;
+      }
+    } else if (node.t === 'num') {
+      if (node.v < min) min = node.v;
+      hasValue = true;
+    } else if (node.t === 'bool') {
+      const v = node.v ? 1 : 0;
+      if (v < min) min = v;
+      hasValue = true;
+    } else if (node.t === 'str') {
+      if (0 < min) min = 0;
+      hasValue = true;
+    }
+  }
+  if (!hasValue) return { t: 'num', v: 0 };
+  return { t: 'num', v: min };
+}
+
+/**
+ * MAXA(value1, [value2], ...) — maximum including text (as 0) and booleans.
+ */
+export function maxaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+
+  let max = -Infinity;
+  let hasValue = false;
+  for (const expr of args.expr()) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'ref' && grid) {
+      const refs = Array.from(toSrefs([node.v]));
+      for (const ref of refs) {
+        const cell = grid.get(ref);
+        if (!cell || cell.v === undefined || cell.v === '') continue;
+        const n = Number(cell.v);
+        const val = isNaN(n) ? 0 : n;
+        if (val > max) max = val;
+        hasValue = true;
+      }
+    } else if (node.t === 'num') {
+      if (node.v > max) max = node.v;
+      hasValue = true;
+    } else if (node.t === 'bool') {
+      const v = node.v ? 1 : 0;
+      if (v > max) max = v;
+      hasValue = true;
+    } else if (node.t === 'str') {
+      if (0 > max) max = 0;
+      hasValue = true;
+    }
+  }
+  if (!hasValue) return { t: 'num', v: 0 };
+  return { t: 'num', v: max };
+}
+
+/**
+ * FISHER(x) — returns the Fisher transformation.
+ */
+export function fisherFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  if (x.v <= -1 || x.v >= 1) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: 0.5 * Math.log((1 + x.v) / (1 - x.v)) };
+}
+
+/**
+ * FISHERINV(y) — returns the inverse Fisher transformation.
+ */
+export function fisherinvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const y = NumberArgs.map(visit(exprs[0]), grid);
+  if (y.t === 'err') return y;
+  const e2y = Math.exp(2 * y.v);
+  return { t: 'num', v: (e2y - 1) / (e2y + 1) };
+}
+
+/**
+ * Lanczos approximation for the gamma function.
+ */
+function gammaLanczos(z: number): number {
+  const g = 7;
+  const c = [
+    0.99999999999980993,
+    676.5203681218851,
+    -1259.1392167224028,
+    771.32342877765313,
+    -176.61502916214059,
+    12.507343278686905,
+    -0.13857109526572012,
+    9.9843695780195716e-6,
+    1.5056327351493116e-7,
+  ];
+
+  if (z < 0.5) {
+    return Math.PI / (Math.sin(Math.PI * z) * gammaLanczos(1 - z));
+  }
+
+  z -= 1;
+  let x = c[0];
+  for (let i = 1; i < g + 2; i++) {
+    x += c[i] / (z + i);
+  }
+  const t = z + g + 0.5;
+  return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
+}
+
+/**
+ * GAMMA(number) — returns the gamma function value.
+ */
+export function gammaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  if (n.v <= 0 && Number.isInteger(n.v)) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: gammaLanczos(n.v) };
+}
+
+/**
+ * GAMMALN(number) — returns the natural log of the gamma function.
+ */
+export function gammalnFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  if (n.v <= 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.log(gammaLanczos(n.v)) };
+}
+
+/**
+ * Error function approximation (Abramowitz and Stegun 7.1.26).
+ */
+function erf(x: number): number {
+  const sign = x >= 0 ? 1 : -1;
+  x = Math.abs(x);
+  const a1 = 0.254829592;
+  const a2 = -0.284496736;
+  const a3 = 1.421413741;
+  const a4 = -1.453152027;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
+  const t = 1 / (1 + p * x);
+  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return sign * y;
+}
+
+/**
+ * Standard normal CDF.
+ */
+function normCdf(x: number): number {
+  return 0.5 * (1 + erf(x / Math.SQRT2));
+}
+
+/**
+ * Standard normal PDF.
+ */
+function normPdf(x: number): number {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+/**
+ * Standard normal inverse CDF (rational approximation).
+ */
+function normInv(p: number): number {
+  if (p <= 0 || p >= 1) return NaN;
+  if (p < 0.5) return -normInv(1 - p);
+
+  // Rational approximation for upper half
+  const t = Math.sqrt(-2 * Math.log(1 - p));
+  const c0 = 2.515517;
+  const c1 = 0.802853;
+  const c2 = 0.010328;
+  const d1 = 1.432788;
+  const d2 = 0.189269;
+  const d3 = 0.001308;
+  return t - (c0 + c1 * t + c2 * t * t) / (1 + d1 * t + d2 * t * t + d3 * t * t * t);
+}
+
+/**
+ * NORMDIST(x, mean, stdev, cumulative) / NORM.DIST — normal distribution.
+ */
+export function normdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const mean = NumberArgs.map(visit(exprs[1]), grid);
+  if (mean.t === 'err') return mean;
+  const stdev = NumberArgs.map(visit(exprs[2]), grid);
+  if (stdev.t === 'err') return stdev;
+  if (stdev.v <= 0) return { t: 'err', v: '#VALUE!' };
+
+  const cumNode = visit(exprs[3]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  const z = (x.v - mean.v) / stdev.v;
+  if (cum) {
+    return { t: 'num', v: normCdf(z) };
+  }
+  return { t: 'num', v: normPdf(z) / stdev.v };
+}
+
+/**
+ * NORMINV(probability, mean, stdev) / NORM.INV — inverse normal distribution.
+ */
+export function norminvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const p = NumberArgs.map(visit(exprs[0]), grid);
+  if (p.t === 'err') return p;
+  const mean = NumberArgs.map(visit(exprs[1]), grid);
+  if (mean.t === 'err') return mean;
+  const stdev = NumberArgs.map(visit(exprs[2]), grid);
+  if (stdev.t === 'err') return stdev;
+  if (stdev.v <= 0 || p.v <= 0 || p.v >= 1) return { t: 'err', v: '#VALUE!' };
+
+  return { t: 'num', v: mean.v + stdev.v * normInv(p.v) };
+}
+
+/**
+ * LOGNORMAL.DIST(x, mean, stdev, cumulative) — lognormal distribution.
+ */
+export function lognormdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const mean = NumberArgs.map(visit(exprs[1]), grid);
+  if (mean.t === 'err') return mean;
+  const stdev = NumberArgs.map(visit(exprs[2]), grid);
+  if (stdev.t === 'err') return stdev;
+  if (x.v <= 0 || stdev.v <= 0) return { t: 'err', v: '#VALUE!' };
+
+  const cumNode = visit(exprs[3]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  const z = (Math.log(x.v) - mean.v) / stdev.v;
+  if (cum) {
+    return { t: 'num', v: normCdf(z) };
+  }
+  return { t: 'num', v: normPdf(z) / (x.v * stdev.v) };
+}
+
+/**
+ * LOGNORMAL.INV(probability, mean, stdev) — inverse lognormal distribution.
+ */
+export function lognorminvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const p = NumberArgs.map(visit(exprs[0]), grid);
+  if (p.t === 'err') return p;
+  const mean = NumberArgs.map(visit(exprs[1]), grid);
+  if (mean.t === 'err') return mean;
+  const stdev = NumberArgs.map(visit(exprs[2]), grid);
+  if (stdev.t === 'err') return stdev;
+  if (stdev.v <= 0 || p.v <= 0 || p.v >= 1) return { t: 'err', v: '#VALUE!' };
+
+  return { t: 'num', v: Math.exp(mean.v + stdev.v * normInv(p.v)) };
+}
+
+/**
+ * STANDARDIZE(x, mean, stdev) — returns a normalized value (z-score).
+ */
+export function standardizeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const mean = NumberArgs.map(visit(exprs[1]), grid);
+  if (mean.t === 'err') return mean;
+  const stdev = NumberArgs.map(visit(exprs[2]), grid);
+  if (stdev.t === 'err') return stdev;
+  if (stdev.v <= 0) return { t: 'err', v: '#VALUE!' };
+
+  return { t: 'num', v: (x.v - mean.v) / stdev.v };
+}
+
+/**
+ * WEIBULL.DIST(x, alpha, beta, cumulative) — Weibull distribution.
+ */
+export function weibulldistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const alpha = NumberArgs.map(visit(exprs[1]), grid);
+  if (alpha.t === 'err') return alpha;
+  const beta = NumberArgs.map(visit(exprs[2]), grid);
+  if (beta.t === 'err') return beta;
+  if (x.v < 0 || alpha.v <= 0 || beta.v <= 0) return { t: 'err', v: '#VALUE!' };
+
+  const cumNode = visit(exprs[3]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  if (cum) {
+    return { t: 'num', v: 1 - Math.exp(-Math.pow(x.v / beta.v, alpha.v)) };
+  }
+  return { t: 'num', v: (alpha.v / Math.pow(beta.v, alpha.v)) * Math.pow(x.v, alpha.v - 1) * Math.exp(-Math.pow(x.v / beta.v, alpha.v)) };
+}
+
+/**
+ * POISSON.DIST(x, mean, cumulative) — Poisson distribution.
+ */
+export function poissondistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const mean = NumberArgs.map(visit(exprs[1]), grid);
+  if (mean.t === 'err') return mean;
+  if (mean.v < 0) return { t: 'err', v: '#VALUE!' };
+
+  const cumNode = visit(exprs[2]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  const k = Math.trunc(x.v);
+  if (k < 0) return { t: 'err', v: '#VALUE!' };
+
+  if (cum) {
+    let sum = 0;
+    for (let i = 0; i <= k; i++) {
+      sum += Math.pow(mean.v, i) * Math.exp(-mean.v) / gammaLanczos(i + 1);
+    }
+    return { t: 'num', v: sum };
+  }
+  return { t: 'num', v: Math.pow(mean.v, k) * Math.exp(-mean.v) / gammaLanczos(k + 1) };
+}
+
+/**
+ * BINOM.DIST(successes, trials, probability, cumulative) — binomial distribution.
+ */
+export function binomdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const s = NumberArgs.map(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const trials = NumberArgs.map(visit(exprs[1]), grid);
+  if (trials.t === 'err') return trials;
+  const prob = NumberArgs.map(visit(exprs[2]), grid);
+  if (prob.t === 'err') return prob;
+
+  const k = Math.trunc(s.v);
+  const n = Math.trunc(trials.v);
+  if (k < 0 || n < 0 || k > n || prob.v < 0 || prob.v > 1) return { t: 'err', v: '#VALUE!' };
+
+  const cumNode = visit(exprs[3]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  // Binomial coefficient using log-gamma for numerical stability
+  function binomPmf(x: number): number {
+    const logCoeff = Math.log(gammaLanczos(n + 1)) - Math.log(gammaLanczos(x + 1)) - Math.log(gammaLanczos(n - x + 1));
+    return Math.exp(logCoeff + x * Math.log(prob.v) + (n - x) * Math.log(1 - prob.v));
+  }
+
+  if (cum) {
+    let sum = 0;
+    for (let i = 0; i <= k; i++) {
+      sum += binomPmf(i);
+    }
+    return { t: 'num', v: sum };
+  }
+  return { t: 'num', v: binomPmf(k) };
 }

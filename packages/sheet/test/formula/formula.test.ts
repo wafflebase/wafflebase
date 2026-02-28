@@ -1492,6 +1492,99 @@ describe('Formula', () => {
     expect(Number(result)).toBeLessThan(0);
   });
 
+  // --- Batch 18: Extended Statistical functions ---
+  it('should correctly evaluate AVERAGEA function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' } as Cell);
+    grid.set('A2', { v: 'hello' } as Cell);
+    grid.set('A3', { v: '20' } as Cell);
+    // Text "hello" counts as 0, so (10+0+20)/3 = 10
+    expect(evaluate('=AVERAGEA(A1:A3)', grid)).toBe('10');
+  });
+
+  it('should correctly evaluate MINA function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' } as Cell);
+    grid.set('A2', { v: 'hello' } as Cell);
+    grid.set('A3', { v: '20' } as Cell);
+    // Text "hello" counts as 0, so min is 0
+    expect(evaluate('=MINA(A1:A3)', grid)).toBe('0');
+  });
+
+  it('should correctly evaluate MAXA function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' } as Cell);
+    grid.set('A2', { v: 'hello' } as Cell);
+    grid.set('A3', { v: '20' } as Cell);
+    expect(evaluate('=MAXA(A1:A3)', grid)).toBe('20');
+  });
+
+  it('should correctly evaluate FISHER function', () => {
+    const result = evaluate('=FISHER(0.5)');
+    expect(Number(result)).toBeCloseTo(0.5493, 3);
+  });
+
+  it('should correctly evaluate FISHERINV function', () => {
+    const result = evaluate('=FISHERINV(0.5493)');
+    expect(Number(result)).toBeCloseTo(0.5, 2);
+  });
+
+  it('should correctly evaluate GAMMA function', () => {
+    // GAMMA(5) = 4! = 24
+    expect(Number(evaluate('=GAMMA(5)'))).toBeCloseTo(24, 5);
+    // GAMMA(0.5) = sqrt(pi)
+    expect(Number(evaluate('=GAMMA(0.5)'))).toBeCloseTo(Math.sqrt(Math.PI), 4);
+  });
+
+  it('should correctly evaluate GAMMALN function', () => {
+    // GAMMALN(5) = ln(24)
+    expect(Number(evaluate('=GAMMALN(5)'))).toBeCloseTo(Math.log(24), 4);
+  });
+
+  it('should correctly evaluate NORMDIST function', () => {
+    // NORMDIST(0, 0, 1, 1) — CDF at 0 for standard normal = 0.5
+    const result = evaluate('=NORMDIST(0,0,1,1)');
+    expect(Number(result)).toBeCloseTo(0.5, 4);
+  });
+
+  it('should correctly evaluate NORMINV function', () => {
+    // NORMINV(0.5, 0, 1) = 0 (median of standard normal)
+    const result = evaluate('=NORMINV(0.5,0,1)');
+    expect(Number(result)).toBeCloseTo(0, 2);
+  });
+
+  it('should correctly evaluate LOGNORMAL.DIST function', () => {
+    const result = evaluate('=LOGNORMAL.DIST(1,0,1,1)');
+    expect(Number(result)).toBeCloseTo(0.5, 2);
+  });
+
+  it('should correctly evaluate LOGNORMAL.INV function', () => {
+    const result = evaluate('=LOGNORMAL.INV(0.5,0,1)');
+    expect(Number(result)).toBeCloseTo(1, 2);
+  });
+
+  it('should correctly evaluate STANDARDIZE function', () => {
+    expect(evaluate('=STANDARDIZE(10,5,2)')).toBe('2.5');
+  });
+
+  it('should correctly evaluate WEIBULL.DIST function', () => {
+    // WEIBULL.DIST(1, 1, 1, 1) — CDF = 1 - e^(-1) ≈ 0.6321
+    const result = evaluate('=WEIBULL.DIST(1,1,1,1)');
+    expect(Number(result)).toBeCloseTo(0.6321, 3);
+  });
+
+  it('should correctly evaluate POISSON.DIST function', () => {
+    // POISSON.DIST(2, 5, 0) — PMF: P(X=2) for λ=5
+    const result = evaluate('=POISSON.DIST(2,5,0)');
+    expect(Number(result)).toBeCloseTo(0.0842, 3);
+  });
+
+  it('should correctly evaluate BINOM.DIST function', () => {
+    // BINOM.DIST(3, 10, 0.5, 0) — PMF: P(X=3) for n=10, p=0.5
+    const result = evaluate('=BINOM.DIST(3,10,0.5,0)');
+    expect(Number(result)).toBeCloseTo(0.1172, 3);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

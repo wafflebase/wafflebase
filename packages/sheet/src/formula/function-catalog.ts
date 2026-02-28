@@ -1325,6 +1325,90 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
       { name: 'type' },
     ],
   },
+  {
+    name: 'AVERAGEA',
+    description: 'Returns the average, including text as 0 and booleans',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'MINA',
+    description: 'Returns the minimum value, including text as 0 and booleans',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'MAXA',
+    description: 'Returns the maximum value, including text as 0 and booleans',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'FISHER',
+    description: 'Returns the Fisher transformation',
+    args: [{ name: 'x' }],
+  },
+  {
+    name: 'FISHERINV',
+    description: 'Returns the inverse Fisher transformation',
+    args: [{ name: 'y' }],
+  },
+  {
+    name: 'GAMMA',
+    description: 'Returns the gamma function value',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'GAMMALN',
+    description: 'Returns the natural log of the gamma function',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'NORMDIST',
+    description: 'Returns the normal distribution',
+    args: [{ name: 'x' }, { name: 'mean' }, { name: 'stdev' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'NORMINV',
+    description: 'Returns the inverse of the normal distribution',
+    args: [{ name: 'probability' }, { name: 'mean' }, { name: 'stdev' }],
+  },
+  {
+    name: 'LOGNORMAL.DIST',
+    description: 'Returns the lognormal distribution',
+    args: [{ name: 'x' }, { name: 'mean' }, { name: 'stdev' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'LOGNORMAL.INV',
+    description: 'Returns the inverse of the lognormal distribution',
+    args: [{ name: 'probability' }, { name: 'mean' }, { name: 'stdev' }],
+  },
+  {
+    name: 'STANDARDIZE',
+    description: 'Returns a normalized value (z-score)',
+    args: [{ name: 'x' }, { name: 'mean' }, { name: 'stdev' }],
+  },
+  {
+    name: 'WEIBULL.DIST',
+    description: 'Returns the Weibull distribution',
+    args: [{ name: 'x' }, { name: 'alpha' }, { name: 'beta' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'POISSON.DIST',
+    description: 'Returns the Poisson distribution',
+    args: [{ name: 'x' }, { name: 'mean' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'BINOM.DIST',
+    description: 'Returns the binomial distribution probability',
+    args: [{ name: 'successes' }, { name: 'trials' }, { name: 'probability' }, { name: 'cumulative' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1463,6 +1547,21 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'DEVSQ',
     'TRIMMEAN',
     'PERMUT',
+    'AVERAGEA',
+    'MINA',
+    'MAXA',
+    'FISHER',
+    'FISHERINV',
+    'GAMMA',
+    'GAMMALN',
+    'NORMDIST',
+    'NORMINV',
+    'LOGNORMAL.DIST',
+    'LOGNORMAL.INV',
+    'STANDARDIZE',
+    'WEIBULL.DIST',
+    'POISSON.DIST',
+    'BINOM.DIST',
   ]),
   Text: new Set([
     'TRIM',

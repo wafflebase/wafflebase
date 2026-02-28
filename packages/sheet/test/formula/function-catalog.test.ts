@@ -167,6 +167,21 @@ describe('FunctionCatalog', () => {
       expect(findFunction('NOMINAL')!.name).toBe('NOMINAL');
       expect(findFunction('CUMIPMT')!.name).toBe('CUMIPMT');
       expect(findFunction('CUMPRINC')!.name).toBe('CUMPRINC');
+      expect(findFunction('AVERAGEA')!.name).toBe('AVERAGEA');
+      expect(findFunction('MINA')!.name).toBe('MINA');
+      expect(findFunction('MAXA')!.name).toBe('MAXA');
+      expect(findFunction('FISHER')!.name).toBe('FISHER');
+      expect(findFunction('FISHERINV')!.name).toBe('FISHERINV');
+      expect(findFunction('GAMMA')!.name).toBe('GAMMA');
+      expect(findFunction('GAMMALN')!.name).toBe('GAMMALN');
+      expect(findFunction('NORMDIST')!.name).toBe('NORMDIST');
+      expect(findFunction('NORMINV')!.name).toBe('NORMINV');
+      expect(findFunction('LOGNORMAL.DIST')!.name).toBe('LOGNORMAL.DIST');
+      expect(findFunction('LOGNORMAL.INV')!.name).toBe('LOGNORMAL.INV');
+      expect(findFunction('STANDARDIZE')!.name).toBe('STANDARDIZE');
+      expect(findFunction('WEIBULL.DIST')!.name).toBe('WEIBULL.DIST');
+      expect(findFunction('POISSON.DIST')!.name).toBe('POISSON.DIST');
+      expect(findFunction('BINOM.DIST')!.name).toBe('BINOM.DIST');
     });
 
     it('should return undefined for unknown function', () => {
