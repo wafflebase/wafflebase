@@ -367,6 +367,15 @@ describe('FunctionCatalog', () => {
       expect(findFunction('TOCOL')!.name).toBe('TOCOL');
       expect(findFunction('TOROW')!.name).toBe('TOROW');
       expect(findFunction('TEXTSPLIT')!.name).toBe('TEXTSPLIT');
+      expect(findFunction('CHOOSEROWS')!.name).toBe('CHOOSEROWS');
+      expect(findFunction('CHOOSECOLS')!.name).toBe('CHOOSECOLS');
+      expect(findFunction('TAKE')!.name).toBe('TAKE');
+      expect(findFunction('DROP')!.name).toBe('DROP');
+      expect(findFunction('HSTACK')!.name).toBe('HSTACK');
+      expect(findFunction('VSTACK')!.name).toBe('VSTACK');
+      expect(findFunction('SORTBY')!.name).toBe('SORTBY');
+      expect(findFunction('WRAPCOLS')!.name).toBe('WRAPCOLS');
+      expect(findFunction('WRAPROWS')!.name).toBe('WRAPROWS');
     });
 
     it('should return undefined for unknown function', () => {

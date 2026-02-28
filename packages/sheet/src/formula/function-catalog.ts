@@ -2427,6 +2427,51 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Splits text by delimiter into parts',
     args: [{ name: 'text' }, { name: 'col_delimiter' }, { name: 'row_delimiter', optional: true }, { name: 'ignore_empty', optional: true }],
   },
+  {
+    name: 'CHOOSEROWS',
+    description: 'Returns specified rows from an array',
+    args: [{ name: 'array' }, { name: 'row_num1' }, { name: 'row_num2', optional: true }],
+  },
+  {
+    name: 'CHOOSECOLS',
+    description: 'Returns specified columns from an array',
+    args: [{ name: 'array' }, { name: 'col_num1' }, { name: 'col_num2', optional: true }],
+  },
+  {
+    name: 'TAKE',
+    description: 'Returns rows or columns from the start or end of an array',
+    args: [{ name: 'array' }, { name: 'rows' }, { name: 'columns', optional: true }],
+  },
+  {
+    name: 'DROP',
+    description: 'Removes rows or columns from the start or end of an array',
+    args: [{ name: 'array' }, { name: 'rows' }, { name: 'columns', optional: true }],
+  },
+  {
+    name: 'HSTACK',
+    description: 'Appends arrays horizontally',
+    args: [{ name: 'range1' }, { name: 'range2', optional: true }],
+  },
+  {
+    name: 'VSTACK',
+    description: 'Appends arrays vertically',
+    args: [{ name: 'range1' }, { name: 'range2', optional: true }],
+  },
+  {
+    name: 'SORTBY',
+    description: 'Sorts a range by another range',
+    args: [{ name: 'array' }, { name: 'by_array' }, { name: 'sort_order', optional: true }],
+  },
+  {
+    name: 'WRAPCOLS',
+    description: 'Wraps a row or column of values into columns',
+    args: [{ name: 'vector' }, { name: 'wrap_count' }, { name: 'pad_with', optional: true }],
+  },
+  {
+    name: 'WRAPROWS',
+    description: 'Wraps a row or column of values into rows',
+    args: [{ name: 'vector' }, { name: 'wrap_count' }, { name: 'pad_with', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2480,7 +2525,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'CELL',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
-  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE', 'XMATCH', 'TOCOL', 'TOROW']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE', 'XMATCH', 'TOCOL', 'TOROW', 'CHOOSEROWS', 'CHOOSECOLS', 'TAKE', 'DROP', 'HSTACK', 'VSTACK', 'SORTBY', 'WRAPCOLS', 'WRAPROWS']),
   Math: new Set([
     'SUM',
     'ABS',

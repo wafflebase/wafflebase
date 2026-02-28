@@ -426,6 +426,15 @@ export const FunctionMap = new Map([
   ['TOCOL', tocolFunc],
   ['TOROW', torowFunc],
   ['TEXTSPLIT', textsplitFunc],
+  ['CHOOSEROWS', chooserowsFunc],
+  ['CHOOSECOLS', choosecolsFunc],
+  ['TAKE', takeFunc],
+  ['DROP', dropFunc],
+  ['HSTACK', hstackFunc],
+  ['VSTACK', vstackFunc],
+  ['SORTBY', sortbyFunc],
+  ['WRAPCOLS', wrapcolsFunc],
+  ['WRAPROWS', wraprowsFunc],
 ]);
 
 /**
@@ -14932,4 +14941,283 @@ export function textsplitFunc(
   return parts.length > 0
     ? { t: 'str', v: parts[0] }
     : { t: 'err', v: '#N/A!' };
+}
+
+/**
+ * CHOOSEROWS(array, row_num1, [row_num2], ...) — returns specified rows.
+ * Returns the value at the first chosen row, first column.
+ */
+export function chooserowsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const rowNum = NumberArgs.map(visit(exprs[1]), grid);
+  if (rowNum.t === 'err') return rowNum;
+  let r = Math.trunc(rowNum.v);
+  if (r < 0) r = m.v.rowCount + r + 1; // negative = from end
+  if (r < 1 || r > m.v.rowCount) return { t: 'err', v: '#VALUE!' };
+
+  const refIdx = (r - 1) * m.v.colCount;
+  const cellVal = grid?.get(m.v.refs[refIdx])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
+}
+
+/**
+ * CHOOSECOLS(array, col_num1, [col_num2], ...) — returns specified columns.
+ * Returns the value at the first row, first chosen column.
+ */
+export function choosecolsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const colNum = NumberArgs.map(visit(exprs[1]), grid);
+  if (colNum.t === 'err') return colNum;
+  let c = Math.trunc(colNum.v);
+  if (c < 0) c = m.v.colCount + c + 1;
+  if (c < 1 || c > m.v.colCount) return { t: 'err', v: '#VALUE!' };
+
+  const refIdx = c - 1; // first row, chosen column
+  const cellVal = grid?.get(m.v.refs[refIdx])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
+}
+
+/**
+ * TAKE(array, rows, [columns]) — returns specified number of rows/columns from start/end.
+ * Positive = from start, negative = from end.
+ */
+export function takeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const rowsNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (rowsNode.t === 'err') return rowsNode;
+  const takeRows = Math.trunc(rowsNode.v);
+  if (takeRows === 0) return { t: 'err', v: '#VALUE!' };
+
+  // Determine starting row
+  const startRow = takeRows > 0 ? 0 : m.v.rowCount + takeRows;
+  if (startRow < 0 || startRow >= m.v.rowCount) return { t: 'err', v: '#VALUE!' };
+
+  // Determine starting col
+  let startCol = 0;
+  if (exprs.length >= 3) {
+    const colsNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (colsNode.t === 'err') return colsNode;
+    const takeCols = Math.trunc(colsNode.v);
+    if (takeCols === 0) return { t: 'err', v: '#VALUE!' };
+    startCol = takeCols > 0 ? 0 : m.v.colCount + takeCols;
+    if (startCol < 0 || startCol >= m.v.colCount) return { t: 'err', v: '#VALUE!' };
+  }
+
+  const refIdx = startRow * m.v.colCount + startCol;
+  const cellVal = grid?.get(m.v.refs[refIdx])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
+}
+
+/**
+ * DROP(array, rows, [columns]) — removes specified number of rows/columns.
+ * Positive = from start, negative = from end.
+ */
+export function dropFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const rowsNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (rowsNode.t === 'err') return rowsNode;
+  const dropRows = Math.trunc(rowsNode.v);
+
+  // First remaining row after drop
+  const startRow = dropRows >= 0 ? dropRows : 0;
+  if (startRow >= m.v.rowCount) return { t: 'err', v: '#VALUE!' };
+
+  let startCol = 0;
+  if (exprs.length >= 3) {
+    const colsNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (colsNode.t === 'err') return colsNode;
+    const dropCols = Math.trunc(colsNode.v);
+    startCol = dropCols >= 0 ? dropCols : 0;
+    if (startCol >= m.v.colCount) return { t: 'err', v: '#VALUE!' };
+  }
+
+  const refIdx = startRow * m.v.colCount + startCol;
+  const cellVal = grid?.get(m.v.refs[refIdx])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
+}
+
+/**
+ * HSTACK(range1, range2, ...) — appends arrays horizontally.
+ * Returns top-left value of first range.
+ */
+export function hstackFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const cellVal = grid?.get(m.v.refs[0])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
+}
+
+/**
+ * VSTACK(range1, range2, ...) — appends arrays vertically.
+ * Returns top-left value of first range.
+ */
+export function vstackFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  return hstackFunc(ctx, visit, grid);
+}
+
+/**
+ * SORTBY(array, by_array, [sort_order], ...) — sorts range by another range.
+ * Returns top-left value after sorting.
+ */
+export function sortbyFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const byRefs = getRefsFromExpression(exprs[1], visit, grid);
+  if ('t' in byRefs && byRefs.t === 'err') return byRefs as EvalNode;
+  const byArr = (byRefs as { t: 'refs'; v: string[] }).v;
+
+  let sortOrder = 1;
+  if (exprs.length >= 3) {
+    const so = NumberArgs.map(visit(exprs[2]), grid);
+    if (so.t === 'err') return so;
+    sortOrder = so.v === -1 ? -1 : 1;
+  }
+
+  // Build row indices with sort keys
+  const rows: { idx: number; key: string }[] = [];
+  for (let r = 0; r < m.v.rowCount; r++) {
+    const keyIdx = r < byArr.length ? r : byArr.length - 1;
+    const key = grid?.get(byArr[keyIdx])?.v ?? '';
+    rows.push({ idx: r, key });
+  }
+
+  rows.sort((a, b) => {
+    const aNum = Number(a.key);
+    const bNum = Number(b.key);
+    if (!isNaN(aNum) && !isNaN(bNum)) {
+      return (aNum - bNum) * sortOrder;
+    }
+    return a.key.localeCompare(b.key) * sortOrder;
+  });
+
+  // Return value from top-left of sorted result
+  const sortedRow = rows[0].idx;
+  const cellVal = grid?.get(m.v.refs[sortedRow * m.v.colCount])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
+}
+
+/**
+ * WRAPCOLS(vector, wrap_count, [pad_with]) — wraps a row/column into columns.
+ * Returns first value.
+ */
+export function wrapcolsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const wrapNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (wrapNode.t === 'err') return wrapNode;
+  if (wrapNode.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const cellVal = grid?.get(m.v.refs[0])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
+}
+
+/**
+ * WRAPROWS(vector, wrap_count, [pad_with]) — wraps a row/column into rows.
+ * Returns first value.
+ */
+export function wraprowsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  return wrapcolsFunc(ctx, visit, grid);
 }

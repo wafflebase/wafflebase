@@ -2778,6 +2778,83 @@ describe('Formula', () => {
     expect(evaluate('=TEXTSPLIT("hello world"," ")')).toBe('hello');
   });
 
+  it('should correctly evaluate CHOOSEROWS function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' } as Cell);
+    grid.set('A2', { v: '20' } as Cell);
+    grid.set('A3', { v: '30' } as Cell);
+    expect(evaluate('=CHOOSEROWS(A1:A3,2)', grid)).toBe('20');
+    expect(evaluate('=CHOOSEROWS(A1:A3,3)', grid)).toBe('30');
+  });
+
+  it('should correctly evaluate CHOOSECOLS function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('B1', { v: '2' } as Cell);
+    grid.set('C1', { v: '3' } as Cell);
+    expect(evaluate('=CHOOSECOLS(A1:C1,2)', grid)).toBe('2');
+    expect(evaluate('=CHOOSECOLS(A1:C1,3)', grid)).toBe('3');
+  });
+
+  it('should correctly evaluate TAKE function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('A2', { v: '2' } as Cell);
+    grid.set('A3', { v: '3' } as Cell);
+    // Take first 2 rows, returns top-left value
+    expect(evaluate('=TAKE(A1:A3,2)', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate DROP function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' } as Cell);
+    grid.set('A2', { v: '20' } as Cell);
+    grid.set('A3', { v: '30' } as Cell);
+    // Drop first 1 row, returns first remaining value
+    expect(evaluate('=DROP(A1:A3,1)', grid)).toBe('20');
+  });
+
+  it('should correctly evaluate HSTACK function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '5' } as Cell);
+    grid.set('A2', { v: '6' } as Cell);
+    expect(evaluate('=HSTACK(A1:A2)', grid)).toBe('5');
+  });
+
+  it('should correctly evaluate VSTACK function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '7' } as Cell);
+    expect(evaluate('=VSTACK(A1)', grid)).toBe('7');
+  });
+
+  it('should correctly evaluate SORTBY function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'banana' } as Cell);
+    grid.set('A2', { v: 'apple' } as Cell);
+    grid.set('A3', { v: 'cherry' } as Cell);
+    grid.set('B1', { v: '2' } as Cell);
+    grid.set('B2', { v: '1' } as Cell);
+    grid.set('B3', { v: '3' } as Cell);
+    // Sorted by B1:B3 ascending → apple (key 1) comes first
+    expect(evaluate('=SORTBY(A1:A3,B1:B3)', grid)).toBe('apple');
+  });
+
+  it('should correctly evaluate WRAPCOLS function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('A2', { v: '2' } as Cell);
+    grid.set('A3', { v: '3' } as Cell);
+    grid.set('A4', { v: '4' } as Cell);
+    expect(evaluate('=WRAPCOLS(A1:A4,2)', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate WRAPROWS function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' } as Cell);
+    grid.set('A2', { v: '20' } as Cell);
+    expect(evaluate('=WRAPROWS(A1:A2,1)', grid)).toBe('10');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
