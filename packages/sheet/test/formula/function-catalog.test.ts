@@ -355,6 +355,12 @@ describe('FunctionCatalog', () => {
       expect(findFunction('FREQUENCY')!.name).toBe('FREQUENCY');
       expect(findFunction('MODE.MULT')!.name).toBe('MODE.MULT');
       expect(findFunction('AGGREGATE')!.name).toBe('AGGREGATE');
+      expect(findFunction('COMBINA')!.name).toBe('COMBINA');
+      expect(findFunction('PERMUTATIONA')!.name).toBe('PERMUTATIONA');
+      expect(findFunction('T.TEST')!.name).toBe('T.TEST');
+      expect(findFunction('Z.TEST')!.name).toBe('Z.TEST');
+      expect(findFunction('AREAS')!.name).toBe('AREAS');
+      expect(findFunction('CELL')!.name).toBe('CELL');
     });
 
     it('should return undefined for unknown function', () => {

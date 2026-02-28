@@ -2667,6 +2667,59 @@ describe('Formula', () => {
     expect(evaluate('=AGGREGATE(1,6,A1:A3)', grid)).toBe('20');
   });
 
+  it('should correctly evaluate COMBINA function', () => {
+    // COMBINA(4,2) = C(5,2) = 10
+    expect(evaluate('=COMBINA(4,2)')).toBe('10');
+    // COMBINA(10,3) = C(12,3) = 220
+    expect(evaluate('=COMBINA(10,3)')).toBe('220');
+  });
+
+  it('should correctly evaluate PERMUTATIONA function', () => {
+    // PERMUTATIONA(3,2) = 3^2 = 9
+    expect(evaluate('=PERMUTATIONA(3,2)')).toBe('9');
+    expect(evaluate('=PERMUTATIONA(2,4)')).toBe('16');
+  });
+
+  it('should correctly evaluate T.TEST function', () => {
+    const grid = new Map([
+      ['A1', { v: '3' } as Cell],
+      ['A2', { v: '4' } as Cell],
+      ['A3', { v: '5' } as Cell],
+      ['B1', { v: '6' } as Cell],
+      ['B2', { v: '7' } as Cell],
+      ['B3', { v: '8' } as Cell],
+    ]);
+    // T.TEST with equal means shifted by 3 should give a small p-value
+    const pval = Number(evaluate('=T.TEST(A1:A3,B1:B3,2,2)', grid));
+    expect(pval).toBeGreaterThan(0);
+    expect(pval).toBeLessThan(0.1);
+  });
+
+  it('should correctly evaluate Z.TEST function', () => {
+    const grid = new Map([
+      ['A1', { v: '3' } as Cell],
+      ['A2', { v: '4' } as Cell],
+      ['A3', { v: '5' } as Cell],
+      ['A4', { v: '6' } as Cell],
+      ['A5', { v: '7' } as Cell],
+    ]);
+    // Z.TEST(data, 4) — test against mu=4
+    const pval = Number(evaluate('=Z.TEST(A1:A5,4)', grid));
+    expect(pval).toBeGreaterThan(0);
+    expect(pval).toBeLessThan(1);
+  });
+
+  it('should correctly evaluate AREAS function', () => {
+    expect(evaluate('=AREAS(A1:B2)')).toBe('1');
+  });
+
+  it('should correctly evaluate CELL function', () => {
+    const grid = new Map<string, Cell>();
+    expect(evaluate('=CELL("row",B3)', grid)).toBe('3');
+    expect(evaluate('=CELL("col",B3)', grid)).toBe('2');
+    expect(evaluate('=CELL("address",B3)', grid)).toBe('$B$3');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

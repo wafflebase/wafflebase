@@ -414,6 +414,12 @@ export const FunctionMap = new Map([
   ['FREQUENCY', frequencyFunc],
   ['MODE.MULT', modemultFunc],
   ['AGGREGATE', aggregateFunc],
+  ['COMBINA', combinaFunc],
+  ['PERMUTATIONA', permutationaFunc],
+  ['T.TEST', ttestFunc],
+  ['Z.TEST', ztestFunc],
+  ['AREAS', areasFunc],
+  ['CELL', cellInfoFunc],
 ]);
 
 /**
@@ -14406,5 +14412,202 @@ export function aggregateFunc(
       return { t: 'num', v: sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid] };
     }
     default: return { t: 'err', v: '#VALUE!' };
+  }
+}
+
+/**
+ * COMBINA(n, k) — number of combinations with repetition.
+ * COMBINA(n, k) = C(n+k-1, k) = (n+k-1)! / (k! * (n-1)!)
+ */
+export function combinaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  const k = NumberArgs.map(visit(exprs[1]), grid);
+  if (k.t === 'err') return k;
+  const ni = Math.trunc(n.v);
+  const ki = Math.trunc(k.v);
+  if (ni < 0 || ki < 0) return { t: 'err', v: '#VALUE!' };
+  if (ki === 0) return { t: 'num', v: 1 };
+  // C(ni+ki-1, ki)
+  let result = 1;
+  for (let i = 0; i < ki; i++) {
+    result = result * (ni + ki - 1 - i) / (i + 1);
+  }
+  return { t: 'num', v: Math.round(result) };
+}
+
+/**
+ * PERMUTATIONA(n, k) — number of permutations with repetition = n^k.
+ */
+export function permutationaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  const k = NumberArgs.map(visit(exprs[1]), grid);
+  if (k.t === 'err') return k;
+  const ni = Math.trunc(n.v);
+  const ki = Math.trunc(k.v);
+  if (ni < 0 || ki < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.pow(ni, ki) };
+}
+
+/**
+ * LOG10(number) — base-10 logarithm.
+ */
+export function log10Func(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  if (n.v <= 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.log10(n.v) };
+}
+
+/**
+ * T.TEST(range1, range2, tails, type) — Student's t-test p-value.
+ * Simplified: type 1=paired, 2=two-sample equal variance.
+ */
+export function ttestFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const arr1 = result.ys;
+  const arr2 = result.xs;
+  const tails = NumberArgs.map(visit(exprs[2]), grid);
+  if (tails.t === 'err') return tails;
+  const type = NumberArgs.map(visit(exprs[3]), grid);
+  if (type.t === 'err') return type;
+  if (arr1.length < 2 || arr2.length < 2) return { t: 'err', v: '#VALUE!' };
+  const mean1 = arr1.reduce((a, b) => a + b, 0) / arr1.length;
+  const mean2 = arr2.reduce((a, b) => a + b, 0) / arr2.length;
+  const var1 = arr1.reduce((a, b) => a + (b - mean1) ** 2, 0) / (arr1.length - 1);
+  const var2 = arr2.reduce((a, b) => a + (b - mean2) ** 2, 0) / (arr2.length - 1);
+  const n1 = arr1.length, n2 = arr2.length;
+  // Two-sample t-statistic (equal variance)
+  const sp2 = ((n1 - 1) * var1 + (n2 - 1) * var2) / (n1 + n2 - 2);
+  const tStat = Math.abs(mean1 - mean2) / Math.sqrt(sp2 * (1 / n1 + 1 / n2));
+  const df = n1 + n2 - 2;
+  // Approximate p-value using regularized incomplete beta function
+  const x = df / (df + tStat * tStat);
+  const pOneTail = 0.5 * regularizedBeta(x, df / 2, 0.5);
+  const tailCount = Math.trunc(tails.v);
+  return { t: 'num', v: tailCount === 1 ? pOneTail : 2 * pOneTail };
+}
+
+/**
+ * Z.TEST(range, value, [sigma]) — one-tailed p-value of a z-test.
+ */
+export function ztestFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+  const dataResult = collectNumericValues(exprs[0], visit, grid);
+  if (!Array.isArray(dataResult)) return dataResult;
+  if (dataResult.length === 0) return { t: 'err', v: '#VALUE!' };
+  const mu = NumberArgs.map(visit(exprs[1]), grid);
+  if (mu.t === 'err') return mu;
+  const mean = dataResult.reduce((a, b) => a + b, 0) / dataResult.length;
+  let sigma: number;
+  if (exprs.length >= 3) {
+    const s = NumberArgs.map(visit(exprs[2]), grid);
+    if (s.t === 'err') return s;
+    sigma = s.v;
+  } else {
+    // Sample standard deviation
+    const variance = dataResult.reduce((a, b) => a + (b - mean) ** 2, 0) / (dataResult.length - 1);
+    sigma = Math.sqrt(variance);
+  }
+  const z = (mean - mu.v) / (sigma / Math.sqrt(dataResult.length));
+  // P(Z > z) = 1 - normCdf(z)
+  return { t: 'num', v: 1 - normCdf(z) };
+}
+
+/**
+ * AREAS(reference) — returns the number of areas in a reference.
+ * Simplified: always returns 1 for a single reference.
+ */
+export function areasFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  return { t: 'num', v: 1 };
+}
+
+/**
+ * CELL(info_type, [reference]) — returns information about a cell.
+ * Simplified: supports "row", "col", "address" for a reference.
+ */
+export function cellInfoFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const infoType = toStr(visit(exprs[0]), grid);
+  if (infoType.t === 'err') return infoType;
+  const typeStr = infoType.v.toLowerCase();
+  if (exprs.length < 2) {
+    // No reference, return info about default
+    if (typeStr === 'row') return { t: 'num', v: 1 };
+    if (typeStr === 'col') return { t: 'num', v: 1 };
+    return { t: 'str', v: '' };
+  }
+  const refNode = visit(exprs[1]);
+  if (refNode.t !== 'ref') return { t: 'err', v: '#VALUE!' };
+  const refStr = typeof refNode.v === 'string' ? refNode.v : '';
+  // Parse the reference
+  const rangeMatch = refStr.match(/^([A-Z]+)(\d+)/i);
+  if (!rangeMatch) return { t: 'err', v: '#VALUE!' };
+  const ref = parseRef(rangeMatch[0]);
+  switch (typeStr) {
+    case 'row': return { t: 'num', v: ref.r };
+    case 'col': return { t: 'num', v: ref.c };
+    case 'address': return { t: 'str', v: '$' + toColumnLabel(ref.c) + '$' + ref.r };
+    case 'contents': {
+      if (!grid) return { t: 'str', v: '' };
+      const cell = grid.get(toSref(ref));
+      return cell?.v != null ? { t: 'str', v: cell.v } : { t: 'str', v: '' };
+    }
+    default: return { t: 'str', v: '' };
   }
 }

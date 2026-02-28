@@ -2367,6 +2367,36 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns an aggregate calculation, ignoring errors and hidden rows',
     args: [{ name: 'function_num' }, { name: 'options' }, { name: 'ref1' }, { name: 'ref2', optional: true, repeating: true }],
   },
+  {
+    name: 'COMBINA',
+    description: 'Returns the number of combinations with repetition',
+    args: [{ name: 'n' }, { name: 'k' }],
+  },
+  {
+    name: 'PERMUTATIONA',
+    description: 'Returns the number of permutations with repetition',
+    args: [{ name: 'n' }, { name: 'k' }],
+  },
+  {
+    name: 'T.TEST',
+    description: 'Returns the probability associated with a Student t-test',
+    args: [{ name: 'range1' }, { name: 'range2' }, { name: 'tails' }, { name: 'type' }],
+  },
+  {
+    name: 'Z.TEST',
+    description: 'Returns the one-tailed p-value of a z-test',
+    args: [{ name: 'range' }, { name: 'value' }, { name: 'sigma', optional: true }],
+  },
+  {
+    name: 'AREAS',
+    description: 'Returns the number of areas in a reference',
+    args: [{ name: 'reference' }],
+  },
+  {
+    name: 'CELL',
+    description: 'Returns information about a cell',
+    args: [{ name: 'info_type' }, { name: 'reference', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2416,6 +2446,8 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'NA',
     'ERROR.TYPE',
     'ISDATE',
+    'AREAS',
+    'CELL',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
   Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE']),
@@ -2494,6 +2526,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'RANDARRAY',
     'SUBTOTAL',
     'MDETERM',
+    'COMBINA',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -2588,6 +2621,9 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'FREQUENCY',
     'MODE.MULT',
     'AGGREGATE',
+    'T.TEST',
+    'Z.TEST',
+    'PERMUTATIONA',
   ]),
   Text: new Set([
     'TRIM',
