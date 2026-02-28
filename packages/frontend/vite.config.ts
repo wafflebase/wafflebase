@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
+const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.js");
 
 function manualChunks(id: string): string | undefined {
   const normalizedId = id.replace(/\\/g, "/");
@@ -62,6 +63,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       util: utilShimPath,
+      assert: assertShimPath,
     },
   },
   define: {
@@ -71,12 +73,15 @@ export default defineConfig({
     esbuildOptions: {
       plugins: [
         {
-          name: "util-shim",
+          name: "node-shims",
           setup(build) {
-            // Intercept all `util` and `util/` imports during dep
-            // pre-bundling so assert@2.x and antlr4ts get our shim.
+            // Intercept Node.js built-in imports during dep
+            // pre-bundling so antlr4ts gets our lightweight shims.
             build.onResolve({ filter: /^util(\/)?$/ }, () => ({
               path: utilShimPath,
+            }));
+            build.onResolve({ filter: /^assert$/ }, () => ({
+              path: assertShimPath,
             }));
           },
         },
