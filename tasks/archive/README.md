@@ -12,6 +12,7 @@ Total archived tasks: 30
 
 | Task | Todo | Lessons |
 |---|---|---|
+| entropy detection lane (2026-02-28) | [20260228-entropy-detection-lane-todo.md](./2026/02/20260228-entropy-detection-lane-todo.md) | [20260228-entropy-detection-lane-lessons.md](./2026/02/20260228-entropy-detection-lane-lessons.md) |
 | filter sort column scoped (2026-02-28) | [20260228-filter-sort-column-scoped-todo.md](./2026/02/20260228-filter-sort-column-scoped-todo.md) | [20260228-filter-sort-column-scoped-lessons.md](./2026/02/20260228-filter-sort-column-scoped-lessons.md) |
 | hide show (2026-02-28) | [20260228-hide-show-todo.md](./2026/02/20260228-hide-show-todo.md) | [20260228-hide-show-lessons.md](./2026/02/20260228-hide-show-lessons.md) |
 | frontend tests outside src (2026-02-27) | [20260227-frontend-tests-outside-src-todo.md](./2026/02/20260227-frontend-tests-outside-src-todo.md) | [20260227-frontend-tests-outside-src-lessons.md](./2026/02/20260227-frontend-tests-outside-src-lessons.md) |
