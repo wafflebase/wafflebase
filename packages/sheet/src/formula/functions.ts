@@ -197,6 +197,16 @@ export const FunctionMap = new Map([
   ['COT', cotFunc],
   ['CSC', cscFunc],
   ['SEC', secFunc],
+  ['REGEXEXTRACT', regexextractFunc],
+  ['REGEXREPLACE', regexreplaceFunc],
+  ['UNICODE', unicodeFunc],
+  ['UNICHAR', unicharFunc],
+  ['GEOMEAN', geomeanFunc],
+  ['HARMEAN', harmeanFunc],
+  ['AVEDEV', avedevFunc],
+  ['DEVSQ', devsqFunc],
+  ['TRIMMEAN', trimmeanFunc],
+  ['PERMUT', permutFunc],
 ]);
 
 /**
@@ -7167,4 +7177,246 @@ export function secFunc(
   const cos = Math.cos(num.v);
   if (cos === 0) return { t: 'err', v: '#DIV/0!' };
   return { t: 'num', v: 1 / cos };
+}
+
+/**
+ * REGEXEXTRACT(text, regular_expression) — extracts matching substrings.
+ */
+export function regexextractFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const text = toStr(visit(exprs[0]), grid);
+  if (text.t === 'err') return text;
+  const pattern = toStr(visit(exprs[1]), grid);
+  if (pattern.t === 'err') return pattern;
+  try {
+    const match = new RegExp(pattern.v).exec(text.v);
+    if (!match) return { t: 'err', v: '#N/A!' };
+    return { t: 'str', v: match[1] !== undefined ? match[1] : match[0] };
+  } catch {
+    return { t: 'err', v: '#VALUE!' };
+  }
+}
+
+/**
+ * REGEXREPLACE(text, regular_expression, replacement) — replaces text using regex.
+ */
+export function regexreplaceFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  const text = toStr(visit(exprs[0]), grid);
+  if (text.t === 'err') return text;
+  const pattern = toStr(visit(exprs[1]), grid);
+  if (pattern.t === 'err') return pattern;
+  const replacement = toStr(visit(exprs[2]), grid);
+  if (replacement.t === 'err') return replacement;
+  try {
+    return { t: 'str', v: text.v.replace(new RegExp(pattern.v, 'g'), replacement.v) };
+  } catch {
+    return { t: 'err', v: '#VALUE!' };
+  }
+}
+
+/**
+ * UNICODE(text) — returns the Unicode code point of the first character.
+ */
+export function unicodeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') return str;
+  if (str.v.length === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: str.v.codePointAt(0)! };
+}
+
+/**
+ * UNICHAR(number) — returns the Unicode character for a code point.
+ */
+export function unicharFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  const code = Math.trunc(num.v);
+  if (code < 1) return { t: 'err', v: '#VALUE!' };
+  try {
+    return { t: 'str', v: String.fromCodePoint(code) };
+  } catch {
+    return { t: 'err', v: '#VALUE!' };
+  }
+}
+
+/**
+ * GEOMEAN(number1, [number2], ...) — returns the geometric mean.
+ */
+export function geomeanFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') return node;
+    if (node.v <= 0) return { t: 'err', v: '#VALUE!' };
+    values.push(node.v);
+  }
+  if (values.length === 0) return { t: 'err', v: '#N/A!' };
+  const logSum = values.reduce((a, v) => a + Math.log(v), 0);
+  return { t: 'num', v: Math.exp(logSum / values.length) };
+}
+
+/**
+ * HARMEAN(number1, [number2], ...) — returns the harmonic mean.
+ */
+export function harmeanFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') return node;
+    if (node.v <= 0) return { t: 'err', v: '#VALUE!' };
+    values.push(node.v);
+  }
+  if (values.length === 0) return { t: 'err', v: '#N/A!' };
+  const recipSum = values.reduce((a, v) => a + 1 / v, 0);
+  return { t: 'num', v: values.length / recipSum };
+}
+
+/**
+ * AVEDEV(number1, [number2], ...) — returns the average absolute deviation from the mean.
+ */
+export function avedevFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') return node;
+    values.push(node.v);
+  }
+  if (values.length === 0) return { t: 'err', v: '#N/A!' };
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const avgDev = values.reduce((a, v) => a + Math.abs(v - mean), 0) / values.length;
+  return { t: 'num', v: avgDev };
+}
+
+/**
+ * DEVSQ(number1, [number2], ...) — returns the sum of squared deviations from the mean.
+ */
+export function devsqFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') return node;
+    values.push(node.v);
+  }
+  if (values.length === 0) return { t: 'err', v: '#N/A!' };
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  return { t: 'num', v: values.reduce((a, v) => a + (v - mean) ** 2, 0) };
+}
+
+/**
+ * TRIMMEAN(data, percent) — returns the mean of the interior portion of a data set.
+ */
+export function trimmeanFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const dataNode = visit(exprs[0]);
+  if (dataNode.t === 'err') return dataNode;
+
+  const values: number[] = [];
+  if (dataNode.t === 'num') {
+    values.push(dataNode.v);
+  } else if (dataNode.t === 'ref' && grid) {
+    for (const ref of toSrefs([dataNode.v])) {
+      const cellVal = grid.get(ref)?.v || '';
+      if (cellVal !== '' && !isNaN(Number(cellVal))) {
+        values.push(Number(cellVal));
+      }
+    }
+  }
+
+  const pctNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (pctNode.t === 'err') return pctNode;
+  const pct = pctNode.v;
+  if (pct < 0 || pct >= 1) return { t: 'err', v: '#VALUE!' };
+
+  if (values.length === 0) return { t: 'err', v: '#N/A!' };
+
+  values.sort((a, b) => a - b);
+  const trimCount = Math.floor(values.length * pct / 2);
+  const trimmed = values.slice(trimCount, values.length - trimCount);
+  if (trimmed.length === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: trimmed.reduce((a, b) => a + b, 0) / trimmed.length };
+}
+
+/**
+ * PERMUT(n, k) — returns the number of permutations.
+ */
+export function permutFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const nNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (nNode.t === 'err') return nNode;
+  const kNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (kNode.t === 'err') return kNode;
+  const n = Math.trunc(nNode.v);
+  const k = Math.trunc(kNode.v);
+  if (n < 0 || k < 0 || k > n) return { t: 'err', v: '#VALUE!' };
+  let result = 1;
+  for (let i = n; i > n - k; i--) {
+    result *= i;
+  }
+  return { t: 'num', v: result };
 }

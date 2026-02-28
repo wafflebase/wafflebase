@@ -1108,6 +1108,68 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the secant of an angle in radians',
     args: [{ name: 'angle' }],
   },
+  {
+    name: 'REGEXEXTRACT',
+    description: 'Extracts matching substrings using a regular expression',
+    args: [{ name: 'text' }, { name: 'regular_expression' }],
+  },
+  {
+    name: 'REGEXREPLACE',
+    description: 'Replaces text matching a regular expression',
+    args: [{ name: 'text' }, { name: 'regular_expression' }, { name: 'replacement' }],
+  },
+  {
+    name: 'UNICODE',
+    description: 'Returns the Unicode code point of the first character',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'UNICHAR',
+    description: 'Returns the Unicode character for a code point',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'GEOMEAN',
+    description: 'Returns the geometric mean',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'HARMEAN',
+    description: 'Returns the harmonic mean',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'AVEDEV',
+    description: 'Returns the average absolute deviation from the mean',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'DEVSQ',
+    description: 'Returns the sum of squared deviations from the mean',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'TRIMMEAN',
+    description: 'Returns the mean of the interior portion of a data set',
+    args: [{ name: 'data' }, { name: 'percent' }],
+  },
+  {
+    name: 'PERMUT',
+    description: 'Returns the number of permutations for a given number of objects',
+    args: [{ name: 'n' }, { name: 'k' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1239,6 +1301,12 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SLOPE',
     'INTERCEPT',
     'CORREL',
+    'GEOMEAN',
+    'HARMEAN',
+    'AVEDEV',
+    'DEVSQ',
+    'TRIMMEAN',
+    'PERMUT',
   ]),
   Text: new Set([
     'TRIM',
@@ -1270,6 +1338,10 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SPLIT',
     'JOIN',
     'REGEXMATCH',
+    'REGEXEXTRACT',
+    'REGEXREPLACE',
+    'UNICODE',
+    'UNICHAR',
   ]),
 };
 

@@ -1339,6 +1339,60 @@ describe('Formula', () => {
     expect(secResult).toBeCloseTo(1, 10);
   });
 
+  it('should correctly evaluate REGEXEXTRACT function', () => {
+    expect(evaluate('=REGEXEXTRACT("abc123","[0-9]+")')).toBe('123');
+    expect(evaluate('=REGEXEXTRACT("hello","(h.*o)")')).toBe('hello');
+    expect(evaluate('=REGEXEXTRACT("abc","xyz")')).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate REGEXREPLACE function', () => {
+    expect(evaluate('=REGEXREPLACE("abc123","[0-9]+","NUM")')).toBe('abcNUM');
+    expect(evaluate('=REGEXREPLACE("hello world","world","earth")')).toBe('hello earth');
+  });
+
+  it('should correctly evaluate UNICODE and UNICHAR functions', () => {
+    expect(evaluate('=UNICODE("A")')).toBe('65');
+    expect(evaluate('=UNICHAR(65)')).toBe('A');
+    expect(evaluate('=UNICHAR(UNICODE("Z"))')).toBe('Z');
+  });
+
+  it('should correctly evaluate GEOMEAN function', () => {
+    expect(evaluate('=GEOMEAN(4,9)')).toBe('6');
+    expect(evaluate('=GEOMEAN(1,2,4)')).toBe('2');
+  });
+
+  it('should correctly evaluate HARMEAN function', () => {
+    // HARMEAN(1,2,4) = 3 / (1 + 0.5 + 0.25) = 3/1.75 ≈ 1.714
+    const result = Number(evaluate('=HARMEAN(1,2,4)'));
+    expect(result).toBeCloseTo(12 / 7, 10);
+  });
+
+  it('should correctly evaluate AVEDEV function', () => {
+    // AVEDEV(2,4,6) mean=4, deviations: 2,0,2 → avg=4/3
+    const result = Number(evaluate('=AVEDEV(2,4,6)'));
+    expect(result).toBeCloseTo(4 / 3, 10);
+  });
+
+  it('should correctly evaluate DEVSQ function', () => {
+    // DEVSQ(2,4,6) mean=4, sq devs: 4,0,4 → sum=8
+    expect(evaluate('=DEVSQ(2,4,6)')).toBe('8');
+  });
+
+  it('should correctly evaluate TRIMMEAN function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('A2', { v: '2' });
+    grid.set('A3', { v: '3' });
+    grid.set('A4', { v: '4' });
+    // 0% trim = regular mean = 2.5
+    expect(evaluate('=TRIMMEAN(A1:A4,0)', grid)).toBe('2.5');
+  });
+
+  it('should correctly evaluate PERMUT function', () => {
+    expect(evaluate('=PERMUT(5,2)')).toBe('20'); // 5*4 = 20
+    expect(evaluate('=PERMUT(4,4)')).toBe('24'); // 4! = 24
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

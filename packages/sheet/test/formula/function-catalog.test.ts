@@ -141,6 +141,16 @@ describe('FunctionCatalog', () => {
       expect(findFunction('COT')!.name).toBe('COT');
       expect(findFunction('CSC')!.name).toBe('CSC');
       expect(findFunction('SEC')!.name).toBe('SEC');
+      expect(findFunction('REGEXEXTRACT')!.name).toBe('REGEXEXTRACT');
+      expect(findFunction('REGEXREPLACE')!.name).toBe('REGEXREPLACE');
+      expect(findFunction('UNICODE')!.name).toBe('UNICODE');
+      expect(findFunction('UNICHAR')!.name).toBe('UNICHAR');
+      expect(findFunction('GEOMEAN')!.name).toBe('GEOMEAN');
+      expect(findFunction('HARMEAN')!.name).toBe('HARMEAN');
+      expect(findFunction('AVEDEV')!.name).toBe('AVEDEV');
+      expect(findFunction('DEVSQ')!.name).toBe('DEVSQ');
+      expect(findFunction('TRIMMEAN')!.name).toBe('TRIMMEAN');
+      expect(findFunction('PERMUT')!.name).toBe('PERMUT');
     });
 
     it('should return undefined for unknown function', () => {
