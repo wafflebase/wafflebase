@@ -118,6 +118,12 @@ export const FunctionMap = new Map([
   ['LARGE', largeFunc],
   ['SMALL', smallFunc],
   ['N', nFunc],
+  ['SUMPRODUCT', sumproductFunc],
+  ['GCD', gcdFunc],
+  ['LCM', lcmFunc],
+  ['COMBIN', combinFunc],
+  ['FACT', factFunc],
+  ['QUOTIENT', quotientFunc],
 ]);
 
 /**
@@ -4288,4 +4294,241 @@ export function nFunc(
   }
 
   return { t: 'num', v: 0 };
+}
+
+/**
+ * SUMPRODUCT(array1, [array2], ...) — multiplies corresponding elements and returns the sum.
+ */
+export function sumproductFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const arrays: number[][] = [];
+  for (const expr of exprs) {
+    const refs = getRefsFromExpression(expr, visit, grid);
+    if (refs.t === 'err') {
+      return refs;
+    }
+
+    const values: number[] = [];
+    for (const ref of refs.v) {
+      const cellVal = grid?.get(ref)?.v || '';
+      values.push(cellVal !== '' && !isNaN(Number(cellVal)) ? Number(cellVal) : 0);
+    }
+    arrays.push(values);
+  }
+
+  const length = arrays[0].length;
+  if (arrays.some((a) => a.length !== length)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let total = 0;
+  for (let i = 0; i < length; i++) {
+    let product = 1;
+    for (const arr of arrays) {
+      product *= arr[i];
+    }
+    total += product;
+  }
+
+  return { t: 'num', v: total };
+}
+
+function gcdTwo(a: number, b: number): number {
+  a = Math.abs(a);
+  b = Math.abs(b);
+  while (b) {
+    [a, b] = [b, a % b];
+  }
+  return a;
+}
+
+/**
+ * GCD(number1, [number2], ...) — returns the greatest common divisor.
+ */
+export function gcdFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let result = 0;
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    const val = Math.trunc(node.v);
+    if (val < 0) {
+      return { t: 'err', v: '#VALUE!' };
+    }
+    result = gcdTwo(result, val);
+  }
+
+  return { t: 'num', v: result };
+}
+
+/**
+ * LCM(number1, [number2], ...) — returns the least common multiple.
+ */
+export function lcmFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let result = 1;
+  let hasValue = false;
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    const val = Math.trunc(node.v);
+    if (val < 0) {
+      return { t: 'err', v: '#VALUE!' };
+    }
+    if (val === 0) {
+      return { t: 'num', v: 0 };
+    }
+    result = (result / gcdTwo(result, val)) * val;
+    hasValue = true;
+  }
+
+  if (!hasValue) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: result };
+}
+
+/**
+ * COMBIN(n, k) — returns the number of combinations.
+ */
+export function combinFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const nNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (nNode.t === 'err') {
+    return nNode;
+  }
+
+  const kNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (kNode.t === 'err') {
+    return kNode;
+  }
+
+  const n = Math.trunc(nNode.v);
+  const k = Math.trunc(kNode.v);
+  if (n < 0 || k < 0 || k > n) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let result = 1;
+  for (let i = 0; i < k; i++) {
+    result = (result * (n - i)) / (i + 1);
+  }
+
+  return { t: 'num', v: Math.round(result) };
+}
+
+/**
+ * FACT(number) — returns the factorial of a number.
+ */
+export function factFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  const n = Math.trunc(num.v);
+  if (n < 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let result = 1;
+  for (let i = 2; i <= n; i++) {
+    result *= i;
+  }
+
+  return { t: 'num', v: result };
+}
+
+/**
+ * QUOTIENT(numerator, denominator) — returns the integer portion of a division.
+ */
+export function quotientFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const numerator = NumberArgs.map(visit(exprs[0]), grid);
+  if (numerator.t === 'err') {
+    return numerator;
+  }
+
+  const denominator = NumberArgs.map(visit(exprs[1]), grid);
+  if (denominator.t === 'err') {
+    return denominator;
+  }
+
+  if (denominator.v === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: Math.trunc(numerator.v / denominator.v) };
 }

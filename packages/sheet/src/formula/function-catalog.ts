@@ -666,6 +666,45 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Converts a value to a number',
     args: [{ name: 'value' }],
   },
+  {
+    name: 'SUMPRODUCT',
+    description: 'Multiplies corresponding components and returns the sum',
+    args: [
+      { name: 'array1' },
+      { name: 'array2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'GCD',
+    description: 'Returns the greatest common divisor',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'LCM',
+    description: 'Returns the least common multiple',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'COMBIN',
+    description: 'Returns the number of combinations for a given number of items',
+    args: [{ name: 'n' }, { name: 'k' }],
+  },
+  {
+    name: 'FACT',
+    description: 'Returns the factorial of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'QUOTIENT',
+    description: 'Returns the integer portion of a division',
+    args: [{ name: 'numerator' }, { name: 'denominator' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -734,6 +773,12 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'FLOOR',
     'TRUNC',
     'MROUND',
+    'SUMPRODUCT',
+    'GCD',
+    'LCM',
+    'COMBIN',
+    'FACT',
+    'QUOTIENT',
   ]),
   Statistical: new Set([
     'AVERAGE',

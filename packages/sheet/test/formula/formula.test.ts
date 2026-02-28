@@ -852,6 +852,51 @@ describe('Formula', () => {
     expect(evaluate('=N(FALSE)')).toBe('0');
   });
 
+  it('should correctly evaluate SUMPRODUCT function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('A2', { v: '2' });
+    grid.set('A3', { v: '3' });
+    grid.set('B1', { v: '4' });
+    grid.set('B2', { v: '5' });
+    grid.set('B3', { v: '6' });
+
+    expect(evaluate('=SUMPRODUCT(A1:A3,B1:B3)', grid)).toBe('32');
+    expect(evaluate('=SUMPRODUCT(A1:A3)', grid)).toBe('6');
+  });
+
+  it('should correctly evaluate GCD function', () => {
+    expect(evaluate('=GCD(12,8)')).toBe('4');
+    expect(evaluate('=GCD(24,36,48)')).toBe('12');
+    expect(evaluate('=GCD(7,13)')).toBe('1');
+  });
+
+  it('should correctly evaluate LCM function', () => {
+    expect(evaluate('=LCM(4,6)')).toBe('12');
+    expect(evaluate('=LCM(3,5,7)')).toBe('105');
+    expect(evaluate('=LCM(5,0)')).toBe('0');
+  });
+
+  it('should correctly evaluate COMBIN function', () => {
+    expect(evaluate('=COMBIN(5,2)')).toBe('10');
+    expect(evaluate('=COMBIN(10,3)')).toBe('120');
+    expect(evaluate('=COMBIN(5,0)')).toBe('1');
+    expect(evaluate('=COMBIN(5,6)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate FACT function', () => {
+    expect(evaluate('=FACT(5)')).toBe('120');
+    expect(evaluate('=FACT(0)')).toBe('1');
+    expect(evaluate('=FACT(1)')).toBe('1');
+    expect(evaluate('=FACT(0-1)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate QUOTIENT function', () => {
+    expect(evaluate('=QUOTIENT(5,2)')).toBe('2');
+    expect(evaluate('=QUOTIENT(0-10,3)')).toBe('-3');
+    expect(evaluate('=QUOTIENT(10,0)')).toBe('#VALUE!');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
