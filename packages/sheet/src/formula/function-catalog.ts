@@ -1548,6 +1548,74 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Converts a decimal dollar price to a fractional price',
     args: [{ name: 'decimal_dollar' }, { name: 'fraction' }],
   },
+  {
+    name: 'ENCODEURL',
+    description: 'Encodes a string for use in a URL',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'ISURL',
+    description: 'Returns TRUE if a value is a valid URL',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'ISFORMULA',
+    description: 'Returns TRUE if a cell contains a formula',
+    args: [{ name: 'cell' }],
+  },
+  {
+    name: 'FORMULATEXT',
+    description: 'Returns the formula of a cell as a string',
+    args: [{ name: 'cell' }],
+  },
+  {
+    name: 'CEILING.MATH',
+    description: 'Rounds a number up to the nearest integer or multiple of significance',
+    args: [
+      { name: 'number' },
+      { name: 'significance', optional: true },
+      { name: 'mode', optional: true },
+    ],
+  },
+  {
+    name: 'FLOOR.MATH',
+    description: 'Rounds a number down to the nearest integer or multiple of significance',
+    args: [
+      { name: 'number' },
+      { name: 'significance', optional: true },
+      { name: 'mode', optional: true },
+    ],
+  },
+  {
+    name: 'CEILING.PRECISE',
+    description: 'Rounds a number up to the nearest multiple of significance, ignoring sign',
+    args: [{ name: 'number' }, { name: 'significance', optional: true }],
+  },
+  {
+    name: 'FLOOR.PRECISE',
+    description: 'Rounds a number down to the nearest multiple of significance, ignoring sign',
+    args: [{ name: 'number' }, { name: 'significance', optional: true }],
+  },
+  {
+    name: 'COVAR',
+    description: 'Returns the population covariance of two datasets',
+    args: [{ name: 'data_y' }, { name: 'data_x' }],
+  },
+  {
+    name: 'COVARIANCE.S',
+    description: 'Returns the sample covariance of two datasets',
+    args: [{ name: 'data_y' }, { name: 'data_x' }],
+  },
+  {
+    name: 'RSQ',
+    description: 'Returns the R-squared value of a linear regression',
+    args: [{ name: 'known_ys' }, { name: 'known_xs' }],
+  },
+  {
+    name: 'STEYX',
+    description: 'Returns the standard error of the predicted y-value in a regression',
+    args: [{ name: 'known_ys' }, { name: 'known_xs' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1586,6 +1654,9 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ISNA',
     'ISLOGICAL',
     'ISNONTEXT',
+    'ISURL',
+    'ISFORMULA',
+    'FORMULATEXT',
     'N',
     'TYPE',
     'NA',
@@ -1658,6 +1729,10 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ROMAN',
     'MULTINOMIAL',
     'SERIESSUM',
+    'CEILING.MATH',
+    'FLOOR.MATH',
+    'CEILING.PRECISE',
+    'FLOOR.PRECISE',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -1715,6 +1790,10 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'T.INV',
     'HYPGEOM.DIST',
     'NEGBINOM.DIST',
+    'COVAR',
+    'COVARIANCE.S',
+    'RSQ',
+    'STEYX',
   ]),
   Text: new Set([
     'TRIM',
@@ -1750,6 +1829,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'REGEXREPLACE',
     'UNICODE',
     'UNICHAR',
+    'ENCODEURL',
   ]),
 };
 

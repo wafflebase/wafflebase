@@ -266,6 +266,19 @@ export const FunctionMap = new Map([
   ['TBILLYIELD', tbillyieldFunc],
   ['DOLLARDE', dollardeFunc],
   ['DOLLARFR', dollarfrFunc],
+  ['ENCODEURL', encodeurlFunc],
+  ['ISURL', isurlFunc],
+  ['ISFORMULA', isformulaFunc],
+  ['FORMULATEXT', formulatextFunc],
+  ['CEILING.MATH', ceilingmathFunc],
+  ['FLOOR.MATH', floormathFunc],
+  ['CEILING.PRECISE', ceilingpreciseFunc],
+  ['FLOOR.PRECISE', floorpreciseFunc],
+  ['COVAR', covarFunc],
+  ['COVARIANCE.P', covarFunc],
+  ['COVARIANCE.S', covarsFunc],
+  ['RSQ', rsqFunc],
+  ['STEYX', steyxFunc],
 ]);
 
 /**
@@ -9682,4 +9695,322 @@ export function dollarfrFunc(
   const fracPart = dollar.v - intPart;
   const power = Math.pow(10, Math.ceil(Math.log10(f)));
   return { t: 'num', v: intPart + fracPart * f / power };
+}
+
+/**
+ * ENCODEURL(text) — encodes a string for use in a URL.
+ */
+export function encodeurlFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  const s = toStr(node, grid);
+  if (s.t === 'err') return s;
+  return { t: 'str', v: encodeURIComponent(s.v) };
+}
+
+/**
+ * ISURL(value) — returns TRUE if the value looks like a URL.
+ */
+export function isurlFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  const s = toStr(node, grid);
+  if (s.t === 'err') return s;
+  const v = s.v.trim();
+  const isUrl = /^https?:\/\//i.test(v) || /^ftp:\/\//i.test(v);
+  return { t: 'bool', v: isUrl };
+}
+
+/**
+ * ISFORMULA(cell) — returns TRUE if the referenced cell contains a formula.
+ */
+export function isformulaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  if (node.t !== 'ref' || !grid) return { t: 'bool', v: false };
+  if (isSrng(node.v)) return { t: 'err', v: '#VALUE!' };
+
+  const cell = grid.get(node.v);
+  return { t: 'bool', v: !!(cell && cell.f) };
+}
+
+/**
+ * FORMULATEXT(cell) — returns the formula string of the referenced cell.
+ */
+export function formulatextFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  if (node.t !== 'ref' || !grid) return { t: 'err', v: '#N/A!' };
+  if (isSrng(node.v)) return { t: 'err', v: '#VALUE!' };
+
+  const cell = grid.get(node.v);
+  if (!cell || !cell.f) return { t: 'err', v: '#N/A!' };
+  return { t: 'str', v: cell.f };
+}
+
+/**
+ * CEILING.MATH(number, [significance], [mode]) — rounds up to nearest multiple.
+ * If mode is non-zero and number is negative, rounds away from zero.
+ */
+export function ceilingmathFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+
+  let significance = 1;
+  if (exprs.length >= 2) {
+    const sigNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (sigNode.t === 'err') return sigNode;
+    significance = sigNode.v;
+  }
+  if (significance === 0) return { t: 'num', v: 0 };
+
+  let mode = 0;
+  if (exprs.length === 3) {
+    const modeNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (modeNode.t === 'err') return modeNode;
+    mode = modeNode.v;
+  }
+
+  significance = Math.abs(significance);
+  if (num.v < 0 && mode !== 0) {
+    // Round away from zero (more negative)
+    return { t: 'num', v: -Math.ceil(Math.abs(num.v) / significance) * significance };
+  }
+  return { t: 'num', v: Math.ceil(num.v / significance) * significance };
+}
+
+/**
+ * FLOOR.MATH(number, [significance], [mode]) — rounds down to nearest multiple.
+ * If mode is non-zero and number is negative, rounds toward zero.
+ */
+export function floormathFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+
+  let significance = 1;
+  if (exprs.length >= 2) {
+    const sigNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (sigNode.t === 'err') return sigNode;
+    significance = sigNode.v;
+  }
+  if (significance === 0) return { t: 'num', v: 0 };
+
+  let mode = 0;
+  if (exprs.length === 3) {
+    const modeNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (modeNode.t === 'err') return modeNode;
+    mode = modeNode.v;
+  }
+
+  significance = Math.abs(significance);
+  if (num.v < 0 && mode !== 0) {
+    // Round toward zero (less negative)
+    return { t: 'num', v: -Math.floor(Math.abs(num.v) / significance) * significance };
+  }
+  return { t: 'num', v: Math.floor(num.v / significance) * significance };
+}
+
+/**
+ * CEILING.PRECISE(number, [significance]) — always rounds up in magnitude.
+ */
+export function ceilingpreciseFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+
+  let significance = 1;
+  if (exprs.length === 2) {
+    const sigNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (sigNode.t === 'err') return sigNode;
+    significance = Math.abs(sigNode.v);
+  }
+  if (significance === 0) return { t: 'num', v: 0 };
+
+  return { t: 'num', v: Math.ceil(num.v / significance) * significance };
+}
+
+/**
+ * FLOOR.PRECISE(number, [significance]) — always rounds down in magnitude.
+ */
+export function floorpreciseFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+
+  let significance = 1;
+  if (exprs.length === 2) {
+    const sigNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (sigNode.t === 'err') return sigNode;
+    significance = Math.abs(sigNode.v);
+  }
+  if (significance === 0) return { t: 'num', v: 0 };
+
+  return { t: 'num', v: Math.floor(num.v / significance) * significance };
+}
+
+/**
+ * COVAR / COVARIANCE.P(data_y, data_x) — population covariance of two datasets.
+ */
+export function covarFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const { xs, ys } = result;
+  const n = xs.length;
+  const meanX = xs.reduce((a, b) => a + b, 0) / n;
+  const meanY = ys.reduce((a, b) => a + b, 0) / n;
+  const cov = xs.reduce((a, x, i) => a + (x - meanX) * (ys[i] - meanY), 0) / n;
+  return { t: 'num', v: cov };
+}
+
+/**
+ * COVARIANCE.S(data_y, data_x) — sample covariance of two datasets.
+ */
+export function covarsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const { xs, ys } = result;
+  const n = xs.length;
+  if (n < 2) return { t: 'err', v: '#N/A!' };
+  const meanX = xs.reduce((a, b) => a + b, 0) / n;
+  const meanY = ys.reduce((a, b) => a + b, 0) / n;
+  const cov = xs.reduce((a, x, i) => a + (x - meanX) * (ys[i] - meanY), 0) / (n - 1);
+  return { t: 'num', v: cov };
+}
+
+/**
+ * RSQ(known_ys, known_xs) — returns the R-squared value (coefficient of determination).
+ */
+export function rsqFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const { xs, ys } = result;
+  const n = xs.length;
+  const meanX = xs.reduce((a, b) => a + b, 0) / n;
+  const meanY = ys.reduce((a, b) => a + b, 0) / n;
+  const ssXY = xs.reduce((a, x, i) => a + (x - meanX) * (ys[i] - meanY), 0);
+  const ssXX = xs.reduce((a, x) => a + (x - meanX) * (x - meanX), 0);
+  const ssYY = ys.reduce((a, y) => a + (y - meanY) * (y - meanY), 0);
+  if (ssXX === 0 || ssYY === 0) return { t: 'err', v: '#DIV/0!' };
+  const r = ssXY / Math.sqrt(ssXX * ssYY);
+  return { t: 'num', v: r * r };
+}
+
+/**
+ * STEYX(known_ys, known_xs) — returns the standard error of the predicted y-value
+ * for each x in the regression.
+ */
+export function steyxFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  const { xs, ys } = result;
+  const n = xs.length;
+  if (n < 3) return { t: 'err', v: '#N/A!' };
+  const { slope, intercept } = linearRegression(xs, ys);
+  const sse = ys.reduce((a, y, i) => {
+    const predicted = slope * xs[i] + intercept;
+    return a + (y - predicted) * (y - predicted);
+  }, 0);
+  return { t: 'num', v: Math.sqrt(sse / (n - 2)) };
 }

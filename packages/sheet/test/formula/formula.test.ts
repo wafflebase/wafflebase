@@ -1734,6 +1734,135 @@ describe('Formula', () => {
     expect(Number(result)).toBeCloseTo(1.02, 3);
   });
 
+  it('should correctly evaluate ENCODEURL function', () => {
+    expect(evaluate('=ENCODEURL("hello world")')).toBe('hello%20world');
+    expect(evaluate('=ENCODEURL("a&b=c")')).toBe('a%26b%3Dc');
+    expect(evaluate('=ENCODEURL("https://example.com")')).toBe(
+      'https%3A%2F%2Fexample.com',
+    );
+  });
+
+  it('should correctly evaluate ISURL function', () => {
+    expect(evaluate('=ISURL("https://example.com")')).toBe('true');
+    expect(evaluate('=ISURL("http://test.org/path")')).toBe('true');
+    expect(evaluate('=ISURL("ftp://files.com")')).toBe('true');
+    expect(evaluate('=ISURL("not a url")')).toBe('false');
+    expect(evaluate('=ISURL("example.com")')).toBe('false');
+  });
+
+  it('should correctly evaluate ISFORMULA function', () => {
+    const grid = new Map([
+      ['A1', { v: '10', f: '=5+5' } as Cell],
+      ['A2', { v: 'hello' } as Cell],
+    ]);
+    expect(evaluate('=ISFORMULA(A1)', grid)).toBe('true');
+    expect(evaluate('=ISFORMULA(A2)', grid)).toBe('false');
+    expect(evaluate('=ISFORMULA(A3)', grid)).toBe('false');
+  });
+
+  it('should correctly evaluate FORMULATEXT function', () => {
+    const grid = new Map([
+      ['A1', { v: '10', f: '=5+5' } as Cell],
+      ['A2', { v: 'hello' } as Cell],
+    ]);
+    expect(evaluate('=FORMULATEXT(A1)', grid)).toBe('=5+5');
+    expect(evaluate('=FORMULATEXT(A2)', grid)).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate CEILING.MATH function', () => {
+    expect(evaluate('=CEILING.MATH(4.3)')).toBe('5');
+    expect(evaluate('=CEILING.MATH(6.7,2)')).toBe('8');
+    expect(evaluate('=CEILING.MATH(0-4.3,2,0)')).toBe('-4');
+    expect(evaluate('=CEILING.MATH(0-4.3,2,1)')).toBe('-6');
+  });
+
+  it('should correctly evaluate FLOOR.MATH function', () => {
+    expect(evaluate('=FLOOR.MATH(4.7)')).toBe('4');
+    expect(evaluate('=FLOOR.MATH(6.7,2)')).toBe('6');
+    expect(evaluate('=FLOOR.MATH(0-4.3,2,0)')).toBe('-6');
+    expect(evaluate('=FLOOR.MATH(0-4.3,2,1)')).toBe('-4');
+  });
+
+  it('should correctly evaluate CEILING.PRECISE function', () => {
+    expect(evaluate('=CEILING.PRECISE(4.3)')).toBe('5');
+    expect(evaluate('=CEILING.PRECISE(0-4.3,2)')).toBe('-4');
+    expect(evaluate('=CEILING.PRECISE(4.3,2)')).toBe('6');
+  });
+
+  it('should correctly evaluate FLOOR.PRECISE function', () => {
+    expect(evaluate('=FLOOR.PRECISE(4.7)')).toBe('4');
+    expect(evaluate('=FLOOR.PRECISE(0-4.3,2)')).toBe('-6');
+    expect(evaluate('=FLOOR.PRECISE(4.7,2)')).toBe('4');
+  });
+
+  it('should correctly evaluate COVAR function', () => {
+    const grid = new Map([
+      ['A1', { v: '3' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '4' } as Cell],
+      ['A4', { v: '5' } as Cell],
+      ['A5', { v: '6' } as Cell],
+      ['B1', { v: '9' } as Cell],
+      ['B2', { v: '7' } as Cell],
+      ['B3', { v: '12' } as Cell],
+      ['B4', { v: '15' } as Cell],
+      ['B5', { v: '17' } as Cell],
+    ]);
+    const result = evaluate('=COVAR(A1:A5,B1:B5)', grid);
+    expect(Number(result)).toBeCloseTo(5.2, 1);
+  });
+
+  it('should correctly evaluate COVARIANCE.S function', () => {
+    const grid = new Map([
+      ['A1', { v: '3' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '4' } as Cell],
+      ['A4', { v: '5' } as Cell],
+      ['A5', { v: '6' } as Cell],
+      ['B1', { v: '9' } as Cell],
+      ['B2', { v: '7' } as Cell],
+      ['B3', { v: '12' } as Cell],
+      ['B4', { v: '15' } as Cell],
+      ['B5', { v: '17' } as Cell],
+    ]);
+    const result = evaluate('=COVARIANCE.S(A1:A5,B1:B5)', grid);
+    expect(Number(result)).toBeCloseTo(6.5, 1);
+  });
+
+  it('should correctly evaluate RSQ function', () => {
+    const grid = new Map([
+      ['A1', { v: '2' } as Cell],
+      ['A2', { v: '3' } as Cell],
+      ['A3', { v: '9' } as Cell],
+      ['A4', { v: '1' } as Cell],
+      ['A5', { v: '8' } as Cell],
+      ['B1', { v: '6' } as Cell],
+      ['B2', { v: '5' } as Cell],
+      ['B3', { v: '11' } as Cell],
+      ['B4', { v: '7' } as Cell],
+      ['B5', { v: '5' } as Cell],
+    ]);
+    const result = evaluate('=RSQ(A1:A5,B1:B5)', grid);
+    expect(Number(result)).toBeCloseTo(0.2089, 2);
+  });
+
+  it('should correctly evaluate STEYX function', () => {
+    const grid = new Map([
+      ['A1', { v: '2' } as Cell],
+      ['A2', { v: '3' } as Cell],
+      ['A3', { v: '9' } as Cell],
+      ['A4', { v: '1' } as Cell],
+      ['A5', { v: '8' } as Cell],
+      ['B1', { v: '6' } as Cell],
+      ['B2', { v: '5' } as Cell],
+      ['B3', { v: '11' } as Cell],
+      ['B4', { v: '7' } as Cell],
+      ['B5', { v: '5' } as Cell],
+    ]);
+    const result = evaluate('=STEYX(A1:A5,B1:B5)', grid);
+    expect(Number(result)).toBeCloseTo(3.7456, 2);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

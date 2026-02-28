@@ -208,6 +208,18 @@ describe('FunctionCatalog', () => {
       expect(findFunction('TBILLYIELD')!.name).toBe('TBILLYIELD');
       expect(findFunction('DOLLARDE')!.name).toBe('DOLLARDE');
       expect(findFunction('DOLLARFR')!.name).toBe('DOLLARFR');
+      expect(findFunction('ENCODEURL')!.name).toBe('ENCODEURL');
+      expect(findFunction('ISURL')!.name).toBe('ISURL');
+      expect(findFunction('ISFORMULA')!.name).toBe('ISFORMULA');
+      expect(findFunction('FORMULATEXT')!.name).toBe('FORMULATEXT');
+      expect(findFunction('CEILING.MATH')!.name).toBe('CEILING.MATH');
+      expect(findFunction('FLOOR.MATH')!.name).toBe('FLOOR.MATH');
+      expect(findFunction('CEILING.PRECISE')!.name).toBe('CEILING.PRECISE');
+      expect(findFunction('FLOOR.PRECISE')!.name).toBe('FLOOR.PRECISE');
+      expect(findFunction('COVAR')!.name).toBe('COVAR');
+      expect(findFunction('COVARIANCE.S')!.name).toBe('COVARIANCE.S');
+      expect(findFunction('RSQ')!.name).toBe('RSQ');
+      expect(findFunction('STEYX')!.name).toBe('STEYX');
     });
 
     it('should return undefined for unknown function', () => {
