@@ -16,6 +16,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [sharing.md](sharing.md)                               | URL-based token sharing with anonymous access and role-based permissions                           |
 | [datasource.md](datasource.md)                         | External PostgreSQL datasources, multi-tab documents, SQL editor, ReadOnlyStore                    |
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
+| [formula-coverage.md](formula-coverage.md)             | Google Sheets function parity — current coverage, tier plan, per-function status                   |
 
 ## Template
 

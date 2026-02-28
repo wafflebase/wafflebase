@@ -27,6 +27,7 @@ allow formulas in one sheet to read values from another sheet.
 
 - Server-side formula evaluation — all computation runs in the browser.
 - Full Excel/Google Sheets function parity — functions are added incrementally.
+  See [formula-coverage.md](formula-coverage.md) for the prioritized plan.
 
 ## Proposal Details
 
