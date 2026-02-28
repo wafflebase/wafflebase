@@ -1,9 +1,9 @@
 // Minimal assert shim for browser environments.
 //
 // antlr4ts calls assert(condition) directly (CodePointBuffer, etc.).
-// Instead of relying on the full assert@2.x polyfill whose CJS-to-ESM
-// interop can break in Rollup production builds, this shim provides a
-// lightweight callable assert that covers all antlr4ts usage.
+// This MUST use CJS module.exports so that esbuild's pre-bundling
+// keeps assert as a callable function. ESM export default gets wrapped
+// by __toCommonJS into { default: fn } which is not callable.
 
 function assert(value, message) {
   if (!value) {
@@ -25,5 +25,4 @@ assert.strictEqual = function (actual, expected, message) {
   }
 };
 
-export default assert;
-export { assert };
+module.exports = assert;

@@ -1,10 +1,30 @@
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
 const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.js");
+
+/**
+ * Vite plugin that resolves `require("assert")` in antlr4ts to our
+ * lightweight ESM shim during dev mode. Without this, antlr4ts loads
+ * the CJS assert@2.x polyfill whose CJS-to-ESM interop breaks, making
+ * `assert` a non-callable namespace object instead of a function.
+ */
+function antlr4tsAssertShim(): Plugin {
+  return {
+    name: "antlr4ts-assert-shim",
+    enforce: "pre",
+    resolveId(source, importer) {
+      // When antlr4ts (or its submodules) tries to resolve "assert",
+      // redirect to our shim instead of the assert@2.x CJS polyfill.
+      if (source === "assert" && importer && importer.includes("antlr4ts")) {
+        return assertShimPath;
+      }
+    },
+  };
+}
 
 function manualChunks(id: string): string | undefined {
   const normalizedId = id.replace(/\\/g, "/");
@@ -58,7 +78,7 @@ function manualChunks(id: string): string | undefined {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [antlr4tsAssertShim(), react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
