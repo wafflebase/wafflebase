@@ -1585,6 +1585,62 @@ describe('Formula', () => {
     expect(Number(result)).toBeCloseTo(0.1172, 3);
   });
 
+  // --- Batch 19: More distribution functions ---
+  it('should correctly evaluate EXPON.DIST function', () => {
+    // EXPON.DIST(1, 1, 1) — CDF of exponential with λ=1 at x=1 = 1-e^(-1)
+    const result = evaluate('=EXPON.DIST(1,1,1)');
+    expect(Number(result)).toBeCloseTo(0.6321, 3);
+  });
+
+  it('should correctly evaluate CONFIDENCE.NORM function', () => {
+    // CONFIDENCE.NORM(0.05, 2.5, 50) — 95% CI half-width
+    const result = evaluate('=CONFIDENCE.NORM(0.05,2.5,50)');
+    expect(Number(result)).toBeCloseTo(0.6929, 2);
+  });
+
+  it('should correctly evaluate CHISQ.DIST function', () => {
+    // CHISQ.DIST(3.84, 1, 1) — CDF at 3.84 with 1 df ≈ 0.95
+    const result = evaluate('=CHISQ.DIST(3.84,1,1)');
+    expect(Number(result)).toBeCloseTo(0.95, 1);
+  });
+
+  it('should correctly evaluate CHISQ.INV function', () => {
+    // CHISQ.INV(0.95, 1) ≈ 3.84
+    const result = evaluate('=CHISQ.INV(0.95,1)');
+    expect(Number(result)).toBeCloseTo(3.84, 1);
+  });
+
+  it('should correctly evaluate T.DIST function', () => {
+    // T.DIST(0, 10, 1) — CDF at 0 for t-distribution = 0.5
+    const result = evaluate('=T.DIST(0,10,1)');
+    expect(Number(result)).toBeCloseTo(0.5, 4);
+  });
+
+  it('should correctly evaluate T.INV function', () => {
+    // T.INV(0.5, 10) = 0 (median of t-distribution)
+    const result = evaluate('=T.INV(0.5,10)');
+    expect(Number(result)).toBeCloseTo(0, 2);
+  });
+
+  it('should correctly evaluate HYPGEOM.DIST function', () => {
+    // HYPGEOM.DIST(1, 4, 8, 20, 0) — PMF: 1 success in 4 draws from population with 8 successes out of 20
+    const result = evaluate('=HYPGEOM.DIST(1,4,8,20,0)');
+    expect(Number(result)).toBeCloseTo(0.3633, 3);
+  });
+
+  it('should correctly evaluate NEGBINOM.DIST function', () => {
+    // NEGBINOM.DIST(1, 1, 0.5, 0) — PMF: 1 failure before 1 success with p=0.5
+    const result = evaluate('=NEGBINOM.DIST(1,1,0.5,0)');
+    expect(Number(result)).toBeCloseTo(0.25, 4);
+  });
+
+  it('should correctly evaluate CONFIDENCE.T function', () => {
+    // CONFIDENCE.T(0.05, 1, 50)
+    const result = evaluate('=CONFIDENCE.T(0.05,1,50)');
+    expect(Number(result)).toBeGreaterThan(0);
+    expect(Number(result)).toBeLessThan(1);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

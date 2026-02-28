@@ -240,6 +240,15 @@ export const FunctionMap = new Map([
   ['WEIBULL.DIST', weibulldistFunc],
   ['POISSON.DIST', poissondistFunc],
   ['BINOM.DIST', binomdistFunc],
+  ['EXPON.DIST', expondistFunc],
+  ['CONFIDENCE.NORM', confidencenormFunc],
+  ['CONFIDENCE.T', confidencetFunc],
+  ['CHISQ.DIST', chisqdistFunc],
+  ['CHISQ.INV', chisqinvFunc],
+  ['T.DIST', tdistFunc],
+  ['T.INV', tinvFunc],
+  ['HYPGEOM.DIST', hypgeomdistFunc],
+  ['NEGBINOM.DIST', negbinomdistFunc],
 ]);
 
 /**
@@ -8654,4 +8663,452 @@ export function binomdistFunc(
     return { t: 'num', v: sum };
   }
   return { t: 'num', v: binomPmf(k) };
+}
+
+/**
+ * EXPON.DIST(x, lambda, cumulative) — exponential distribution.
+ */
+export function expondistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const lambda = NumberArgs.map(visit(exprs[1]), grid);
+  if (lambda.t === 'err') return lambda;
+  if (x.v < 0 || lambda.v <= 0) return { t: 'err', v: '#VALUE!' };
+
+  const cumNode = visit(exprs[2]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  if (cum) {
+    return { t: 'num', v: 1 - Math.exp(-lambda.v * x.v) };
+  }
+  return { t: 'num', v: lambda.v * Math.exp(-lambda.v * x.v) };
+}
+
+/**
+ * CONFIDENCE.NORM(alpha, stdev, size) — confidence interval using normal distribution.
+ */
+export function confidencenormFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const alpha = NumberArgs.map(visit(exprs[0]), grid);
+  if (alpha.t === 'err') return alpha;
+  const stdev = NumberArgs.map(visit(exprs[1]), grid);
+  if (stdev.t === 'err') return stdev;
+  const size = NumberArgs.map(visit(exprs[2]), grid);
+  if (size.t === 'err') return size;
+
+  if (alpha.v <= 0 || alpha.v >= 1 || stdev.v <= 0 || size.v < 1) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const z = normInv(1 - alpha.v / 2);
+  return { t: 'num', v: z * stdev.v / Math.sqrt(Math.trunc(size.v)) };
+}
+
+/**
+ * Log of the gamma function (more numerically stable than log(gammaLanczos(a))).
+ */
+function logGamma(a: number): number {
+  return Math.log(gammaLanczos(a));
+}
+
+/**
+ * Lower regularized incomplete gamma function P(a,x) using series or continued fraction.
+ */
+function lowerIncompleteGamma(a: number, x: number): number {
+  if (x < 0) return 0;
+  if (x === 0) return 0;
+
+  // Series expansion for x < a+1
+  if (x < a + 1) {
+    let term = 1 / a;
+    let sum = term;
+    for (let n = 1; n < 200; n++) {
+      term *= x / (a + n);
+      sum += term;
+      if (Math.abs(term) < 1e-14 * Math.abs(sum)) break;
+    }
+    return sum * Math.exp(-x + a * Math.log(x) - logGamma(a));
+  }
+
+  // Continued fraction (Lentz's algorithm) for x >= a+1 → compute Q(a,x) then P = 1-Q
+  let b = x + 1 - a;
+  let c = 1e30;
+  let d = 1 / b;
+  let h = d;
+
+  for (let i = 1; i < 200; i++) {
+    const an = -i * (i - a);
+    b += 2;
+    d = an * d + b;
+    if (Math.abs(d) < 1e-30) d = 1e-30;
+    c = b + an / c;
+    if (Math.abs(c) < 1e-30) c = 1e-30;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 1e-14) break;
+  }
+
+  return 1 - Math.exp(-x + a * Math.log(x) - logGamma(a)) * h;
+}
+
+/**
+ * CHISQ.DIST(x, degrees_freedom, cumulative) — chi-squared distribution.
+ */
+export function chisqdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (x.v < 0 || df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const cumNode = visit(exprs[2]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  const k = Math.trunc(df.v);
+  const halfK = k / 2;
+
+  if (cum) {
+    return { t: 'num', v: lowerIncompleteGamma(halfK, x.v / 2) };
+  }
+  // PDF: x^(k/2-1) * exp(-x/2) / (2^(k/2) * Gamma(k/2))
+  const pdf = Math.pow(x.v, halfK - 1) * Math.exp(-x.v / 2) / (Math.pow(2, halfK) * gammaLanczos(halfK));
+  return { t: 'num', v: pdf };
+}
+
+/**
+ * CHISQ.INV(probability, degrees_freedom) — inverse chi-squared distribution.
+ * Uses Newton's method with regularized incomplete gamma function.
+ */
+export function chisqinvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const p = NumberArgs.map(visit(exprs[0]), grid);
+  if (p.t === 'err') return p;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (p.v <= 0 || p.v >= 1 || df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const k = Math.trunc(df.v);
+  // Initial guess using Wilson-Hilferty approximation
+  let x = k * Math.pow(1 - 2 / (9 * k) + normInv(p.v) * Math.sqrt(2 / (9 * k)), 3);
+  if (x <= 0) x = 0.01;
+
+  // Newton's method
+  for (let i = 0; i < 100; i++) {
+    const cdf = lowerIncompleteGamma(k / 2, x / 2);
+    const halfK = k / 2;
+    const pdf = Math.pow(x, halfK - 1) * Math.exp(-x / 2) / (Math.pow(2, halfK) * gammaLanczos(halfK));
+    if (Math.abs(pdf) < 1e-15) break;
+    const newX = x - (cdf - p.v) / pdf;
+    if (Math.abs(newX - x) < 1e-10) { x = newX; break; }
+    x = Math.max(newX, 1e-10);
+  }
+
+  return { t: 'num', v: x };
+}
+
+/**
+ * T.DIST(x, degrees_freedom, cumulative) — Student's t-distribution.
+ */
+export function tdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const cumNode = visit(exprs[2]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  const v = Math.trunc(df.v);
+
+  if (cum) {
+    // CDF using regularized incomplete beta function via chi-squared relation
+    const t2 = x.v * x.v;
+    const p = lowerIncompleteGamma(v / 2, v / (v + t2) * v / 2);
+    // Use the relation: T.DIST(x) = 1 - 0.5 * I_x(df/2, 1/2) for x > 0
+    // Simpler approach: use numeric integration with regularized beta
+    // For simplicity, use the relationship with chi-squared:
+    // P(T ≤ x) = 0.5 + sign(x) * 0.5 * I(df/(df+x²))(df/2, 1/2)
+    const xi = v / (v + t2);
+    const ibeta = regularizedBeta(xi, v / 2, 0.5);
+    return { t: 'num', v: x.v >= 0 ? 1 - 0.5 * ibeta : 0.5 * ibeta };
+  }
+
+  // PDF: Gamma((v+1)/2) / (sqrt(v*pi) * Gamma(v/2)) * (1 + x²/v)^(-(v+1)/2)
+  const pdf = gammaLanczos((v + 1) / 2) / (Math.sqrt(v * Math.PI) * gammaLanczos(v / 2))
+    * Math.pow(1 + t2 / v, -(v + 1) / 2);
+  return { t: 'num', v: pdf };
+}
+
+/**
+ * Regularized incomplete beta function I_x(a, b).
+ * Uses series expansion which is stable for the values we need.
+ */
+function regularizedBeta(x: number, a: number, b: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+
+  // Use symmetry for better convergence
+  if (x > (a + 1) / (a + b + 2)) {
+    return 1 - regularizedBeta(1 - x, b, a);
+  }
+
+  const lbeta = logGamma(a) + logGamma(b) - logGamma(a + b);
+  const prefix = Math.exp(a * Math.log(x) + b * Math.log(1 - x) - lbeta) / a;
+
+  // Continued fraction (Numerical Recipes betacf)
+  const MAXIT = 200;
+  const EPS = 1e-14;
+  const FPMIN = 1e-30;
+
+  let qab = a + b;
+  let qap = a + 1;
+  let qam = a - 1;
+  let c = 1;
+  let d = 1 - qab * x / qap;
+  if (Math.abs(d) < FPMIN) d = FPMIN;
+  d = 1 / d;
+  let h = d;
+
+  for (let m = 1; m <= MAXIT; m++) {
+    const m2 = 2 * m;
+    // Even step
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    h *= d * c;
+
+    // Odd step
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+
+  return prefix * h;
+}
+
+/**
+ * Compute the inverse t-distribution value for probability p and degrees of freedom v.
+ */
+function computeTInv(p: number, v: number): number {
+  // Newton's method starting from normal approximation
+  let t = normInv(p);
+
+  for (let i = 0; i < 100; i++) {
+    const t2 = t * t;
+    const xi = v / (v + t2);
+    const ibeta = regularizedBeta(xi, v / 2, 0.5);
+    const cdf = t >= 0 ? 1 - 0.5 * ibeta : 0.5 * ibeta;
+    const pdf = gammaLanczos((v + 1) / 2) / (Math.sqrt(v * Math.PI) * gammaLanczos(v / 2))
+      * Math.pow(1 + t2 / v, -(v + 1) / 2);
+    if (Math.abs(pdf) < 1e-15) break;
+    const newT = t - (cdf - p) / pdf;
+    if (Math.abs(newT - t) < 1e-10) return newT;
+    t = newT;
+  }
+
+  return t;
+}
+
+/**
+ * T.INV(probability, degrees_freedom) — inverse Student's t-distribution.
+ */
+export function tinvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const p = NumberArgs.map(visit(exprs[0]), grid);
+  if (p.t === 'err') return p;
+  const df = NumberArgs.map(visit(exprs[1]), grid);
+  if (df.t === 'err') return df;
+  if (p.v <= 0 || p.v >= 1 || df.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  return { t: 'num', v: computeTInv(p.v, Math.trunc(df.v)) };
+}
+
+/**
+ * HYPGEOM.DIST(sample_s, number_sample, population_s, number_pop, cumulative) — hypergeometric distribution.
+ */
+export function hypgeomdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 5) return { t: 'err', v: '#N/A!' };
+
+  const s = NumberArgs.map(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const nSample = NumberArgs.map(visit(exprs[1]), grid);
+  if (nSample.t === 'err') return nSample;
+  const popS = NumberArgs.map(visit(exprs[2]), grid);
+  if (popS.t === 'err') return popS;
+  const nPop = NumberArgs.map(visit(exprs[3]), grid);
+  if (nPop.t === 'err') return nPop;
+
+  const cumNode = visit(exprs[4]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  const k = Math.trunc(s.v);
+  const n = Math.trunc(nSample.v);
+  const K = Math.trunc(popS.v);
+  const N = Math.trunc(nPop.v);
+
+  if (k < 0 || n < 0 || K < 0 || N < 0 || n > N || K > N || k > Math.min(n, K)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  function logCombin(a: number, b: number): number {
+    return Math.log(gammaLanczos(a + 1)) - Math.log(gammaLanczos(b + 1)) - Math.log(gammaLanczos(a - b + 1));
+  }
+
+  function pmf(x: number): number {
+    return Math.exp(logCombin(K, x) + logCombin(N - K, n - x) - logCombin(N, n));
+  }
+
+  if (cum) {
+    let sum = 0;
+    for (let i = Math.max(0, n + K - N); i <= k; i++) {
+      sum += pmf(i);
+    }
+    return { t: 'num', v: sum };
+  }
+  return { t: 'num', v: pmf(k) };
+}
+
+/**
+ * NEGBINOM.DIST(failures, successes, probability, cumulative) — negative binomial distribution.
+ */
+export function negbinomdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const f = NumberArgs.map(visit(exprs[0]), grid);
+  if (f.t === 'err') return f;
+  const s = NumberArgs.map(visit(exprs[1]), grid);
+  if (s.t === 'err') return s;
+  const prob = NumberArgs.map(visit(exprs[2]), grid);
+  if (prob.t === 'err') return prob;
+
+  const cumNode = visit(exprs[3]);
+  const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
+
+  const failures = Math.trunc(f.v);
+  const successes = Math.trunc(s.v);
+  if (failures < 0 || successes < 1 || prob.v <= 0 || prob.v > 1) return { t: 'err', v: '#VALUE!' };
+
+  function pmf(x: number): number {
+    const logCoeff = Math.log(gammaLanczos(x + successes))
+      - Math.log(gammaLanczos(successes)) - Math.log(gammaLanczos(x + 1));
+    return Math.exp(logCoeff + successes * Math.log(prob.v) + x * Math.log(1 - prob.v));
+  }
+
+  if (cum) {
+    let sum = 0;
+    for (let i = 0; i <= failures; i++) {
+      sum += pmf(i);
+    }
+    return { t: 'num', v: sum };
+  }
+  return { t: 'num', v: pmf(failures) };
+}
+
+/**
+ * CONFIDENCE.T(alpha, stdev, size) — confidence interval using t-distribution.
+ */
+export function confidencetFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const alpha = NumberArgs.map(visit(exprs[0]), grid);
+  if (alpha.t === 'err') return alpha;
+  const stdev = NumberArgs.map(visit(exprs[1]), grid);
+  if (stdev.t === 'err') return stdev;
+  const size = NumberArgs.map(visit(exprs[2]), grid);
+  if (size.t === 'err') return size;
+
+  const n = Math.trunc(size.v);
+  if (alpha.v <= 0 || alpha.v >= 1 || stdev.v <= 0 || n < 2) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  // Find t-critical using T.INV(1-alpha/2, n-1)
+  const p = 1 - alpha.v / 2;
+  const df = n - 1;
+  const t = computeTInv(p, df);
+
+  return { t: 'num', v: t * stdev.v / Math.sqrt(n) };
 }

@@ -1409,6 +1409,57 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the binomial distribution probability',
     args: [{ name: 'successes' }, { name: 'trials' }, { name: 'probability' }, { name: 'cumulative' }],
   },
+  {
+    name: 'EXPON.DIST',
+    description: 'Returns the exponential distribution',
+    args: [{ name: 'x' }, { name: 'lambda' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'CONFIDENCE.NORM',
+    description: 'Returns the confidence interval using normal distribution',
+    args: [{ name: 'alpha' }, { name: 'stdev' }, { name: 'size' }],
+  },
+  {
+    name: 'CONFIDENCE.T',
+    description: 'Returns the confidence interval using t-distribution',
+    args: [{ name: 'alpha' }, { name: 'stdev' }, { name: 'size' }],
+  },
+  {
+    name: 'CHISQ.DIST',
+    description: 'Returns the chi-squared distribution',
+    args: [{ name: 'x' }, { name: 'degrees_freedom' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'CHISQ.INV',
+    description: 'Returns the inverse of the chi-squared distribution',
+    args: [{ name: 'probability' }, { name: 'degrees_freedom' }],
+  },
+  {
+    name: 'T.DIST',
+    description: 'Returns the Student t-distribution',
+    args: [{ name: 'x' }, { name: 'degrees_freedom' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'T.INV',
+    description: 'Returns the inverse of the Student t-distribution',
+    args: [{ name: 'probability' }, { name: 'degrees_freedom' }],
+  },
+  {
+    name: 'HYPGEOM.DIST',
+    description: 'Returns the hypergeometric distribution',
+    args: [
+      { name: 'sample_s' },
+      { name: 'number_sample' },
+      { name: 'population_s' },
+      { name: 'number_pop' },
+      { name: 'cumulative' },
+    ],
+  },
+  {
+    name: 'NEGBINOM.DIST',
+    description: 'Returns the negative binomial distribution',
+    args: [{ name: 'failures' }, { name: 'successes' }, { name: 'probability' }, { name: 'cumulative' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1562,6 +1613,15 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WEIBULL.DIST',
     'POISSON.DIST',
     'BINOM.DIST',
+    'EXPON.DIST',
+    'CONFIDENCE.NORM',
+    'CONFIDENCE.T',
+    'CHISQ.DIST',
+    'CHISQ.INV',
+    'T.DIST',
+    'T.INV',
+    'HYPGEOM.DIST',
+    'NEGBINOM.DIST',
   ]),
   Text: new Set([
     'TRIM',

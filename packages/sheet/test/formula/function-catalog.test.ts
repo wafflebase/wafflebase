@@ -182,6 +182,15 @@ describe('FunctionCatalog', () => {
       expect(findFunction('WEIBULL.DIST')!.name).toBe('WEIBULL.DIST');
       expect(findFunction('POISSON.DIST')!.name).toBe('POISSON.DIST');
       expect(findFunction('BINOM.DIST')!.name).toBe('BINOM.DIST');
+      expect(findFunction('EXPON.DIST')!.name).toBe('EXPON.DIST');
+      expect(findFunction('CONFIDENCE.NORM')!.name).toBe('CONFIDENCE.NORM');
+      expect(findFunction('CONFIDENCE.T')!.name).toBe('CONFIDENCE.T');
+      expect(findFunction('CHISQ.DIST')!.name).toBe('CHISQ.DIST');
+      expect(findFunction('CHISQ.INV')!.name).toBe('CHISQ.INV');
+      expect(findFunction('T.DIST')!.name).toBe('T.DIST');
+      expect(findFunction('T.INV')!.name).toBe('T.INV');
+      expect(findFunction('HYPGEOM.DIST')!.name).toBe('HYPGEOM.DIST');
+      expect(findFunction('NEGBINOM.DIST')!.name).toBe('NEGBINOM.DIST');
     });
 
     it('should return undefined for unknown function', () => {
