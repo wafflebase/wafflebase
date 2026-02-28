@@ -631,6 +631,41 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns a numeric code for the first character in a text string',
     args: [{ name: 'text' }],
   },
+  {
+    name: 'AVERAGEIF',
+    description: 'Returns the average of a range that meets a criterion',
+    args: [
+      { name: 'criteria_range' },
+      { name: 'criterion' },
+      { name: 'average_range', optional: true },
+    ],
+  },
+  {
+    name: 'AVERAGEIFS',
+    description: 'Returns the average of a range that meets multiple criteria',
+    args: [
+      { name: 'average_range' },
+      { name: 'criteria_range1' },
+      { name: 'criterion1' },
+      { name: 'criteria_range2', optional: true, repeating: true },
+      { name: 'criterion2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'LARGE',
+    description: 'Returns the nth largest value in a data set',
+    args: [{ name: 'data' }, { name: 'n' }],
+  },
+  {
+    name: 'SMALL',
+    description: 'Returns the nth smallest value in a data set',
+    args: [{ name: 'data' }, { name: 'n' }],
+  },
+  {
+    name: 'N',
+    description: 'Converts a value to a number',
+    args: [{ name: 'value' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -657,6 +692,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ISNA',
     'ISLOGICAL',
     'ISNONTEXT',
+    'N',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA']),
   Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP']),
@@ -699,7 +735,18 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'TRUNC',
     'MROUND',
   ]),
-  Statistical: new Set(['AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'MEDIAN']),
+  Statistical: new Set([
+    'AVERAGE',
+    'MIN',
+    'MAX',
+    'COUNT',
+    'COUNTA',
+    'MEDIAN',
+    'AVERAGEIF',
+    'AVERAGEIFS',
+    'LARGE',
+    'SMALL',
+  ]),
   Text: new Set([
     'TRIM',
     'LEN',

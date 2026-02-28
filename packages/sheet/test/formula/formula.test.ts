@@ -799,6 +799,59 @@ describe('Formula', () => {
     expect(evaluate('=CODE("")')).toBe('#VALUE!');
   });
 
+  it('should correctly evaluate AVERAGEIF function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+
+    expect(evaluate('=AVERAGEIF(A1:A3,">15")', grid)).toBe('25');
+    expect(evaluate('=AVERAGEIF(A1:A3,">=10")', grid)).toBe('20');
+  });
+
+  it('should correctly evaluate AVERAGEIFS function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'north' });
+    grid.set('A2', { v: 'north' });
+    grid.set('A3', { v: 'south' });
+    grid.set('B1', { v: '10' });
+    grid.set('B2', { v: '20' });
+    grid.set('B3', { v: '30' });
+
+    expect(evaluate('=AVERAGEIFS(B1:B3,A1:A3,"north")', grid)).toBe('15');
+  });
+
+  it('should correctly evaluate LARGE function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '30' });
+    grid.set('A3', { v: '20' });
+
+    expect(evaluate('=LARGE(A1:A3,1)', grid)).toBe('30');
+    expect(evaluate('=LARGE(A1:A3,2)', grid)).toBe('20');
+    expect(evaluate('=LARGE(A1:A3,3)', grid)).toBe('10');
+    expect(evaluate('=LARGE(A1:A3,4)', grid)).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate SMALL function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '30' });
+    grid.set('A3', { v: '20' });
+
+    expect(evaluate('=SMALL(A1:A3,1)', grid)).toBe('10');
+    expect(evaluate('=SMALL(A1:A3,2)', grid)).toBe('20');
+    expect(evaluate('=SMALL(A1:A3,3)', grid)).toBe('30');
+    expect(evaluate('=SMALL(A1:A3,4)', grid)).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate N function', () => {
+    expect(evaluate('=N(42)')).toBe('42');
+    expect(evaluate('=N("hello")')).toBe('0');
+    expect(evaluate('=N(TRUE)')).toBe('1');
+    expect(evaluate('=N(FALSE)')).toBe('0');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

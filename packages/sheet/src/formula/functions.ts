@@ -113,6 +113,11 @@ export const FunctionMap = new Map([
   ['TEXT', textFunc],
   ['CHAR', charFunc],
   ['CODE', codeFunc],
+  ['AVERAGEIF', averageifFunc],
+  ['AVERAGEIFS', averageifsFunc],
+  ['LARGE', largeFunc],
+  ['SMALL', smallFunc],
+  ['N', nFunc],
 ]);
 
 /**
@@ -4009,4 +4014,278 @@ export function codeFunc(
   }
 
   return { t: 'num', v: str.v.charCodeAt(0) };
+}
+
+/**
+ * AVERAGEIF(range, criterion, [average_range]) — averages values matching a criterion.
+ */
+export function averageifFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const criteriaRefs = getRefsFromExpression(exprs[0], visit, grid);
+  if (criteriaRefs.t === 'err') {
+    return criteriaRefs;
+  }
+
+  const criterion = parseCriterion(visit(exprs[1]), grid);
+  if (isFormulaError(criterion)) {
+    return criterion;
+  }
+
+  const avgRefs =
+    exprs.length === 3
+      ? getRefsFromExpression(exprs[2], visit, grid)
+      : criteriaRefs;
+  if (avgRefs.t === 'err') {
+    return avgRefs;
+  }
+
+  if (criteriaRefs.v.length !== avgRefs.v.length) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let total = 0;
+  let count = 0;
+  for (let i = 0; i < criteriaRefs.v.length; i++) {
+    const criteriaValue = grid?.get(criteriaRefs.v[i])?.v || '';
+    if (!matchesCriterion(criteriaValue, criterion)) {
+      continue;
+    }
+
+    const avgValue = grid?.get(avgRefs.v[i])?.v || '';
+    const num = Number(avgValue);
+    if (avgValue !== '' && !isNaN(num)) {
+      total += num;
+      count++;
+    }
+  }
+
+  if (count === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: total / count };
+}
+
+/**
+ * AVERAGEIFS(average_range, criteria_range1, criterion1, ...) — averages values matching all criteria.
+ */
+export function averageifsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || (exprs.length - 1) % 2 !== 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const avgRefs = getRefsFromExpression(exprs[0], visit, grid);
+  if (avgRefs.t === 'err') {
+    return avgRefs;
+  }
+
+  const ranges: string[][] = [];
+  const criteria: ParsedCriterion[] = [];
+  for (let i = 1; i < exprs.length; i += 2) {
+    const refs = getRefsFromExpression(exprs[i], visit, grid);
+    if (refs.t === 'err') {
+      return refs;
+    }
+    ranges.push(refs.v);
+
+    const criterion = parseCriterion(visit(exprs[i + 1]), grid);
+    if (isFormulaError(criterion)) {
+      return criterion;
+    }
+    criteria.push(criterion);
+  }
+
+  if (ranges.some((r) => r.length !== avgRefs.v.length)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  let total = 0;
+  let count = 0;
+  for (let i = 0; i < avgRefs.v.length; i++) {
+    let matched = true;
+    for (let j = 0; j < ranges.length; j++) {
+      const value = grid?.get(ranges[j][i])?.v || '';
+      if (!matchesCriterion(value, criteria[j])) {
+        matched = false;
+        break;
+      }
+    }
+
+    if (matched) {
+      const avgValue = grid?.get(avgRefs.v[i])?.v || '';
+      const num = Number(avgValue);
+      if (avgValue !== '' && !isNaN(num)) {
+        total += num;
+        count++;
+      }
+    }
+  }
+
+  if (count === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: total / count };
+}
+
+/**
+ * LARGE(data, n) — returns the nth largest value in a data set.
+ */
+export function largeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  const dataNode = visit(exprs[0]);
+  if (dataNode.t === 'err') {
+    return dataNode;
+  }
+  if (dataNode.t === 'num') {
+    values.push(dataNode.v);
+  } else if (dataNode.t === 'ref' && grid) {
+    for (const ref of toSrefs([dataNode.v])) {
+      const cellVal = grid.get(ref)?.v || '';
+      if (cellVal !== '' && !isNaN(Number(cellVal))) {
+        values.push(Number(cellVal));
+      }
+    }
+  }
+
+  const nNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (nNode.t === 'err') {
+    return nNode;
+  }
+
+  const n = Math.trunc(nNode.v);
+  if (n < 1 || n > values.length) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  values.sort((a, b) => b - a);
+  return { t: 'num', v: values[n - 1] };
+}
+
+/**
+ * SMALL(data, n) — returns the nth smallest value in a data set.
+ */
+export function smallFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  const dataNode = visit(exprs[0]);
+  if (dataNode.t === 'err') {
+    return dataNode;
+  }
+  if (dataNode.t === 'num') {
+    values.push(dataNode.v);
+  } else if (dataNode.t === 'ref' && grid) {
+    for (const ref of toSrefs([dataNode.v])) {
+      const cellVal = grid.get(ref)?.v || '';
+      if (cellVal !== '' && !isNaN(Number(cellVal))) {
+        values.push(Number(cellVal));
+      }
+    }
+  }
+
+  const nNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (nNode.t === 'err') {
+    return nNode;
+  }
+
+  const n = Math.trunc(nNode.v);
+  if (n < 1 || n > values.length) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  values.sort((a, b) => a - b);
+  return { t: 'num', v: values[n - 1] };
+}
+
+/**
+ * N(value) — converts a value to a number.
+ */
+export function nFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t === 'num') {
+    return node;
+  }
+  if (node.t === 'bool') {
+    return { t: 'num', v: node.v ? 1 : 0 };
+  }
+  if (node.t === 'ref' && grid) {
+    const value = grid.get(node.v)?.v || '';
+    if (value === '') {
+      return { t: 'num', v: 0 };
+    }
+    const upper = value.toUpperCase();
+    if (upper === 'TRUE') return { t: 'num', v: 1 };
+    if (upper === 'FALSE') return { t: 'num', v: 0 };
+    const num = Number(value);
+    return { t: 'num', v: isNaN(num) ? 0 : num };
+  }
+
+  return { t: 'num', v: 0 };
 }
