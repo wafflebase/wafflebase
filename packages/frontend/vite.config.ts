@@ -59,6 +59,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      util: path.resolve(__dirname, "./src/lib/util-shim.js"),
     },
   },
   define: {
