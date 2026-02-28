@@ -407,6 +407,13 @@ export const FunctionMap = new Map([
   ['DSTDEVP', dstdevpFunc],
   ['DVAR', dvarFunc],
   ['DVARP', dvarpFunc],
+  ['GROWTH', growthFunc],
+  ['TREND', trendFunc],
+  ['LINEST', linestFunc],
+  ['LOGEST', logestFunc],
+  ['FREQUENCY', frequencyFunc],
+  ['MODE.MULT', modemultFunc],
+  ['AGGREGATE', aggregateFunc],
 ]);
 
 /**
@@ -14148,4 +14155,256 @@ export function dvarpFunc(
   if (vals.length === 0) return { t: 'err', v: '#VALUE!' };
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   return { t: 'num', v: vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length };
+}
+
+/**
+ * GROWTH(known_y, [known_x], [new_x]) — predicted exponential growth values.
+ * Returns y = b * m^x using exponential regression on ln(y) vs x.
+ */
+export function growthFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+  const result = extractPairedArrays(exprs[0], exprs.length >= 2 ? exprs[1] : undefined, visit, grid);
+  if ('t' in result) return result;
+  // result.ys = known_y (first arg), result.xs = known_x (second arg)
+  const knownY = result.ys;
+  const knownX = result.xs.length > 0 ? result.xs : knownY.map((_, i) => i + 1);
+  if (knownY.length !== knownX.length || knownY.length === 0) return { t: 'err', v: '#VALUE!' };
+  // Log-transform y values
+  const lnY = knownY.map(y => Math.log(y));
+  const reg = linearRegression(knownX, lnY);
+  // For new_x, use the first value (single-cell return)
+  let newXval: number;
+  if (exprs.length >= 3) {
+    const nx = NumberArgs.map(visit(exprs[2]), grid);
+    if (nx.t === 'err') return nx;
+    newXval = nx.v;
+  } else {
+    newXval = knownX[knownX.length - 1];
+  }
+  return { t: 'num', v: Math.exp(reg.intercept) * Math.exp(reg.slope * newXval) };
+}
+
+/**
+ * TREND(known_y, [known_x], [new_x]) — predicted linear trend values.
+ */
+export function trendFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+  const result = extractPairedArrays(exprs[0], exprs.length >= 2 ? exprs[1] : undefined, visit, grid);
+  if ('t' in result) return result;
+  const knownY = result.ys;
+  const knownX = result.xs.length > 0 ? result.xs : knownY.map((_, i) => i + 1);
+  if (knownY.length !== knownX.length || knownY.length === 0) return { t: 'err', v: '#VALUE!' };
+  const reg = linearRegression(knownX, knownY);
+  let newXval: number;
+  if (exprs.length >= 3) {
+    const nx = NumberArgs.map(visit(exprs[2]), grid);
+    if (nx.t === 'err') return nx;
+    newXval = nx.v;
+  } else {
+    newXval = knownX[knownX.length - 1];
+  }
+  return { t: 'num', v: reg.slope * newXval + reg.intercept };
+}
+
+/**
+ * LINEST(known_y, [known_x]) — returns slope (first cell of the result array).
+ */
+export function linestFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const result = extractPairedArrays(exprs[0], exprs.length >= 2 ? exprs[1] : undefined, visit, grid);
+  if ('t' in result) return result;
+  const knownY = result.ys;
+  const knownX = result.xs.length > 0 ? result.xs : knownY.map((_, i) => i + 1);
+  if (knownY.length !== knownX.length || knownY.length === 0) return { t: 'err', v: '#VALUE!' };
+  const reg = linearRegression(knownX, knownY);
+  // Single-cell output: slope
+  return { t: 'num', v: reg.slope };
+}
+
+/**
+ * LOGEST(known_y, [known_x]) — exponential regression, returns growth rate (m).
+ * y = b * m^x → ln(y) = ln(b) + x*ln(m)
+ */
+export function logestFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const result = extractPairedArrays(exprs[0], exprs.length >= 2 ? exprs[1] : undefined, visit, grid);
+  if ('t' in result) return result;
+  const knownY = result.ys;
+  const knownX = result.xs.length > 0 ? result.xs : knownY.map((_, i) => i + 1);
+  if (knownY.length !== knownX.length || knownY.length === 0) return { t: 'err', v: '#VALUE!' };
+  const lnY = knownY.map(y => Math.log(y));
+  const reg = linearRegression(knownX, lnY);
+  // Single-cell output: m = e^slope
+  return { t: 'num', v: Math.exp(reg.slope) };
+}
+
+/**
+ * FREQUENCY(data_array, bins_array) — counts how many values fall in each bin.
+ * Returns the count for the first bin (single-cell output).
+ */
+export function frequencyFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const dataResult = collectNumericValues(exprs[0], visit, grid);
+  if (!Array.isArray(dataResult)) return dataResult;
+  const binsResult = collectNumericValues(exprs[1], visit, grid);
+  if (!Array.isArray(binsResult)) return binsResult;
+  const data = dataResult;
+  const bins = [...binsResult].sort((a, b) => a - b);
+  // Build frequency counts
+  const counts = new Array(bins.length + 1).fill(0);
+  for (const val of data) {
+    let placed = false;
+    for (let i = 0; i < bins.length; i++) {
+      if (val <= bins[i]) {
+        counts[i]++;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) counts[bins.length]++;
+  }
+  // Return first bin count (single-cell)
+  return { t: 'num', v: counts[0] };
+}
+
+/**
+ * MODE.MULT(number1, [number2], ...) — returns the smallest mode.
+ * (Same as MODE for single-cell output.)
+ */
+export function modemultFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1) return { t: 'err', v: '#N/A!' };
+  const nums: number[] = [];
+  for (const expr of exprs) {
+    const result = collectNumericValues(expr, visit, grid);
+    if (!Array.isArray(result)) return result;
+    nums.push(...result);
+  }
+  if (nums.length === 0) return { t: 'err', v: '#VALUE!' };
+  const freq = new Map<number, number>();
+  for (const n of nums) freq.set(n, (freq.get(n) ?? 0) + 1);
+  let maxFreq = 0;
+  for (const f of freq.values()) if (f > maxFreq) maxFreq = f;
+  if (maxFreq <= 1) return { t: 'err', v: '#N/A!' };
+  // Return smallest mode
+  const modes = Array.from(freq.entries())
+    .filter(([, f]) => f === maxFreq)
+    .map(([n]) => n)
+    .sort((a, b) => a - b);
+  return { t: 'num', v: modes[0] };
+}
+
+/**
+ * AGGREGATE(function_num, options, ref1, ...) — performs aggregate with error handling.
+ * Simplified: function_num selects the aggregate function, ignores error values.
+ */
+export function aggregateFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3) return { t: 'err', v: '#N/A!' };
+  const funcNum = NumberArgs.map(visit(exprs[0]), grid);
+  if (funcNum.t === 'err') return funcNum;
+  // Skip options (exprs[1])
+  // Collect numeric values from remaining args, skipping errors
+  const nums: number[] = [];
+  for (let i = 2; i < exprs.length; i++) {
+    const node = visit(exprs[i]);
+    if (node.t === 'err') continue;
+    if (node.t === 'ref' && grid) {
+      for (const sref of toSrefs(Array.isArray(node.v) ? [node.v] : [node.v])) {
+        const cell = grid.get(sref);
+        if (cell && cell.v != null) {
+          const n = Number(cell.v);
+          if (!isNaN(n)) nums.push(n);
+        }
+      }
+    } else {
+      const n = NumberArgs.map(node, grid);
+      if (n.t !== 'err') nums.push(n.v);
+    }
+  }
+  const fn = Math.trunc(funcNum.v);
+  switch (fn) {
+    case 1: return { t: 'num', v: nums.reduce((a, b) => a + b, 0) / (nums.length || 1) }; // AVERAGE
+    case 2: return { t: 'num', v: nums.length }; // COUNT
+    case 3: return { t: 'num', v: nums.length }; // COUNTA
+    case 4: return { t: 'num', v: nums.length > 0 ? Math.max(...nums) : 0 }; // MAX
+    case 5: return { t: 'num', v: nums.length > 0 ? Math.min(...nums) : 0 }; // MIN
+    case 6: return { t: 'num', v: nums.reduce((a, b) => a * b, 1) }; // PRODUCT
+    case 7: { // STDEV.S
+      if (nums.length < 2) return { t: 'err', v: '#VALUE!' };
+      const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+      const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1);
+      return { t: 'num', v: Math.sqrt(variance) };
+    }
+    case 8: { // STDEV.P
+      if (nums.length === 0) return { t: 'err', v: '#VALUE!' };
+      const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+      const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / nums.length;
+      return { t: 'num', v: Math.sqrt(variance) };
+    }
+    case 9: return { t: 'num', v: nums.reduce((a, b) => a + b, 0) }; // SUM
+    case 10: { // VAR.S
+      if (nums.length < 2) return { t: 'err', v: '#VALUE!' };
+      const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+      return { t: 'num', v: nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1) };
+    }
+    case 11: { // VAR.P
+      if (nums.length === 0) return { t: 'err', v: '#VALUE!' };
+      const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+      return { t: 'num', v: nums.reduce((a, b) => a + (b - mean) ** 2, 0) / nums.length };
+    }
+    case 12: { // MEDIAN
+      const sorted = [...nums].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return { t: 'num', v: sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid] };
+    }
+    default: return { t: 'err', v: '#VALUE!' };
+  }
 }

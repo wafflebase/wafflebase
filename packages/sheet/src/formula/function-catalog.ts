@@ -2332,6 +2332,41 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the population variance of a database field matching criteria',
     args: [{ name: 'database' }, { name: 'field' }, { name: 'criteria' }],
   },
+  {
+    name: 'GROWTH',
+    description: 'Calculates predicted exponential growth using existing data',
+    args: [{ name: 'known_y' }, { name: 'known_x', optional: true }, { name: 'new_x', optional: true }],
+  },
+  {
+    name: 'TREND',
+    description: 'Calculates predicted linear trend values using least squares regression',
+    args: [{ name: 'known_y' }, { name: 'known_x', optional: true }, { name: 'new_x', optional: true }],
+  },
+  {
+    name: 'LINEST',
+    description: 'Returns the slope of the linear regression line',
+    args: [{ name: 'known_y' }, { name: 'known_x', optional: true }],
+  },
+  {
+    name: 'LOGEST',
+    description: 'Returns the growth rate of an exponential regression',
+    args: [{ name: 'known_y' }, { name: 'known_x', optional: true }],
+  },
+  {
+    name: 'FREQUENCY',
+    description: 'Calculates how often values occur within a range of bins',
+    args: [{ name: 'data_array' }, { name: 'bins_array' }],
+  },
+  {
+    name: 'MODE.MULT',
+    description: 'Returns the most frequently occurring values in a dataset',
+    args: [{ name: 'number1' }, { name: 'number2', optional: true, repeating: true }],
+  },
+  {
+    name: 'AGGREGATE',
+    description: 'Returns an aggregate calculation, ignoring errors and hidden rows',
+    args: [{ name: 'function_num' }, { name: 'options' }, { name: 'ref1' }, { name: 'ref2', optional: true, repeating: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2546,6 +2581,13 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SKEW',
     'KURT',
     'PROB',
+    'GROWTH',
+    'TREND',
+    'LINEST',
+    'LOGEST',
+    'FREQUENCY',
+    'MODE.MULT',
+    'AGGREGATE',
   ]),
   Text: new Set([
     'TRIM',

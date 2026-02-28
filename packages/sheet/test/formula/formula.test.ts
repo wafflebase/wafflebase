@@ -2601,6 +2601,72 @@ describe('Formula', () => {
     expect(evaluate('=DPRODUCT(A1:B3,"Score",E1:E2)', grid)).toBe('80');
   });
 
+  it('should correctly evaluate TREND and LINEST functions', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['B1', { v: '2' } as Cell],
+      ['B2', { v: '4' } as Cell],
+      ['B3', { v: '6' } as Cell],
+    ]);
+    // y = 2x, slope = 2
+    expect(Number(evaluate('=LINEST(B1:B3,A1:A3)', grid))).toBeCloseTo(2, 10);
+    // TREND at x=4 = 8
+    expect(Number(evaluate('=TREND(B1:B3,A1:A3,4)', grid))).toBeCloseTo(8, 10);
+  });
+
+  it('should correctly evaluate GROWTH and LOGEST functions', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['B1', { v: '2' } as Cell],
+      ['B2', { v: '4' } as Cell],
+      ['B3', { v: '8' } as Cell],
+    ]);
+    // y ≈ 1 * 2^x, growth rate ≈ 2
+    expect(Number(evaluate('=LOGEST(B1:B3,A1:A3)', grid))).toBeCloseTo(2, 1);
+  });
+
+  it('should correctly evaluate FREQUENCY function', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '3' } as Cell],
+      ['A3', { v: '5' } as Cell],
+      ['A4', { v: '7' } as Cell],
+      ['A5', { v: '9' } as Cell],
+      ['B1', { v: '4' } as Cell],
+      ['B2', { v: '8' } as Cell],
+    ]);
+    // values <= 4: 1,3 → count 2
+    expect(evaluate('=FREQUENCY(A1:A5,B1:B2)', grid)).toBe('2');
+  });
+
+  it('should correctly evaluate MODE.MULT function', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '2' } as Cell],
+      ['A4', { v: '3' } as Cell],
+      ['A5', { v: '3' } as Cell],
+    ]);
+    // Both 2 and 3 appear twice; smallest mode = 2
+    expect(evaluate('=MODE.MULT(A1:A5)', grid)).toBe('2');
+  });
+
+  it('should correctly evaluate AGGREGATE function', () => {
+    const grid = new Map([
+      ['A1', { v: '10' } as Cell],
+      ['A2', { v: '20' } as Cell],
+      ['A3', { v: '30' } as Cell],
+    ]);
+    // function_num 9 = SUM, options=6 (ignore errors)
+    expect(evaluate('=AGGREGATE(9,6,A1:A3)', grid)).toBe('60');
+    // function_num 1 = AVERAGE
+    expect(evaluate('=AGGREGATE(1,6,A1:A3)', grid)).toBe('20');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

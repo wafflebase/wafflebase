@@ -348,6 +348,13 @@ describe('FunctionCatalog', () => {
       expect(findFunction('DSTDEVP')!.name).toBe('DSTDEVP');
       expect(findFunction('DVAR')!.name).toBe('DVAR');
       expect(findFunction('DVARP')!.name).toBe('DVARP');
+      expect(findFunction('GROWTH')!.name).toBe('GROWTH');
+      expect(findFunction('TREND')!.name).toBe('TREND');
+      expect(findFunction('LINEST')!.name).toBe('LINEST');
+      expect(findFunction('LOGEST')!.name).toBe('LOGEST');
+      expect(findFunction('FREQUENCY')!.name).toBe('FREQUENCY');
+      expect(findFunction('MODE.MULT')!.name).toBe('MODE.MULT');
+      expect(findFunction('AGGREGATE')!.name).toBe('AGGREGATE');
     });
 
     it('should return undefined for unknown function', () => {
