@@ -257,6 +257,15 @@ export const FunctionMap = new Map([
   ['GESTEP', gestepFunc],
   ['ERF', erfFunc],
   ['ERFC', erfcFunc],
+  ['XNPV', xnpvFunc],
+  ['XIRR', xirrFunc],
+  ['SYD', sydFunc],
+  ['MIRR', mirrFunc],
+  ['TBILLEQ', tbilleqFunc],
+  ['TBILLPRICE', tbillpriceFunc],
+  ['TBILLYIELD', tbillyieldFunc],
+  ['DOLLARDE', dollardeFunc],
+  ['DOLLARFR', dollarfrFunc],
 ]);
 
 /**
@@ -9335,4 +9344,342 @@ export function erfcFunc(
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   return { t: 'num', v: 1 - erf(x.v) };
+}
+
+/**
+ * XNPV(rate, values, dates) — net present value with irregular dates.
+ */
+export function xnpvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const rate = NumberArgs.map(visit(exprs[0]), grid);
+  if (rate.t === 'err') return rate;
+
+  const valuesResult = getRefsFromExpression(exprs[1], visit, grid);
+  if (valuesResult.t === 'err') return valuesResult;
+  const datesResult = getRefsFromExpression(exprs[2], visit, grid);
+  if (datesResult.t === 'err') return datesResult;
+
+  if (valuesResult.v.length !== datesResult.v.length) return { t: 'err', v: '#VALUE!' };
+
+  const values: number[] = [];
+  const dates: number[] = [];
+
+  for (let i = 0; i < valuesResult.v.length; i++) {
+    const vCell = grid!.get(valuesResult.v[i]);
+    const v = vCell ? Number(vCell.v) : 0;
+    if (isNaN(v)) return { t: 'err', v: '#VALUE!' };
+    values.push(v);
+
+    const dCell = grid!.get(datesResult.v[i]);
+    const dateStr = dCell?.v || '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return { t: 'err', v: '#VALUE!' };
+    dates.push(d.getTime());
+  }
+
+  const d0 = dates[0];
+  let npv = 0;
+  for (let i = 0; i < values.length; i++) {
+    const years = (dates[i] - d0) / (365.25 * 24 * 3600 * 1000);
+    npv += values[i] / Math.pow(1 + rate.v, years);
+  }
+
+  return { t: 'num', v: npv };
+}
+
+/**
+ * XIRR(values, dates, [guess]) — internal rate of return for irregular cash flows.
+ */
+export function xirrFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const valuesResult = getRefsFromExpression(exprs[0], visit, grid);
+  if (valuesResult.t === 'err') return valuesResult;
+  const datesResult = getRefsFromExpression(exprs[1], visit, grid);
+  if (datesResult.t === 'err') return datesResult;
+
+  if (valuesResult.v.length !== datesResult.v.length) return { t: 'err', v: '#VALUE!' };
+
+  const values: number[] = [];
+  const dates: number[] = [];
+
+  for (let i = 0; i < valuesResult.v.length; i++) {
+    const vCell = grid!.get(valuesResult.v[i]);
+    const v = vCell ? Number(vCell.v) : 0;
+    if (isNaN(v)) return { t: 'err', v: '#VALUE!' };
+    values.push(v);
+
+    const dCell = grid!.get(datesResult.v[i]);
+    const dateStr = dCell?.v || '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return { t: 'err', v: '#VALUE!' };
+    dates.push(d.getTime());
+  }
+
+  let guess = 0.1;
+  if (exprs.length === 3) {
+    const guessNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (guessNode.t === 'err') return guessNode;
+    guess = guessNode.v;
+  }
+
+  const d0 = dates[0];
+  let rate = guess;
+
+  for (let iter = 0; iter < 100; iter++) {
+    let f = 0;
+    let df = 0;
+    for (let i = 0; i < values.length; i++) {
+      const years = (dates[i] - d0) / (365.25 * 24 * 3600 * 1000);
+      const denom = Math.pow(1 + rate, years);
+      f += values[i] / denom;
+      df -= years * values[i] / Math.pow(1 + rate, years + 1);
+    }
+    if (Math.abs(df) < 1e-15) return { t: 'err', v: '#VALUE!' };
+    const newRate = rate - f / df;
+    if (Math.abs(newRate - rate) < 1e-10) return { t: 'num', v: newRate };
+    rate = newRate;
+  }
+  return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * SYD(cost, salvage, life, period) — sum-of-years-digits depreciation.
+ */
+export function sydFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const cost = NumberArgs.map(visit(exprs[0]), grid);
+  if (cost.t === 'err') return cost;
+  const salvage = NumberArgs.map(visit(exprs[1]), grid);
+  if (salvage.t === 'err') return salvage;
+  const life = NumberArgs.map(visit(exprs[2]), grid);
+  if (life.t === 'err') return life;
+  const period = NumberArgs.map(visit(exprs[3]), grid);
+  if (period.t === 'err') return period;
+
+  const l = Math.trunc(life.v);
+  const p = Math.trunc(period.v);
+  if (l <= 0 || p < 1 || p > l) return { t: 'err', v: '#VALUE!' };
+
+  const sumOfYears = l * (l + 1) / 2;
+  return { t: 'num', v: (cost.v - salvage.v) * (l - p + 1) / sumOfYears };
+}
+
+/**
+ * MIRR(values, finance_rate, reinvest_rate) — modified internal rate of return.
+ */
+export function mirrFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const valuesResult = getRefsFromExpression(exprs[0], visit, grid);
+  if (valuesResult.t === 'err') return valuesResult;
+  const financeRate = NumberArgs.map(visit(exprs[1]), grid);
+  if (financeRate.t === 'err') return financeRate;
+  const reinvestRate = NumberArgs.map(visit(exprs[2]), grid);
+  if (reinvestRate.t === 'err') return reinvestRate;
+
+  const values: number[] = [];
+  for (const ref of valuesResult.v) {
+    const cell = grid!.get(ref);
+    const v = cell ? Number(cell.v) : 0;
+    if (isNaN(v)) return { t: 'err', v: '#VALUE!' };
+    values.push(v);
+  }
+
+  const n = values.length;
+  if (n < 2) return { t: 'err', v: '#VALUE!' };
+
+  // PV of negative cash flows (costs) discounted at finance rate
+  let pvNeg = 0;
+  // FV of positive cash flows compounded at reinvestment rate
+  let fvPos = 0;
+
+  for (let i = 0; i < n; i++) {
+    if (values[i] < 0) {
+      pvNeg += values[i] / Math.pow(1 + financeRate.v, i);
+    } else {
+      fvPos += values[i] * Math.pow(1 + reinvestRate.v, n - 1 - i);
+    }
+  }
+
+  if (pvNeg === 0) return { t: 'err', v: '#DIV/0!' };
+  return { t: 'num', v: Math.pow(-fvPos / pvNeg, 1 / (n - 1)) - 1 };
+}
+
+/**
+ * TBILLEQ(settlement, maturity, discount) — T-bill bond-equivalent yield.
+ */
+export function tbilleqFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const settlementNode = visit(exprs[0]);
+  const maturityNode = visit(exprs[1]);
+  const discountNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (discountNode.t === 'err') return discountNode;
+
+  const sStr = toStr(settlementNode, grid);
+  if (sStr.t === 'err') return sStr;
+  const mStr2 = toStr(maturityNode, grid);
+  if (mStr2.t === 'err') return mStr2;
+  const settlement = new Date(sStr.v);
+  const maturity = new Date(mStr2.v);
+  if (isNaN(settlement.getTime()) || isNaN(maturity.getTime())) return { t: 'err', v: '#VALUE!' };
+
+  const dsm = (maturity.getTime() - settlement.getTime()) / (24 * 3600 * 1000);
+  if (dsm <= 0 || discountNode.v <= 0) return { t: 'err', v: '#VALUE!' };
+
+  return { t: 'num', v: 365 * discountNode.v / (360 - discountNode.v * dsm) };
+}
+
+/**
+ * TBILLPRICE(settlement, maturity, discount) — T-bill price per $100.
+ */
+export function tbillpriceFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const settlementNode = visit(exprs[0]);
+  const maturityNode = visit(exprs[1]);
+  const discountNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (discountNode.t === 'err') return discountNode;
+
+  const sStr = toStr(settlementNode, grid);
+  const mStr = toStr(maturityNode, grid);
+  if (sStr.t === 'err' || mStr.t === 'err') return { t: 'err', v: '#VALUE!' };
+
+  const settlement = new Date(sStr.v);
+  const maturity = new Date(mStr.v);
+  if (isNaN(settlement.getTime()) || isNaN(maturity.getTime())) return { t: 'err', v: '#VALUE!' };
+
+  const dsm = (maturity.getTime() - settlement.getTime()) / (24 * 3600 * 1000);
+  if (dsm <= 0) return { t: 'err', v: '#VALUE!' };
+
+  return { t: 'num', v: 100 * (1 - discountNode.v * dsm / 360) };
+}
+
+/**
+ * TBILLYIELD(settlement, maturity, price) — T-bill yield.
+ */
+export function tbillyieldFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const settlementNode = visit(exprs[0]);
+  const maturityNode = visit(exprs[1]);
+  const priceNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (priceNode.t === 'err') return priceNode;
+
+  const sStr = toStr(settlementNode, grid);
+  const mStr = toStr(maturityNode, grid);
+  if (sStr.t === 'err' || mStr.t === 'err') return { t: 'err', v: '#VALUE!' };
+
+  const settlement = new Date(sStr.v);
+  const maturity = new Date(mStr.v);
+  if (isNaN(settlement.getTime()) || isNaN(maturity.getTime())) return { t: 'err', v: '#VALUE!' };
+
+  const dsm = (maturity.getTime() - settlement.getTime()) / (24 * 3600 * 1000);
+  if (dsm <= 0 || priceNode.v <= 0) return { t: 'err', v: '#VALUE!' };
+
+  return { t: 'num', v: (100 - priceNode.v) / priceNode.v * 360 / dsm };
+}
+
+/**
+ * DOLLARDE(fractional_dollar, fraction) — converts dollar price to decimal.
+ */
+export function dollardeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const dollar = NumberArgs.map(visit(exprs[0]), grid);
+  if (dollar.t === 'err') return dollar;
+  const fraction = NumberArgs.map(visit(exprs[1]), grid);
+  if (fraction.t === 'err') return fraction;
+  const f = Math.trunc(fraction.v);
+  if (f < 1) return { t: 'err', v: '#VALUE!' };
+
+  const intPart = Math.trunc(dollar.v);
+  const fracPart = dollar.v - intPart;
+  const power = Math.pow(10, Math.ceil(Math.log10(f)));
+  return { t: 'num', v: intPart + fracPart * power / f };
+}
+
+/**
+ * DOLLARFR(decimal_dollar, fraction) — converts dollar price to fractional.
+ */
+export function dollarfrFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const dollar = NumberArgs.map(visit(exprs[0]), grid);
+  if (dollar.t === 'err') return dollar;
+  const fraction = NumberArgs.map(visit(exprs[1]), grid);
+  if (fraction.t === 'err') return fraction;
+  const f = Math.trunc(fraction.v);
+  if (f < 1) return { t: 'err', v: '#VALUE!' };
+
+  const intPart = Math.trunc(dollar.v);
+  const fracPart = dollar.v - intPart;
+  const power = Math.pow(10, Math.ceil(Math.log10(f)));
+  return { t: 'num', v: intPart + fracPart * f / power };
 }

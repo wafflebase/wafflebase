@@ -199,6 +199,15 @@ describe('FunctionCatalog', () => {
       expect(findFunction('GESTEP')!.name).toBe('GESTEP');
       expect(findFunction('ERF')!.name).toBe('ERF');
       expect(findFunction('ERFC')!.name).toBe('ERFC');
+      expect(findFunction('XNPV')!.name).toBe('XNPV');
+      expect(findFunction('XIRR')!.name).toBe('XIRR');
+      expect(findFunction('SYD')!.name).toBe('SYD');
+      expect(findFunction('MIRR')!.name).toBe('MIRR');
+      expect(findFunction('TBILLEQ')!.name).toBe('TBILLEQ');
+      expect(findFunction('TBILLPRICE')!.name).toBe('TBILLPRICE');
+      expect(findFunction('TBILLYIELD')!.name).toBe('TBILLYIELD');
+      expect(findFunction('DOLLARDE')!.name).toBe('DOLLARDE');
+      expect(findFunction('DOLLARFR')!.name).toBe('DOLLARFR');
     });
 
     it('should return undefined for unknown function', () => {

@@ -1503,6 +1503,51 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the complementary error function',
     args: [{ name: 'x' }],
   },
+  {
+    name: 'XNPV',
+    description: 'Returns net present value for irregular cash flows',
+    args: [{ name: 'rate' }, { name: 'values' }, { name: 'dates' }],
+  },
+  {
+    name: 'XIRR',
+    description: 'Returns internal rate of return for irregular cash flows',
+    args: [{ name: 'values' }, { name: 'dates' }, { name: 'guess', optional: true }],
+  },
+  {
+    name: 'SYD',
+    description: 'Returns the sum-of-years-digits depreciation',
+    args: [{ name: 'cost' }, { name: 'salvage' }, { name: 'life' }, { name: 'period' }],
+  },
+  {
+    name: 'MIRR',
+    description: 'Returns the modified internal rate of return',
+    args: [{ name: 'values' }, { name: 'finance_rate' }, { name: 'reinvest_rate' }],
+  },
+  {
+    name: 'TBILLEQ',
+    description: 'Returns the bond-equivalent yield for a T-bill',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'discount' }],
+  },
+  {
+    name: 'TBILLPRICE',
+    description: 'Returns the price per $100 for a T-bill',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'discount' }],
+  },
+  {
+    name: 'TBILLYIELD',
+    description: 'Returns the yield for a T-bill',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'price' }],
+  },
+  {
+    name: 'DOLLARDE',
+    description: 'Converts a fractional dollar price to a decimal price',
+    args: [{ name: 'fractional_dollar' }, { name: 'fraction' }],
+  },
+  {
+    name: 'DOLLARFR',
+    description: 'Converts a decimal dollar price to a fractional price',
+    args: [{ name: 'decimal_dollar' }, { name: 'fraction' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1531,7 +1576,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'YEARFRAC',
   ]),
   Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC']),
-  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC']),
+  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR']),
   Info: new Set([
     'ISBLANK',
     'ISNUMBER',

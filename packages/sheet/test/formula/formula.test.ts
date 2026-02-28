@@ -1690,6 +1690,50 @@ describe('Formula', () => {
     expect(Number(evaluate('=ERFC(1)'))).toBeCloseTo(0.1573, 3);
   });
 
+  // --- Batch 21: More Financial functions ---
+  it('should correctly evaluate XNPV function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '-10000' } as Cell);
+    grid.set('A2', { v: '3000' } as Cell);
+    grid.set('A3', { v: '4200' } as Cell);
+    grid.set('A4', { v: '6800' } as Cell);
+    grid.set('B1', { v: '2024-01-01' } as Cell);
+    grid.set('B2', { v: '2024-07-01' } as Cell);
+    grid.set('B3', { v: '2025-01-01' } as Cell);
+    grid.set('B4', { v: '2025-07-01' } as Cell);
+    const result = evaluate('=XNPV(0.1,A1:A4,B1:B4)', grid);
+    expect(Number(result)).toBeGreaterThan(0);
+  });
+
+  it('should correctly evaluate SYD function', () => {
+    // SYD(10000, 1000, 5, 1) = (10000-1000) * 5 / 15 = 3000
+    expect(evaluate('=SYD(10000,1000,5,1)')).toBe('3000');
+    // SYD(10000, 1000, 5, 5) = (10000-1000) * 1 / 15 = 600
+    expect(evaluate('=SYD(10000,1000,5,5)')).toBe('600');
+  });
+
+  it('should correctly evaluate MIRR function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '-10000' } as Cell);
+    grid.set('A2', { v: '5000' } as Cell);
+    grid.set('A3', { v: '6000' } as Cell);
+    grid.set('A4', { v: '7000' } as Cell);
+    const result = evaluate('=MIRR(A1:A4,0.1,0.12)', grid);
+    expect(Number(result)).toBeGreaterThan(0);
+  });
+
+  it('should correctly evaluate DOLLARDE function', () => {
+    // DOLLARDE(1.02, 16) — price of 1 and 2/16 = 1.125
+    const result = evaluate('=DOLLARDE(1.02,16)');
+    expect(Number(result)).toBeCloseTo(1.125, 3);
+  });
+
+  it('should correctly evaluate DOLLARFR function', () => {
+    // DOLLARFR(1.125, 16) — back to fractional = 1.02
+    const result = evaluate('=DOLLARFR(1.125,16)');
+    expect(Number(result)).toBeCloseTo(1.02, 3);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
