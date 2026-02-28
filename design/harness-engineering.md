@@ -17,9 +17,10 @@ maintainable software. Where context engineering asks *what should the agent
 see*, harness engineering asks *what should the system prevent, measure, and
 correct*.
 
-As of 2026-02-27, phases 1 through 17 are completed. The harness is fully
-operational for day-to-day development. Remaining phases focus on
-observability, evidence automation, and entropy detection.
+As of 2026-02-28, phases 1 through 18 are completed. Browser visual and
+interaction lanes are integrated into `verify:self` with graceful Chromium
+skip. Remaining phases focus on structured reporting, evidence automation,
+and observability.
 
 ## Principles
 
@@ -129,7 +130,7 @@ systematically.
 | `pnpm verify:frontend:visual:all` | Both visual gates combined |
 | `pnpm verify:frontend:interaction:browser` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
-| `pnpm verify:self` | `verify:fast` + builds + chunk/visual/interaction + entropy gates |
+| `pnpm verify:self` | `verify:fast` + builds + chunk/visual/interaction + entropy + browser gates |
 
 ### Integration Lanes (require database)
 
@@ -178,7 +179,7 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
-## Completed Phases (1-17)
+## Completed Phases (1-18)
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -201,6 +202,7 @@ database → auth/user/document → controllers/modules
 | 17f | Browser visual lane + interaction tests + interrupt-safe cleanup | Completed |
 | 17 | Integration determinism hardening | Completed |
 | 18 | Entropy detection automation (dead-code + doc-staleness) | Completed |
+| 18a | Browser lanes integrated into verify:self (graceful Chromium skip) | Completed |
 
 Phase 17 delivered:
 - Shared integration test helpers (`packages/backend/test/helpers/integration-helpers.ts`):
@@ -220,19 +222,13 @@ Detailed task records:
 |---|---|---|---|---|
 | A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
-| C | Frontend regression harness | Visual Feedback | Completed | Promote browser lanes into CI once Playwright is standardized |
-| D | Agent-oriented contracts | Information Accessibility | In progress | Machine-readable lane reports (Phase 18) |
-| E | Entropy cleanup loop | Entropy Management | In progress | Dead-code + doc-staleness gate delivered; dependency freshness next |
+| C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Playwright CI provisioning deferred |
+| D | Agent-oriented contracts | Information Accessibility | In progress | Structured lane reports (Phase 19) |
+| E | Entropy cleanup loop | Entropy Management | In progress | Dead-code + doc-staleness delivered; dependency freshness next |
 
 ## Remaining Work
 
-### Immediate Next
-
-- Standardize Playwright + Chromium provisioning (local + CI), then compose
-  `verify:frontend:visual:browser` and `verify:frontend:interaction:browser`
-  into `verify:self`.
-
-### Phase 18: Harness Report Artifacts
+### Phase 19: Harness Report Artifacts
 
 **Principle:** Visual Feedback — make lane results observable and
 machine-readable for agents and humans.
@@ -247,7 +243,7 @@ Deliverables:
 Done criteria: CI failures diagnosable from structured report without log
 scrolling.
 
-### Phase 19: PR Evidence Trust Automation
+### Phase 20: PR Evidence Trust Automation
 
 **Principle:** Mechanical Enforcement — replace manual verification evidence
 with automated trust.
@@ -260,7 +256,7 @@ Deliverables:
 
 Done criteria: Required verification evidence is automatically trustworthy.
 
-### Phase 20: Agent Observability Stack
+### Phase 21: Agent Observability Stack
 
 **Principle:** Visual Feedback + Capability-First Debugging — give agents
 direct access to runtime signals.
@@ -275,23 +271,20 @@ Deliverables:
 Done criteria: An agent can diagnose a CI failure from report artifacts
 without human interpretation.
 
-### Phase 21: Entropy Detection Automation
+### Phase 22: Dependency Freshness Detection
 
 **Principle:** Entropy Management — automate the detection of codebase decay.
 
-Goal: Systematically detect and surface entropy before it accumulates.
+Goal: Surface outdated or vulnerable dependencies automatically.
 
 Deliverables:
-- Dead-code detection gate (unused exports, unreachable modules). **Delivered
-  (Phase 18).**
-- Documentation staleness check (design docs vs actual code drift). **Delivered
-  (Phase 18).**
 - Dependency freshness report (outdated/vulnerable packages).
 
-Done criteria: Entropy signals are surfaced automatically in CI or periodic
-reports. Dead-code and doc-staleness gates are delivered as `pnpm
-verify:entropy` and integrated into `verify:self`. Dependency freshness
-remains for future work.
+Done criteria: Dependency freshness signals surfaced automatically in CI or
+periodic reports.
+
+Note: Dead-code and doc-staleness gates were delivered in Phase 18 as `pnpm
+verify:entropy`.
 
 ## Harness Policy
 
@@ -327,9 +320,9 @@ Harness v1 is complete when all are true:
    **Status: Done** (`verify:integration:docker`).
 2. CI failures are diagnosable in under 5 minutes from logs/reports.
    **Status: Partially done** (clear lane output, but no structured reports
-   yet — Phase 18).
+   yet — Phase 19).
 3. PR required verification evidence is automatically trustworthy.
-   **Status: Not started** — Phase 19.
+   **Status: Not started** — Phase 20.
 
 ## References
 

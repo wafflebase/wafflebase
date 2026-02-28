@@ -18,11 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| _None_ | - | - |
+| browser lane integration (2026-02-28) | [20260228-browser-lane-integration-todo.md](./active/20260228-browser-lane-integration-todo.md) | [20260228-browser-lane-integration-lessons.md](./active/20260228-browser-lane-integration-lessons.md) |
 
 ## Archive
 
 - Archived task count: 33
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: none
+Latest active task: browser lane integration (2026-02-28)
