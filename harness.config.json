@@ -4,5 +4,14 @@
       "maxChunkKb": 500,
       "maxChunkCount": 60
     }
+  },
+  "entropy": {
+    "deadCode": {
+      "enabled": true
+    },
+    "docStaleness": {
+      "enabled": true,
+      "designDir": "design"
+    }
   }
 }
