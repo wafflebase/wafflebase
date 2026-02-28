@@ -251,6 +251,13 @@ describe('FunctionCatalog', () => {
       expect(findFunction('UNIQUE')!.name).toBe('UNIQUE');
       expect(findFunction('FLATTEN')!.name).toBe('FLATTEN');
       expect(findFunction('TRANSPOSE')!.name).toBe('TRANSPOSE');
+      expect(findFunction('NORM.S.DIST')!.name).toBe('NORM.S.DIST');
+      expect(findFunction('NORM.S.INV')!.name).toBe('NORM.S.INV');
+      expect(findFunction('SUBTOTAL')!.name).toBe('SUBTOTAL');
+      expect(findFunction('VARA')!.name).toBe('VARA');
+      expect(findFunction('VARPA')!.name).toBe('VARPA');
+      expect(findFunction('SKEW')!.name).toBe('SKEW');
+      expect(findFunction('KURT')!.name).toBe('KURT');
     });
 
     it('should return undefined for unknown function', () => {

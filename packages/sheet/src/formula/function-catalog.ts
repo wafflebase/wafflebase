@@ -1841,6 +1841,57 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Transposes the rows and columns of a range',
     args: [{ name: 'range' }],
   },
+  {
+    name: 'NORM.S.DIST',
+    description: 'Returns the standard normal distribution probability',
+    args: [{ name: 'z' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'NORM.S.INV',
+    description: 'Returns the inverse of the standard normal distribution',
+    args: [{ name: 'probability' }],
+  },
+  {
+    name: 'SUBTOTAL',
+    description: 'Returns a subtotal using a specified aggregate function',
+    args: [
+      { name: 'function_num' },
+      { name: 'ref1' },
+      { name: 'ref2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'VARA',
+    description: 'Returns the sample variance including text and booleans',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'VARPA',
+    description: 'Returns the population variance including text and booleans',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'SKEW',
+    description: 'Returns the skewness of a dataset',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'KURT',
+    description: 'Returns the excess kurtosis of a dataset',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1963,6 +2014,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SUMXMY2',
     'SEQUENCE',
     'RANDARRAY',
+    'SUBTOTAL',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -2043,6 +2095,12 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'F.DIST.RT',
     'F.INV.RT',
     'BINOM.INV',
+    'NORM.S.DIST',
+    'NORM.S.INV',
+    'VARA',
+    'VARPA',
+    'SKEW',
+    'KURT',
   ]),
   Text: new Set([
     'TRIM',

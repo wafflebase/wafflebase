@@ -2114,6 +2114,85 @@ describe('Formula', () => {
     expect(evaluate('=TRANSPOSE(A1)', grid)).toBe('42');
   });
 
+  it('should correctly evaluate NORM.S.DIST function', () => {
+    // CDF at z=0 should be 0.5
+    expect(Number(evaluate('=NORM.S.DIST(0,TRUE)'))).toBeCloseTo(0.5, 4);
+    // CDF at z=1.96 ≈ 0.975
+    expect(Number(evaluate('=NORM.S.DIST(1.96,TRUE)'))).toBeCloseTo(0.975, 2);
+    // PDF at z=0 ≈ 0.3989
+    expect(Number(evaluate('=NORM.S.DIST(0,FALSE)'))).toBeCloseTo(0.3989, 3);
+  });
+
+  it('should correctly evaluate NORM.S.INV function', () => {
+    expect(Number(evaluate('=NORM.S.INV(0.5)'))).toBeCloseTo(0, 4);
+    expect(Number(evaluate('=NORM.S.INV(0.975)'))).toBeCloseTo(1.96, 2);
+  });
+
+  it('should correctly evaluate SUBTOTAL function', () => {
+    const grid = new Map([
+      ['A1', { v: '10' } as Cell],
+      ['A2', { v: '20' } as Cell],
+      ['A3', { v: '30' } as Cell],
+    ]);
+    // 9=SUM
+    expect(evaluate('=SUBTOTAL(9,A1:A3)', grid)).toBe('60');
+    // 1=AVERAGE
+    expect(evaluate('=SUBTOTAL(1,A1:A3)', grid)).toBe('20');
+    // 2=COUNT
+    expect(evaluate('=SUBTOTAL(2,A1:A3)', grid)).toBe('3');
+    // 4=MAX
+    expect(evaluate('=SUBTOTAL(4,A1:A3)', grid)).toBe('30');
+    // 5=MIN
+    expect(evaluate('=SUBTOTAL(5,A1:A3)', grid)).toBe('10');
+    // 109=SUM (ignore hidden, same behavior)
+    expect(evaluate('=SUBTOTAL(109,A1:A3)', grid)).toBe('60');
+  });
+
+  it('should correctly evaluate SKEW function', () => {
+    const grid = new Map([
+      ['A1', { v: '3' } as Cell],
+      ['A2', { v: '4' } as Cell],
+      ['A3', { v: '5' } as Cell],
+      ['A4', { v: '2' } as Cell],
+      ['A5', { v: '3' } as Cell],
+      ['A6', { v: '4' } as Cell],
+      ['A7', { v: '5' } as Cell],
+      ['A8', { v: '6' } as Cell],
+      ['A9', { v: '4' } as Cell],
+      ['A10', { v: '7' } as Cell],
+    ]);
+    const result = evaluate('=SKEW(A1:A10)', grid);
+    expect(Number(result)).toBeCloseTo(0.359, 2);
+  });
+
+  it('should correctly evaluate KURT function', () => {
+    const grid = new Map([
+      ['A1', { v: '3' } as Cell],
+      ['A2', { v: '4' } as Cell],
+      ['A3', { v: '5' } as Cell],
+      ['A4', { v: '2' } as Cell],
+      ['A5', { v: '3' } as Cell],
+      ['A6', { v: '4' } as Cell],
+      ['A7', { v: '5' } as Cell],
+      ['A8', { v: '6' } as Cell],
+      ['A9', { v: '4' } as Cell],
+      ['A10', { v: '7' } as Cell],
+    ]);
+    const result = evaluate('=KURT(A1:A10)', grid);
+    // Excess kurtosis for near-normal data is close to 0
+    expect(Number(result)).toBeCloseTo(-0.152, 1);
+  });
+
+  it('should correctly evaluate VARA function', () => {
+    // VARA(1, 2, 3) = same as VAR for numbers = 1
+    expect(Number(evaluate('=VARA(1,2,3)'))).toBe(1);
+  });
+
+  it('should correctly evaluate VARPA function', () => {
+    // VARPA(1, 2, 3) = population variance = 2/3
+    expect(Number(evaluate('=VARPA(1,2,3)'))).toBeCloseTo(0.6667, 3);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

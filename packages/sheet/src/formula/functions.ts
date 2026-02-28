@@ -313,6 +313,13 @@ export const FunctionMap = new Map([
   ['UNIQUE', uniqueFunc],
   ['FLATTEN', flattenFunc],
   ['TRANSPOSE', transposeFunc],
+  ['NORM.S.DIST', normsdistFunc],
+  ['NORM.S.INV', normsinvFunc],
+  ['SUBTOTAL', subtotalFunc],
+  ['VARA', varaFunc],
+  ['VARPA', varpaFunc],
+  ['SKEW', skewFunc],
+  ['KURT', kurtFunc],
 ]);
 
 /**
@@ -11166,4 +11173,277 @@ export function transposeFunc(
   if (node.t === 'err') return node;
   if (node.t !== 'ref' || !grid) return node;
   return firstCellValue(node, grid);
+}
+
+/**
+ * NORM.S.DIST(z, cumulative) — standard normal distribution.
+ */
+export function normsdistFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+
+  const z = NumberArgs.map(visit(exprs[0]), grid);
+  if (z.t === 'err') return z;
+  const cumNode = BoolArgs.map(visit(exprs[1]), grid);
+  if (cumNode.t === 'err') return cumNode;
+
+  if (cumNode.v) {
+    return { t: 'num', v: normCdf(z.v) };
+  }
+  return { t: 'num', v: normPdf(z.v) };
+}
+
+/**
+ * NORM.S.INV(probability) — inverse standard normal distribution.
+ */
+export function normsinvFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const p = NumberArgs.map(visit(exprs[0]), grid);
+  if (p.t === 'err') return p;
+  if (p.v <= 0 || p.v >= 1) return { t: 'err', v: '#VALUE!' };
+
+  return { t: 'num', v: normInv(p.v) };
+}
+
+/**
+ * SUBTOTAL(function_num, ref1, [ref2], ...) — applies an aggregate function.
+ */
+export function subtotalFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2) return { t: 'err', v: '#N/A!' };
+
+  const fnNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (fnNode.t === 'err') return fnNode;
+  const fn = Math.trunc(fnNode.v);
+
+  const values: number[] = [];
+  for (let i = 1; i < exprs.length; i++) {
+    const node = visit(exprs[i]);
+    if (node.t === 'err') return node;
+    if (node.t === 'num') {
+      values.push(node.v);
+    } else if (node.t === 'ref' && grid) {
+      for (const ref of toSrefs([node.v])) {
+        const cellVal = grid.get(ref)?.v || '';
+        if (cellVal !== '' && !isNaN(Number(cellVal))) {
+          values.push(Number(cellVal));
+        }
+      }
+    }
+  }
+
+  const fnNum = fn > 100 ? fn - 100 : fn;
+  if (values.length === 0 && fnNum !== 2 && fnNum !== 3) return { t: 'num', v: 0 };
+
+  switch (fnNum) {
+    case 1: // AVERAGE
+      return { t: 'num', v: values.reduce((a, b) => a + b, 0) / values.length };
+    case 2: // COUNT
+      return { t: 'num', v: values.length };
+    case 3: // COUNTA
+      return { t: 'num', v: values.length };
+    case 4: // MAX
+      return { t: 'num', v: Math.max(...values) };
+    case 5: // MIN
+      return { t: 'num', v: Math.min(...values) };
+    case 6: // PRODUCT
+      return { t: 'num', v: values.reduce((a, b) => a * b, 1) };
+    case 7: { // STDEV
+      const n = values.length;
+      if (n < 2) return { t: 'err', v: '#DIV/0!' };
+      const mean = values.reduce((a, b) => a + b, 0) / n;
+      const variance = values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1);
+      return { t: 'num', v: Math.sqrt(variance) };
+    }
+    case 8: { // STDEVP
+      const n = values.length;
+      if (n === 0) return { t: 'err', v: '#DIV/0!' };
+      const mean = values.reduce((a, b) => a + b, 0) / n;
+      const variance = values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n;
+      return { t: 'num', v: Math.sqrt(variance) };
+    }
+    case 9: // SUM
+      return { t: 'num', v: values.reduce((a, b) => a + b, 0) };
+    case 10: { // VAR
+      const n = values.length;
+      if (n < 2) return { t: 'err', v: '#DIV/0!' };
+      const mean = values.reduce((a, b) => a + b, 0) / n;
+      return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1) };
+    }
+    case 11: { // VARP
+      const n = values.length;
+      if (n === 0) return { t: 'err', v: '#DIV/0!' };
+      const mean = values.reduce((a, b) => a + b, 0) / n;
+      return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n };
+    }
+    default:
+      return { t: 'err', v: '#VALUE!' };
+  }
+}
+
+/**
+ * VARA(value1, [value2], ...) — sample variance treating text as 0, booleans as 0/1.
+ */
+export function varaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length === 0) return { t: 'err', v: '#N/A!' };
+
+  const values: number[] = [];
+  for (const expr of exprs) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'num') { values.push(node.v); continue; }
+    if (node.t === 'bool') { values.push(node.v ? 1 : 0); continue; }
+    if (node.t === 'str') { values.push(0); continue; }
+    if (node.t === 'ref' && grid) {
+      for (const ref of toSrefs([node.v])) {
+        const cv = grid.get(ref)?.v || '';
+        if (cv === '') continue;
+        if (cv === 'true') { values.push(1); continue; }
+        if (cv === 'false') { values.push(0); continue; }
+        if (!isNaN(Number(cv))) { values.push(Number(cv)); continue; }
+        values.push(0);
+      }
+    }
+  }
+
+  const n = values.length;
+  if (n < 2) return { t: 'err', v: '#DIV/0!' };
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1) };
+}
+
+/**
+ * VARPA(value1, [value2], ...) — population variance treating text as 0, booleans as 0/1.
+ */
+export function varpaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length === 0) return { t: 'err', v: '#N/A!' };
+
+  const values: number[] = [];
+  for (const expr of exprs) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'num') { values.push(node.v); continue; }
+    if (node.t === 'bool') { values.push(node.v ? 1 : 0); continue; }
+    if (node.t === 'str') { values.push(0); continue; }
+    if (node.t === 'ref' && grid) {
+      for (const ref of toSrefs([node.v])) {
+        const cv = grid.get(ref)?.v || '';
+        if (cv === '') continue;
+        if (cv === 'true') { values.push(1); continue; }
+        if (cv === 'false') { values.push(0); continue; }
+        if (!isNaN(Number(cv))) { values.push(Number(cv)); continue; }
+        values.push(0);
+      }
+    }
+  }
+
+  const n = values.length;
+  if (n === 0) return { t: 'err', v: '#DIV/0!' };
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n };
+}
+
+/**
+ * SKEW(value1, [value2], ...) — returns the skewness of a dataset.
+ */
+export function skewFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length === 0) return { t: 'err', v: '#N/A!' };
+
+  const values: number[] = [];
+  for (const expr of exprs) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'num') { values.push(node.v); continue; }
+    if (node.t === 'ref' && grid) {
+      for (const ref of toSrefs([node.v])) {
+        const cv = grid.get(ref)?.v || '';
+        if (cv !== '' && !isNaN(Number(cv))) values.push(Number(cv));
+      }
+    }
+  }
+
+  const n = values.length;
+  if (n < 3) return { t: 'err', v: '#DIV/0!' };
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  const s = Math.sqrt(values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1));
+  if (s === 0) return { t: 'err', v: '#DIV/0!' };
+  const m3 = values.reduce((a, v) => a + Math.pow((v - mean) / s, 3), 0);
+  return { t: 'num', v: (n / ((n - 1) * (n - 2))) * m3 };
+}
+
+/**
+ * KURT(value1, [value2], ...) — returns the excess kurtosis of a dataset.
+ */
+export function kurtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length === 0) return { t: 'err', v: '#N/A!' };
+
+  const values: number[] = [];
+  for (const expr of exprs) {
+    const node = visit(expr);
+    if (node.t === 'err') return node;
+    if (node.t === 'num') { values.push(node.v); continue; }
+    if (node.t === 'ref' && grid) {
+      for (const ref of toSrefs([node.v])) {
+        const cv = grid.get(ref)?.v || '';
+        if (cv !== '' && !isNaN(Number(cv))) values.push(Number(cv));
+      }
+    }
+  }
+
+  const n = values.length;
+  if (n < 4) return { t: 'err', v: '#DIV/0!' };
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  const s = Math.sqrt(values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1));
+  if (s === 0) return { t: 'err', v: '#DIV/0!' };
+  const m4 = values.reduce((a, v) => a + Math.pow((v - mean) / s, 4), 0);
+  const k = (n * (n + 1) * m4) / ((n - 1) * (n - 2) * (n - 3)) - (3 * (n - 1) * (n - 1)) / ((n - 2) * (n - 3));
+  return { t: 'num', v: k };
 }
