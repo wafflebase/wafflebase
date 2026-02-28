@@ -5,6 +5,7 @@ import {
   CellStyle,
   ConditionalFormatRule,
   FilterState,
+  HiddenState,
   Grid,
   MergeSpan,
   Ref,
@@ -221,6 +222,14 @@ export class ReadOnlyStore implements Store {
   }
 
   async getFilterState(): Promise<FilterState | undefined> {
+    return undefined;
+  }
+
+  async setHiddenState(_state: HiddenState | undefined): Promise<void> {
+    // no-op
+  }
+
+  async getHiddenState(): Promise<HiddenState | undefined> {
     return undefined;
   }
 

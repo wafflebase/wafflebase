@@ -26,6 +26,7 @@ import {
   ConditionalFormatRule,
   FilterCondition,
   FilterState,
+  HiddenState,
   MergeSpan,
   Ref,
   Sref,
@@ -214,6 +215,16 @@ export class Sheet {
   private hiddenRows: Set<number> = new Set();
 
   /**
+   * `userHiddenRows` stores row indices manually hidden by the user.
+   */
+  private userHiddenRows: Set<number> = new Set();
+
+  /**
+   * `userHiddenColumns` stores column indices manually hidden by the user.
+   */
+  private userHiddenColumns: Set<number> = new Set();
+
+  /**
    * `copyBuffer` stores the source range and grid from the last copy operation.
    * Used for internal formula-aware paste with reference relocation.
    */
@@ -384,6 +395,78 @@ export class Sheet {
   }
 
   /**
+   * `loadHiddenState` loads manually hidden rows/columns from the store.
+   */
+  async loadHiddenState(): Promise<void> {
+    const state = await this.store.getHiddenState();
+    this.userHiddenRows.clear();
+    this.userHiddenColumns.clear();
+    if (!state) return;
+    for (const row of state.rows) {
+      if (row >= 1) this.userHiddenRows.add(row);
+    }
+    for (const col of state.columns) {
+      if (col >= 1) this.userHiddenColumns.add(col);
+    }
+  }
+
+  /**
+   * `hideRows` manually hides the given row indices.
+   */
+  async hideRows(indices: number[]): Promise<void> {
+    for (const row of indices) {
+      if (row >= 1) this.userHiddenRows.add(row);
+    }
+    await this.persistHiddenState();
+    this.ensureActiveCellVisibleAfterHiding();
+  }
+
+  /**
+   * `showRows` unhides the given manually hidden row indices.
+   */
+  async showRows(indices: number[]): Promise<void> {
+    for (const row of indices) {
+      this.userHiddenRows.delete(row);
+    }
+    await this.persistHiddenState();
+  }
+
+  /**
+   * `hideColumns` manually hides the given column indices.
+   */
+  async hideColumns(indices: number[]): Promise<void> {
+    for (const col of indices) {
+      if (col >= 1) this.userHiddenColumns.add(col);
+    }
+    await this.persistHiddenState();
+    this.ensureActiveCellVisibleAfterHiding();
+  }
+
+  /**
+   * `showColumns` unhides the given manually hidden column indices.
+   */
+  async showColumns(indices: number[]): Promise<void> {
+    for (const col of indices) {
+      this.userHiddenColumns.delete(col);
+    }
+    await this.persistHiddenState();
+  }
+
+  /**
+   * `persistHiddenState` writes the current hidden state to the store.
+   */
+  private async persistHiddenState(): Promise<void> {
+    if (this.userHiddenRows.size === 0 && this.userHiddenColumns.size === 0) {
+      await this.store.setHiddenState(undefined);
+      return;
+    }
+    await this.store.setHiddenState({
+      rows: Array.from(this.userHiddenRows).sort((a, b) => a - b),
+      columns: Array.from(this.userHiddenColumns).sort((a, b) => a - b),
+    });
+  }
+
+  /**
    * `hasFilter` returns whether a filter range is active.
    */
   hasFilter(): boolean {
@@ -398,10 +481,31 @@ export class Sheet {
   }
 
   /**
-   * `getHiddenRows` returns currently hidden row indices due to filtering.
+   * `getHiddenRows` returns all hidden row indices (filter ∪ user-hidden).
    */
   getHiddenRows(): Set<number> {
-    return new Set(this.hiddenRows);
+    if (this.userHiddenRows.size === 0) {
+      return new Set(this.hiddenRows);
+    }
+    const combined = new Set(this.hiddenRows);
+    for (const row of this.userHiddenRows) {
+      combined.add(row);
+    }
+    return combined;
+  }
+
+  /**
+   * `getHiddenColumns` returns manually hidden column indices.
+   */
+  getHiddenColumns(): Set<number> {
+    return new Set(this.userHiddenColumns);
+  }
+
+  /**
+   * `getUserHiddenRows` returns only manually hidden row indices.
+   */
+  getUserHiddenRows(): Set<number> {
+    return new Set(this.userHiddenRows);
   }
 
   /**
@@ -914,6 +1018,7 @@ export class Sheet {
     this.merges = shiftMergeMap(this.merges, axis, index, count);
     this.rebuildMergeCoverMap();
     this.shiftFilterState(axis, index, count);
+    this.shiftUserHiddenState(axis, index, count);
 
     // Adjust activeCell if it's at or beyond the insertion/deletion point
     const value = axis === 'row' ? this.activeCell.r : this.activeCell.c;
@@ -1046,6 +1151,7 @@ export class Sheet {
     this.merges = moveMergeMap(this.merges, axis, src, count, dst);
     this.rebuildMergeCoverMap();
     this.moveFilterState(axis, src, count, dst);
+    this.moveUserHiddenState(axis, src, count, dst);
 
     // Remap activeCell
     this.activeCell = this.normalizeRefToAnchor(
@@ -1426,10 +1532,60 @@ export class Sheet {
   }
 
   /**
+   * `shiftUserHiddenState` remaps user-hidden indices for insert/delete operations.
+   */
+  private shiftUserHiddenState(axis: Axis, index: number, count: number): void {
+    if (axis === 'row' && this.userHiddenRows.size > 0) {
+      const map = new Map<number, number>();
+      for (const row of this.userHiddenRows) map.set(row, 1);
+      const shifted = shiftDimensionMap(map, index, count);
+      this.userHiddenRows = new Set(shifted.keys());
+    }
+    if (axis === 'column' && this.userHiddenColumns.size > 0) {
+      const map = new Map<number, number>();
+      for (const col of this.userHiddenColumns) map.set(col, 1);
+      const shifted = shiftDimensionMap(map, index, count);
+      this.userHiddenColumns = new Set(shifted.keys());
+    }
+  }
+
+  /**
+   * `moveUserHiddenState` remaps user-hidden indices for move operations.
+   */
+  private moveUserHiddenState(axis: Axis, src: number, count: number, dst: number): void {
+    if (axis === 'row' && this.userHiddenRows.size > 0) {
+      const map = new Map<number, number>();
+      for (const row of this.userHiddenRows) map.set(row, 1);
+      const moved = moveDimensionMap(map, src, count, dst);
+      this.userHiddenRows = new Set(moved.keys());
+    }
+    if (axis === 'column' && this.userHiddenColumns.size > 0) {
+      const map = new Map<number, number>();
+      for (const col of this.userHiddenColumns) map.set(col, 1);
+      const moved = moveDimensionMap(map, src, count, dst);
+      this.userHiddenColumns = new Set(moved.keys());
+    }
+  }
+
+  /**
+   * `isRowHidden` checks if a row is hidden by filter or user.
+   */
+  private isRowHidden(row: number): boolean {
+    return this.hiddenRows.has(row) || this.userHiddenRows.has(row);
+  }
+
+  /**
+   * `isColumnHidden` checks if a column is manually hidden by the user.
+   */
+  private isColumnHidden(col: number): boolean {
+    return this.userHiddenColumns.has(col);
+  }
+
+  /**
    * `ensureActiveCellVisibleAfterFiltering` moves active cell off hidden rows.
    */
   private ensureActiveCellVisibleAfterFiltering(): void {
-    if (!this.hiddenRows.has(this.activeCell.r)) {
+    if (!this.isRowHidden(this.activeCell.r)) {
       return;
     }
 
@@ -1442,14 +1598,14 @@ export class Sheet {
       targetRow = this.filterRange[0].r;
     } else {
       for (let r = this.activeCell.r + 1; r <= this.dimension.rows; r++) {
-        if (!this.hiddenRows.has(r)) {
+        if (!this.isRowHidden(r)) {
           targetRow = r;
           break;
         }
       }
       if (targetRow === undefined) {
         for (let r = this.activeCell.r - 1; r >= 1; r--) {
-          if (!this.hiddenRows.has(r)) {
+          if (!this.isRowHidden(r)) {
             targetRow = r;
             break;
           }
@@ -1466,6 +1622,35 @@ export class Sheet {
   }
 
   /**
+   * `ensureActiveCellVisibleAfterHiding` moves active cell off hidden rows/columns.
+   */
+  private ensureActiveCellVisibleAfterHiding(): void {
+    let { r, c } = this.activeCell;
+    let moved = false;
+
+    if (this.isRowHidden(r)) {
+      const next = this.findNextVisibleRow(r, 'down')
+        ?? this.findNextVisibleRow(r, 'up');
+      if (next === undefined) return;
+      r = next;
+      moved = true;
+    }
+
+    if (this.isColumnHidden(c)) {
+      const next = this.findNextVisibleColumn(c, 'right')
+        ?? this.findNextVisibleColumn(c, 'left');
+      if (next === undefined) return;
+      c = next;
+      moved = true;
+    }
+
+    if (moved) {
+      this.range = undefined;
+      this.setActiveCell({ r, c });
+    }
+  }
+
+  /**
    * `findNextVisibleRow` returns the next non-hidden row from `row` in `direction`.
    */
   private findNextVisibleRow(
@@ -1475,7 +1660,25 @@ export class Sheet {
     const delta = direction === 'down' ? 1 : -1;
     let current = row;
     while (current >= 1 && current <= this.dimension.rows) {
-      if (!this.hiddenRows.has(current)) {
+      if (!this.isRowHidden(current)) {
+        return current;
+      }
+      current += delta;
+    }
+    return undefined;
+  }
+
+  /**
+   * `findNextVisibleColumn` returns the next non-hidden column from `col` in `direction`.
+   */
+  private findNextVisibleColumn(
+    col: number,
+    direction: 'left' | 'right',
+  ): number | undefined {
+    const delta = direction === 'right' ? 1 : -1;
+    let current = col;
+    while (current >= 1 && current <= this.dimension.columns) {
+      if (!this.isColumnHidden(current)) {
         return current;
       }
       current += delta;
@@ -2876,13 +3079,23 @@ export class Sheet {
     let target = this.normalizeRefToAnchor(ref);
     if (
       (direction === 'up' || direction === 'down') &&
-      this.hiddenRows.has(target.r)
+      this.isRowHidden(target.r)
     ) {
       const nextVisible = this.findNextVisibleRow(target.r, direction);
       if (nextVisible === undefined) {
         return false;
       }
       target = this.normalizeRefToAnchor({ r: nextVisible, c: target.c });
+    }
+    if (
+      (direction === 'left' || direction === 'right') &&
+      this.isColumnHidden(target.c)
+    ) {
+      const nextVisible = this.findNextVisibleColumn(target.c, direction);
+      if (nextVisible === undefined) {
+        return false;
+      }
+      target = this.normalizeRefToAnchor({ r: target.r, c: nextVisible });
     }
 
     if (isSameRef(this.activeCell, target)) {
@@ -2920,12 +3133,20 @@ export class Sheet {
       col += colDelta;
     }
 
-    if ((direction === 'up' || direction === 'down') && this.hiddenRows.has(row)) {
+    if ((direction === 'up' || direction === 'down') && this.isRowHidden(row)) {
       const nextVisible = this.findNextVisibleRow(row, direction);
       if (nextVisible === undefined) {
         return false;
       }
       row = nextVisible;
+    }
+
+    if ((direction === 'left' || direction === 'right') && this.isColumnHidden(col)) {
+      const nextVisible = this.findNextVisibleColumn(col, direction);
+      if (nextVisible === undefined) {
+        return false;
+      }
+      col = nextVisible;
     }
 
     if (!inRange({ r: row, c: col }, this.dimensionRange)) {
@@ -2956,7 +3177,7 @@ export class Sheet {
     if (rowDelta !== 0) {
       const nextDirection = rowDelta > 0 ? 'down' : 'up';
       const resolveNextRow = (row: number): number | undefined => {
-        if (!this.hiddenRows.has(row)) {
+        if (!this.isRowHidden(row)) {
           return row;
         }
         return this.findNextVisibleRow(row, nextDirection);
@@ -2978,10 +3199,26 @@ export class Sheet {
     }
 
     if (colDelta !== 0) {
+      const nextColDirection = colDelta > 0 ? 'right' : 'left';
+      const resolveNextCol = (col: number): number | undefined => {
+        if (!this.isColumnHidden(col)) {
+          return col;
+        }
+        return this.findNextVisibleColumn(col, nextColDirection);
+      };
+
       if (this.activeCell.c === range[1].c) {
-        range[0].c += colDelta;
+        const nextCol = resolveNextCol(range[0].c + colDelta);
+        if (nextCol === undefined) {
+          return false;
+        }
+        range[0].c = nextCol;
       } else {
-        range[1].c += colDelta;
+        const nextCol = resolveNextCol(range[1].c + colDelta);
+        if (nextCol === undefined) {
+          return false;
+        }
+        range[1].c = nextCol;
       }
     }
 

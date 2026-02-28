@@ -31,6 +31,7 @@ import {
   CellStyle,
   ConditionalFormatRule,
   Grid,
+  HiddenState,
   MergeSpan,
   Ref,
   Range,
@@ -58,6 +59,7 @@ export class MemStore implements Store {
   private conditionalFormats: ConditionalFormatRule[] = [];
   private merges: Map<Sref, MergeSpan> = new Map();
   private filterState?: FilterState;
+  private hiddenState?: HiddenState;
   private frozenRows = 0;
   private frozenCols = 0;
 
@@ -174,6 +176,16 @@ export class MemStore implements Store {
       count,
     );
     this.merges = shiftMergeMap(this.merges, axis, index, count);
+
+    if (this.hiddenState) {
+      const key = axis === 'row' ? 'rows' : 'columns';
+      const map = new Map<number, number>();
+      for (const idx of this.hiddenState[key]) {
+        map.set(idx, 1);
+      }
+      const shifted = shiftDimensionMap(map, index, count);
+      this.hiddenState[key] = Array.from(shifted.keys()).sort((a, b) => a - b);
+    }
   }
 
   async moveCells(
@@ -227,6 +239,16 @@ export class MemStore implements Store {
       dstIndex,
     );
     this.merges = moveMergeMap(this.merges, axis, srcIndex, count, dstIndex);
+
+    if (this.hiddenState) {
+      const key = axis === 'row' ? 'rows' : 'columns';
+      const map = new Map<number, number>();
+      for (const idx of this.hiddenState[key]) {
+        map.set(idx, 1);
+      }
+      const moved = moveDimensionMap(map, srcIndex, count, dstIndex);
+      this.hiddenState[key] = Array.from(moved.keys()).sort((a, b) => a - b);
+    }
   }
 
   /**
@@ -400,6 +422,25 @@ export class MemStore implements Store {
         ]),
       ),
       hiddenRows: [...this.filterState.hiddenRows],
+    };
+  }
+
+  async setHiddenState(state: HiddenState | undefined): Promise<void> {
+    if (!state) {
+      this.hiddenState = undefined;
+      return;
+    }
+    this.hiddenState = {
+      rows: [...state.rows],
+      columns: [...state.columns],
+    };
+  }
+
+  async getHiddenState(): Promise<HiddenState | undefined> {
+    if (!this.hiddenState) return undefined;
+    return {
+      rows: [...this.hiddenState.rows],
+      columns: [...this.hiddenState.columns],
     };
   }
 

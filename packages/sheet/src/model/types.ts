@@ -172,6 +172,14 @@ export type FilterState = {
 };
 
 /**
+ * HiddenState stores manually hidden row and column indices.
+ */
+export type HiddenState = {
+  rows: number[];
+  columns: number[];
+};
+
+/**
  * Grid type represents a grid of rows and columns.
  */
 export type Grid = Map<Sref, Cell>;

@@ -5,6 +5,7 @@ import {
   ConditionalFormatRule,
   FilterState,
   Grid,
+  HiddenState,
   MergeSpan,
   Ref,
   Range,
@@ -179,6 +180,16 @@ export interface Store {
    * `getFilterState` gets worksheet-level filter state.
    */
   getFilterState(): Promise<FilterState | undefined>;
+
+  /**
+   * `setHiddenState` sets manually hidden rows/columns.
+   */
+  setHiddenState(state: HiddenState | undefined): Promise<void>;
+
+  /**
+   * `getHiddenState` gets manually hidden rows/columns.
+   */
+  getHiddenState(): Promise<HiddenState | undefined>;
 
   /**
    * `updateActiveCell` method updates the active cell of the current user.

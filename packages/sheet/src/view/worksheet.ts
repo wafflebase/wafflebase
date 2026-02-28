@@ -12,7 +12,13 @@ import { FormulaBar } from './formulabar';
 import { CellInput } from './cellinput';
 import { Overlay } from './overlay';
 import { GridContainer } from './gridcontainer';
-import { GridCanvas } from './gridcanvas';
+import {
+  GridCanvas,
+  HiddenBtnArrowSize,
+  HiddenBtnArrowGap,
+  HiddenBtnPadding,
+  HiddenBtnMargin,
+} from './gridcanvas';
 import { ContextMenu } from './contextmenu';
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
@@ -53,6 +59,19 @@ const CellInputPinnedMargin = 8;
 
 function isImeComposingKeyEvent(e: KeyboardEvent): boolean {
   return e.isComposing || e.key === 'Process' || e.keyCode === 229;
+}
+
+function hiddenBoundaryAbove(row: number, hidden: Set<number>): boolean {
+  return !hidden.has(row) && row > 1 && hidden.has(row - 1);
+}
+function hiddenBoundaryBelow(row: number, hidden: Set<number>): boolean {
+  return !hidden.has(row) && hidden.has(row + 1);
+}
+function hiddenBoundaryLeft(col: number, hidden: Set<number>): boolean {
+  return !hidden.has(col) && col > 1 && hidden.has(col - 1);
+}
+function hiddenBoundaryRight(col: number, hidden: Set<number>): boolean {
+  return !hidden.has(col) && hidden.has(col + 1);
 }
 
 type FilterPanelMode = 'values' | 'condition';
@@ -102,6 +121,8 @@ export class Worksheet {
   private colDim: DimensionIndex;
   private hiddenRows: Set<number> = new Set();
   private hiddenRowSizeBackup: Map<number, number> = new Map();
+  private hiddenColumns: Set<number> = new Set();
+  private hiddenColSizeBackup: Map<number, number> = new Map();
 
   private listeners: Array<() => void> = [];
   private interactionCleanups: Set<() => void> = new Set();
@@ -123,6 +144,10 @@ export class Worksheet {
   private freezeState: FreezeState = NoFreeze;
   private freezeHandleHover: 'row' | 'column' | null = null;
   private filterButtonHoverCol: number | null = null;
+  private hiddenIndicatorHover: {
+    axis: 'row' | 'column';
+    boundary: number;
+  } | null = null;
   private freezeDrag: { axis: 'row' | 'column'; targetIndex: number } | null =
     null;
   private autofillPreview: Range | undefined;
@@ -223,9 +248,13 @@ export class Worksheet {
     await this.sheet.loadMerges();
     await this.sheet.loadFreezePane();
     await this.sheet.loadFilterState();
+    await this.sheet.loadHiddenState();
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
+    this.hiddenColumns.clear();
+    this.hiddenColSizeBackup.clear();
     this.syncHiddenRowsFromSheet();
+    this.syncHiddenColumnsFromSheet();
     this.updateFreezeState();
     this.formulaBar.initialize(sheet);
     this.addEventListeners();
@@ -1010,6 +1039,17 @@ export class Worksheet {
       return;
     }
 
+    // Double-click on hidden indicator → unhide (same as single click)
+    const hiddenHit = this.detectHiddenIndicator(x, y);
+    if (hiddenHit) {
+      if (hiddenHit.axis === 'row') {
+        this.sheet!.showRows(hiddenHit.indices).then(() => this.render());
+      } else {
+        this.sheet!.showColumns(hiddenHit.indices).then(() => this.render());
+      }
+      return;
+    }
+
     const resizeEdge = this.detectResizeEdge(x, y);
     if (resizeEdge) {
       this.autoFitSize(resizeEdge.axis, resizeEdge.index);
@@ -1049,7 +1089,7 @@ export class Worksheet {
       const count = useMulti ? selected!.to - selected!.from + 1 : 1;
       const rowLabel = count > 1 ? `${count} rows` : 'row';
 
-      this.contextMenu.show(e.clientX, e.clientY, [
+      const rowItems = [
         {
           label: `Insert ${rowLabel} above`,
           action: () => {
@@ -1070,7 +1110,30 @@ export class Worksheet {
             this.sheet!.deleteRows(from, count).then(() => this.render());
           },
         },
-      ]);
+        {
+          label: `Hide ${rowLabel}`,
+          action: () => {
+            const indices = Array.from({ length: count }, (_, i) => from + i);
+            this.sheet!.hideRows(indices).then(() => this.render());
+          },
+        },
+      ];
+
+      const adjacentHidden = this.findAdjacentHiddenRows(from, from + count - 1);
+      if (adjacentHidden.length > 0) {
+        const minRow = Math.min(...adjacentHidden);
+        const maxRow = Math.max(...adjacentHidden);
+        const showLabel =
+          minRow === maxRow ? `Show row ${minRow}` : `Show rows ${minRow}-${maxRow}`;
+        rowItems.push({
+          label: showLabel,
+          action: () => {
+            this.sheet!.showRows(adjacentHidden).then(() => this.render());
+          },
+        });
+      }
+
+      this.contextMenu.show(e.clientX, e.clientY, rowItems);
     } else if (isColumnHeader) {
       const col = this.toColFromMouse(x);
       if (col < 1) return;
@@ -1086,7 +1149,7 @@ export class Worksheet {
       const count = useMulti ? selected!.to - selected!.from + 1 : 1;
       const colLabel = count > 1 ? `${count} columns` : 'column';
 
-      const items = [
+      const colItems = [
         {
           label: `Insert ${colLabel} left`,
           action: () => {
@@ -1107,9 +1170,32 @@ export class Worksheet {
             this.sheet!.deleteColumns(from, count).then(() => this.render());
           },
         },
+        {
+          label: `Hide ${colLabel}`,
+          action: () => {
+            const indices = Array.from({ length: count }, (_, i) => from + i);
+            this.sheet!.hideColumns(indices).then(() => this.render());
+          },
+        },
       ];
 
-      this.contextMenu.show(e.clientX, e.clientY, items);
+      const adjacentHiddenCols = this.findAdjacentHiddenColumns(from, from + count - 1);
+      if (adjacentHiddenCols.length > 0) {
+        const minCol = Math.min(...adjacentHiddenCols);
+        const maxCol = Math.max(...adjacentHiddenCols);
+        const showLabel =
+          minCol === maxCol
+            ? `Show column ${toColumnLabel(minCol)}`
+            : `Show columns ${toColumnLabel(minCol)}-${toColumnLabel(maxCol)}`;
+        colItems.push({
+          label: showLabel,
+          action: () => {
+            this.sheet!.showColumns(adjacentHiddenCols).then(() => this.render());
+          },
+        });
+      }
+
+      this.contextMenu.show(e.clientX, e.clientY, colItems);
     }
   }
 
@@ -1883,6 +1969,138 @@ export class Worksheet {
   }
 
   /**
+   * `detectHiddenIndicator` checks if the mouse is inside a hidden-indicator
+   * button rect. The button position must match the rendering in gridcanvas:
+   *   Row buttons: left-aligned in row header, centered on boundary Y.
+   *   Column buttons: top-aligned in column header, centered on boundary X.
+   */
+  private detectHiddenIndicator(
+    x: number,
+    y: number,
+  ): { axis: 'row' | 'column'; boundary: number; indices: number[] } | null {
+    const sheet = this.sheet;
+    if (!sheet) return null;
+
+    const scroll = this.scroll;
+    const freeze = this.freezeState;
+
+    // Row button dimensions (vertical pill, left-aligned)
+    const rowBtnW = HiddenBtnArrowSize * 2 + HiddenBtnPadding * 2;
+    const rowBtnH =
+      HiddenBtnArrowSize * 2 + HiddenBtnArrowGap + HiddenBtnPadding * 2;
+    const rowBtnCx = rowBtnW / 2 + HiddenBtnMargin;
+
+    // Check row header area
+    if (x < RowHeaderWidth && y > DefaultCellHeight) {
+      const userHidden = sheet.getUserHiddenRows();
+      if (userHidden.size === 0) return null;
+
+      // Is x within the button's horizontal extent?
+      const btnLeft = rowBtnCx - rowBtnW / 2;
+      const btnRight = rowBtnCx + rowBtnW / 2;
+      if (x < btnLeft || x > btnRight) return null;
+
+      const inFrozenRows =
+        freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+      const scrollTop = inFrozenRows
+        ? 0
+        : scroll.top +
+          this.rowDim.getOffset(freeze.frozenRows + 1) -
+          freeze.frozenHeight;
+
+      // Scan visible rows to find boundaries with hidden neighbours
+      const viewRange = this.viewRange;
+      for (let row = viewRange[0].r; row <= viewRange[1].r + 1; row++) {
+        if (hiddenBoundaryAbove(row, userHidden)) {
+          const boundaryY =
+            this.rowDim.getOffset(row) + DefaultCellHeight - scrollTop;
+          if (this.hitTestButtonY(y, boundaryY, rowBtnH)) {
+            const indices = this.findAdjacentHiddenRows(row, row);
+            if (indices.length > 0) {
+              return { axis: 'row', boundary: row, indices };
+            }
+          }
+        }
+        if (hiddenBoundaryBelow(row, userHidden)) {
+          const boundaryY =
+            this.rowDim.getOffset(row) +
+            this.rowDim.getSize(row) +
+            DefaultCellHeight -
+            scrollTop;
+          if (this.hitTestButtonY(y, boundaryY, rowBtnH)) {
+            const indices = this.findAdjacentHiddenRows(row, row);
+            if (indices.length > 0) {
+              return { axis: 'row', boundary: row, indices };
+            }
+          }
+        }
+      }
+    }
+
+    // Column button dimensions (horizontal pill, top-aligned)
+    const colBtnW =
+      HiddenBtnArrowSize * 2 + HiddenBtnArrowGap + HiddenBtnPadding * 2;
+    const colBtnH = HiddenBtnArrowSize * 2 + HiddenBtnPadding * 2;
+    const colBtnCy = colBtnH / 2 + HiddenBtnMargin;
+
+    // Check column header area
+    if (y < DefaultCellHeight && x > RowHeaderWidth) {
+      const userHidden = sheet.getHiddenColumns();
+      if (userHidden.size === 0) return null;
+
+      // Is y within the button's vertical extent?
+      const btnTop = colBtnCy - colBtnH / 2;
+      const btnBottom = colBtnCy + colBtnH / 2;
+      if (y < btnTop || y > btnBottom) return null;
+
+      const inFrozenCols =
+        freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+      const scrollLeft = inFrozenCols
+        ? 0
+        : scroll.left +
+          this.colDim.getOffset(freeze.frozenCols + 1) -
+          freeze.frozenWidth;
+
+      const viewRange = this.viewRange;
+      for (let col = viewRange[0].c; col <= viewRange[1].c + 1; col++) {
+        if (hiddenBoundaryLeft(col, userHidden)) {
+          const boundaryX =
+            RowHeaderWidth + this.colDim.getOffset(col) - scrollLeft;
+          if (this.hitTestButtonX(x, boundaryX, colBtnW)) {
+            const indices = this.findAdjacentHiddenColumns(col, col);
+            if (indices.length > 0) {
+              return { axis: 'column', boundary: col, indices };
+            }
+          }
+        }
+        if (hiddenBoundaryRight(col, userHidden)) {
+          const boundaryX =
+            RowHeaderWidth +
+            this.colDim.getOffset(col) +
+            this.colDim.getSize(col) -
+            scrollLeft;
+          if (this.hitTestButtonX(x, boundaryX, colBtnW)) {
+            const indices = this.findAdjacentHiddenColumns(col, col);
+            if (indices.length > 0) {
+              return { axis: 'column', boundary: col, indices };
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private hitTestButtonY(mouseY: number, centerY: number, h: number): boolean {
+    return mouseY >= centerY - h / 2 && mouseY <= centerY + h / 2;
+  }
+
+  private hitTestButtonX(mouseX: number, centerX: number, w: number): boolean {
+    return mouseX >= centerX - w / 2 && mouseX <= centerX + w / 2;
+  }
+
+  /**
    * `detectFreezeHandle` checks if the mouse is over a freeze drag handle.
    * Returns 'row' or 'column' if hovering a handle, null otherwise.
    */
@@ -2209,12 +2427,31 @@ export class Worksheet {
     if (freezeHandle) {
       scrollContainer.style.cursor = 'grab';
       this.setFilterButtonHoverCol(null);
+      this.setHiddenIndicatorHover(null);
       if (this.resizeHover) {
         this.resizeHover = null;
         this.renderOverlay();
       }
       return;
     }
+
+    // Check hidden indicator hover (before resize — resize is meaningless
+    // at a hidden boundary)
+    const hiddenHit = this.detectHiddenIndicator(e.offsetX, e.offsetY);
+    if (hiddenHit) {
+      scrollContainer.style.cursor = 'pointer';
+      this.setFilterButtonHoverCol(null);
+      this.setHiddenIndicatorHover({
+        axis: hiddenHit.axis,
+        boundary: hiddenHit.boundary,
+      });
+      if (this.resizeHover) {
+        this.resizeHover = null;
+        this.renderOverlay();
+      }
+      return;
+    }
+    this.setHiddenIndicatorHover(null);
 
     const result = this.detectResizeEdge(e.offsetX, e.offsetY);
     const changed =
@@ -2288,11 +2525,13 @@ export class Worksheet {
     const changed =
       this.filterButtonHoverCol !== null ||
       this.resizeHover !== null ||
-      this.freezeHandleHover !== null;
+      this.freezeHandleHover !== null ||
+      this.hiddenIndicatorHover !== null;
 
     this.filterButtonHoverCol = null;
     this.resizeHover = null;
     this.freezeHandleHover = null;
+    this.hiddenIndicatorHover = null;
 
     if (changed) {
       this.render();
@@ -2307,12 +2546,38 @@ export class Worksheet {
     this.render();
   }
 
+  private setHiddenIndicatorHover(
+    hover: { axis: 'row' | 'column'; boundary: number } | null,
+  ): void {
+    if (
+      this.hiddenIndicatorHover?.axis === hover?.axis &&
+      this.hiddenIndicatorHover?.boundary === hover?.boundary
+    ) {
+      return;
+    }
+    this.hiddenIndicatorHover = hover;
+    this.render();
+  }
+
   private async handleMouseDown(e: MouseEvent) {
     // Check for freeze handle first (highest priority)
     const freezeHandle = this.detectFreezeHandle(e.offsetX, e.offsetY);
     if (freezeHandle && !this.readOnly) {
       e.preventDefault();
       this.startFreezeDrag(freezeHandle, e);
+      return;
+    }
+
+    // Check for hidden indicator click (before resize — resize is meaningless
+    // at a hidden boundary)
+    const hiddenHit = this.detectHiddenIndicator(e.offsetX, e.offsetY);
+    if (hiddenHit && !this.readOnly) {
+      e.preventDefault();
+      if (hiddenHit.axis === 'row') {
+        this.sheet!.showRows(hiddenHit.indices).then(() => this.render());
+      } else {
+        this.sheet!.showColumns(hiddenHit.indices).then(() => this.render());
+      }
       return;
     }
 
@@ -3662,9 +3927,13 @@ export class Worksheet {
     await this.sheet!.loadMerges();
     await this.sheet!.loadFreezePane();
     await this.sheet!.loadFilterState();
+    await this.sheet!.loadHiddenState();
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
+    this.hiddenColumns.clear();
+    this.hiddenColSizeBackup.clear();
     this.syncHiddenRowsFromSheet();
+    this.syncHiddenColumnsFromSheet();
     this.updateFreezeState();
   }
 
@@ -4182,6 +4451,7 @@ export class Worksheet {
     }
 
     this.syncHiddenRowsFromSheet();
+    this.syncHiddenColumnsFromSheet();
 
     const gridSize = this.gridSize;
     const freeze = this.freezeState;
@@ -4230,6 +4500,9 @@ export class Worksheet {
       sheet.getFilterRange(),
       sheet.getFilteredColumns(),
       this.filterButtonHoverCol,
+      sheet.getHiddenRows().size > 0 ? sheet.getHiddenRows() : undefined,
+      sheet.getHiddenColumns().size > 0 ? sheet.getHiddenColumns() : undefined,
+      this.hiddenIndicatorHover,
     );
   }
 
@@ -4258,6 +4531,87 @@ export class Worksheet {
     }
 
     this.hiddenRows = nextHiddenRows;
+  }
+
+  /**
+   * `syncHiddenColumnsFromSheet` applies user-hidden columns as zero-width columns.
+   */
+  /**
+   * `findAdjacentHiddenRows` finds user-hidden rows adjacent to the given range.
+   */
+  private findAdjacentHiddenRows(from: number, to: number): number[] {
+    const sheet = this.sheet;
+    if (!sheet) return [];
+    const userHidden = sheet.getUserHiddenRows();
+    if (userHidden.size === 0) return [];
+
+    const result: number[] = [];
+    // Scan upward from `from - 1`
+    for (let r = from - 1; r >= 1; r--) {
+      if (userHidden.has(r)) result.push(r);
+      else break;
+    }
+    // Include hidden rows within the selection itself
+    for (let r = from; r <= to; r++) {
+      if (userHidden.has(r)) result.push(r);
+    }
+    // Scan downward from `to + 1`
+    for (let r = to + 1; r <= (sheet.getDimension().rows || 1000000); r++) {
+      if (userHidden.has(r)) result.push(r);
+      else break;
+    }
+    return result;
+  }
+
+  /**
+   * `findAdjacentHiddenColumns` finds user-hidden columns adjacent to the given range.
+   */
+  private findAdjacentHiddenColumns(from: number, to: number): number[] {
+    const sheet = this.sheet;
+    if (!sheet) return [];
+    const userHidden = sheet.getHiddenColumns();
+    if (userHidden.size === 0) return [];
+
+    const result: number[] = [];
+    // Scan left from `from - 1`
+    for (let c = from - 1; c >= 1; c--) {
+      if (userHidden.has(c)) result.push(c);
+      else break;
+    }
+    // Include hidden columns within the selection itself
+    for (let c = from; c <= to; c++) {
+      if (userHidden.has(c)) result.push(c);
+    }
+    // Scan right from `to + 1`
+    for (let c = to + 1; c <= (sheet.getDimension().columns || 18278); c++) {
+      if (userHidden.has(c)) result.push(c);
+      else break;
+    }
+    return result;
+  }
+
+  private syncHiddenColumnsFromSheet(): void {
+    const sheet = this.sheet;
+    if (!sheet) return;
+
+    const nextHiddenCols = sheet.getHiddenColumns();
+
+    for (const col of this.hiddenColumns) {
+      if (nextHiddenCols.has(col)) continue;
+      const restoreSize =
+        this.hiddenColSizeBackup.get(col) ?? this.colDim.getDefaultSize();
+      this.colDim.setSize(col, restoreSize);
+      this.hiddenColSizeBackup.delete(col);
+    }
+
+    for (const col of nextHiddenCols) {
+      if (!this.hiddenColumns.has(col)) {
+        this.hiddenColSizeBackup.set(col, this.colDim.getSize(col));
+        this.colDim.setSize(col, 0);
+      }
+    }
+
+    this.hiddenColumns = nextHiddenCols;
   }
 
   private get gridSize(): Size {

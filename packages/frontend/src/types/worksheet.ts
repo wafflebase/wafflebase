@@ -59,6 +59,8 @@ export type Worksheet = {
     [key: Sref]: MergeSpan;
   };
   filter?: WorksheetFilterState;
+  hiddenRows?: number[];
+  hiddenColumns?: number[];
   charts?: {
     [id: string]: SheetChart;
   };

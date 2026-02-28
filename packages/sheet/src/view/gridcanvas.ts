@@ -40,6 +40,13 @@ type TextOverflowRenderData = {
 
 const TablerFilter2IconPath = 'M4 6h16 M6 12h12 M9 18h6';
 
+// Hidden-indicator button sizing (shared with worksheet.ts hit detection)
+export const HiddenBtnArrowSize = 3;
+export const HiddenBtnArrowGap = 3;
+export const HiddenBtnPadding = 3;
+export const HiddenBtnRadius = 3;
+export const HiddenBtnMargin = 1;
+
 /**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.
  */
@@ -80,6 +87,12 @@ export class GridCanvas {
     filterRange?: Range,
     filteredColumns?: Set<number>,
     hoveredFilterButtonCol: number | null = null,
+    hiddenRows?: Set<number>,
+    hiddenColumns?: Set<number>,
+    hiddenIndicatorHover?: {
+      axis: 'row' | 'column';
+      boundary: number;
+    } | null,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -373,6 +386,38 @@ export class GridCanvas {
 
     // Render freeze drag handles
     this.renderFreezeHandles(ctx, freeze, freezeHandleHover);
+
+    // Render hidden row/column indicators
+    if (hiddenRows && hiddenRows.size > 0) {
+      this.renderHiddenRowIndicators(
+        ctx,
+        viewRange[0].r,
+        viewRange[1].r,
+        scroll.top,
+        DefaultCellHeight,
+        viewport.height,
+        rowDim,
+        hiddenRows,
+        hiddenIndicatorHover?.axis === 'row'
+          ? hiddenIndicatorHover.boundary
+          : null,
+      );
+    }
+    if (hiddenColumns && hiddenColumns.size > 0) {
+      this.renderHiddenColumnIndicators(
+        ctx,
+        viewRange[0].c,
+        viewRange[1].c,
+        scroll.left,
+        RowHeaderWidth,
+        viewport.width,
+        colDim,
+        hiddenColumns,
+        hiddenIndicatorHover?.axis === 'column'
+          ? hiddenIndicatorHover.boundary
+          : null,
+      );
+    }
   }
 
   /**
@@ -622,6 +667,9 @@ export class GridCanvas {
         ? colDim.getOffset(col)
         : DefaultCellWidth * (col - 1);
       const colWidth = colDim ? colDim.getSize(col) : DefaultCellWidth;
+      if (colWidth <= 0) {
+        continue;
+      }
       const x = RowHeaderWidth + colOffset - scrollLeft;
       const y = 0;
       const isColSelected =
@@ -834,6 +882,195 @@ export class GridCanvas {
       ? this.getThemeColor('freezeHandleHoverColor')
       : this.getThemeColor('freezeHandleColor');
     ctx.fillRect(colBarX, 0, t, DefaultCellHeight);
+  }
+
+  /**
+   * Draws a button-shaped indicator with two arrows pointing outward.
+   * For rows: ▲▼ stacked vertically, left-aligned in row header.
+   * For cols: ◄► side-by-side, top-aligned in column header.
+   */
+  private drawHiddenButton(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    axis: 'row' | 'column',
+    isHover: boolean,
+  ): void {
+    const bgColor = isHover
+      ? this.getThemeColor('resizeHandleColor')
+      : this.getThemeColor('headerBGColor');
+    const arrowColor = isHover ? '#fff' : this.getThemeColor('cellTextColor');
+
+    if (axis === 'row') {
+      const btnW = HiddenBtnArrowSize * 2 + HiddenBtnPadding * 2;
+      const btnH =
+        HiddenBtnArrowSize * 2 + HiddenBtnArrowGap + HiddenBtnPadding * 2;
+      const bx = cx - btnW / 2;
+      const by = cy - btnH / 2;
+
+      ctx.beginPath();
+      ctx.roundRect(bx, by, btnW, btnH, HiddenBtnRadius);
+      ctx.fillStyle = bgColor;
+      ctx.fill();
+      if (isHover) {
+        ctx.strokeStyle = this.getThemeColor('resizeHandleColor');
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // ▲ arrow (top)
+      const topAy = cy - HiddenBtnArrowGap / 2 - HiddenBtnArrowSize / 2;
+      ctx.fillStyle = arrowColor;
+      ctx.beginPath();
+      ctx.moveTo(cx, topAy - HiddenBtnArrowSize);
+      ctx.lineTo(cx - HiddenBtnArrowSize, topAy + HiddenBtnArrowSize / 2);
+      ctx.lineTo(cx + HiddenBtnArrowSize, topAy + HiddenBtnArrowSize / 2);
+      ctx.closePath();
+      ctx.fill();
+
+      // ▼ arrow (bottom)
+      const botAy = cy + HiddenBtnArrowGap / 2 + HiddenBtnArrowSize / 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, botAy + HiddenBtnArrowSize);
+      ctx.lineTo(cx - HiddenBtnArrowSize, botAy - HiddenBtnArrowSize / 2);
+      ctx.lineTo(cx + HiddenBtnArrowSize, botAy - HiddenBtnArrowSize / 2);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      const btnW =
+        HiddenBtnArrowSize * 2 + HiddenBtnArrowGap + HiddenBtnPadding * 2;
+      const btnH = HiddenBtnArrowSize * 2 + HiddenBtnPadding * 2;
+      const bx = cx - btnW / 2;
+      const by = cy - btnH / 2;
+
+      ctx.beginPath();
+      ctx.roundRect(bx, by, btnW, btnH, HiddenBtnRadius);
+      ctx.fillStyle = bgColor;
+      ctx.fill();
+      if (isHover) {
+        ctx.strokeStyle = this.getThemeColor('resizeHandleColor');
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      // ◄ arrow (left)
+      const leftAx = cx - HiddenBtnArrowGap / 2 - HiddenBtnArrowSize / 2;
+      ctx.fillStyle = arrowColor;
+      ctx.beginPath();
+      ctx.moveTo(leftAx - HiddenBtnArrowSize, cy);
+      ctx.lineTo(leftAx + HiddenBtnArrowSize / 2, cy - HiddenBtnArrowSize);
+      ctx.lineTo(leftAx + HiddenBtnArrowSize / 2, cy + HiddenBtnArrowSize);
+      ctx.closePath();
+      ctx.fill();
+
+      // ► arrow (right)
+      const rightAx = cx + HiddenBtnArrowGap / 2 + HiddenBtnArrowSize / 2;
+      ctx.beginPath();
+      ctx.moveTo(rightAx + HiddenBtnArrowSize, cy);
+      ctx.lineTo(rightAx - HiddenBtnArrowSize / 2, cy - HiddenBtnArrowSize);
+      ctx.lineTo(rightAx - HiddenBtnArrowSize / 2, cy + HiddenBtnArrowSize);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /**
+   * Renders button-shaped arrow markers in row headers at hidden row boundaries.
+   * Button is left-aligned in the row header so it doesn't cover row numbers.
+   */
+  private renderHiddenRowIndicators(
+    ctx: CanvasRenderingContext2D,
+    rowStart: number,
+    rowEnd: number,
+    scrollTop: number,
+    clipTop: number,
+    clipBottom: number,
+    rowDim: DimensionIndex | undefined,
+    hiddenRows: Set<number>,
+    hoverBoundary: number | null,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, clipTop, RowHeaderWidth, clipBottom - clipTop);
+    ctx.clip();
+
+    const btnW = HiddenBtnArrowSize * 2 + HiddenBtnPadding * 2;
+    // Left-aligned: button center at left edge + half button width + margin
+    const cx = btnW / 2 + 1;
+
+    for (let row = rowStart; row <= rowEnd + 1; row++) {
+      // Hidden rows above this boundary
+      if (!hiddenRows.has(row) && row > 1 && hiddenRows.has(row - 1)) {
+        const isHover = hoverBoundary === row;
+        const rowOffset = rowDim
+          ? rowDim.getOffset(row)
+          : DefaultCellHeight * (row - 1);
+        const y = rowOffset + DefaultCellHeight - scrollTop;
+        this.drawHiddenButton(ctx, cx, y, 'row', isHover);
+      }
+      // Hidden rows below this boundary
+      if (!hiddenRows.has(row) && hiddenRows.has(row + 1)) {
+        const isHover = hoverBoundary === row;
+        const rowOffset = rowDim
+          ? rowDim.getOffset(row)
+          : DefaultCellHeight * (row - 1);
+        const rowHeight = rowDim ? rowDim.getSize(row) : DefaultCellHeight;
+        const y = rowOffset + DefaultCellHeight - scrollTop + rowHeight;
+        this.drawHiddenButton(ctx, cx, y, 'row', isHover);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Renders button-shaped arrow markers in column headers at hidden column
+   * boundaries. Button is top-aligned in the column header so it doesn't
+   * cover column labels.
+   */
+  private renderHiddenColumnIndicators(
+    ctx: CanvasRenderingContext2D,
+    colStart: number,
+    colEnd: number,
+    scrollLeft: number,
+    clipLeft: number,
+    clipRight: number,
+    colDim: DimensionIndex | undefined,
+    hiddenColumns: Set<number>,
+    hoverBoundary: number | null,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(clipLeft, 0, clipRight - clipLeft, DefaultCellHeight);
+    ctx.clip();
+
+    const btnH = HiddenBtnArrowSize * 2 + HiddenBtnPadding * 2;
+    // Top-aligned: button center at top edge + half button height + margin
+    const cy = btnH / 2 + 1;
+
+    for (let col = colStart; col <= colEnd + 1; col++) {
+      // Hidden columns to the left
+      if (!hiddenColumns.has(col) && col > 1 && hiddenColumns.has(col - 1)) {
+        const isHover = hoverBoundary === col;
+        const colOffset = colDim
+          ? colDim.getOffset(col)
+          : DefaultCellWidth * (col - 1);
+        const x = RowHeaderWidth + colOffset - scrollLeft;
+        this.drawHiddenButton(ctx, x, cy, 'column', isHover);
+      }
+      // Hidden columns to the right
+      if (!hiddenColumns.has(col) && hiddenColumns.has(col + 1)) {
+        const isHover = hoverBoundary === col;
+        const colOffset = colDim
+          ? colDim.getOffset(col)
+          : DefaultCellWidth * (col - 1);
+        const colWidth = colDim ? colDim.getSize(col) : DefaultCellWidth;
+        const x = RowHeaderWidth + colOffset - scrollLeft + colWidth;
+        this.drawHiddenButton(ctx, x, cy, 'column', isHover);
+      }
+    }
+
+    ctx.restore();
   }
 
   private renderHeader(

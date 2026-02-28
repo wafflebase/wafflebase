@@ -6,6 +6,7 @@ import {
   CellStyle,
   FilterCondition,
   FilterState,
+  HiddenState,
   MergeSpan,
   Ref,
   Sref,
@@ -1173,6 +1174,46 @@ export class YorkieStore implements Store {
 
   async getFilterState(): Promise<FilterState | undefined> {
     return this.fromWorksheetFilterState(this.getSheet().filter);
+  }
+
+  async setHiddenState(state: HiddenState | undefined): Promise<void> {
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      this.batchOps.push((root) => {
+        const ws = root.sheets[tabId];
+        if (!state) {
+          delete ws.hiddenRows;
+          delete ws.hiddenColumns;
+          return;
+        }
+        ws.hiddenRows = [...state.rows];
+        ws.hiddenColumns = [...state.columns];
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      const ws = root.sheets[tabId];
+      if (!state) {
+        delete ws.hiddenRows;
+        delete ws.hiddenColumns;
+        return;
+      }
+      ws.hiddenRows = [...state.rows];
+      ws.hiddenColumns = [...state.columns];
+    });
+  }
+
+  async getHiddenState(): Promise<HiddenState | undefined> {
+    const ws = this.getSheet();
+    const rows = ws.hiddenRows;
+    const columns = ws.hiddenColumns;
+    if (!rows && !columns) return undefined;
+    return {
+      rows: rows ? [...rows] : [],
+      columns: columns ? [...columns] : [],
+    };
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {

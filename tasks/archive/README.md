@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 29
+Total archived tasks: 30
 
-## 2026/02 (29 tasks)
+## 2026/02 (30 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | filter sort column scoped (2026-02-28) | [20260228-filter-sort-column-scoped-todo.md](./2026/02/20260228-filter-sort-column-scoped-todo.md) | [20260228-filter-sort-column-scoped-lessons.md](./2026/02/20260228-filter-sort-column-scoped-lessons.md) |
+| hide show (2026-02-28) | [20260228-hide-show-todo.md](./2026/02/20260228-hide-show-todo.md) | [20260228-hide-show-lessons.md](./2026/02/20260228-hide-show-lessons.md) |
 | frontend tests outside src (2026-02-27) | [20260227-frontend-tests-outside-src-todo.md](./2026/02/20260227-frontend-tests-outside-src-todo.md) | [20260227-frontend-tests-outside-src-lessons.md](./2026/02/20260227-frontend-tests-outside-src-lessons.md) |
 | harness complexity review (2026-02-27) | [20260227-harness-complexity-review-todo.md](./2026/02/20260227-harness-complexity-review-todo.md) | [20260227-harness-complexity-review-lessons.md](./2026/02/20260227-harness-complexity-review-lessons.md) |
 | harness phase1 verify (2026-02-27) | [20260227-harness-phase1-verify-todo.md](./2026/02/20260227-harness-phase1-verify-todo.md) | [20260227-harness-phase1-verify-lessons.md](./2026/02/20260227-harness-phase1-verify-lessons.md) |
