@@ -119,8 +119,9 @@ function containsRange(outer: Range, inner: Range): boolean {
 }
 
 /**
- * Drops older patches that are fully shadowed by later patches with the
- * identical style payload.
+ * Drops older patches whose style keys are fully shadowed by later patches
+ * that contain their range. Individual keys are pruned; if all keys are
+ * removed, the entire patch is dropped.
  */
 export function pruneShadowedRangeStylePatches(
   patches: RangeStylePatch[],
@@ -133,20 +134,33 @@ export function pruneShadowedRangeStylePatches(
       continue;
     }
 
-    let shadowed = false;
-    for (const later of keptReversed) {
-      if (!stylesEqual(later.style, normalized.style)) {
-        continue;
+    const prunedStyle: Partial<
+      Record<keyof CellStyle, CellStyle[keyof CellStyle]>
+    > = {};
+
+    for (const key of Object.keys(normalized.style) as Array<keyof CellStyle>) {
+      let keyShadowed = false;
+      for (const later of keptReversed) {
+        if (!containsRange(later.range, normalized.range)) {
+          continue;
+        }
+        if (key in later.style) {
+          keyShadowed = true;
+          break;
+        }
       }
-      if (!containsRange(later.range, normalized.range)) {
-        continue;
+      if (!keyShadowed) {
+        prunedStyle[key] = normalized.style[key] as CellStyle[keyof CellStyle];
       }
-      shadowed = true;
-      break;
     }
 
-    if (!shadowed) {
-      keptReversed.push(cloneRangeStylePatch(normalized));
+    if (Object.keys(prunedStyle).length > 0) {
+      keptReversed.push(
+        cloneRangeStylePatch({
+          range: normalized.range,
+          style: prunedStyle as CellStyle,
+        }),
+      );
     }
   }
 

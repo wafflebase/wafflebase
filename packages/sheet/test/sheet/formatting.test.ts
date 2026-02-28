@@ -220,13 +220,6 @@ describe('Sheet.Formatting', () => {
     expect(await store.getRangeStyles()).toEqual([
       {
         range: [
-          { r: 2, c: 1 },
-          { r: 2, c: 1 },
-        ],
-        style: { b: false },
-      },
-      {
-        range: [
           { r: 1, c: 1 },
           { r: 3, c: 1 },
         ],
