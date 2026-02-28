@@ -32,12 +32,13 @@ describe('FunctionCatalog', () => {
       expect(searchFunctions('SUM').map((f) => f.name)).toContain('SUM');
     });
 
-    it('should find OR and ODD but not AND with "O"', () => {
+    it('should find OR, ODD, and OFFSET but not AND with "O"', () => {
       const results = searchFunctions('O');
-      expect(results).toHaveLength(2);
+      expect(results).toHaveLength(3);
       const names = results.map((r) => r.name);
       expect(names).toContain('OR');
       expect(names).toContain('ODD');
+      expect(names).toContain('OFFSET');
     });
 
     it('should find AND and AVERAGE with "A"', () => {
@@ -119,6 +120,12 @@ describe('FunctionCatalog', () => {
       expect(findFunction('SPLIT')!.name).toBe('SPLIT');
       expect(findFunction('JOIN')!.name).toBe('JOIN');
       expect(findFunction('REGEXMATCH')!.name).toBe('REGEXMATCH');
+      expect(findFunction('FORECAST')!.name).toBe('FORECAST');
+      expect(findFunction('SLOPE')!.name).toBe('SLOPE');
+      expect(findFunction('INTERCEPT')!.name).toBe('INTERCEPT');
+      expect(findFunction('CORREL')!.name).toBe('CORREL');
+      expect(findFunction('XLOOKUP')!.name).toBe('XLOOKUP');
+      expect(findFunction('OFFSET')!.name).toBe('OFFSET');
     });
 
     it('should return undefined for unknown function', () => {

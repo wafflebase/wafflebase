@@ -1219,6 +1219,81 @@ describe('Formula', () => {
     expect(evaluate('=REGEXMATCH("hello","xyz")')).toBe('false');
   });
 
+  it('should correctly evaluate FORECAST function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('A2', { v: '2' });
+    grid.set('A3', { v: '3' });
+    grid.set('B1', { v: '2' });
+    grid.set('B2', { v: '4' });
+    grid.set('B3', { v: '6' });
+    // y = 2x, so FORECAST(4) = 8
+    expect(evaluate('=FORECAST(4,B1:B3,A1:A3)', grid)).toBe('8');
+  });
+
+  it('should correctly evaluate SLOPE function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('A2', { v: '2' });
+    grid.set('A3', { v: '3' });
+    grid.set('B1', { v: '2' });
+    grid.set('B2', { v: '4' });
+    grid.set('B3', { v: '6' });
+    expect(evaluate('=SLOPE(B1:B3,A1:A3)', grid)).toBe('2');
+  });
+
+  it('should correctly evaluate INTERCEPT function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('A2', { v: '2' });
+    grid.set('A3', { v: '3' });
+    grid.set('B1', { v: '2' });
+    grid.set('B2', { v: '4' });
+    grid.set('B3', { v: '6' });
+    // y = 2x + 0, intercept = 0
+    expect(evaluate('=INTERCEPT(B1:B3,A1:A3)', grid)).toBe('0');
+  });
+
+  it('should correctly evaluate CORREL function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('A2', { v: '2' });
+    grid.set('A3', { v: '3' });
+    grid.set('B1', { v: '2' });
+    grid.set('B2', { v: '4' });
+    grid.set('B3', { v: '6' });
+    // Perfect positive correlation
+    expect(evaluate('=CORREL(B1:B3,A1:A3)', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate XLOOKUP function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('A2', { v: '20' });
+    grid.set('A3', { v: '30' });
+    grid.set('B1', { v: 'ten' });
+    grid.set('B2', { v: 'twenty' });
+    grid.set('B3', { v: 'thirty' });
+    // Exact match
+    expect(evaluate('=XLOOKUP(20,A1:A3,B1:B3)', grid)).toBe('twenty');
+    // Not found with fallback
+    expect(evaluate('=XLOOKUP(99,A1:A3,B1:B3,"missing")', grid)).toBe('missing');
+    // Not found without fallback
+    expect(evaluate('=XLOOKUP(99,A1:A3,B1:B3)', grid)).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate OFFSET function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '10' });
+    grid.set('B1', { v: '20' });
+    grid.set('A2', { v: '30' });
+    grid.set('B2', { v: '40' });
+    // OFFSET(A1, 1, 1) = B2 = 40
+    expect(evaluate('=OFFSET(A1,1,1)', grid)).toBe('40');
+    // OFFSET(A1, 0, 1) = B1 = 20
+    expect(evaluate('=OFFSET(A1,0,1)', grid)).toBe('20');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

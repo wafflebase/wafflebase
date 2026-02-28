@@ -175,6 +175,13 @@ export const FunctionMap = new Map([
   ['SPLIT', splitFunc],
   ['JOIN', joinFunc],
   ['REGEXMATCH', regexmatchFunc],
+  ['FORECAST', forecastFunc],
+  ['FORECAST.LINEAR', forecastFunc],
+  ['SLOPE', slopeFunc],
+  ['INTERCEPT', interceptFunc],
+  ['CORREL', correlFunc],
+  ['XLOOKUP', xlookupFunc],
+  ['OFFSET', offsetFunc],
 ]);
 
 /**
@@ -6516,4 +6523,346 @@ export function regexmatchFunc(
   } catch {
     return { t: 'err', v: '#VALUE!' };
   }
+}
+
+/**
+ * Extract paired numeric arrays from two range expressions.
+ */
+function extractPairedArrays(
+  expr1: ParseTree,
+  expr2: ParseTree,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): { xs: number[]; ys: number[] } | FormulaError {
+  const yRefs = getRefsFromExpression(expr1, visit, grid);
+  if (isFormulaError(yRefs)) return yRefs;
+  const xRefs = getRefsFromExpression(expr2, visit, grid);
+  if (isFormulaError(xRefs)) return xRefs;
+
+  if (yRefs.v.length !== xRefs.v.length) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let i = 0; i < xRefs.v.length; i++) {
+    const xv = grid?.get(xRefs.v[i])?.v || '';
+    const yv = grid?.get(yRefs.v[i])?.v || '';
+    if (xv !== '' && yv !== '' && !isNaN(Number(xv)) && !isNaN(Number(yv))) {
+      xs.push(Number(xv));
+      ys.push(Number(yv));
+    }
+  }
+
+  if (xs.length < 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  return { xs, ys };
+}
+
+function linearRegression(xs: number[], ys: number[]): { slope: number; intercept: number } {
+  const n = xs.length;
+  const sumX = xs.reduce((a, b) => a + b, 0);
+  const sumY = ys.reduce((a, b) => a + b, 0);
+  const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
+  const sumXX = xs.reduce((a, x) => a + x * x, 0);
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
+}
+
+/**
+ * FORECAST(x, known_ys, known_xs) — predicts a y value for a given x using linear regression.
+ */
+export function forecastFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const xNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (xNode.t === 'err') {
+    return xNode;
+  }
+
+  const data = extractPairedArrays(exprs[1], exprs[2], visit, grid);
+  if ('t' in data) return data;
+
+  const { slope, intercept } = linearRegression(data.xs, data.ys);
+  return { t: 'num', v: intercept + slope * xNode.v };
+}
+
+/**
+ * SLOPE(known_ys, known_xs) — returns the slope of the linear regression line.
+ */
+export function slopeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const data = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in data) return data;
+
+  const { slope } = linearRegression(data.xs, data.ys);
+  return { t: 'num', v: slope };
+}
+
+/**
+ * INTERCEPT(known_ys, known_xs) — returns the y-intercept of the linear regression line.
+ */
+export function interceptFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const data = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in data) return data;
+
+  const { intercept } = linearRegression(data.xs, data.ys);
+  return { t: 'num', v: intercept };
+}
+
+/**
+ * CORREL(data_y, data_x) — returns the Pearson correlation coefficient.
+ */
+export function correlFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const data = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in data) return data;
+
+  const n = data.xs.length;
+  const meanX = data.xs.reduce((a, b) => a + b, 0) / n;
+  const meanY = data.ys.reduce((a, b) => a + b, 0) / n;
+
+  let sumXYDiff = 0;
+  let sumXXDiff = 0;
+  let sumYYDiff = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = data.xs[i] - meanX;
+    const dy = data.ys[i] - meanY;
+    sumXYDiff += dx * dy;
+    sumXXDiff += dx * dx;
+    sumYYDiff += dy * dy;
+  }
+
+  const denom = Math.sqrt(sumXXDiff * sumYYDiff);
+  if (denom === 0) {
+    return { t: 'err', v: '#DIV/0!' };
+  }
+
+  return { t: 'num', v: sumXYDiff / denom };
+}
+
+/**
+ * XLOOKUP(search_key, lookup_range, return_range, [if_not_found], [match_mode], [search_mode])
+ */
+export function xlookupFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 6) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const keyNode = visit(exprs[0]);
+  if (keyNode.t === 'err') {
+    return keyNode;
+  }
+
+  const lookupRefs = getRefsFromExpression(exprs[1], visit, grid);
+  if (isFormulaError(lookupRefs)) {
+    return lookupRefs;
+  }
+
+  const returnRefs = getRefsFromExpression(exprs[2], visit, grid);
+  if (isFormulaError(returnRefs)) {
+    return returnRefs;
+  }
+
+  let ifNotFound: EvalNode | null = null;
+  if (exprs.length >= 4) {
+    ifNotFound = visit(exprs[3]);
+  }
+
+  let matchMode = 0; // 0=exact, -1=exact or next smaller, 1=exact or next larger
+  if (exprs.length >= 5) {
+    const mmNode = NumberArgs.map(visit(exprs[4]), grid);
+    if (mmNode.t === 'err') return mmNode;
+    matchMode = Math.trunc(mmNode.v);
+  }
+
+  const keyVal = keyNode.t === 'num' ? keyNode.v
+    : keyNode.t === 'str' ? keyNode.v
+    : keyNode.t === 'bool' ? keyNode.v
+    : '';
+  const keyIsNum = keyNode.t === 'num';
+
+  let matchIdx = -1;
+
+  if (matchMode === 0) {
+    // Exact match
+    for (let i = 0; i < lookupRefs.v.length; i++) {
+      const cellVal = grid?.get(lookupRefs.v[i])?.v || '';
+      if (keyIsNum) {
+        if (cellVal !== '' && Number(cellVal) === keyVal) {
+          matchIdx = i;
+          break;
+        }
+      } else {
+        if (String(cellVal).toLowerCase() === String(keyVal).toLowerCase()) {
+          matchIdx = i;
+          break;
+        }
+      }
+    }
+  } else if (matchMode === -1) {
+    // Exact or next smaller
+    let bestVal = -Infinity;
+    for (let i = 0; i < lookupRefs.v.length; i++) {
+      const cellVal = grid?.get(lookupRefs.v[i])?.v || '';
+      if (keyIsNum) {
+        const num = Number(cellVal);
+        if (cellVal !== '' && !isNaN(num) && num <= (keyVal as number) && num > bestVal) {
+          bestVal = num;
+          matchIdx = i;
+        }
+      }
+    }
+  } else if (matchMode === 1) {
+    // Exact or next larger
+    let bestVal = Infinity;
+    for (let i = 0; i < lookupRefs.v.length; i++) {
+      const cellVal = grid?.get(lookupRefs.v[i])?.v || '';
+      if (keyIsNum) {
+        const num = Number(cellVal);
+        if (cellVal !== '' && !isNaN(num) && num >= (keyVal as number) && num < bestVal) {
+          bestVal = num;
+          matchIdx = i;
+        }
+      }
+    }
+  }
+
+  if (matchIdx === -1) {
+    if (ifNotFound) {
+      return ifNotFound;
+    }
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  if (matchIdx >= returnRefs.v.length) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const resultVal = grid?.get(returnRefs.v[matchIdx])?.v || '';
+  const num = Number(resultVal);
+  if (resultVal !== '' && !isNaN(num)) {
+    return { t: 'num', v: num };
+  }
+  return { t: 'str', v: resultVal };
+}
+
+/**
+ * OFFSET(reference, rows, cols, [height], [width]) — returns a reference offset from a starting reference.
+ */
+export function offsetFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 5) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const refNode = visit(exprs[0]);
+  if (refNode.t === 'err') {
+    return refNode;
+  }
+  if (refNode.t !== 'ref' || !grid) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const rowsNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (rowsNode.t === 'err') return rowsNode;
+  const colsNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (colsNode.t === 'err') return colsNode;
+
+  const rowOffset = Math.trunc(rowsNode.v);
+  const colOffset = Math.trunc(colsNode.v);
+
+  // Parse the starting reference
+  const refStr = isSrng(refNode.v) ? refNode.v.split(':')[0] : refNode.v;
+  const parsed = parseRef(refStr);
+
+  const newRow = parsed.r + rowOffset;
+  const newCol = parsed.c + colOffset;
+
+  if (newRow < 1 || newCol < 1) {
+    return { t: 'err', v: '#REF!' };
+  }
+
+  // For single cell OFFSET (no height/width or 1x1)
+  const newRef = `${toColumnLabel(newCol)}${newRow}`;
+  const cellVal = grid.get(newRef)?.v || '';
+  const num = Number(cellVal);
+  if (cellVal !== '' && !isNaN(num)) {
+    return { t: 'num', v: num };
+  }
+  return { t: 'str', v: cellVal };
 }

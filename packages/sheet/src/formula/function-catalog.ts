@@ -990,6 +990,49 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns whether text matches a regular expression',
     args: [{ name: 'text' }, { name: 'regular_expression' }],
   },
+  {
+    name: 'FORECAST',
+    description: 'Predicts a y-value for a given x using linear regression',
+    args: [{ name: 'x' }, { name: 'known_ys' }, { name: 'known_xs' }],
+  },
+  {
+    name: 'SLOPE',
+    description: 'Returns the slope of the linear regression line',
+    args: [{ name: 'known_ys' }, { name: 'known_xs' }],
+  },
+  {
+    name: 'INTERCEPT',
+    description: 'Returns the y-intercept of the linear regression line',
+    args: [{ name: 'known_ys' }, { name: 'known_xs' }],
+  },
+  {
+    name: 'CORREL',
+    description: 'Returns the Pearson correlation coefficient',
+    args: [{ name: 'data_y' }, { name: 'data_x' }],
+  },
+  {
+    name: 'XLOOKUP',
+    description: 'Searches a range for a match and returns a corresponding item',
+    args: [
+      { name: 'search_key' },
+      { name: 'lookup_range' },
+      { name: 'return_range' },
+      { name: 'if_not_found', optional: true },
+      { name: 'match_mode', optional: true },
+      { name: 'search_mode', optional: true },
+    ],
+  },
+  {
+    name: 'OFFSET',
+    description: 'Returns a reference offset from a starting reference',
+    args: [
+      { name: 'reference' },
+      { name: 'rows' },
+      { name: 'cols' },
+      { name: 'height', optional: true },
+      { name: 'width', optional: true },
+    ],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1033,7 +1076,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ISDATE',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
-  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET']),
   Math: new Set([
     'SUM',
     'ABS',
@@ -1102,6 +1145,10 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'MODE',
     'QUARTILE',
     'COUNTUNIQUE',
+    'FORECAST',
+    'SLOPE',
+    'INTERCEPT',
+    'CORREL',
   ]),
   Text: new Set([
     'TRIM',
