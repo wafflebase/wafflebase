@@ -2,12 +2,12 @@
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "workspaces": {
     "packages/sheet": {
-      "entry": ["test/**/*.test.ts"],
+      "entry": ["src/index.ts", "test/**/*.test.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"],
       "ignoreBinaries": ["scripts/fix-antlr-ts.sh"]
     },
     "packages/frontend": {
-      "entry": ["tests/**/*.test.ts"],
+      "entry": ["src/main.tsx", "tests/**/*.test.ts"],
       "project": ["src/**/*.{ts,tsx}", "tests/**/*.test.ts"]
     },
     "packages/backend": {
