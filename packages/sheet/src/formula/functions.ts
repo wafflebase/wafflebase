@@ -124,6 +124,9 @@ export const FunctionMap = new Map([
   ['COMBIN', combinFunc],
   ['FACT', factFunc],
   ['QUOTIENT', quotientFunc],
+  ['XOR', xorFunc],
+  ['CHOOSE', chooseFunc],
+  ['TYPE', typeFunc],
 ]);
 
 /**
@@ -4531,4 +4534,97 @@ export function quotientFunc(
   }
 
   return { t: 'num', v: Math.trunc(numerator.v / denominator.v) };
+}
+
+/**
+ * XOR(logical1, [logical2], ...) — returns TRUE if an odd number of arguments are TRUE.
+ */
+export function xorFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let trueCount = 0;
+  for (const node of BoolArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    if (node.v) {
+      trueCount++;
+    }
+  }
+
+  return { t: 'bool', v: trueCount % 2 === 1 };
+}
+
+/**
+ * CHOOSE(index, value1, [value2], ...) — returns a value from a list based on index.
+ */
+export function chooseFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const indexNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (indexNode.t === 'err') {
+    return indexNode;
+  }
+
+  const index = Math.trunc(indexNode.v);
+  if (index < 1 || index >= exprs.length) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return visit(exprs[index]);
+}
+
+/**
+ * TYPE(value) — returns a number indicating the data type of a value.
+ * 1=number, 2=text, 4=boolean, 16=error, 64=array.
+ */
+export function typeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  switch (node.t) {
+    case 'num':
+      return { t: 'num', v: 1 };
+    case 'str':
+      return { t: 'num', v: 2 };
+    case 'bool':
+      return { t: 'num', v: 4 };
+    case 'err':
+      return { t: 'num', v: 16 };
+    case 'ref':
+      return { t: 'num', v: 1 }; // Cell refs are treated as number by default
+    default:
+      return { t: 'num', v: 1 };
+  }
 }

@@ -897,6 +897,27 @@ describe('Formula', () => {
     expect(evaluate('=QUOTIENT(10,0)')).toBe('#VALUE!');
   });
 
+  it('should correctly evaluate XOR function', () => {
+    expect(evaluate('=XOR(TRUE,FALSE)')).toBe('true');
+    expect(evaluate('=XOR(TRUE,TRUE)')).toBe('false');
+    expect(evaluate('=XOR(FALSE,FALSE)')).toBe('false');
+    expect(evaluate('=XOR(TRUE,TRUE,TRUE)')).toBe('true');
+  });
+
+  it('should correctly evaluate CHOOSE function', () => {
+    expect(evaluate('=CHOOSE(1,"a","b","c")')).toBe('a');
+    expect(evaluate('=CHOOSE(3,"a","b","c")')).toBe('c');
+    expect(evaluate('=CHOOSE(0,"a","b")')).toBe('#VALUE!');
+    expect(evaluate('=CHOOSE(4,"a","b","c")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate TYPE function', () => {
+    expect(evaluate('=TYPE(1)')).toBe('1');
+    expect(evaluate('=TYPE("hello")')).toBe('2');
+    expect(evaluate('=TYPE(TRUE)')).toBe('4');
+    expect(evaluate('=TYPE(SUM())')).toBe('16');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

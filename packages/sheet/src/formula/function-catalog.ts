@@ -705,6 +705,28 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the integer portion of a division',
     args: [{ name: 'numerator' }, { name: 'denominator' }],
   },
+  {
+    name: 'XOR',
+    description: 'Returns TRUE if an odd number of arguments are TRUE',
+    args: [
+      { name: 'logical1' },
+      { name: 'logical2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'CHOOSE',
+    description: 'Returns a value from a list based on index',
+    args: [
+      { name: 'index' },
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'TYPE',
+    description: 'Returns a number indicating the data type of a value',
+    args: [{ name: 'value' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -732,8 +754,9 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ISLOGICAL',
     'ISNONTEXT',
     'N',
+    'TYPE',
   ]),
-  Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA']),
+  Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
   Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP']),
   Math: new Set([
     'SUM',
