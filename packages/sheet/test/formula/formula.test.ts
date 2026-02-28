@@ -2492,6 +2492,64 @@ describe('Formula', () => {
     expect(dur).toBeLessThan(3);
   });
 
+  it('should correctly evaluate MDURATION function', () => {
+    const mdur = Number(evaluate('=MDURATION("2024-01-01","2027-01-01",0.08,0.09,2)'));
+    expect(mdur).toBeGreaterThan(2);
+    expect(mdur).toBeLessThan(3);
+  });
+
+  it('should correctly evaluate RECEIVED function', () => {
+    // investment / (1 - discount * yearfrac)
+    // 1000 / (1 - 0.05 * 1) = 1000 / 0.95 ≈ 1052.63
+    expect(Number(evaluate('=RECEIVED("2024-01-01","2025-01-01",1000,0.05)'))).toBeCloseTo(1052.63, 0);
+  });
+
+  it('should correctly evaluate INTRATE function', () => {
+    // (redemption - investment) / investment / yearfrac
+    // (1050 - 1000) / 1000 / 1 = 0.05
+    expect(Number(evaluate('=INTRATE("2024-01-01","2025-01-01",1000,1050)'))).toBeCloseTo(0.05, 4);
+  });
+
+  it('should correctly evaluate PRICE and YIELD functions', () => {
+    // A bond priced near par
+    const price = Number(evaluate('=PRICE("2024-01-01","2027-01-01",0.05,0.05,100,2)'));
+    expect(price).toBeCloseTo(100, 0);
+    // YIELD should recover the yield from a price
+    const yld = Number(evaluate('=YIELD("2024-01-01","2027-01-01",0.05,' + price.toFixed(6) + ',100,2)'));
+    expect(yld).toBeCloseTo(0.05, 2);
+  });
+
+  it('should correctly evaluate PRICEMAT and YIELDMAT functions', () => {
+    const price = Number(evaluate('=PRICEMAT("2024-06-01","2025-06-01","2024-01-01",0.05,0.06)'));
+    expect(price).toBeGreaterThan(90);
+    expect(price).toBeLessThan(110);
+  });
+
+  it('should correctly evaluate ISPMT function', () => {
+    // ISPMT(rate, period, nper, pv) = pv * rate * (period/nper - 1)
+    expect(Number(evaluate('=ISPMT(0.1,1,3,8000000)'))).toBeCloseTo(-533333.33, 0);
+  });
+
+  it('should correctly evaluate PDURATION function', () => {
+    // PDURATION(0.025, 2000, 2200) = ln(2200/2000) / ln(1.025)
+    expect(Number(evaluate('=PDURATION(0.025,2000,2200)'))).toBeCloseTo(3.86, 1);
+  });
+
+  it('should correctly evaluate RRI function', () => {
+    // RRI(nper, pv, fv) = (fv/pv)^(1/nper) - 1
+    expect(Number(evaluate('=RRI(96,10000,11000)'))).toBeCloseTo(0.000989, 4);
+  });
+
+  it('should correctly evaluate FVSCHEDULE function', () => {
+    const grid = new Map([
+      ['A1', { v: '0.09' } as Cell],
+      ['A2', { v: '0.11' } as Cell],
+      ['A3', { v: '0.1' } as Cell],
+    ]);
+    // 1 * (1.09) * (1.11) * (1.1) = 1.33089
+    expect(Number(evaluate('=FVSCHEDULE(1,A1:A3)', grid))).toBeCloseTo(1.33089, 4);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

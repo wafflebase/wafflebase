@@ -383,6 +383,18 @@ export const FunctionMap = new Map([
   ['PRICEDISC', pricediscFunc],
   ['YIELDDISC', yielddiscFunc],
   ['DURATION', durationFunc],
+  ['MDURATION', mdurationFunc],
+  ['RECEIVED', receivedFunc],
+  ['INTRATE', intrateFunc],
+  ['PRICE', priceFunc],
+  ['YIELD', yieldBondFunc],
+  ['PRICEMAT', pricematFunc],
+  ['YIELDMAT', yieldmatFunc],
+  ['AMORLINC', amorlincFunc],
+  ['ISPMT', ispmtFunc],
+  ['FVSCHEDULE', fvscheduleFunc],
+  ['PDURATION', pdurationFunc],
+  ['RRI', rriFunc],
 ]);
 
 /**
@@ -13405,4 +13417,427 @@ export function durationFunc(
   numerator += (n / f) * pvRedemption;
   denominator += pvRedemption;
   return { t: 'num', v: numerator / denominator };
+}
+
+/**
+ * MDURATION(settlement, maturity, coupon, yield, frequency, [basis])
+ * Modified Macaulay duration = duration / (1 + yield/frequency).
+ */
+export function mdurationFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const coupon = NumberArgs.map(visit(exprs[2]), grid);
+  if (coupon.t === 'err') return coupon;
+  const yld = NumberArgs.map(visit(exprs[3]), grid);
+  if (yld.t === 'err') return yld;
+  const freq = NumberArgs.map(visit(exprs[4]), grid);
+  if (freq.t === 'err') return freq;
+  const basis = exprs.length >= 6 ? NumberArgs.map(visit(exprs[5]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const f = Math.trunc(freq.v);
+  const n = Math.ceil(yearFrac(settlement, maturity, Math.trunc(basis.v)) * f);
+  if (n <= 0) return { t: 'err', v: '#VALUE!' };
+  const cpn = coupon.v / f;
+  const y = yld.v / f;
+  let numerator = 0, denominator = 0;
+  for (let i = 1; i <= n; i++) {
+    const pv = cpn / Math.pow(1 + y, i);
+    numerator += (i / f) * pv;
+    denominator += pv;
+  }
+  const pvRedemption = 1 / Math.pow(1 + y, n);
+  numerator += (n / f) * pvRedemption;
+  denominator += pvRedemption;
+  const macDur = numerator / denominator;
+  return { t: 'num', v: macDur / (1 + yld.v / f) };
+}
+
+/**
+ * RECEIVED(settlement, maturity, investment, discount, [basis])
+ * Amount received at maturity for a fully invested security.
+ */
+export function receivedFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const investment = NumberArgs.map(visit(exprs[2]), grid);
+  if (investment.t === 'err') return investment;
+  const discount = NumberArgs.map(visit(exprs[3]), grid);
+  if (discount.t === 'err') return discount;
+  const basis = exprs.length >= 5 ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
+  const denom = 1 - discount.v * yf;
+  if (denom === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: investment.v / denom };
+}
+
+/**
+ * INTRATE(settlement, maturity, investment, redemption, [basis])
+ * Interest rate for a fully invested security.
+ */
+export function intrateFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const investment = NumberArgs.map(visit(exprs[2]), grid);
+  if (investment.t === 'err') return investment;
+  const redemption = NumberArgs.map(visit(exprs[3]), grid);
+  if (redemption.t === 'err') return redemption;
+  const basis = exprs.length >= 5 ? NumberArgs.map(visit(exprs[4]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const yf = yearFrac(settlement, maturity, Math.trunc(basis.v));
+  if (yf === 0 || investment.v === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: (redemption.v - investment.v) / investment.v / yf };
+}
+
+/**
+ * PRICE(settlement, maturity, rate, yield, redemption, frequency, [basis])
+ * Price per $100 face value of a coupon-paying security.
+ */
+export function priceFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const rate = NumberArgs.map(visit(exprs[2]), grid);
+  if (rate.t === 'err') return rate;
+  const yld = NumberArgs.map(visit(exprs[3]), grid);
+  if (yld.t === 'err') return yld;
+  const redemption = NumberArgs.map(visit(exprs[4]), grid);
+  if (redemption.t === 'err') return redemption;
+  const freq = NumberArgs.map(visit(exprs[5]), grid);
+  if (freq.t === 'err') return freq;
+  const basis = exprs.length >= 7 ? NumberArgs.map(visit(exprs[6]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const f = Math.trunc(freq.v);
+  const b = Math.trunc(basis.v);
+  const n = Math.ceil(yearFrac(settlement, maturity, b) * f);
+  if (n <= 0) return { t: 'err', v: '#VALUE!' };
+  const cpn = 100 * rate.v / f;
+  const y = yld.v / f;
+  // DSC/E fraction for accrued interest
+  const pcd = prevCouponDate(settlement, maturity, f);
+  const ncd = nextCouponDate(settlement, maturity, f);
+  const E = Math.round((ncd.getTime() - pcd.getTime()) / 86400000);
+  const DSC = Math.round((ncd.getTime() - settlement.getTime()) / 86400000);
+  const A = E - DSC;
+  const dscFrac = E > 0 ? DSC / E : 0;
+  let price = 0;
+  for (let k = 1; k <= n; k++) {
+    price += cpn / Math.pow(1 + y, k - 1 + dscFrac);
+  }
+  price += redemption.v / Math.pow(1 + y, n - 1 + dscFrac);
+  price -= cpn * (A / E);
+  return { t: 'num', v: price };
+}
+
+/**
+ * YIELD(settlement, maturity, rate, price, redemption, frequency, [basis])
+ * Yield of a coupon-paying security (Newton's method).
+ */
+export function yieldBondFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const rate = NumberArgs.map(visit(exprs[2]), grid);
+  if (rate.t === 'err') return rate;
+  const pr = NumberArgs.map(visit(exprs[3]), grid);
+  if (pr.t === 'err') return pr;
+  const redemption = NumberArgs.map(visit(exprs[4]), grid);
+  if (redemption.t === 'err') return redemption;
+  const freq = NumberArgs.map(visit(exprs[5]), grid);
+  if (freq.t === 'err') return freq;
+  const basis = exprs.length >= 7 ? NumberArgs.map(visit(exprs[6]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const f = Math.trunc(freq.v);
+  const b = Math.trunc(basis.v);
+  const n = Math.ceil(yearFrac(settlement, maturity, b) * f);
+  if (n <= 0) return { t: 'err', v: '#VALUE!' };
+  const cpn = 100 * rate.v / f;
+  const pcd = prevCouponDate(settlement, maturity, f);
+  const ncd = nextCouponDate(settlement, maturity, f);
+  const E = Math.round((ncd.getTime() - pcd.getTime()) / 86400000);
+  const DSC = Math.round((ncd.getTime() - settlement.getTime()) / 86400000);
+  const A = E - DSC;
+  const dscFrac = E > 0 ? DSC / E : 0;
+  // Newton's method
+  let yld = rate.v;
+  for (let iter = 0; iter < 200; iter++) {
+    const y = yld / f;
+    let pv = 0, dpv = 0;
+    for (let k = 1; k <= n; k++) {
+      const t = k - 1 + dscFrac;
+      pv += cpn / Math.pow(1 + y, t);
+      dpv -= cpn * t / (f * Math.pow(1 + y, t + 1));
+    }
+    const tN = n - 1 + dscFrac;
+    pv += redemption.v / Math.pow(1 + y, tN);
+    dpv -= redemption.v * tN / (f * Math.pow(1 + y, tN + 1));
+    pv -= cpn * (A / E);
+    const diff = pv - pr.v;
+    if (Math.abs(diff) < 1e-10) break;
+    if (Math.abs(dpv) < 1e-20) break;
+    yld -= diff / dpv;
+  }
+  return { t: 'num', v: yld };
+}
+
+/**
+ * PRICEMAT(settlement, maturity, issue, rate, yield, [basis])
+ * Price of a security that pays at maturity.
+ */
+export function pricematFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const issue = parseDate(visit(exprs[2]), grid);
+  if (!(issue instanceof Date)) return issue;
+  const rate = NumberArgs.map(visit(exprs[3]), grid);
+  if (rate.t === 'err') return rate;
+  const yld = NumberArgs.map(visit(exprs[4]), grid);
+  if (yld.t === 'err') return yld;
+  const basis = exprs.length >= 6 ? NumberArgs.map(visit(exprs[5]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const b = Math.trunc(basis.v);
+  const dim = yearFrac(issue, maturity, b);
+  const dis = yearFrac(issue, settlement, b);
+  const dsm = yearFrac(settlement, maturity, b);
+  const denom = 1 + dsm * yld.v;
+  if (denom === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: 100 * (1 + dim * rate.v) / denom - 100 * dis * rate.v };
+}
+
+/**
+ * YIELDMAT(settlement, maturity, issue, rate, price, [basis])
+ * Yield of a security that pays at maturity.
+ */
+export function yieldmatFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  const settlement = parseDate(visit(exprs[0]), grid);
+  if (!(settlement instanceof Date)) return settlement;
+  const maturity = parseDate(visit(exprs[1]), grid);
+  if (!(maturity instanceof Date)) return maturity;
+  const issue = parseDate(visit(exprs[2]), grid);
+  if (!(issue instanceof Date)) return issue;
+  const rate = NumberArgs.map(visit(exprs[3]), grid);
+  if (rate.t === 'err') return rate;
+  const pr = NumberArgs.map(visit(exprs[4]), grid);
+  if (pr.t === 'err') return pr;
+  const basis = exprs.length >= 6 ? NumberArgs.map(visit(exprs[5]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const b = Math.trunc(basis.v);
+  const dim = yearFrac(issue, maturity, b);
+  const dis = yearFrac(issue, settlement, b);
+  const dsm = yearFrac(settlement, maturity, b);
+  if (dsm === 0) return { t: 'err', v: '#VALUE!' };
+  const prAdjusted = pr.v / 100 + dis * rate.v;
+  if (prAdjusted === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: ((1 + dim * rate.v) / prAdjusted - 1) / dsm };
+}
+
+/**
+ * AMORLINC(cost, purchase_date, first_period, salvage, period, rate, [basis])
+ * Depreciation for each accounting period (French system, linear).
+ */
+export function amorlincFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A!' };
+  const cost = NumberArgs.map(visit(exprs[0]), grid);
+  if (cost.t === 'err') return cost;
+  const purchaseDate = parseDate(visit(exprs[1]), grid);
+  if (!(purchaseDate instanceof Date)) return purchaseDate;
+  const firstPeriod = parseDate(visit(exprs[2]), grid);
+  if (!(firstPeriod instanceof Date)) return firstPeriod;
+  const salvage = NumberArgs.map(visit(exprs[3]), grid);
+  if (salvage.t === 'err') return salvage;
+  const period = NumberArgs.map(visit(exprs[4]), grid);
+  if (period.t === 'err') return period;
+  const rate = NumberArgs.map(visit(exprs[5]), grid);
+  if (rate.t === 'err') return rate;
+  const basis = exprs.length >= 7 ? NumberArgs.map(visit(exprs[6]), grid) : { t: 'num' as const, v: 0 };
+  if (basis.t === 'err') return basis;
+  const per = Math.trunc(period.v);
+  const annualDepr = cost.v * rate.v;
+  if (per === 0) {
+    // First period prorated
+    const yf = yearFrac(purchaseDate, firstPeriod, Math.trunc(basis.v));
+    return { t: 'num', v: annualDepr * yf };
+  }
+  // Remaining book value check
+  let bookValue = cost.v - annualDepr * yearFrac(purchaseDate, firstPeriod, Math.trunc(basis.v));
+  for (let i = 1; i < per; i++) {
+    bookValue -= annualDepr;
+    if (bookValue - salvage.v <= 0) return { t: 'num', v: 0 };
+  }
+  const depr = Math.min(annualDepr, bookValue - salvage.v);
+  return { t: 'num', v: Math.max(0, depr) };
+}
+
+/**
+ * ISPMT(rate, period, nper, pv) — interest paid during a specific period.
+ */
+export function ispmtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+  const rate = NumberArgs.map(visit(exprs[0]), grid);
+  if (rate.t === 'err') return rate;
+  const per = NumberArgs.map(visit(exprs[1]), grid);
+  if (per.t === 'err') return per;
+  const nper = NumberArgs.map(visit(exprs[2]), grid);
+  if (nper.t === 'err') return nper;
+  const pv = NumberArgs.map(visit(exprs[3]), grid);
+  if (pv.t === 'err') return pv;
+  return { t: 'num', v: pv.v * rate.v * (per.v / nper.v - 1) };
+}
+
+/**
+ * FVSCHEDULE(principal, schedule_range) — future value using a schedule of rates.
+ */
+export function fvscheduleFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const principal = NumberArgs.map(visit(exprs[0]), grid);
+  if (principal.t === 'err') return principal;
+  const scheduleNode = visit(exprs[1]);
+  if (scheduleNode.t === 'err') return scheduleNode;
+  let fv = principal.v;
+  if (scheduleNode.t === 'ref' && grid) {
+    const refs = scheduleNode.v;
+    for (const sref of toSrefs(Array.isArray(refs) ? refs : [refs])) {
+      const cell = grid.get(sref);
+      if (cell && cell.v != null) {
+        const n = Number(cell.v);
+        if (!isNaN(n)) fv *= (1 + n);
+      }
+    }
+  } else {
+    const n = NumberArgs.map(scheduleNode, grid);
+    if (n.t === 'err') return n;
+    fv *= (1 + n.v);
+  }
+  return { t: 'num', v: fv };
+}
+
+/**
+ * PDURATION(rate, pv, fv) — number of periods for an investment to reach a value.
+ */
+export function pdurationFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  const rate = NumberArgs.map(visit(exprs[0]), grid);
+  if (rate.t === 'err') return rate;
+  const pv = NumberArgs.map(visit(exprs[1]), grid);
+  if (pv.t === 'err') return pv;
+  const fv = NumberArgs.map(visit(exprs[2]), grid);
+  if (fv.t === 'err') return fv;
+  if (rate.v <= 0 || pv.v <= 0 || fv.v <= 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: (Math.log(fv.v) - Math.log(pv.v)) / Math.log(1 + rate.v) };
+}
+
+/**
+ * RRI(nper, pv, fv) — equivalent interest rate for the growth of an investment.
+ */
+export function rriFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  const nper = NumberArgs.map(visit(exprs[0]), grid);
+  if (nper.t === 'err') return nper;
+  const pv = NumberArgs.map(visit(exprs[1]), grid);
+  if (pv.t === 'err') return pv;
+  const fv = NumberArgs.map(visit(exprs[2]), grid);
+  if (fv.t === 'err') return fv;
+  if (nper.v === 0 || pv.v === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.pow(fv.v / pv.v, 1 / nper.v) - 1 };
 }

@@ -2212,6 +2212,66 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the Macaulay duration of a security',
     args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'coupon' }, { name: 'yield' }, { name: 'frequency' }, { name: 'basis', optional: true }],
   },
+  {
+    name: 'MDURATION',
+    description: 'Returns the modified Macaulay duration of a security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'coupon' }, { name: 'yield' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'RECEIVED',
+    description: 'Returns the amount received at maturity for a fully invested security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'investment' }, { name: 'discount' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'INTRATE',
+    description: 'Returns the interest rate for a fully invested security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'investment' }, { name: 'redemption' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'PRICE',
+    description: 'Returns the price per $100 face value of a coupon-paying security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'rate' }, { name: 'yield' }, { name: 'redemption' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'YIELD',
+    description: 'Returns the yield on a coupon-paying security',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'rate' }, { name: 'price' }, { name: 'redemption' }, { name: 'frequency' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'PRICEMAT',
+    description: 'Returns the price of a security that pays at maturity',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'issue' }, { name: 'rate' }, { name: 'yield' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'YIELDMAT',
+    description: 'Returns the yield of a security that pays at maturity',
+    args: [{ name: 'settlement' }, { name: 'maturity' }, { name: 'issue' }, { name: 'rate' }, { name: 'price' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'AMORLINC',
+    description: 'Returns the depreciation for each accounting period (French linear)',
+    args: [{ name: 'cost' }, { name: 'purchase_date' }, { name: 'first_period' }, { name: 'salvage' }, { name: 'period' }, { name: 'rate' }, { name: 'basis', optional: true }],
+  },
+  {
+    name: 'ISPMT',
+    description: 'Returns the interest paid during a specific period of a loan',
+    args: [{ name: 'rate' }, { name: 'period' }, { name: 'nper' }, { name: 'pv' }],
+  },
+  {
+    name: 'FVSCHEDULE',
+    description: 'Returns the future value of a principal after applying a schedule of rates',
+    args: [{ name: 'principal' }, { name: 'schedule' }],
+  },
+  {
+    name: 'PDURATION',
+    description: 'Returns the number of periods for an investment to reach a specified value',
+    args: [{ name: 'rate' }, { name: 'pv' }, { name: 'fv' }],
+  },
+  {
+    name: 'RRI',
+    description: 'Returns the equivalent interest rate for the growth of an investment',
+    args: [{ name: 'nper' }, { name: 'pv' }, { name: 'fv' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2240,7 +2300,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'YEARFRAC',
   ]),
   Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV', 'IMCONJUGATE', 'IMARGUMENT', 'IMPOWER', 'IMSQRT', 'IMEXP', 'IMLN', 'IMLOG2', 'IMLOG10', 'IMSIN', 'IMCOS', 'IMTAN', 'IMSINH', 'IMCOSH', 'IMSEC', 'IMCSC', 'IMCOT', 'HEX2BIN', 'HEX2OCT', 'BIN2HEX', 'BIN2OCT', 'OCT2HEX', 'OCT2BIN', 'BESSELJ', 'BESSELY', 'BESSELI', 'BESSELK']),
-  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR', 'ACCRINT', 'ACCRINTM', 'COUPDAYBS', 'COUPDAYS', 'COUPDAYSNC', 'COUPNCD', 'COUPNUM', 'COUPPCD', 'DISC', 'PRICEDISC', 'YIELDDISC', 'DURATION']),
+  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR', 'ACCRINT', 'ACCRINTM', 'COUPDAYBS', 'COUPDAYS', 'COUPDAYSNC', 'COUPNCD', 'COUPNUM', 'COUPPCD', 'DISC', 'PRICEDISC', 'YIELDDISC', 'DURATION', 'MDURATION', 'RECEIVED', 'INTRATE', 'PRICE', 'YIELD', 'PRICEMAT', 'YIELDMAT', 'AMORLINC', 'ISPMT', 'FVSCHEDULE', 'PDURATION', 'RRI']),
   Info: new Set([
     'ISBLANK',
     'ISNUMBER',

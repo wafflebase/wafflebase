@@ -324,6 +324,18 @@ describe('FunctionCatalog', () => {
       expect(findFunction('PRICEDISC')!.name).toBe('PRICEDISC');
       expect(findFunction('YIELDDISC')!.name).toBe('YIELDDISC');
       expect(findFunction('DURATION')!.name).toBe('DURATION');
+      expect(findFunction('MDURATION')!.name).toBe('MDURATION');
+      expect(findFunction('RECEIVED')!.name).toBe('RECEIVED');
+      expect(findFunction('INTRATE')!.name).toBe('INTRATE');
+      expect(findFunction('PRICE')!.name).toBe('PRICE');
+      expect(findFunction('YIELD')!.name).toBe('YIELD');
+      expect(findFunction('PRICEMAT')!.name).toBe('PRICEMAT');
+      expect(findFunction('YIELDMAT')!.name).toBe('YIELDMAT');
+      expect(findFunction('AMORLINC')!.name).toBe('AMORLINC');
+      expect(findFunction('ISPMT')!.name).toBe('ISPMT');
+      expect(findFunction('FVSCHEDULE')!.name).toBe('FVSCHEDULE');
+      expect(findFunction('PDURATION')!.name).toBe('PDURATION');
+      expect(findFunction('RRI')!.name).toBe('RRI');
     });
 
     it('should return undefined for unknown function', () => {
