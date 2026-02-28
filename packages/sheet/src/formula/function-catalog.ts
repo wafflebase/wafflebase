@@ -1460,6 +1460,49 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the negative binomial distribution',
     args: [{ name: 'failures' }, { name: 'successes' }, { name: 'probability' }, { name: 'cumulative' }],
   },
+  {
+    name: 'ARABIC',
+    description: 'Converts a Roman numeral to a number',
+    args: [{ name: 'roman_numeral' }],
+  },
+  {
+    name: 'ROMAN',
+    description: 'Converts a number to Roman numeral text',
+    args: [{ name: 'number' }, { name: 'form', optional: true }],
+  },
+  {
+    name: 'MULTINOMIAL',
+    description: 'Returns the multinomial coefficient',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'SERIESSUM',
+    description: 'Returns the sum of a power series',
+    args: [{ name: 'x' }, { name: 'n' }, { name: 'm' }, { name: 'coefficients' }],
+  },
+  {
+    name: 'DELTA',
+    description: 'Tests whether two values are equal',
+    args: [{ name: 'number1' }, { name: 'number2', optional: true }],
+  },
+  {
+    name: 'GESTEP',
+    description: 'Tests whether a number is greater than or equal to a step value',
+    args: [{ name: 'number' }, { name: 'step', optional: true }],
+  },
+  {
+    name: 'ERF',
+    description: 'Returns the error function',
+    args: [{ name: 'lower_limit' }, { name: 'upper_limit', optional: true }],
+  },
+  {
+    name: 'ERFC',
+    description: 'Returns the complementary error function',
+    args: [{ name: 'x' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1487,6 +1530,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WORKDAY',
     'YEARFRAC',
   ]),
+  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC']),
   Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC']),
   Info: new Set([
     'ISBLANK',
@@ -1565,6 +1609,10 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'COT',
     'CSC',
     'SEC',
+    'ARABIC',
+    'ROMAN',
+    'MULTINOMIAL',
+    'SERIESSUM',
   ]),
   Statistical: new Set([
     'AVERAGE',

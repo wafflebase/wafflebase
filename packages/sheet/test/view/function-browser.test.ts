@@ -87,12 +87,12 @@ describe('FunctionBrowser', () => {
 
     const input = browser.getContainer().querySelector('input');
     expect(input).toBeTruthy();
-    input!.value = 'sum';
+    input!.value = 'trunc';
     input!.dispatchEvent(new Event('input', { bubbles: true }));
     input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
     expect(onInsert).toHaveBeenCalledTimes(1);
-    expect(onInsert.mock.calls[0][0].name).toBe('SUM');
+    expect(onInsert.mock.calls[0][0].name).toBe('TRUNC');
     expect(browser.isVisible()).toBe(false);
   });
 

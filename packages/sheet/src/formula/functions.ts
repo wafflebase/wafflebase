@@ -249,6 +249,14 @@ export const FunctionMap = new Map([
   ['T.INV', tinvFunc],
   ['HYPGEOM.DIST', hypgeomdistFunc],
   ['NEGBINOM.DIST', negbinomdistFunc],
+  ['ARABIC', arabicFunc],
+  ['ROMAN', romanFunc],
+  ['MULTINOMIAL', multinomialFunc],
+  ['SERIESSUM', seriessumFunc],
+  ['DELTA', deltaFunc],
+  ['GESTEP', gestepFunc],
+  ['ERF', erfFunc],
+  ['ERFC', erfcFunc],
 ]);
 
 /**
@@ -9111,4 +9119,220 @@ export function confidencetFunc(
   const t = computeTInv(p, df);
 
   return { t: 'num', v: t * stdev.v / Math.sqrt(n) };
+}
+
+/**
+ * ARABIC(roman_numeral) — converts Roman numeral text to a number.
+ */
+export function arabicFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const node = visit(exprs[0]);
+  const strResult = toStr(node, grid);
+  if (strResult.t === 'err') return strResult;
+  const text = strResult.v.toUpperCase();
+
+  const romanValues: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+  let result = 0;
+  for (let i = 0; i < text.length; i++) {
+    const current = romanValues[text[i]];
+    const next = i + 1 < text.length ? romanValues[text[i + 1]] : 0;
+    if (current === undefined) return { t: 'err', v: '#VALUE!' };
+    if (current < next) {
+      result -= current;
+    } else {
+      result += current;
+    }
+  }
+  return { t: 'num', v: result };
+}
+
+/**
+ * ROMAN(number, [form]) — converts a number to Roman numeral text.
+ */
+export function romanFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  let num = Math.trunc(n.v);
+  if (num < 0 || num > 3999) return { t: 'err', v: '#VALUE!' };
+  if (num === 0) return { t: 'str', v: '' };
+
+  const values = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const symbols = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
+  let result = '';
+  for (let i = 0; i < values.length; i++) {
+    while (num >= values[i]) {
+      result += symbols[i];
+      num -= values[i];
+    }
+  }
+  return { t: 'str', v: result };
+}
+
+/**
+ * MULTINOMIAL(n1, n2, ...) — returns the multinomial coefficient.
+ */
+export function multinomialFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+
+  let sum = 0;
+  let denomProduct = 1;
+  for (const expr of args.expr()) {
+    const n = NumberArgs.map(visit(expr), grid);
+    if (n.t === 'err') return n;
+    const val = Math.trunc(n.v);
+    if (val < 0) return { t: 'err', v: '#VALUE!' };
+    sum += val;
+    denomProduct *= gammaLanczos(val + 1);
+  }
+  return { t: 'num', v: Math.round(gammaLanczos(sum + 1) / denomProduct) };
+}
+
+/**
+ * SERIESSUM(x, n, m, coefficients) — returns the sum of a power series.
+ */
+export function seriessumFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  const n = NumberArgs.map(visit(exprs[1]), grid);
+  if (n.t === 'err') return n;
+  const m = NumberArgs.map(visit(exprs[2]), grid);
+  if (m.t === 'err') return m;
+
+  // Get coefficients from range
+  const coeffsResult = getRefsFromExpression(exprs[3], visit, grid);
+  if (coeffsResult.t === 'err') return coeffsResult;
+
+  let sum = 0;
+  for (let i = 0; i < coeffsResult.v.length; i++) {
+    const cell = grid!.get(coeffsResult.v[i]);
+    const coeff = cell ? Number(cell.v) : 0;
+    if (isNaN(coeff)) return { t: 'err', v: '#VALUE!' };
+    sum += coeff * Math.pow(x.v, n.v + i * m.v);
+  }
+  return { t: 'num', v: sum };
+}
+
+/**
+ * DELTA(number1, [number2]) — tests if two values are equal (1 if equal, 0 otherwise).
+ */
+export function deltaFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const n1 = NumberArgs.map(visit(exprs[0]), grid);
+  if (n1.t === 'err') return n1;
+
+  let n2 = 0;
+  if (exprs.length === 2) {
+    const n2Node = NumberArgs.map(visit(exprs[1]), grid);
+    if (n2Node.t === 'err') return n2Node;
+    n2 = n2Node.v;
+  }
+
+  return { t: 'num', v: n1.v === n2 ? 1 : 0 };
+}
+
+/**
+ * GESTEP(number, [step]) — returns 1 if number >= step, 0 otherwise.
+ */
+export function gestepFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+
+  let step = 0;
+  if (exprs.length === 2) {
+    const stepNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (stepNode.t === 'err') return stepNode;
+    step = stepNode.v;
+  }
+
+  return { t: 'num', v: n.v >= step ? 1 : 0 };
+}
+
+/**
+ * ERF(lower_limit, [upper_limit]) — returns the error function.
+ */
+export function erfFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const lower = NumberArgs.map(visit(exprs[0]), grid);
+  if (lower.t === 'err') return lower;
+
+  if (exprs.length === 1) {
+    return { t: 'num', v: erf(lower.v) };
+  }
+
+  const upper = NumberArgs.map(visit(exprs[1]), grid);
+  if (upper.t === 'err') return upper;
+  return { t: 'num', v: erf(upper.v) - erf(lower.v) };
+}
+
+/**
+ * ERFC(x) — returns the complementary error function.
+ */
+export function erfcFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const x = NumberArgs.map(visit(exprs[0]), grid);
+  if (x.t === 'err') return x;
+  return { t: 'num', v: 1 - erf(x.v) };
 }

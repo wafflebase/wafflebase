@@ -1641,6 +1641,55 @@ describe('Formula', () => {
     expect(Number(result)).toBeLessThan(1);
   });
 
+  // --- Batch 20: Math/Engineering functions ---
+  it('should correctly evaluate ARABIC function', () => {
+    expect(evaluate('=ARABIC("XIV")')).toBe('14');
+    expect(evaluate('=ARABIC("MCMXCIX")')).toBe('1999');
+    expect(evaluate('=ARABIC("IV")')).toBe('4');
+  });
+
+  it('should correctly evaluate ROMAN function', () => {
+    expect(evaluate('=ROMAN(14)')).toBe('XIV');
+    expect(evaluate('=ROMAN(1999)')).toBe('MCMXCIX');
+    expect(evaluate('=ROMAN(4)')).toBe('IV');
+  });
+
+  it('should correctly evaluate MULTINOMIAL function', () => {
+    // MULTINOMIAL(2, 3, 4) = 9! / (2!*3!*4!) = 1260
+    expect(evaluate('=MULTINOMIAL(2,3,4)')).toBe('1260');
+  });
+
+  it('should correctly evaluate SERIESSUM function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell);
+    grid.set('A2', { v: '1' } as Cell);
+    grid.set('A3', { v: '1' } as Cell);
+    // SERIESSUM(2, 0, 1, {1,1,1}) = 1*2^0 + 1*2^1 + 1*2^2 = 1+2+4 = 7
+    expect(evaluate('=SERIESSUM(2,0,1,A1:A3)', grid)).toBe('7');
+  });
+
+  it('should correctly evaluate DELTA function', () => {
+    expect(evaluate('=DELTA(5,5)')).toBe('1');
+    expect(evaluate('=DELTA(5,4)')).toBe('0');
+    expect(evaluate('=DELTA(0)')).toBe('1');
+  });
+
+  it('should correctly evaluate GESTEP function', () => {
+    expect(evaluate('=GESTEP(5,4)')).toBe('1');
+    expect(evaluate('=GESTEP(3,4)')).toBe('0');
+    expect(evaluate('=GESTEP(0)')).toBe('1');
+  });
+
+  it('should correctly evaluate ERF function', () => {
+    expect(Number(evaluate('=ERF(0)'))).toBeCloseTo(0, 8);
+    expect(Number(evaluate('=ERF(1)'))).toBeCloseTo(0.8427, 3);
+  });
+
+  it('should correctly evaluate ERFC function', () => {
+    expect(Number(evaluate('=ERFC(0)'))).toBeCloseTo(1, 8);
+    expect(Number(evaluate('=ERFC(1)'))).toBeCloseTo(0.1573, 3);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

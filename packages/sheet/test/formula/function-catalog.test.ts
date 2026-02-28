@@ -191,6 +191,14 @@ describe('FunctionCatalog', () => {
       expect(findFunction('T.INV')!.name).toBe('T.INV');
       expect(findFunction('HYPGEOM.DIST')!.name).toBe('HYPGEOM.DIST');
       expect(findFunction('NEGBINOM.DIST')!.name).toBe('NEGBINOM.DIST');
+      expect(findFunction('ARABIC')!.name).toBe('ARABIC');
+      expect(findFunction('ROMAN')!.name).toBe('ROMAN');
+      expect(findFunction('MULTINOMIAL')!.name).toBe('MULTINOMIAL');
+      expect(findFunction('SERIESSUM')!.name).toBe('SERIESSUM');
+      expect(findFunction('DELTA')!.name).toBe('DELTA');
+      expect(findFunction('GESTEP')!.name).toBe('GESTEP');
+      expect(findFunction('ERF')!.name).toBe('ERF');
+      expect(findFunction('ERFC')!.name).toBe('ERFC');
     });
 
     it('should return undefined for unknown function', () => {
@@ -213,6 +221,7 @@ describe('FunctionCatalog', () => {
     it('should return used categories in Google Sheets order', () => {
       expect(listFunctionCategories()).toEqual([
         'Date',
+        'Engineering',
         'Financial',
         'Info',
         'Logical',
