@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "workspaces": {
+    "packages/sheet": {
+      "entry": ["test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"],
+      "ignoreBinaries": ["scripts/fix-antlr-ts.sh"]
+    },
+    "packages/frontend": {
+      "entry": ["tests/**/*.test.ts"],
+      "project": ["src/**/*.{ts,tsx}", "tests/**/*.test.ts"]
+    },
+    "packages/backend": {
+      "entry": ["src/main.ts", "test/**/*.{spec,e2e-spec}.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    }
+  },
+  "ignoreDependencies": [
+    "tailwindcss",
+    "tw-animate-css"
+  ]
+}
