@@ -8,20 +8,13 @@ Fixes #
 
 ## Verification
 
-### Required Commands
+CI automatically posts a verification summary comment on this PR with
+per-lane results for both `verify:self` and `verify:integration`.
 
-- [ ] `pnpm verify:self`
-- [ ] `pnpm verify:integration` (or explicit skip reason)
+- [ ] verify:self — CI comment shows ✅
+- [ ] verify:integration — CI comment shows ✅ (or explicit skip reason below)
 
-### Command Evidence
-
-```text
-pnpm verify:self
-# paste key pass/fail lines
-
-pnpm verify:integration
-# paste key pass/fail lines, or explicit skip reason
-```
+Skip reason (if applicable):
 
 ## Risk Assessment
 

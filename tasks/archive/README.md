@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 36
+Total archived tasks: 37
 
-## 2026/02 (36 tasks)
+## 2026/02 (37 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -19,6 +19,7 @@ Total archived tasks: 36
 | harness report artifacts (2026-02-28) | [20260228-harness-report-artifacts-todo.md](./2026/02/20260228-harness-report-artifacts-todo.md) | [20260228-harness-report-artifacts-lessons.md](./2026/02/20260228-harness-report-artifacts-lessons.md) |
 | hidden indicator click (2026-02-28) | [20260228-hidden-indicator-click-todo.md](./2026/02/20260228-hidden-indicator-click-todo.md) | [20260228-hidden-indicator-click-lessons.md](./2026/02/20260228-hidden-indicator-click-lessons.md) |
 | hide show (2026-02-28) | [20260228-hide-show-todo.md](./2026/02/20260228-hide-show-todo.md) | [20260228-hide-show-lessons.md](./2026/02/20260228-hide-show-lessons.md) |
+| pr evidence automation (2026-02-28) | [20260228-pr-evidence-automation-todo.md](./2026/02/20260228-pr-evidence-automation-todo.md) | [20260228-pr-evidence-automation-lessons.md](./2026/02/20260228-pr-evidence-automation-lessons.md) |
 | range styles compaction (2026-02-28) | [20260228-range-styles-compaction-todo.md](./2026/02/20260228-range-styles-compaction-todo.md) | [20260228-range-styles-compaction-lessons.md](./2026/02/20260228-range-styles-compaction-lessons.md) |
 | frontend tests outside src (2026-02-27) | [20260227-frontend-tests-outside-src-todo.md](./2026/02/20260227-frontend-tests-outside-src-todo.md) | [20260227-frontend-tests-outside-src-lessons.md](./2026/02/20260227-frontend-tests-outside-src-lessons.md) |
 | harness complexity review (2026-02-27) | [20260227-harness-complexity-review-todo.md](./2026/02/20260227-harness-complexity-review-todo.md) | [20260227-harness-complexity-review-lessons.md](./2026/02/20260227-harness-complexity-review-lessons.md) |

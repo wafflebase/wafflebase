@@ -17,12 +17,13 @@ maintainable software. Where context engineering asks *what should the agent
 see*, harness engineering asks *what should the system prevent, measure, and
 correct*.
 
-As of 2026-02-28, phases 1 through 19 and 22 are completed. Browser visual
+As of 2026-02-28, phases 1 through 20 and 22 are completed. Browser visual
 and interaction lanes are integrated into `verify:self` with graceful
 Chromium skip. Structured JSON lane reports are generated per lane and as a
 summary. Dependency freshness (vulnerability + outdated package detection) is
-integrated into `verify:entropy`. Remaining phases focus on PR evidence
-automation and agent observability.
+integrated into `verify:entropy`. PR verification evidence is automated via
+CI artifact upload and auto-comment on PRs. Remaining work focuses on agent
+observability.
 
 ## Principles
 
@@ -153,7 +154,10 @@ systematically.
 
 - `verify-self` job runs first (no external services).
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
-- PR template requires verification evidence for both lanes.
+- Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
+  retention).
+- On PRs, CI automatically posts a verification summary comment with per-lane
+  results for both `verify:self` and `verify:integration`.
 
 ## Dependency Layering
 
@@ -181,7 +185,7 @@ database → auth/user/document → controllers/modules
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
 
-## Completed Phases (1-19, 22)
+## Completed Phases (1-20, 22)
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -206,6 +210,7 @@ database → auth/user/document → controllers/modules
 | 18 | Entropy detection automation (dead-code + doc-staleness) | Completed |
 | 18a | Browser lanes integrated into verify:self (graceful Chromium skip) | Completed |
 | 19 | Harness report artifacts (per-lane JSON + summary via verify-self runner) | Completed |
+| 20 | PR evidence trust automation (CI artifact + auto-comment) | Completed |
 | 22 | Dependency freshness detection (vulnerability + outdated in verify:entropy) | Completed |
 
 Phase 17 delivered:
@@ -227,23 +232,10 @@ Detailed task records:
 | A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
 | C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Playwright CI provisioning deferred |
-| D | Agent-oriented contracts | Information Accessibility | In progress | Structured lane reports delivered (Phase 19); agent observability next (Phase 21) |
+| D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); agent observability next (Phase 21) |
 | E | Entropy cleanup loop | Entropy Management | Completed | Dead-code + doc-staleness + dependency freshness delivered |
 
 ## Remaining Work
-
-### Phase 20: PR Evidence Trust Automation
-
-**Principle:** Mechanical Enforcement — replace manual verification evidence
-with automated trust.
-
-Goal: Eliminate manual verification evidence drift in PRs.
-
-Deliverables:
-- PR checks linked to lane results (self/integration) as source of truth.
-- Evidence section references generated reports instead of manual paste.
-
-Done criteria: Required verification evidence is automatically trustworthy.
 
 ### Phase 21: Agent Observability Stack
 
@@ -298,7 +290,7 @@ Harness v1 is complete when all are true:
    **Status: Done** (structured JSON reports per lane + summary via
    `scripts/verify-self.mjs` runner — Phase 19).
 3. PR required verification evidence is automatically trustworthy.
-   **Status: Not started** — Phase 20.
+   **Status: Done** (CI artifact upload + auto-comment on PRs — Phase 20).
 
 ## References
 
