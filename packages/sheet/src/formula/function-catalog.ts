@@ -591,6 +591,46 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Rounds a number to the nearest specified multiple',
     args: [{ name: 'number' }, { name: 'multiple' }],
   },
+  {
+    name: 'EXACT',
+    description: 'Tests whether two strings are identical (case-sensitive)',
+    args: [{ name: 'text1' }, { name: 'text2' }],
+  },
+  {
+    name: 'REPLACE',
+    description: 'Replaces part of a text string with a different text string',
+    args: [{ name: 'old_text' }, { name: 'start_num' }, { name: 'num_chars' }, { name: 'new_text' }],
+  },
+  {
+    name: 'REPT',
+    description: 'Repeats text a given number of times',
+    args: [{ name: 'text' }, { name: 'number_times' }],
+  },
+  {
+    name: 'T',
+    description: 'Returns the text referred to by value',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'VALUE',
+    description: 'Converts a text string that represents a number to a number',
+    args: [{ name: 'text' }],
+  },
+  {
+    name: 'TEXT',
+    description: 'Formats a number and converts it to text',
+    args: [{ name: 'number' }, { name: 'format' }],
+  },
+  {
+    name: 'CHAR',
+    description: 'Returns the character specified by the code number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'CODE',
+    description: 'Returns a numeric code for the first character in a text string',
+    args: [{ name: 'text' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -675,6 +715,14 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'UPPER',
     'PROPER',
     'SUBSTITUTE',
+    'EXACT',
+    'REPLACE',
+    'REPT',
+    'T',
+    'VALUE',
+    'TEXT',
+    'CHAR',
+    'CODE',
   ]),
 };
 

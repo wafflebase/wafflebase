@@ -105,6 +105,14 @@ export const FunctionMap = new Map([
   ['FLOOR', floorFunc],
   ['TRUNC', truncFunc],
   ['MROUND', mroundFunc],
+  ['EXACT', exactFunc],
+  ['REPLACE', replaceFunc],
+  ['REPT', reptFunc],
+  ['T', tFunc],
+  ['VALUE', valueFunc],
+  ['TEXT', textFunc],
+  ['CHAR', charFunc],
+  ['CODE', codeFunc],
 ]);
 
 /**
@@ -3694,4 +3702,311 @@ export function mroundFunc(
   }
 
   return { t: 'num', v: Math.round(num.v / multiple.v) * multiple.v };
+}
+
+/**
+ * EXACT(text1, text2) — case-sensitive comparison of two strings.
+ */
+export function exactFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const a = toStr(visit(exprs[0]), grid);
+  if (a.t === 'err') {
+    return a;
+  }
+
+  const b = toStr(visit(exprs[1]), grid);
+  if (b.t === 'err') {
+    return b;
+  }
+
+  return { t: 'bool', v: a.v === b.v };
+}
+
+/**
+ * REPLACE(old_text, start_num, num_chars, new_text) — replaces part of a text string.
+ */
+export function replaceFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 4) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const oldText = toStr(visit(exprs[0]), grid);
+  if (oldText.t === 'err') {
+    return oldText;
+  }
+
+  const startNum = NumberArgs.map(visit(exprs[1]), grid);
+  if (startNum.t === 'err') {
+    return startNum;
+  }
+
+  const numChars = NumberArgs.map(visit(exprs[2]), grid);
+  if (numChars.t === 'err') {
+    return numChars;
+  }
+
+  const newText = toStr(visit(exprs[3]), grid);
+  if (newText.t === 'err') {
+    return newText;
+  }
+
+  const start = Math.trunc(startNum.v) - 1;
+  const count = Math.trunc(numChars.v);
+  if (start < 0 || count < 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const result = oldText.v.slice(0, start) + newText.v + oldText.v.slice(start + count);
+  return { t: 'str', v: result };
+}
+
+/**
+ * REPT(text, number_times) — repeats text a given number of times.
+ */
+export function reptFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const text = toStr(visit(exprs[0]), grid);
+  if (text.t === 'err') {
+    return text;
+  }
+
+  const times = NumberArgs.map(visit(exprs[1]), grid);
+  if (times.t === 'err') {
+    return times;
+  }
+
+  const count = Math.trunc(times.v);
+  if (count < 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'str', v: text.v.repeat(count) };
+}
+
+/**
+ * T(value) — returns text if value is text, or empty string otherwise.
+ */
+export function tFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') {
+    return node;
+  }
+  if (node.t === 'str') {
+    return node;
+  }
+  if (node.t === 'ref' && grid) {
+    const value = grid.get(node.v)?.v || '';
+    if (value === '') {
+      return { t: 'str', v: '' };
+    }
+    const upper = value.toUpperCase();
+    const isBoolean = upper === 'TRUE' || upper === 'FALSE';
+    const isNumeric = !isNaN(Number(value));
+    if (isBoolean || isNumeric) {
+      return { t: 'str', v: '' };
+    }
+    return { t: 'str', v: value };
+  }
+
+  return { t: 'str', v: '' };
+}
+
+/**
+ * VALUE(text) — converts a text representation of a number to a number.
+ */
+export function valueFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  const trimmed = str.v.trim();
+  const num = Number(trimmed);
+  if (trimmed === '' || isNaN(num)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: num };
+}
+
+/**
+ * TEXT(number, format) — formats a number as text with a given format pattern.
+ * Supports basic patterns: 0, 0.00, #,##0, #,##0.00, 0%, 0.00%.
+ */
+export function textFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  const fmt = toStr(visit(exprs[1]), grid);
+  if (fmt.t === 'err') {
+    return fmt;
+  }
+
+  const format = fmt.v;
+  const value = num.v;
+
+  // Percentage formats
+  if (format.endsWith('%')) {
+    const decimalPart = format.slice(0, -1);
+    const decimals = (decimalPart.split('.')[1] || '').length;
+    return { t: 'str', v: (value * 100).toFixed(decimals) + '%' };
+  }
+
+  // Comma-separated formats
+  if (format.includes(',')) {
+    const decimals = (format.split('.')[1] || '').replace(/[^0#]/g, '').length;
+    const parts = value.toFixed(decimals).split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return { t: 'str', v: parts.join('.') };
+  }
+
+  // Fixed decimal formats
+  if (format.includes('.')) {
+    const decimals = (format.split('.')[1] || '').length;
+    return { t: 'str', v: value.toFixed(decimals) };
+  }
+
+  // Integer format
+  return { t: 'str', v: value.toFixed(0) };
+}
+
+/**
+ * CHAR(number) — returns the character for the given character code.
+ */
+export function charFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  const code = Math.trunc(num.v);
+  if (code < 1 || code > 65535) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'str', v: String.fromCharCode(code) };
+}
+
+/**
+ * CODE(text) — returns the character code for the first character in a text string.
+ */
+export function codeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') {
+    return str;
+  }
+
+  if (str.v.length === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  return { t: 'num', v: str.v.charCodeAt(0) };
 }

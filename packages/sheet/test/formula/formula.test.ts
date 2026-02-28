@@ -750,6 +750,55 @@ describe('Formula', () => {
     expect(evaluate('=MROUND(10,0)')).toBe('0');
   });
 
+  it('should correctly evaluate EXACT function', () => {
+    expect(evaluate('=EXACT("hello","hello")')).toBe('true');
+    expect(evaluate('=EXACT("hello","Hello")')).toBe('false');
+    expect(evaluate('=EXACT("","")')).toBe('true');
+  });
+
+  it('should correctly evaluate REPLACE function', () => {
+    expect(evaluate('=REPLACE("abcdef",3,2,"XY")')).toBe('abXYef');
+    expect(evaluate('=REPLACE("hello",1,5,"world")')).toBe('world');
+    expect(evaluate('=REPLACE("abc",2,0,"X")')).toBe('aXbc');
+  });
+
+  it('should correctly evaluate REPT function', () => {
+    expect(evaluate('=REPT("ab",3)')).toBe('ababab');
+    expect(evaluate('=REPT("x",0)')).toBe('');
+    expect(evaluate('=REPT("x",0-1)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate T function', () => {
+    expect(evaluate('=T("hello")')).toBe('hello');
+    expect(evaluate('=T(123)')).toBe('');
+  });
+
+  it('should correctly evaluate VALUE function', () => {
+    expect(evaluate('=VALUE("123")')).toBe('123');
+    expect(evaluate('=VALUE("3.14")')).toBe('3.14');
+    expect(evaluate('=VALUE("abc")')).toBe('#VALUE!');
+    expect(evaluate('=VALUE("")')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate TEXT function', () => {
+    expect(evaluate('=TEXT(1234.5,"#,##0.00")')).toBe('1,234.50');
+    expect(evaluate('=TEXT(0.75,"0%")')).toBe('75%');
+    expect(evaluate('=TEXT(3.14159,"0.00")')).toBe('3.14');
+    expect(evaluate('=TEXT(42,"0")')).toBe('42');
+  });
+
+  it('should correctly evaluate CHAR function', () => {
+    expect(evaluate('=CHAR(65)')).toBe('A');
+    expect(evaluate('=CHAR(97)')).toBe('a');
+    expect(evaluate('=CHAR(0)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate CODE function', () => {
+    expect(evaluate('=CODE("A")')).toBe('65');
+    expect(evaluate('=CODE("abc")')).toBe('97');
+    expect(evaluate('=CODE("")')).toBe('#VALUE!');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
