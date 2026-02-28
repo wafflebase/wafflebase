@@ -216,6 +216,13 @@ export const FunctionMap = new Map([
   ['PPMT', ppmtFunc],
   ['SLN', slnFunc],
   ['EFFECT', effectFunc],
+  ['RATE', rateFunc],
+  ['IRR', irrFunc],
+  ['DB', dbFunc],
+  ['DDB', ddbFunc],
+  ['NOMINAL', nominalFunc],
+  ['CUMIPMT', cumipmtFunc],
+  ['CUMPRINC', cumprincFunc],
 ]);
 
 /**
@@ -7790,4 +7797,327 @@ export function effectFunc(
   const n = Math.trunc(periods.v);
   if (n < 1 || nominal.v <= 0) return { t: 'err', v: '#VALUE!' };
   return { t: 'num', v: Math.pow(1 + nominal.v / n, n) - 1 };
+}
+
+/**
+ * RATE(nper, pmt, pv, [fv], [type], [guess]) — returns interest rate per period using Newton's method.
+ */
+export function rateFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+
+  const nper = NumberArgs.map(visit(exprs[0]), grid);
+  if (nper.t === 'err') return nper;
+  const pmt = NumberArgs.map(visit(exprs[1]), grid);
+  if (pmt.t === 'err') return pmt;
+  const pv = NumberArgs.map(visit(exprs[2]), grid);
+  if (pv.t === 'err') return pv;
+
+  let fv = 0;
+  if (exprs.length >= 4) {
+    const fvNode = NumberArgs.map(visit(exprs[3]), grid);
+    if (fvNode.t === 'err') return fvNode;
+    fv = fvNode.v;
+  }
+
+  let type = 0;
+  if (exprs.length >= 5) {
+    const typeNode = NumberArgs.map(visit(exprs[4]), grid);
+    if (typeNode.t === 'err') return typeNode;
+    type = Math.trunc(typeNode.v);
+  }
+
+  let guess = 0.1;
+  if (exprs.length === 6) {
+    const guessNode = NumberArgs.map(visit(exprs[5]), grid);
+    if (guessNode.t === 'err') return guessNode;
+    guess = guessNode.v;
+  }
+
+  // Newton's method
+  let rate = guess;
+  for (let i = 0; i < 100; i++) {
+    const r1 = Math.pow(1 + rate, nper.v);
+    const y = pv.v * r1 + pmt.v * (1 + rate * type) * (r1 - 1) / rate + fv;
+    const dy = nper.v * pv.v * Math.pow(1 + rate, nper.v - 1)
+      + pmt.v * (1 + rate * type) * (nper.v * Math.pow(1 + rate, nper.v - 1) * rate - (r1 - 1)) / (rate * rate)
+      + pmt.v * type * (r1 - 1) / rate;
+    const newRate = rate - y / dy;
+    if (Math.abs(newRate - rate) < 1e-10) return { t: 'num', v: newRate };
+    rate = newRate;
+  }
+  return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * IRR(values, [guess]) — returns the internal rate of return using Newton's method.
+ */
+export function irrFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const values: number[] = [];
+  const refsResult = getRefsFromExpression(exprs[0], visit, grid);
+  if (refsResult.t === 'err') return refsResult;
+  for (const ref of refsResult.v) {
+    const cell = grid!.get(ref);
+    const v = cell ? Number(cell.v) : 0;
+    if (isNaN(v)) return { t: 'err', v: '#VALUE!' };
+    values.push(v);
+  }
+
+  let guess = 0.1;
+  if (exprs.length === 2) {
+    const guessNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (guessNode.t === 'err') return guessNode;
+    guess = guessNode.v;
+  }
+
+  // Newton's method
+  let rate = guess;
+  for (let iter = 0; iter < 100; iter++) {
+    let npv = 0;
+    let dnpv = 0;
+    for (let i = 0; i < values.length; i++) {
+      const denom = Math.pow(1 + rate, i);
+      npv += values[i] / denom;
+      dnpv -= i * values[i] / Math.pow(1 + rate, i + 1);
+    }
+    if (Math.abs(dnpv) < 1e-15) return { t: 'err', v: '#VALUE!' };
+    const newRate = rate - npv / dnpv;
+    if (Math.abs(newRate - rate) < 1e-10) return { t: 'num', v: newRate };
+    rate = newRate;
+  }
+  return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * DB(cost, salvage, life, period, [month]) — returns fixed-declining balance depreciation.
+ */
+export function dbFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+
+  const cost = NumberArgs.map(visit(exprs[0]), grid);
+  if (cost.t === 'err') return cost;
+  const salvage = NumberArgs.map(visit(exprs[1]), grid);
+  if (salvage.t === 'err') return salvage;
+  const life = NumberArgs.map(visit(exprs[2]), grid);
+  if (life.t === 'err') return life;
+  const period = NumberArgs.map(visit(exprs[3]), grid);
+  if (period.t === 'err') return period;
+
+  let month = 12;
+  if (exprs.length === 5) {
+    const monthNode = NumberArgs.map(visit(exprs[4]), grid);
+    if (monthNode.t === 'err') return monthNode;
+    month = Math.trunc(monthNode.v);
+  }
+
+  if (life.v <= 0 || period.v < 1 || cost.v < 0) return { t: 'err', v: '#VALUE!' };
+
+  // Calculate rate rounded to 3 decimal places
+  const rate = Math.round((1 - Math.pow(salvage.v / cost.v, 1 / life.v)) * 1000) / 1000;
+
+  let totalDepreciation = 0;
+  const per = Math.trunc(period.v);
+
+  for (let p = 1; p <= per; p++) {
+    let depreciation: number;
+    if (p === 1) {
+      depreciation = cost.v * rate * month / 12;
+    } else if (p === Math.trunc(life.v) + 1) {
+      depreciation = (cost.v - totalDepreciation) * rate * (12 - month) / 12;
+    } else {
+      depreciation = (cost.v - totalDepreciation) * rate;
+    }
+    if (p === per) return { t: 'num', v: depreciation };
+    totalDepreciation += depreciation;
+  }
+
+  return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * DDB(cost, salvage, life, period, [factor]) — returns double-declining balance depreciation.
+ */
+export function ddbFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+
+  const cost = NumberArgs.map(visit(exprs[0]), grid);
+  if (cost.t === 'err') return cost;
+  const salvage = NumberArgs.map(visit(exprs[1]), grid);
+  if (salvage.t === 'err') return salvage;
+  const life = NumberArgs.map(visit(exprs[2]), grid);
+  if (life.t === 'err') return life;
+  const period = NumberArgs.map(visit(exprs[3]), grid);
+  if (period.t === 'err') return period;
+
+  let factor = 2;
+  if (exprs.length === 5) {
+    const factorNode = NumberArgs.map(visit(exprs[4]), grid);
+    if (factorNode.t === 'err') return factorNode;
+    factor = factorNode.v;
+  }
+
+  if (life.v <= 0 || period.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  const rate = factor / life.v;
+  let bookValue = cost.v;
+  const per = Math.trunc(period.v);
+
+  for (let p = 1; p <= per; p++) {
+    let depreciation = bookValue * rate;
+    // Don't depreciate below salvage value
+    if (bookValue - depreciation < salvage.v) {
+      depreciation = bookValue - salvage.v;
+    }
+    if (depreciation < 0) depreciation = 0;
+    if (p === per) return { t: 'num', v: depreciation };
+    bookValue -= depreciation;
+  }
+
+  return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * NOMINAL(effective_rate, periods_per_year) — returns the nominal annual interest rate.
+ */
+export function nominalFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const effectiveRate = NumberArgs.map(visit(exprs[0]), grid);
+  if (effectiveRate.t === 'err') return effectiveRate;
+  const periods = NumberArgs.map(visit(exprs[1]), grid);
+  if (periods.t === 'err') return periods;
+  const n = Math.trunc(periods.v);
+  if (n < 1 || effectiveRate.v <= 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: n * (Math.pow(1 + effectiveRate.v, 1 / n) - 1) };
+}
+
+/**
+ * CUMIPMT(rate, nper, pv, start_period, end_period, type) — returns cumulative interest paid.
+ */
+export function cumipmtFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 6) return { t: 'err', v: '#N/A!' };
+
+  const rate = NumberArgs.map(visit(exprs[0]), grid);
+  if (rate.t === 'err') return rate;
+  const nper = NumberArgs.map(visit(exprs[1]), grid);
+  if (nper.t === 'err') return nper;
+  const pv = NumberArgs.map(visit(exprs[2]), grid);
+  if (pv.t === 'err') return pv;
+  const startPeriod = NumberArgs.map(visit(exprs[3]), grid);
+  if (startPeriod.t === 'err') return startPeriod;
+  const endPeriod = NumberArgs.map(visit(exprs[4]), grid);
+  if (endPeriod.t === 'err') return endPeriod;
+  const type = NumberArgs.map(visit(exprs[5]), grid);
+  if (type.t === 'err') return type;
+
+  const start = Math.trunc(startPeriod.v);
+  const end = Math.trunc(endPeriod.v);
+  const t = Math.trunc(type.v);
+
+  if (rate.v <= 0 || nper.v <= 0 || pv.v <= 0 || start < 1 || end < start || (t !== 0 && t !== 1)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const pmt = computePmt(rate.v, nper.v, pv.v, 0, t);
+  let cumInterest = 0;
+  let balance = pv.v;
+
+  for (let p = 1; p <= end; p++) {
+    const interest = (t === 1 && p === 1) ? 0 : balance * rate.v;
+    const principal = pmt - interest;
+    if (p >= start) cumInterest += interest;
+    balance += principal;
+  }
+
+  return { t: 'num', v: cumInterest };
+}
+
+/**
+ * CUMPRINC(rate, nper, pv, start_period, end_period, type) — returns cumulative principal paid.
+ */
+export function cumprincFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 6) return { t: 'err', v: '#N/A!' };
+
+  const rate = NumberArgs.map(visit(exprs[0]), grid);
+  if (rate.t === 'err') return rate;
+  const nper = NumberArgs.map(visit(exprs[1]), grid);
+  if (nper.t === 'err') return nper;
+  const pv = NumberArgs.map(visit(exprs[2]), grid);
+  if (pv.t === 'err') return pv;
+  const startPeriod = NumberArgs.map(visit(exprs[3]), grid);
+  if (startPeriod.t === 'err') return startPeriod;
+  const endPeriod = NumberArgs.map(visit(exprs[4]), grid);
+  if (endPeriod.t === 'err') return endPeriod;
+  const type = NumberArgs.map(visit(exprs[5]), grid);
+  if (type.t === 'err') return type;
+
+  const start = Math.trunc(startPeriod.v);
+  const end = Math.trunc(endPeriod.v);
+  const t = Math.trunc(type.v);
+
+  if (rate.v <= 0 || nper.v <= 0 || pv.v <= 0 || start < 1 || end < start || (t !== 0 && t !== 1)) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const pmt = computePmt(rate.v, nper.v, pv.v, 0, t);
+  let cumPrincipal = 0;
+  let balance = pv.v;
+
+  for (let p = 1; p <= end; p++) {
+    const interest = (t === 1 && p === 1) ? 0 : balance * rate.v;
+    const principal = pmt - interest;
+    if (p >= start) cumPrincipal += principal;
+    balance += principal;
+  }
+
+  return { t: 'num', v: cumPrincipal };
 }

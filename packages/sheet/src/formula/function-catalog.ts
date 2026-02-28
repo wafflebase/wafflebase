@@ -1257,6 +1257,74 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the effective annual interest rate',
     args: [{ name: 'nominal_rate' }, { name: 'periods_per_year' }],
   },
+  {
+    name: 'RATE',
+    description: 'Returns the interest rate per period of an annuity',
+    args: [
+      { name: 'nper' },
+      { name: 'pmt' },
+      { name: 'pv' },
+      { name: 'fv', optional: true },
+      { name: 'type', optional: true },
+      { name: 'guess', optional: true },
+    ],
+  },
+  {
+    name: 'IRR',
+    description: 'Returns the internal rate of return for a series of cash flows',
+    args: [{ name: 'values' }, { name: 'guess', optional: true }],
+  },
+  {
+    name: 'DB',
+    description: 'Returns the depreciation using the fixed-declining balance method',
+    args: [
+      { name: 'cost' },
+      { name: 'salvage' },
+      { name: 'life' },
+      { name: 'period' },
+      { name: 'month', optional: true },
+    ],
+  },
+  {
+    name: 'DDB',
+    description: 'Returns the depreciation using the double-declining balance method',
+    args: [
+      { name: 'cost' },
+      { name: 'salvage' },
+      { name: 'life' },
+      { name: 'period' },
+      { name: 'factor', optional: true },
+    ],
+  },
+  {
+    name: 'NOMINAL',
+    description: 'Returns the nominal annual interest rate',
+    args: [{ name: 'effective_rate' }, { name: 'periods_per_year' }],
+  },
+  {
+    name: 'CUMIPMT',
+    description: 'Returns the cumulative interest paid between two periods',
+    args: [
+      { name: 'rate' },
+      { name: 'nper' },
+      { name: 'pv' },
+      { name: 'start_period' },
+      { name: 'end_period' },
+      { name: 'type' },
+    ],
+  },
+  {
+    name: 'CUMPRINC',
+    description: 'Returns the cumulative principal paid between two periods',
+    args: [
+      { name: 'rate' },
+      { name: 'nper' },
+      { name: 'pv' },
+      { name: 'start_period' },
+      { name: 'end_period' },
+      { name: 'type' },
+    ],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1284,7 +1352,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WORKDAY',
     'YEARFRAC',
   ]),
-  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT']),
+  Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC']),
   Info: new Set([
     'ISBLANK',
     'ISNUMBER',

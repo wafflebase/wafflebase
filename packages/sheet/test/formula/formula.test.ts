@@ -1446,6 +1446,52 @@ describe('Formula', () => {
     expect(Number(result)).toBeCloseTo(0.10381, 4);
   });
 
+  // --- Batch 17: More Financial functions ---
+  it('should correctly evaluate RATE function', () => {
+    // RATE(360, 0-1073.64, 200000) — rate for $200k loan, ~$1073.64/mo, 360 months
+    const result = evaluate('=RATE(360,0-1073.64,200000)');
+    expect(Number(result)).toBeCloseTo(0.05 / 12, 4);
+  });
+
+  it('should correctly evaluate IRR function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '-10000' } as Cell);
+    grid.set('A2', { v: '3000' } as Cell);
+    grid.set('A3', { v: '4200' } as Cell);
+    grid.set('A4', { v: '6800' } as Cell);
+    const result = evaluate('=IRR(A1:A4)', grid);
+    expect(Number(result)).toBeCloseTo(0.1634, 2);
+  });
+
+  it('should correctly evaluate DB function', () => {
+    // DB(1000000, 100000, 6, 1, 7)
+    const result = evaluate('=DB(1000000,100000,6,1,7)');
+    expect(Number(result)).toBeCloseTo(186083.33, 0);
+  });
+
+  it('should correctly evaluate DDB function', () => {
+    // DDB(10000, 1000, 5, 1) — double declining on $10k, $1k salvage, 5yr, period 1
+    expect(evaluate('=DDB(10000,1000,5,1)')).toBe('4000'); // 10000 * 2/5
+  });
+
+  it('should correctly evaluate NOMINAL function', () => {
+    // NOMINAL(0.10381, 4) — effective 10.381% quarterly → ~10% nominal
+    const result = evaluate('=NOMINAL(0.10381,4)');
+    expect(Number(result)).toBeCloseTo(0.1, 3);
+  });
+
+  it('should correctly evaluate CUMIPMT function', () => {
+    // CUMIPMT(0.1/12, 30, 100000, 1, 12, 0) — interest paid in year 1 on $100k loan
+    const result = evaluate('=CUMIPMT(0.1/12,30,100000,1,12,0)');
+    expect(Number(result)).toBeGreaterThan(0);
+  });
+
+  it('should correctly evaluate CUMPRINC function', () => {
+    // CUMPRINC(0.1/12, 30, 100000, 1, 12, 0) — principal paid in year 1
+    const result = evaluate('=CUMPRINC(0.1/12,30,100000,1,12,0)');
+    expect(Number(result)).toBeLessThan(0);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

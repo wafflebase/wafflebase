@@ -160,6 +160,13 @@ describe('FunctionCatalog', () => {
       expect(findFunction('PPMT')!.name).toBe('PPMT');
       expect(findFunction('SLN')!.name).toBe('SLN');
       expect(findFunction('EFFECT')!.name).toBe('EFFECT');
+      expect(findFunction('RATE')!.name).toBe('RATE');
+      expect(findFunction('IRR')!.name).toBe('IRR');
+      expect(findFunction('DB')!.name).toBe('DB');
+      expect(findFunction('DDB')!.name).toBe('DDB');
+      expect(findFunction('NOMINAL')!.name).toBe('NOMINAL');
+      expect(findFunction('CUMIPMT')!.name).toBe('CUMIPMT');
+      expect(findFunction('CUMPRINC')!.name).toBe('CUMPRINC');
     });
 
     it('should return undefined for unknown function', () => {
