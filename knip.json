@@ -1,5 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignore": [
+    "scripts/**"
+  ],
   "workspaces": {
     "packages/sheet": {
       "entry": ["src/index.ts", "test/**/*.test.ts"],
