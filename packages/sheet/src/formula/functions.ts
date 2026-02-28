@@ -147,6 +147,23 @@ export const FunctionMap = new Map([
   ['PERCENTILE', percentileFunc],
   ['CLEAN', cleanFunc],
   ['NUMBERVALUE', numbervalueFunc],
+  ['STDEV', stdevFunc],
+  ['STDEVP', stdevpFunc],
+  ['STDEV.S', stdevFunc],
+  ['STDEV.P', stdevpFunc],
+  ['VAR', varFunc],
+  ['VARP', varpFunc],
+  ['VAR.S', varFunc],
+  ['VAR.P', varpFunc],
+  ['MODE', modeFunc],
+  ['MODE.SNGL', modeFunc],
+  ['SUMSQ', sumsqFunc],
+  ['NA', naFunc],
+  ['QUARTILE', quartileFunc],
+  ['QUARTILE.INC', quartileFunc],
+  ['COUNTUNIQUE', countuniqueFunc],
+  ['FIXED', fixedFunc],
+  ['DOLLAR', dollarFunc],
 ]);
 
 /**
@@ -5536,4 +5553,415 @@ export function numbervalueFunc(
   }
 
   return { t: 'num', v: num };
+}
+
+/**
+ * STDEV(number1, [number2], ...) — returns the sample standard deviation.
+ */
+export function stdevFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    values.push(node.v);
+  }
+
+  if (values.length < 2) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const sumSqDiff = values.reduce((a, v) => a + (v - mean) ** 2, 0);
+  return { t: 'num', v: Math.sqrt(sumSqDiff / (values.length - 1)) };
+}
+
+/**
+ * STDEVP(number1, [number2], ...) — returns the population standard deviation.
+ */
+export function stdevpFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    values.push(node.v);
+  }
+
+  if (values.length === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const sumSqDiff = values.reduce((a, v) => a + (v - mean) ** 2, 0);
+  return { t: 'num', v: Math.sqrt(sumSqDiff / values.length) };
+}
+
+/**
+ * VAR(number1, [number2], ...) — returns the sample variance.
+ */
+export function varFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    values.push(node.v);
+  }
+
+  if (values.length < 2) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const sumSqDiff = values.reduce((a, v) => a + (v - mean) ** 2, 0);
+  return { t: 'num', v: sumSqDiff / (values.length - 1) };
+}
+
+/**
+ * VARP(number1, [number2], ...) — returns the population variance.
+ */
+export function varpFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    values.push(node.v);
+  }
+
+  if (values.length === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  const sumSqDiff = values.reduce((a, v) => a + (v - mean) ** 2, 0);
+  return { t: 'num', v: sumSqDiff / values.length };
+}
+
+/**
+ * MODE(number1, [number2], ...) — returns the most frequently occurring value.
+ */
+export function modeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    values.push(node.v);
+  }
+
+  if (values.length === 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const counts = new Map<number, number>();
+  for (const v of values) {
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+
+  let maxCount = 0;
+  let mode = values[0];
+  for (const [v, count] of counts) {
+    if (count > maxCount) {
+      maxCount = count;
+      mode = v;
+    }
+  }
+
+  if (maxCount <= 1) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  return { t: 'num', v: mode };
+}
+
+/**
+ * SUMSQ(number1, [number2], ...) — returns the sum of the squares of the arguments.
+ */
+export function sumsqFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  let total = 0;
+  for (const node of NumberArgs.iterate(args, visit, grid)) {
+    if (node.t === 'err') {
+      return node;
+    }
+    total += node.v ** 2;
+  }
+
+  return { t: 'num', v: total };
+}
+
+/**
+ * NA() — returns the #N/A! error value.
+ */
+export function naFunc(
+  ctx: FunctionContext,
+  _visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (args && args.expr().length > 0) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  return { t: 'err', v: '#N/A!' };
+}
+
+/**
+ * QUARTILE(data, quart) — returns the quartile of a data set (quart: 0-4).
+ */
+export function quartileFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length !== 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const values: number[] = [];
+  const dataNode = visit(exprs[0]);
+  if (dataNode.t === 'err') {
+    return dataNode;
+  }
+  if (dataNode.t === 'num') {
+    values.push(dataNode.v);
+  } else if (dataNode.t === 'ref' && grid) {
+    for (const ref of toSrefs([dataNode.v])) {
+      const cellVal = grid.get(ref)?.v || '';
+      if (cellVal !== '' && !isNaN(Number(cellVal))) {
+        values.push(Number(cellVal));
+      }
+    }
+  }
+
+  const quartNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (quartNode.t === 'err') {
+    return quartNode;
+  }
+
+  const quart = Math.trunc(quartNode.v);
+  if (quart < 0 || quart > 4 || values.length === 0) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  const k = quart / 4;
+  values.sort((a, b) => a - b);
+  const n = values.length;
+  const rank = k * (n - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  const fraction = rank - lower;
+
+  if (lower === upper) {
+    return { t: 'num', v: values[lower] };
+  }
+
+  return { t: 'num', v: values[lower] + fraction * (values[upper] - values[lower]) };
+}
+
+/**
+ * COUNTUNIQUE(value1, [value2], ...) — counts the number of unique values.
+ */
+export function countuniqueFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const unique = new Set<string>();
+  const exprs = args.expr();
+  for (const expr of exprs) {
+    const node = visit(expr);
+    if (node.t === 'err') {
+      return node;
+    }
+    if (node.t === 'ref' && grid) {
+      for (const ref of toSrefs([node.v])) {
+        const cellVal = grid.get(ref)?.v;
+        if (cellVal !== undefined && cellVal !== '') {
+          unique.add(cellVal);
+        }
+      }
+    } else if (node.t === 'num') {
+      unique.add(String(node.v));
+    } else if (node.t === 'str' && node.v !== '') {
+      unique.add(node.v);
+    } else if (node.t === 'bool') {
+      unique.add(String(node.v));
+    }
+  }
+
+  return { t: 'num', v: unique.size };
+}
+
+/**
+ * FIXED(number, [decimals], [no_commas]) — formats a number with fixed decimal places.
+ */
+export function fixedFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  let decimals = 2;
+  if (exprs.length >= 2) {
+    const decNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (decNode.t === 'err') {
+      return decNode;
+    }
+    decimals = Math.trunc(decNode.v);
+  }
+
+  let noCommas = false;
+  if (exprs.length === 3) {
+    const boolNode = BoolArgs.map(visit(exprs[2]), grid);
+    if (boolNode.t === 'err') {
+      return boolNode;
+    }
+    noCommas = boolNode.v;
+  }
+
+  let result: string;
+  if (decimals < 0) {
+    const factor = 10 ** (-decimals);
+    result = String(Math.round(num.v / factor) * factor);
+  } else {
+    result = num.v.toFixed(decimals);
+  }
+
+  if (!noCommas) {
+    const parts = result.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    result = parts.join('.');
+  }
+
+  return { t: 'str', v: result };
+}
+
+/**
+ * DOLLAR(number, [decimals]) — formats a number as currency with a dollar sign.
+ */
+export function dollarFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) {
+    return { t: 'err', v: '#N/A!' };
+  }
+
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') {
+    return num;
+  }
+
+  let decimals = 2;
+  if (exprs.length === 2) {
+    const decNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (decNode.t === 'err') {
+      return decNode;
+    }
+    decimals = Math.trunc(decNode.v);
+  }
+
+  let value: number;
+  if (decimals < 0) {
+    const factor = 10 ** (-decimals);
+    value = Math.round(num.v / factor) * factor;
+  } else {
+    value = num.v;
+  }
+
+  const isNeg = value < 0;
+  const absFixed = Math.abs(value).toFixed(Math.max(0, decimals));
+  const parts = absFixed.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const formatted = parts.join('.');
+
+  return { t: 'str', v: isNeg ? `($${formatted})` : `$${formatted}` };
 }

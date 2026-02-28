@@ -1060,6 +1060,80 @@ describe('Formula', () => {
     expect(evaluate('=CLEAN("abc")')).toBe('abc');
   });
 
+  it('should correctly evaluate STDEV function', () => {
+    // population stdev = 2, sample stdev = sqrt(32/7) ≈ 2.138
+    const result = Number(evaluate('=STDEV(2,4,4,4,5,5,7,9)'));
+    expect(result).toBeCloseTo(2.138, 2);
+    // Single value should error (need at least 2 for sample)
+    expect(evaluate('=STDEV(5)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate STDEVP function', () => {
+    expect(evaluate('=STDEVP(2,4,4,4,5,5,7,9)')).toBe('2');
+    expect(evaluate('=STDEVP(1,1,1)')).toBe('0');
+  });
+
+  it('should correctly evaluate VAR function', () => {
+    // sample variance = 32/7 ≈ 4.571
+    const result = Number(evaluate('=VAR(2,4,4,4,5,5,7,9)'));
+    expect(result).toBeCloseTo(4.571, 2);
+    expect(evaluate('=VAR(5)')).toBe('#VALUE!');
+  });
+
+  it('should correctly evaluate VARP function', () => {
+    expect(evaluate('=VARP(2,4,4,4,5,5,7,9)')).toBe('4');
+    expect(evaluate('=VARP(1,1,1)')).toBe('0');
+  });
+
+  it('should correctly evaluate MODE function', () => {
+    expect(evaluate('=MODE(1,2,2,3,3,3)')).toBe('3');
+    expect(evaluate('=MODE(1,2,3)')).toBe('#N/A!');
+  });
+
+  it('should correctly evaluate SUMSQ function', () => {
+    expect(evaluate('=SUMSQ(1,2,3)')).toBe('14');
+    expect(evaluate('=SUMSQ(4,5)')).toBe('41');
+  });
+
+  it('should correctly evaluate NA function', () => {
+    expect(evaluate('=NA()')).toBe('#N/A!');
+    expect(evaluate('=IFERROR(NA(),"caught")')).toBe('caught');
+  });
+
+  it('should correctly evaluate QUARTILE function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('A2', { v: '2' });
+    grid.set('A3', { v: '3' });
+    grid.set('A4', { v: '4' });
+    expect(evaluate('=QUARTILE(A1:A4,0)', grid)).toBe('1');
+    expect(evaluate('=QUARTILE(A1:A4,2)', grid)).toBe('2.5');
+    expect(evaluate('=QUARTILE(A1:A4,4)', grid)).toBe('4');
+  });
+
+  it('should correctly evaluate COUNTUNIQUE function', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'a' });
+    grid.set('A2', { v: 'b' });
+    grid.set('A3', { v: 'a' });
+    grid.set('A4', { v: 'c' });
+    expect(evaluate('=COUNTUNIQUE(A1:A4)', grid)).toBe('3');
+    expect(evaluate('=COUNTUNIQUE(1,1,2,3)')).toBe('3');
+  });
+
+  it('should correctly evaluate FIXED function', () => {
+    expect(evaluate('=FIXED(1234.567,2)')).toBe('1,234.57');
+    expect(evaluate('=FIXED(1234.567,2,TRUE)')).toBe('1234.57');
+    expect(evaluate('=FIXED(1234.567,0)')).toBe('1,235');
+    expect(evaluate('=FIXED(44.332)')).toBe('44.33');
+  });
+
+  it('should correctly evaluate DOLLAR function', () => {
+    expect(evaluate('=DOLLAR(1234.567,2)')).toBe('$1,234.57');
+    expect(evaluate('=DOLLAR(1234.567,0)')).toBe('$1,235');
+    expect(evaluate('=DOLLAR(0-1234.567,2)')).toBe('($1,234.57)');
+  });
+
   it('should correctly evaluate NUMBERVALUE function', () => {
     expect(evaluate('=NUMBERVALUE("123")')).toBe('123');
     expect(evaluate('=NUMBERVALUE("1,234.56")')).toBe('1234.56');

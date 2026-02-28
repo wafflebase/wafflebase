@@ -97,6 +97,17 @@ describe('FunctionCatalog', () => {
       expect(findFunction('PERCENTILE')!.name).toBe('PERCENTILE');
       expect(findFunction('CLEAN')!.name).toBe('CLEAN');
       expect(findFunction('NUMBERVALUE')!.name).toBe('NUMBERVALUE');
+      expect(findFunction('STDEV')!.name).toBe('STDEV');
+      expect(findFunction('STDEVP')!.name).toBe('STDEVP');
+      expect(findFunction('VAR')!.name).toBe('VAR');
+      expect(findFunction('VARP')!.name).toBe('VARP');
+      expect(findFunction('MODE')!.name).toBe('MODE');
+      expect(findFunction('SUMSQ')!.name).toBe('SUMSQ');
+      expect(findFunction('NA')!.name).toBe('NA');
+      expect(findFunction('QUARTILE')!.name).toBe('QUARTILE');
+      expect(findFunction('COUNTUNIQUE')!.name).toBe('COUNTUNIQUE');
+      expect(findFunction('FIXED')!.name).toBe('FIXED');
+      expect(findFunction('DOLLAR')!.name).toBe('DOLLAR');
     });
 
     it('should return undefined for unknown function', () => {

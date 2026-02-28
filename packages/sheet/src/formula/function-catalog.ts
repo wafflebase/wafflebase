@@ -842,6 +842,86 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
       { name: 'group_separator', optional: true },
     ],
   },
+  {
+    name: 'STDEV',
+    description: 'Returns the sample standard deviation',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'STDEVP',
+    description: 'Returns the population standard deviation',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'VAR',
+    description: 'Returns the sample variance',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'VARP',
+    description: 'Returns the population variance',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'MODE',
+    description: 'Returns the most frequently occurring value',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'SUMSQ',
+    description: 'Returns the sum of the squares of the arguments',
+    args: [
+      { name: 'number1' },
+      { name: 'number2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'NA',
+    description: 'Returns the #N/A! error value',
+    args: [],
+  },
+  {
+    name: 'QUARTILE',
+    description: 'Returns the quartile of a data set',
+    args: [{ name: 'data' }, { name: 'quart' }],
+  },
+  {
+    name: 'COUNTUNIQUE',
+    description: 'Counts the number of unique values in a list',
+    args: [
+      { name: 'value1' },
+      { name: 'value2', optional: true, repeating: true },
+    ],
+  },
+  {
+    name: 'FIXED',
+    description: 'Formats a number with a fixed number of decimal places',
+    args: [
+      { name: 'number' },
+      { name: 'decimals', optional: true },
+      { name: 'no_commas', optional: true },
+    ],
+  },
+  {
+    name: 'DOLLAR',
+    description: 'Formats a number as currency with a dollar sign',
+    args: [{ name: 'number' }, { name: 'decimals', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -876,6 +956,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ISNONTEXT',
     'N',
     'TYPE',
+    'NA',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
   Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK']),
@@ -923,6 +1004,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'COMBIN',
     'FACT',
     'QUOTIENT',
+    'SUMSQ',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -939,6 +1021,13 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'MAXIFS',
     'RANK',
     'PERCENTILE',
+    'STDEV',
+    'STDEVP',
+    'VAR',
+    'VARP',
+    'MODE',
+    'QUARTILE',
+    'COUNTUNIQUE',
   ]),
   Text: new Set([
     'TRIM',
@@ -965,6 +1054,8 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'CODE',
     'CLEAN',
     'NUMBERVALUE',
+    'FIXED',
+    'DOLLAR',
   ]),
 };
 
