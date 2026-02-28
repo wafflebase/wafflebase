@@ -39,6 +39,14 @@ describe("extractFileRefs", () => {
     ]);
   });
 
+  it("strips anchor fragments from markdown link targets", () => {
+    const content = "See [section](README.md#overview) for details.";
+    const refs = extractFileRefs(content, "test.md");
+    assert.deepStrictEqual(refs, [
+      { path: "README.md", source: "test.md" },
+    ]);
+  });
+
   it("deduplicates repeated references in the same file", () => {
     const content = "Use `src/a.ts` and then `src/a.ts` again.";
     const refs = extractFileRefs(content, "test.md");

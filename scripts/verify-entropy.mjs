@@ -25,6 +25,11 @@ const VALID_EXTENSIONS = new Set([
   ".css",
 ]);
 
+function stripFragment(ref) {
+  const hashIndex = ref.indexOf("#");
+  return hashIndex === -1 ? ref : ref.slice(0, hashIndex);
+}
+
 function isFilePath(ref) {
   if (ref.startsWith("http://") || ref.startsWith("https://")) {
     return false;
@@ -32,11 +37,12 @@ function isFilePath(ref) {
   if (ref.startsWith("#")) {
     return false;
   }
-  const dotIndex = ref.lastIndexOf(".");
+  const clean = stripFragment(ref);
+  const dotIndex = clean.lastIndexOf(".");
   if (dotIndex === -1) {
     return false;
   }
-  const ext = ref.slice(dotIndex);
+  const ext = clean.slice(dotIndex);
   return VALID_EXTENSIONS.has(ext);
 }
 
@@ -75,7 +81,7 @@ export function extractFileRefs(content, sourceName) {
     // Extract markdown link targets
     const linkPattern = /\[([^\]]*)\]\(([^)]+)\)/g;
     while ((match = linkPattern.exec(line)) !== null) {
-      const ref = match[2];
+      const ref = stripFragment(match[2]);
       if (isFilePath(ref) && !seen.has(ref)) {
         seen.add(ref);
         refs.push({ path: ref, source: sourceName });
@@ -114,7 +120,7 @@ async function runDocStaleness(designDir) {
   for (const fileName of mdFiles) {
     const filePath = path.join(absoluteDesignDir, fileName);
     const content = await readFile(filePath, "utf8");
-    const refs = extractFileRefs(content, `design/${fileName}`);
+    const refs = extractFileRefs(content, `${designDir}/${fileName}`);
 
     for (const ref of refs) {
       const fromRoot = path.resolve(repoRoot, ref.path);
@@ -138,7 +144,7 @@ async function runDocStaleness(designDir) {
 }
 
 function spawnAsync(cmd, args, options) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     execFile(cmd, args, options, (error, stdout, stderr) => {
       resolve({ error, stdout, stderr });
     });
@@ -225,7 +231,7 @@ async function main() {
   let totalFindings = [];
 
   // Dead-code detection (knip)
-  if (entropyConfig.deadCode?.enabled) {
+  if (entropyConfig.deadCode?.enabled !== false) {
     console.log(`${PREFIX} Running dead-code detection (knip)...`);
     const knipResult = await runKnip();
     if (knipResult.findings.length > 0) {
@@ -240,7 +246,7 @@ async function main() {
   }
 
   // Doc-staleness check
-  if (entropyConfig.docStaleness?.enabled) {
+  if (entropyConfig.docStaleness?.enabled !== false) {
     const designDir = entropyConfig.docStaleness.designDir || "design";
     console.log(`${PREFIX} Running doc-staleness check...`);
     const stalenessResult = await runDocStaleness(designDir);
