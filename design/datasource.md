@@ -93,7 +93,7 @@ type SpreadsheetDocument = {
 - **Sheet tabs** store data in `sheets[tabId]` (the existing `Worksheet` structure).
 - **Datasource tabs** store only metadata (`datasourceId`, `query`) in `tabs[tabId]`. Query results are ephemeral and loaded into a `ReadOnlyStore` on execution.
 
-**Auto-migration**: On document load, if the old flat format is detected (has `sheet` but no `tabs`), it is automatically migrated to the new structure in a single Yorkie update. See `migrateDocument()` in `document-detail.tsx`.
+**Auto-migration**: On document load, if the old flat format is detected (has `sheet` but no `tabs`), it is automatically migrated to the new structure in a single Yorkie update. See `migrateDocument()` in `packages/frontend/src/app/documents/document-detail.tsx`.
 
 ### 2. Backend DataSource Module
 
@@ -138,14 +138,14 @@ Every operation verifies `ds.authorID === userId`. Users can only access their o
 
 #### Password Encryption
 
-Passwords are encrypted at rest using AES-256-GCM (`crypto.util.ts`):
+Passwords are encrypted at rest using AES-256-GCM (`packages/backend/src/datasource/crypto.util.ts`):
 - Key: `DATASOURCE_ENCRYPTION_KEY` environment variable (64-char hex = 32 bytes)
 - Storage format: `iv:authTag:ciphertext` (all base64-encoded)
 - Decrypted only when creating a pg `Client` connection
 
 #### SQL Validation
 
-The `sql-validator.ts` module ensures only read operations are allowed:
+The `packages/backend/src/datasource/sql-validator.ts` module ensures only read operations are allowed:
 - Only `SELECT` and `WITH` (CTEs) statements are permitted
 - Forbidden keywords: `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `GRANT`, `REVOKE`, `EXEC`, `EXECUTE`
 - Multiple statements (`;` separated) are rejected
@@ -174,12 +174,12 @@ The `sql-validator.ts` module ensures only read operations are allowed:
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| `TabBar` | `components/tab-bar.tsx` | Tab strip at bottom of spreadsheet. Shows sheet/datasource icons, supports rename (double-click), delete (context menu), and add (+) |
-| `DataSourceView` | `app/spreadsheet/datasource-view.tsx` | SQL editor textarea + Execute button + results grid. Ctrl/Cmd+Enter shortcut. Saves query to Yorkie on execution |
-| `DataSourceSelector` | `components/datasource-selector.tsx` | Dialog to pick an existing datasource or create a new one when adding a datasource tab |
-| `DataSourceDialog` | `components/datasource-dialog.tsx` | Form for creating a new datasource with connection test |
-| `DataSourceList` | `app/datasources/datasource-list.tsx` | Management page with TanStack Table for all user datasources |
-| `DataSourceEditDialog` | `app/datasources/datasource-edit-dialog.tsx` | Edit existing datasource properties |
+| `TabBar` | `packages/frontend/src/components/tab-bar.tsx` | Tab strip at bottom of spreadsheet. Shows sheet/datasource icons, supports rename (double-click), delete (context menu), and add (+) |
+| `DataSourceView` | `packages/frontend/src/app/spreadsheet/datasource-view.tsx` | SQL editor textarea + Execute button + results grid. Ctrl/Cmd+Enter shortcut. Saves query to Yorkie on execution |
+| `DataSourceSelector` | `packages/frontend/src/components/datasource-selector.tsx` | Dialog to pick an existing datasource or create a new one when adding a datasource tab |
+| `DataSourceDialog` | `packages/frontend/src/components/datasource-dialog.tsx` | Form for creating a new datasource with connection test |
+| `DataSourceList` | `packages/frontend/src/app/datasources/datasource-list.tsx` | Management page with TanStack Table for all user datasources |
+| `DataSourceEditDialog` | `packages/frontend/src/app/datasources/datasource-edit-dialog.tsx` | Edit existing datasource properties |
 
 ### 5. User Workflow
 

@@ -193,7 +193,7 @@ is a single undo step. See
 references. It maintains a `CellIndex` for efficient range queries and
 navigation (see below).
 
-**ReadOnlyStore** (`src/store/readonly.ts`) is a read-only Store implementation
+**ReadOnlyStore** (`packages/sheet/src/store/readonly.ts`) is a read-only Store implementation
 for displaying external data (e.g., SQL query results). Data is loaded via
 `loadQueryResults(columns, rows)` which populates row 0 with bold column
 headers and subsequent rows with data. All write operations are no-ops.
@@ -244,7 +244,7 @@ The entire operation is wrapped in a batch transaction for single-step undo.
 
 #### CellIndex
 
-`CellIndex` (`src/store/cell-index.ts`) is a spatial index that tracks which
+`CellIndex` (`packages/sheet/src/store/cell-index.ts`) is a spatial index that tracks which
 cells are populated using two `Map<number, Set<number>>`:
 
 - **`rowIndex`**: row → set of occupied columns
@@ -282,7 +282,7 @@ this checks ~50 row entries, not 1M.
 
 #### findEdgeWithIndex
 
-`findEdgeWithIndex` (`src/store/find-edge.ts`) replaces the O(distance)
+`findEdgeWithIndex` (`packages/sheet/src/store/find-edge.ts`) replaces the O(distance)
 step-by-step `findEdge` algorithm with O(k) jumps using sorted occupied
 positions from the `CellIndex`.
 
@@ -304,7 +304,7 @@ positions from the `CellIndex`.
 
 #### ANTLR Grammar
 
-The grammar (`src/formula/antlr/Formula.g4`) defines:
+The grammar (`packages/sheet/antlr/Formula.g4`) defines:
 
 ```
 formula: expr+
@@ -366,7 +366,7 @@ converted).
 
 ### Calculator
 
-The `Calculator` module (`src/model/calculator.ts`) recalculates formulas
+The `Calculator` module (`packages/sheet/src/model/calculator.ts`) recalculates formulas
 after a cell change.
 
 **Algorithm:**
@@ -561,7 +561,7 @@ top-level fields with `?? 0` fallback for backward compatibility.
 Cell coordinates are **1-based** (`A1` = `{r: 1, c: 1}`). Column labels use
 base-26 encoding: A=1, Z=26, AA=27, up to ZZZ=18278.
 
-Key functions in `src/model/coordinates.ts`:
+Key functions in `packages/sheet/src/model/coordinates.ts`:
 
 - `parseRef("A1")` → `{r: 1, c: 1}`
 - `toSref({r: 1, c: 1})` → `"A1"`
@@ -606,7 +606,7 @@ are added to `FunctionMap` following the same pattern: accept a
 `FunctionContext`, visitor, and optional grid; return an `EvalNode`.
 
 **Function discoverability UI** — The engine exposes a function browser dialog
-that is backed by `formula/function-catalog.ts` and supports search by
+that is backed by `packages/sheet/src/formula/function-catalog.ts` and supports search by
 name/signature/description, with functions grouped by Google Sheets-style
 categories (`Date`, `Info`, `Logical`, `Lookup`, `Math`, `Statistical`,
 `Text`).

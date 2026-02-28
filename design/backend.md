@@ -224,7 +224,7 @@ Created by `AuthService.createTokens()`:
 
 ### Database Schema
 
-PostgreSQL managed by Prisma (`prisma/schema.prisma`):
+PostgreSQL managed by Prisma (`packages/backend/prisma/schema.prisma`):
 
 ```mermaid
 erDiagram
@@ -313,18 +313,18 @@ erDiagram
 - **Unit tests (`pnpm backend test`)** cover SQL validation and core
   datasource behavior with mocked persistence/network clients.
 - **E2E tests (`pnpm backend test:e2e`)** include:
-  - controller contract tests with mocked services (`test/http.e2e-spec.ts`).
-  - DB-backed integration tests (`test/database.e2e-spec.ts`) for
+  - controller contract tests with mocked services (`packages/backend/test/http.e2e-spec.ts`).
+  - DB-backed integration tests (`packages/backend/test/database.e2e-spec.ts`) for
     datasource/share-link services using Prisma + PostgreSQL.
   - authenticated HTTP integration tests
-    (`test/authenticated-http.e2e-spec.ts`) that run through JWT cookie auth,
+    (`packages/backend/test/authenticated-http.e2e-spec.ts`) that run through JWT cookie auth,
     guards, controllers, Prisma, and PostgreSQL for core ownership flows.
 - DB-backed tests are gated by `RUN_DB_INTEGRATION_TESTS=true` so local runs
   can opt in explicitly.
 
 ### Security
 
-**CORS** — Configured in `main.ts`:
+**CORS** — Configured in `packages/backend/src/main.ts`:
 - `origin`: Only allows requests from `FRONTEND_URL`.
 - `credentials: true`: Required for cookie-based auth.
 - Allowed methods: GET, POST, PUT, DELETE, PATCH, OPTIONS.

@@ -32,7 +32,7 @@ allow formulas in one sheet to read values from another sheet.
 
 ### ANTLR Grammar
 
-The grammar (`antlr/Formula.g4`) defines the formula syntax:
+The grammar (`packages/sheet/antlr/Formula.g4`) defines the formula syntax:
 
 ```antlr
 grammar Formula;
@@ -75,7 +75,7 @@ containing spaces or special characters are quoted: `'My Sheet'!A1`.
 
 ### Evaluation Pipeline
 
-Source: `src/formula/formula.ts`
+Source: `packages/sheet/src/formula/formula.ts`
 
 ```
 Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Evaluator (visitor) → EvalNode → String result
@@ -100,16 +100,16 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
 
 | Function                                         | Source       | Description                                                                               |
 | ------------------------------------------------ | ------------ | ----------------------------------------------------------------------------------------- |
-| `extractReferences(formula)`                     | `formula.ts` | Returns all `REFERENCE` tokens (uppercased) as a `Set<Reference>`                         |
-| `extractTokens(formula)`                         | `formula.ts` | Returns all tokens with type, position, and text — fills gaps with `STRING` tokens        |
-| `extractFormulaRanges(formula)`                  | `formula.ts` | Returns ranges referenced in the formula (skips cross-sheet refs) for visual highlighting |
-| `evaluate(formula, grid?)`                       | `formula.ts` | Full parse → visit → resolve pipeline, returns a display string                           |
-| `isReferenceInsertPosition(formula, cursorPos)`  | `formula.ts` | Checks if the cursor is at a valid position to insert a cell reference                    |
-| `findReferenceTokenAtCursor(formula, cursorPos)` | `formula.ts` | Returns the `REFERENCE` token at the cursor, or `undefined`                               |
+| `extractReferences(formula)`                     | `packages/sheet/src/formula/formula.ts` | Returns all `REFERENCE` tokens (uppercased) as a `Set<Reference>`                         |
+| `extractTokens(formula)`                         | `packages/sheet/src/formula/formula.ts` | Returns all tokens with type, position, and text — fills gaps with `STRING` tokens        |
+| `extractFormulaRanges(formula)`                  | `packages/sheet/src/formula/formula.ts` | Returns ranges referenced in the formula (skips cross-sheet refs) for visual highlighting |
+| `evaluate(formula, grid?)`                       | `packages/sheet/src/formula/formula.ts` | Full parse → visit → resolve pipeline, returns a display string                           |
+| `isReferenceInsertPosition(formula, cursorPos)`  | `packages/sheet/src/formula/formula.ts` | Checks if the cursor is at a valid position to insert a cell reference                    |
+| `findReferenceTokenAtCursor(formula, cursorPos)` | `packages/sheet/src/formula/formula.ts` | Returns the `REFERENCE` token at the cursor, or `undefined`                               |
 
 ### Arguments System
 
-Source: `src/formula/arguments.ts`
+Source: `packages/sheet/src/formula/arguments.ts`
 
 The `Arguments<T>` helper class provides type coercion for function arguments:
 
@@ -128,7 +128,7 @@ Key methods:
 
 ### Built-in Functions
 
-Source: `src/formula/functions.ts`
+Source: `packages/sheet/src/formula/functions.ts`
 
 Functions are registered in `FunctionMap`. Each function receives a
 `FunctionContext` (ANTLR node), a `visit` callback, and an optional `Grid`.
@@ -174,7 +174,7 @@ Functions are registered in `FunctionMap`. Each function receives a
 New functions follow the same pattern: accept `(ctx, visit, grid?)`, return
 an `EvalNode`.
 
-Autocomplete metadata is maintained separately in `src/formula/function-catalog.ts`
+Autocomplete metadata is maintained separately in `packages/sheet/src/formula/function-catalog.ts`
 (`FunctionCatalog` array) with name, Google Sheets category, description, and
 argument info.
 
@@ -193,7 +193,7 @@ required trailing `)` and stores the corrected formula.
 
 ### Calculator
 
-Source: `src/model/calculator.ts`
+Source: `packages/sheet/src/model/calculator.ts`
 
 The Calculator recalculates formulas after a cell change, propagating updates
 through the dependency graph in topological order.
@@ -253,7 +253,7 @@ optional `SheetName!` or `'Quoted Name'!` prefixes.
 
 #### Coordinate Helpers
 
-Source: `src/model/coordinates.ts`
+Source: `packages/sheet/src/model/coordinates.ts`
 
 | Function                  | Description                                                                                                 |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -339,7 +339,7 @@ Source: `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
 
 Cross-sheet references are **not shifted or moved** when rows/columns are
 inserted, deleted, or moved. The `shiftFormula` and `moveFormula` functions
-in `src/model/shifting.ts` detect cross-sheet refs (via the `!` character)
+in `packages/sheet/src/model/shifting.ts` detect cross-sheet refs (via the `!` character)
 and preserve them as-is. This matches Excel/Google Sheets behavior where
 cross-sheet references are only adjusted when the referenced sheet itself
 changes structure.

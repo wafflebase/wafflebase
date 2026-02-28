@@ -201,7 +201,7 @@ database → auth/user/document → controllers/modules
 | 17 | Integration determinism hardening | Completed |
 
 Phase 17 delivered:
-- Shared integration test helpers (`test/helpers/integration-helpers.ts`):
+- Shared integration test helpers (`packages/backend/test/helpers/integration-helpers.ts`):
   clearDatabase, createUserFactory, describeDb, parseDatabaseUrl, env defaults.
 - Timestamp nondeterminism eliminated via `jest.useFakeTimers()` in controller
   contract tests.

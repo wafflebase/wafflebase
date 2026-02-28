@@ -68,7 +68,7 @@ StrictMode
 
 ### Sheet Integration
 
-`SheetView` (`src/app/spreadsheet/sheet-view.tsx`) is the bridge between
+`SheetView` (`packages/frontend/src/app/spreadsheet/sheet-view.tsx`) is the bridge between
 React and the `@wafflebase/sheet` engine:
 
 1. On mount, it calls `initialize(containerDiv, { theme, store })` where
@@ -234,7 +234,7 @@ wrapping existing data into a single tab.
 
 #### YorkieStore
 
-`YorkieStore` (`src/app/spreadsheet/yorkie-store.ts`) implements the `Store`
+`YorkieStore` (`packages/frontend/src/app/spreadsheet/yorkie-store.ts`) implements the `Store`
 interface from `@wafflebase/sheet`. It accepts a `tabId` parameter and scopes
 all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 `doc.update()` call that mutates the CRDT document:
@@ -329,7 +329,7 @@ type UserPresence = {
 };
 ```
 
-The `UserPresence` component (`src/components/user-presence.tsx`) displays up
+The `UserPresence` component (`packages/frontend/src/components/user-presence.tsx`) displays up
 to 4 user avatars in the header. It uses the `usePresences()` hook from
 `@yorkie-js/react` to reactively track connected users, and each avatar is
 clickable to jump the local sheet selection to that peer's `activeCell`.
@@ -376,7 +376,7 @@ cookies). The frontend's role is:
 Documents are managed via the backend REST API with TanStack React Query for
 caching and mutations.
 
-**API layer** (`src/api/documents.ts`):
+**API layer** (`packages/frontend/src/api/documents.ts`):
 
 | Function | Method | Endpoint |
 |----------|--------|----------|
@@ -441,7 +441,7 @@ type QueryResult = {
 
 ### Theme System
 
-The `ThemeProvider` (`src/components/theme-provider.tsx`) manages three modes:
+The `ThemeProvider` (`packages/frontend/src/components/theme-provider.tsx`) manages three modes:
 `"light"`, `"dark"`, and `"system"`.
 
 - Persists the user's choice in `localStorage` under `"vite-ui-theme"`.
@@ -453,7 +453,7 @@ The `ThemeProvider` (`src/components/theme-provider.tsx`) manages three modes:
   so the Canvas renderer uses matching colors.
 
 Styling uses Tailwind CSS v4 with custom CSS variables in OKLch color space
-defined in `src/index.css`. UI components are Radix UI primitives styled with
+defined in `packages/frontend/src/index.css`. UI components are Radix UI primitives styled with
 Tailwind (shadcn/ui pattern).
 
 ## Risks and Mitigation
