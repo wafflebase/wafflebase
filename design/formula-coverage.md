@@ -8,12 +8,13 @@ target-version: 0.2.0
 ## Summary
 
 Google Sheets provides approximately 500 functions across 16 categories.
-Wafflebase currently implements **70 functions** covering the most essential
-subset. This document maps every Google Sheets function against our current
-support status and defines a phased plan to close the gap where it matters
-most.
+Wafflebase currently implements **189 function entries (165+ unique
+functions)** covering core spreadsheet needs plus many power-user
+functions. This document maps every Google Sheets function against our
+current support status and defines a phased plan to close the gap where it
+matters most.
 
-**Current coverage**: 70 / ~500 (14%)
+**Current coverage**: ~165 / ~500 (33%)
 
 The goal is not 100% parity. We prioritize the functions that real users reach
 for daily, then progressively add power-user and specialist functions.
@@ -22,15 +23,15 @@ for daily, then progressively add power-user and specialist functions.
 
 | Category    | Google | Ours | Coverage |
 | ----------- | -----: | ---: | -------: |
-| Math        |     84 |   12 |      14% |
-| Statistical |   ~130 |    6 |       5% |
-| Text        |     41 |   14 |      34% |
-| Date        |     26 |   12 |      46% |
-| Logical     |     13 |    8 |      62% |
-| Lookup      |     17 |    4 |      24% |
-| Info        |     18 |    8 |      44% |
+| Math        |     84 |   50 |      60% |
+| Statistical |   ~130 |   28 |      22% |
+| Text        |     41 |   28 |      68% |
+| Date        |     26 |   22 |      85% |
+| Logical     |     13 |   10 |      77% |
+| Lookup      |     17 |   14 |      82% |
+| Info        |     18 |   13 |      72% |
 | Filter      |      4 |    0 |       0% |
-| Array       |     29 |    0 |       0% |
+| Array       |     29 |    1 |       3% |
 | Financial   |     50 |    0 |       0% |
 | Engineering |     47 |    0 |       0% |
 | Operator    |     17 |    0 |       — |
