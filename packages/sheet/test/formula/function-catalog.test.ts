@@ -126,6 +126,21 @@ describe('FunctionCatalog', () => {
       expect(findFunction('CORREL')!.name).toBe('CORREL');
       expect(findFunction('XLOOKUP')!.name).toBe('XLOOKUP');
       expect(findFunction('OFFSET')!.name).toBe('OFFSET');
+      expect(findFunction('ISEVEN')!.name).toBe('ISEVEN');
+      expect(findFunction('ISODD')!.name).toBe('ISODD');
+      expect(findFunction('FACTDOUBLE')!.name).toBe('FACTDOUBLE');
+      expect(findFunction('BASE')!.name).toBe('BASE');
+      expect(findFunction('DECIMAL')!.name).toBe('DECIMAL');
+      expect(findFunction('SQRTPI')!.name).toBe('SQRTPI');
+      expect(findFunction('SINH')!.name).toBe('SINH');
+      expect(findFunction('COSH')!.name).toBe('COSH');
+      expect(findFunction('TANH')!.name).toBe('TANH');
+      expect(findFunction('ASINH')!.name).toBe('ASINH');
+      expect(findFunction('ACOSH')!.name).toBe('ACOSH');
+      expect(findFunction('ATANH')!.name).toBe('ATANH');
+      expect(findFunction('COT')!.name).toBe('COT');
+      expect(findFunction('CSC')!.name).toBe('CSC');
+      expect(findFunction('SEC')!.name).toBe('SEC');
     });
 
     it('should return undefined for unknown function', () => {

@@ -1033,6 +1033,81 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
       { name: 'width', optional: true },
     ],
   },
+  {
+    name: 'ISEVEN',
+    description: 'Checks whether a number is even',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'ISODD',
+    description: 'Checks whether a number is odd',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'FACTDOUBLE',
+    description: 'Returns the double factorial of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'BASE',
+    description: 'Converts a number to text in another base',
+    args: [{ name: 'number' }, { name: 'base' }, { name: 'min_length', optional: true }],
+  },
+  {
+    name: 'DECIMAL',
+    description: 'Converts text from another base to a decimal number',
+    args: [{ name: 'text' }, { name: 'base' }],
+  },
+  {
+    name: 'SQRTPI',
+    description: 'Returns the square root of number * PI',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'SINH',
+    description: 'Returns the hyperbolic sine of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'COSH',
+    description: 'Returns the hyperbolic cosine of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'TANH',
+    description: 'Returns the hyperbolic tangent of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'ASINH',
+    description: 'Returns the inverse hyperbolic sine of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'ACOSH',
+    description: 'Returns the inverse hyperbolic cosine of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'ATANH',
+    description: 'Returns the inverse hyperbolic tangent of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'COT',
+    description: 'Returns the cotangent of an angle in radians',
+    args: [{ name: 'angle' }],
+  },
+  {
+    name: 'CSC',
+    description: 'Returns the cosecant of an angle in radians',
+    args: [{ name: 'angle' }],
+  },
+  {
+    name: 'SEC',
+    description: 'Returns the secant of an angle in radians',
+    args: [{ name: 'angle' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1122,6 +1197,21 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'FACT',
     'QUOTIENT',
     'SUMSQ',
+    'ISEVEN',
+    'ISODD',
+    'FACTDOUBLE',
+    'BASE',
+    'DECIMAL',
+    'SQRTPI',
+    'SINH',
+    'COSH',
+    'TANH',
+    'ASINH',
+    'ACOSH',
+    'ATANH',
+    'COT',
+    'CSC',
+    'SEC',
   ]),
   Statistical: new Set([
     'AVERAGE',

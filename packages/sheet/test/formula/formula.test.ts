@@ -1294,6 +1294,51 @@ describe('Formula', () => {
     expect(evaluate('=OFFSET(A1,0,1)', grid)).toBe('20');
   });
 
+  it('should correctly evaluate ISEVEN and ISODD functions', () => {
+    expect(evaluate('=ISEVEN(4)')).toBe('true');
+    expect(evaluate('=ISEVEN(3)')).toBe('false');
+    expect(evaluate('=ISODD(3)')).toBe('true');
+    expect(evaluate('=ISODD(4)')).toBe('false');
+  });
+
+  it('should correctly evaluate FACTDOUBLE function', () => {
+    expect(evaluate('=FACTDOUBLE(5)')).toBe('15'); // 5*3*1
+    expect(evaluate('=FACTDOUBLE(6)')).toBe('48'); // 6*4*2
+    expect(evaluate('=FACTDOUBLE(0)')).toBe('1');
+  });
+
+  it('should correctly evaluate BASE and DECIMAL functions', () => {
+    expect(evaluate('=BASE(255,16)')).toBe('FF');
+    expect(evaluate('=BASE(10,2)')).toBe('1010');
+    expect(evaluate('=BASE(10,2,8)')).toBe('00001010');
+    expect(evaluate('=DECIMAL("FF",16)')).toBe('255');
+    expect(evaluate('=DECIMAL("1010",2)')).toBe('10');
+  });
+
+  it('should correctly evaluate SQRTPI function', () => {
+    const result = Number(evaluate('=SQRTPI(1)'));
+    expect(result).toBeCloseTo(Math.sqrt(Math.PI), 10);
+    expect(evaluate('=SQRTPI(0)')).toBe('0');
+  });
+
+  it('should correctly evaluate hyperbolic functions', () => {
+    expect(evaluate('=SINH(0)')).toBe('0');
+    expect(evaluate('=COSH(0)')).toBe('1');
+    expect(evaluate('=TANH(0)')).toBe('0');
+    expect(evaluate('=ASINH(0)')).toBe('0');
+    expect(evaluate('=ACOSH(1)')).toBe('0');
+    expect(evaluate('=ATANH(0)')).toBe('0');
+  });
+
+  it('should correctly evaluate COT, CSC, SEC functions', () => {
+    const cotResult = Number(evaluate('=COT(1)'));
+    expect(cotResult).toBeCloseTo(1 / Math.tan(1), 10);
+    const cscResult = Number(evaluate('=CSC(1)'));
+    expect(cscResult).toBeCloseTo(1 / Math.sin(1), 10);
+    const secResult = Number(evaluate('=SEC(0)'));
+    expect(secResult).toBeCloseTo(1, 10);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

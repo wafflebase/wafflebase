@@ -182,6 +182,21 @@ export const FunctionMap = new Map([
   ['CORREL', correlFunc],
   ['XLOOKUP', xlookupFunc],
   ['OFFSET', offsetFunc],
+  ['ISEVEN', isevenFunc],
+  ['ISODD', isoddFunc],
+  ['FACTDOUBLE', factdoubleFunc],
+  ['BASE', baseFunc],
+  ['DECIMAL', decimalFunc],
+  ['SQRTPI', sqrtpiFunc],
+  ['SINH', sinhFunc],
+  ['COSH', coshFunc],
+  ['TANH', tanhFunc],
+  ['ASINH', asinhFunc],
+  ['ACOSH', acoshFunc],
+  ['ATANH', atanhFunc],
+  ['COT', cotFunc],
+  ['CSC', cscFunc],
+  ['SEC', secFunc],
 ]);
 
 /**
@@ -6865,4 +6880,291 @@ export function offsetFunc(
     return { t: 'num', v: num };
   }
   return { t: 'str', v: cellVal };
+}
+
+/**
+ * ISEVEN(number) — checks whether a number is even.
+ */
+export function isevenFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  return { t: 'bool', v: Math.trunc(num.v) % 2 === 0 };
+}
+
+/**
+ * ISODD(number) — checks whether a number is odd.
+ */
+export function isoddFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  return { t: 'bool', v: Math.trunc(num.v) % 2 !== 0 };
+}
+
+/**
+ * FACTDOUBLE(number) — returns the double factorial of a number.
+ */
+export function factdoubleFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  const n = Math.trunc(num.v);
+  if (n < -1) return { t: 'err', v: '#VALUE!' };
+  if (n <= 0) return { t: 'num', v: 1 };
+  let result = 1;
+  for (let i = n; i > 0; i -= 2) {
+    result *= i;
+  }
+  return { t: 'num', v: result };
+}
+
+/**
+ * BASE(number, base, [min_length]) — converts a number to text in another base.
+ */
+export function baseFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  const base = NumberArgs.map(visit(exprs[1]), grid);
+  if (base.t === 'err') return base;
+  const b = Math.trunc(base.v);
+  if (b < 2 || b > 36) return { t: 'err', v: '#VALUE!' };
+  let result = Math.trunc(num.v).toString(b).toUpperCase();
+  if (exprs.length === 3) {
+    const minLen = NumberArgs.map(visit(exprs[2]), grid);
+    if (minLen.t === 'err') return minLen;
+    result = result.padStart(Math.trunc(minLen.v), '0');
+  }
+  return { t: 'str', v: result };
+}
+
+/**
+ * DECIMAL(text, base) — converts text from another base to a decimal number.
+ */
+export function decimalFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const str = toStr(visit(exprs[0]), grid);
+  if (str.t === 'err') return str;
+  const base = NumberArgs.map(visit(exprs[1]), grid);
+  if (base.t === 'err') return base;
+  const b = Math.trunc(base.v);
+  if (b < 2 || b > 36) return { t: 'err', v: '#VALUE!' };
+  const num = parseInt(str.v, b);
+  if (isNaN(num)) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: num };
+}
+
+/**
+ * SQRTPI(number) — returns the square root of (number * PI).
+ */
+export function sqrtpiFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  if (num.v < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.sqrt(num.v * Math.PI) };
+}
+
+/**
+ * SINH(number) — returns the hyperbolic sine.
+ */
+export function sinhFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  return { t: 'num', v: Math.sinh(num.v) };
+}
+
+/**
+ * COSH(number) — returns the hyperbolic cosine.
+ */
+export function coshFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  return { t: 'num', v: Math.cosh(num.v) };
+}
+
+/**
+ * TANH(number) — returns the hyperbolic tangent.
+ */
+export function tanhFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  return { t: 'num', v: Math.tanh(num.v) };
+}
+
+/**
+ * ASINH(number) — returns the inverse hyperbolic sine.
+ */
+export function asinhFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  return { t: 'num', v: Math.asinh(num.v) };
+}
+
+/**
+ * ACOSH(number) — returns the inverse hyperbolic cosine.
+ */
+export function acoshFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  if (num.v < 1) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.acosh(num.v) };
+}
+
+/**
+ * ATANH(number) — returns the inverse hyperbolic tangent.
+ */
+export function atanhFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  if (num.v <= -1 || num.v >= 1) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.atanh(num.v) };
+}
+
+/**
+ * COT(angle) — returns the cotangent of an angle in radians.
+ */
+export function cotFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  const tan = Math.tan(num.v);
+  if (tan === 0) return { t: 'err', v: '#DIV/0!' };
+  return { t: 'num', v: 1 / tan };
+}
+
+/**
+ * CSC(angle) — returns the cosecant of an angle in radians.
+ */
+export function cscFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  const sin = Math.sin(num.v);
+  if (sin === 0) return { t: 'err', v: '#DIV/0!' };
+  return { t: 'num', v: 1 / sin };
+}
+
+/**
+ * SEC(angle) — returns the secant of an angle in radians.
+ */
+export function secFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  const cos = Math.cos(num.v);
+  if (cos === 0) return { t: 'err', v: '#DIV/0!' };
+  return { t: 'num', v: 1 / cos };
 }
