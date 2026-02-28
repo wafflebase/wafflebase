@@ -2193,6 +2193,58 @@ describe('Formula', () => {
     expect(Number(evaluate('=VARPA(1,2,3)'))).toBeCloseTo(0.6667, 3);
   });
 
+  it('should correctly evaluate ISREF function', () => {
+    const grid = new Map([['A1', { v: '10' } as Cell]]);
+    expect(evaluate('=ISREF(A1)', grid)).toBe('true');
+    expect(evaluate('=ISREF(5)')).toBe('false');
+    expect(evaluate('=ISREF("text")')).toBe('false');
+  });
+
+  it('should correctly evaluate SHEET and SHEETS functions', () => {
+    expect(evaluate('=SHEET()')).toBe('1');
+    expect(evaluate('=SHEETS()')).toBe('1');
+  });
+
+  it('should correctly evaluate MDETERM function', () => {
+    const grid = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['B1', { v: '2' } as Cell],
+      ['A2', { v: '3' } as Cell],
+      ['B2', { v: '4' } as Cell],
+    ]);
+    // det([[1,2],[3,4]]) = 1*4 - 2*3 = -2
+    expect(Number(evaluate('=MDETERM(A1:B2)', grid))).toBe(-2);
+  });
+
+  it('should correctly evaluate PROB function', () => {
+    const grid = new Map([
+      ['A1', { v: '0' } as Cell],
+      ['A2', { v: '1' } as Cell],
+      ['A3', { v: '2' } as Cell],
+      ['A4', { v: '3' } as Cell],
+      ['B1', { v: '0.2' } as Cell],
+      ['B2', { v: '0.3' } as Cell],
+      ['B3', { v: '0.1' } as Cell],
+      ['B4', { v: '0.4' } as Cell],
+    ]);
+    // P(1 <= X <= 3) = 0.3 + 0.1 + 0.4 = 0.8
+    const result = evaluate('=PROB(A1:A4,B1:B4,1,3)', grid);
+    expect(Number(result)).toBeCloseTo(0.8, 4);
+  });
+
+  it('should correctly evaluate CONVERT function', () => {
+    // Length: 1 mile = 1.60934 km
+    expect(Number(evaluate('=CONVERT(1,"mi","km")'))).toBeCloseTo(1.60934, 3);
+    // Temperature: 32°F = 0°C
+    expect(Number(evaluate('=CONVERT(32,"F","C")'))).toBeCloseTo(0, 4);
+    // Temperature: 100°C = 212°F
+    expect(Number(evaluate('=CONVERT(100,"C","F")'))).toBeCloseTo(212, 4);
+    // Mass: 1 kg = 2.205 lbm
+    expect(Number(evaluate('=CONVERT(1,"kg","lbm")'))).toBeCloseTo(2.2046, 2);
+    // Time: 1 hr = 3600 sec
+    expect(Number(evaluate('=CONVERT(1,"hr","sec")'))).toBe(3600);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

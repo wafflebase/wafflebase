@@ -258,6 +258,12 @@ describe('FunctionCatalog', () => {
       expect(findFunction('VARPA')!.name).toBe('VARPA');
       expect(findFunction('SKEW')!.name).toBe('SKEW');
       expect(findFunction('KURT')!.name).toBe('KURT');
+      expect(findFunction('ISREF')!.name).toBe('ISREF');
+      expect(findFunction('SHEET')!.name).toBe('SHEET');
+      expect(findFunction('SHEETS')!.name).toBe('SHEETS');
+      expect(findFunction('MDETERM')!.name).toBe('MDETERM');
+      expect(findFunction('PROB')!.name).toBe('PROB');
+      expect(findFunction('CONVERT')!.name).toBe('CONVERT');
     });
 
     it('should return undefined for unknown function', () => {

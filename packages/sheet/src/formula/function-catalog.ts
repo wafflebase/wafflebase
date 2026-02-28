@@ -1892,6 +1892,41 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
       { name: 'value2', optional: true, repeating: true },
     ],
   },
+  {
+    name: 'ISREF',
+    description: 'Returns TRUE if the value is a reference',
+    args: [{ name: 'value' }],
+  },
+  {
+    name: 'SHEET',
+    description: 'Returns the sheet number of a reference',
+    args: [{ name: 'value', optional: true }],
+  },
+  {
+    name: 'SHEETS',
+    description: 'Returns the number of sheets in a reference',
+    args: [{ name: 'reference', optional: true }],
+  },
+  {
+    name: 'MDETERM',
+    description: 'Returns the determinant of a square matrix',
+    args: [{ name: 'square_matrix' }],
+  },
+  {
+    name: 'PROB',
+    description: 'Returns the probability of values in a range between two limits',
+    args: [
+      { name: 'x_range' },
+      { name: 'prob_range' },
+      { name: 'lower_limit' },
+      { name: 'upper_limit', optional: true },
+    ],
+  },
+  {
+    name: 'CONVERT',
+    description: 'Converts a number from one measurement unit to another',
+    args: [{ name: 'number' }, { name: 'from_unit' }, { name: 'to_unit' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1919,7 +1954,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WORKDAY',
     'YEARFRAC',
   ]),
-  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC']),
+  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT']),
   Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR']),
   Info: new Set([
     'ISBLANK',
@@ -1933,6 +1968,9 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ISURL',
     'ISFORMULA',
     'FORMULATEXT',
+    'ISREF',
+    'SHEET',
+    'SHEETS',
     'N',
     'TYPE',
     'NA',
@@ -2015,6 +2053,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SEQUENCE',
     'RANDARRAY',
     'SUBTOTAL',
+    'MDETERM',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -2101,6 +2140,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'VARPA',
     'SKEW',
     'KURT',
+    'PROB',
   ]),
   Text: new Set([
     'TRIM',

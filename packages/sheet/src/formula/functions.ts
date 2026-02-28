@@ -320,6 +320,12 @@ export const FunctionMap = new Map([
   ['VARPA', varpaFunc],
   ['SKEW', skewFunc],
   ['KURT', kurtFunc],
+  ['ISREF', isrefFunc],
+  ['SHEET', sheetFunc],
+  ['SHEETS', sheetsFunc],
+  ['MDETERM', mdetermFunc],
+  ['PROB', probFunc],
+  ['CONVERT', convertFunc],
 ]);
 
 /**
@@ -11446,4 +11452,260 @@ export function kurtFunc(
   const m4 = values.reduce((a, v) => a + Math.pow((v - mean) / s, 4), 0);
   const k = (n * (n + 1) * m4) / ((n - 1) * (n - 2) * (n - 3)) - (3 * (n - 1) * (n - 1)) / ((n - 2) * (n - 3));
   return { t: 'num', v: k };
+}
+
+/**
+ * ISREF(value) — returns TRUE if the value is a reference.
+ */
+export function isrefFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  return { t: 'bool', v: node.t === 'ref' };
+}
+
+/**
+ * SHEET([value]) — returns 1 (single sheet).
+ */
+export function sheetFunc(
+  ctx: FunctionContext,
+  _visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  return { t: 'num', v: 1 };
+}
+
+/**
+ * SHEETS([reference]) — returns 1 (single sheet).
+ */
+export function sheetsFunc(
+  ctx: FunctionContext,
+  _visit: (tree: ParseTree) => EvalNode,
+  _grid?: Grid,
+): EvalNode {
+  return { t: 'num', v: 1 };
+}
+
+/**
+ * MDETERM(square_matrix) — returns the determinant of a square matrix.
+ */
+export function mdetermFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') return node;
+  if (node.t === 'num') return node; // 1x1 matrix
+  if (node.t !== 'ref' || !grid) return { t: 'err', v: '#VALUE!' };
+
+  // Parse range to get dimensions
+  const ref = node.v;
+  if (!isSrng(ref)) {
+    // Single cell = 1x1 matrix
+    const cell = grid.get(ref);
+    const v = cell?.v || '';
+    if (v === '' || isNaN(Number(v))) return { t: 'err', v: '#VALUE!' };
+    return { t: 'num', v: Number(v) };
+  }
+
+  const range = parseRange(ref);
+  const rows = range[1].r - range[0].r + 1;
+  const cols = range[1].c - range[0].c + 1;
+  if (rows !== cols) return { t: 'err', v: '#VALUE!' };
+
+  // Build matrix
+  const matrix: number[][] = [];
+  for (let r = range[0].r; r <= range[1].r; r++) {
+    const row: number[] = [];
+    for (let c = range[0].c; c <= range[1].c; c++) {
+      const cellRef = toSref({ r, c });
+      const cell = grid.get(cellRef);
+      const v = cell?.v || '';
+      if (v === '' || isNaN(Number(v))) return { t: 'err', v: '#VALUE!' };
+      row.push(Number(v));
+    }
+    matrix.push(row);
+  }
+
+  // LU decomposition for determinant
+  function det(m: number[][]): number {
+    const n = m.length;
+    if (n === 1) return m[0][0];
+    if (n === 2) return m[0][0] * m[1][1] - m[0][1] * m[1][0];
+    let result = 0;
+    for (let j = 0; j < n; j++) {
+      const sub: number[][] = [];
+      for (let i = 1; i < n; i++) {
+        sub.push([...m[i].slice(0, j), ...m[i].slice(j + 1)]);
+      }
+      result += (j % 2 === 0 ? 1 : -1) * m[0][j] * det(sub);
+    }
+    return result;
+  }
+
+  return { t: 'num', v: det(matrix) };
+}
+
+/**
+ * PROB(x_range, prob_range, lower_limit, [upper_limit]) — probability of values between limits.
+ */
+export function probFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+
+  const result = extractPairedArrays(exprs[0], exprs[1], visit, grid);
+  if ('t' in result) return result;
+  // ys = values from exprs[0] (x_range), xs = values from exprs[1] (prob_range)
+  const xValues = result.ys;
+  const probs = result.xs;
+
+  const lowerNode = NumberArgs.map(visit(exprs[2]), grid);
+  if (lowerNode.t === 'err') return lowerNode;
+  const lower = lowerNode.v;
+
+  let upper = lower;
+  if (exprs.length === 4) {
+    const upperNode = NumberArgs.map(visit(exprs[3]), grid);
+    if (upperNode.t === 'err') return upperNode;
+    upper = upperNode.v;
+  }
+
+  // Validate probabilities sum to <= 1
+  const probSum = probs.reduce((a, b) => a + b, 0);
+  if (probSum > 1.0001 || probs.some(p => p < 0)) return { t: 'err', v: '#VALUE!' };
+
+  let total = 0;
+  for (let i = 0; i < xValues.length; i++) {
+    if (xValues[i] >= lower && xValues[i] <= upper) {
+      total += probs[i];
+    }
+  }
+  return { t: 'num', v: total };
+}
+
+/**
+ * CONVERT(number, from_unit, to_unit) — converts between measurement units.
+ * Supports a basic set of common conversions.
+ */
+export function convertFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+
+  const numNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (numNode.t === 'err') return numNode;
+  const fromNode = toStr(visit(exprs[1]), grid);
+  if (fromNode.t === 'err') return fromNode;
+  const toNode = toStr(visit(exprs[2]), grid);
+  if (toNode.t === 'err') return toNode;
+
+  const from = fromNode.v;
+  const to = toNode.v;
+  const val = numNode.v;
+
+  // Unit conversion tables (to SI base unit)
+  type UnitEntry = { category: string; factor: number; offset?: number };
+  const units: Record<string, UnitEntry> = {
+    // Length (base: meter)
+    m: { category: 'length', factor: 1 },
+    km: { category: 'length', factor: 1000 },
+    cm: { category: 'length', factor: 0.01 },
+    mm: { category: 'length', factor: 0.001 },
+    in: { category: 'length', factor: 0.0254 },
+    ft: { category: 'length', factor: 0.3048 },
+    yd: { category: 'length', factor: 0.9144 },
+    mi: { category: 'length', factor: 1609.344 },
+    Nmi: { category: 'length', factor: 1852 },
+    um: { category: 'length', factor: 1e-6 },
+    // Mass (base: kilogram)
+    kg: { category: 'mass', factor: 1 },
+    g: { category: 'mass', factor: 0.001 },
+    mg: { category: 'mass', factor: 1e-6 },
+    lbm: { category: 'mass', factor: 0.45359237 },
+    ozm: { category: 'mass', factor: 0.028349523125 },
+    stone: { category: 'mass', factor: 6.35029318 },
+    ton: { category: 'mass', factor: 907.18474 },
+    // Temperature (special handling)
+    C: { category: 'temperature', factor: 1, offset: 0 },
+    F: { category: 'temperature', factor: 5 / 9, offset: -32 },
+    K: { category: 'temperature', factor: 1, offset: -273.15 },
+    // Time (base: second)
+    sec: { category: 'time', factor: 1 },
+    s: { category: 'time', factor: 1 },
+    min: { category: 'time', factor: 60 },
+    hr: { category: 'time', factor: 3600 },
+    day: { category: 'time', factor: 86400 },
+    yr: { category: 'time', factor: 31557600 },
+    // Volume (base: liter)
+    l: { category: 'volume', factor: 1 },
+    lt: { category: 'volume', factor: 1 },
+    ml: { category: 'volume', factor: 0.001 },
+    gal: { category: 'volume', factor: 3.785411784 },
+    qt: { category: 'volume', factor: 0.946352946 },
+    pt: { category: 'volume', factor: 0.473176473 },
+    cup: { category: 'volume', factor: 0.2365882365 },
+    tsp: { category: 'volume', factor: 0.00492892159375 },
+    tbs: { category: 'volume', factor: 0.01478676478125 },
+    // Speed (base: m/s)
+    'm/s': { category: 'speed', factor: 1 },
+    'm/h': { category: 'speed', factor: 1 / 3600 },
+    mph: { category: 'speed', factor: 0.44704 },
+    kn: { category: 'speed', factor: 0.514444 },
+    // Area (base: m²)
+    m2: { category: 'area', factor: 1 },
+    ha: { category: 'area', factor: 10000 },
+    acre: { category: 'area', factor: 4046.8564224 },
+    // Energy (base: joule)
+    J: { category: 'energy', factor: 1 },
+    cal: { category: 'energy', factor: 4.1868 },
+    BTU: { category: 'energy', factor: 1055.05585262 },
+    kWh: { category: 'energy', factor: 3600000 },
+    eV: { category: 'energy', factor: 1.602176634e-19 },
+  };
+
+  const fromUnit = units[from];
+  const toUnit = units[to];
+  if (!fromUnit || !toUnit) return { t: 'err', v: '#N/A!' };
+  if (fromUnit.category !== toUnit.category) return { t: 'err', v: '#N/A!' };
+
+  if (fromUnit.category === 'temperature') {
+    // Convert to Celsius first, then to target
+    let celsius: number;
+    if (from === 'C') celsius = val;
+    else if (from === 'F') celsius = (val - 32) * 5 / 9;
+    else celsius = val - 273.15; // K
+
+    let result: number;
+    if (to === 'C') result = celsius;
+    else if (to === 'F') result = celsius * 9 / 5 + 32;
+    else result = celsius + 273.15; // K
+    return { t: 'num', v: result };
+  }
+
+  // Standard conversion through base unit
+  return { t: 'num', v: val * fromUnit.factor / toUnit.factor };
 }
