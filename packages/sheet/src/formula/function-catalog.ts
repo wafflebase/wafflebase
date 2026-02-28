@@ -1773,6 +1773,74 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the smallest value for which the cumulative binomial distribution is >= alpha',
     args: [{ name: 'trials' }, { name: 'probability_s' }, { name: 'alpha' }],
   },
+  {
+    name: 'TEXTBEFORE',
+    description: 'Returns text before a specified delimiter',
+    args: [
+      { name: 'text' },
+      { name: 'delimiter' },
+      { name: 'instance_num', optional: true },
+    ],
+  },
+  {
+    name: 'TEXTAFTER',
+    description: 'Returns text after a specified delimiter',
+    args: [
+      { name: 'text' },
+      { name: 'delimiter' },
+      { name: 'instance_num', optional: true },
+    ],
+  },
+  {
+    name: 'VALUETOTEXT',
+    description: 'Converts a value to text',
+    args: [{ name: 'value' }, { name: 'format', optional: true }],
+  },
+  {
+    name: 'SEQUENCE',
+    description: 'Generates a sequence of numbers',
+    args: [
+      { name: 'rows' },
+      { name: 'columns', optional: true },
+      { name: 'start', optional: true },
+      { name: 'step', optional: true },
+    ],
+  },
+  {
+    name: 'RANDARRAY',
+    description: 'Generates an array of random numbers',
+    args: [
+      { name: 'rows', optional: true },
+      { name: 'columns', optional: true },
+      { name: 'min', optional: true },
+      { name: 'max', optional: true },
+      { name: 'whole_number', optional: true },
+    ],
+  },
+  {
+    name: 'SORT',
+    description: 'Sorts a range of data',
+    args: [
+      { name: 'range' },
+      { name: 'sort_index', optional: true },
+      { name: 'sort_order', optional: true },
+    ],
+  },
+  {
+    name: 'UNIQUE',
+    description: 'Returns unique values from a range',
+    args: [{ name: 'range' }],
+  },
+  {
+    name: 'FLATTEN',
+    description: 'Flattens a range into a single column',
+    args: [{ name: 'range' }],
+  },
+  {
+    name: 'TRANSPOSE',
+    description: 'Transposes the rows and columns of a range',
+    args: [{ name: 'range' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1821,7 +1889,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ISDATE',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
-  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE']),
   Math: new Set([
     'SUM',
     'ABS',
@@ -1893,6 +1961,8 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SUMX2MY2',
     'SUMX2PY2',
     'SUMXMY2',
+    'SEQUENCE',
+    'RANDARRAY',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -2009,6 +2079,9 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'UNICODE',
     'UNICHAR',
     'ENCODEURL',
+    'TEXTBEFORE',
+    'TEXTAFTER',
+    'VALUETOTEXT',
   ]),
 };
 

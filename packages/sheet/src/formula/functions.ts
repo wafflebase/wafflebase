@@ -304,6 +304,15 @@ export const FunctionMap = new Map([
   ['F.DIST.RT', fdistrtFunc],
   ['F.INV.RT', finvrtFunc],
   ['BINOM.INV', biominvFunc],
+  ['TEXTBEFORE', textbeforeFunc],
+  ['TEXTAFTER', textafterFunc],
+  ['VALUETOTEXT', valuetotextFunc],
+  ['SEQUENCE', sequenceFunc],
+  ['RANDARRAY', randarrayFunc],
+  ['SORT', sortFunc],
+  ['UNIQUE', uniqueFunc],
+  ['FLATTEN', flattenFunc],
+  ['TRANSPOSE', transposeFunc],
 ]);
 
 /**
@@ -10870,4 +10879,291 @@ export function biominvFunc(
     if (cumProb >= alpha) return { t: 'num', v: k };
   }
   return { t: 'num', v: n };
+}
+
+/**
+ * TEXTBEFORE(text, delimiter, [instance_num]) — text before the nth delimiter.
+ */
+export function textbeforeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const textNode = toStr(visit(exprs[0]), grid);
+  if (textNode.t === 'err') return textNode;
+  const delimNode = toStr(visit(exprs[1]), grid);
+  if (delimNode.t === 'err') return delimNode;
+
+  let instance = 1;
+  if (exprs.length === 3) {
+    const instNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (instNode.t === 'err') return instNode;
+    instance = Math.trunc(instNode.v);
+  }
+
+  const text = textNode.v;
+  const delim = delimNode.v;
+  if (delim === '') return { t: 'err', v: '#VALUE!' };
+
+  if (instance > 0) {
+    let pos = -1;
+    for (let i = 0; i < instance; i++) {
+      pos = text.indexOf(delim, pos + 1);
+      if (pos === -1) return { t: 'err', v: '#N/A!' };
+    }
+    return { t: 'str', v: text.substring(0, pos) };
+  } else if (instance < 0) {
+    let pos = text.length;
+    for (let i = 0; i < -instance; i++) {
+      pos = text.lastIndexOf(delim, pos - 1);
+      if (pos === -1) return { t: 'err', v: '#N/A!' };
+    }
+    return { t: 'str', v: text.substring(0, pos) };
+  }
+  return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * TEXTAFTER(text, delimiter, [instance_num]) — text after the nth delimiter.
+ */
+export function textafterFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const textNode = toStr(visit(exprs[0]), grid);
+  if (textNode.t === 'err') return textNode;
+  const delimNode = toStr(visit(exprs[1]), grid);
+  if (delimNode.t === 'err') return delimNode;
+
+  let instance = 1;
+  if (exprs.length === 3) {
+    const instNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (instNode.t === 'err') return instNode;
+    instance = Math.trunc(instNode.v);
+  }
+
+  const text = textNode.v;
+  const delim = delimNode.v;
+  if (delim === '') return { t: 'err', v: '#VALUE!' };
+
+  if (instance > 0) {
+    let pos = -1;
+    for (let i = 0; i < instance; i++) {
+      pos = text.indexOf(delim, pos + 1);
+      if (pos === -1) return { t: 'err', v: '#N/A!' };
+    }
+    return { t: 'str', v: text.substring(pos + delim.length) };
+  } else if (instance < 0) {
+    let pos = text.length;
+    for (let i = 0; i < -instance; i++) {
+      pos = text.lastIndexOf(delim, pos - 1);
+      if (pos === -1) return { t: 'err', v: '#N/A!' };
+    }
+    return { t: 'str', v: text.substring(pos + delim.length) };
+  }
+  return { t: 'err', v: '#VALUE!' };
+}
+
+/**
+ * VALUETOTEXT(value, [format]) — converts a value to text.
+ */
+export function valuetotextFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') return node;
+  const s = toStr(node, grid);
+  if (s.t === 'err') return s;
+
+  let format = 0;
+  if (exprs.length === 2) {
+    const fmtNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (fmtNode.t === 'err') return fmtNode;
+    format = Math.trunc(fmtNode.v);
+  }
+
+  if (format === 1 && node.t === 'str') {
+    return { t: 'str', v: '"' + s.v + '"' };
+  }
+  return { t: 'str', v: s.v };
+}
+
+/**
+ * SEQUENCE(rows, [columns], [start], [step]) — returns start value for single cell.
+ */
+export function sequenceFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+
+  const rowsNode = NumberArgs.map(visit(exprs[0]), grid);
+  if (rowsNode.t === 'err') return rowsNode;
+  if (rowsNode.v < 1) return { t: 'err', v: '#VALUE!' };
+
+  let start = 1;
+  if (exprs.length >= 3) {
+    const startNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (startNode.t === 'err') return startNode;
+    start = startNode.v;
+  }
+
+  // Single-cell: return the start value
+  return { t: 'num', v: start };
+}
+
+/**
+ * RANDARRAY([rows], [columns], [min], [max], [whole_number]) — returns random for single cell.
+ */
+export function randarrayFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  const exprs = args ? args.expr() : [];
+  if (exprs.length > 5) return { t: 'err', v: '#N/A!' };
+
+  let min = 0, max = 1, whole = false;
+  if (exprs.length >= 3) {
+    const minNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (minNode.t === 'err') return minNode;
+    min = minNode.v;
+  }
+  if (exprs.length >= 4) {
+    const maxNode = NumberArgs.map(visit(exprs[3]), grid);
+    if (maxNode.t === 'err') return maxNode;
+    max = maxNode.v;
+  }
+  if (exprs.length >= 5) {
+    const wholeNode = BoolArgs.map(visit(exprs[4]), grid);
+    if (wholeNode.t === 'err') return wholeNode;
+    whole = wholeNode.v;
+  }
+
+  if (min > max) return { t: 'err', v: '#VALUE!' };
+
+  const val = min + Math.random() * (max - min);
+  return { t: 'num', v: whole ? Math.floor(val) : val };
+}
+
+/**
+ * SORT(range, [sort_index], [sort_order]) — for single cell returns first sorted value.
+ */
+export function sortFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const vals = collectNumericValues(exprs[0], visit, grid);
+  if (!Array.isArray(vals)) return vals;
+  if (vals.length === 0) return { t: 'err', v: '#VALUE!' };
+
+  let order = 1;
+  if (exprs.length >= 3) {
+    const orderNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (orderNode.t === 'err') return orderNode;
+    order = orderNode.v;
+  }
+
+  vals.sort((a, b) => order >= 0 ? a - b : b - a);
+  return { t: 'num', v: vals[0] };
+}
+
+/**
+ * Helper: get the first cell value from a ref node.
+ */
+function firstCellValue(node: EvalNode, grid: Grid): EvalNode {
+  if (node.t !== 'ref') return node;
+  const firstRef = toSrefs([node.v]).next().value;
+  if (!firstRef) return { t: 'str', v: '' };
+  const cell = grid.get(firstRef);
+  const val = cell?.v || '';
+  if (val === '') return { t: 'str', v: '' };
+  if (!isNaN(Number(val))) return { t: 'num', v: Number(val) };
+  return { t: 'str', v: val };
+}
+
+/**
+ * UNIQUE(range) — for single cell returns the first unique value.
+ */
+export function uniqueFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') return node;
+  if (node.t !== 'ref' || !grid) return node;
+  return firstCellValue(node, grid);
+}
+
+/**
+ * FLATTEN(range) — for single cell returns the first value.
+ */
+export function flattenFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') return node;
+  if (node.t !== 'ref' || !grid) return node;
+  return firstCellValue(node, grid);
+}
+
+/**
+ * TRANSPOSE(range) — for single cell returns the value itself.
+ */
+export function transposeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+
+  const node = visit(exprs[0]);
+  if (node.t === 'err') return node;
+  if (node.t !== 'ref' || !grid) return node;
+  return firstCellValue(node, grid);
 }

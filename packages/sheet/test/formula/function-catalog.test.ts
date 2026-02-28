@@ -242,6 +242,15 @@ describe('FunctionCatalog', () => {
       expect(findFunction('F.DIST.RT')!.name).toBe('F.DIST.RT');
       expect(findFunction('F.INV.RT')!.name).toBe('F.INV.RT');
       expect(findFunction('BINOM.INV')!.name).toBe('BINOM.INV');
+      expect(findFunction('TEXTBEFORE')!.name).toBe('TEXTBEFORE');
+      expect(findFunction('TEXTAFTER')!.name).toBe('TEXTAFTER');
+      expect(findFunction('VALUETOTEXT')!.name).toBe('VALUETOTEXT');
+      expect(findFunction('SEQUENCE')!.name).toBe('SEQUENCE');
+      expect(findFunction('RANDARRAY')!.name).toBe('RANDARRAY');
+      expect(findFunction('SORT')!.name).toBe('SORT');
+      expect(findFunction('UNIQUE')!.name).toBe('UNIQUE');
+      expect(findFunction('FLATTEN')!.name).toBe('FLATTEN');
+      expect(findFunction('TRANSPOSE')!.name).toBe('TRANSPOSE');
     });
 
     it('should return undefined for unknown function', () => {

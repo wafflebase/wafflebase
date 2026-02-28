@@ -2047,6 +2047,73 @@ describe('Formula', () => {
     expect(Number(result)).toBe(6);
   });
 
+  it('should correctly evaluate TEXTBEFORE function', () => {
+    expect(evaluate('=TEXTBEFORE("hello-world","-")')).toBe('hello');
+    expect(evaluate('=TEXTBEFORE("a/b/c","/",2)')).toBe('a/b');
+    expect(evaluate('=TEXTBEFORE("a/b/c","/",0-1)')).toBe('a/b');
+  });
+
+  it('should correctly evaluate TEXTAFTER function', () => {
+    expect(evaluate('=TEXTAFTER("hello-world","-")')).toBe('world');
+    expect(evaluate('=TEXTAFTER("a/b/c","/",2)')).toBe('c');
+    expect(evaluate('=TEXTAFTER("a/b/c","/",0-1)')).toBe('c');
+  });
+
+  it('should correctly evaluate VALUETOTEXT function', () => {
+    expect(evaluate('=VALUETOTEXT(123)')).toBe('123');
+    expect(evaluate('=VALUETOTEXT("hello",0)')).toBe('hello');
+    expect(evaluate('=VALUETOTEXT("hello",1)')).toBe('"hello"');
+  });
+
+  it('should correctly evaluate SEQUENCE function', () => {
+    // Single cell: returns start value
+    expect(evaluate('=SEQUENCE(5)')).toBe('1');
+    expect(evaluate('=SEQUENCE(5,1,10,2)')).toBe('10');
+  });
+
+  it('should correctly evaluate RANDARRAY function', () => {
+    const result = Number(evaluate('=RANDARRAY(1,1,1,10,TRUE)'));
+    expect(result).toBeGreaterThanOrEqual(1);
+    expect(result).toBeLessThanOrEqual(10);
+    expect(result).toBe(Math.floor(result));
+  });
+
+  it('should correctly evaluate SORT function', () => {
+    const grid = new Map([
+      ['A1', { v: '5' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '8' } as Cell],
+      ['A4', { v: '1' } as Cell],
+    ]);
+    // Single cell: returns first sorted value (ascending)
+    expect(evaluate('=SORT(A1:A4)', grid)).toBe('1');
+  });
+
+  it('should correctly evaluate UNIQUE function', () => {
+    const grid = new Map([
+      ['A1', { v: '5' } as Cell],
+      ['A2', { v: '5' } as Cell],
+      ['A3', { v: '3' } as Cell],
+    ]);
+    // Single cell: returns first value
+    expect(evaluate('=UNIQUE(A1:A3)', grid)).toBe('5');
+  });
+
+  it('should correctly evaluate FLATTEN function', () => {
+    const grid = new Map([
+      ['A1', { v: '10' } as Cell],
+      ['A2', { v: '20' } as Cell],
+    ]);
+    expect(evaluate('=FLATTEN(A1:A2)', grid)).toBe('10');
+  });
+
+  it('should correctly evaluate TRANSPOSE function', () => {
+    const grid = new Map([
+      ['A1', { v: '42' } as Cell],
+    ]);
+    expect(evaluate('=TRANSPOSE(A1)', grid)).toBe('42');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(
