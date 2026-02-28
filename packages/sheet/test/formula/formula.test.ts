@@ -2245,6 +2245,67 @@ describe('Formula', () => {
     expect(Number(evaluate('=CONVERT(1,"hr","sec")'))).toBe(3600);
   });
 
+  it('should correctly evaluate BITAND, BITOR, BITXOR functions', () => {
+    expect(evaluate('=BITAND(5,3)')).toBe('1');
+    expect(evaluate('=BITOR(5,3)')).toBe('7');
+    expect(evaluate('=BITXOR(5,3)')).toBe('6');
+    expect(evaluate('=BITAND(15,7)')).toBe('7');
+    expect(evaluate('=BITOR(12,10)')).toBe('14');
+    expect(evaluate('=BITXOR(12,10)')).toBe('6');
+  });
+
+  it('should correctly evaluate BITLSHIFT and BITRSHIFT functions', () => {
+    expect(evaluate('=BITLSHIFT(4,2)')).toBe('16');
+    expect(evaluate('=BITRSHIFT(16,2)')).toBe('4');
+    expect(evaluate('=BITLSHIFT(1,10)')).toBe('1024');
+    expect(evaluate('=BITRSHIFT(1024,10)')).toBe('1');
+  });
+
+  it('should correctly evaluate HEX2DEC and DEC2HEX functions', () => {
+    expect(evaluate('=HEX2DEC("FF")')).toBe('255');
+    expect(evaluate('=HEX2DEC("A")')).toBe('10');
+    expect(evaluate('=HEX2DEC("1F")')).toBe('31');
+    expect(evaluate('=DEC2HEX(255)')).toBe('FF');
+    expect(evaluate('=DEC2HEX(10)')).toBe('A');
+    expect(evaluate('=DEC2HEX(31,4)')).toBe('001F');
+  });
+
+  it('should correctly evaluate BIN2DEC and DEC2BIN functions', () => {
+    expect(evaluate('=BIN2DEC("1010")')).toBe('10');
+    expect(evaluate('=BIN2DEC("11111111")')).toBe('255');
+    expect(evaluate('=DEC2BIN(10)')).toBe('1010');
+    expect(evaluate('=DEC2BIN(255)')).toBe('11111111');
+    expect(evaluate('=DEC2BIN(5,8)')).toBe('00000101');
+  });
+
+  it('should correctly evaluate OCT2DEC and DEC2OCT functions', () => {
+    expect(evaluate('=OCT2DEC("77")')).toBe('63');
+    expect(evaluate('=OCT2DEC("12")')).toBe('10');
+    expect(evaluate('=DEC2OCT(63)')).toBe('77');
+    expect(evaluate('=DEC2OCT(8)')).toBe('10');
+    expect(evaluate('=DEC2OCT(10,4)')).toBe('0012');
+  });
+
+  it('should correctly evaluate COMPLEX function', () => {
+    expect(evaluate('=COMPLEX(3,4)')).toBe('3+4i');
+    expect(evaluate('=COMPLEX(3,0)')).toBe('3');
+    expect(evaluate('=COMPLEX(0,4)')).toBe('4i');
+    expect(evaluate('=COMPLEX(0,1)')).toBe('i');
+    expect(evaluate('=COMPLEX(0,0-1)')).toBe('-i');
+    expect(evaluate('=COMPLEX(1,0-1)')).toBe('1-i');
+    expect(evaluate('=COMPLEX(3,4,"j")')).toBe('3+4j');
+  });
+
+  it('should correctly evaluate IMREAL, IMAGINARY, IMABS functions', () => {
+    expect(evaluate('=IMREAL("3+4i")')).toBe('3');
+    expect(evaluate('=IMAGINARY("3+4i")')).toBe('4');
+    expect(evaluate('=IMABS("3+4i")')).toBe('5');
+    expect(evaluate('=IMREAL("5")')).toBe('5');
+    expect(evaluate('=IMAGINARY("5")')).toBe('0');
+    expect(evaluate('=IMREAL("2i")')).toBe('0');
+    expect(evaluate('=IMAGINARY("2i")')).toBe('2');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

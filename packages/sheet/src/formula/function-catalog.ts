@@ -1927,6 +1927,81 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Converts a number from one measurement unit to another',
     args: [{ name: 'number' }, { name: 'from_unit' }, { name: 'to_unit' }],
   },
+  {
+    name: 'BITAND',
+    description: 'Returns the bitwise AND of two numbers',
+    args: [{ name: 'number1' }, { name: 'number2' }],
+  },
+  {
+    name: 'BITOR',
+    description: 'Returns the bitwise OR of two numbers',
+    args: [{ name: 'number1' }, { name: 'number2' }],
+  },
+  {
+    name: 'BITXOR',
+    description: 'Returns the bitwise XOR of two numbers',
+    args: [{ name: 'number1' }, { name: 'number2' }],
+  },
+  {
+    name: 'BITLSHIFT',
+    description: 'Shifts a number left by a specified number of bits',
+    args: [{ name: 'number' }, { name: 'shift_amount' }],
+  },
+  {
+    name: 'BITRSHIFT',
+    description: 'Shifts a number right by a specified number of bits',
+    args: [{ name: 'number' }, { name: 'shift_amount' }],
+  },
+  {
+    name: 'HEX2DEC',
+    description: 'Converts a hexadecimal number to decimal',
+    args: [{ name: 'hex_string' }],
+  },
+  {
+    name: 'DEC2HEX',
+    description: 'Converts a decimal number to hexadecimal',
+    args: [{ name: 'number' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'BIN2DEC',
+    description: 'Converts a binary number to decimal',
+    args: [{ name: 'bin_string' }],
+  },
+  {
+    name: 'DEC2BIN',
+    description: 'Converts a decimal number to binary',
+    args: [{ name: 'number' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'OCT2DEC',
+    description: 'Converts an octal number to decimal',
+    args: [{ name: 'oct_string' }],
+  },
+  {
+    name: 'DEC2OCT',
+    description: 'Converts a decimal number to octal',
+    args: [{ name: 'number' }, { name: 'places', optional: true }],
+  },
+  {
+    name: 'COMPLEX',
+    description: 'Creates a complex number from real and imaginary parts',
+    args: [{ name: 'real' }, { name: 'imaginary' }, { name: 'suffix', optional: true }],
+  },
+  {
+    name: 'IMREAL',
+    description: 'Returns the real part of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMAGINARY',
+    description: 'Returns the imaginary part of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
+  {
+    name: 'IMABS',
+    description: 'Returns the absolute value (modulus) of a complex number',
+    args: [{ name: 'complex_number' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -1954,7 +2029,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'WORKDAY',
     'YEARFRAC',
   ]),
-  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT']),
+  Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS']),
   Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR']),
   Info: new Set([
     'ISBLANK',

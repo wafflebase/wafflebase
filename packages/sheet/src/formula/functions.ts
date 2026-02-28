@@ -326,6 +326,21 @@ export const FunctionMap = new Map([
   ['MDETERM', mdetermFunc],
   ['PROB', probFunc],
   ['CONVERT', convertFunc],
+  ['BITAND', bitandFunc],
+  ['BITOR', bitorFunc],
+  ['BITXOR', bitxorFunc],
+  ['BITLSHIFT', bitlshiftFunc],
+  ['BITRSHIFT', bitrshiftFunc],
+  ['HEX2DEC', hex2decFunc],
+  ['DEC2HEX', dec2hexFunc],
+  ['BIN2DEC', bin2decFunc],
+  ['DEC2BIN', dec2binFunc],
+  ['OCT2DEC', oct2decFunc],
+  ['DEC2OCT', dec2octFunc],
+  ['COMPLEX', complexFunc],
+  ['IMREAL', imrealFunc],
+  ['IMAGINARY', imaginaryFunc],
+  ['IMABS', imabsFunc],
 ]);
 
 /**
@@ -11708,4 +11723,401 @@ export function convertFunc(
 
   // Standard conversion through base unit
   return { t: 'num', v: val * fromUnit.factor / toUnit.factor };
+}
+
+/**
+ * BITAND(number1, number2) — bitwise AND.
+ */
+export function bitandFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const a = NumberArgs.map(visit(exprs[0]), grid);
+  if (a.t === 'err') return a;
+  const b = NumberArgs.map(visit(exprs[1]), grid);
+  if (b.t === 'err') return b;
+  if (a.v < 0 || b.v < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.trunc(a.v) & Math.trunc(b.v) };
+}
+
+/**
+ * BITOR(number1, number2) — bitwise OR.
+ */
+export function bitorFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const a = NumberArgs.map(visit(exprs[0]), grid);
+  if (a.t === 'err') return a;
+  const b = NumberArgs.map(visit(exprs[1]), grid);
+  if (b.t === 'err') return b;
+  if (a.v < 0 || b.v < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.trunc(a.v) | Math.trunc(b.v) };
+}
+
+/**
+ * BITXOR(number1, number2) — bitwise XOR.
+ */
+export function bitxorFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const a = NumberArgs.map(visit(exprs[0]), grid);
+  if (a.t === 'err') return a;
+  const b = NumberArgs.map(visit(exprs[1]), grid);
+  if (b.t === 'err') return b;
+  if (a.v < 0 || b.v < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.trunc(a.v) ^ Math.trunc(b.v) };
+}
+
+/**
+ * BITLSHIFT(number, shift_amount) — bitwise left shift.
+ */
+export function bitlshiftFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const a = NumberArgs.map(visit(exprs[0]), grid);
+  if (a.t === 'err') return a;
+  const b = NumberArgs.map(visit(exprs[1]), grid);
+  if (b.t === 'err') return b;
+  if (a.v < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.trunc(a.v) * Math.pow(2, Math.trunc(b.v)) };
+}
+
+/**
+ * BITRSHIFT(number, shift_amount) — bitwise right shift.
+ */
+export function bitrshiftFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  const a = NumberArgs.map(visit(exprs[0]), grid);
+  if (a.t === 'err') return a;
+  const b = NumberArgs.map(visit(exprs[1]), grid);
+  if (b.t === 'err') return b;
+  if (a.v < 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.floor(Math.trunc(a.v) / Math.pow(2, Math.trunc(b.v))) };
+}
+
+/**
+ * HEX2DEC(hex_string) — converts hexadecimal to decimal.
+ */
+export function hex2decFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const hex = s.v.trim();
+  if (!/^[0-9A-Fa-f]+$/.test(hex)) return { t: 'err', v: '#VALUE!' };
+  const val = parseInt(hex, 16);
+  // Handle 10-digit hex as negative (two's complement for 40-bit)
+  if (hex.length === 10 && hex[0].match(/[89A-Fa-f]/)) {
+    return { t: 'num', v: val - Math.pow(2, 40) };
+  }
+  return { t: 'num', v: val };
+}
+
+/**
+ * DEC2HEX(number, [places]) — converts decimal to hexadecimal.
+ */
+export function dec2hexFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  let val = Math.trunc(num.v);
+  if (val < -549755813888 || val > 549755813887) return { t: 'err', v: '#VALUE!' };
+
+  let hex: string;
+  if (val < 0) {
+    hex = (val + Math.pow(2, 40)).toString(16).toUpperCase();
+  } else {
+    hex = val.toString(16).toUpperCase();
+  }
+
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < hex.length) return { t: 'err', v: '#VALUE!' };
+    hex = hex.padStart(p, '0');
+  }
+  return { t: 'str', v: hex };
+}
+
+/**
+ * BIN2DEC(bin_string) — converts binary to decimal.
+ */
+export function bin2decFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const bin = s.v.trim();
+  if (!/^[01]+$/.test(bin) || bin.length > 10) return { t: 'err', v: '#VALUE!' };
+  const val = parseInt(bin, 2);
+  // 10-digit binary: first bit is sign (two's complement)
+  if (bin.length === 10 && bin[0] === '1') {
+    return { t: 'num', v: val - 1024 };
+  }
+  return { t: 'num', v: val };
+}
+
+/**
+ * DEC2BIN(number, [places]) — converts decimal to binary.
+ */
+export function dec2binFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  let val = Math.trunc(num.v);
+  if (val < -512 || val > 511) return { t: 'err', v: '#VALUE!' };
+
+  let bin: string;
+  if (val < 0) {
+    bin = (val + 1024).toString(2);
+  } else {
+    bin = val.toString(2);
+  }
+
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < bin.length) return { t: 'err', v: '#VALUE!' };
+    bin = bin.padStart(p, '0');
+  }
+  return { t: 'str', v: bin };
+}
+
+/**
+ * OCT2DEC(oct_string) — converts octal to decimal.
+ */
+export function oct2decFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const oct = s.v.trim();
+  if (!/^[0-7]+$/.test(oct)) return { t: 'err', v: '#VALUE!' };
+  const val = parseInt(oct, 8);
+  // 10-digit octal with first digit >= 4 is negative (30-bit two's complement)
+  if (oct.length === 10 && oct[0] >= '4') {
+    return { t: 'num', v: val - Math.pow(2, 30) };
+  }
+  return { t: 'num', v: val };
+}
+
+/**
+ * DEC2OCT(number, [places]) — converts decimal to octal.
+ */
+export function dec2octFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  const num = NumberArgs.map(visit(exprs[0]), grid);
+  if (num.t === 'err') return num;
+  let val = Math.trunc(num.v);
+  if (val < -536870912 || val > 536870911) return { t: 'err', v: '#VALUE!' };
+
+  let oct: string;
+  if (val < 0) {
+    oct = (val + Math.pow(2, 30)).toString(8);
+  } else {
+    oct = val.toString(8);
+  }
+
+  if (exprs.length === 2) {
+    const places = NumberArgs.map(visit(exprs[1]), grid);
+    if (places.t === 'err') return places;
+    const p = Math.trunc(places.v);
+    if (p < oct.length) return { t: 'err', v: '#VALUE!' };
+    oct = oct.padStart(p, '0');
+  }
+  return { t: 'str', v: oct };
+}
+
+/**
+ * Helper: parse a complex number string "a+bi" or "a-bi".
+ */
+function parseComplex(s: string): { re: number; im: number } | null {
+  s = s.trim().replace(/\s/g, '');
+  // Pure imaginary: "3i" or "-2i" or "i"
+  if (s === 'i') return { re: 0, im: 1 };
+  if (s === '-i') return { re: 0, im: -1 };
+  if (s.endsWith('i')) {
+    const body = s.slice(0, -1);
+    // Check if it's just an imaginary number (no real part)
+    const num = Number(body);
+    if (!isNaN(num)) return { re: 0, im: num };
+    // "a+bi" or "a-bi"
+    const plusIdx = body.lastIndexOf('+');
+    const minusIdx = body.lastIndexOf('-');
+    const splitIdx = Math.max(plusIdx, minusIdx);
+    if (splitIdx <= 0) return null;
+    const re = Number(body.slice(0, splitIdx));
+    const im = Number(body.slice(splitIdx));
+    if (isNaN(re) || isNaN(im)) return null;
+    return { re, im };
+  }
+  // Pure real
+  const num = Number(s);
+  if (isNaN(num)) return null;
+  return { re: num, im: 0 };
+}
+
+/**
+ * COMPLEX(real, imaginary, [suffix]) — creates a complex number string.
+ */
+export function complexFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+  const re = NumberArgs.map(visit(exprs[0]), grid);
+  if (re.t === 'err') return re;
+  const im = NumberArgs.map(visit(exprs[1]), grid);
+  if (im.t === 'err') return im;
+
+  let suffix = 'i';
+  if (exprs.length === 3) {
+    const sNode = toStr(visit(exprs[2]), grid);
+    if (sNode.t === 'err') return sNode;
+    suffix = sNode.v;
+    if (suffix !== 'i' && suffix !== 'j') return { t: 'err', v: '#VALUE!' };
+  }
+
+  if (im.v === 0) return { t: 'str', v: String(re.v) };
+  if (re.v === 0) {
+    if (im.v === 1) return { t: 'str', v: suffix };
+    if (im.v === -1) return { t: 'str', v: '-' + suffix };
+    return { t: 'str', v: im.v + suffix };
+  }
+  const sign = im.v > 0 ? '+' : '';
+  if (im.v === 1) return { t: 'str', v: re.v + '+' + suffix };
+  if (im.v === -1) return { t: 'str', v: re.v + '-' + suffix };
+  return { t: 'str', v: re.v + sign + im.v + suffix };
+}
+
+/**
+ * IMREAL(complex_number) — returns the real part.
+ */
+export function imrealFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const c = parseComplex(s.v);
+  if (!c) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: c.re };
+}
+
+/**
+ * IMAGINARY(complex_number) — returns the imaginary part.
+ */
+export function imaginaryFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const c = parseComplex(s.v);
+  if (!c) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: c.im };
+}
+
+/**
+ * IMABS(complex_number) — returns the absolute value (modulus).
+ */
+export function imabsFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const s = toStr(visit(exprs[0]), grid);
+  if (s.t === 'err') return s;
+  const c = parseComplex(s.v);
+  if (!c) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.sqrt(c.re * c.re + c.im * c.im) };
 }

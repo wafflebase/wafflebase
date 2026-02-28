@@ -32,13 +32,14 @@ describe('FunctionCatalog', () => {
       expect(searchFunctions('SUM').map((f) => f.name)).toContain('SUM');
     });
 
-    it('should find OR, ODD, and OFFSET but not AND with "O"', () => {
+    it('should find OR, ODD, OFFSET, and OCT2DEC but not AND with "O"', () => {
       const results = searchFunctions('O');
-      expect(results).toHaveLength(3);
+      expect(results).toHaveLength(4);
       const names = results.map((r) => r.name);
       expect(names).toContain('OR');
       expect(names).toContain('ODD');
       expect(names).toContain('OFFSET');
+      expect(names).toContain('OCT2DEC');
     });
 
     it('should find AND and AVERAGE with "A"', () => {
@@ -264,6 +265,21 @@ describe('FunctionCatalog', () => {
       expect(findFunction('MDETERM')!.name).toBe('MDETERM');
       expect(findFunction('PROB')!.name).toBe('PROB');
       expect(findFunction('CONVERT')!.name).toBe('CONVERT');
+      expect(findFunction('BITAND')!.name).toBe('BITAND');
+      expect(findFunction('BITOR')!.name).toBe('BITOR');
+      expect(findFunction('BITXOR')!.name).toBe('BITXOR');
+      expect(findFunction('BITLSHIFT')!.name).toBe('BITLSHIFT');
+      expect(findFunction('BITRSHIFT')!.name).toBe('BITRSHIFT');
+      expect(findFunction('HEX2DEC')!.name).toBe('HEX2DEC');
+      expect(findFunction('DEC2HEX')!.name).toBe('DEC2HEX');
+      expect(findFunction('BIN2DEC')!.name).toBe('BIN2DEC');
+      expect(findFunction('DEC2BIN')!.name).toBe('DEC2BIN');
+      expect(findFunction('OCT2DEC')!.name).toBe('OCT2DEC');
+      expect(findFunction('DEC2OCT')!.name).toBe('DEC2OCT');
+      expect(findFunction('COMPLEX')!.name).toBe('COMPLEX');
+      expect(findFunction('IMREAL')!.name).toBe('IMREAL');
+      expect(findFunction('IMAGINARY')!.name).toBe('IMAGINARY');
+      expect(findFunction('IMABS')!.name).toBe('IMABS');
     });
 
     it('should return undefined for unknown function', () => {
