@@ -132,6 +132,7 @@ export class Worksheet {
   };
 
   private resizeHover: { axis: 'row' | 'column'; index: number } | null = null;
+  private resizeDragging: boolean = false;
   private dragMove: {
     axis: 'row' | 'column';
     srcIndex: number;
@@ -2409,9 +2410,10 @@ export class Worksheet {
   private handleMouseMove(e: MouseEvent): void {
     const scrollContainer = this.gridContainer.getScrollContainer();
 
-    // While dragging with the primary mouse button, suppress resize hover guides.
+    // While dragging with the primary mouse button, suppress resize hover guides
+    // (unless we are actively resize-dragging, in which case keep the indicator).
     if ((e.buttons & 1) === 1) {
-      if (this.resizeHover) {
+      if (!this.resizeDragging && this.resizeHover) {
         this.resizeHover = null;
         this.renderOverlay();
       }
@@ -3180,6 +3182,8 @@ export class Worksheet {
     let pendingSize = startSize;
     let frameId: number | null = null;
 
+    this.resizeDragging = true;
+    this.renderOverlay();
     this.beginNativeSelectionBlock();
     this.showResizeTooltip(
       axis,
@@ -3230,6 +3234,10 @@ export class Worksheet {
         this.render();
       },
       onCleanup: () => {
+        this.resizeDragging = false;
+        if (this.sheet) {
+          this.renderOverlay();
+        }
         scrollContainer.style.cursor = '';
         this.hideResizeTooltip();
         this.endNativeSelectionBlock();
@@ -4090,6 +4098,7 @@ export class Worksheet {
       this.rowDim,
       this.colDim,
       this.resizeHover,
+      this.resizeDragging,
       this.sheet!.getSelectionType(),
       this.dragMove
         ? { axis: this.dragMove.axis, dropIndex: this.dragMove.dropIndex }

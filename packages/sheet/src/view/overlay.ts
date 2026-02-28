@@ -58,6 +58,7 @@ export class Overlay {
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
     resizeHover?: { axis: 'row' | 'column'; index: number } | null,
+    resizeDragging: boolean = false,
     selectionType?: SelectionType,
     dragMove?: { axis: 'row' | 'column'; dropIndex: number } | null,
     formulaRanges?: Array<Range>,
@@ -257,9 +258,9 @@ export class Overlay {
       );
     }
 
-    // Render resize hover highlight line (same for freeze/no-freeze)
+    // Render resize hover indicator (same for freeze/no-freeze)
     if (resizeHover && colDim && rowDim) {
-      this.renderResizeHover(ctx, port, scroll, resizeHover, rowDim, colDim, freeze);
+      this.renderResizeHover(ctx, port, scroll, resizeHover, rowDim, colDim, freeze, resizeDragging);
     }
 
     // Render drag-move drop indicator (same for freeze/no-freeze)
@@ -584,27 +585,90 @@ export class Overlay {
     rowDim: DimensionIndex,
     colDim: DimensionIndex,
     freeze: FreezeState,
+    dragging: boolean,
   ): void {
-    ctx.strokeStyle = this.getThemeColor('resizeHandleColor');
-    ctx.lineWidth = 2;
+    const color = this.getThemeColor('freezeHandleHoverColor');
 
     if (resizeHover.axis === 'column') {
       const inFrozenCols = freeze.frozenCols > 0 && resizeHover.index <= freeze.frozenCols;
       const scrollLeft = inFrozenCols ? 0 : scroll.left + colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth;
       const x = RowHeaderWidth + colDim.getOffset(resizeHover.index) + colDim.getSize(resizeHover.index) - scrollLeft;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, port.height);
-      ctx.stroke();
+
+      if (dragging) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, port.height);
+        ctx.stroke();
+      }
+
+      this.drawResizeGrip(ctx, 'column', x, color);
     } else {
       const inFrozenRows = freeze.frozenRows > 0 && resizeHover.index <= freeze.frozenRows;
       const scrollTop = inFrozenRows ? 0 : scroll.top + rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight;
       const y = DefaultCellHeight + rowDim.getOffset(resizeHover.index) + rowDim.getSize(resizeHover.index) - scrollTop;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(port.width, y);
-      ctx.stroke();
+
+      if (dragging) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(port.width, y);
+        ctx.stroke();
+      }
+
+      this.drawResizeGrip(ctx, 'row', y, color);
     }
+  }
+
+  /**
+   * Draws a centered 2-line grip in the corresponding header.
+   */
+  private drawResizeGrip(
+    ctx: CanvasRenderingContext2D,
+    axis: 'row' | 'column',
+    boundaryPosition: number,
+    color: string,
+  ): void {
+    const gripLength = 10;
+    const gripGap = 3;
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+
+    if (axis === 'column') {
+      const centerY = DefaultCellHeight / 2;
+      const y1 = centerY - gripLength / 2;
+      const y2 = centerY + gripLength / 2;
+      const x1 = boundaryPosition - gripGap / 2;
+      const x2 = boundaryPosition + gripGap / 2;
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1, y2);
+      ctx.moveTo(x2, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    const centerX = RowHeaderWidth / 2;
+    const x1 = centerX - gripLength / 2;
+    const x2 = centerX + gripLength / 2;
+    const y1 = boundaryPosition - gripGap / 2;
+    const y2 = boundaryPosition + gripGap / 2;
+
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y1);
+    ctx.moveTo(x1, y2);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private renderDragMoveIndicator(
