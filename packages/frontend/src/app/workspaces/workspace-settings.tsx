@@ -15,10 +15,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { isAuthExpiredError } from "@/api/auth";
+import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import {
   fetchWorkspace,
+  fetchWorkspaces,
   updateWorkspace,
+  deleteWorkspace,
   fetchInvites,
   createInvite,
   revokeInvite,
@@ -26,6 +28,14 @@ import {
   type WorkspaceDetail,
   type WorkspaceInvite,
 } from "@/api/workspaces";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 /**
  * Renders the workspace settings page with name editing, members, and invites.
@@ -36,6 +46,8 @@ export default function WorkspaceSettings() {
   const queryClient = useQueryClient();
   const [editingName, setEditingName] = useState(false);
   const [editingSlug, setEditingSlug] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
 
   const {
     data: workspace,
@@ -52,6 +64,11 @@ export default function WorkspaceSettings() {
     queryKey: ["workspaces", workspaceId, "invites"],
     queryFn: () => fetchInvites(workspaceId!),
     enabled: !!workspaceId,
+  });
+
+  const { data: me } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
   });
 
   const updateMutation = useMutation({
@@ -100,6 +117,24 @@ export default function WorkspaceSettings() {
       toast.success("Member removed");
     },
     onError: () => toast.error("Failed to remove member"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteWorkspace(workspaceId!),
+    onSuccess: async () => {
+      const remaining = await queryClient.fetchQuery({
+        queryKey: ["workspaces"],
+        queryFn: fetchWorkspaces,
+      });
+      if (remaining.length > 0) {
+        navigate(`/w/${remaining[0].slug}`, { replace: true });
+      } else {
+        navigate("/", { replace: true });
+      }
+      toast.success("Workspace deleted");
+    },
+    onError: (err: Error) =>
+      toast.error(err.message || "Failed to delete workspace"),
   });
 
   if (isLoading) {
@@ -328,6 +363,91 @@ export default function WorkspaceSettings() {
           <p className="text-sm text-muted-foreground">No active invites.</p>
         )}
       </section>
+
+      {/* Danger Zone */}
+      {me &&
+        workspace.members.some(
+          (m) => m.user.id === me.id && m.role === "owner",
+        ) && (
+          <section className="space-y-2">
+            <h2 className="text-lg font-semibold text-red-600">Danger Zone</h2>
+            <div className="rounded-md border border-red-300 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Delete this workspace</p>
+                  <p className="text-sm text-muted-foreground">
+                    Once deleted, all documents, data sources, and member
+                    associations will be permanently removed.
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  onClick={() => setDeleteDialogOpen(true)}
+                >
+                  Delete this workspace
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
+
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setDeleteConfirmName("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete workspace</DialogTitle>
+            <DialogDescription>
+              This will permanently delete{" "}
+              <strong>{workspace.name}</strong> and all its data. This
+              action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e: FormEvent) => {
+              e.preventDefault();
+              if (deleteConfirmName !== workspace.name) return;
+              deleteMutation.mutate();
+            }}
+          >
+            <label className="text-sm text-muted-foreground">
+              Type <strong>{workspace.name}</strong> to confirm:
+            </label>
+            <Input
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              className="mt-2"
+              autoFocus
+            />
+            <DialogFooter className="mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDeleteDialogOpen(false);
+                  setDeleteConfirmName("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="destructive"
+                disabled={
+                  deleteConfirmName !== workspace.name ||
+                  deleteMutation.isPending
+                }
+              >
+                Delete workspace
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

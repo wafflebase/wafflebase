@@ -20,6 +20,7 @@ function createMockPrisma() {
       create: jest.fn(),
       findUnique: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn(),
       delete: jest.fn(),
       deleteMany: jest.fn(),
     },
@@ -194,7 +195,36 @@ describe('WorkspaceService', () => {
       prisma.workspaceMember.findUnique.mockResolvedValue({
         role: 'owner',
       });
+      prisma.workspaceMember.count.mockResolvedValue(2);
       prisma.workspace.delete.mockResolvedValue({ id: '11111111-1111-1111-1111-111111111111' });
+
+      const result = await service.remove('11111111-1111-1111-1111-111111111111', 1);
+
+      expect(result).toEqual({ id: '11111111-1111-1111-1111-111111111111' });
+      expect(prisma.workspace.delete).toHaveBeenCalledWith({
+        where: { id: '11111111-1111-1111-1111-111111111111' },
+      });
+    });
+
+    it('throws ForbiddenException if workspace is the users last', async () => {
+      prisma.workspaceMember.findUnique.mockResolvedValue({
+        role: 'owner',
+      });
+      prisma.workspaceMember.count.mockResolvedValue(1);
+
+      await expect(
+        service.remove('11111111-1111-1111-1111-111111111111', 1),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('deletes workspace when user has multiple workspaces', async () => {
+      prisma.workspaceMember.findUnique.mockResolvedValue({
+        role: 'owner',
+      });
+      prisma.workspaceMember.count.mockResolvedValue(2);
+      prisma.workspace.delete.mockResolvedValue({
+        id: '11111111-1111-1111-1111-111111111111',
+      });
 
       const result = await service.remove('11111111-1111-1111-1111-111111111111', 1);
 

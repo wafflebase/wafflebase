@@ -25,7 +25,7 @@ model DataSource {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model Document {
@@ -36,7 +36,7 @@ model Document {
   createdAt DateTime @default(now())
   shareLinks ShareLink[]
   workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model ShareLink {
