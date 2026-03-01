@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import {
   fetchWorkspace,
@@ -139,8 +140,19 @@ export default function WorkspaceSettings() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-muted-foreground text-lg">Loading settings...</p>
+      <div className="p-4 lg:p-6 max-w-2xl space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-9 w-64" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-9 w-64" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-40 w-full" />
+        </div>
       </div>
     );
   }

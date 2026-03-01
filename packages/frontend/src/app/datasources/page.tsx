@@ -3,6 +3,7 @@ import { fetchDataSources } from "@/api/datasources";
 import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { DataSourceList } from "./datasource-list";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * Renders the data sources page.
@@ -20,8 +21,19 @@ export default function DataSourcesPage() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-muted-foreground text-lg">Loading datasources...</p>
+      <div className="p-4 lg:p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-9 w-64" />
+          <Skeleton className="h-9 w-36" />
+        </div>
+        <div className="rounded-md border">
+          <div className="p-4 space-y-3">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+        </div>
       </div>
     );
   }
