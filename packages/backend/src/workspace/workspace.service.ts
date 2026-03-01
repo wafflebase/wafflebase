@@ -62,6 +62,12 @@ export class WorkspaceService {
 
   async remove(workspaceId: string, userId: number) {
     await this.assertOwner(workspaceId, userId);
+    const workspaceCount = await this.prisma.workspaceMember.count({
+      where: { userId },
+    });
+    if (workspaceCount <= 1) {
+      throw new ForbiddenException('Cannot delete your last workspace');
+    }
     return this.prisma.workspace.delete({ where: { id: workspaceId } });
   }
 
