@@ -48,11 +48,18 @@ import {
   deleteDocument,
   renameDocument,
 } from "@/api/documents";
+import { createWorkspaceDocument } from "@/api/workspaces";
 
 /**
  * Renders the DocumentList component.
  */
-export function DocumentList({ data }: { data: Document[] }) {
+export function DocumentList({
+  data,
+  workspaceId,
+}: {
+  data: Document[];
+  workspaceId?: string;
+}) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const columns: Array<ColumnDef<Document>> = [
@@ -128,7 +135,10 @@ export function DocumentList({ data }: { data: Document[] }) {
   } | null>(null);
 
   const createDocumentMutation = useMutation({
-    mutationFn: async (data: { title: string }) => await createDocument(data),
+    mutationFn: async (data: { title: string }) =>
+      workspaceId
+        ? await createWorkspaceDocument(workspaceId, data)
+        : await createDocument(data),
     onSuccess: (doc) => navigate(`/${doc.id}`),
   });
 

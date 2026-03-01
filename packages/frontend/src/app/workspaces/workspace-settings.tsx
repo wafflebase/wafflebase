@@ -1,12 +1,11 @@
 import { FormEvent, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Copy, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -33,8 +32,10 @@ import {
  */
 export default function WorkspaceSettings() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [editingName, setEditingName] = useState(false);
+  const [editingSlug, setEditingSlug] = useState(false);
 
   const {
     data: workspace,
@@ -54,11 +55,15 @@ export default function WorkspaceSettings() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: { name: string }) =>
+    mutationFn: (data: { name?: string; slug?: string }) =>
       updateWorkspace(workspaceId!, data),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
       setEditingName(false);
+      if (editingSlug) {
+        setEditingSlug(false);
+        navigate(`/w/${updated.slug}/settings`, { replace: true });
+      }
       toast.success("Workspace updated");
     },
     onError: () => toast.error("Failed to update workspace"),
@@ -164,6 +169,51 @@ export default function WorkspaceSettings() {
               variant="outline"
               size="sm"
               onClick={() => setEditingName(true)}
+            >
+              Edit
+            </Button>
+          </div>
+        )}
+      </section>
+
+      {/* Workspace URL */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Workspace URL</h2>
+        {editingSlug ? (
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e: FormEvent) => {
+              e.preventDefault();
+              const formData = new FormData(e.target as HTMLFormElement);
+              const slug = (formData.get("slug") as string).trim();
+              if (slug) updateMutation.mutate({ slug });
+            }}
+          >
+            <span className="text-sm text-muted-foreground">/w/</span>
+            <Input
+              name="slug"
+              defaultValue={workspace.slug}
+              autoFocus
+              className="max-w-sm"
+            />
+            <Button type="submit" disabled={updateMutation.isPending}>
+              Save
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingSlug(false)}
+            >
+              Cancel
+            </Button>
+          </form>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-sm">/w/{workspace.slug}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingSlug(true)}
             >
               Edit
             </Button>
