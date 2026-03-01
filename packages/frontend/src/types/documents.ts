@@ -4,4 +4,5 @@ export type Document = {
   description: string;
   createdAt: string;
   updatedAt: string;
+  workspaceId: string;
 };

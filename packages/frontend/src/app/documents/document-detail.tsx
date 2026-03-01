@@ -1,11 +1,12 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useState,
   useCallback,
   useEffect,
   useRef,
+  useMemo,
   lazy,
   Suspense,
 } from "react";
@@ -19,6 +20,7 @@ import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { toast } from "sonner";
 import { TabBar } from "@/components/tab-bar";
 import {
@@ -53,28 +55,6 @@ const DataSourceSelector = lazy(() =>
     default: module.DataSourceSelector,
   })),
 );
-
-const items = {
-  main: [
-    {
-      title: "Documents",
-      url: "/",
-      icon: IconFolder,
-    },
-    {
-      title: "Data Sources",
-      url: "/datasources",
-      icon: IconDatabase,
-    },
-  ],
-  secondary: [
-    {
-      title: "Settings",
-      url: "/settings",
-      icon: IconSettings,
-    },
-  ],
-};
 
 /**
  * Detects old flat Worksheet format and migrates to SpreadsheetDocument.
@@ -132,10 +112,63 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
   const jumpRequestSeq = useRef(0);
 
+  const navigate = useNavigate();
+
   const { data: documentData } = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
   });
+
+  const { data: workspaces = [] } = useQuery<Workspace[]>({
+    queryKey: ["workspaces"],
+    queryFn: fetchWorkspaces,
+  });
+
+  const currentWorkspace = workspaces.find(
+    (w) => w.id === documentData?.workspaceId,
+  );
+  const workspaceSlug = currentWorkspace?.slug;
+
+  const items = useMemo(() => {
+    if (workspaceSlug) {
+      return {
+        main: [
+          {
+            title: "Documents",
+            url: `/w/${workspaceSlug}`,
+            icon: IconFolder,
+          },
+          {
+            title: "Data Sources",
+            url: `/w/${workspaceSlug}/datasources`,
+            icon: IconDatabase,
+          },
+          {
+            title: "Settings",
+            url: `/w/${workspaceSlug}/settings`,
+            icon: IconSettings,
+          },
+        ],
+        secondary: [],
+      };
+    }
+
+    return {
+      main: [
+        { title: "Documents", url: "/documents", icon: IconFolder },
+        { title: "Data Sources", url: "/datasources", icon: IconDatabase },
+        { title: "Settings", url: "/settings", icon: IconSettings },
+      ],
+      secondary: [],
+    };
+  }, [workspaceSlug]);
+
+  const handleWorkspaceChange = useCallback(
+    (slug: string) => {
+      navigate(`/w/${slug}`);
+    },
+    [navigate],
+  );
 
   const handleRenameDocument = useCallback(
     async (newTitle: string) => {
@@ -372,7 +405,13 @@ function DocumentLayout({ documentId }: { documentId: string }) {
 
   return (
     <SidebarProvider>
-      <AppSidebar variant="inset" items={items} />
+      <AppSidebar
+        variant="inset"
+        items={items}
+        workspaces={workspaces}
+        currentWorkspace={currentWorkspace}
+        onWorkspaceChange={handleWorkspaceChange}
+      />
       <SidebarInset>
         <SiteHeader
           title={documentData?.title ?? "Loading..."}
