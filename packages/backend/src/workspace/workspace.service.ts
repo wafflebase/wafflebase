@@ -12,8 +12,9 @@ export class WorkspaceService {
   constructor(private prisma: PrismaService) {}
 
   async create(userId: number, data: { name: string }) {
+    const slug = await this.generateUniqueSlug(data.name);
     const workspace = await this.prisma.workspace.create({
-      data: { name: data.name },
+      data: { name: data.name, slug },
     });
     await this.prisma.workspaceMember.create({
       data: { workspaceId: workspace.id, userId, role: 'owner' },
@@ -29,9 +30,13 @@ export class WorkspaceService {
     return memberships.map((m) => m.workspace);
   }
 
-  async findOne(workspaceId: string, userId: number) {
+  async findOne(idOrSlug: string, userId: number) {
+    const isUUID =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrSlug,
+      );
     const workspace = await this.prisma.workspace.findUnique({
-      where: { id: workspaceId },
+      where: isUUID ? { id: idOrSlug } : { slug: idOrSlug },
       include: {
         members: { include: { user: true } },
       },
@@ -43,7 +48,11 @@ export class WorkspaceService {
     return workspace;
   }
 
-  async update(workspaceId: string, userId: number, data: { name?: string }) {
+  async update(
+    workspaceId: string,
+    userId: number,
+    data: { name?: string; slug?: string },
+  ) {
     await this.assertOwner(workspaceId, userId);
     return this.prisma.workspace.update({
       where: { id: workspaceId },
@@ -135,9 +144,24 @@ export class WorkspaceService {
     return { workspaceId: invite.workspaceId };
   }
 
+  async resolveId(idOrSlug: string): Promise<string> {
+    const isUUID =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrSlug,
+      );
+    if (isUUID) return idOrSlug;
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { slug: idOrSlug },
+      select: { id: true },
+    });
+    if (!workspace) throw new NotFoundException('Workspace not found');
+    return workspace.id;
+  }
+
   async assertMember(workspaceId: string, userId: number) {
+    const resolvedId = await this.resolveId(workspaceId);
     const member = await this.prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId, userId } },
+      where: { workspaceId_userId: { workspaceId: resolvedId, userId } },
     });
     if (!member)
       throw new ForbiddenException('Not a member of this workspace');
@@ -145,8 +169,9 @@ export class WorkspaceService {
   }
 
   private async assertOwner(workspaceId: string, userId: number) {
+    const resolvedId = await this.resolveId(workspaceId);
     const member = await this.prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId, userId } },
+      where: { workspaceId_userId: { workspaceId: resolvedId, userId } },
     });
     if (!member || member.role !== 'owner') {
       throw new ForbiddenException(
@@ -163,5 +188,24 @@ export class WorkspaceService {
     const ms =
       unit === 'h' ? Number(value) * 3600000 : Number(value) * 86400000;
     return new Date(Date.now() + ms);
+  }
+
+  private generateSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  private async generateUniqueSlug(name: string): Promise<string> {
+    const base = this.generateSlug(name);
+    const existing = await this.prisma.workspace.findUnique({
+      where: { slug: base },
+    });
+    if (!existing) return base;
+
+    const suffix = Math.random().toString(36).slice(2, 6);
+    return `${base}-${suffix}`;
   }
 }

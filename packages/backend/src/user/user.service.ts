@@ -51,8 +51,13 @@ export class UserService {
       data,
     });
 
+    const slug =
+      newUser.username
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') + '-s-workspace';
     const workspace = await this.prisma.workspace.create({
-      data: { name: `${newUser.username}'s Workspace` },
+      data: { name: `${newUser.username}'s Workspace`, slug },
     });
     await this.prisma.workspaceMember.create({
       data: { workspaceId: workspace.id, userId: newUser.id, role: 'owner' },

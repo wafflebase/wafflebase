@@ -47,7 +47,12 @@ describe('WorkspaceService', () => {
 
   describe('create', () => {
     it('creates a workspace and adds the creator as owner', async () => {
-      const workspace = { id: 'ws-1', name: 'My Workspace' };
+      const workspace = {
+        id: '11111111-1111-1111-1111-111111111111',
+        name: 'My Workspace',
+        slug: 'my-workspace',
+      };
+      prisma.workspace.findUnique.mockResolvedValue(null); // slug check
       prisma.workspace.create.mockResolvedValue(workspace);
       prisma.workspaceMember.create.mockResolvedValue({});
 
@@ -55,10 +60,10 @@ describe('WorkspaceService', () => {
 
       expect(result).toEqual(workspace);
       expect(prisma.workspace.create).toHaveBeenCalledWith({
-        data: { name: 'My Workspace' },
+        data: { name: 'My Workspace', slug: 'my-workspace' },
       });
       expect(prisma.workspaceMember.create).toHaveBeenCalledWith({
-        data: { workspaceId: 'ws-1', userId: 1, role: 'owner' },
+        data: { workspaceId: '11111111-1111-1111-1111-111111111111', userId: 1, role: 'owner' },
       });
     });
   });
@@ -66,7 +71,7 @@ describe('WorkspaceService', () => {
   describe('findAllByUser', () => {
     it('returns workspaces the user belongs to', async () => {
       const workspaces = [
-        { id: 'ws-1', name: 'First' },
+        { id: '11111111-1111-1111-1111-111111111111', name: 'First' },
         { id: 'ws-2', name: 'Second' },
       ];
       prisma.workspaceMember.findMany.mockResolvedValue([
@@ -85,17 +90,42 @@ describe('WorkspaceService', () => {
   });
 
   describe('findOne', () => {
-    it('returns workspace with members if user is a member', async () => {
+    it('returns workspace with members if user is a member (by UUID)', async () => {
       const workspace = {
-        id: 'ws-1',
+        id: '11111111-1111-1111-1111-111111111111',
         name: 'Test',
         members: [{ userId: 1, role: 'owner', user: { id: 1 } }],
       };
       prisma.workspace.findUnique.mockResolvedValue(workspace);
 
-      const result = await service.findOne('ws-1', 1);
+      const result = await service.findOne(
+        '11111111-1111-1111-1111-111111111111',
+        1,
+      );
 
       expect(result).toEqual(workspace);
+      expect(prisma.workspace.findUnique).toHaveBeenCalledWith({
+        where: { id: '11111111-1111-1111-1111-111111111111' },
+        include: { members: { include: { user: true } } },
+      });
+    });
+
+    it('looks up by slug when identifier is not a UUID', async () => {
+      const workspace = {
+        id: '11111111-1111-1111-1111-111111111111',
+        slug: 'my-team',
+        name: 'Test',
+        members: [{ userId: 1, role: 'owner', user: { id: 1 } }],
+      };
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+
+      const result = await service.findOne('my-team', 1);
+
+      expect(result).toEqual(workspace);
+      expect(prisma.workspace.findUnique).toHaveBeenCalledWith({
+        where: { slug: 'my-team' },
+        include: { members: { include: { user: true } } },
+      });
     });
 
     it('throws NotFoundException if workspace does not exist', async () => {
@@ -108,14 +138,14 @@ describe('WorkspaceService', () => {
 
     it('throws ForbiddenException if user is not a member', async () => {
       prisma.workspace.findUnique.mockResolvedValue({
-        id: 'ws-1',
+        id: '11111111-1111-1111-1111-111111111111',
         name: 'Test',
         members: [{ userId: 99, role: 'owner' }],
       });
 
-      await expect(service.findOne('ws-1', 1)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
+      await expect(
+        service.findOne('11111111-1111-1111-1111-111111111111', 1),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 
@@ -126,7 +156,7 @@ describe('WorkspaceService', () => {
       });
 
       await expect(
-        service.update('ws-1', 1, { name: 'New Name' }),
+        service.update('11111111-1111-1111-1111-111111111111', 1, { name: 'New Name' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
@@ -135,15 +165,15 @@ describe('WorkspaceService', () => {
         role: 'owner',
       });
       prisma.workspace.update.mockResolvedValue({
-        id: 'ws-1',
+        id: '11111111-1111-1111-1111-111111111111',
         name: 'New Name',
       });
 
-      const result = await service.update('ws-1', 1, { name: 'New Name' });
+      const result = await service.update('11111111-1111-1111-1111-111111111111', 1, { name: 'New Name' });
 
-      expect(result).toEqual({ id: 'ws-1', name: 'New Name' });
+      expect(result).toEqual({ id: '11111111-1111-1111-1111-111111111111', name: 'New Name' });
       expect(prisma.workspace.update).toHaveBeenCalledWith({
-        where: { id: 'ws-1' },
+        where: { id: '11111111-1111-1111-1111-111111111111' },
         data: { name: 'New Name' },
       });
     });
@@ -155,7 +185,7 @@ describe('WorkspaceService', () => {
         role: 'member',
       });
 
-      await expect(service.remove('ws-1', 1)).rejects.toBeInstanceOf(
+      await expect(service.remove('11111111-1111-1111-1111-111111111111', 1)).rejects.toBeInstanceOf(
         ForbiddenException,
       );
     });
@@ -164,13 +194,13 @@ describe('WorkspaceService', () => {
       prisma.workspaceMember.findUnique.mockResolvedValue({
         role: 'owner',
       });
-      prisma.workspace.delete.mockResolvedValue({ id: 'ws-1' });
+      prisma.workspace.delete.mockResolvedValue({ id: '11111111-1111-1111-1111-111111111111' });
 
-      const result = await service.remove('ws-1', 1);
+      const result = await service.remove('11111111-1111-1111-1111-111111111111', 1);
 
-      expect(result).toEqual({ id: 'ws-1' });
+      expect(result).toEqual({ id: '11111111-1111-1111-1111-111111111111' });
       expect(prisma.workspace.delete).toHaveBeenCalledWith({
-        where: { id: 'ws-1' },
+        where: { id: '11111111-1111-1111-1111-111111111111' },
       });
     });
   });
@@ -182,10 +212,10 @@ describe('WorkspaceService', () => {
         .mockResolvedValueOnce({ role: 'member', userId: 2 }); // target lookup
       prisma.workspaceMember.delete.mockResolvedValue({});
 
-      await service.removeMember('ws-1', 1, 2);
+      await service.removeMember('11111111-1111-1111-1111-111111111111', 1, 2);
 
       expect(prisma.workspaceMember.delete).toHaveBeenCalledWith({
-        where: { workspaceId_userId: { workspaceId: 'ws-1', userId: 2 } },
+        where: { workspaceId_userId: { workspaceId: '11111111-1111-1111-1111-111111111111', userId: 2 } },
       });
     });
 
@@ -196,7 +226,7 @@ describe('WorkspaceService', () => {
       });
       prisma.workspaceMember.delete.mockResolvedValue({});
 
-      await service.removeMember('ws-1', 2, 2);
+      await service.removeMember('11111111-1111-1111-1111-111111111111', 2, 2);
 
       expect(prisma.workspaceMember.delete).toHaveBeenCalled();
     });
@@ -208,7 +238,7 @@ describe('WorkspaceService', () => {
       });
 
       await expect(
-        service.removeMember('ws-1', 1, 1),
+        service.removeMember('11111111-1111-1111-1111-111111111111', 1, 1),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
@@ -218,7 +248,7 @@ describe('WorkspaceService', () => {
       });
 
       await expect(
-        service.removeMember('ws-1', 2, 3),
+        service.removeMember('11111111-1111-1111-1111-111111111111', 2, 3),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
@@ -228,7 +258,7 @@ describe('WorkspaceService', () => {
         .mockResolvedValueOnce(null); // target lookup
 
       await expect(
-        service.removeMember('ws-1', 1, 99),
+        service.removeMember('11111111-1111-1111-1111-111111111111', 1, 99),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
@@ -240,7 +270,7 @@ describe('WorkspaceService', () => {
       });
 
       await expect(
-        service.createInvite('ws-1', 1, {}),
+        service.createInvite('11111111-1111-1111-1111-111111111111', 1, {}),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
@@ -250,11 +280,11 @@ describe('WorkspaceService', () => {
       });
       prisma.workspaceInvite.create.mockResolvedValue({ id: 'inv-1' });
 
-      await service.createInvite('ws-1', 1, {});
+      await service.createInvite('11111111-1111-1111-1111-111111111111', 1, {});
 
       expect(prisma.workspaceInvite.create).toHaveBeenCalledWith({
         data: {
-          workspaceId: 'ws-1',
+          workspaceId: '11111111-1111-1111-1111-111111111111',
           createdBy: 1,
           role: 'member',
           expiresAt: null,
@@ -269,7 +299,7 @@ describe('WorkspaceService', () => {
       prisma.workspaceInvite.create.mockResolvedValue({ id: 'inv-1' });
 
       const before = Date.now();
-      await service.createInvite('ws-1', 1, {
+      await service.createInvite('11111111-1111-1111-1111-111111111111', 1, {
         role: 'editor',
         expiration: '24h',
       });
@@ -289,11 +319,11 @@ describe('WorkspaceService', () => {
       const invites = [{ id: 'inv-1', token: 'tok-1' }];
       prisma.workspaceInvite.findMany.mockResolvedValue(invites);
 
-      const result = await service.findInvites('ws-1', 7);
+      const result = await service.findInvites('11111111-1111-1111-1111-111111111111', 7);
 
       expect(result).toEqual(invites);
       expect(prisma.workspaceInvite.findMany).toHaveBeenCalledWith({
-        where: { workspaceId: 'ws-1' },
+        where: { workspaceId: '11111111-1111-1111-1111-111111111111' },
       });
     });
 
@@ -301,7 +331,7 @@ describe('WorkspaceService', () => {
       prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'member' });
 
       await expect(
-        service.findInvites('ws-1', 7),
+        service.findInvites('11111111-1111-1111-1111-111111111111', 7),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
@@ -311,7 +341,7 @@ describe('WorkspaceService', () => {
       prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'owner' });
       prisma.workspaceInvite.delete.mockResolvedValue({ id: 'inv-1' });
 
-      await service.revokeInvite('ws-1', 'inv-1', 7);
+      await service.revokeInvite('11111111-1111-1111-1111-111111111111', 'inv-1', 7);
 
       expect(prisma.workspaceInvite.delete).toHaveBeenCalledWith({
         where: { id: 'inv-1' },
@@ -322,7 +352,7 @@ describe('WorkspaceService', () => {
       prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'member' });
 
       await expect(
-        service.revokeInvite('ws-1', 'inv-1', 7),
+        service.revokeInvite('11111111-1111-1111-1111-111111111111', 'inv-1', 7),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
@@ -331,7 +361,7 @@ describe('WorkspaceService', () => {
     it('creates membership from valid invite', async () => {
       prisma.workspaceInvite.findUnique.mockResolvedValue({
         token: 'tok-1',
-        workspaceId: 'ws-1',
+        workspaceId: '11111111-1111-1111-1111-111111111111',
         role: 'member',
         expiresAt: null,
       });
@@ -340,9 +370,9 @@ describe('WorkspaceService', () => {
 
       const result = await service.acceptInvite('tok-1', 5);
 
-      expect(result).toEqual({ workspaceId: 'ws-1' });
+      expect(result).toEqual({ workspaceId: '11111111-1111-1111-1111-111111111111' });
       expect(prisma.workspaceMember.create).toHaveBeenCalledWith({
-        data: { workspaceId: 'ws-1', userId: 5, role: 'member' },
+        data: { workspaceId: '11111111-1111-1111-1111-111111111111', userId: 5, role: 'member' },
       });
     });
 
@@ -357,7 +387,7 @@ describe('WorkspaceService', () => {
     it('throws GoneException if invite has expired', async () => {
       prisma.workspaceInvite.findUnique.mockResolvedValue({
         token: 'tok-1',
-        workspaceId: 'ws-1',
+        workspaceId: '11111111-1111-1111-1111-111111111111',
         role: 'member',
         expiresAt: new Date(Date.now() - 1000),
       });
@@ -370,7 +400,7 @@ describe('WorkspaceService', () => {
     it('throws ConflictException if user is already a member', async () => {
       prisma.workspaceInvite.findUnique.mockResolvedValue({
         token: 'tok-1',
-        workspaceId: 'ws-1',
+        workspaceId: '11111111-1111-1111-1111-111111111111',
         role: 'member',
         expiresAt: null,
       });
@@ -386,10 +416,10 @@ describe('WorkspaceService', () => {
 
   describe('assertMember', () => {
     it('returns member if user is a member', async () => {
-      const member = { workspaceId: 'ws-1', userId: 1, role: 'member' };
+      const member = { workspaceId: '11111111-1111-1111-1111-111111111111', userId: 1, role: 'member' };
       prisma.workspaceMember.findUnique.mockResolvedValue(member);
 
-      const result = await service.assertMember('ws-1', 1);
+      const result = await service.assertMember('11111111-1111-1111-1111-111111111111', 1);
 
       expect(result).toEqual(member);
     });
@@ -398,7 +428,7 @@ describe('WorkspaceService', () => {
       prisma.workspaceMember.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.assertMember('ws-1', 1),
+        service.assertMember('11111111-1111-1111-1111-111111111111', 1),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });

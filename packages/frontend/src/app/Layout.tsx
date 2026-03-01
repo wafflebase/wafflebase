@@ -20,30 +20,33 @@ export default function Layout() {
     queryFn: fetchWorkspaces,
   });
 
-  const currentWorkspaceId = workspaceId || workspaces[0]?.id;
+  const currentWorkspace = workspaces.find(
+    (w) => w.slug === workspaceId || w.id === workspaceId,
+  );
+  const workspaceSlug =
+    currentWorkspace?.slug || workspaceId || workspaces[0]?.slug;
 
   const items = useMemo(() => {
-    if (currentWorkspaceId) {
+    if (workspaceSlug) {
       return {
         main: [
           {
             title: "Documents",
-            url: `/w/${currentWorkspaceId}`,
+            url: `/w/${workspaceSlug}`,
             icon: IconFolder,
           },
           {
             title: "Data Sources",
-            url: `/w/${currentWorkspaceId}/datasources`,
+            url: `/w/${workspaceSlug}/datasources`,
             icon: IconDatabase,
           },
-        ],
-        secondary: [
           {
             title: "Settings",
-            url: `/w/${currentWorkspaceId}/settings`,
+            url: `/w/${workspaceSlug}/settings`,
             icon: IconSettings,
           },
         ],
+        secondary: [],
       };
     }
 
@@ -51,16 +54,11 @@ export default function Layout() {
       main: [
         { title: "Documents", url: "/documents", icon: IconFolder },
         { title: "Data Sources", url: "/datasources", icon: IconDatabase },
-      ],
-      secondary: [
         { title: "Settings", url: "/settings", icon: IconSettings },
       ],
+      secondary: [],
     };
-  }, [currentWorkspaceId]);
-
-  const currentWorkspace = workspaces.find(
-    (w) => w.id === currentWorkspaceId,
-  );
+  }, [workspaceSlug]);
 
   let title = "";
   if (
@@ -81,14 +79,13 @@ export default function Layout() {
     title = "Settings";
   }
 
-  const handleWorkspaceChange = (id: string) => {
-    // Determine the current sub-path and navigate to the same page in the new workspace
+  const handleWorkspaceChange = (slug: string) => {
     if (location.pathname.endsWith("/datasources")) {
-      navigate(`/w/${id}/datasources`);
+      navigate(`/w/${slug}/datasources`);
     } else if (location.pathname.endsWith("/settings")) {
-      navigate(`/w/${id}/settings`);
+      navigate(`/w/${slug}/settings`);
     } else {
-      navigate(`/w/${id}`);
+      navigate(`/w/${slug}`);
     }
   };
 

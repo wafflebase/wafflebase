@@ -15,7 +15,7 @@ export function WorkspaceRedirect() {
 
   useEffect(() => {
     if (workspaces && workspaces.length > 0) {
-      navigate(`/w/${workspaces[0].id}`, { replace: true });
+      navigate(`/w/${workspaces[0].slug}`, { replace: true });
     }
   }, [workspaces, navigate]);
 

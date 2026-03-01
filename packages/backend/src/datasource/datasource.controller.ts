@@ -31,21 +31,25 @@ export class DataSourceController {
 
   @Post('workspaces/:workspaceId/datasources')
   async createInWorkspace(
-    @Param('workspaceId') workspaceId: string,
+    @Param('workspaceId') workspaceIdOrSlug: string,
     @Req() req: AuthenticatedRequest,
     @Body() dto: CreateDataSourceDto,
   ) {
     const userId = Number(req.user.id);
+    const workspaceId =
+      await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.datasourceService.create(userId, workspaceId, dto);
   }
 
   @Get('workspaces/:workspaceId/datasources')
   async findByWorkspace(
-    @Param('workspaceId') workspaceId: string,
+    @Param('workspaceId') workspaceIdOrSlug: string,
     @Req() req: AuthenticatedRequest,
   ) {
     const userId = Number(req.user.id);
+    const workspaceId =
+      await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.datasourceService.findAllByWorkspace(workspaceId);
   }

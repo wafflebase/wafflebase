@@ -54,6 +54,7 @@ model ShareLink {
 model Workspace {
   id        String   @id @default(uuid())
   name      String
+  slug      String   @unique
   createdAt DateTime @default(now())
 
   members     WorkspaceMember[]
