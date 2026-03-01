@@ -1,12 +1,12 @@
 name: GitHub Page Publish
 
 on:
-  # push:
-  #   branches:
-  #     - "main"
-  #   paths-ignore:
-  #     - "packages/backend/**"
-  workflow_dispatch: # Manual trigger only until backend is deployed
+  push:
+    branches:
+      - "main"
+    paths-ignore:
+      - "packages/backend/**"
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
