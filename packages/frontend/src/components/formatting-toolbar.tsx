@@ -256,6 +256,7 @@ export function FormattingToolbar({
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={handleUndo}
+            aria-label="Undo"
           >
             <IconArrowBackUp size={16} />
           </button>
@@ -268,6 +269,7 @@ export function FormattingToolbar({
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={handleRedo}
+            aria-label="Redo"
           >
             <IconArrowForwardUp size={16} />
           </button>
@@ -284,6 +286,7 @@ export function FormattingToolbar({
               paintFormatActive ? "bg-muted" : ""
             }`}
             onClick={handleTogglePaintFormat}
+            aria-label={paintFormatActive ? "Cancel paint format" : "Paint format"}
           >
             <IconPaint size={16} />
           </button>
@@ -303,6 +306,7 @@ export function FormattingToolbar({
               <button
                 className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
                 onClick={() => handleNumberFormat("currency")}
+                aria-label="Format as currency"
               >
                 <IconCurrencyDollar size={16} />
               </button>
@@ -318,6 +322,7 @@ export function FormattingToolbar({
               <button
                 className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
                 onClick={() => handleNumberFormat("percent")}
+                aria-label="Format as percent"
               >
                 <IconPercentage size={16} />
               </button>
@@ -331,6 +336,7 @@ export function FormattingToolbar({
               <button
                 className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
                 onClick={handleDecreaseDecimals}
+                aria-label="Decrease decimal places"
               >
                 <IconDecimal size={16} />
                 <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
@@ -347,6 +353,7 @@ export function FormattingToolbar({
               <button
                 className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
                 onClick={handleIncreaseDecimals}
+                aria-label="Increase decimal places"
               >
                 <IconDecimal size={16} />
                 <span className="absolute mt-3.5 ml-3 text-[8px] font-bold leading-none">
@@ -362,13 +369,13 @@ export function FormattingToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="More formats">
                     <CurrentFormatIcon size={16} />
                     <IconChevronDown size={12} className="ml-0.5 opacity-50" />
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent>More format</TooltipContent>
+              <TooltipContent>More formats</TooltipContent>
             </Tooltip>
             <DropdownMenuContent>
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
@@ -427,6 +434,7 @@ export function FormattingToolbar({
             pressed={style?.b || false}
             onPressedChange={() => handleToggle("b")}
             className="h-7 w-7 cursor-pointer"
+            aria-label="Bold"
           >
             <IconBold size={16} />
           </Toggle>
@@ -441,6 +449,7 @@ export function FormattingToolbar({
             pressed={style?.i || false}
             onPressedChange={() => handleToggle("i")}
             className="h-7 w-7 cursor-pointer"
+            aria-label="Italic"
           >
             <IconItalic size={16} />
           </Toggle>
@@ -456,6 +465,7 @@ export function FormattingToolbar({
               pressed={style?.st || false}
               onPressedChange={() => handleToggle("st")}
               className="h-7 w-7 cursor-pointer"
+              aria-label="Strikethrough"
             >
               <IconStrikethrough size={16} />
             </Toggle>
@@ -469,7 +479,7 @@ export function FormattingToolbar({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted">
+              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="Text color">
                 <IconTypography size={16} />
                 <span
                   className="absolute mt-5 h-0.5 w-3.5 rounded"
@@ -508,7 +518,7 @@ export function FormattingToolbar({
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted">
+              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="Fill color">
                 <IconDropletHalf2Filled size={16} />
                 <span
                   className="absolute mt-5 h-0.5 w-3.5 rounded"
@@ -549,7 +559,7 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Cell borders">
                   <IconBorderAll size={14} />
                   <IconChevronDown size={12} className="ml-0.5 opacity-50" />
                 </button>
@@ -604,6 +614,7 @@ export function FormattingToolbar({
             }`}
             onClick={handleToggleMerge}
             disabled={!selectionMerged && !canMerge}
+            aria-label={selectionMerged ? "Unmerge cells" : "Merge cells"}
           >
             <IconTableAlias size={16} />
           </button>
@@ -624,7 +635,7 @@ export function FormattingToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Horizontal align">
                     <CurrentAlignIcon size={16} />
                     <IconChevronDown size={12} className="ml-0.5 opacity-50" />
                   </button>
@@ -653,7 +664,7 @@ export function FormattingToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted">
+                  <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Vertical align">
                     <CurrentVAlignIcon size={16} />
                     <IconChevronDown size={12} className="ml-0.5 opacity-50" />
                   </button>
@@ -684,6 +695,7 @@ export function FormattingToolbar({
               <button
                 className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
                 onClick={handleToggleFunctionBrowser}
+                aria-label="Functions"
               >
                 <IconMathFunction size={16} className="mr-2" />
               </button>
@@ -700,6 +712,7 @@ export function FormattingToolbar({
                 onClick={() => {
                   void handleToggleFilter();
                 }}
+                aria-label={hasFilter ? "Clear filter" : "Create filter"}
               >
                 <IconFilter size={16} />
               </button>
@@ -714,6 +727,7 @@ export function FormattingToolbar({
               <button
                 className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-[11px] font-semibold hover:bg-muted"
                 onClick={handleInsertChart}
+                aria-label="Insert chart"
               >
                 <IconChartBar size={16} />
               </button>
@@ -726,6 +740,7 @@ export function FormattingToolbar({
               <button
                 className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-[10px] font-semibold tracking-wide hover:bg-muted"
                 onClick={handleOpenConditionalFormat}
+                aria-label="Conditional formatting"
               >
                 <IconBrush size={16} />
               </button>
@@ -740,7 +755,7 @@ export function FormattingToolbar({
           <Separator orientation="vertical" className="mx-1 h-6" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted">
+              <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="More formatting options">
                 <IconDotsVertical size={16} />
               </button>
             </DropdownMenuTrigger>
