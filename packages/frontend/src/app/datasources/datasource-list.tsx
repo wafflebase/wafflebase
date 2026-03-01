@@ -14,6 +14,7 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import {
+  Database,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -291,9 +292,19 @@ export function DataSourceList({ data }: { data: DataSource[] }) {
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="h-24 text-center"
+                  className="h-48"
                 >
-                  No datasources yet. Create one to get started.
+                  <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                    <Database className="h-10 w-10 stroke-1" />
+                    <p className="text-sm font-medium">No data sources yet</p>
+                    <Button
+                      size="sm"
+                      onClick={() => setShowCreate(true)}
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      New DataSource
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             )}
