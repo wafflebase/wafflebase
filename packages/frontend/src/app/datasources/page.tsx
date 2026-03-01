@@ -39,7 +39,7 @@ export default function DataSourcesPage() {
   }
 
   return (
-    <div className="p-4">
+    <div className="p-4 lg:p-6">
       <DataSourceList data={datasources} />
     </div>
   );

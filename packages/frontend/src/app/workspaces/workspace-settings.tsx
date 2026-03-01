@@ -166,7 +166,7 @@ export default function WorkspaceSettings() {
   };
 
   return (
-    <div className="p-4 max-w-2xl space-y-8">
+    <div className="p-4 lg:p-6 max-w-2xl space-y-8">
       {/* Workspace Name */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Workspace Name</h2>
