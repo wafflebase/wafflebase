@@ -150,7 +150,7 @@ export function ChartEditorPanel({
         </div>
         <button
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={onClose}
           aria-label="Close chart editor"
         >

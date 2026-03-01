@@ -319,7 +319,7 @@ function ChartObject({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="ml-1 inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="ml-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
                 onPointerDown={(event) => {
                   event.stopPropagation();
                 }}

@@ -300,7 +300,7 @@ export function ConditionalFormatPanel({
         </div>
         <button
           type="button"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
           onClick={onClose}
           aria-label="Close conditional format panel"
         >
@@ -336,7 +336,7 @@ export function ConditionalFormatPanel({
               >
                 <button
                   type="button"
-                  className="w-full text-left"
+                  className="w-full cursor-pointer text-left"
                   onClick={() => setSelectedRuleId(rule.id)}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -587,7 +587,7 @@ export function ConditionalFormatPanel({
                   <DropdownMenuContent className="w-auto p-2">
                     <button
                       type="button"
-                      className="mb-2 flex w-full items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+                      className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
                       onClick={() =>
                         updateRuleStyle(selectedRule.id, {
                           tc: undefined,
@@ -602,7 +602,7 @@ export function ConditionalFormatPanel({
                         <button
                           key={color}
                           type="button"
-                          className="h-5 w-5 rounded border border-border hover:scale-125 transition-transform"
+                          className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
                           style={{ backgroundColor: color }}
                           onClick={() =>
                             updateRuleStyle(selectedRule.id, {
@@ -636,7 +636,7 @@ export function ConditionalFormatPanel({
                   <DropdownMenuContent className="w-auto p-2">
                     <button
                       type="button"
-                      className="mb-2 flex w-full items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+                      className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
                       onClick={() =>
                         updateRuleStyle(selectedRule.id, {
                           bg: undefined,
@@ -651,7 +651,7 @@ export function ConditionalFormatPanel({
                         <button
                           key={color}
                           type="button"
-                          className="h-5 w-5 rounded border border-border hover:scale-125 transition-transform"
+                          className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
                           style={{ backgroundColor: color }}
                           onClick={() =>
                             updateRuleStyle(selectedRule.id, {

@@ -72,7 +72,7 @@ export function UserPresence({
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="relative rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
+            className="relative cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
             onClick={() => {
               if (!canJump || !user.activeCell) return;
               onSelectActiveCell(user.activeCell, user.activeTabId);
@@ -110,7 +110,7 @@ export function UserPresence({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium"
+                    className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium"
                     aria-label={`${hiddenUsers.length} more users`}
                   >
                     +{hiddenUsers.length}

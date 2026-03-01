@@ -492,7 +492,7 @@ export function FormattingToolbar({
         </Tooltip>
         <DropdownMenuContent className="w-auto p-2">
           <button
-            className="mb-2 flex w-full items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
             onClick={handleResetTextColor}
           >
             <IconDropletOff size={14} />
@@ -502,7 +502,7 @@ export function FormattingToolbar({
             {TEXT_COLORS.map((color) => (
               <button
                 key={color}
-                className="h-5 w-5 rounded border border-border hover:scale-125 transition-transform"
+                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
                 style={{ backgroundColor: color }}
                 onClick={() => handleTextColor(color)}
               />
@@ -534,7 +534,7 @@ export function FormattingToolbar({
         </Tooltip>
         <DropdownMenuContent className="w-auto p-2">
           <button
-            className="mb-2 flex w-full items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
             onClick={handleResetBgColor}
           >
             <IconDropletOff size={14} />
@@ -544,7 +544,7 @@ export function FormattingToolbar({
             {BG_COLORS.map((color) => (
               <button
                 key={color}
-                className="h-5 w-5 rounded border border-border hover:scale-125 transition-transform"
+                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
                 style={{ backgroundColor: color }}
                 onClick={() => handleBgColor(color)}
               />
