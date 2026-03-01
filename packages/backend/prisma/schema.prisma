@@ -24,8 +24,8 @@ model DataSource {
   author     User     @relation(fields: [authorID], references: [id])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  workspaceId String?
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id])
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
 }
 
 model Document {
@@ -35,8 +35,8 @@ model Document {
   author    User?    @relation(fields: [authorID], references: [id])
   createdAt DateTime @default(now())
   shareLinks ShareLink[]
-  workspaceId String?
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id])
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
 }
 
 model ShareLink {
