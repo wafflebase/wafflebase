@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 43
+Total archived tasks: 44
 
-## 2026/03 (6 tasks)
+## 2026/03 (7 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | autocomplete overflow (2026-03-01) | [20260301-autocomplete-overflow-todo.md](./2026/03/20260301-autocomplete-overflow-todo.md) | [20260301-autocomplete-overflow-lessons.md](./2026/03/20260301-autocomplete-overflow-lessons.md) |
+| claude code hooks (2026-03-01) | [20260301-claude-code-hooks-todo.md](./2026/03/20260301-claude-code-hooks-todo.md) | [20260301-claude-code-hooks-lessons.md](./2026/03/20260301-claude-code-hooks-lessons.md) |
 | document sidebar unify (2026-03-01) | [20260301-document-sidebar-unify-todo.md](./2026/03/20260301-document-sidebar-unify-todo.md) | - |
 | formula grammar gaps (2026-03-01) | [20260301-formula-grammar-gaps-todo.md](./2026/03/20260301-formula-grammar-gaps-todo.md) | [20260301-formula-grammar-gaps-lessons.md](./2026/03/20260301-formula-grammar-gaps-lessons.md) |
 | freeze pane gap (2026-03-01) | [20260301-freeze-pane-gap-todo.md](./2026/03/20260301-freeze-pane-gap-todo.md) | [20260301-freeze-pane-gap-lessons.md](./2026/03/20260301-freeze-pane-gap-lessons.md) |

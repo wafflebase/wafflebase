@@ -23,7 +23,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 43
+- Archived task count: 44
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: frontend ui polish (2026-03-01)
