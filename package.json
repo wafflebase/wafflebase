@@ -26,7 +26,7 @@
     "frontend": "pnpm --filter @wafflebase/frontend",
     "backend": "pnpm --filter @wafflebase/backend",
     "sheet": "pnpm --filter @wafflebase/sheet",
-    "postinstall": "git config core.hooksPath .githooks"
+    "postinstall": "git config core.hooksPath .githooks || true"
   },
   "keywords": [],
   "author": {
