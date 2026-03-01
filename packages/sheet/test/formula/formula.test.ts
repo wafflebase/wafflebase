@@ -102,6 +102,22 @@ describe('Formula', () => {
     expect(evaluate('=A1&" "&B1', grid)).toBe('hello world');
   });
 
+  it('should handle empty arguments in IF', () => {
+    expect(evaluate('=IF(TRUE,,1)')).toBe('0');
+    expect(evaluate('=IF(FALSE,,1)')).toBe('1');
+    expect(evaluate('=IF(TRUE,1,)')).toBe('1');
+    expect(evaluate('=IF(FALSE,1,)')).toBe('0');
+  });
+
+  it('should handle empty arguments in SUM', () => {
+    expect(evaluate('=SUM(1,,3)')).toBe('4');
+    expect(evaluate('=SUM(,,5)')).toBe('5');
+  });
+
+  it('should treat empty condition as FALSE', () => {
+    expect(evaluate('=IF(,1,2)')).toBe('2');
+  });
+
   it('should correctly evaluate functions', () => {
     expect(evaluate('=SUM(0)')).toBe('0');
     expect(evaluate('=SUM(1,2,3)')).toBe('6');

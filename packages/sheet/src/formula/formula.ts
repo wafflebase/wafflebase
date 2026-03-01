@@ -66,8 +66,56 @@ function createSyntaxErrorListener<TSymbol>(
   };
 }
 
+const EMPTY_SENTINEL = 'zEmptyArg__';
+
+/**
+ * `preprocessEmptyArgs` replaces empty argument positions (e.g. `,,` or `(,`
+ * or `,)`) with a sentinel function call so the parser can handle them.
+ */
+function preprocessEmptyArgs(body: string): string {
+  let result = '';
+  let inString = false;
+
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+
+    if (ch === '"') {
+      inString = !inString;
+      result += ch;
+      continue;
+    }
+
+    if (inString) {
+      result += ch;
+      continue;
+    }
+
+    if (ch === '(') {
+      result += ch;
+      // Empty first arg: ( followed by , (but NOT by ) which is empty call)
+      let j = i + 1;
+      while (j < body.length && body[j] === ' ') j++;
+      if (j < body.length && body[j] === ',') {
+        result += EMPTY_SENTINEL + '()';
+      }
+    } else if (ch === ',') {
+      result += ch;
+      // Empty middle/last arg: , followed by , or )
+      let j = i + 1;
+      while (j < body.length && body[j] === ' ') j++;
+      if (j < body.length && (body[j] === ',' || body[j] === ')')) {
+        result += EMPTY_SENTINEL + '()';
+      }
+    } else {
+      result += ch;
+    }
+  }
+
+  return result;
+}
+
 function parseExpression(formula: string): ParsedExpression | undefined {
-  const stream = CharStreams.fromString(formula.slice(1));
+  const stream = CharStreams.fromString(preprocessEmptyArgs(formula.slice(1)));
   const lexer = new FormulaLexer(stream);
   const tokens = new CommonTokenStream(lexer);
   const parser = new FormulaParser(tokens);
@@ -381,6 +429,10 @@ export function evaluate(formula: string, grid?: Grid): string {
       return grid.get(node.v)?.v || '';
     }
 
+    if (node.t === 'empty') {
+      return '0';
+    }
+
     return node.v.toString();
   } catch (e) {
     return '#ERROR!';
@@ -395,11 +447,12 @@ export type ErrNode = {
   v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!';
 };
 export type RefNode = { t: 'ref'; v: Reference };
+export type EmptyNode = { t: 'empty' };
 
 /**
  * `Result` represents the result of the evaluation.
  */
-export type EvalNode = NumNode | StrNode | BoolNode | RefNode | ErrNode;
+export type EvalNode = NumNode | StrNode | BoolNode | RefNode | ErrNode | EmptyNode;
 
 /**
  * `Evaluator` class evaluates the formula. The grammar of the formula is defined in

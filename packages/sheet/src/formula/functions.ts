@@ -455,6 +455,7 @@ export const FunctionMap = new Map([
   ['EXPAND', expandFunc],
   ['MUNIT', munitFunc],
   ['BINOM.DIST.RANGE', binomdistrangeFunc],
+  ['ZEMPTYARG__', emptyArgFunc],
 ]);
 
 /**
@@ -15946,4 +15947,8 @@ function binomPmf(n: number, k: number, p: number): number {
     logCoeff += Math.log(n - i) - Math.log(i + 1);
   }
   return Math.exp(logCoeff + k * Math.log(p) + (n - k) * Math.log(1 - p));
+}
+
+function emptyArgFunc(): EvalNode {
+  return { t: 'empty' };
 }

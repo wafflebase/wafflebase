@@ -61,6 +61,14 @@ class Arguments<T extends EvalNode> {
    * the value is a range, it does not map the result to the expected node.
    */
   map(result: EvalNode, grid?: Grid): T | ErrNode {
+    if (result.t === 'empty') {
+      // Coerce empty args: num→0, str→"", bool→false
+      if (this.num) return this.num({ t: 'num', v: 0 });
+      if (this.str) return this.str({ t: 'str', v: '' });
+      if (this.bool) return this.bool({ t: 'bool', v: false });
+      return result as T;
+    }
+
     if (result.t === 'bool' && this.bool) {
       return this.bool(result);
     }
