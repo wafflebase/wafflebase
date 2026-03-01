@@ -1,4 +1,4 @@
-import{c as r}from"./IconDotsVertical-CbylDT1H.js";import{b as t,c as n}from"./index-qcRyG1VC.js";/**
+import{c as r}from"./IconDotsVertical-CbylDT1H.js";import{c as t,d as n}from"./index-CvpcMvMN.js";/**
  * @license @tabler/icons-react v3.31.0 - MIT
  *
  * This source code is licensed under the MIT license.
