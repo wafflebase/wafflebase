@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { lazy, Suspense, useState } from "react";
 import { Loader } from "@/components/loader";
 
@@ -37,46 +38,48 @@ function App() {
 
   return (
     <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
-      <QueryClientProvider client={queryClient}>
-        <Router basename={import.meta.env.VITE_FRONTEND_BASENAME}>
-          <Suspense fallback={<Loader />}>
-            <Routes>
-              <Route element={<PublicRoute />}>
-                <Route path="/login" element={<Login />} />
-              </Route>
-              <Route path="/harness/visual" element={<VisualHarnessPage />} />
-              <Route
-                path="/harness/interaction"
-                element={<InteractionHarnessPage />}
-              />
-              <Route path="/shared/:token" element={<SharedDocument />} />
-              <Route element={<PrivateRoute />}>
-                <Route element={<Layout />}>
-                  <Route path="/" element={<WorkspaceRedirect />} />
-                  <Route
-                    path="/w/:workspaceId"
-                    element={<WorkspaceDocuments />}
-                  />
-                  <Route
-                    path="/w/:workspaceId/datasources"
-                    element={<WorkspaceDataSources />}
-                  />
-                  <Route
-                    path="/w/:workspaceId/settings"
-                    element={<WorkspaceSettings />}
-                  />
-                  <Route path="/documents" element={<Documents />} />
-                  <Route path="/datasources" element={<DataSourcesPage />} />
-                  <Route path="/settings" element={<Settings />} />
+      <TooltipProvider delayDuration={0}>
+        <QueryClientProvider client={queryClient}>
+          <Router basename={import.meta.env.VITE_FRONTEND_BASENAME}>
+            <Suspense fallback={<Loader />}>
+              <Routes>
+                <Route element={<PublicRoute />}>
+                  <Route path="/login" element={<Login />} />
                 </Route>
-                <Route path="/invite/:token" element={<InviteAccept />} />
-                <Route path="/:id" element={<DocumentDetail />} />
-              </Route>
-            </Routes>
-          </Suspense>
-        </Router>
-      </QueryClientProvider>
-      <Toaster />
+                <Route path="/harness/visual" element={<VisualHarnessPage />} />
+                <Route
+                  path="/harness/interaction"
+                  element={<InteractionHarnessPage />}
+                />
+                <Route path="/shared/:token" element={<SharedDocument />} />
+                <Route element={<PrivateRoute />}>
+                  <Route element={<Layout />}>
+                    <Route path="/" element={<WorkspaceRedirect />} />
+                    <Route
+                      path="/w/:workspaceId"
+                      element={<WorkspaceDocuments />}
+                    />
+                    <Route
+                      path="/w/:workspaceId/datasources"
+                      element={<WorkspaceDataSources />}
+                    />
+                    <Route
+                      path="/w/:workspaceId/settings"
+                      element={<WorkspaceSettings />}
+                    />
+                    <Route path="/documents" element={<Documents />} />
+                    <Route path="/datasources" element={<DataSourcesPage />} />
+                    <Route path="/settings" element={<Settings />} />
+                  </Route>
+                  <Route path="/invite/:token" element={<InviteAccept />} />
+                  <Route path="/:id" element={<DocumentDetail />} />
+                </Route>
+              </Routes>
+            </Suspense>
+          </Router>
+        </QueryClientProvider>
+        <Toaster />
+      </TooltipProvider>
     </ThemeProvider>
   );
 }
