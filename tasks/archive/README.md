@@ -6,15 +6,16 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 40
+Total archived tasks: 41
 
-## 2026/03 (3 tasks)
+## 2026/03 (4 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | autocomplete overflow (2026-03-01) | [20260301-autocomplete-overflow-todo.md](./2026/03/20260301-autocomplete-overflow-todo.md) | [20260301-autocomplete-overflow-lessons.md](./2026/03/20260301-autocomplete-overflow-lessons.md) |
 | formula grammar gaps (2026-03-01) | [20260301-formula-grammar-gaps-todo.md](./2026/03/20260301-formula-grammar-gaps-todo.md) | [20260301-formula-grammar-gaps-lessons.md](./2026/03/20260301-formula-grammar-gaps-lessons.md) |
 | freeze pane gap (2026-03-01) | [20260301-freeze-pane-gap-todo.md](./2026/03/20260301-freeze-pane-gap-todo.md) | [20260301-freeze-pane-gap-lessons.md](./2026/03/20260301-freeze-pane-gap-lessons.md) |
+| workspace ui improvements (2026-03-01) | [20260301-workspace-ui-improvements-todo.md](./2026/03/20260301-workspace-ui-improvements-todo.md) | [20260301-workspace-ui-improvements-lessons.md](./2026/03/20260301-workspace-ui-improvements-lessons.md) |
 
 ## 2026/02 (37 tasks)
 
