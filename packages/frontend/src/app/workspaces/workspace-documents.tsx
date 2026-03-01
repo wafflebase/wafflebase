@@ -49,7 +49,7 @@ export default function WorkspaceDocuments() {
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <p className="text-destructive text-lg">Failed to load documents.</p>
-        <p className="text-muted-foreground">Please try again later.</p>
+        <p className="text-sm text-muted-foreground">Please try again later.</p>
       </div>
     );
   }
