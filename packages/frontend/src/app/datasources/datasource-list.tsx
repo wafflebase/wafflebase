@@ -142,7 +142,7 @@ export function DataSourceList({ data }: { data: DataSource[] }) {
           return <CheckCircle2 className="h-4 w-4 text-green-500" />;
         }
         if (result === false) {
-          return <XCircle className="h-4 w-4 text-red-500" />;
+          return <XCircle className="h-4 w-4 text-destructive" />;
         }
         return <span className="text-sm text-muted-foreground">—</span>;
       },
@@ -193,7 +193,7 @@ export function DataSourceList({ data }: { data: DataSource[] }) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="text-red-500 focus:text-red-500"
+                className="text-destructive focus:text-destructive"
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
                   deleteDataSourceMutation.mutate(ds.id);

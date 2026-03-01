@@ -113,7 +113,7 @@ export function DocumentList({
                 Rename
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="text-red-500 focus:text-red-500"
+                className="text-destructive focus:text-destructive"
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
                   deleteDocumentMutation.mutate(String(row.getValue("id")));

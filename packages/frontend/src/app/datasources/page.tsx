@@ -21,7 +21,7 @@ export default function DataSourcesPage() {
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-gray-500 text-lg">Loading datasources...</p>
+        <p className="text-muted-foreground text-lg">Loading datasources...</p>
       </div>
     );
   }
@@ -32,8 +32,8 @@ export default function DataSourcesPage() {
     }
     return (
       <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-red-500 text-lg">Failed to load datasources.</p>
-        <p className="text-gray-400">Please try again later.</p>
+        <p className="text-destructive text-lg">Failed to load datasources.</p>
+        <p className="text-muted-foreground">Please try again later.</p>
       </div>
     );
   }

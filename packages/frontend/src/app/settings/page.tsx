@@ -19,7 +19,7 @@ export default function Settings() {
           <label htmlFor="theme-switch" className="text-sm font-medium">
             Theme
           </label>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             Toggle between light and dark themes.
           </p>
         </div>

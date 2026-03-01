@@ -20,7 +20,7 @@ export default function InviteAccept() {
   }, [token, navigate]);
 
   if (error) {
-    return <div className="p-8 text-center text-red-500">{error}</div>;
+    return <div className="p-8 text-center text-destructive">{error}</div>;
   }
 
   return <div className="p-8 text-center">Accepting invite...</div>;

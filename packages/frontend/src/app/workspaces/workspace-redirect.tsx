@@ -21,7 +21,7 @@ export function WorkspaceRedirect() {
 
   return (
     <div className="flex items-center justify-center h-64">
-      <p className="text-gray-500 text-lg">Loading...</p>
+      <p className="text-muted-foreground text-lg">Loading...</p>
     </div>
   );
 }
