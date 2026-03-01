@@ -6,6 +6,7 @@ import { FormulaLexer } from '../../antlr/FormulaLexer';
 import { FormulaVisitor } from '../../antlr/FormulaVisitor';
 import {
   AddSubContext,
+  ArrayLiteralContext,
   BooleanContext,
   ComparisonContext,
   ConcatContext,
@@ -433,6 +434,13 @@ export function evaluate(formula: string, grid?: Grid): string {
       return '0';
     }
 
+    if (node.t === 'arr') {
+      const topLeft = node.v[0]?.[0];
+      if (!topLeft || topLeft.t === 'empty') return '0';
+      if (topLeft.t === 'arr') return '#VALUE!';
+      return topLeft.v.toString();
+    }
+
     return node.v.toString();
   } catch (e) {
     return '#ERROR!';
@@ -448,11 +456,19 @@ export type ErrNode = {
 };
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
+export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number };
 
 /**
  * `Result` represents the result of the evaluation.
  */
-export type EvalNode = NumNode | StrNode | BoolNode | RefNode | ErrNode | EmptyNode;
+export type EvalNode =
+  | NumNode
+  | StrNode
+  | BoolNode
+  | RefNode
+  | ErrNode
+  | EmptyNode
+  | ArrNode;
 
 /**
  * `Evaluator` class evaluates the formula. The grammar of the formula is defined in
@@ -662,6 +678,19 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     return operand;
+  }
+
+  visitArrayLiteral(ctx: ArrayLiteralContext): EvalNode {
+    const rows: EvalNode[][] = [];
+    for (const row of ctx.arrayRow()) {
+      const cells: EvalNode[] = [];
+      for (const expr of row.expr()) {
+        cells.push(this.visit(expr));
+      }
+      rows.push(cells);
+    }
+    const cols = rows.reduce((max, r) => Math.max(max, r.length), 0);
+    return { t: 'arr', v: rows, rows: rows.length, cols };
   }
 
   visitStr(ctx: StrContext): EvalNode {

@@ -12,9 +12,13 @@ expr: FUNCNAME '(' args? ')'         # Function
     | STRING                         # Str
     | REFERENCE                      # Reference
     | '(' expr ')'                   # Parentheses
+    | '{' arrayRow (SEMI arrayRow)* '}'  # ArrayLiteral
     ;
 
+arrayRow: expr (',' expr)* ;
 args: expr (',' expr)* ;
+
+SEMI: ';' ;
 
 REFERENCE: QUOTED_SHEET_NAME '!' REFRANGE
          | QUOTED_SHEET_NAME '!' REF

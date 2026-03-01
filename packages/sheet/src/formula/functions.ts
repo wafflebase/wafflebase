@@ -1454,6 +1454,14 @@ export function countFunc(
           count++;
         }
       }
+    } else if (node.t === 'arr') {
+      for (const row of node.v) {
+        for (const cell of row) {
+          if (cell.t === 'num' || cell.t === 'bool') {
+            count++;
+          }
+        }
+      }
     }
     // strings that aren't numeric are skipped
   }

@@ -15,8 +15,10 @@ import { BooleanContext } from "./FormulaParser";
 import { StrContext } from "./FormulaParser";
 import { ReferenceContext } from "./FormulaParser";
 import { ParenthesesContext } from "./FormulaParser";
+import { ArrayLiteralContext } from "./FormulaParser";
 import { FormulaContext } from "./FormulaParser";
 import { ExprContext } from "./FormulaParser";
+import { ArrayRowContext } from "./FormulaParser";
 import { ArgsContext } from "./FormulaParser";
 
 
@@ -117,6 +119,14 @@ export interface FormulaVisitor<Result> extends ParseTreeVisitor<Result> {
 	visitParentheses?: (ctx: ParenthesesContext) => Result;
 
 	/**
+	 * Visit a parse tree produced by the `ArrayLiteral`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	visitArrayLiteral?: (ctx: ArrayLiteralContext) => Result;
+
+	/**
 	 * Visit a parse tree produced by `FormulaParser.formula`.
 	 * @param ctx the parse tree
 	 * @return the visitor result
@@ -129,6 +139,13 @@ export interface FormulaVisitor<Result> extends ParseTreeVisitor<Result> {
 	 * @return the visitor result
 	 */
 	visitExpr?: (ctx: ExprContext) => Result;
+
+	/**
+	 * Visit a parse tree produced by `FormulaParser.arrayRow`.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	visitArrayRow?: (ctx: ArrayRowContext) => Result;
 
 	/**
 	 * Visit a parse tree produced by `FormulaParser.args`.

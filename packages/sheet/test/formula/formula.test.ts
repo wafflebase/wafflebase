@@ -102,6 +102,28 @@ describe('Formula', () => {
     expect(evaluate('=A1&" "&B1', grid)).toBe('hello world');
   });
 
+  it('should return top-left value of array literal in scalar context', () => {
+    expect(evaluate('={1,2,3}')).toBe('1');
+    expect(evaluate('={10;20;30}')).toBe('10');
+    expect(evaluate('={1,2;3,4}')).toBe('1');
+    expect(evaluate('={"a","b"}')).toBe('a');
+  });
+
+  it('should use array literals with SUM', () => {
+    expect(evaluate('=SUM({1,2,3})')).toBe('6');
+    expect(evaluate('=SUM({1,2;3,4})')).toBe('10');
+    expect(evaluate('=SUM({10;20;30})')).toBe('60');
+  });
+
+  it('should use array literals with AVERAGE and COUNT', () => {
+    expect(evaluate('=AVERAGE({2,4,6})')).toBe('4');
+    expect(evaluate('=COUNT({1,2,3})')).toBe('3');
+  });
+
+  it('should use array literals in arithmetic', () => {
+    expect(evaluate('={1,2,3}+10')).toBe('11');
+  });
+
   it('should handle empty arguments in IF', () => {
     expect(evaluate('=IF(TRUE,,1)')).toBe('0');
     expect(evaluate('=IF(FALSE,,1)')).toBe('1');

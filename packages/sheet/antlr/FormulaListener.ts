@@ -15,8 +15,10 @@ import { BooleanContext } from "./FormulaParser";
 import { StrContext } from "./FormulaParser";
 import { ReferenceContext } from "./FormulaParser";
 import { ParenthesesContext } from "./FormulaParser";
+import { ArrayLiteralContext } from "./FormulaParser";
 import { FormulaContext } from "./FormulaParser";
 import { ExprContext } from "./FormulaParser";
+import { ArrayRowContext } from "./FormulaParser";
 import { ArgsContext } from "./FormulaParser";
 
 
@@ -169,6 +171,19 @@ export interface FormulaListener extends ParseTreeListener {
 	exitParentheses?: (ctx: ParenthesesContext) => void;
 
 	/**
+	 * Enter a parse tree produced by the `ArrayLiteral`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	enterArrayLiteral?: (ctx: ArrayLiteralContext) => void;
+	/**
+	 * Exit a parse tree produced by the `ArrayLiteral`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	exitArrayLiteral?: (ctx: ArrayLiteralContext) => void;
+
+	/**
 	 * Enter a parse tree produced by `FormulaParser.formula`.
 	 * @param ctx the parse tree
 	 */
@@ -189,6 +204,17 @@ export interface FormulaListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	exitExpr?: (ctx: ExprContext) => void;
+
+	/**
+	 * Enter a parse tree produced by `FormulaParser.arrayRow`.
+	 * @param ctx the parse tree
+	 */
+	enterArrayRow?: (ctx: ArrayRowContext) => void;
+	/**
+	 * Exit a parse tree produced by `FormulaParser.arrayRow`.
+	 * @param ctx the parse tree
+	 */
+	exitArrayRow?: (ctx: ArrayRowContext) => void;
 
 	/**
 	 * Enter a parse tree produced by `FormulaParser.args`.

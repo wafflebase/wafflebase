@@ -2,6 +2,7 @@ import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { ArgsContext } from '../../antlr/FormulaParser';
 import {
   EvalNode,
+  ArrNode,
   BoolNode,
   NumNode,
   StrNode,
@@ -85,6 +86,14 @@ class Arguments<T extends EvalNode> {
       return this.ref(result, grid);
     }
 
+    if (result.t === 'arr') {
+      const topLeft = result.v[0]?.[0];
+      if (!topLeft || topLeft.t === 'empty') {
+        return this.map({ t: 'num', v: 0 }, grid);
+      }
+      return this.map(topLeft, grid);
+    }
+
     return result as T;
   }
 
@@ -101,6 +110,12 @@ class Arguments<T extends EvalNode> {
       if (node.t === 'ref' && grid) {
         for (const ref of toSrefs([node.v])) {
           yield this.ref!({ t: 'ref', v: ref }, grid);
+        }
+      } else if (node.t === 'arr') {
+        for (const row of node.v) {
+          for (const cell of row) {
+            yield this.map(cell, grid);
+          }
         }
       } else {
         yield this.map(node);
