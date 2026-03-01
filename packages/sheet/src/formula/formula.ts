@@ -459,7 +459,7 @@ export type StrNode = { t: 'str'; v: string };
 export type BoolNode = { t: 'bool'; v: boolean };
 export type ErrNode = {
   t: 'err';
-  v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!';
+  v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' | '#DIV/0!';
 };
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
@@ -596,6 +596,10 @@ class Evaluator implements FormulaVisitor<EvalNode> {
 
     if (ctx._op.type === FormulaParser.MUL) {
       return { t: 'num', v: left.v * right.v };
+    }
+
+    if (right.v === 0) {
+      return { t: 'err', v: '#DIV/0!' };
     }
 
     return { t: 'num', v: left.v / right.v };

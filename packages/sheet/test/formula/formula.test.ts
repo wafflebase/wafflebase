@@ -145,6 +145,18 @@ describe('Formula', () => {
     expect(evaluate('=LAMBDA(x, y, x+y)(3, 4)')).toBe('7');
   });
 
+  it('should coerce numeric strings to numbers in arithmetic', () => {
+    expect(evaluate('=SUM("5","3")')).toBe('8');
+    expect(evaluate('="10"+5')).toBe('15');
+    expect(evaluate('="7"*2')).toBe('14');
+  });
+
+  it('should return #DIV/0! for division by zero', () => {
+    expect(evaluate('=1/0')).toBe('#DIV/0!');
+    expect(evaluate('=0/0')).toBe('#DIV/0!');
+    expect(evaluate('=-5/0')).toBe('#DIV/0!');
+  });
+
   it('should handle empty arguments in IF', () => {
     expect(evaluate('=IF(TRUE,,1)')).toBe('0');
     expect(evaluate('=IF(FALSE,,1)')).toBe('1');

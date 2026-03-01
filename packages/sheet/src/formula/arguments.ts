@@ -135,7 +135,7 @@ function bool2num(result: BoolNode): NumNode {
  * `str2num` converts a string result to a number result.
  */
 function str2num(result: StrNode): NumNode {
-  const num = Number(result);
+  const num = Number(result.v);
   return { t: 'num', v: isNaN(num) ? 0 : num };
 }
 
