@@ -3,6 +3,7 @@ import { IconDotsVertical, IconLogout, IconSun, IconMoon } from "@tabler/icons-r
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -15,7 +16,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/components/theme-provider";
 import { logout } from "@/api/auth";
 import { User } from "@/types/users";
@@ -74,19 +74,15 @@ export function NavUser({ user }: { user: User }) {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
+            <DropdownMenuCheckboxItem
+              checked={isDark}
+              onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
               onSelect={(e) => e.preventDefault()}
-              className="cursor-pointer flex items-center justify-between"
+              className="cursor-pointer"
             >
-              <div className="flex items-center gap-2">
-                {isDark ? <IconMoon className="size-4" /> : <IconSun className="size-4" />}
-                Dark mode
-              </div>
-              <Switch
-                checked={isDark}
-                onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-              />
-            </DropdownMenuItem>
+              {isDark ? <IconMoon className="size-4" /> : <IconSun className="size-4" />}
+              Dark mode
+            </DropdownMenuCheckboxItem>
             <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
               <IconLogout />
               Log out
