@@ -18,11 +18,12 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| _None_ | - | - |
+| frontend ui polish (2026-03-01) | [20260301-frontend-ui-polish-todo.md](./active/20260301-frontend-ui-polish-todo.md) | [20260301-frontend-ui-polish-lessons.md](./active/20260301-frontend-ui-polish-lessons.md) |
+| workspace delete (2026-03-01) | [20260301-workspace-delete-todo.md](./active/20260301-workspace-delete-todo.md) | [20260301-workspace-delete-lessons.md](./active/20260301-workspace-delete-lessons.md) |
 
 ## Archive
 
-- Archived task count: 40
+- Archived task count: 43
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: none
+Latest active task: frontend ui polish (2026-03-01)
