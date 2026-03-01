@@ -1,7 +1,6 @@
 import {
   Injectable,
   NotFoundException,
-  ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
 import { Client } from 'pg';
@@ -21,7 +20,7 @@ const MAX_ROWS = 10_000;
 export class DataSourceService {
   constructor(private prisma: PrismaService) {}
 
-  async create(userId: number, dto: CreateDataSourceDto) {
+  async create(userId: number, workspaceId: string, dto: CreateDataSourceDto) {
     return this.prisma.dataSource.create({
       data: {
         name: dto.name,
@@ -32,13 +31,14 @@ export class DataSourceService {
         password: encrypt(dto.password),
         sslEnabled: dto.sslEnabled ?? false,
         authorID: userId,
+        workspaceId,
       },
     });
   }
 
-  async findAll(userId: number) {
+  async findAllByWorkspace(workspaceId: string) {
     const datasources = await this.prisma.dataSource.findMany({
-      where: { authorID: userId },
+      where: { workspaceId },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -49,24 +49,18 @@ export class DataSourceService {
     }));
   }
 
-  async findOne(userId: number, id: string) {
+  async findOne(id: string) {
     const ds = await this.prisma.dataSource.findUnique({ where: { id } });
     if (!ds) {
       throw new NotFoundException('DataSource not found');
-    }
-    if (ds.authorID !== userId) {
-      throw new ForbiddenException('You do not have access to this datasource');
     }
     return { ...ds, password: '********' };
   }
 
-  async update(userId: number, id: string, dto: UpdateDataSourceDto) {
+  async update(id: string, dto: UpdateDataSourceDto) {
     const ds = await this.prisma.dataSource.findUnique({ where: { id } });
     if (!ds) {
       throw new NotFoundException('DataSource not found');
-    }
-    if (ds.authorID !== userId) {
-      throw new ForbiddenException('You do not have access to this datasource');
     }
 
     const data: Record<string, unknown> = {};
@@ -84,24 +78,18 @@ export class DataSourceService {
     });
   }
 
-  async remove(userId: number, id: string) {
+  async remove(id: string) {
     const ds = await this.prisma.dataSource.findUnique({ where: { id } });
     if (!ds) {
       throw new NotFoundException('DataSource not found');
-    }
-    if (ds.authorID !== userId) {
-      throw new ForbiddenException('You do not have access to this datasource');
     }
     return this.prisma.dataSource.delete({ where: { id } });
   }
 
-  async testConnection(userId: number, id: string) {
+  async testConnection(id: string) {
     const ds = await this.prisma.dataSource.findUnique({ where: { id } });
     if (!ds) {
       throw new NotFoundException('DataSource not found');
-    }
-    if (ds.authorID !== userId) {
-      throw new ForbiddenException('You do not have access to this datasource');
     }
 
     const client = this.createClient(ds);
@@ -116,7 +104,7 @@ export class DataSourceService {
     }
   }
 
-  async executeQuery(userId: number, id: string, dto: ExecuteQueryDto) {
+  async executeQuery(id: string, dto: ExecuteQueryDto) {
     const validation = validateSelectQuery(dto.query);
     if (!validation.valid) {
       throw new BadRequestException(validation.error);
@@ -125,9 +113,6 @@ export class DataSourceService {
     const ds = await this.prisma.dataSource.findUnique({ where: { id } });
     if (!ds) {
       throw new NotFoundException('DataSource not found');
-    }
-    if (ds.authorID !== userId) {
-      throw new ForbiddenException('You do not have access to this datasource');
     }
 
     const client = this.createClient(ds);
@@ -166,6 +151,18 @@ export class DataSourceService {
     } finally {
       await client.end().catch(() => {});
     }
+  }
+
+  /**
+   * Retrieve the raw datasource record (with workspaceId) for access
+   * control checks in the controller layer.
+   */
+  async findRaw(id: string) {
+    const ds = await this.prisma.dataSource.findUnique({ where: { id } });
+    if (!ds) {
+      throw new NotFoundException('DataSource not found');
+    }
+    return ds;
   }
 
   private createClient(ds: {
