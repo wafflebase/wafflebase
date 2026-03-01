@@ -3,8 +3,9 @@
 # After a new file is created in frontend/ or backend/,
 # runs the relevant architecture lint to detect boundary violations.
 #
-# Informational only — exits 0 regardless (file is already created).
-# STDERR output shown to Claude for awareness.
+# Blocking — exits 2 on violation so the agent is forced to fix it.
+# The file is already on disk, but exit 2 signals an error to Claude Code,
+# prompting the agent to correct the violation before proceeding.
 
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | node -e "
@@ -27,6 +28,8 @@ case "$REL_PATH" in
       echo "" >&2
       echo "Frontend layer rules: types/lib → api → hooks → components/ui → app" >&2
       echo "See: packages/frontend/eslint.arch.config.js" >&2
+      echo "Fix the violation before proceeding." >&2
+      exit 2
     }
     ;;
   packages/backend/src/*)
@@ -36,6 +39,8 @@ case "$REL_PATH" in
       echo "" >&2
       echo "Backend layer rules: database → auth/user/document → controllers" >&2
       echo "See: packages/backend/eslint.arch.config.mjs" >&2
+      echo "Fix the violation before proceeding." >&2
+      exit 2
     }
     ;;
 esac

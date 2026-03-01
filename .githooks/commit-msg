@@ -1,0 +1,50 @@
+#!/bin/sh
+# Validates commit message format per CLAUDE.md conventions.
+#
+# Rules:
+#   1. Subject line ≤ 70 characters
+#   2. Line 2 must be blank (if body exists)
+#   3. Body lines ≤ 80 characters
+#
+# Bypass: git commit --no-verify
+
+MSG_FILE="$1"
+
+# Strip comment lines (starting with #)
+SUBJECT=$(grep -v '^#' "$MSG_FILE" | head -1)
+LINE2=$(grep -v '^#' "$MSG_FILE" | sed -n '2p')
+BODY=$(grep -v '^#' "$MSG_FILE" | tail -n +3)
+
+# Allow empty messages (git will reject them separately)
+[ -z "$SUBJECT" ] && exit 0
+
+# Rule 1: Subject ≤ 70 chars
+SUBJECT_LEN=${#SUBJECT}
+if [ "$SUBJECT_LEN" -gt 70 ]; then
+  echo "commit-msg: subject line is ${SUBJECT_LEN} chars (max 70)" >&2
+  echo "  → $SUBJECT" >&2
+  exit 1
+fi
+
+# Rule 2: Line 2 must be blank (if there is more content)
+TOTAL_LINES=$(grep -v '^#' "$MSG_FILE" | wc -l | tr -d ' ')
+if [ "$TOTAL_LINES" -gt 1 ] && [ -n "$LINE2" ]; then
+  echo "commit-msg: line 2 must be blank (found: '$LINE2')" >&2
+  exit 1
+fi
+
+# Rule 3: Body lines ≤ 80 chars
+if [ -n "$BODY" ]; then
+  LINE_NUM=3
+  echo "$BODY" | while IFS= read -r line; do
+    LINE_LEN=${#line}
+    if [ "$LINE_LEN" -gt 80 ]; then
+      echo "commit-msg: line ${LINE_NUM} is ${LINE_LEN} chars (max 80)" >&2
+      echo "  → $line" >&2
+      exit 1
+    fi
+    LINE_NUM=$((LINE_NUM + 1))
+  done || exit 1
+fi
+
+exit 0
