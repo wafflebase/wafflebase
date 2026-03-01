@@ -144,7 +144,14 @@ export function DocumentList({
 
   const deleteDocumentMutation = useMutation({
     mutationFn: async (id: string) => await deleteDocument(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (workspaceId) {
+        queryClient.invalidateQueries({
+          queryKey: ["workspaces", workspaceId, "documents"],
+        });
+      }
+    },
   });
 
   const renameDocumentMutation = useMutation({
@@ -152,6 +159,11 @@ export function DocumentList({
       await renameDocument(id, title),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
+      if (workspaceId) {
+        queryClient.invalidateQueries({
+          queryKey: ["workspaces", workspaceId, "documents"],
+        });
+      }
       setRenamingDoc(null);
     },
   });
