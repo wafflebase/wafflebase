@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
-import { Grid2x2PlusIcon } from "lucide-react";
+import { ChevronsUpDown, Grid2x2PlusIcon } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -14,21 +14,34 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { NavItem } from "@/types/nav-items";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMe } from "@/api/auth";
+import type { Workspace } from "@/api/workspaces";
 
 /**
  * Renders the AppSidebar component.
  */
 export function AppSidebar({
   items,
+  workspaces,
+  currentWorkspace,
+  onWorkspaceChange,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   items: {
     main: Array<NavItem>;
     secondary: Array<NavItem>;
   };
+  workspaces?: Workspace[];
+  currentWorkspace?: Workspace;
+  onWorkspaceChange?: (id: string) => void;
 }) {
   const { data: me, isLoading } = useQuery({
     queryKey: ["me"],
@@ -55,6 +68,33 @@ export function AppSidebar({
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          {workspaces && workspaces.length > 0 && (
+            <SidebarMenuItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton className="w-full justify-between">
+                    <span className="truncate text-sm">
+                      {currentWorkspace?.name || "Select workspace"}
+                    </span>
+                    <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  {workspaces.map((ws) => (
+                    <DropdownMenuItem
+                      key={ws.id}
+                      onClick={() => onWorkspaceChange?.(ws.id)}
+                      className={
+                        ws.id === currentWorkspace?.id ? "bg-accent" : ""
+                      }
+                    >
+                      {ws.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </SidebarMenuItem>
+          )}
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>

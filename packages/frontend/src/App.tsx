@@ -7,6 +7,7 @@ import { Loader } from "@/components/loader";
 import { PrivateRoute } from "./PrivateRoute";
 import { PublicRoute } from "./PublicRoute";
 import { ThemeProvider } from "./components/theme-provider";
+import { WorkspaceRedirect } from "./app/workspaces/workspace-redirect";
 
 const Login = lazy(() => import("@/app/login/page"));
 const Documents = lazy(() => import("@/app/documents/page"));
@@ -15,8 +16,21 @@ const DataSourcesPage = lazy(() => import("@/app/datasources/page"));
 const SharedDocument = lazy(() => import("@/app/shared/shared-document"));
 const Settings = lazy(() => import("@/app/settings/page"));
 const VisualHarnessPage = lazy(() => import("@/app/harness/visual/page"));
-const InteractionHarnessPage = lazy(() => import("@/app/harness/interaction/page"));
+const InteractionHarnessPage = lazy(
+  () => import("@/app/harness/interaction/page"),
+);
 const Layout = lazy(() => import("./app/Layout"));
+
+const WorkspaceDocuments = lazy(
+  () => import("@/app/workspaces/workspace-documents"),
+);
+const WorkspaceSettings = lazy(
+  () => import("@/app/workspaces/workspace-settings"),
+);
+const WorkspaceDataSources = lazy(
+  () => import("@/app/workspaces/workspace-datasources"),
+);
+const InviteAccept = lazy(() => import("@/app/workspaces/invite-accept"));
 
 function App() {
   const [queryClient] = useState(() => new QueryClient());
@@ -31,14 +45,31 @@ function App() {
                 <Route path="/login" element={<Login />} />
               </Route>
               <Route path="/harness/visual" element={<VisualHarnessPage />} />
-              <Route path="/harness/interaction" element={<InteractionHarnessPage />} />
+              <Route
+                path="/harness/interaction"
+                element={<InteractionHarnessPage />}
+              />
               <Route path="/shared/:token" element={<SharedDocument />} />
               <Route element={<PrivateRoute />}>
                 <Route element={<Layout />}>
-                  <Route path="/" element={<Documents />} />
+                  <Route path="/" element={<WorkspaceRedirect />} />
+                  <Route
+                    path="/w/:workspaceId"
+                    element={<WorkspaceDocuments />}
+                  />
+                  <Route
+                    path="/w/:workspaceId/datasources"
+                    element={<WorkspaceDataSources />}
+                  />
+                  <Route
+                    path="/w/:workspaceId/settings"
+                    element={<WorkspaceSettings />}
+                  />
+                  <Route path="/documents" element={<Documents />} />
                   <Route path="/datasources" element={<DataSourcesPage />} />
                   <Route path="/settings" element={<Settings />} />
                 </Route>
+                <Route path="/invite/:token" element={<InviteAccept />} />
                 <Route path="/:id" element={<DocumentDetail />} />
               </Route>
             </Routes>
