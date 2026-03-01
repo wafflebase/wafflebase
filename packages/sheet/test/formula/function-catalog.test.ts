@@ -394,6 +394,8 @@ describe('FunctionCatalog', () => {
       expect(findFunction('WORKDAY.INTL')!.name).toBe('WORKDAY.INTL');
       expect(findFunction('NETWORKDAYS.INTL')!.name).toBe('NETWORKDAYS.INTL');
       expect(findFunction('EXPAND')!.name).toBe('EXPAND');
+      expect(findFunction('MUNIT')!.name).toBe('MUNIT');
+      expect(findFunction('BINOM.DIST.RANGE')!.name).toBe('BINOM.DIST.RANGE');
     });
 
     it('should return undefined for unknown function', () => {

@@ -2976,6 +2976,18 @@ describe('Formula', () => {
     expect(evaluate('=EXPAND(A1,3,3)', grid)).toBe('42');
   });
 
+  it('should correctly evaluate MUNIT function', () => {
+    expect(evaluate('=MUNIT(3)')).toBe('1');
+    expect(evaluate('=MUNIT(1)')).toBe('1');
+  });
+
+  it('should correctly evaluate BINOM.DIST.RANGE function', () => {
+    // 10 trials, p=0.5, P(X=5) ≈ 0.2461
+    expect(Number(evaluate('=BINOM.DIST.RANGE(10,0.5,5)'))).toBeCloseTo(0.2461, 3);
+    // 10 trials, p=0.5, P(4 ≤ X ≤ 6) ≈ 0.6563
+    expect(Number(evaluate('=BINOM.DIST.RANGE(10,0.5,4,6)'))).toBeCloseTo(0.6563, 3);
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

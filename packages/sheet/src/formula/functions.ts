@@ -453,6 +453,8 @@ export const FunctionMap = new Map([
   ['WORKDAY.INTL', workdayintlFunc],
   ['NETWORKDAYS.INTL', networkdaysintlFunc],
   ['EXPAND', expandFunc],
+  ['MUNIT', munitFunc],
+  ['BINOM.DIST.RANGE', binomdistrangeFunc],
 ]);
 
 /**
@@ -15871,4 +15873,77 @@ export function expandFunc(
   return cellVal !== '' && !isNaN(Number(cellVal))
     ? { t: 'num', v: Number(cellVal) }
     : { t: 'str', v: cellVal };
+}
+
+/**
+ * MUNIT(dimension) — returns the identity matrix of size n×n.
+ * Returns 1 (top-left element of identity matrix).
+ */
+export function munitFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  if (n.v < 1) return { t: 'err', v: '#VALUE!' };
+  // Top-left element of identity matrix is always 1
+  return { t: 'num', v: 1 };
+}
+
+/**
+ * BINOM.DIST.RANGE(trials, probability_s, number_s, [number_s2])
+ * Returns the probability of a trial result using a binomial distribution.
+ */
+export function binomdistrangeFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+
+  const trials = NumberArgs.map(visit(exprs[0]), grid);
+  if (trials.t === 'err') return trials;
+  const prob = NumberArgs.map(visit(exprs[1]), grid);
+  if (prob.t === 'err') return prob;
+  const s1 = NumberArgs.map(visit(exprs[2]), grid);
+  if (s1.t === 'err') return s1;
+
+  const n = Math.trunc(trials.v);
+  const p = prob.v;
+  const lo = Math.trunc(s1.v);
+
+  let hi = lo;
+  if (exprs.length >= 4) {
+    const s2 = NumberArgs.map(visit(exprs[3]), grid);
+    if (s2.t === 'err') return s2;
+    hi = Math.trunc(s2.v);
+  }
+
+  if (n < 0 || p < 0 || p > 1 || lo < 0 || hi < lo || hi > n) {
+    return { t: 'err', v: '#VALUE!' };
+  }
+
+  // Sum P(X=k) for k in [lo, hi]
+  let total = 0;
+  for (let k = lo; k <= hi; k++) {
+    total += binomPmf(n, k, p);
+  }
+  return { t: 'num', v: total };
+}
+
+function binomPmf(n: number, k: number, p: number): number {
+  // C(n,k) * p^k * (1-p)^(n-k) in log space to avoid overflow
+  let logCoeff = 0;
+  for (let i = 0; i < k; i++) {
+    logCoeff += Math.log(n - i) - Math.log(i + 1);
+  }
+  return Math.exp(logCoeff + k * Math.log(p) + (n - k) * Math.log(1 - p));
 }

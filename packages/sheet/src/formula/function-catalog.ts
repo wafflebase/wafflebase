@@ -2562,6 +2562,16 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Expands an array to specified dimensions',
     args: [{ name: 'array' }, { name: 'rows' }, { name: 'columns', optional: true }, { name: 'pad_with', optional: true }],
   },
+  {
+    name: 'MUNIT',
+    description: 'Returns the identity matrix of the specified dimension',
+    args: [{ name: 'dimension' }],
+  },
+  {
+    name: 'BINOM.DIST.RANGE',
+    description: 'Returns the probability of a trial result using a binomial distribution',
+    args: [{ name: 'trials' }, { name: 'probability_s' }, { name: 'number_s' }, { name: 'number_s2', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2703,6 +2713,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'COTH',
     'ACOT',
     'ACOTH',
+    'MUNIT',
   ]),
   Statistical: new Set([
     'AVERAGE',
@@ -2807,6 +2818,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'SKEW.P',
     'CHISQ.TEST',
     'F.TEST',
+    'BINOM.DIST.RANGE',
   ]),
   Text: new Set([
     'TRIM',
