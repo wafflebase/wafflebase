@@ -53,11 +53,11 @@ Replace bare "No results." with contextual empty states:
 
 ## Tasks
 
-- [ ] 1. Unify page layout padding/width across all pages
-- [ ] 2. Replace hardcoded colors with theme tokens
-- [ ] 3. Improve loading states with Skeleton components
-- [ ] 4. Improve error states with theme colors
-- [ ] 5. Add contextual empty states with icons and CTA
-- [ ] 6. Fix login page description text
-- [ ] 7. Restructure Settings page with section headings
-- [ ] 8. Run `pnpm verify:fast` to confirm no regressions
+- [x] 1. Unify page layout padding/width across all pages
+- [x] 2. Replace hardcoded colors with theme tokens
+- [x] 3. Improve loading states with Skeleton components
+- [x] 4. Improve error states with theme colors
+- [x] 5. Add contextual empty states with icons and CTA
+- [x] 6. Fix login page description text
+- [x] 7. Restructure Settings page with section headings
+- [x] 8. Run `pnpm verify:fast` to confirm no regressions

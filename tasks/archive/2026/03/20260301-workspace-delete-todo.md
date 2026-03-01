@@ -16,15 +16,15 @@ logic, and fix missing database cascades for Document and DataSource.
 
 ## Tasks
 
-- [ ] Add `onDelete: Cascade` to Document and DataSource workspace relations
+- [x] Add `onDelete: Cascade` to Document and DataSource workspace relations
       in Prisma schema, generate migration
-- [ ] Add last-workspace deletion guard in `WorkspaceService.remove()`
-- [ ] Add unit tests for last-workspace guard and multi-workspace delete
-- [ ] Add Danger Zone section with delete button in `workspace-settings.tsx`
-- [ ] Add delete confirmation dialog (workspace name input) using existing
+- [x] Add last-workspace deletion guard in `WorkspaceService.remove()`
+- [x] Add unit tests for last-workspace guard and multi-workspace delete
+- [x] Add Danger Zone section with delete button in `workspace-settings.tsx`
+- [x] Add delete confirmation dialog (workspace name input) using existing
       Dialog component
-- [ ] Add delete mutation with post-delete redirect to another workspace
-- [ ] Run `pnpm verify:fast` to confirm all tests pass
+- [x] Add delete mutation with post-delete redirect to another workspace
+- [x] Run `pnpm verify:fast` to confirm all tests pass
 
 ## Affected Files
 
