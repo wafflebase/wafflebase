@@ -3,9 +3,10 @@ import { DocumentController } from './document.controller';
 import { DocumentService } from './document.service';
 import { UserService } from 'src/user/user.service';
 import { PrismaService } from 'src/database/prisma.service';
+import { WorkspaceModule } from '../workspace/workspace.module';
 
 @Module({
-  imports: [],
+  imports: [WorkspaceModule],
   controllers: [DocumentController],
   providers: [DocumentService, UserService, PrismaService],
 })
