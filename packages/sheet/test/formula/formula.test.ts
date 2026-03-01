@@ -212,6 +212,34 @@ describe('Formula', () => {
     expect(evaluate('=1>=2')).toBe('false');
   });
 
+  it('should compare strings lexicographically', () => {
+    expect(evaluate('="abc"="abc"')).toBe('true');
+    expect(evaluate('="abc"="def"')).toBe('false');
+    expect(evaluate('="a"<"b"')).toBe('true');
+    expect(evaluate('="b">"a"')).toBe('true');
+    expect(evaluate('="abc"<>"def"')).toBe('true');
+    expect(evaluate('="abc"<>"abc"')).toBe('false');
+    expect(evaluate('="a"<="a"')).toBe('true');
+    expect(evaluate('="a"<="b"')).toBe('true');
+    expect(evaluate('="b">="a"')).toBe('true');
+  });
+
+  it('should compare strings case-insensitively', () => {
+    expect(evaluate('="ABC"="abc"')).toBe('true');
+    expect(evaluate('="Hello"="hello"')).toBe('true');
+    expect(evaluate('="A"<"b"')).toBe('true');
+  });
+
+  it('should return false for equality between different types', () => {
+    expect(evaluate('=1="1"')).toBe('false');
+    expect(evaluate('=0=""')).toBe('false');
+  });
+
+  it('should order numbers below strings in comparisons', () => {
+    expect(evaluate('=1<"a"')).toBe('true');
+    expect(evaluate('="a">1')).toBe('true');
+  });
+
   it('should correctly evaluate string literals', () => {
     expect(evaluate('="hello"')).toBe('hello');
     expect(evaluate('="hello world"')).toBe('hello world');

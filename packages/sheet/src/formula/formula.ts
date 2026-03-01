@@ -576,29 +576,76 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitComparison(ctx: ComparisonContext): EvalNode {
-    const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
+    const left = this.resolveValue(this.visit(ctx.expr(0)));
     if (left.t === 'err') {
       return left;
     }
 
-    const right = NumberArgs.map(this.visit(ctx.expr(1)), this.grid);
+    const right = this.resolveValue(this.visit(ctx.expr(1)));
     if (right.t === 'err') {
       return right;
     }
 
-    switch (ctx._op.type) {
+    const op = ctx._op.type;
+
+    // Different types: EQ→false, NEQ→true, order: num < str < bool
+    if (left.t !== right.t) {
+      if (op === FormulaParser.EQ) return { t: 'bool', v: false };
+      if (op === FormulaParser.NEQ) return { t: 'bool', v: true };
+
+      const typeOrder = { num: 0, str: 1, bool: 2 };
+      const diff =
+        (typeOrder[left.t as keyof typeof typeOrder] ?? 0) -
+        (typeOrder[right.t as keyof typeof typeOrder] ?? 0);
+      return this.compareBool(op, diff);
+    }
+
+    // Same type comparison
+    if (left.t === 'str' && right.t === 'str') {
+      const cmp = left.v.localeCompare(right.v, undefined, {
+        sensitivity: 'accent',
+      });
+      return this.compareBool(op, cmp);
+    }
+
+    if (left.t === 'bool' && right.t === 'bool') {
+      const lv = left.v ? 1 : 0;
+      const rv = right.v ? 1 : 0;
+      return this.compareBool(op, lv - rv);
+    }
+
+    // Numbers (default)
+    const lv = (left as NumNode).v;
+    const rv = (right as NumNode).v;
+    return this.compareBool(op, lv < rv ? -1 : lv > rv ? 1 : 0);
+  }
+
+  private resolveValue(node: EvalNode): EvalNode {
+    if (node.t !== 'ref' || !this.grid) return node;
+    if (isSrng(node.v)) return { t: 'err', v: '#VALUE!' };
+    const val = this.grid.get(node.v)?.v || '';
+    if (val === '') return { t: 'num', v: 0 };
+    if (val === 'TRUE' || val === 'true') return { t: 'bool', v: true };
+    if (val === 'FALSE' || val === 'false') return { t: 'bool', v: false };
+    const num = Number(val);
+    if (!isNaN(num)) return { t: 'num', v: num };
+    return { t: 'str', v: val };
+  }
+
+  private compareBool(op: number, cmp: number): EvalNode {
+    switch (op) {
       case FormulaParser.EQ:
-        return { t: 'bool', v: left.v === right.v };
+        return { t: 'bool', v: cmp === 0 };
       case FormulaParser.NEQ:
-        return { t: 'bool', v: left.v !== right.v };
+        return { t: 'bool', v: cmp !== 0 };
       case FormulaParser.LT:
-        return { t: 'bool', v: left.v < right.v };
+        return { t: 'bool', v: cmp < 0 };
       case FormulaParser.GT:
-        return { t: 'bool', v: left.v > right.v };
+        return { t: 'bool', v: cmp > 0 };
       case FormulaParser.LTE:
-        return { t: 'bool', v: left.v <= right.v };
+        return { t: 'bool', v: cmp <= 0 };
       case FormulaParser.GTE:
-        return { t: 'bool', v: left.v >= right.v };
+        return { t: 'bool', v: cmp >= 0 };
       default:
         return { t: 'err', v: '#ERROR!' };
     }
