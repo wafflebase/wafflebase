@@ -8,6 +8,7 @@ import {
   AddSubContext,
   BooleanContext,
   ComparisonContext,
+  ConcatContext,
   FormulaParser,
   FunctionContext,
   MulDivContext,
@@ -15,10 +16,11 @@ import {
   ParenthesesContext,
   ReferenceContext,
   StrContext,
+  UnarySignContext,
 } from '../../antlr/FormulaParser';
 import { FunctionMap } from './functions';
 import { Grid, Range, Reference } from '../model/types';
-import { NumberArgs } from './arguments';
+import { NumberArgs, StringArgs } from './arguments';
 import {
   isSrng,
   parseRef,
@@ -78,6 +80,13 @@ function parseExpression(formula: string): ParsedExpression | undefined {
 
   try {
     const tree = parser.expr();
+    if (parser.inputStream.LA(1) !== FormulaParser.EOF) {
+      syntaxErrors.push({
+        message: 'unexpected trailing tokens',
+        line: 0,
+        charPositionInLine: 0,
+      });
+    }
     return { tree, syntaxErrors, parser };
   } catch {
     return undefined;
@@ -319,6 +328,7 @@ export function isReferenceInsertPosition(
     '<',
     '>',
     ':',
+    '&',
   ]);
   return insertChars.has(lastChar);
 }
@@ -498,6 +508,20 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     return { t: 'num', v: left.v / right.v };
   }
 
+  visitConcat(ctx: ConcatContext): EvalNode {
+    const left = StringArgs.map(this.visit(ctx.expr(0)), this.grid);
+    if (left.t === 'err') {
+      return left;
+    }
+
+    const right = StringArgs.map(this.visit(ctx.expr(1)), this.grid);
+    if (right.t === 'err') {
+      return right;
+    }
+
+    return { t: 'str', v: left.v + right.v };
+  }
+
   visitComparison(ctx: ComparisonContext): EvalNode {
     const left = NumberArgs.map(this.visit(ctx.expr(0)), this.grid);
     if (left.t === 'err') {
@@ -525,6 +549,19 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       default:
         return { t: 'err', v: '#ERROR!' };
     }
+  }
+
+  visitUnarySign(ctx: UnarySignContext): EvalNode {
+    const operand = NumberArgs.map(this.visit(ctx.expr()), this.grid);
+    if (operand.t === 'err') {
+      return operand;
+    }
+
+    if (ctx._op.type === FormulaParser.SUB) {
+      return { t: 'num', v: -operand.v };
+    }
+
+    return operand;
   }
 
   visitStr(ctx: StrContext): EvalNode {

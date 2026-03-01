@@ -2,8 +2,10 @@ grammar Formula;
 formula: expr+ ;
 
 expr: FUNCNAME '(' args? ')'         # Function
+    | op=(ADD|SUB) expr              # UnarySign
     | expr op=(MUL|DIV) expr         # MulDiv
     | expr op=(ADD|SUB) expr         # AddSub
+    | expr AMP expr                  # Concat
     | expr op=(EQ|NEQ|LT|GT|LTE|GTE) expr  # Comparison
     | NUM                            # Number
     | BOOL                           # Boolean
@@ -36,6 +38,7 @@ MUL: '*' ;
 DIV: '/' ;
 ADD: '+' ;
 SUB: '-' ;
+AMP: '&' ;
 EQ: '=' ;
 NEQ: '<>' ;
 LTE: '<=' ;

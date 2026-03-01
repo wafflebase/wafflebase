@@ -5,8 +5,10 @@
 import { ParseTreeListener } from "antlr4ts/tree/ParseTreeListener";
 
 import { FunctionContext } from "./FormulaParser";
+import { UnarySignContext } from "./FormulaParser";
 import { MulDivContext } from "./FormulaParser";
 import { AddSubContext } from "./FormulaParser";
+import { ConcatContext } from "./FormulaParser";
 import { ComparisonContext } from "./FormulaParser";
 import { NumberContext } from "./FormulaParser";
 import { BooleanContext } from "./FormulaParser";
@@ -37,6 +39,19 @@ export interface FormulaListener extends ParseTreeListener {
 	exitFunction?: (ctx: FunctionContext) => void;
 
 	/**
+	 * Enter a parse tree produced by the `UnarySign`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	enterUnarySign?: (ctx: UnarySignContext) => void;
+	/**
+	 * Exit a parse tree produced by the `UnarySign`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	exitUnarySign?: (ctx: UnarySignContext) => void;
+
+	/**
 	 * Enter a parse tree produced by the `MulDiv`
 	 * labeled alternative in `FormulaParser.expr`.
 	 * @param ctx the parse tree
@@ -61,6 +76,19 @@ export interface FormulaListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	exitAddSub?: (ctx: AddSubContext) => void;
+
+	/**
+	 * Enter a parse tree produced by the `Concat`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	enterConcat?: (ctx: ConcatContext) => void;
+	/**
+	 * Exit a parse tree produced by the `Concat`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	exitConcat?: (ctx: ConcatContext) => void;
 
 	/**
 	 * Enter a parse tree produced by the `Comparison`

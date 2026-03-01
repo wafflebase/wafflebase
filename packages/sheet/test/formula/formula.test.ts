@@ -41,6 +41,67 @@ describe('Formula', () => {
     expect(evaluate('=(10-5)/2')).toBe('2.5');
   });
 
+  it('should correctly evaluate unary minus', () => {
+    expect(evaluate('=-5')).toBe('-5');
+    expect(evaluate('=-0')).toBe('0');
+    expect(evaluate('=--5')).toBe('5');
+    expect(evaluate('=---5')).toBe('-5');
+  });
+
+  it('should correctly evaluate unary plus', () => {
+    expect(evaluate('=+5')).toBe('5');
+    expect(evaluate('=+0')).toBe('0');
+  });
+
+  it('should give unary minus higher precedence than multiplication', () => {
+    expect(evaluate('=-2*3')).toBe('-6');
+    expect(evaluate('=-6/2')).toBe('-3');
+    expect(evaluate('=2*-3')).toBe('-6');
+  });
+
+  it('should correctly evaluate unary minus with parentheses', () => {
+    expect(evaluate('=-(2+3)')).toBe('-5');
+    expect(evaluate('=-(10-3)')).toBe('-7');
+  });
+
+  it('should correctly evaluate unary minus with cell references', () => {
+    const grid: Grid = {
+      get: (ref: string) => {
+        if (ref === 'A1') return { v: '10' } as Cell;
+        return undefined;
+      },
+    };
+    expect(evaluate('=-A1', grid)).toBe('-10');
+    expect(evaluate('=+A1', grid)).toBe('10');
+  });
+
+  it('should correctly evaluate string concatenation with &', () => {
+    expect(evaluate('="hello"&" world"')).toBe('hello world');
+    expect(evaluate('="a"&"b"&"c"')).toBe('abc');
+    expect(evaluate('=""&""')).toBe('');
+  });
+
+  it('should coerce non-strings when using &', () => {
+    expect(evaluate('=1&2')).toBe('12');
+    expect(evaluate('=TRUE&FALSE')).toBe('TRUEFALSE');
+    expect(evaluate('="count: "&5')).toBe('count: 5');
+  });
+
+  it('should give & lower precedence than arithmetic', () => {
+    expect(evaluate('=1+2&3+4')).toBe('37');
+  });
+
+  it('should evaluate & with cell references', () => {
+    const grid: Grid = {
+      get: (ref: string) => {
+        if (ref === 'A1') return { v: 'hello' } as Cell;
+        if (ref === 'B1') return { v: 'world' } as Cell;
+        return undefined;
+      },
+    };
+    expect(evaluate('=A1&" "&B1', grid)).toBe('hello world');
+  });
+
   it('should correctly evaluate functions', () => {
     expect(evaluate('=SUM(0)')).toBe('0');
     expect(evaluate('=SUM(1,2,3)')).toBe('6');
@@ -48,44 +109,44 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate ABS function', () => {
-    expect(evaluate('=ABS(0-5)')).toBe('5');
+    expect(evaluate('=ABS(-5)')).toBe('5');
     expect(evaluate('=ABS(5)')).toBe('5');
   });
 
   it('should correctly evaluate ROUND function', () => {
     expect(evaluate('=ROUND(1.234,2)')).toBe('1.23');
     expect(evaluate('=ROUND(1.235,2)')).toBe('1.24');
-    expect(evaluate('=ROUND(0-1.5)')).toBe('-2');
-    expect(evaluate('=ROUND(1234,0-2)')).toBe('1200');
+    expect(evaluate('=ROUND(-1.5)')).toBe('-2');
+    expect(evaluate('=ROUND(1234,-2)')).toBe('1200');
   });
 
   it('should correctly evaluate ROUNDUP function', () => {
     expect(evaluate('=ROUNDUP(1.21,1)')).toBe('1.3');
-    expect(evaluate('=ROUNDUP(0-1.21,1)')).toBe('-1.3');
-    expect(evaluate('=ROUNDUP(1234,0-2)')).toBe('1300');
+    expect(evaluate('=ROUNDUP(-1.21,1)')).toBe('-1.3');
+    expect(evaluate('=ROUNDUP(1234,-2)')).toBe('1300');
   });
 
   it('should correctly evaluate ROUNDDOWN function', () => {
     expect(evaluate('=ROUNDDOWN(1.29,1)')).toBe('1.2');
-    expect(evaluate('=ROUNDDOWN(0-1.29,1)')).toBe('-1.2');
-    expect(evaluate('=ROUNDDOWN(1299,0-2)')).toBe('1200');
+    expect(evaluate('=ROUNDDOWN(-1.29,1)')).toBe('-1.2');
+    expect(evaluate('=ROUNDDOWN(1299,-2)')).toBe('1200');
   });
 
   it('should correctly evaluate INT function', () => {
     expect(evaluate('=INT(1.9)')).toBe('1');
-    expect(evaluate('=INT(0-1.1)')).toBe('-2');
+    expect(evaluate('=INT(-1.1)')).toBe('-2');
   });
 
   it('should correctly evaluate MOD function', () => {
     expect(evaluate('=MOD(10,3)')).toBe('1');
-    expect(evaluate('=MOD(0-10,3)')).toBe('2');
-    expect(evaluate('=MOD(10,0-3)')).toBe('-2');
+    expect(evaluate('=MOD(-10,3)')).toBe('2');
+    expect(evaluate('=MOD(10,-3)')).toBe('-2');
     expect(evaluate('=MOD(10,0)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate SQRT function', () => {
     expect(evaluate('=SQRT(9)')).toBe('3');
-    expect(evaluate('=SQRT(0-1)')).toBe('#VALUE!');
+    expect(evaluate('=SQRT(-1)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate POWER function', () => {
@@ -225,14 +286,14 @@ describe('Formula', () => {
   it('should correctly evaluate MIN function', () => {
     expect(evaluate('=MIN(1,2,3)')).toBe('1');
     expect(evaluate('=MIN(5,3,8,1,9)')).toBe('1');
-    expect(evaluate('=MIN(0-5,0,5)')).toBe('-5');
+    expect(evaluate('=MIN(-5,0,5)')).toBe('-5');
     expect(evaluate('=MIN(42)')).toBe('42');
   });
 
   it('should correctly evaluate MAX function', () => {
     expect(evaluate('=MAX(1,2,3)')).toBe('3');
     expect(evaluate('=MAX(5,3,8,1,9)')).toBe('9');
-    expect(evaluate('=MAX(0-5,0,5)')).toBe('5');
+    expect(evaluate('=MAX(-5,0,5)')).toBe('5');
     expect(evaluate('=MAX(42)')).toBe('42');
   });
 
@@ -331,7 +392,7 @@ describe('Formula', () => {
     expect(evaluate('=MATCH(20,A1:A3,0)', grid)).toBe('2');
     expect(evaluate('=MATCH("BANANA",C1:C3,0)', grid)).toBe('2');
     expect(evaluate('=MATCH(25,A1:A3,1)', grid)).toBe('2');
-    expect(evaluate('=MATCH(25,B1:B3,0-1)', grid)).toBe('1');
+    expect(evaluate('=MATCH(25,B1:B3,-1)', grid)).toBe('1');
     expect(evaluate('=MATCH(25,A1:B3,0)', grid)).toBe('#N/A!');
   });
 
@@ -630,7 +691,7 @@ describe('Formula', () => {
 
   it('should correctly evaluate SIGN function', () => {
     expect(evaluate('=SIGN(5)')).toBe('1');
-    expect(evaluate('=SIGN(0-3)')).toBe('-1');
+    expect(evaluate('=SIGN(-3)')).toBe('-1');
     expect(evaluate('=SIGN(0)')).toBe('0');
   });
 
@@ -638,7 +699,7 @@ describe('Formula', () => {
     expect(evaluate('=EVEN(1)')).toBe('2');
     expect(evaluate('=EVEN(2)')).toBe('2');
     expect(evaluate('=EVEN(3)')).toBe('4');
-    expect(evaluate('=EVEN(0-1)')).toBe('-2');
+    expect(evaluate('=EVEN(-1)')).toBe('-2');
     expect(evaluate('=EVEN(0)')).toBe('0');
     expect(evaluate('=EVEN(1.5)')).toBe('2');
   });
@@ -647,7 +708,7 @@ describe('Formula', () => {
     expect(evaluate('=ODD(1)')).toBe('1');
     expect(evaluate('=ODD(2)')).toBe('3');
     expect(evaluate('=ODD(4)')).toBe('5');
-    expect(evaluate('=ODD(0-1)')).toBe('-1');
+    expect(evaluate('=ODD(-1)')).toBe('-1');
     expect(evaluate('=ODD(0)')).toBe('1');
     expect(evaluate('=ODD(1.5)')).toBe('3');
   });
@@ -661,7 +722,7 @@ describe('Formula', () => {
     expect(evaluate('=LN(1)')).toBe('0');
     expect(evaluate('=LN(EXP(1))')).toBe('1');
     expect(evaluate('=LN(0)')).toBe('#VALUE!');
-    expect(evaluate('=LN(0-1)')).toBe('#VALUE!');
+    expect(evaluate('=LN(-1)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate LOG function', () => {
@@ -721,32 +782,32 @@ describe('Formula', () => {
   it('should correctly evaluate CEILING function', () => {
     expect(evaluate('=CEILING(2.5,1)')).toBe('3');
     expect(evaluate('=CEILING(1.5,0.5)')).toBe('1.5');
-    expect(evaluate('=CEILING(0-2.5,1)')).toBe('-2');
+    expect(evaluate('=CEILING(-2.5,1)')).toBe('-2');
     expect(evaluate('=CEILING(2.5,0)')).toBe('0');
-    expect(evaluate('=CEILING(2.5,0-1)')).toBe('#VALUE!');
+    expect(evaluate('=CEILING(2.5,-1)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate FLOOR function', () => {
     expect(evaluate('=FLOOR(2.5,1)')).toBe('2');
     expect(evaluate('=FLOOR(1.7,0.5)')).toBe('1.5');
-    expect(evaluate('=FLOOR(0-2.5,1)')).toBe('-3');
+    expect(evaluate('=FLOOR(-2.5,1)')).toBe('-3');
     expect(evaluate('=FLOOR(2.5,0)')).toBe('0');
-    expect(evaluate('=FLOOR(2.5,0-1)')).toBe('#VALUE!');
+    expect(evaluate('=FLOOR(2.5,-1)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate TRUNC function', () => {
     expect(evaluate('=TRUNC(8.9)')).toBe('8');
-    expect(evaluate('=TRUNC(0-8.9)')).toBe('-8');
+    expect(evaluate('=TRUNC(-8.9)')).toBe('-8');
     expect(evaluate('=TRUNC(1.234,2)')).toBe('1.23');
-    expect(evaluate('=TRUNC(1234,0-2)')).toBe('1200');
+    expect(evaluate('=TRUNC(1234,-2)')).toBe('1200');
   });
 
   it('should correctly evaluate MROUND function', () => {
     expect(evaluate('=MROUND(10,3)')).toBe('9');
     expect(evaluate('=MROUND(12,5)')).toBe('10');
     expect(evaluate('=MROUND(13,5)')).toBe('15');
-    expect(evaluate('=MROUND(0-10,0-3)')).toBe('-9');
-    expect(evaluate('=MROUND(10,0-3)')).toBe('#VALUE!');
+    expect(evaluate('=MROUND(-10,-3)')).toBe('-9');
+    expect(evaluate('=MROUND(10,-3)')).toBe('#VALUE!');
     expect(evaluate('=MROUND(10,0)')).toBe('0');
   });
 
@@ -765,7 +826,7 @@ describe('Formula', () => {
   it('should correctly evaluate REPT function', () => {
     expect(evaluate('=REPT("ab",3)')).toBe('ababab');
     expect(evaluate('=REPT("x",0)')).toBe('');
-    expect(evaluate('=REPT("x",0-1)')).toBe('#VALUE!');
+    expect(evaluate('=REPT("x",-1)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate T function', () => {
@@ -888,12 +949,12 @@ describe('Formula', () => {
     expect(evaluate('=FACT(5)')).toBe('120');
     expect(evaluate('=FACT(0)')).toBe('1');
     expect(evaluate('=FACT(1)')).toBe('1');
-    expect(evaluate('=FACT(0-1)')).toBe('#VALUE!');
+    expect(evaluate('=FACT(-1)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate QUOTIENT function', () => {
     expect(evaluate('=QUOTIENT(5,2)')).toBe('2');
-    expect(evaluate('=QUOTIENT(0-10,3)')).toBe('-3');
+    expect(evaluate('=QUOTIENT(-10,3)')).toBe('-3');
     expect(evaluate('=QUOTIENT(10,0)')).toBe('#VALUE!');
   });
 
@@ -920,14 +981,14 @@ describe('Formula', () => {
 
   it('should correctly evaluate EDATE function', () => {
     expect(evaluate('=EDATE("2024-01-31",1)')).toBe('2024-03-02');
-    expect(evaluate('=EDATE("2024-03-15",0-1)')).toBe('2024-02-15');
+    expect(evaluate('=EDATE("2024-03-15",-1)')).toBe('2024-02-15');
     expect(evaluate('=EDATE("2024-01-15",12)')).toBe('2025-01-15');
   });
 
   it('should correctly evaluate EOMONTH function', () => {
     expect(evaluate('=EOMONTH("2024-01-15",0)')).toBe('2024-01-31');
     expect(evaluate('=EOMONTH("2024-01-15",1)')).toBe('2024-02-29');
-    expect(evaluate('=EOMONTH("2024-01-15",0-1)')).toBe('2023-12-31');
+    expect(evaluate('=EOMONTH("2024-01-15",-1)')).toBe('2023-12-31');
   });
 
   it('should correctly evaluate NETWORKDAYS function', () => {
@@ -1131,7 +1192,7 @@ describe('Formula', () => {
   it('should correctly evaluate DOLLAR function', () => {
     expect(evaluate('=DOLLAR(1234.567,2)')).toBe('$1,234.57');
     expect(evaluate('=DOLLAR(1234.567,0)')).toBe('$1,235');
-    expect(evaluate('=DOLLAR(0-1234.567,2)')).toBe('($1,234.57)');
+    expect(evaluate('=DOLLAR(-1234.567,2)')).toBe('($1,234.57)');
   });
 
   it('should correctly evaluate NUMBERVALUE function', () => {
@@ -1402,13 +1463,13 @@ describe('Formula', () => {
 
   it('should correctly evaluate FV function', () => {
     // FV(0.06/12, 120, 0-200, 0) — $200/month at 6% for 10 years
-    const result = evaluate('=FV(0.06/12,120,0-200,0)');
+    const result = evaluate('=FV(0.06/12,120,-200,0)');
     expect(Number(result)).toBeCloseTo(32775.87, 0);
   });
 
   it('should correctly evaluate PV function', () => {
     // PV(0.08/12, 240, 0-500) — present value of $500/month at 8% for 20 years
-    const result = evaluate('=PV(0.08/12,240,0-500)');
+    const result = evaluate('=PV(0.08/12,240,-500)');
     expect(Number(result)).toBeCloseTo(59777.15, 0);
   });
 
@@ -1420,7 +1481,7 @@ describe('Formula', () => {
 
   it('should correctly evaluate NPER function', () => {
     // NPER(0.06/12, 0-200, 10000) — how many months to pay off $10k at 6%
-    const result = evaluate('=NPER(0.06/12,0-200,10000)');
+    const result = evaluate('=NPER(0.06/12,-200,10000)');
     expect(Number(result)).toBeCloseTo(57.68, 1);
   });
 
@@ -1449,7 +1510,7 @@ describe('Formula', () => {
   // --- Batch 17: More Financial functions ---
   it('should correctly evaluate RATE function', () => {
     // RATE(360, 0-1073.64, 200000) — rate for $200k loan, ~$1073.64/mo, 360 months
-    const result = evaluate('=RATE(360,0-1073.64,200000)');
+    const result = evaluate('=RATE(360,-1073.64,200000)');
     expect(Number(result)).toBeCloseTo(0.05 / 12, 4);
   });
 
@@ -1772,26 +1833,26 @@ describe('Formula', () => {
   it('should correctly evaluate CEILING.MATH function', () => {
     expect(evaluate('=CEILING.MATH(4.3)')).toBe('5');
     expect(evaluate('=CEILING.MATH(6.7,2)')).toBe('8');
-    expect(evaluate('=CEILING.MATH(0-4.3,2,0)')).toBe('-4');
-    expect(evaluate('=CEILING.MATH(0-4.3,2,1)')).toBe('-6');
+    expect(evaluate('=CEILING.MATH(-4.3,2,0)')).toBe('-4');
+    expect(evaluate('=CEILING.MATH(-4.3,2,1)')).toBe('-6');
   });
 
   it('should correctly evaluate FLOOR.MATH function', () => {
     expect(evaluate('=FLOOR.MATH(4.7)')).toBe('4');
     expect(evaluate('=FLOOR.MATH(6.7,2)')).toBe('6');
-    expect(evaluate('=FLOOR.MATH(0-4.3,2,0)')).toBe('-6');
-    expect(evaluate('=FLOOR.MATH(0-4.3,2,1)')).toBe('-4');
+    expect(evaluate('=FLOOR.MATH(-4.3,2,0)')).toBe('-6');
+    expect(evaluate('=FLOOR.MATH(-4.3,2,1)')).toBe('-4');
   });
 
   it('should correctly evaluate CEILING.PRECISE function', () => {
     expect(evaluate('=CEILING.PRECISE(4.3)')).toBe('5');
-    expect(evaluate('=CEILING.PRECISE(0-4.3,2)')).toBe('-4');
+    expect(evaluate('=CEILING.PRECISE(-4.3,2)')).toBe('-4');
     expect(evaluate('=CEILING.PRECISE(4.3,2)')).toBe('6');
   });
 
   it('should correctly evaluate FLOOR.PRECISE function', () => {
     expect(evaluate('=FLOOR.PRECISE(4.7)')).toBe('4');
-    expect(evaluate('=FLOOR.PRECISE(0-4.3,2)')).toBe('-6');
+    expect(evaluate('=FLOOR.PRECISE(-4.3,2)')).toBe('-6');
     expect(evaluate('=FLOOR.PRECISE(4.7,2)')).toBe('4');
   });
 
@@ -2050,13 +2111,13 @@ describe('Formula', () => {
   it('should correctly evaluate TEXTBEFORE function', () => {
     expect(evaluate('=TEXTBEFORE("hello-world","-")')).toBe('hello');
     expect(evaluate('=TEXTBEFORE("a/b/c","/",2)')).toBe('a/b');
-    expect(evaluate('=TEXTBEFORE("a/b/c","/",0-1)')).toBe('a/b');
+    expect(evaluate('=TEXTBEFORE("a/b/c","/",-1)')).toBe('a/b');
   });
 
   it('should correctly evaluate TEXTAFTER function', () => {
     expect(evaluate('=TEXTAFTER("hello-world","-")')).toBe('world');
     expect(evaluate('=TEXTAFTER("a/b/c","/",2)')).toBe('c');
-    expect(evaluate('=TEXTAFTER("a/b/c","/",0-1)')).toBe('c');
+    expect(evaluate('=TEXTAFTER("a/b/c","/",-1)')).toBe('c');
   });
 
   it('should correctly evaluate VALUETOTEXT function', () => {
@@ -2291,8 +2352,8 @@ describe('Formula', () => {
     expect(evaluate('=COMPLEX(3,0)')).toBe('3');
     expect(evaluate('=COMPLEX(0,4)')).toBe('4i');
     expect(evaluate('=COMPLEX(0,1)')).toBe('i');
-    expect(evaluate('=COMPLEX(0,0-1)')).toBe('-i');
-    expect(evaluate('=COMPLEX(1,0-1)')).toBe('1-i');
+    expect(evaluate('=COMPLEX(0,-1)')).toBe('-i');
+    expect(evaluate('=COMPLEX(1,-1)')).toBe('1-i');
     expect(evaluate('=COMPLEX(3,4,"j")')).toBe('3+4j');
   });
 
@@ -2920,7 +2981,7 @@ describe('Formula', () => {
   it('should correctly evaluate ISO.CEILING function', () => {
     expect(evaluate('=ISO.CEILING(4.3)')).toBe('5');
     expect(evaluate('=ISO.CEILING(4.3,2)')).toBe('6');
-    expect(Number(evaluate('=ISO.CEILING(0-4.3,2)'))).toBe(-4);
+    expect(Number(evaluate('=ISO.CEILING(-4.3,2)'))).toBe(-4);
   });
 
   it('should correctly evaluate FILTER function', () => {

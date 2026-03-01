@@ -5,8 +5,10 @@
 import { ParseTreeVisitor } from "antlr4ts/tree/ParseTreeVisitor";
 
 import { FunctionContext } from "./FormulaParser";
+import { UnarySignContext } from "./FormulaParser";
 import { MulDivContext } from "./FormulaParser";
 import { AddSubContext } from "./FormulaParser";
+import { ConcatContext } from "./FormulaParser";
 import { ComparisonContext } from "./FormulaParser";
 import { NumberContext } from "./FormulaParser";
 import { BooleanContext } from "./FormulaParser";
@@ -35,6 +37,14 @@ export interface FormulaVisitor<Result> extends ParseTreeVisitor<Result> {
 	visitFunction?: (ctx: FunctionContext) => Result;
 
 	/**
+	 * Visit a parse tree produced by the `UnarySign`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	visitUnarySign?: (ctx: UnarySignContext) => Result;
+
+	/**
 	 * Visit a parse tree produced by the `MulDiv`
 	 * labeled alternative in `FormulaParser.expr`.
 	 * @param ctx the parse tree
@@ -49,6 +59,14 @@ export interface FormulaVisitor<Result> extends ParseTreeVisitor<Result> {
 	 * @return the visitor result
 	 */
 	visitAddSub?: (ctx: AddSubContext) => Result;
+
+	/**
+	 * Visit a parse tree produced by the `Concat`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	visitConcat?: (ctx: ConcatContext) => Result;
 
 	/**
 	 * Visit a parse tree produced by the `Comparison`
