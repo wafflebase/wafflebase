@@ -1,6 +1,7 @@
 import { Sref } from "@wafflebase/sheet";
 
 export type User = {
+  id: number;
   authProvider: string;
   username: string;
   email: string;

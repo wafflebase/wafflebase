@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { isAuthExpiredError } from "@/api/auth";
+import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import {
   fetchWorkspace,
   fetchWorkspaces,
@@ -64,6 +64,11 @@ export default function WorkspaceSettings() {
     queryKey: ["workspaces", workspaceId, "invites"],
     queryFn: () => fetchInvites(workspaceId!),
     enabled: !!workspaceId,
+  });
+
+  const { data: me } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
   });
 
   const updateMutation = useMutation({
@@ -117,8 +122,10 @@ export default function WorkspaceSettings() {
   const deleteMutation = useMutation({
     mutationFn: () => deleteWorkspace(workspaceId!),
     onSuccess: async () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      const remaining = await fetchWorkspaces();
+      const remaining = await queryClient.fetchQuery({
+        queryKey: ["workspaces"],
+        queryFn: fetchWorkspaces,
+      });
       if (remaining.length > 0) {
         navigate(`/w/${remaining[0].slug}`, { replace: true });
       } else {
@@ -358,26 +365,31 @@ export default function WorkspaceSettings() {
       </section>
 
       {/* Danger Zone */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold text-red-600">Danger Zone</h2>
-        <div className="rounded-md border border-red-300 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Delete this workspace</p>
-              <p className="text-sm text-muted-foreground">
-                Once deleted, all documents, data sources, and member
-                associations will be permanently removed.
-              </p>
+      {me &&
+        workspace.members.some(
+          (m) => m.user.id === me.id && m.role === "owner",
+        ) && (
+          <section className="space-y-2">
+            <h2 className="text-lg font-semibold text-red-600">Danger Zone</h2>
+            <div className="rounded-md border border-red-300 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Delete this workspace</p>
+                  <p className="text-sm text-muted-foreground">
+                    Once deleted, all documents, data sources, and member
+                    associations will be permanently removed.
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  onClick={() => setDeleteDialogOpen(true)}
+                >
+                  Delete this workspace
+                </Button>
+              </div>
             </div>
-            <Button
-              variant="destructive"
-              onClick={() => setDeleteDialogOpen(true)}
-            >
-              Delete this workspace
-            </Button>
-          </div>
-        </div>
-      </section>
+          </section>
+        )}
 
       <Dialog
         open={deleteDialogOpen}
@@ -398,6 +410,7 @@ export default function WorkspaceSettings() {
           <form
             onSubmit={(e: FormEvent) => {
               e.preventDefault();
+              if (deleteConfirmName !== workspace.name) return;
               deleteMutation.mutate();
             }}
           >
