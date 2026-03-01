@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronsUpDown, Grid2x2PlusIcon, PlusIcon } from "lucide-react";
 
@@ -20,6 +21,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { NavItem } from "@/types/nav-items";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchMe } from "@/api/auth";
@@ -50,19 +60,24 @@ export function AppSidebar({
     retry: false,
   });
 
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+
   const queryClient = useQueryClient();
   const createWorkspaceMutation = useMutation({
     mutationFn: (name: string) => createWorkspace({ name }),
     onSuccess: (ws) => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      onWorkspaceChange?.(ws.id);
+      onWorkspaceChange?.(ws.slug);
+      setDialogOpen(false);
+      setNewName("");
     },
   });
 
-  const handleCreateWorkspace = () => {
-    const name = window.prompt("New workspace name:");
-    if (name?.trim()) {
-      createWorkspaceMutation.mutate(name.trim());
+  const handleCreateSubmit = () => {
+    const trimmed = newName.trim();
+    if (trimmed) {
+      createWorkspaceMutation.mutate(trimmed);
     }
   };
 
@@ -100,7 +115,7 @@ export function AppSidebar({
                   {workspaces.map((ws) => (
                     <DropdownMenuItem
                       key={ws.id}
-                      onClick={() => onWorkspaceChange?.(ws.id)}
+                      onClick={() => onWorkspaceChange?.(ws.slug)}
                       className={
                         ws.id === currentWorkspace?.id ? "bg-accent" : ""
                       }
@@ -108,7 +123,7 @@ export function AppSidebar({
                       {ws.name}
                     </DropdownMenuItem>
                   ))}
-                  <DropdownMenuItem onClick={handleCreateWorkspace}>
+                  <DropdownMenuItem onClick={() => setDialogOpen(true)}>
                     <PlusIcon className="mr-2 h-4 w-4" />
                     New workspace
                   </DropdownMenuItem>
@@ -125,6 +140,41 @@ export function AppSidebar({
       <SidebarFooter>
         <NavUser user={me!} />
       </SidebarFooter>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create workspace</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreateSubmit();
+            }}
+          >
+            <Input
+              placeholder="Workspace name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              autoFocus
+            />
+            <DialogFooter className="mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!newName.trim() || createWorkspaceMutation.isPending}
+              >
+                Create
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   );
 }

@@ -44,7 +44,7 @@ export default function WorkspaceDocuments() {
 
   return (
     <div className="p-4">
-      <DocumentList data={documents} />
+      <DocumentList data={documents} workspaceId={workspaceId} />
     </div>
   );
 }

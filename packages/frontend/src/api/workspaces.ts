@@ -6,6 +6,7 @@ const BASE = `${import.meta.env.VITE_BACKEND_API_URL}/workspaces`;
 export interface Workspace {
   id: string;
   name: string;
+  slug: string;
   createdAt: string;
 }
 
@@ -66,7 +67,7 @@ export async function createWorkspace(data: {
  */
 export async function updateWorkspace(
   id: string,
-  data: { name: string },
+  data: { name?: string; slug?: string },
 ): Promise<Workspace> {
   const res = await fetchWithAuth(`${BASE}/${id}`, {
     method: "PATCH",
