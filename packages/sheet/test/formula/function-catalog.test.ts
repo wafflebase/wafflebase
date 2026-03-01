@@ -385,6 +385,15 @@ describe('FunctionCatalog', () => {
       expect(findFunction('F.TEST')!.name).toBe('F.TEST');
       expect(findFunction('ISO.CEILING')!.name).toBe('ISO.CEILING');
       expect(findFunction('FILTER')!.name).toBe('FILTER');
+      expect(findFunction('SECH')!.name).toBe('SECH');
+      expect(findFunction('CSCH')!.name).toBe('CSCH');
+      expect(findFunction('COTH')!.name).toBe('COTH');
+      expect(findFunction('ACOT')!.name).toBe('ACOT');
+      expect(findFunction('ACOTH')!.name).toBe('ACOTH');
+      expect(findFunction('DAYS360')!.name).toBe('DAYS360');
+      expect(findFunction('WORKDAY.INTL')!.name).toBe('WORKDAY.INTL');
+      expect(findFunction('NETWORKDAYS.INTL')!.name).toBe('NETWORKDAYS.INTL');
+      expect(findFunction('EXPAND')!.name).toBe('EXPAND');
     });
 
     it('should return undefined for unknown function', () => {

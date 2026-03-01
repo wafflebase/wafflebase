@@ -2934,6 +2934,48 @@ describe('Formula', () => {
     expect(evaluate('=FILTER(A1:A3,B1:B3)', grid)).toBe('apple');
   });
 
+  it('should correctly evaluate SECH function', () => {
+    expect(Number(evaluate('=SECH(0)'))).toBeCloseTo(1, 10);
+    expect(Number(evaluate('=SECH(1)'))).toBeCloseTo(0.6481, 3);
+  });
+
+  it('should correctly evaluate CSCH function', () => {
+    expect(Number(evaluate('=CSCH(1)'))).toBeCloseTo(0.8509, 3);
+  });
+
+  it('should correctly evaluate COTH function', () => {
+    expect(Number(evaluate('=COTH(1)'))).toBeCloseTo(1.3130, 3);
+  });
+
+  it('should correctly evaluate ACOT function', () => {
+    expect(Number(evaluate('=ACOT(1)'))).toBeCloseTo(0.7854, 3);
+  });
+
+  it('should correctly evaluate ACOTH function', () => {
+    expect(Number(evaluate('=ACOTH(2)'))).toBeCloseTo(0.5493, 3);
+  });
+
+  it('should correctly evaluate DAYS360 function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '2024-01-01' } as Cell);
+    grid.set('A2', { v: '2024-07-01' } as Cell);
+    expect(evaluate('=DAYS360(A1,A2)', grid)).toBe('180');
+  });
+
+  it('should correctly evaluate NETWORKDAYS.INTL function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '2024-01-01' } as Cell);
+    grid.set('A2', { v: '2024-01-07' } as Cell);
+    // Mon-Sun with default weekends (Sat/Sun off)
+    expect(evaluate('=NETWORKDAYS.INTL(A1,A2)', grid)).toBe('5');
+  });
+
+  it('should correctly evaluate EXPAND function', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '42' } as Cell);
+    expect(evaluate('=EXPAND(A1,3,3)', grid)).toBe('42');
+  });
+
   it('should correctly extract references', () => {
     expect(extractReferences('=A1+B1')).toEqual(new Set(['A1', 'B1']));
     expect(extractReferences('=SUM(A1, A2:A3) + A4')).toEqual(

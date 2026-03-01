@@ -444,6 +444,15 @@ export const FunctionMap = new Map([
   ['F.TEST', ftestFunc],
   ['ISO.CEILING', isoceilingFunc],
   ['FILTER', filterFunc],
+  ['SECH', sechFunc],
+  ['CSCH', cschFunc],
+  ['COTH', cothFunc],
+  ['ACOT', acotFunc],
+  ['ACOTH', acothFunc],
+  ['DAYS360', days360Func],
+  ['WORKDAY.INTL', workdayintlFunc],
+  ['NETWORKDAYS.INTL', networkdaysintlFunc],
+  ['EXPAND', expandFunc],
 ]);
 
 /**
@@ -15571,4 +15580,295 @@ export function filterFunc(
     return visit(exprs[2]);
   }
   return { t: 'err', v: '#N/A!' };
+}
+
+/**
+ * SECH(number) — hyperbolic secant.
+ */
+export function sechFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  return { t: 'num', v: 1 / Math.cosh(n.v) };
+}
+
+/**
+ * CSCH(number) — hyperbolic cosecant.
+ */
+export function cschFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  if (n.v === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: 1 / Math.sinh(n.v) };
+}
+
+/**
+ * COTH(number) — hyperbolic cotangent.
+ */
+export function cothFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  if (n.v === 0) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: Math.cosh(n.v) / Math.sinh(n.v) };
+}
+
+/**
+ * ACOT(number) — arccotangent (inverse cotangent).
+ */
+export function acotFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  return { t: 'num', v: Math.atan(1 / n.v) };
+}
+
+/**
+ * ACOTH(number) — inverse hyperbolic cotangent.
+ */
+export function acothFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  const n = NumberArgs.map(visit(exprs[0]), grid);
+  if (n.t === 'err') return n;
+  if (Math.abs(n.v) <= 1) return { t: 'err', v: '#VALUE!' };
+  return { t: 'num', v: 0.5 * Math.log((n.v + 1) / (n.v - 1)) };
+}
+
+/**
+ * DAYS360(start_date, end_date, [method]) — days between two dates using 360-day year.
+ * method: FALSE (default) = US/NASD, TRUE = European.
+ */
+export function days360Func(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+
+  const startDate = parseDate(visit(exprs[0]), grid);
+  if (!startDate) return { t: 'err', v: '#VALUE!' };
+  const endDate = parseDate(visit(exprs[1]), grid);
+  if (!endDate) return { t: 'err', v: '#VALUE!' };
+
+  let european = false;
+  if (exprs.length >= 3) {
+    const m = visit(exprs[2]);
+    european = m.t === 'bool' ? m.v === true : m.t === 'num' ? m.v !== 0 : false;
+  }
+
+  let sd = startDate.getDate();
+  let sm = startDate.getMonth() + 1;
+  let sy = startDate.getFullYear();
+  let ed = endDate.getDate();
+  let em = endDate.getMonth() + 1;
+  let ey = endDate.getFullYear();
+
+  if (european) {
+    if (sd > 30) sd = 30;
+    if (ed > 30) ed = 30;
+  } else {
+    // US/NASD method
+    if (sd === 31) sd = 30;
+    if (ed === 31 && sd >= 30) ed = 30;
+  }
+
+  return { t: 'num', v: (ey - sy) * 360 + (em - sm) * 30 + (ed - sd) };
+}
+
+/**
+ * WORKDAY.INTL(start_date, days, [weekend], [holidays]) — workday with custom weekends.
+ * weekend: 1=Sat/Sun (default), 2=Sun/Mon, 7=Fri/Sat, 11-17=single day.
+ */
+export function workdayintlFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+
+  const startDate = parseDate(visit(exprs[0]), grid);
+  if (!startDate) return { t: 'err', v: '#VALUE!' };
+  const daysNode = NumberArgs.map(visit(exprs[1]), grid);
+  if (daysNode.t === 'err') return daysNode;
+  const numDays = Math.trunc(daysNode.v);
+
+  let weekendDays = new Set([0, 6]); // Sunday=0, Saturday=6
+  if (exprs.length >= 3) {
+    const wNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (wNode.t !== 'err') {
+      const w = Math.trunc(wNode.v);
+      weekendDays = getWeekendDays(w);
+    }
+  }
+
+  // Collect holidays
+  const holidays = new Set<string>();
+  if (exprs.length >= 4) {
+    const hNode = visit(exprs[3]);
+    if (hNode.t === 'ref' && grid) {
+      for (const sref of toSrefs([hNode.v])) {
+        const cell = grid.get(sref);
+        if (cell?.v) {
+          const hd = new Date(cell.v);
+          if (!isNaN(hd.getTime())) {
+            holidays.add(hd.toISOString().slice(0, 10));
+          }
+        }
+      }
+    }
+  }
+
+  const result = new Date(startDate);
+  const direction = numDays >= 0 ? 1 : -1;
+  let remaining = Math.abs(numDays);
+  while (remaining > 0) {
+    result.setDate(result.getDate() + direction);
+    if (!weekendDays.has(result.getDay()) && !holidays.has(result.toISOString().slice(0, 10))) {
+      remaining--;
+    }
+  }
+
+  return { t: 'str', v: formatDate(result) };
+}
+
+function getWeekendDays(weekendNum: number): Set<number> {
+  switch (weekendNum) {
+    case 1: return new Set([0, 6]); // Sat, Sun
+    case 2: return new Set([0, 1]); // Sun, Mon
+    case 3: return new Set([1, 2]); // Mon, Tue
+    case 4: return new Set([2, 3]); // Tue, Wed
+    case 5: return new Set([3, 4]); // Wed, Thu
+    case 6: return new Set([4, 5]); // Thu, Fri
+    case 7: return new Set([5, 6]); // Fri, Sat
+    case 11: return new Set([0]);   // Sun only
+    case 12: return new Set([1]);   // Mon only
+    case 13: return new Set([2]);   // Tue only
+    case 14: return new Set([3]);   // Wed only
+    case 15: return new Set([4]);   // Thu only
+    case 16: return new Set([5]);   // Fri only
+    case 17: return new Set([6]);   // Sat only
+    default: return new Set([0, 6]);
+  }
+}
+
+/**
+ * NETWORKDAYS.INTL(start_date, end_date, [weekend], [holidays])
+ * Returns the number of working days between two dates with custom weekends.
+ */
+export function networkdaysintlFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+
+  const startDate = parseDate(visit(exprs[0]), grid);
+  if (!startDate) return { t: 'err', v: '#VALUE!' };
+  const endDate = parseDate(visit(exprs[1]), grid);
+  if (!endDate) return { t: 'err', v: '#VALUE!' };
+
+  let weekendDays = new Set([0, 6]);
+  if (exprs.length >= 3) {
+    const wNode = NumberArgs.map(visit(exprs[2]), grid);
+    if (wNode.t !== 'err') {
+      weekendDays = getWeekendDays(Math.trunc(wNode.v));
+    }
+  }
+
+  const holidays = new Set<string>();
+  if (exprs.length >= 4) {
+    const hNode = visit(exprs[3]);
+    if (hNode.t === 'ref' && grid) {
+      for (const sref of toSrefs([hNode.v])) {
+        const cell = grid.get(sref);
+        if (cell?.v) {
+          const hd = new Date(cell.v);
+          if (!isNaN(hd.getTime())) {
+            holidays.add(hd.toISOString().slice(0, 10));
+          }
+        }
+      }
+    }
+  }
+
+  const direction = endDate >= startDate ? 1 : -1;
+  const current = new Date(startDate);
+  let count = 0;
+  while ((direction > 0 && current <= endDate) || (direction < 0 && current >= endDate)) {
+    if (!weekendDays.has(current.getDay()) && !holidays.has(current.toISOString().slice(0, 10))) {
+      count++;
+    }
+    current.setDate(current.getDate() + direction);
+  }
+
+  return { t: 'num', v: count * direction };
+}
+
+/**
+ * EXPAND(array, rows, [columns], [pad_with]) — expands array to specified dimensions.
+ * Returns top-left value for single-cell evaluation.
+ */
+export function expandFunc(
+  ctx: FunctionContext,
+  visit: (tree: ParseTree) => EvalNode,
+  grid?: Grid,
+): EvalNode {
+  const args = ctx.args();
+  if (!args) return { t: 'err', v: '#N/A!' };
+  const exprs = args.expr();
+  if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+
+  const cellVal = grid?.get(m.v.refs[0])?.v ?? '';
+  return cellVal !== '' && !isNaN(Number(cellVal))
+    ? { t: 'num', v: Number(cellVal) }
+    : { t: 'str', v: cellVal };
 }

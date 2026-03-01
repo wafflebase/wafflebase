@@ -2517,6 +2517,51 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Filters an array based on a boolean array',
     args: [{ name: 'array' }, { name: 'include' }, { name: 'if_empty', optional: true }],
   },
+  {
+    name: 'SECH',
+    description: 'Returns the hyperbolic secant of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'CSCH',
+    description: 'Returns the hyperbolic cosecant of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'COTH',
+    description: 'Returns the hyperbolic cotangent of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'ACOT',
+    description: 'Returns the arccotangent of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'ACOTH',
+    description: 'Returns the inverse hyperbolic cotangent of a number',
+    args: [{ name: 'number' }],
+  },
+  {
+    name: 'DAYS360',
+    description: 'Returns the number of days between two dates using 360-day year',
+    args: [{ name: 'start_date' }, { name: 'end_date' }, { name: 'method', optional: true }],
+  },
+  {
+    name: 'WORKDAY.INTL',
+    description: 'Returns a date that is a specified number of workdays with custom weekends',
+    args: [{ name: 'start_date' }, { name: 'days' }, { name: 'weekend', optional: true }, { name: 'holidays', optional: true }],
+  },
+  {
+    name: 'NETWORKDAYS.INTL',
+    description: 'Returns the number of working days between two dates with custom weekends',
+    args: [{ name: 'start_date' }, { name: 'end_date' }, { name: 'weekend', optional: true }, { name: 'holidays', optional: true }],
+  },
+  {
+    name: 'EXPAND',
+    description: 'Expands an array to specified dimensions',
+    args: [{ name: 'array' }, { name: 'rows' }, { name: 'columns', optional: true }, { name: 'pad_with', optional: true }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2543,6 +2588,9 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'ISOWEEKNUM',
     'WORKDAY',
     'YEARFRAC',
+    'DAYS360',
+    'WORKDAY.INTL',
+    'NETWORKDAYS.INTL',
   ]),
   Engineering: new Set(['DELTA', 'GESTEP', 'ERF', 'ERFC', 'CONVERT', 'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT', 'HEX2DEC', 'DEC2HEX', 'BIN2DEC', 'DEC2BIN', 'OCT2DEC', 'DEC2OCT', 'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV', 'IMCONJUGATE', 'IMARGUMENT', 'IMPOWER', 'IMSQRT', 'IMEXP', 'IMLN', 'IMLOG2', 'IMLOG10', 'IMSIN', 'IMCOS', 'IMTAN', 'IMSINH', 'IMCOSH', 'IMSEC', 'IMCSC', 'IMCOT', 'HEX2BIN', 'HEX2OCT', 'BIN2HEX', 'BIN2OCT', 'OCT2HEX', 'OCT2BIN', 'BESSELJ', 'BESSELY', 'BESSELI', 'BESSELK']),
   Financial: new Set(['PMT', 'FV', 'PV', 'NPV', 'NPER', 'IPMT', 'PPMT', 'SLN', 'EFFECT', 'RATE', 'IRR', 'DB', 'DDB', 'NOMINAL', 'CUMIPMT', 'CUMPRINC', 'XNPV', 'XIRR', 'SYD', 'MIRR', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'DOLLARDE', 'DOLLARFR', 'ACCRINT', 'ACCRINTM', 'COUPDAYBS', 'COUPDAYS', 'COUPDAYSNC', 'COUPNCD', 'COUPNUM', 'COUPPCD', 'DISC', 'PRICEDISC', 'YIELDDISC', 'DURATION', 'MDURATION', 'RECEIVED', 'INTRATE', 'PRICE', 'YIELD', 'PRICEMAT', 'YIELDMAT', 'AMORLINC', 'ISPMT', 'FVSCHEDULE', 'PDURATION', 'RRI']),
@@ -2570,7 +2618,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'CELL',
   ]),
   Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
-  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE', 'XMATCH', 'TOCOL', 'TOROW', 'CHOOSEROWS', 'CHOOSECOLS', 'TAKE', 'DROP', 'HSTACK', 'VSTACK', 'SORTBY', 'WRAPCOLS', 'WRAPROWS', 'FILTER']),
+  Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE', 'XMATCH', 'TOCOL', 'TOROW', 'CHOOSEROWS', 'CHOOSECOLS', 'TAKE', 'DROP', 'HSTACK', 'VSTACK', 'SORTBY', 'WRAPCOLS', 'WRAPROWS', 'FILTER', 'EXPAND']),
   Math: new Set([
     'SUM',
     'ABS',
@@ -2650,6 +2698,11 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'MMULT',
     'MINVERSE',
     'ISO.CEILING',
+    'SECH',
+    'CSCH',
+    'COTH',
+    'ACOT',
+    'ACOTH',
   ]),
   Statistical: new Set([
     'AVERAGE',
