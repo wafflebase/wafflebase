@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/database/prisma.service';
 import { DataSourceService } from './datasource.service';
 
@@ -42,7 +42,7 @@ describe('DataSourceService', () => {
   it('encrypts password when creating a datasource', async () => {
     prisma.dataSource.create.mockResolvedValue({ id: 'ds-1' });
 
-    await service.create(7, {
+    await service.create(7, 'ws-1', {
       name: 'analytics',
       host: 'localhost',
       database: 'postgres',
@@ -55,34 +55,38 @@ describe('DataSourceService', () => {
     const encrypted = createArg.data.password as string;
 
     expect(createArg.data.authorID).toBe(7);
+    expect(createArg.data.workspaceId).toBe('ws-1');
     expect(encrypted).not.toBe('plain-secret');
     expect(encrypted.split(':')).toHaveLength(3);
   });
 
-  it('masks passwords in findAll', async () => {
+  it('masks passwords in findAllByWorkspace', async () => {
     prisma.dataSource.findMany.mockResolvedValue([
-      { id: 'ds-1', password: 'encrypted', authorID: 7 },
+      { id: 'ds-1', password: 'encrypted', authorID: 7, workspaceId: 'ws-1' },
     ]);
 
-    const results = await service.findAll(7);
+    const results = await service.findAllByWorkspace('ws-1');
 
-    expect(results).toEqual([{ id: 'ds-1', password: '********', authorID: 7 }]);
+    expect(results).toEqual([
+      { id: 'ds-1', password: '********', authorID: 7, workspaceId: 'ws-1' },
+    ]);
+    expect(prisma.dataSource.findMany).toHaveBeenCalledWith({
+      where: { workspaceId: 'ws-1' },
+      orderBy: { createdAt: 'desc' },
+    });
   });
 
-  it('throws forbidden when requesting another users datasource', async () => {
-    prisma.dataSource.findUnique.mockResolvedValue({
-      id: 'ds-1',
-      authorID: 99,
-    });
+  it('throws not found when datasource does not exist', async () => {
+    prisma.dataSource.findUnique.mockResolvedValue(null);
 
-    await expect(service.findOne(7, 'ds-1')).rejects.toBeInstanceOf(
-      ForbiddenException,
+    await expect(service.findOne('ds-1')).rejects.toBeInstanceOf(
+      NotFoundException,
     );
   });
 
   it('rejects invalid SQL before touching persistence', async () => {
     await expect(
-      service.executeQuery(7, 'ds-1', { query: 'DELETE FROM users' }),
+      service.executeQuery('ds-1', { query: 'DELETE FROM users' }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.dataSource.findUnique).not.toHaveBeenCalled();
@@ -117,7 +121,7 @@ describe('DataSourceService', () => {
       .spyOn(service as unknown as { createClient: () => unknown }, 'createClient')
       .mockReturnValue(client);
 
-    const result = await service.executeQuery(7, 'ds-1', {
+    const result = await service.executeQuery('ds-1', {
       query: 'SELECT id FROM users',
     });
 
@@ -163,7 +167,7 @@ describe('DataSourceService', () => {
       .mockReturnValue(client);
 
     await expect(
-      service.executeQuery(7, 'ds-1', { query: 'SELECT * FROM FROM' }),
+      service.executeQuery('ds-1', { query: 'SELECT * FROM FROM' }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(client.end).toHaveBeenCalledTimes(1);
