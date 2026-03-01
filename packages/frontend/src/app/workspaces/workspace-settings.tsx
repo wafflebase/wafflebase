@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import {
   fetchWorkspace,
@@ -45,8 +46,8 @@ export default function WorkspaceSettings() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [editingName, setEditingName] = useState(false);
-  const [editingSlug, setEditingSlug] = useState(false);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
 
@@ -60,6 +61,13 @@ export default function WorkspaceSettings() {
     queryFn: () => fetchWorkspace(workspaceId!),
     enabled: !!workspaceId,
   });
+
+  useEffect(() => {
+    if (workspace) {
+      setName(workspace.name);
+      setSlug(workspace.slug);
+    }
+  }, [workspace]);
 
   const { data: invites = [] } = useQuery<WorkspaceInvite[]>({
     queryKey: ["workspaces", workspaceId, "invites"],
@@ -77,9 +85,7 @@ export default function WorkspaceSettings() {
       updateWorkspace(workspaceId!, data),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
-      setEditingName(false);
-      if (editingSlug) {
-        setEditingSlug(false);
+      if (updated.slug !== workspace?.slug) {
         navigate(`/w/${updated.slug}/settings`, { replace: true });
       }
       toast.success("Workspace updated");
@@ -171,6 +177,9 @@ export default function WorkspaceSettings() {
 
   if (!workspace) return null;
 
+  const isOwner =
+    me && workspace.members.some((m) => m.user.id === me.id && m.role === "owner");
+
   const copyInviteLink = (token: string) => {
     const link = `${window.location.origin}/invite/${token}`;
     navigator.clipboard.writeText(link);
@@ -182,95 +191,73 @@ export default function WorkspaceSettings() {
       {/* Workspace Name */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Workspace Name</h2>
-        {editingName ? (
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(e: FormEvent) => {
-              e.preventDefault();
-              const formData = new FormData(e.target as HTMLFormElement);
-              const name = (formData.get("name") as string).trim();
-              if (name) updateMutation.mutate({ name });
-            }}
-          >
-            <Input
-              name="name"
-              defaultValue={workspace.name}
-              autoFocus
-              className="max-w-sm"
-            />
+        <p className="text-sm text-muted-foreground">
+          The display name of your workspace, visible to all members.
+        </p>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            const trimmed = name.trim();
+            if (trimmed && trimmed !== workspace.name) {
+              updateMutation.mutate({ name: trimmed });
+            }
+          }}
+        >
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="max-w-sm"
+          />
+          {name.trim() !== workspace.name && name.trim() !== "" && (
             <Button type="submit" disabled={updateMutation.isPending}>
               Save
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setEditingName(false)}
-            >
-              Cancel
-            </Button>
-          </form>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-sm">{workspace.name}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditingName(true)}
-            >
-              Edit
-            </Button>
-          </div>
-        )}
+          )}
+        </form>
       </section>
+
+      <Separator />
 
       {/* Workspace URL */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Workspace URL</h2>
-        {editingSlug ? (
-          <form
-            className="flex items-center gap-2"
-            onSubmit={(e: FormEvent) => {
-              e.preventDefault();
-              const formData = new FormData(e.target as HTMLFormElement);
-              const slug = (formData.get("slug") as string).trim();
-              if (slug) updateMutation.mutate({ slug });
-            }}
-          >
-            <span className="text-sm text-muted-foreground">/w/</span>
-            <Input
-              name="slug"
-              defaultValue={workspace.slug}
-              autoFocus
-              className="max-w-sm"
-            />
+        <p className="text-sm text-muted-foreground">
+          A unique URL slug used to access this workspace. Changing this will
+          update all links.
+        </p>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            const trimmed = slug.trim();
+            if (trimmed && trimmed !== workspace.slug) {
+              updateMutation.mutate({ slug: trimmed });
+            }
+          }}
+        >
+          <span className="text-sm text-muted-foreground">/w/</span>
+          <Input
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            className="max-w-sm"
+          />
+          {slug.trim() !== workspace.slug && slug.trim() !== "" && (
             <Button type="submit" disabled={updateMutation.isPending}>
               Save
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setEditingSlug(false)}
-            >
-              Cancel
-            </Button>
-          </form>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-sm">/w/{workspace.slug}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditingSlug(true)}
-            >
-              Edit
-            </Button>
-          </div>
-        )}
+          )}
+        </form>
       </section>
+
+      <Separator />
 
       {/* Members */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Members</h2>
+        <p className="text-sm text-muted-foreground">
+          People who have access to this workspace.
+        </p>
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -312,10 +299,17 @@ export default function WorkspaceSettings() {
         </div>
       </section>
 
+      <Separator />
+
       {/* Invites */}
       <section className="space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Invites</h2>
+          <div>
+            <h2 className="text-lg font-semibold">Invites</h2>
+            <p className="text-sm text-muted-foreground">
+              Manage pending invitations to this workspace.
+            </p>
+          </div>
           <Button
             size="sm"
             onClick={() => createInviteMutation.mutate()}
@@ -377,10 +371,8 @@ export default function WorkspaceSettings() {
       </section>
 
       {/* Danger Zone */}
-      {me &&
-        workspace.members.some(
-          (m) => m.user.id === me.id && m.role === "owner",
-        ) && (
+      {isOwner && <Separator />}
+      {isOwner && (
           <section className="space-y-2">
             <h2 className="text-lg font-semibold text-destructive">Danger Zone</h2>
             <div className="rounded-md border border-destructive/30 p-4">
