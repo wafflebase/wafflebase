@@ -280,7 +280,7 @@ export default function WorkspaceSettings() {
                     <Badge variant="secondary">{member.role}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    {member.role !== "OWNER" && (
+                    {member.role !== "owner" && (
                       <Button
                         variant="ghost"
                         size="sm"
