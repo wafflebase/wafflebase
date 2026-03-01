@@ -2572,6 +2572,71 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Returns the probability of a trial result using a binomial distribution',
     args: [{ name: 'trials' }, { name: 'probability_s' }, { name: 'number_s' }, { name: 'number_s2', optional: true }],
   },
+  {
+    name: 'STDEV.S',
+    description: 'Returns the sample standard deviation (alias for STDEV)',
+    args: [{ name: 'number1' }, { name: 'number2', optional: true, repeating: true }],
+  },
+  {
+    name: 'STDEV.P',
+    description: 'Returns the population standard deviation (alias for STDEVP)',
+    args: [{ name: 'number1' }, { name: 'number2', optional: true, repeating: true }],
+  },
+  {
+    name: 'VAR.S',
+    description: 'Returns the sample variance (alias for VAR)',
+    args: [{ name: 'number1' }, { name: 'number2', optional: true, repeating: true }],
+  },
+  {
+    name: 'VAR.P',
+    description: 'Returns the population variance (alias for VARP)',
+    args: [{ name: 'number1' }, { name: 'number2', optional: true, repeating: true }],
+  },
+  {
+    name: 'MODE.SNGL',
+    description: 'Returns the most frequently occurring value (alias for MODE)',
+    args: [{ name: 'number1' }, { name: 'number2', optional: true, repeating: true }],
+  },
+  {
+    name: 'NORM.DIST',
+    description: 'Returns the normal distribution (alias for NORMDIST)',
+    args: [{ name: 'x' }, { name: 'mean' }, { name: 'stdev' }, { name: 'cumulative' }],
+  },
+  {
+    name: 'NORM.INV',
+    description: 'Returns the inverse of the normal distribution (alias for NORMINV)',
+    args: [{ name: 'probability' }, { name: 'mean' }, { name: 'stdev' }],
+  },
+  {
+    name: 'QUARTILE.INC',
+    description: 'Returns the quartile of a data set (alias for QUARTILE)',
+    args: [{ name: 'data' }, { name: 'quart' }],
+  },
+  {
+    name: 'PERCENTILE.INC',
+    description: 'Returns the k-th percentile of a data set (alias for PERCENTILE)',
+    args: [{ name: 'data' }, { name: 'k' }],
+  },
+  {
+    name: 'RANK.EQ',
+    description: 'Returns the rank of a value within a data set (alias for RANK)',
+    args: [{ name: 'value' }, { name: 'data' }, { name: 'order', optional: true }],
+  },
+  {
+    name: 'PERCENTRANK.INC',
+    description: 'Returns the percentage rank of a value in a dataset (alias for PERCENTRANK)',
+    args: [{ name: 'data' }, { name: 'x' }, { name: 'significance', optional: true }],
+  },
+  {
+    name: 'COVARIANCE.P',
+    description: 'Returns the population covariance of two datasets (alias for COVAR)',
+    args: [{ name: 'data_y' }, { name: 'data_x' }],
+  },
+  {
+    name: 'FORECAST.LINEAR',
+    description: 'Predicts a y-value for a given x using linear regression (alias for FORECAST)',
+    args: [{ name: 'x' }, { name: 'known_ys' }, { name: 'known_xs' }],
+  },
 ];
 
 const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<string>>> = {
@@ -2819,6 +2884,19 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'CHISQ.TEST',
     'F.TEST',
     'BINOM.DIST.RANGE',
+    'STDEV.S',
+    'STDEV.P',
+    'VAR.S',
+    'VAR.P',
+    'MODE.SNGL',
+    'NORM.DIST',
+    'NORM.INV',
+    'QUARTILE.INC',
+    'PERCENTILE.INC',
+    'RANK.EQ',
+    'PERCENTRANK.INC',
+    'COVARIANCE.P',
+    'FORECAST.LINEAR',
   ]),
   Text: new Set([
     'TRIM',

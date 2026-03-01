@@ -84,6 +84,11 @@ function preprocessEmptyArgs(body: string): string {
     const ch = body[i];
 
     if (ch === '"') {
+      if (inString && i + 1 < body.length && body[i + 1] === '"') {
+        result += '""';
+        i++;
+        continue;
+      }
       inString = !inString;
       result += ch;
       continue;
@@ -809,6 +814,6 @@ class Evaluator implements FormulaVisitor<EvalNode> {
 
   visitStr(ctx: StrContext): EvalNode {
     const text = ctx.text;
-    return { t: 'str', v: text.slice(1, -1) };
+    return { t: 'str', v: text.slice(1, -1).replace(/""/g, '"') };
   }
 }

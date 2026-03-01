@@ -157,6 +157,16 @@ describe('Formula', () => {
     expect(evaluate('=-5/0')).toBe('#DIV/0!');
   });
 
+  it('should unescape doubled quotes in string literals', () => {
+    expect(evaluate('="say ""hello"""')).toBe('say "hello"');
+    expect(evaluate('=""""')).toBe('"');
+    expect(evaluate('="no quotes"')).toBe('no quotes');
+  });
+
+  it('should handle empty args inside strings with escaped quotes', () => {
+    expect(evaluate('=IF("a""b"="a""b",1,)')).toBe('1');
+  });
+
   it('should handle empty arguments in IF', () => {
     expect(evaluate('=IF(TRUE,,1)')).toBe('0');
     expect(evaluate('=IF(FALSE,,1)')).toBe('1');

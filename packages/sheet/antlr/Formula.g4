@@ -35,7 +35,7 @@ REF: '$'? [A-Za-z] [A-Za-z]? [A-Za-z]? '$'? [1-9][0-9]* ;
 REFRANGE: REF ':' REF ;
 
 BOOL: 'TRUE' | 'FALSE' | 'true' | 'false';
-STRING: '"' (~["])* '"' ;
+STRING: '"' ('""' | ~["])* '"' ;
 NUM: [0-9]+('.' [0-9]+)? ([eE] [+-]? [0-9]+)? ;
 FUNCNAME: [A-Za-z][A-Za-z0-9_.]* ;
 WS : [ \t]+ -> skip ;
