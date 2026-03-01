@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import {
   fetchWorkspace,
@@ -139,8 +140,19 @@ export default function WorkspaceSettings() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-gray-500 text-lg">Loading settings...</p>
+      <div className="p-4 lg:p-6 max-w-2xl space-y-8">
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-9 w-64" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-9 w-64" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-40 w-full" />
+        </div>
       </div>
     );
   }
@@ -151,8 +163,8 @@ export default function WorkspaceSettings() {
     }
     return (
       <div className="flex flex-col items-center justify-center h-64">
-        <p className="text-red-500 text-lg">Failed to load workspace.</p>
-        <p className="text-gray-400">Please try again later.</p>
+        <p className="text-destructive text-lg">Failed to load workspace.</p>
+        <p className="text-sm text-muted-foreground">Please try again later.</p>
       </div>
     );
   }
@@ -166,7 +178,7 @@ export default function WorkspaceSettings() {
   };
 
   return (
-    <div className="p-4 max-w-2xl space-y-8">
+    <div className="p-4 lg:p-6 max-w-2xl space-y-8">
       {/* Workspace Name */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Workspace Name</h2>
@@ -284,7 +296,7 @@ export default function WorkspaceSettings() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-red-500 hover:text-red-600"
+                        className="text-destructive hover:text-destructive"
                         onClick={() =>
                           removeMemberMutation.mutate(member.user.id)
                         }
@@ -346,7 +358,7 @@ export default function WorkspaceSettings() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="text-red-500 hover:text-red-600"
+                        className="text-destructive hover:text-destructive"
                         onClick={() =>
                           revokeInviteMutation.mutate(invite.id)
                         }
@@ -370,8 +382,8 @@ export default function WorkspaceSettings() {
           (m) => m.user.id === me.id && m.role === "owner",
         ) && (
           <section className="space-y-2">
-            <h2 className="text-lg font-semibold text-red-600">Danger Zone</h2>
-            <div className="rounded-md border border-red-300 p-4">
+            <h2 className="text-lg font-semibold text-destructive">Danger Zone</h2>
+            <div className="rounded-md border border-destructive/30 p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">Delete this workspace</p>

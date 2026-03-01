@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchWorkspaces } from "@/api/workspaces";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * Redirects to the first available workspace on the root path.
@@ -21,7 +22,7 @@ export function WorkspaceRedirect() {
 
   return (
     <div className="flex items-center justify-center h-64">
-      <p className="text-gray-500 text-lg">Loading...</p>
+      <Skeleton className="h-5 w-32" />
     </div>
   );
 }

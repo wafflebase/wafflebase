@@ -14,7 +14,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { FileText, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -113,7 +113,7 @@ export function DocumentList({
                 Rename
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="text-red-500 focus:text-red-500"
+                className="text-destructive focus:text-destructive"
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
                   deleteDocumentMutation.mutate(String(row.getValue("id")));
@@ -251,9 +251,21 @@ export function DocumentList({
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="h-24 text-center"
+                  className="h-48"
                 >
-                  No results.
+                  <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                    <FileText className="h-10 w-10 stroke-1" />
+                    <p className="text-sm font-medium">No documents yet</p>
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        createDocumentMutation.mutate({ title: "New Document" })
+                      }
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      New Document
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             )}

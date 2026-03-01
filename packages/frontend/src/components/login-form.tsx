@@ -14,7 +14,7 @@ export function LoginForm({
       <div className="flex flex-col items-center gap-2 text-center">
         <h1 className="text-2xl font-bold">Login to Wafflebase</h1>
         <p className="text-balance text-sm text-muted-foreground">
-          Wafflebase with your GitHub account.
+          Sign in with your GitHub account to get started.
         </p>
       </div>
       <div className="grid gap-6">
