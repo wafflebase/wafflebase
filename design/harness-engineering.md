@@ -119,6 +119,18 @@ systematically.
 - Introduce path-based selective execution ahead of baseline stability.
 - Build custom LLM-based linters before deterministic rules are exhausted.
 
+## Local Pre-Commit Hook
+
+A git pre-commit hook runs `pnpm verify:fast` before every commit, providing
+a local defense layer in addition to CI.
+
+- **Scope:** architecture + lint + typecheck + unit tests (~11 s).
+- **Out of scope:** builds, visual regression, entropy — these remain CI-only
+  (`verify:self`).
+- **Activation:** `pnpm install` automatically sets `core.hooksPath` to
+  `.githooks/` via a `postinstall` script. No manual setup required.
+- **Bypass:** `git commit --no-verify` skips the hook for emergencies.
+
 ## Lane Contract
 
 ### Self-Contained Lanes (no external services)
