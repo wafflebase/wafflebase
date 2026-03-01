@@ -283,6 +283,50 @@ describe('WorkspaceService', () => {
     });
   });
 
+  describe('findInvites', () => {
+    it('returns invites if user is owner', async () => {
+      prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'owner' });
+      const invites = [{ id: 'inv-1', token: 'tok-1' }];
+      prisma.workspaceInvite.findMany.mockResolvedValue(invites);
+
+      const result = await service.findInvites('ws-1', 7);
+
+      expect(result).toEqual(invites);
+      expect(prisma.workspaceInvite.findMany).toHaveBeenCalledWith({
+        where: { workspaceId: 'ws-1' },
+      });
+    });
+
+    it('throws ForbiddenException if user is not owner', async () => {
+      prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'member' });
+
+      await expect(
+        service.findInvites('ws-1', 7),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  describe('revokeInvite', () => {
+    it('deletes invite if user is owner', async () => {
+      prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'owner' });
+      prisma.workspaceInvite.delete.mockResolvedValue({ id: 'inv-1' });
+
+      await service.revokeInvite('ws-1', 'inv-1', 7);
+
+      expect(prisma.workspaceInvite.delete).toHaveBeenCalledWith({
+        where: { id: 'inv-1' },
+      });
+    });
+
+    it('throws ForbiddenException if user is not owner', async () => {
+      prisma.workspaceMember.findUnique.mockResolvedValue({ role: 'member' });
+
+      await expect(
+        service.revokeInvite('ws-1', 'inv-1', 7),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
   describe('acceptInvite', () => {
     it('creates membership from valid invite', async () => {
       prisma.workspaceInvite.findUnique.mockResolvedValue({
