@@ -46,9 +46,19 @@ export class UserService {
     if (user) {
       return user;
     }
-    return this.prisma.user.create({
+
+    const newUser = await this.prisma.user.create({
       data,
     });
+
+    const workspace = await this.prisma.workspace.create({
+      data: { name: `${newUser.username}'s Workspace` },
+    });
+    await this.prisma.workspaceMember.create({
+      data: { workspaceId: workspace.id, userId: newUser.id, role: 'owner' },
+    });
+
+    return newUser;
   }
 
   async updateUser(params: {
