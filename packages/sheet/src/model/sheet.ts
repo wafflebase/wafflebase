@@ -26,7 +26,6 @@ import {
   ConditionalFormatRule,
   FilterCondition,
   FilterState,
-  HiddenState,
   MergeSpan,
   Ref,
   Sref,

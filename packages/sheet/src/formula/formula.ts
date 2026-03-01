@@ -445,7 +445,7 @@ export function evaluate(formula: string, grid?: Grid): string {
     if (node.t === 'arr') {
       const topLeft = node.v[0]?.[0];
       if (!topLeft || topLeft.t === 'empty') return '0';
-      if (topLeft.t === 'arr') return '#VALUE!';
+      if (topLeft.t === 'arr' || topLeft.t === 'lambda') return '#VALUE!';
       return topLeft.v.toString();
     }
 

@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode } from './formula';
+import { EvalNode, ErrNode } from './formula';
 import { NumberArgs, BoolArgs, ref2str } from './arguments';
 import { Grid } from '../model/types';
 import {
@@ -525,7 +525,7 @@ function parsePlaces(
   expr: ParseTree | undefined,
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
-): { t: 'num'; v: number } | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+): { t: 'num'; v: number } | ErrNode {
   if (!expr) {
     return { t: 'num', v: 0 };
   }
@@ -538,10 +538,7 @@ function parsePlaces(
   return { t: 'num', v: Math.trunc(places.v) };
 }
 
-type FormulaError = {
-  t: 'err';
-  v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!';
-};
+type FormulaError = ErrNode;
 
 type ParsedCriterion = {
   op: '=' | '<>' | '<' | '<=' | '>' | '>=';
@@ -2108,9 +2105,7 @@ export function hlookupFunc(
 function toStr(
   node: EvalNode,
   grid?: Grid,
-):
-  | { t: 'str'; v: string }
-  | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+): { t: 'str'; v: string } | ErrNode {
   if (node.t === 'err') return node;
   if (node.t === 'str') return node;
   if (node.t === 'num') return { t: 'str', v: node.v.toString() };
@@ -2313,7 +2308,7 @@ function parseStartPosition(
   text: string,
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
-): { t: 'num'; v: number } | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+): { t: 'num'; v: number } | ErrNode {
   if (!expr) {
     return { t: 'num', v: 1 };
   }
@@ -2731,7 +2726,7 @@ export function nowFunc(
 function parseDate(
   node: EvalNode,
   grid?: Grid,
-): Date | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+): Date | ErrNode {
   const str = toStr(node, grid);
   if (str.t === 'err') return str;
 
@@ -2748,7 +2743,7 @@ function parseDate(
 function parseDateTime(
   node: EvalNode,
   grid?: Grid,
-): Date | { t: 'err'; v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' } {
+): Date | ErrNode {
   const str = toStr(node, grid);
   if (str.t === 'err') {
     return str;
@@ -6589,7 +6584,7 @@ export function indirectFunc(
 export function errortypeFunc(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
-  grid?: Grid,
+  _grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
@@ -6631,7 +6626,7 @@ export function errortypeFunc(
 export function isdateFunc(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
-  grid?: Grid,
+  _grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
@@ -6812,12 +6807,26 @@ export function regexmatchFunc(
  */
 function extractPairedArrays(
   expr1: ParseTree,
-  expr2: ParseTree,
+  expr2: ParseTree | undefined,
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
 ): { xs: number[]; ys: number[] } | FormulaError {
   const yRefs = getRefsFromExpression(expr1, visit, grid);
   if (isFormulaError(yRefs)) return yRefs;
+
+  if (!expr2) {
+    // No x array provided — generate sequential indices
+    const ys: number[] = [];
+    for (let i = 0; i < yRefs.v.length; i++) {
+      const yv = grid?.get(yRefs.v[i])?.v || '';
+      if (yv !== '' && !isNaN(Number(yv))) {
+        ys.push(Number(yv));
+      }
+    }
+    if (ys.length < 2) return { t: 'err', v: '#N/A!' };
+    return { xs: ys.map((_, i) => i + 1), ys };
+  }
+
   const xRefs = getRefsFromExpression(expr2, visit, grid);
   if (isFormulaError(xRefs)) return xRefs;
 
@@ -8859,7 +8868,8 @@ export function binomdistFunc(
 
   const k = Math.trunc(s.v);
   const n = Math.trunc(trials.v);
-  if (k < 0 || n < 0 || k > n || prob.v < 0 || prob.v > 1) return { t: 'err', v: '#VALUE!' };
+  const p = prob.v;
+  if (k < 0 || n < 0 || k > n || p < 0 || p > 1) return { t: 'err', v: '#VALUE!' };
 
   const cumNode = visit(exprs[3]);
   const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
@@ -8867,7 +8877,7 @@ export function binomdistFunc(
   // Binomial coefficient using log-gamma for numerical stability
   function binomPmf(x: number): number {
     const logCoeff = Math.log(gammaLanczos(n + 1)) - Math.log(gammaLanczos(x + 1)) - Math.log(gammaLanczos(n - x + 1));
-    return Math.exp(logCoeff + x * Math.log(prob.v) + (n - x) * Math.log(1 - prob.v));
+    return Math.exp(logCoeff + x * Math.log(p) + (n - x) * Math.log(1 - p));
   }
 
   if (cum) {
@@ -9079,14 +9089,10 @@ export function tdistFunc(
   const cum = cumNode.t === 'bool' ? cumNode.v : cumNode.t === 'num' ? cumNode.v !== 0 : true;
 
   const v = Math.trunc(df.v);
+  const t2 = x.v * x.v;
 
   if (cum) {
     // CDF using regularized incomplete beta function via chi-squared relation
-    const t2 = x.v * x.v;
-    const p = lowerIncompleteGamma(v / 2, v / (v + t2) * v / 2);
-    // Use the relation: T.DIST(x) = 1 - 0.5 * I_x(df/2, 1/2) for x > 0
-    // Simpler approach: use numeric integration with regularized beta
-    // For simplicity, use the relationship with chi-squared:
     // P(T ≤ x) = 0.5 + sign(x) * 0.5 * I(df/(df+x²))(df/2, 1/2)
     const xi = v / (v + t2);
     const ibeta = regularizedBeta(xi, v / 2, 0.5);
@@ -9277,12 +9283,13 @@ export function negbinomdistFunc(
 
   const failures = Math.trunc(f.v);
   const successes = Math.trunc(s.v);
-  if (failures < 0 || successes < 1 || prob.v <= 0 || prob.v > 1) return { t: 'err', v: '#VALUE!' };
+  const p = prob.v;
+  if (failures < 0 || successes < 1 || p <= 0 || p > 1) return { t: 'err', v: '#VALUE!' };
 
   function pmf(x: number): number {
     const logCoeff = Math.log(gammaLanczos(x + successes))
       - Math.log(gammaLanczos(successes)) - Math.log(gammaLanczos(x + 1));
-    return Math.exp(logCoeff + successes * Math.log(prob.v) + x * Math.log(1 - prob.v));
+    return Math.exp(logCoeff + successes * Math.log(p) + x * Math.log(1 - p));
   }
 
   if (cum) {
@@ -11598,7 +11605,7 @@ export function kurtFunc(
 export function isrefFunc(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
-  grid?: Grid,
+  _grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
   if (!args) return { t: 'err', v: '#N/A!' };
@@ -11613,7 +11620,7 @@ export function isrefFunc(
  * SHEET([value]) — returns 1 (single sheet).
  */
 export function sheetFunc(
-  ctx: FunctionContext,
+  _ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
@@ -11624,7 +11631,7 @@ export function sheetFunc(
  * SHEETS([reference]) — returns 1 (single sheet).
  */
 export function sheetsFunc(
-  ctx: FunctionContext,
+  _ctx: FunctionContext,
   _visit: (tree: ParseTree) => EvalNode,
   _grid?: Grid,
 ): EvalNode {
@@ -14605,7 +14612,7 @@ export function ztestFunc(
  */
 export function areasFunc(
   ctx: FunctionContext,
-  visit: (tree: ParseTree) => EvalNode,
+  _visit: (tree: ParseTree) => EvalNode,
 ): EvalNode {
   const args = ctx.args();
   if (!args) return { t: 'err', v: '#N/A!' };
@@ -14938,7 +14945,7 @@ export function torowFunc(
 export function textsplitFunc(
   ctx: FunctionContext,
   visit: (tree: ParseTree) => EvalNode,
-  grid?: Grid,
+  _grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
   if (!args) return { t: 'err', v: '#N/A!' };
@@ -14951,7 +14958,7 @@ export function textsplitFunc(
 
   const delimNode = visit(exprs[1]);
   if (delimNode.t === 'err') return delimNode;
-  const colDelim = delimNode.t === 'str' ? delimNode.v : String(delimNode.v);
+  const colDelim = delimNode.t === 'str' || delimNode.t === 'num' ? String(delimNode.v) : '';
 
   if (colDelim === '') return { t: 'err', v: '#VALUE!' };
 
@@ -15448,7 +15455,6 @@ function regularizedLowerGamma(a: number, x: number): number {
 }
 
 function regularizedUpperGamma(a: number, x: number): number {
-  let f = 1e-30;
   let c = 1e-30;
   let d = 1 / (x + 1 - a);
   let result = d;
@@ -15696,9 +15702,9 @@ export function days360Func(
   if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
 
   const startDate = parseDate(visit(exprs[0]), grid);
-  if (!startDate) return { t: 'err', v: '#VALUE!' };
+  if ('t' in startDate) return startDate;
   const endDate = parseDate(visit(exprs[1]), grid);
-  if (!endDate) return { t: 'err', v: '#VALUE!' };
+  if ('t' in endDate) return endDate;
 
   let european = false;
   if (exprs.length >= 3) {
@@ -15740,7 +15746,7 @@ export function workdayintlFunc(
   if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
 
   const startDate = parseDate(visit(exprs[0]), grid);
-  if (!startDate) return { t: 'err', v: '#VALUE!' };
+  if ('t' in startDate) return startDate;
   const daysNode = NumberArgs.map(visit(exprs[1]), grid);
   if (daysNode.t === 'err') return daysNode;
   const numDays = Math.trunc(daysNode.v);
@@ -15819,9 +15825,9 @@ export function networkdaysintlFunc(
   if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
 
   const startDate = parseDate(visit(exprs[0]), grid);
-  if (!startDate) return { t: 'err', v: '#VALUE!' };
+  if ('t' in startDate) return startDate;
   const endDate = parseDate(visit(exprs[1]), grid);
-  if (!endDate) return { t: 'err', v: '#VALUE!' };
+  if ('t' in endDate) return endDate;
 
   let weekendDays = new Set([0, 6]);
   if (exprs.length >= 3) {

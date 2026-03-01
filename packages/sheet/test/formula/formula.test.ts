@@ -65,12 +65,12 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate unary minus with cell references', () => {
-    const grid: Grid = {
+    const grid = {
       get: (ref: string) => {
         if (ref === 'A1') return { v: '10' } as Cell;
         return undefined;
       },
-    };
+    } as unknown as Grid;
     expect(evaluate('=-A1', grid)).toBe('-10');
     expect(evaluate('=+A1', grid)).toBe('10');
   });
@@ -92,13 +92,13 @@ describe('Formula', () => {
   });
 
   it('should evaluate & with cell references', () => {
-    const grid: Grid = {
+    const grid = {
       get: (ref: string) => {
         if (ref === 'A1') return { v: 'hello' } as Cell;
         if (ref === 'B1') return { v: 'world' } as Cell;
         return undefined;
       },
-    };
+    } as unknown as Grid;
     expect(evaluate('=A1&" "&B1', grid)).toBe('hello world');
   });
 
