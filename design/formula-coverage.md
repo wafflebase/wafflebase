@@ -8,20 +8,21 @@ target-version: 0.2.0
 ## Summary
 
 Google Sheets provides approximately 500 functions across 16 categories.
-Wafflebase currently implements **437 function entries (424 unique
+Wafflebase currently implements **439 function entries (426 unique
 functions + 13 aliases)** covering core, power-user, and specialist
 spreadsheet needs. This document maps every Google Sheets function against
 our current support status.
 
-**Current coverage**: ~424 / ~500 unique functions (85%)
+**Current coverage**: ~426 / ~500 unique functions (85%)
 
 Coverage is effectively complete for daily use. The remaining gaps are:
 - **Legacy aliases** (BETADIST, CHIDIST, etc.) — older names for modern
   `.DIST`/`.INV` variants we already support.
 - **Byte-variant text functions** (LEFTB, RIGHTB, MIDB, etc.) — CJK
   double-byte string handling.
-- **Higher-order functions** (LET, LAMBDA, MAP, REDUCE, SCAN, BYROW,
-  BYCOL) — require ANTLR grammar extensions for lambda parameter binding.
+- **Higher-order array functions** (MAP, REDUCE, SCAN, BYROW, BYCOL,
+  MAKEARRAY) — need function implementations using the existing LAMBDA
+  infrastructure (grammar already supports lambda parameter binding).
 - **Platform-specific** (IMPORT*, GETPIVOTDATA) — require external
   services or features we don't have.
 
@@ -33,7 +34,7 @@ Coverage is effectively complete for daily use. The remaining gaps are:
 | Statistical |   ~130 |  103 |      79% |
 | Text        |     41 |   38 |      93% |
 | Date        |     26 |   25 |      96% |
-| Logical     |     13 |   11 |      85% |
+| Logical     |     13 |   13 |     100% |
 | Lookup      |     17 |   16 |      94% |
 | Info        |     18 |   17 |      94% |
 | Filter      |      4 |    3 |      75% |
@@ -71,8 +72,6 @@ Notes:
 - **LOG10**: The ANTLR lexer splits `LOG10(...)` into `LOG` (function) +
   `10` (number) because `LOG` is already a function name. Use
   `LOG(x, 10)` instead.
-- **LAMBDA/LET**: Require grammar extensions for named parameter binding.
-  Not planned for the current parser architecture.
 
 ## Per-Function Reference
 
@@ -80,12 +79,13 @@ Only **not-yet-implemented** functions are listed below. All other Google
 Sheets functions in each category are implemented. See `FunctionMap` in
 `packages/sheet/src/formula/functions.ts` for the full list.
 
-### Not implemented — require grammar changes
+### Not implemented — higher-order array functions
+
+LAMBDA and LET are implemented. These functions need implementations
+that accept `LambdaNode` arguments using the existing infrastructure.
 
 | Function   | Category | Notes                            |
 | ---------- | -------- | -------------------------------- |
-| LET        | Logical  | Named parameter binding          |
-| LAMBDA     | Logical  | Lambda expressions               |
 | MAP        | Array    | Apply lambda to each element     |
 | REDUCE     | Array    | Reduce array with lambda         |
 | SCAN       | Array    | Cumulative reduce with lambda    |

@@ -40,16 +40,22 @@ grammar Formula;
 formula: expr+ ;
 
 expr: FUNCNAME '(' args? ')'                      # Function
+    | op=(ADD|SUB) expr                            # UnarySign
+    | expr '(' args? ')'                           # Call
     | expr op=(MUL|DIV) expr                       # MulDiv
     | expr op=(ADD|SUB) expr                       # AddSub
+    | expr AMP expr                                # Concat
     | expr op=(EQ|NEQ|LT|GT|LTE|GTE) expr         # Comparison
     | NUM                                          # Number
     | BOOL                                         # Boolean
     | STRING                                       # Str
     | REFERENCE                                    # Reference
+    | FUNCNAME                                     # Identifier
     | '(' expr ')'                                 # Parentheses
+    | '{' arrayRow (SEMI arrayRow)* '}'            # ArrayLiteral
     ;
 
+arrayRow: expr (',' expr)* ;
 args: expr (',' expr)* ;
 
 REFERENCE: QUOTED_SHEET_NAME '!' REFRANGE
@@ -63,9 +69,11 @@ fragment SHEET_NAME: [A-Za-z][A-Za-z0-9]* ;
 fragment QUOTED_SHEET_NAME: '\'' (~['])+ '\'' ;
 REF: '$'? [A-Za-z] [A-Za-z]? [A-Za-z]? '$'? [1-9][0-9]* ;
 REFRANGE: REF ':' REF ;
+NUM: [0-9]+('.' [0-9]+)? ([eE] [+-]? [0-9]+)? ;
 ```
 
-**Operator precedence** (high to low): `* /` → `+ -` → `= <> < > <= >=`.
+**Operator precedence** (high to low): function call → unary `+ -` →
+expression call → `* /` → `+ -` → `&` → `= <> < > <= >=`.
 
 **Cell references** support up to 3 letters and arbitrary row numbers
 (e.g., `ZZZ729443`). Optional `$` prefixes enable absolute references
@@ -86,16 +94,22 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
    parsed by the ANTLR-generated lexer/parser into an AST.
    On evaluation, any parser syntax error is treated as `#ERROR!` (no
    recovery-based partial evaluation).
-2. **Visit** — An `Evaluator` class (implementing the ANTLR visitor pattern)
+2. **Preprocess** — Empty argument positions (`=IF(TRUE,,1)`) are filled
+   with a sentinel function call (`zEmptyArg__()`) before parsing.
+3. **Visit** — An `Evaluator` class (implementing the ANTLR visitor pattern)
    walks the AST. Each node evaluates to an `EvalNode`:
    - `NumNode { t: 'num', v: number }`
    - `StrNode { t: 'str', v: string }`
    - `BoolNode { t: 'bool', v: boolean }`
    - `RefNode { t: 'ref', v: Reference }`
    - `ErrNode { t: 'err', v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' }`
-3. **Resolve** — If the final result is a `RefNode`, its value is looked up
+   - `EmptyNode { t: 'empty' }` — sentinel for omitted arguments
+   - `ArrNode { t: 'arr', v: EvalNode[][], rows, cols }` — array literal
+   - `LambdaNode { t: 'lambda', params, body, closureScope }` — lambda
+4. **Resolve** — If the final result is a `RefNode`, its value is looked up
    from the provided `Grid`. If the reference is a range (`Srng`), the result
-   is `#VALUE!`. Otherwise the result is converted to a string.
+   is `#VALUE!`. `ArrNode` returns the top-left value. `LambdaNode` returns
+   `#ERROR!` (not invoked). Otherwise the result is converted to a string.
 
 ### Helper Functions
 
@@ -119,13 +133,18 @@ The `Arguments<T>` helper class provides type coercion for function arguments:
   `MIN`, `MAX`, arithmetic operators.
 - **`BoolArgs`** — Coerces values to booleans. Used by `IF`, `AND`, `OR`,
   `NOT`.
+- **`StringArgs`** — Coerces values to strings: numbers → `.toString()`,
+  booleans → `TRUE`/`FALSE`, refs → grid lookup. Used by `&` concatenation
+  and text functions.
 
 Key methods:
 
 - `map(node, grid?)` — Coerces a single `EvalNode` to the target type.
+  `EmptyNode` is coerced to the type's zero value (0, `""`, false).
+  `ArrNode` is coerced via its top-left value.
 - `iterate(args, visit, grid?)` — Generator that yields coerced values for
   each argument expression. Range references are expanded to individual cells
-  via `toSrefs`.
+  via `toSrefs`. Array literals are flattened element-by-element.
 
 ### Built-in Functions
 
@@ -133,7 +152,9 @@ Source: `packages/sheet/src/formula/functions.ts`
 
 Functions are registered in `FunctionMap`. Each function receives a
 `FunctionContext` (ANTLR node), a `visit` callback, and an optional `Grid`.
-The engine implements **437 function entries (424 unique functions, plus 13
+LET and LAMBDA are handled as special forms in the Evaluator (not in
+`FunctionMap`) because they require direct scope access. The engine
+implements **439 function entries (426 unique functions, plus 13
 aliases)** across 10 categories:
 
 | Category    | Count | Examples                                              |
@@ -147,7 +168,7 @@ aliases)** across 10 categories:
 | Date        |    25 | TODAY, DATE, EDATE, NETWORKDAYS, YEARFRAC, DAYS360     |
 | Info        |    21 | ISBLANK, ISNUMBER, TYPE, CELL, ISFORMULA, ERROR.TYPE   |
 | Database    |    12 | DSUM, DAVERAGE, DCOUNT, DGET, DMAX, DMIN, DVAR         |
-| Logical     |    10 | IF, IFS, SWITCH, AND, OR, NOT, XOR, IFERROR, IFNA      |
+| Logical     |    12 | IF, IFS, SWITCH, AND, OR, NOT, XOR, IFERROR, LET, LAMBDA|
 
 New functions follow the same pattern: accept `(ctx, visit, grid?)`, return
 an `EvalNode`.
@@ -324,12 +345,15 @@ changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 437 function entries (424 unique) are
-implemented across all major categories. Remaining gaps are mainly legacy
-aliases, byte-variant text functions, and higher-order functions (LET,
-LAMBDA, MAP, REDUCE) that require grammar extensions. New functions are
-added to `FunctionMap` and `FunctionCatalog` following the same pattern:
-accept `(ctx, visit, grid?)`, return an `EvalNode`.
+**Formula function coverage** — 439 function entries (426 unique) are
+implemented across all major categories. LET/LAMBDA are implemented as
+special forms in the Evaluator with variable scoping and closures.
+Remaining gaps are mainly legacy aliases, byte-variant text functions,
+and higher-order array functions (MAP, REDUCE, SCAN, BYROW, BYCOL,
+MAKEARRAY) that need function implementations using the existing LAMBDA
+infrastructure. New functions are added to `FunctionMap` and
+`FunctionCatalog` following the same pattern: accept `(ctx, visit, grid?)`,
+return an `EvalNode`.
 
 **Circular references** — The calculator's topological sort detects cycles and
 marks affected cells with `#REF!` rather than entering an infinite loop.
