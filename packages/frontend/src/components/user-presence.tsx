@@ -3,7 +3,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
@@ -100,71 +99,69 @@ export function UserPresence({
   };
 
   return (
-    <TooltipProvider>
-      <div className={`flex items-center gap-2 min-h-[2.5rem] ${className}`}>
-        {totalUsers > 0 ? (
-          <>
-            <div className="flex items-center -space-x-2">
-              {visibleUsers.map(renderAvatar)}
+    <div className={`flex items-center gap-2 min-h-[2.5rem] ${className}`}>
+      {totalUsers > 0 ? (
+        <>
+          <div className="flex items-center -space-x-2">
+            {visibleUsers.map(renderAvatar)}
 
-              {hiddenUsers.length > 0 && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium"
-                      aria-label={`${hiddenUsers.length} more users`}
-                    >
-                      +{hiddenUsers.length}
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuLabel>More users</DropdownMenuLabel>
-                    {hiddenUsers.map((user) => {
-                      const canJump =
-                        !!onSelectActiveCell &&
-                        !!user.activeCell &&
-                        !user.isCurrentUser;
-                      return (
-                        <DropdownMenuItem
-                          key={user.clientID}
-                          className={canJump ? "cursor-pointer" : undefined}
-                          onSelect={() => {
-                            if (!canJump || !user.activeCell) return;
-                            onSelectActiveCell(user.activeCell, user.activeTabId);
-                          }}
-                        >
-                          <Avatar className="h-6 w-6">
-                            {user.photo && (
-                              <AvatarImage src={user.photo} alt={user.username} />
-                            )}
-                            <AvatarFallback className="text-[10px]">
-                              {user.username.slice(0, 2).toUpperCase() || "??"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate">
-                              {user.username}
-                              {user.isCurrentUser ? " (You)" : ""}
+            {hiddenUsers.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-muted text-xs font-medium"
+                    aria-label={`${hiddenUsers.length} more users`}
+                  >
+                    +{hiddenUsers.length}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>More users</DropdownMenuLabel>
+                  {hiddenUsers.map((user) => {
+                    const canJump =
+                      !!onSelectActiveCell &&
+                      !!user.activeCell &&
+                      !user.isCurrentUser;
+                    return (
+                      <DropdownMenuItem
+                        key={user.clientID}
+                        className={canJump ? "cursor-pointer" : undefined}
+                        onSelect={() => {
+                          if (!canJump || !user.activeCell) return;
+                          onSelectActiveCell(user.activeCell, user.activeTabId);
+                        }}
+                      >
+                        <Avatar className="h-6 w-6">
+                          {user.photo && (
+                            <AvatarImage src={user.photo} alt={user.username} />
+                          )}
+                          <AvatarFallback className="text-[10px]">
+                            {user.username.slice(0, 2).toUpperCase() || "??"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate">
+                            {user.username}
+                            {user.isCurrentUser ? " (You)" : ""}
+                          </p>
+                          {user.activeCell && (
+                            <p className="truncate text-xs text-muted-foreground">
+                              {canJump ? `Jump: ${user.activeCell}` : user.activeCell}
                             </p>
-                            {user.activeCell && (
-                              <p className="truncate text-xs text-muted-foreground">
-                                {canJump ? `Jump: ${user.activeCell}` : user.activeCell}
-                              </p>
-                            )}
-                          </div>
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="w-32 opacity-0" />
-        )}
-      </div>
-    </TooltipProvider>
+                          )}
+                        </div>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="w-32 opacity-0" />
+      )}
+    </div>
   );
 }
