@@ -131,6 +131,27 @@ a local defense layer in addition to CI.
   `.githooks/` via a `postinstall` script. No manual setup required.
 - **Bypass:** `git commit --no-verify` skips the hook for emergencies.
 
+## Claude Code Hooks
+
+Claude Code hooks extend mechanical enforcement to the agent level. Where
+the git pre-commit hook catches violations at commit time, Claude Code hooks
+catch them at edit time — before the agent writes invalid code.
+
+Hooks are registered in `.claude/settings.json` (team-shared, git-tracked).
+Hook scripts live in `scripts/hooks/`.
+
+| Hook | Event | Purpose |
+|---|---|---|
+| `guard-generated-files.sh` | PreToolUse(Edit\|Write) | Blocks editing ANTLR-generated files in `packages/sheet/antlr/` (`.g4` allowed) |
+| `check-arch-boundary.sh` | PostToolUse(Write) | Runs arch lint after new files in frontend/backend (informational) |
+
+### Adding New Hooks
+
+1. Create a script in `scripts/hooks/` that reads JSON from stdin.
+2. Parse `tool_input.file_path` from the input.
+3. Exit 0 to allow, exit 2 to block (STDERR is fed to Claude as context).
+4. Register in `.claude/settings.json` under the appropriate event.
+
 ## Lane Contract
 
 ### Self-Contained Lanes (no external services)
