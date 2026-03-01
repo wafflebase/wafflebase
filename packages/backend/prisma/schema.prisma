@@ -7,6 +7,8 @@ model User {
   documents Document[]
   shareLinks ShareLink[]
   datasources DataSource[]
+  workspaceMembers  WorkspaceMember[]
+  workspaceInvites  WorkspaceInvite[]
 }
 
 model DataSource {
@@ -22,6 +24,8 @@ model DataSource {
   author     User     @relation(fields: [authorID], references: [id])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id])
 }
 
 model Document {
@@ -31,6 +35,8 @@ model Document {
   author    User?    @relation(fields: [authorID], references: [id])
   createdAt DateTime @default(now())
   shareLinks ShareLink[]
+  workspaceId String?
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id])
 }
 
 model ShareLink {
@@ -43,6 +49,43 @@ model ShareLink {
   creator    User      @relation(fields: [createdBy], references: [id])
   createdAt  DateTime  @default(now())
   expiresAt  DateTime?
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  members     WorkspaceMember[]
+  documents   Document[]
+  invites     WorkspaceInvite[]
+  datasources DataSource[]
+}
+
+model WorkspaceMember {
+  id          String   @id @default(uuid())
+  role        String
+  joinedAt    DateTime @default(now())
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+model WorkspaceInvite {
+  id          String    @id @default(uuid())
+  token       String    @unique @default(uuid())
+  role        String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime?
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   Int
+  creator     User      @relation(fields: [createdBy], references: [id])
 }
 
 datasource db {
