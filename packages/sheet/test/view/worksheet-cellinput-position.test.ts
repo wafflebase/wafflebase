@@ -82,6 +82,7 @@ describe('Worksheet cell input positioning', () => {
       sheet: {
         getActiveCell: vi.fn().mockReturnValue({ r: 12, c: 3 }),
       },
+      editMode: true,
       cellInput: {
         isShown: vi.fn().mockReturnValue(true),
         updatePlacement: vi.fn(),

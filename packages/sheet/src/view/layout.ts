@@ -103,6 +103,8 @@ export type FreezeState = {
   frozenCols: number;
   frozenWidth: number;
   frozenHeight: number;
+  gapX: number;
+  gapY: number;
 };
 
 /**
@@ -113,6 +115,8 @@ export const NoFreeze: FreezeState = {
   frozenCols: 0,
   frozenWidth: 0,
   frozenHeight: 0,
+  gapX: 0,
+  gapY: 0,
 };
 
 /**
@@ -132,6 +136,8 @@ export function buildFreezeState(
     frozenCols,
     frozenWidth: frozenCols > 0 ? colDim.getOffset(frozenCols + 1) : 0,
     frozenHeight: frozenRows > 0 ? rowDim.getOffset(frozenRows + 1) : 0,
+    gapX: frozenCols > 0 ? FreezeHandleThickness : 0,
+    gapY: frozenRows > 0 ? FreezeHandleThickness : 0,
   };
 }
 
@@ -170,22 +176,26 @@ export function toRefWithFreeze(
   freeze: FreezeState,
 ): Ref {
   const inFrozenCols =
-    freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+    freeze.frozenCols > 0 &&
+    x < RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
   const inFrozenRows =
-    freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+    freeze.frozenRows > 0 &&
+    y < DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
 
   const absX = inFrozenCols
     ? x - RowHeaderWidth
     : x -
       RowHeaderWidth -
-      freeze.frozenWidth +
+      freeze.frozenWidth -
+      freeze.gapX +
       colDim.getOffset(freeze.frozenCols + 1) +
       scroll.left;
   const absY = inFrozenRows
     ? y - DefaultCellHeight
     : y -
       DefaultCellHeight -
-      freeze.frozenHeight +
+      freeze.frozenHeight -
+      freeze.gapY +
       rowDim.getOffset(freeze.frozenRows + 1) +
       scroll.top;
 
@@ -219,14 +229,16 @@ export function toBoundingRectWithFreeze(
       RowHeaderWidth -
       scroll.left -
       colDim.getOffset(freeze.frozenCols + 1) +
-      freeze.frozenWidth;
+      freeze.frozenWidth +
+      freeze.gapX;
   const top = inFrozenRows
     ? rowOffset + DefaultCellHeight
     : rowOffset +
       DefaultCellHeight -
       scroll.top -
       rowDim.getOffset(freeze.frozenRows + 1) +
-      freeze.frozenHeight;
+      freeze.frozenHeight +
+      freeze.gapY;
 
   return { left, top, width, height };
 }

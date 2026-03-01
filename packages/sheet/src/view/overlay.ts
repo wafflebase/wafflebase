@@ -10,6 +10,7 @@ import {
   RowHeaderWidth,
   DefaultCellHeight,
   FreezeState,
+  FreezeHandleThickness,
   NoFreeze,
 } from './layout';
 
@@ -121,27 +122,6 @@ export class Overlay {
       // Render selection per quadrant
       this.renderSelectionFrozen(ctx, port, scroll, range, selectionType, rowDim, colDim, freeze, quadrants);
 
-      // Render active cell per quadrant
-      for (const q of quadrants) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(q.x, q.y, q.width, q.height);
-        ctx.clip();
-
-        const rect = this.toCellRect(
-          activeCell,
-          { left: q.scrollLeft, top: q.scrollTop },
-          rowDim,
-          colDim,
-          mergeData,
-        );
-        ctx.strokeStyle = this.getThemeColor('activeCellColor');
-        ctx.lineWidth = 2;
-        ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
-
-        ctx.restore();
-      }
-
       // Render peer cursors per quadrant
       for (const { clientID, presence } of peerPresences) {
         if (!presence.activeCell) continue;
@@ -237,6 +217,45 @@ export class Overlay {
       }
     }
 
+    // Render active cell border clipped to its quadrant + gap area,
+    // so it draws over the freeze line but not into adjacent frozen panes.
+    if (hasFrozen && rowDim && colDim) {
+      const fw = freeze.frozenWidth;
+      const fh = freeze.frozenHeight;
+      const gx = freeze.gapX;
+      const gy = freeze.gapY;
+      const inFrozenCols = freeze.frozenCols > 0 && activeCell.c <= freeze.frozenCols;
+      const inFrozenRows = freeze.frozenRows > 0 && activeCell.r <= freeze.frozenRows;
+
+      // Extend clip into the gap so the border draws over the freeze line
+      const clipX = inFrozenCols ? RowHeaderWidth : RowHeaderWidth + fw;
+      const clipY = inFrozenRows ? DefaultCellHeight : DefaultCellHeight + fh;
+      const clipW = inFrozenCols
+        ? fw + gx
+        : port.width - RowHeaderWidth - fw;
+      const clipH = inFrozenRows
+        ? fh + gy
+        : port.height - DefaultCellHeight - fh;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(clipX, clipY, clipW, clipH);
+      ctx.clip();
+
+      const rect = this.toCellRectWithFreeze(
+        activeCell,
+        scroll,
+        rowDim,
+        colDim,
+        freeze,
+        mergeData,
+      );
+      ctx.strokeStyle = this.getThemeColor('activeCellColor');
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+      ctx.restore();
+    }
+
     if (autofillPreview && !isSameRange(autofillPreview, selectionRange)) {
       this.renderAutofillPreview(
         ctx,
@@ -287,6 +306,8 @@ export class Overlay {
   ): QuadrantClip[] {
     const fw = freeze.frozenWidth;
     const fh = freeze.frozenHeight;
+    const gx = freeze.gapX;
+    const gy = freeze.gapY;
     const unfrozenRowStart = rowDim ? rowDim.getOffset(freeze.frozenRows + 1) : 0;
     const unfrozenColStart = colDim ? colDim.getOffset(freeze.frozenCols + 1) : 0;
 
@@ -294,22 +315,22 @@ export class Overlay {
 
     // Quadrant D (bottom-right): always present
     quadrants.push({
-      x: RowHeaderWidth + fw,
-      y: DefaultCellHeight + fh,
-      width: port.width - RowHeaderWidth - fw,
-      height: port.height - DefaultCellHeight - fh,
-      scrollLeft: scroll.left + unfrozenColStart - fw,
-      scrollTop: scroll.top + unfrozenRowStart - fh,
+      x: RowHeaderWidth + fw + gx,
+      y: DefaultCellHeight + fh + gy,
+      width: port.width - RowHeaderWidth - fw - gx,
+      height: port.height - DefaultCellHeight - fh - gy,
+      scrollLeft: scroll.left + unfrozenColStart - fw - gx,
+      scrollTop: scroll.top + unfrozenRowStart - fh - gy,
     });
 
     // Quadrant B (top-right): frozen rows
     if (freeze.frozenRows > 0) {
       quadrants.push({
-        x: RowHeaderWidth + fw,
+        x: RowHeaderWidth + fw + gx,
         y: DefaultCellHeight,
-        width: port.width - RowHeaderWidth - fw,
+        width: port.width - RowHeaderWidth - fw - gx,
         height: fh,
-        scrollLeft: scroll.left + unfrozenColStart - fw,
+        scrollLeft: scroll.left + unfrozenColStart - fw - gx,
         scrollTop: 0,
       });
     }
@@ -318,11 +339,11 @@ export class Overlay {
     if (freeze.frozenCols > 0) {
       quadrants.push({
         x: RowHeaderWidth,
-        y: DefaultCellHeight + fh,
+        y: DefaultCellHeight + fh + gy,
         width: fw,
-        height: port.height - DefaultCellHeight - fh,
+        height: port.height - DefaultCellHeight - fh - gy,
         scrollLeft: 0,
-        scrollTop: scroll.top + unfrozenRowStart - fh,
+        scrollTop: scroll.top + unfrozenRowStart - fh - gy,
       });
     }
 
@@ -599,7 +620,7 @@ export class Overlay {
 
     if (resizeHover.axis === 'column') {
       const inFrozenCols = freeze.frozenCols > 0 && resizeHover.index <= freeze.frozenCols;
-      const scrollLeft = inFrozenCols ? 0 : scroll.left + colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth;
+      const scrollLeft = inFrozenCols ? 0 : scroll.left + colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth - freeze.gapX;
       const x = RowHeaderWidth + colDim.getOffset(resizeHover.index) + colDim.getSize(resizeHover.index) - scrollLeft;
 
       if (dragging) {
@@ -614,7 +635,7 @@ export class Overlay {
       this.drawResizeGrip(ctx, 'column', x, color);
     } else {
       const inFrozenRows = freeze.frozenRows > 0 && resizeHover.index <= freeze.frozenRows;
-      const scrollTop = inFrozenRows ? 0 : scroll.top + rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight;
+      const scrollTop = inFrozenRows ? 0 : scroll.top + rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight - freeze.gapY;
       const y = DefaultCellHeight + rowDim.getOffset(resizeHover.index) + rowDim.getSize(resizeHover.index) - scrollTop;
 
       if (dragging) {
@@ -693,7 +714,7 @@ export class Overlay {
 
     if (dragMove.axis === 'column') {
       const inFrozenCols = freeze.frozenCols > 0 && dragMove.dropIndex <= freeze.frozenCols;
-      const scrollLeft = inFrozenCols ? 0 : scroll.left + colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth;
+      const scrollLeft = inFrozenCols ? 0 : scroll.left + colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth - freeze.gapX;
       const x = RowHeaderWidth + colDim.getOffset(dragMove.dropIndex) - scrollLeft;
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -701,7 +722,7 @@ export class Overlay {
       ctx.stroke();
     } else {
       const inFrozenRows = freeze.frozenRows > 0 && dragMove.dropIndex <= freeze.frozenRows;
-      const scrollTop = inFrozenRows ? 0 : scroll.top + rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight;
+      const scrollTop = inFrozenRows ? 0 : scroll.top + rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight - freeze.gapY;
       const y = DefaultCellHeight + rowDim.getOffset(dragMove.dropIndex) - scrollTop;
       ctx.beginPath();
       ctx.moveTo(0, y);
@@ -718,12 +739,12 @@ export class Overlay {
     colDim: DimensionIndex,
   ): void {
     ctx.strokeStyle = this.getThemeColor('freezeLineColor');
-    ctx.lineWidth = 2;
+    ctx.lineWidth = FreezeHandleThickness;
 
     if (freezeDrag.axis === 'row') {
       const y = freezeDrag.targetIndex === 0
         ? DefaultCellHeight
-        : DefaultCellHeight + rowDim.getOffset(freezeDrag.targetIndex + 1);
+        : DefaultCellHeight + rowDim.getOffset(freezeDrag.targetIndex + 1) + FreezeHandleThickness / 2;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(port.width, y);
@@ -731,7 +752,7 @@ export class Overlay {
     } else {
       const x = freezeDrag.targetIndex === 0
         ? RowHeaderWidth
-        : RowHeaderWidth + colDim.getOffset(freezeDrag.targetIndex + 1);
+        : RowHeaderWidth + colDim.getOffset(freezeDrag.targetIndex + 1) + FreezeHandleThickness / 2;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, port.height);
@@ -856,6 +877,47 @@ export class Overlay {
       }
     }
     return { anchors, coverToAnchor };
+  }
+
+  /**
+   * Returns the bounding rect for a regular or merged cell, accounting for
+   * freeze panes. Unlike `toCellRect`, this uses `toBoundingRectWithFreeze`
+   * so the result is correct across frozen/unfrozen boundaries.
+   */
+  private toCellRectWithFreeze(
+    ref: Ref,
+    scroll: { left: number; top: number },
+    rowDim: DimensionIndex,
+    colDim: DimensionIndex,
+    freeze: FreezeState,
+    mergeData?: {
+      anchors: Map<string, MergeSpan>;
+      coverToAnchor: Map<string, string>;
+    },
+  ): BoundingRect {
+    const sref = toSref(ref);
+    const anchorSref = mergeData?.coverToAnchor.get(sref) || sref;
+    const anchor = parseRef(anchorSref);
+    const span = mergeData?.anchors.get(anchorSref);
+
+    const start = toBoundingRectWithFreeze(anchor, scroll, rowDim, colDim, freeze);
+    if (!span || (span.rs === 1 && span.cs === 1)) {
+      return start;
+    }
+
+    const end = toBoundingRectWithFreeze(
+      { r: anchor.r + span.rs - 1, c: anchor.c + span.cs - 1 },
+      scroll,
+      rowDim,
+      colDim,
+      freeze,
+    );
+    return {
+      left: start.left,
+      top: start.top,
+      width: end.left + end.width - start.left,
+      height: end.top + end.height - start.top,
+    };
   }
 
   /**

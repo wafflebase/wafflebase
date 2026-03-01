@@ -1917,12 +1917,14 @@ export class Worksheet {
     // Check column header right edges
     if (y < DefaultCellHeight && x > RowHeaderWidth) {
       const inFrozenCols =
-        freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+        freeze.frozenCols > 0 &&
+        x < RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
       const absX = inFrozenCols
         ? x - RowHeaderWidth
         : x -
           RowHeaderWidth -
-          freeze.frozenWidth +
+          freeze.frozenWidth -
+          freeze.gapX +
           this.colDim.getOffset(freeze.frozenCols + 1) +
           scroll.left;
       // Find which column edge we're near
@@ -1944,12 +1946,14 @@ export class Worksheet {
     // Check row header bottom edges
     if (x < RowHeaderWidth && y > DefaultCellHeight) {
       const inFrozenRows =
-        freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+        freeze.frozenRows > 0 &&
+        y < DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
       const absY = inFrozenRows
         ? y - DefaultCellHeight
         : y -
           DefaultCellHeight -
-          freeze.frozenHeight +
+          freeze.frozenHeight -
+          freeze.gapY +
           this.rowDim.getOffset(freeze.frozenRows + 1) +
           scroll.top;
       const row = this.rowDim.findIndex(absY);
@@ -2002,12 +2006,14 @@ export class Worksheet {
       if (x < btnLeft || x > btnRight) return null;
 
       const inFrozenRows =
-        freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+        freeze.frozenRows > 0 &&
+        y < DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
       const scrollTop = inFrozenRows
         ? 0
         : scroll.top +
           this.rowDim.getOffset(freeze.frozenRows + 1) -
-          freeze.frozenHeight;
+          freeze.frozenHeight -
+          freeze.gapY;
 
       // Scan visible rows to find boundaries with hidden neighbours
       const viewRange = this.viewRange;
@@ -2055,12 +2061,14 @@ export class Worksheet {
       if (y < btnTop || y > btnBottom) return null;
 
       const inFrozenCols =
-        freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+        freeze.frozenCols > 0 &&
+        x < RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
       const scrollLeft = inFrozenCols
         ? 0
         : scroll.left +
           this.colDim.getOffset(freeze.frozenCols + 1) -
-          freeze.frozenWidth;
+          freeze.frozenWidth -
+          freeze.gapX;
 
       const viewRange = this.viewRange;
       for (let col = viewRange[0].c; col <= viewRange[1].c + 1; col++) {
@@ -2114,7 +2122,7 @@ export class Worksheet {
     // Row handle — horizontal bar spanning row-header width
     const rowBarY =
       hasFrozen && freeze.frozenRows > 0
-        ? DefaultCellHeight + freeze.frozenHeight - t / 2
+        ? DefaultCellHeight + freeze.frozenHeight + freeze.gapY / 2 - t / 2
         : DefaultCellHeight - t;
 
     if (
@@ -2129,7 +2137,7 @@ export class Worksheet {
     // Column handle — vertical bar spanning column-header height
     const colBarX =
       hasFrozen && freeze.frozenCols > 0
-        ? RowHeaderWidth + freeze.frozenWidth - t / 2
+        ? RowHeaderWidth + freeze.frozenWidth + freeze.gapX / 2 - t / 2
         : RowHeaderWidth - t;
 
     if (
@@ -2243,12 +2251,14 @@ export class Worksheet {
   private toRowFromMouse(y: number): number {
     const freeze = this.freezeState;
     const inFrozenRows =
-      freeze.frozenRows > 0 && y < DefaultCellHeight + freeze.frozenHeight;
+      freeze.frozenRows > 0 &&
+      y < DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
     const absY = inFrozenRows
       ? y - DefaultCellHeight
       : y -
         DefaultCellHeight -
-        freeze.frozenHeight +
+        freeze.frozenHeight -
+        freeze.gapY +
         this.rowDim.getOffset(freeze.frozenRows + 1) +
         this.scroll.top;
     return this.rowDim.findIndex(absY);
@@ -2260,12 +2270,14 @@ export class Worksheet {
   private toColFromMouse(x: number): number {
     const freeze = this.freezeState;
     const inFrozenCols =
-      freeze.frozenCols > 0 && x < RowHeaderWidth + freeze.frozenWidth;
+      freeze.frozenCols > 0 &&
+      x < RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
     const absX = inFrozenCols
       ? x - RowHeaderWidth
       : x -
         RowHeaderWidth -
-        freeze.frozenWidth +
+        freeze.frozenWidth -
+        freeze.gapX +
         this.colDim.getOffset(freeze.frozenCols + 1) +
         this.scroll.left;
     return this.colDim.findIndex(absX);
@@ -2368,8 +2380,8 @@ export class Worksheet {
 
     const handleLeft = selectionRect.left + selectionRect.width - AutofillHandleSize / 2;
     const handleTop = selectionRect.top + selectionRect.height - AutofillHandleSize / 2;
-    const frozenBoundaryLeft = RowHeaderWidth + freeze.frozenWidth;
-    const frozenBoundaryTop = DefaultCellHeight + freeze.frozenHeight;
+    const frozenBoundaryLeft = RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
+    const frozenBoundaryTop = DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
     return handleLeft < frozenBoundaryLeft || handleTop < frozenBoundaryTop;
   }
 
@@ -3363,12 +3375,14 @@ export class Worksheet {
         // Snap to nearest edge
         const freeze = this.freezeState;
         const inFrozenCols =
-          freeze.frozenCols > 0 && moveX < RowHeaderWidth + freeze.frozenWidth;
+          freeze.frozenCols > 0 &&
+          moveX < RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
         const absX = inFrozenCols
           ? moveX - RowHeaderWidth
           : moveX -
             RowHeaderWidth -
-            freeze.frozenWidth +
+            freeze.frozenWidth -
+            freeze.gapX +
             this.colDim.getOffset(freeze.frozenCols + 1) +
             this.scroll.left;
         const colOffset = dim.getOffset(col);
@@ -3383,12 +3397,13 @@ export class Worksheet {
         const freeze = this.freezeState;
         const inFrozenRows =
           freeze.frozenRows > 0 &&
-          moveY < DefaultCellHeight + freeze.frozenHeight;
+          moveY < DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
         const absY = inFrozenRows
           ? moveY - DefaultCellHeight
           : moveY -
             DefaultCellHeight -
-            freeze.frozenHeight +
+            freeze.frozenHeight -
+            freeze.gapY +
             this.rowDim.getOffset(freeze.frozenRows + 1) +
             this.scroll.top;
         const rowOffset = dim.getOffset(row);
@@ -3982,8 +3997,8 @@ export class Worksheet {
   public getScrollableGridViewportRect(): BoundingRect {
     const viewport = this.getGridViewportRect();
     const freeze = this.freezeState;
-    const leftInset = RowHeaderWidth + freeze.frozenWidth;
-    const topInset = DefaultCellHeight + freeze.frozenHeight;
+    const leftInset = RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
+    const topInset = DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
 
     return {
       left: viewport.left + leftInset,
@@ -4020,9 +4035,9 @@ export class Worksheet {
     const freeze = this.freezeState;
     const scroll = this.scroll;
     const scrollableLeft =
-      scroll.left + this.colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth;
+      scroll.left + this.colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth - freeze.gapX;
     const scrollableTop =
-      scroll.top + this.rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight;
+      scroll.top + this.rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight - freeze.gapY;
     return toBoundingRect(
       ref,
       { left: scrollableLeft, top: scrollableTop },
@@ -4199,9 +4214,9 @@ export class Worksheet {
     // The unfrozen viewport area
     const unfrozenColStart = this.colDim.getOffset(freeze.frozenCols + 1);
     const unfrozenRowStart = this.rowDim.getOffset(freeze.frozenRows + 1);
-    const availW = this.viewport.width - RowHeaderWidth - freeze.frozenWidth;
+    const availW = this.viewport.width - RowHeaderWidth - freeze.frozenWidth - freeze.gapX;
     const availH =
-      this.viewport.height - DefaultCellHeight - freeze.frozenHeight;
+      this.viewport.height - DefaultCellHeight - freeze.frozenHeight - freeze.gapY;
 
     let changed = false;
 
@@ -4374,7 +4389,9 @@ export class Worksheet {
       layout.maxWidth,
       layout.maxHeight,
     );
-    this.cellInput.setCellPositionHint(layout.pinned ? toSref(activeCell) : undefined);
+    this.cellInput.setCellPositionHint(
+      layout.pinned && this.editMode ? toSref(activeCell) : undefined,
+    );
     this.updateAutocompletePositionForActiveInput();
   }
 
@@ -4400,7 +4417,7 @@ export class Worksheet {
       layout.maxWidth,
       layout.maxHeight,
     );
-    this.cellInput.setCellPositionHint(layout.pinned ? toSref(cell) : undefined);
+    this.cellInput.setCellPositionHint(undefined);
   }
 
   private async syncCellInputStyleForActiveCell(): Promise<void> {

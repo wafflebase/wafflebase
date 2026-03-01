@@ -161,6 +161,8 @@ export class GridCanvas {
     } else {
       const fw = freeze.frozenWidth;
       const fh = freeze.frozenHeight;
+      const gx = freeze.gapX;
+      const gy = freeze.gapY;
       const fr = freeze.frozenRows;
       const fc = freeze.frozenCols;
       const unfrozenRowStartIndex = fr + 1;
@@ -180,10 +182,10 @@ export class GridCanvas {
       ctx.save();
       ctx.beginPath();
       ctx.rect(
-        RowHeaderWidth + fw,
-        DefaultCellHeight + fh,
-        viewport.width - RowHeaderWidth - fw,
-        viewport.height - DefaultCellHeight - fh,
+        RowHeaderWidth + fw + gx,
+        DefaultCellHeight + fh + gy,
+        viewport.width - RowHeaderWidth - fw - gx,
+        viewport.height - DefaultCellHeight - fh - gy,
       );
       ctx.clip();
       this.renderQuadrantCells(
@@ -194,8 +196,8 @@ export class GridCanvas {
         endID.c + 1,
         grid,
         {
-          left: scroll.left + unfrozenColStart - fw,
-          top: scroll.top + unfrozenRowStart - fh,
+          left: scroll.left + unfrozenColStart - fw - gx,
+          top: scroll.top + unfrozenRowStart - fh - gy,
         },
         rowDim,
         colDim,
@@ -216,9 +218,9 @@ export class GridCanvas {
         ctx.save();
         ctx.beginPath();
         ctx.rect(
-          RowHeaderWidth + fw,
+          RowHeaderWidth + fw + gx,
           DefaultCellHeight,
-          viewport.width - RowHeaderWidth - fw,
+          viewport.width - RowHeaderWidth - fw - gx,
           fh,
         );
         ctx.clip();
@@ -229,7 +231,7 @@ export class GridCanvas {
           startUnfrozenCol,
           endID.c + 1,
           grid,
-          { left: scroll.left + unfrozenColStart - fw, top: 0 },
+          { left: scroll.left + unfrozenColStart - fw - gx, top: 0 },
           rowDim,
           colDim,
           colStyles,
@@ -251,9 +253,9 @@ export class GridCanvas {
         ctx.beginPath();
         ctx.rect(
           RowHeaderWidth,
-          DefaultCellHeight + fh,
+          DefaultCellHeight + fh + gy,
           fw,
-          viewport.height - DefaultCellHeight - fh,
+          viewport.height - DefaultCellHeight - fh - gy,
         );
         ctx.clip();
         this.renderQuadrantCells(
@@ -263,7 +265,7 @@ export class GridCanvas {
           1,
           fc + 1,
           grid,
-          { left: 0, top: scroll.top + unfrozenRowStart - fh },
+          { left: 0, top: scroll.top + unfrozenRowStart - fh - gy },
           rowDim,
           colDim,
           colStyles,
@@ -329,8 +331,8 @@ export class GridCanvas {
         ctx,
         startUnfrozenCol,
         endID.c,
-        scroll.left + unfrozenColStart - fw,
-        RowHeaderWidth + fw,
+        scroll.left + unfrozenColStart - fw - gx,
+        RowHeaderWidth + fw + gx,
         viewport.width,
         activeCell,
         selectionType,
@@ -360,8 +362,8 @@ export class GridCanvas {
         ctx,
         startUnfrozenRow,
         endID.r,
-        scroll.top + unfrozenRowStart - fh,
-        DefaultCellHeight + fh,
+        scroll.top + unfrozenRowStart - fh - gy,
+        DefaultCellHeight + fh + gy,
         viewport.height,
         activeCell,
         selectionType,
@@ -371,7 +373,7 @@ export class GridCanvas {
       );
 
       // Freeze line separators
-      this.renderFreezeLines(ctx, viewport, fw, fh);
+      this.renderFreezeLines(ctx, viewport, fw, fh, gx, gy);
     }
 
     // Render corner button (top-left intersection of row/column headers)
@@ -825,12 +827,14 @@ export class GridCanvas {
     viewport: BoundingRect,
     frozenWidth: number,
     frozenHeight: number,
+    gapX: number,
+    gapY: number,
   ): void {
     ctx.strokeStyle = this.getThemeColor('freezeLineColor');
-    ctx.lineWidth = 2;
+    ctx.lineWidth = FreezeHandleThickness;
 
     if (frozenHeight > 0) {
-      const y = DefaultCellHeight + frozenHeight;
+      const y = DefaultCellHeight + frozenHeight + gapY / 2;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(viewport.width, y);
@@ -838,7 +842,7 @@ export class GridCanvas {
     }
 
     if (frozenWidth > 0) {
-      const x = RowHeaderWidth + frozenWidth;
+      const x = RowHeaderWidth + frozenWidth + gapX / 2;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, viewport.height);
@@ -858,10 +862,10 @@ export class GridCanvas {
     const t = FreezeHandleThickness;
 
     // --- Row freeze handle (horizontal bar spanning full row-header width) ---
-    // Sits at the bottom edge of the header row (or at the freeze boundary)
+    // Sits at the bottom edge of the header row (or at the gap center)
     const rowBarY =
       hasFrozen && freeze.frozenRows > 0
-        ? DefaultCellHeight + freeze.frozenHeight - t / 2
+        ? DefaultCellHeight + freeze.frozenHeight + freeze.gapY / 2 - t / 2
         : DefaultCellHeight - t;
     const isRowHover = hoverHandle === 'row';
 
@@ -871,10 +875,10 @@ export class GridCanvas {
     ctx.fillRect(0, rowBarY, RowHeaderWidth, t);
 
     // --- Column freeze handle (vertical bar spanning full column-header height) ---
-    // Sits at the right edge of the row-header column (or at the freeze boundary)
+    // Sits at the right edge of the row-header column (or at the gap center)
     const colBarX =
       hasFrozen && freeze.frozenCols > 0
-        ? RowHeaderWidth + freeze.frozenWidth - t / 2
+        ? RowHeaderWidth + freeze.frozenWidth + freeze.gapX / 2 - t / 2
         : RowHeaderWidth - t;
     const isColHover = hoverHandle === 'column';
 
