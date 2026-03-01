@@ -16,77 +16,125 @@ import { DocumentService } from './document.service';
 import { Document as DocumentModel } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
+import { WorkspaceService } from '../workspace/workspace.service';
 
-@Controller('documents')
+@Controller()
 @UseGuards(JwtAuthGuard)
 export class DocumentController {
   constructor(
     private readonly documentService: DocumentService,
+    private readonly workspaceService: WorkspaceService,
     private readonly configService: ConfigService,
   ) {}
 
-  @Get('/:id')
+  // --- Workspace-scoped endpoints ---
+
+  @Post('workspaces/:workspaceId/documents')
+  async createInWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { title: string },
+  ): Promise<DocumentModel> {
+    const userId = Number(req.user.id);
+    await this.workspaceService.assertMember(workspaceId, userId);
+    return this.documentService.createDocument({
+      title: body.title,
+      author: { connect: { id: userId } },
+      workspace: { connect: { id: workspaceId } },
+    });
+  }
+
+  @Get('workspaces/:workspaceId/documents')
+  async findByWorkspace(
+    @Param('workspaceId') workspaceId: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<DocumentModel[]> {
+    const userId = Number(req.user.id);
+    await this.workspaceService.assertMember(workspaceId, userId);
+    return this.documentService.documents({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // --- Legacy / backward-compatible endpoints ---
+
+  @Get('documents/:id')
   async getDocumentById(
     @Param('id') id: string,
     @Req() req: AuthenticatedRequest,
   ): Promise<DocumentModel | null> {
-    const doc = await this.documentService.document({
-      id: id,
-    });
-    if (!doc || doc.authorID !== Number(req.user.id)) {
-      throw new ForbiddenException('You do not have access to this document');
+    const doc = await this.documentService.document({ id });
+    if (!doc) {
+      throw new NotFoundException('Document not found');
     }
+    await this.workspaceService.assertMember(
+      doc.workspaceId,
+      Number(req.user.id),
+    );
     return doc;
   }
 
-  @Get('/')
+  @Get('documents')
   async getDocuments(
     @Req() req: AuthenticatedRequest,
   ): Promise<DocumentModel[]> {
+    const userId = Number(req.user.id);
+    const workspaces = await this.workspaceService.findAllByUser(userId);
+    const workspaceIds = workspaces.map((w) => w.id);
     return this.documentService.documents({
-      where: {
-        authorID: Number(req.user.id),
-      },
+      where: { workspaceId: { in: workspaceIds } },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
-  @Post('/')
+  @Post('documents')
   async createDocument(
     @Req() req: AuthenticatedRequest,
-    @Body() doc: DocumentModel,
+    @Body() body: { title: string; workspaceId: string },
   ): Promise<DocumentModel> {
-    doc.authorID = Number(req.user.id);
-    return this.documentService.createDocument(doc);
+    const userId = Number(req.user.id);
+    await this.workspaceService.assertMember(body.workspaceId, userId);
+    return this.documentService.createDocument({
+      title: body.title,
+      author: { connect: { id: userId } },
+      workspace: { connect: { id: body.workspaceId } },
+    });
   }
 
-  @Patch('/:id')
+  @Patch('documents/:id')
   async updateDocument(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() body: { title: string },
   ): Promise<DocumentModel> {
     const doc = await this.documentService.document({ id });
-    if (!doc || doc.authorID !== Number(req.user.id)) {
-      throw new ForbiddenException('You do not have access to this document');
+    if (!doc) {
+      throw new NotFoundException('Document not found');
     }
+    await this.workspaceService.assertMember(
+      doc.workspaceId,
+      Number(req.user.id),
+    );
     return this.documentService.updateDocument({
       where: { id },
       data: { title: body.title },
     });
   }
 
-  @Delete('/:id')
+  @Delete('documents/:id')
   async deleteDocument(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
   ): Promise<DocumentModel> {
-    const doc = await this.documentService.deleteDocument({
-      id: id,
-      authorID: Number(req.user.id),
-    });
+    const doc = await this.documentService.document({ id });
     if (!doc) {
-      throw new NotFoundException(`document not found with id ${id}`);
+      throw new NotFoundException('Document not found');
     }
-    return doc;
+    await this.workspaceService.assertMember(
+      doc.workspaceId,
+      Number(req.user.id),
+    );
+    return this.documentService.deleteDocument({ id });
   }
 }
