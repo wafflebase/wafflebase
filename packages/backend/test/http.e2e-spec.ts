@@ -3,6 +3,7 @@ import { DataSourceController } from 'src/datasource/datasource.controller';
 import { DataSourceService } from 'src/datasource/datasource.service';
 import { ShareLinkController } from 'src/share-link/share-link.controller';
 import { ShareLinkService } from 'src/share-link/share-link.service';
+import { WorkspaceService } from 'src/workspace/workspace.service';
 
 describe('Controller contracts (e2e)', () => {
   let moduleRef: TestingModule;
@@ -12,11 +13,19 @@ describe('Controller contracts (e2e)', () => {
   const datasourceService = {
     create: jest.fn(),
     findAll: jest.fn(),
+    findAllByWorkspace: jest.fn(),
     findOne: jest.fn(),
+    findRaw: jest.fn(),
     update: jest.fn(),
     remove: jest.fn(),
     testConnection: jest.fn(),
     executeQuery: jest.fn(),
+  };
+
+  const workspaceService = {
+    resolveId: jest.fn(),
+    assertMember: jest.fn(),
+    findAllByUser: jest.fn(),
   };
 
   const shareLinkService = {
@@ -31,6 +40,7 @@ describe('Controller contracts (e2e)', () => {
       controllers: [DataSourceController, ShareLinkController],
       providers: [
         { provide: DataSourceService, useValue: datasourceService },
+        { provide: WorkspaceService, useValue: workspaceService },
         { provide: ShareLinkService, useValue: shareLinkService },
       ],
     }).compile();
@@ -46,17 +56,26 @@ describe('Controller contracts (e2e)', () => {
   });
 
   it('forwards authenticated user id on datasource list endpoint', async () => {
-    datasourceService.findAll.mockResolvedValue([{ id: 'ds-1', name: 'main' }]);
+    workspaceService.findAllByUser.mockResolvedValue([{ id: 'ws-1' }]);
+    datasourceService.findAllByWorkspace.mockResolvedValue([
+      { id: 'ds-1', name: 'main' },
+    ]);
 
     const result = await datasourceController.findAll({
       user: { id: '7' },
     } as never);
 
     expect(result).toEqual([{ id: 'ds-1', name: 'main' }]);
-    expect(datasourceService.findAll).toHaveBeenCalledWith(7);
+    expect(workspaceService.findAllByUser).toHaveBeenCalledWith(7);
+    expect(datasourceService.findAllByWorkspace).toHaveBeenCalledWith('ws-1');
   });
 
   it('forwards query payload and user id on datasource query endpoint', async () => {
+    datasourceService.findRaw.mockResolvedValue({
+      id: 'ds-1',
+      workspaceId: 'ws-1',
+    });
+    workspaceService.assertMember.mockResolvedValue(undefined);
     datasourceService.executeQuery.mockResolvedValue({
       columns: [],
       rows: [],
@@ -78,7 +97,9 @@ describe('Controller contracts (e2e)', () => {
       truncated: false,
       executionTime: 2,
     });
-    expect(datasourceService.executeQuery).toHaveBeenCalledWith(7, 'ds-1', {
+    expect(datasourceService.findRaw).toHaveBeenCalledWith('ds-1');
+    expect(workspaceService.assertMember).toHaveBeenCalledWith('ws-1', 7);
+    expect(datasourceService.executeQuery).toHaveBeenCalledWith('ds-1', {
       query: 'SELECT 1',
     });
   });

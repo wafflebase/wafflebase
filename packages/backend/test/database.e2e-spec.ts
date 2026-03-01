@@ -12,6 +12,7 @@ import {
   parseDatabaseUrl,
   clearDatabase,
   createUserFactory,
+  createWorkspace,
   setIntegrationEnvDefaults,
 } from './helpers/integration-helpers';
 
@@ -49,9 +50,10 @@ describeDb('Database-backed integration', () => {
   describe('DataSourceService', () => {
     it('persists encrypted passwords and executes queries against postgres', async () => {
       const owner = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
       const pgConfig = parseDatabaseUrl(process.env.DATABASE_URL!);
 
-      const ds = await datasourceService.create(owner.id, {
+      const ds = await datasourceService.create(owner.id, workspace.id, {
         name: 'primary',
         host: pgConfig.host,
         port: pgConfig.port,
@@ -68,13 +70,10 @@ describeDb('Database-backed integration', () => {
       expect(stored.password).not.toBe(pgConfig.password);
       expect(stored.password.split(':')).toHaveLength(3);
 
-      const connectionResult = await datasourceService.testConnection(
-        owner.id,
-        ds.id,
-      );
+      const connectionResult = await datasourceService.testConnection(ds.id);
       expect(connectionResult).toEqual({ success: true });
 
-      const queryResult = await datasourceService.executeQuery(owner.id, ds.id, {
+      const queryResult = await datasourceService.executeQuery(ds.id, {
         query: 'SELECT 1::int4 AS n',
       });
       expect(queryResult.columns.map((column) => column.name)).toEqual(['n']);
@@ -85,10 +84,10 @@ describeDb('Database-backed integration', () => {
 
     it('enforces ownership for executeQuery and testConnection', async () => {
       const owner = await createUser();
-      const other = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
       const pgConfig = parseDatabaseUrl(process.env.DATABASE_URL!);
 
-      const ds = await datasourceService.create(owner.id, {
+      const ds = await datasourceService.create(owner.id, workspace.id, {
         name: 'restricted',
         host: pgConfig.host,
         port: pgConfig.port,
@@ -98,22 +97,23 @@ describeDb('Database-backed integration', () => {
         sslEnabled: false,
       });
 
-      await expect(
-        datasourceService.executeQuery(other.id, ds.id, {
-          query: 'SELECT 1::int4 AS n',
-        }),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      // Ownership is now enforced at controller layer via workspace membership;
+      // service methods no longer take userId. Verify the service works for the datasource.
+      const connectionResult = await datasourceService.testConnection(ds.id);
+      expect(connectionResult).toEqual({ success: true });
 
-      await expect(
-        datasourceService.testConnection(other.id, ds.id),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      const queryResult = await datasourceService.executeQuery(ds.id, {
+        query: 'SELECT 1::int4 AS n',
+      });
+      expect(queryResult.rows).toEqual([{ n: 1 }]);
     });
 
     it('maps runtime SQL failures to bad request', async () => {
       const owner = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
       const pgConfig = parseDatabaseUrl(process.env.DATABASE_URL!);
 
-      const ds = await datasourceService.create(owner.id, {
+      const ds = await datasourceService.create(owner.id, workspace.id, {
         name: 'broken-query',
         host: pgConfig.host,
         port: pgConfig.port,
@@ -124,7 +124,7 @@ describeDb('Database-backed integration', () => {
       });
 
       await expect(
-        datasourceService.executeQuery(owner.id, ds.id, {
+        datasourceService.executeQuery(ds.id, {
           query: 'SELECT * FROM table_that_does_not_exist_for_test',
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
@@ -134,10 +134,12 @@ describeDb('Database-backed integration', () => {
   describe('ShareLinkService', () => {
     it('creates and resolves share links for the document owner', async () => {
       const owner = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
       const doc = await prisma.document.create({
         data: {
           title: 'Quarterly plan',
           authorID: owner.id,
+          workspaceId: workspace.id,
         },
       });
 
@@ -157,10 +159,12 @@ describeDb('Database-backed integration', () => {
     it('enforces ownership and expiration checks', async () => {
       const owner = await createUser();
       const other = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
       const doc = await prisma.document.create({
         data: {
           title: 'Budget',
           authorID: owner.id,
+          workspaceId: workspace.id,
         },
       });
 
@@ -185,10 +189,12 @@ describeDb('Database-backed integration', () => {
     it('allows only the creator to delete share links', async () => {
       const owner = await createUser();
       const other = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
       const doc = await prisma.document.create({
         data: {
           title: 'Shared board',
           authorID: owner.id,
+          workspaceId: workspace.id,
         },
       });
       const link = await shareLinkService.create(

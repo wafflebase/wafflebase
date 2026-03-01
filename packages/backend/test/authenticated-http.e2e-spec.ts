@@ -10,6 +10,7 @@ import {
   parseDatabaseUrl,
   clearDatabase,
   createUserFactory,
+  createWorkspace,
   setIntegrationEnvDefaults,
   setAuthEnvDefaults,
 } from './helpers/integration-helpers';
@@ -79,11 +80,12 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
   it('enforces document ownership through JWT-authenticated endpoints', async () => {
     const owner = await createUser();
     const other = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
 
     const createResponse = await request(app.getHttpServer())
       .post('/documents')
       .set('Cookie', authCookie(owner))
-      .send({ title: 'Owner document' })
+      .send({ title: 'Owner document', workspaceId: workspace.id })
       .expect(201);
 
     const ownerDocId = createResponse.body.id as string;
@@ -106,10 +108,12 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
   it('enforces share-link owner permissions and supports public token resolve', async () => {
     const owner = await createUser();
     const other = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
     const doc = await prisma.document.create({
       data: {
         title: 'Shared roadmap',
         authorID: owner.id,
+        workspaceId: workspace.id,
       },
     });
 
@@ -138,6 +142,7 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
   it('runs datasource routes end-to-end with auth and ownership checks', async () => {
     const owner = await createUser();
     const other = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
     const pgConfig = parseDatabaseUrl(process.env.DATABASE_URL!);
 
     const createDsResponse = await request(app.getHttpServer())
@@ -151,6 +156,7 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
         username: pgConfig.username,
         password: pgConfig.password,
         sslEnabled: false,
+        workspaceId: workspace.id,
       })
       .expect(201);
 

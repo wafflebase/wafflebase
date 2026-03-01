@@ -25,7 +25,25 @@ export async function clearDatabase(prisma: PrismaService) {
   await prisma.shareLink.deleteMany();
   await prisma.dataSource.deleteMany();
   await prisma.document.deleteMany();
+  await prisma.workspaceInvite.deleteMany();
+  await prisma.workspaceMember.deleteMany();
+  await prisma.workspace.deleteMany();
   await prisma.user.deleteMany();
+}
+
+export async function createWorkspace(
+  prisma: PrismaService,
+  userId: number,
+  name = 'test-workspace',
+) {
+  const slug = `${name}-${Date.now()}`;
+  const workspace = await prisma.workspace.create({
+    data: { name, slug },
+  });
+  await prisma.workspaceMember.create({
+    data: { workspaceId: workspace.id, userId, role: 'owner' },
+  });
+  return workspace;
 }
 
 export function createUserFactory(prisma: PrismaService, prefix = 'test') {
