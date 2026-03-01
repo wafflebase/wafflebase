@@ -107,9 +107,9 @@ class Arguments<T extends EvalNode> {
   ): Generator<T | ErrNode> {
     for (const expr of args.expr()) {
       const node = visit(expr);
-      if (node.t === 'ref' && grid) {
+      if (node.t === 'ref' && grid && this.ref) {
         for (const ref of toSrefs([node.v])) {
-          yield this.ref!({ t: 'ref', v: ref }, grid);
+          yield this.ref({ t: 'ref', v: ref }, grid);
         }
       } else if (node.t === 'arr') {
         for (const row of node.v) {

@@ -3345,4 +3345,128 @@ describe('Formula.extractTokens', () => {
       { type: 'STRING', start: 9, stop: 9, text: ')' },
     ]);
   });
+
+  it('should correctly evaluate DCOUNTA, DSTDEV, DSTDEVP, DVAR, DVARP functions', () => {
+    const grid = new Map([
+      ['A1', { v: 'Name' } as Cell],
+      ['B1', { v: 'Score' } as Cell],
+      ['C1', { v: 'Grade' } as Cell],
+      ['A2', { v: 'Alice' } as Cell],
+      ['B2', { v: '90' } as Cell],
+      ['C2', { v: 'A' } as Cell],
+      ['A3', { v: 'Bob' } as Cell],
+      ['B3', { v: '80' } as Cell],
+      ['C3', { v: 'B' } as Cell],
+      ['A4', { v: 'Alice' } as Cell],
+      ['B4', { v: '85' } as Cell],
+      ['C4', { v: 'B' } as Cell],
+      ['E1', { v: 'Name' } as Cell],
+      ['E2', { v: 'Alice' } as Cell],
+    ]);
+    // DCOUNTA: count non-blank for Alice in Score column = 2
+    expect(evaluate('=DCOUNTA(A1:C4,"Score",E1:E2)', grid)).toBe('2');
+    // DVAR: sample variance of {90,85} = 12.5
+    expect(evaluate('=DVAR(A1:C4,"Score",E1:E2)', grid)).toBe('12.5');
+    // DVARP: population variance of {90,85} = 6.25
+    expect(evaluate('=DVARP(A1:C4,"Score",E1:E2)', grid)).toBe('6.25');
+    // DSTDEV: sample stdev of {90,85}
+    expect(Number(evaluate('=DSTDEV(A1:C4,"Score",E1:E2)', grid))).toBeCloseTo(3.5355, 3);
+    // DSTDEVP: population stdev of {90,85}
+    expect(evaluate('=DSTDEVP(A1:C4,"Score",E1:E2)', grid)).toBe('2.5');
+  });
+
+  it('should correctly evaluate TBILLEQ, TBILLPRICE, TBILLYIELD functions', () => {
+    // settlement=2024-01-15, maturity=2024-07-15, 182 days
+    // TBILLEQ(settlement, maturity, discount=0.05)
+    // = 365 * 0.05 / (360 - 0.05 * 182) = 18.25 / 350.9 ≈ 0.05200
+    expect(Number(evaluate('=TBILLEQ("2024-01-15","2024-07-15",0.05)'))).toBeCloseTo(0.052, 2);
+    // TBILLPRICE: 100 * (1 - 0.05 * 182 / 360) ≈ 97.4722
+    expect(Number(evaluate('=TBILLPRICE("2024-01-15","2024-07-15",0.05)'))).toBeCloseTo(97.472, 2);
+    // TBILLYIELD: (100-97.472)/97.472 * 360/182 ≈ 0.05133
+    expect(Number(evaluate('=TBILLYIELD("2024-01-15","2024-07-15",97.472)'))).toBeCloseTo(0.0513, 2);
+  });
+
+  it('should correctly evaluate COUPDAYBS, COUPDAYS, COUPDAYSNC functions', () => {
+    // Bond: settlement=2024-03-15, maturity=2025-01-15, semi-annual (freq=2)
+    // Previous coupon: 2024-01-15, next coupon: 2024-07-15
+    // COUPDAYBS = days from 2024-01-15 to 2024-03-15 = 60
+    expect(evaluate('=COUPDAYBS("2024-03-15","2025-01-15",2)')).toBe('60');
+    // COUPDAYS = days from 2024-01-15 to 2024-07-15 = 182
+    expect(evaluate('=COUPDAYS("2024-03-15","2025-01-15",2)')).toBe('182');
+    // COUPDAYSNC = days from 2024-03-15 to 2024-07-15 = 122
+    expect(evaluate('=COUPDAYSNC("2024-03-15","2025-01-15",2)')).toBe('122');
+  });
+
+  it('should correctly evaluate COUPNCD, COUPPCD functions', () => {
+    // COUPNCD: next coupon date after 2024-03-15 with semi-annual = 2024-07-15
+    const ncd = evaluate('=COUPNCD("2024-03-15","2025-01-15",2)');
+    expect(ncd).toContain('2024');
+    // COUPPCD: previous coupon date before 2024-03-15 = 2024-01-15
+    const pcd = evaluate('=COUPPCD("2024-03-15","2025-01-15",2)');
+    expect(pcd).toContain('2024');
+  });
+
+  it('should correctly evaluate AMORLINC function', () => {
+    // AMORLINC(cost=2400, purchase=2024-01-01, first_period=2024-12-31, salvage=300, period=0, rate=0.15)
+    // period 0: cost * rate * yearFrac(purchase, first_period) = 2400 * 0.15 * 1.0 = 360
+    expect(evaluate('=AMORLINC(2400,"2024-01-01","2024-12-31",300,0,0.15)')).toBe('360');
+    // period 1: full year = cost * rate = 2400 * 0.15 = 360
+    expect(evaluate('=AMORLINC(2400,"2024-01-01","2024-12-31",300,1,0.15)')).toBe('360');
+  });
+
+  it('should correctly evaluate WORKDAY.INTL function', () => {
+    // 2024-01-01 (Mon) + 5 workdays (default weekend=Sat,Sun)
+    // Jan 1(Mon)→2, 2(Tue)→3, 3(Wed)→4, 4(Thu)→5, 5(Fri) = Jan 8 (Mon)
+    const result = evaluate('=WORKDAY.INTL("2024-01-01",5)');
+    expect(result).toContain('2024');
+  });
+
+  it('should correctly evaluate statistical alias functions', () => {
+    const grid = new Map([
+      ['A1', { v: '10' } as Cell],
+      ['A2', { v: '20' } as Cell],
+      ['A3', { v: '30' } as Cell],
+    ]);
+    // Aliases should return same result as their base functions
+    expect(evaluate('=STDEV.S(A1:A3)', grid)).toBe(evaluate('=STDEV(A1:A3)', grid));
+    expect(evaluate('=STDEV.P(A1:A3)', grid)).toBe(evaluate('=STDEVP(A1:A3)', grid));
+    expect(evaluate('=VAR.S(A1:A3)', grid)).toBe(evaluate('=VAR(A1:A3)', grid));
+    expect(evaluate('=VAR.P(A1:A3)', grid)).toBe(evaluate('=VARP(A1:A3)', grid));
+    expect(evaluate('=MODE.SNGL(A1:A3)', grid)).toBe(evaluate('=MODE(A1:A3)', grid));
+    expect(evaluate('=QUARTILE.INC(A1:A3,1)', grid)).toBe(evaluate('=QUARTILE(A1:A3,1)', grid));
+    expect(evaluate('=PERCENTILE.INC(A1:A3,0.5)', grid)).toBe(evaluate('=PERCENTILE(A1:A3,0.5)', grid));
+    expect(evaluate('=RANK.EQ(20,A1:A3)', grid)).toBe(evaluate('=RANK(20,A1:A3)', grid));
+    expect(evaluate('=PERCENTRANK.INC(A1:A3,20)', grid)).toBe(evaluate('=PERCENTRANK(A1:A3,20)', grid));
+    expect(evaluate('=NORM.DIST(0,0,1,TRUE)', grid)).toBe(evaluate('=NORMDIST(0,0,1,TRUE)', grid));
+    expect(evaluate('=NORM.INV(0.5,0,1)', grid)).toBe(evaluate('=NORMINV(0.5,0,1)', grid));
+    expect(evaluate('=COVARIANCE.P(A1:A3,A1:A3)', grid)).toBe(evaluate('=COVAR(A1:A3,A1:A3)', grid));
+    expect(evaluate('=FORECAST.LINEAR(25,A1:A3,A1:A3)', grid)).toBe(evaluate('=FORECAST(25,A1:A3,A1:A3)', grid));
+  });
+
+  it('should return #DIV/0! from functions that divide by zero', () => {
+    // COT(0) = cos(0)/sin(0) = 1/0
+    expect(evaluate('=COT(0)')).toBe('#DIV/0!');
+    // ISERROR should detect #DIV/0!
+    expect(evaluate('=ISERROR(1/0)')).toBe('true');
+    expect(evaluate('=ISERROR(COT(0))')).toBe('true');
+    // ERROR.TYPE: #DIV/0! = 2
+    expect(evaluate('=ERROR.TYPE(1/0)')).toBe('2');
+  });
+
+  it('should correctly evaluate XIRR function', () => {
+    const grid = new Map([
+      ['A1', { v: '-10000' } as Cell],
+      ['A2', { v: '2750' } as Cell],
+      ['A3', { v: '4250' } as Cell],
+      ['A4', { v: '3250' } as Cell],
+      ['A5', { v: '2750' } as Cell],
+      ['B1', { v: '2008-01-01' } as Cell],
+      ['B2', { v: '2008-03-01' } as Cell],
+      ['B3', { v: '2008-10-30' } as Cell],
+      ['B4', { v: '2009-02-15' } as Cell],
+      ['B5', { v: '2009-04-01' } as Cell],
+    ]);
+    const result = Number(evaluate('=XIRR(A1:A5,B1:B5)', grid));
+    expect(result).toBeCloseTo(0.3734, 2);
+  });
 });
