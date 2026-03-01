@@ -124,6 +124,13 @@ describe('Formula', () => {
     expect(evaluate('={1,2,3}+10')).toBe('11');
   });
 
+  it('should handle scientific notation', () => {
+    expect(evaluate('=1.5E3')).toBe('1500');
+    expect(evaluate('=1E-3')).toBe('0.001');
+    expect(evaluate('=2.5e+2')).toBe('250');
+    expect(evaluate('=1E3+1E2')).toBe('1100');
+  });
+
   it('should handle empty arguments in IF', () => {
     expect(evaluate('=IF(TRUE,,1)')).toBe('0');
     expect(evaluate('=IF(FALSE,,1)')).toBe('1');
