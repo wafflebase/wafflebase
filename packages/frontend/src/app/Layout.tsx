@@ -1,58 +1,106 @@
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
-
-const items = {
-  main: [
-    {
-      title: "Documents",
-      url: "/",
-      icon: IconFolder,
-    },
-    {
-      title: "Data Sources",
-      url: "/datasources",
-      icon: IconDatabase,
-    },
-  ],
-  secondary: [
-    {
-      title: "Settings",
-      url: "/settings",
-      icon: IconSettings,
-    },
-  ],
-};
+import { useQuery } from "@tanstack/react-query";
+import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
+import { useMemo } from "react";
 
 /**
  * Renders the root app layout and providers.
  */
 export default function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { workspaceId } = useParams<{ workspaceId: string }>();
+
+  const { data: workspaces = [] } = useQuery<Workspace[]>({
+    queryKey: ["workspaces"],
+    queryFn: fetchWorkspaces,
+  });
+
+  const currentWorkspaceId = workspaceId || workspaces[0]?.id;
+
+  const items = useMemo(() => {
+    if (currentWorkspaceId) {
+      return {
+        main: [
+          {
+            title: "Documents",
+            url: `/w/${currentWorkspaceId}`,
+            icon: IconFolder,
+          },
+          {
+            title: "Data Sources",
+            url: `/w/${currentWorkspaceId}/datasources`,
+            icon: IconDatabase,
+          },
+        ],
+        secondary: [
+          {
+            title: "Settings",
+            url: `/w/${currentWorkspaceId}/settings`,
+            icon: IconSettings,
+          },
+        ],
+      };
+    }
+
+    return {
+      main: [
+        { title: "Documents", url: "/documents", icon: IconFolder },
+        { title: "Data Sources", url: "/datasources", icon: IconDatabase },
+      ],
+      secondary: [
+        { title: "Settings", url: "/settings", icon: IconSettings },
+      ],
+    };
+  }, [currentWorkspaceId]);
+
+  const currentWorkspace = workspaces.find(
+    (w) => w.id === currentWorkspaceId,
+  );
 
   let title = "";
-  if (location.pathname === "/") {
+  if (
+    location.pathname === "/" ||
+    location.pathname === `/w/${workspaceId}` ||
+    location.pathname === "/documents"
+  ) {
     title = "Documents";
-  } else if (location.pathname === "/datasources") {
+  } else if (
+    location.pathname === `/w/${workspaceId}/datasources` ||
+    location.pathname === "/datasources"
+  ) {
     title = "Data Sources";
-  } else if (location.pathname === "/settings") {
+  } else if (
+    location.pathname === `/w/${workspaceId}/settings` ||
+    location.pathname === "/settings"
+  ) {
     title = "Settings";
-  } else if (location.pathname.match(/^\/\d+$/)) {
-    // Document page (e.g., "/123")
-    title = "Spreadsheet";
-  } else {
-    title =
-      items.secondary.find((item) => item.url === location.pathname)?.title ||
-      items.main.find((item) => location.pathname.startsWith(item.url))
-        ?.title ||
-      "";
   }
+
+  const handleWorkspaceChange = (id: string) => {
+    // Determine the current sub-path and navigate to the same page in the new workspace
+    if (location.pathname.endsWith("/datasources")) {
+      navigate(`/w/${id}/datasources`);
+    } else if (location.pathname.endsWith("/settings")) {
+      navigate(`/w/${id}/settings`);
+    } else {
+      navigate(`/w/${id}`);
+    }
+  };
 
   return (
     <SidebarProvider>
-      <AppSidebar variant="inset" items={items} />
+      <AppSidebar
+        variant="inset"
+        items={items}
+        workspaces={workspaces}
+        currentWorkspace={currentWorkspace}
+        onWorkspaceChange={handleWorkspaceChange}
+      />
       <SidebarInset>
         <SiteHeader title={title} />
         <div className="flex flex-1 flex-col">
