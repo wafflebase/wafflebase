@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
-import { ChevronsUpDown, Grid2x2PlusIcon } from "lucide-react";
+import { ChevronsUpDown, Grid2x2PlusIcon, PlusIcon } from "lucide-react";
 
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
@@ -21,9 +21,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { NavItem } from "@/types/nav-items";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchMe } from "@/api/auth";
 import type { Workspace } from "@/api/workspaces";
+import { createWorkspace } from "@/api/workspaces";
 
 /**
  * Renders the AppSidebar component.
@@ -48,6 +49,22 @@ export function AppSidebar({
     queryFn: fetchMe,
     retry: false,
   });
+
+  const queryClient = useQueryClient();
+  const createWorkspaceMutation = useMutation({
+    mutationFn: (name: string) => createWorkspace({ name }),
+    onSuccess: (ws) => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      onWorkspaceChange?.(ws.id);
+    },
+  });
+
+  const handleCreateWorkspace = () => {
+    const name = window.prompt("New workspace name:");
+    if (name?.trim()) {
+      createWorkspaceMutation.mutate(name.trim());
+    }
+  };
 
   if (isLoading) {
     return null;
@@ -91,6 +108,10 @@ export function AppSidebar({
                       {ws.name}
                     </DropdownMenuItem>
                   ))}
+                  <DropdownMenuItem onClick={handleCreateWorkspace}>
+                    <PlusIcon className="mr-2 h-4 w-4" />
+                    New workspace
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </SidebarMenuItem>
