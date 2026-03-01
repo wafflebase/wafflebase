@@ -4,6 +4,7 @@ export class CreateWorkspaceDto {
 
 export class UpdateWorkspaceDto {
   name?: string;
+  slug?: string;
 }
 
 export class CreateInviteDto {

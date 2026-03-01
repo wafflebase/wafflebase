@@ -31,11 +31,13 @@ export class DocumentController {
 
   @Post('workspaces/:workspaceId/documents')
   async createInWorkspace(
-    @Param('workspaceId') workspaceId: string,
+    @Param('workspaceId') workspaceIdOrSlug: string,
     @Req() req: AuthenticatedRequest,
     @Body() body: { title: string },
   ): Promise<DocumentModel> {
     const userId = Number(req.user.id);
+    const workspaceId =
+      await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.documentService.createDocument({
       title: body.title,
@@ -46,10 +48,12 @@ export class DocumentController {
 
   @Get('workspaces/:workspaceId/documents')
   async findByWorkspace(
-    @Param('workspaceId') workspaceId: string,
+    @Param('workspaceId') workspaceIdOrSlug: string,
     @Req() req: AuthenticatedRequest,
   ): Promise<DocumentModel[]> {
     const userId = Number(req.user.id);
+    const workspaceId =
+      await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.documentService.documents({
       where: { workspaceId },

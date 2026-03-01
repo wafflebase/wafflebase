@@ -8,8 +8,12 @@ async function main() {
   });
 
   for (const user of users) {
+    const slug = user.username
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') + '-s-workspace';
     const workspace = await prisma.workspace.create({
-      data: { name: `${user.username}'s Workspace` },
+      data: { name: `${user.username}'s Workspace`, slug },
     });
 
     await prisma.workspaceMember.create({

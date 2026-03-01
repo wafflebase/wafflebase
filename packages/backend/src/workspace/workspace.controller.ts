@@ -46,27 +46,30 @@ export class WorkspaceController {
 
   @Patch('workspaces/:id')
   async update(
-    @Param('id') id: string,
+    @Param('id') idOrSlug: string,
     @Req() req: AuthenticatedRequest,
     @Body() body: UpdateWorkspaceDto,
   ) {
+    const id = await this.workspaceService.resolveId(idOrSlug);
     return this.workspaceService.update(id, Number(req.user.id), body);
   }
 
   @Delete('workspaces/:id')
   async remove(
-    @Param('id') id: string,
+    @Param('id') idOrSlug: string,
     @Req() req: AuthenticatedRequest,
   ) {
+    const id = await this.workspaceService.resolveId(idOrSlug);
     return this.workspaceService.remove(id, Number(req.user.id));
   }
 
   @Delete('workspaces/:id/members/:userId')
   async removeMember(
-    @Param('id') id: string,
+    @Param('id') idOrSlug: string,
     @Param('userId') userId: string,
     @Req() req: AuthenticatedRequest,
   ) {
+    const id = await this.workspaceService.resolveId(idOrSlug);
     return this.workspaceService.removeMember(
       id,
       Number(req.user.id),
@@ -76,10 +79,11 @@ export class WorkspaceController {
 
   @Post('workspaces/:id/invites')
   async createInvite(
-    @Param('id') id: string,
+    @Param('id') idOrSlug: string,
     @Req() req: AuthenticatedRequest,
     @Body() body: CreateInviteDto,
   ) {
+    const id = await this.workspaceService.resolveId(idOrSlug);
     return this.workspaceService.createInvite(
       id,
       Number(req.user.id),
@@ -89,18 +93,20 @@ export class WorkspaceController {
 
   @Get('workspaces/:id/invites')
   async findInvites(
-    @Param('id') id: string,
+    @Param('id') idOrSlug: string,
     @Req() req: AuthenticatedRequest,
   ) {
+    const id = await this.workspaceService.resolveId(idOrSlug);
     return this.workspaceService.findInvites(id, Number(req.user.id));
   }
 
   @Delete('workspaces/:id/invites/:inviteId')
   async revokeInvite(
-    @Param('id') id: string,
+    @Param('id') idOrSlug: string,
     @Param('inviteId') inviteId: string,
     @Req() req: AuthenticatedRequest,
   ) {
+    const id = await this.workspaceService.resolveId(idOrSlug);
     return this.workspaceService.revokeInvite(
       id,
       inviteId,
