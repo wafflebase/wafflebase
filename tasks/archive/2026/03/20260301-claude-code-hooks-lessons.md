@@ -1,24 +1,12 @@
 # Claude Code Hooks — Lessons
 
-## What Went Well
+## Decisions Log
 
-- POSIX shell + `node -e` for JSON parsing works without external deps (no jq).
-- Hook scripts are simple case-match patterns — easy to extend.
-- Pre-commit hook (`verify:fast`) caught nothing because hooks are inert
-  infrastructure — no risk of breaking existing behavior.
-
-## Decisions
-
-- `guard-generated-files.sh` uses exit 2 (block) vs exit 0 (allow).
-  STDERR output is fed to Claude as context for self-correction.
-- `check-arch-boundary.sh` is informational only (always exit 0).
-  The file is already written by the time PostToolUse fires, so blocking
-  would be pointless. Instead, violations appear in Claude's context.
-- `.claude/settings.json` is git-tracked (team-shared config).
-  `.claude/settings.local.json` remains for personal permissions only.
-
-## Patterns for Future Hooks
-
-- Read JSON from stdin, parse with `node -e`, match with `case`.
-- Normalize paths relative to repo root for portable matching.
-- PreToolUse for blocking, PostToolUse for informational feedback.
+- Chose minimal defense set (2 hooks) over comprehensive (5+) to avoid
+  over-engineering and false positives.
+- ANTLR protection is highest-value because regeneration is the only valid
+  edit path, and agents frequently try to "fix" type errors in generated code.
+- Architecture boundary hook placed on PostToolUse(Write) only — running arch
+  lint on every Edit would be too slow and noisy.
+- Hooks go in settings.json (not settings.local.json) because they enforce
+  team-wide harness policy, not personal preferences.
