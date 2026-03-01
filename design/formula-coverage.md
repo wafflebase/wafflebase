@@ -3,236 +3,109 @@ title: formula-coverage
 target-version: 0.2.0
 ---
 
-# Formula Function Coverage Plan
+# Formula Function Coverage
 
 ## Summary
 
 Google Sheets provides approximately 500 functions across 16 categories.
-Wafflebase currently implements **189 function entries (165+ unique
-functions)** covering core spreadsheet needs plus many power-user
-functions. This document maps every Google Sheets function against our
-current support status and defines a phased plan to close the gap where it
-matters most.
+Wafflebase currently implements **437 function entries (424 unique
+functions + 13 aliases)** covering core, power-user, and specialist
+spreadsheet needs. This document maps every Google Sheets function against
+our current support status.
 
-**Current coverage**: ~165 / ~500 (33%)
+**Current coverage**: ~424 / ~500 unique functions (85%)
 
-The goal is not 100% parity. We prioritize the functions that real users reach
-for daily, then progressively add power-user and specialist functions.
+Coverage is effectively complete for daily use. The remaining gaps are:
+- **Legacy aliases** (BETADIST, CHIDIST, etc.) — older names for modern
+  `.DIST`/`.INV` variants we already support.
+- **Byte-variant text functions** (LEFTB, RIGHTB, MIDB, etc.) — CJK
+  double-byte string handling.
+- **Higher-order functions** (LET, LAMBDA, MAP, REDUCE, SCAN, BYROW,
+  BYCOL) — require ANTLR grammar extensions for lambda parameter binding.
+- **Platform-specific** (IMPORT*, GETPIVOTDATA) — require external
+  services or features we don't have.
 
 ## Current Support
 
 | Category    | Google | Ours | Coverage |
 | ----------- | -----: | ---: | -------: |
-| Math        |     84 |   50 |      60% |
-| Statistical |   ~130 |   28 |      22% |
-| Text        |     41 |   28 |      68% |
-| Date        |     26 |   22 |      85% |
-| Logical     |     13 |   10 |      77% |
-| Lookup      |     17 |   14 |      82% |
-| Info        |     18 |   13 |      72% |
-| Filter      |      4 |    0 |       0% |
-| Array       |     29 |    1 |       3% |
-| Financial   |     50 |    0 |       0% |
-| Engineering |     47 |    0 |       0% |
-| Operator    |     17 |    0 |       — |
-| Database    |     12 |    0 |       0% |
-| Parser      |      6 |    0 |       0% |
-| Web         |      8 |    0 |       0% |
+| Math        |     84 |   83 |      99% |
+| Statistical |   ~130 |  103 |      79% |
+| Text        |     41 |   38 |      93% |
+| Date        |     26 |   25 |      96% |
+| Logical     |     13 |   11 |      85% |
+| Lookup      |     17 |   16 |      94% |
+| Info        |     18 |   17 |      94% |
+| Filter      |      4 |    3 |      75% |
+| Array       |     29 |   22 |      76% |
+| Financial   |     50 |   49 |      98% |
+| Engineering |     47 |   42 |      89% |
+| Database    |     12 |   12 |     100% |
+| Operator    |     17 |    — |        — |
+| Parser      |      6 |    1 |      17% |
+| Web         |      8 |    3 |      38% |
 
 Notes:
-- **Operator** functions (ADD, MINUS, MULTIPLY, etc.) are already covered by
-  our arithmetic/comparison operators. CONCAT is implemented. Low priority.
-
-## Tier 1 — Everyday Essentials
-
-Functions most users expect in any spreadsheet. Highest impact, implement
-first. Each sub-section lists what we already have (✅) and what to add.
-
-### Math (add 27)
-
-✅ SUM, ABS, ROUND, ROUNDUP, ROUNDDOWN, INT, MOD, SQRT, POWER, PRODUCT,
-   RAND, RANDBETWEEN
-
-Add:
-- **Rounding/truncation**: CEILING, FLOOR, TRUNC, MROUND, EVEN, ODD
-- **Logarithms/exp**: LOG, LOG10, LN, EXP
-- **Trigonometry basics**: PI, SIN, COS, TAN, ASIN, ACOS, ATAN, ATAN2,
-  DEGREES, RADIANS
-- **Arithmetic**: SIGN, QUOTIENT, SUMSQ, SUMPRODUCT
-- **Combinatorics**: FACT, COMBIN
-
-### Statistical (add 19)
-
-✅ AVERAGE, MIN, MAX, COUNT, COUNTA, MEDIAN
-
-Add:
-- **Conditional aggregation**: AVERAGEIF, AVERAGEIFS, MAXIFS, MINIFS,
-  COUNTUNIQUE
-- **Descriptive stats**: STDEV, STDEVP, VAR, VARP, MODE
-- **Ranking/percentile**: LARGE, SMALL, RANK, PERCENTILE, QUARTILE
-- **Regression basics**: FORECAST, SLOPE, INTERCEPT, CORREL
-
-### Text (add 14)
-
-✅ TRIM, LEN, LEFT, RIGHT, MID, CONCATENATE, CONCAT, FIND, SEARCH,
-   TEXTJOIN, LOWER, UPPER, PROPER, SUBSTITUTE
-
-Add:
-- **Conversion**: TEXT, VALUE, CHAR, CODE, FIXED, DOLLAR
-- **Manipulation**: REPLACE, REPT, CLEAN, EXACT, SPLIT, JOIN, T
-- **Pattern matching**: REGEXMATCH
-
-### Date (add 10)
-
-✅ TODAY, NOW, DATE, TIME, DAYS, YEAR, MONTH, DAY, HOUR, MINUTE, SECOND,
-   WEEKDAY
-
-Add:
-- **Parsing/conversion**: DATEDIF, DATEVALUE, TIMEVALUE
-- **Shifting**: EDATE, EOMONTH, WORKDAY, NETWORKDAYS
-- **Week**: WEEKNUM, ISOWEEKNUM
-- **Financial calendar**: YEARFRAC
-
-### Logical (add 4)
-
-✅ IF, IFS, SWITCH, AND, OR, NOT, IFERROR, IFNA
-
-Add:
-- TRUE, FALSE, XOR
-- LET (named sub-expressions — modern formula feature)
-
-### Lookup (add 9)
-
-✅ MATCH, INDEX, VLOOKUP, HLOOKUP
-
-Add:
-- **Modern lookup**: XLOOKUP
-- **Position utilities**: ROW, COLUMN, ROWS, COLUMNS
-- **Reference builders**: ADDRESS, INDIRECT, OFFSET, CHOOSE
-- **Search**: LOOKUP
-
-### Info (add 5)
-
-✅ ISBLANK, ISNUMBER, ISTEXT, ISERROR, ISERR, ISNA, ISLOGICAL, ISNONTEXT
-
-Add:
-- TYPE, N, NA, ERROR.TYPE, ISDATE
-
-### Filter / Array (add 5)
-
-Add:
-- FILTER, SORT, UNIQUE, TRANSPOSE
-- SUMPRODUCT (if not already counted under Math)
-
-**Tier 1 total: ~93 new functions → brings us to ~163 (33% coverage)**
-
-These cover the vast majority of what typical spreadsheet users need.
-
-## Tier 2 — Power User
-
-Functions that experienced users and business analysts expect. Implement
-after Tier 1 is stable.
-
-### Financial basics (add 15)
-
-PMT, FV, PV, NPV, IRR, RATE, NPER, IPMT, PPMT, XNPV, XIRR, SLN, DB,
-DDB, EFFECT
-
-### Extended math (add 12)
-
-CEILING.MATH, FLOOR.MATH, SUBTOTAL, MULTINOMIAL, GCD, LCM, FACTDOUBLE,
-SQRTPI, BASE, DECIMAL, ISEVEN, ISODD
-
-### Extended statistical (add 15)
-
-AVERAGEA, MAXA, MINA, STDEVA, STDEVPA, VARA, VARPA, PERCENTILE.EXC,
-RANK.AVG, RANK.EQ, TRIMMEAN, GEOMEAN, HARMEAN, AVEDEV, DEVSQ
-
-### Extended text (add 10)
-
-REGEXEXTRACT, REGEXREPLACE, ROMAN, ARABIC, UNICODE, UNICHAR, ASC,
-LEFTB, RIGHTB, MIDB
-
-### Extended date (add 4)
-
-DAYS360, WORKDAY.INTL, NETWORKDAYS.INTL, EPOCHTODATE
-
-### Extended lookup (add 4)
-
-FORMULATEXT, OFFSET (if not in Tier 1), ROW, SHEET
-
-### Array functions (add 8)
-
-FLATTEN, FREQUENCY, HSTACK, VSTACK, TOCOL, TOROW, WRAPCOLS, WRAPROWS
-
-### Parser functions (add 5)
-
-CONVERT, TO_DATE, TO_TEXT, TO_PERCENT, TO_PURE_NUMBER
-
-### LAMBDA ecosystem (add 6)
-
-LAMBDA, MAP, REDUCE, SCAN, BYROW, BYCOL
-
-**Tier 2 total: ~79 new functions → cumulative ~242 (48% coverage)**
-
-## Tier 3 — Specialist
-
-Niche functions for domain-specific work. Add on demand or as community
-contributions.
-
-### Full financial suite (add ~35)
-
-Remaining bond/coupon functions (ACCRINT, COUPDAYBS, PRICE, YIELD, etc.),
-depreciation (VDB, SYD, AMORLINC), and TVM variants (CUMIPMT, CUMPRINC,
-MIRR, FVSCHEDULE, etc.).
-
-### Statistical distributions (add ~60)
-
-NORMDIST, NORMINV, TDIST, TINV, CHISQ.DIST, BINOM.DIST, POISSON.DIST,
-F.DIST, BETA.DIST, GAMMA.DIST, WEIBULL, LOGNORMDIST, HYPGEOMDIST,
-EXPONDIST, etc. — including all `.INV`, `.RT`, `.2T` variants and legacy
-aliases.
-
-### Statistical tests (add ~10)
-
-T.TEST, F.TEST, CHISQ.TEST, Z.TEST, CONFIDENCE, CONFIDENCE.T, FISHER,
-FISHERINV, PROB, MARGINOFERROR.
-
-### Engineering (add ~47)
-
-Number base conversions (BIN2DEC, HEX2OCT, etc.), bitwise operations
-(BITAND, BITOR, BITXOR), complex number arithmetic (IMSUM, IMDIV,
-IMCOS, etc.), error functions (ERF, ERFC), and threshold functions
-(DELTA, GESTEP).
-
-### Database functions (add 12)
-
-DAVERAGE, DCOUNT, DCOUNTA, DGET, DMAX, DMIN, DPRODUCT, DSTDEV, DSTDEVP,
-DSUM, DVAR, DVARP.
-
-### Matrix functions (add 5)
-
-MDETERM, MINVERSE, MMULT, MUNIT, LINEST.
-
-**Tier 3 total: ~170 functions → cumulative ~412 (81% coverage)**
-
-## Out of Scope
-
-These functions are platform-specific or require external services. Not
-planned.
-
-| Function          | Reason                             |
-| ----------------- | ---------------------------------- |
+- **Operator** functions (ADD, MINUS, MULTIPLY, etc.) are covered by
+  built-in arithmetic/comparison operators. CONCAT is implemented.
+- **Statistical** gap is mostly legacy aliases (BETADIST, CHIDIST, etc.)
+  for which we have the modern equivalents (BETA.DIST, CHISQ.DIST, etc.).
+- **Web** gap is entirely IMPORT* functions (external HTTP from formula).
+- **Math** gap is LOG10 only, which was removed due to an ANTLR lexer
+  conflict (LOG + 10). Use `LOG(x,10)` instead.
+
+## Remaining Gaps
+
+### Higher-order functions (require grammar changes)
+
+LET, LAMBDA, MAP, REDUCE, SCAN, BYROW, BYCOL, MAKEARRAY — these require
+the ANTLR grammar to support named parameter binding and lambda
+expressions. This is the largest architectural gap.
+
+### Legacy statistical aliases
+
+BETADIST, BETAINV, BINOMDIST, CHIDIST, CHIINV, CHITEST, CRITBINOM,
+EXPONDIST, FDIST, FINV, FTEST, GAMMADIST, GAMMAINV, HYPGEOMDIST, LOGINV,
+LOGNORMDIST, NEGBINOMDIST, NORMSDIST, NORMSINV, POISSON, TDIST, TINV,
+TTEST, WEIBULL, ZTEST — older names that map to modern functions we already
+support (e.g., BETADIST → BETA.DIST).
+
+### Byte-variant text functions
+
+ASC, FINDB, LEFTB, LENB, MIDB, REPLACEB, RIGHTB, SEARCHB — CJK
+double-byte character handling variants.
+
+### Niche missing functions
+
+| Function        | Category    | Notes                                |
+| --------------- | ----------- | ------------------------------------ |
+| LOG10           | Math        | Removed (parser conflict). Use LOG() |
+| VDB             | Financial   | Variable declining balance           |
+| SORTN           | Filter      | Sort + limit (SORT works)            |
+| EPOCHTODATE     | Date        | Unix timestamp conversion            |
+| AVERAGE.WEIGHTED| Statistical | Weighted average                     |
+| MARGINOFERROR   | Statistical | Margin of error                      |
+| PEARSON         | Statistical | Same as CORREL (implemented)         |
+| ISBETWEEN       | Operator    | Range check                          |
+| IMCOTH          | Engineering | Complex hyperbolic cotangent         |
+| IMCSCH          | Engineering | Complex hyperbolic cosecant          |
+| IMLOG           | Engineering | Complex logarithm                    |
+| IMSECH          | Engineering | Complex hyperbolic secant            |
+| IMTANH          | Engineering | Complex hyperbolic tangent           |
+| TO_DATE         | Parser      | Type conversion                      |
+| TO_DOLLARS      | Parser      | Type conversion                      |
+| TO_PERCENT      | Parser      | Type conversion                      |
+| TO_PURE_NUMBER  | Parser      | Type conversion                      |
+| TO_TEXT         | Parser      | Type conversion                      |
+
+### Out of Scope
+
+| Function               | Reason                             |
+| ---------------------- | ---------------------------------- |
 | IMPORTDATA/FEED/HTML/RANGE/XML | External HTTP from formula |
-| GETPIVOTDATA      | Requires pivot table feature       |
-| CELL              | Implementation-specific metadata   |
-| ISFORMULA / ISREF | Requires formula-aware cell checks |
-| ISEMAIL / ISURL   | Validation utilities, low priority |
-| SHEETS / SHEET    | Multi-sheet metadata queries       |
-
-Operator functions (ADD, MINUS, MULTIPLY, DIVIDE, EQ, GT, LT, etc.) are
-already handled by built-in operators and are not worth duplicating as
-named functions.
+| GETPIVOTDATA           | Requires pivot table feature       |
+| ISEMAIL                | Validation utility, low priority   |
+| ARRAY_CONSTRAIN        | Dynamic array control, low demand  |
 
 ## Implementation Approach
 
@@ -241,392 +114,375 @@ named functions.
 1. Implement in `packages/sheet/src/formula/functions.ts` — follow the
    existing `(ctx, visit, grid?) → EvalNode` pattern.
 2. Register in `FunctionMap`.
-3. Add catalog entry in `packages/sheet/src/formula/function-catalog.ts` with name, category,
-   description, and args.
+3. Add catalog entry in `packages/sheet/src/formula/function-catalog.ts`
+   with name, category, description, and args.
 4. Add tests in `packages/sheet/test/formula/`.
 5. Run `pnpm verify:fast`.
 
-### Batching strategy
+### Known parser limitations
 
-Group functions by shared infrastructure:
-
-- **Trig functions** share the same single-number-arg pattern.
-- **Rounding variants** (CEILING, FLOOR, MROUND, TRUNC) share rounding logic.
-- **Conditional aggregations** (AVERAGEIF, MAXIFS, MINIFS) extend the existing
-  COUNTIF/SUMIF pattern.
-- **XLOOKUP** can reuse MATCH internals.
-- **STDEV/VAR family** share sum-of-squares accumulation.
-
-Each batch should be a single commit with tests.
-
-### Grammar changes
-
-Most new functions require **no grammar changes** — the grammar already
-supports `FUNCNAME '(' args ')'`. Functions like LET and LAMBDA may
-require grammar extensions for named parameter binding.
-
-### Date system prerequisite
-
-Several Tier 1 date functions (DATEDIF, EDATE, EOMONTH, WORKDAY,
-NETWORKDAYS) require a proper serial date number system (days since epoch)
-to match Google Sheets behavior. Currently dates are stored as strings.
-A date serial number system is a prerequisite for robust date arithmetic.
+- **LOG10**: The ANTLR lexer splits `LOG10(...)` into `LOG` (function) +
+  `10` (number) because `LOG` is already a function name. Use
+  `LOG(x, 10)` instead.
+- **LAMBDA/LET**: Require grammar extensions for named parameter binding.
+  Not planned for the current parser architecture.
 
 ## Per-Function Reference
 
 Complete mapping of every Google Sheets function to its support status.
 
-Legend: ✅ = supported, 🔵 = Tier 1, 🟡 = Tier 2, 🟠 = Tier 3, ⬜ = out of scope
+Legend: ✅ = implemented, 🟡 = planned (Tier 2), 🟠 = planned (Tier 3),
+⬜ = out of scope
 
 ### Array
 
 | Function | Status |
 | --- | --- |
-| ARRAY_CONSTRAIN | 🟠 |
+| ARRAY_CONSTRAIN | ⬜ |
 | BYCOL | 🟡 |
 | BYROW | 🟡 |
-| CHOOSECOLS | 🟠 |
-| CHOOSEROWS | 🟠 |
-| FLATTEN | 🟡 |
-| FREQUENCY | 🟡 |
-| GROWTH | 🟠 |
-| HSTACK | 🟡 |
-| LINEST | 🟠 |
-| LOGEST | 🟠 |
-| MAKEARRAY | 🟠 |
+| CHOOSECOLS | ✅ |
+| CHOOSEROWS | ✅ |
+| FLATTEN | ✅ |
+| FREQUENCY | ✅ |
+| GROWTH | ✅ |
+| HSTACK | ✅ |
+| LINEST | ✅ |
+| LOGEST | ✅ |
+| MAKEARRAY | 🟡 |
 | MAP | 🟡 |
-| MDETERM | 🟠 |
-| MINVERSE | 🟠 |
-| MMULT | 🟠 |
+| MDETERM | ✅ |
+| MINVERSE | ✅ |
+| MMULT | ✅ |
 | REDUCE | 🟡 |
 | SCAN | 🟡 |
-| SUMPRODUCT | 🔵 |
-| SUMX2MY2 | 🟠 |
-| SUMX2PY2 | 🟠 |
-| SUMXMY2 | 🟠 |
-| TOCOL | 🟡 |
-| TOROW | 🟡 |
-| TRANSPOSE | 🔵 |
-| TREND | 🟠 |
-| VSTACK | 🟡 |
-| WRAPCOLS | 🟡 |
-| WRAPROWS | 🟡 |
+| SUMPRODUCT | ✅ |
+| SUMX2MY2 | ✅ |
+| SUMX2PY2 | ✅ |
+| SUMXMY2 | ✅ |
+| TOCOL | ✅ |
+| TOROW | ✅ |
+| TRANSPOSE | ✅ |
+| TREND | ✅ |
+| VSTACK | ✅ |
+| WRAPCOLS | ✅ |
+| WRAPROWS | ✅ |
 
 ### Database
 
 | Function | Status |
 | --- | --- |
-| DAVERAGE | 🟠 |
-| DCOUNT | 🟠 |
-| DCOUNTA | 🟠 |
-| DGET | 🟠 |
-| DMAX | 🟠 |
-| DMIN | 🟠 |
-| DPRODUCT | 🟠 |
-| DSTDEV | 🟠 |
-| DSTDEVP | 🟠 |
-| DSUM | 🟠 |
-| DVAR | 🟠 |
-| DVARP | 🟠 |
+| DAVERAGE | ✅ |
+| DCOUNT | ✅ |
+| DCOUNTA | ✅ |
+| DGET | ✅ |
+| DMAX | ✅ |
+| DMIN | ✅ |
+| DPRODUCT | ✅ |
+| DSTDEV | ✅ |
+| DSTDEVP | ✅ |
+| DSUM | ✅ |
+| DVAR | ✅ |
+| DVARP | ✅ |
 
 ### Date
 
 | Function | Status |
 | --- | --- |
 | DATE | ✅ |
-| DATEDIF | 🔵 |
-| DATEVALUE | 🔵 |
+| DATEDIF | ✅ |
+| DATEVALUE | ✅ |
 | DAY | ✅ |
 | DAYS | ✅ |
-| DAYS360 | 🟡 |
-| EDATE | 🔵 |
-| EOMONTH | 🔵 |
+| DAYS360 | ✅ |
+| EDATE | ✅ |
+| EOMONTH | ✅ |
 | EPOCHTODATE | 🟡 |
 | HOUR | ✅ |
-| ISOWEEKNUM | 🔵 |
+| ISOWEEKNUM | ✅ |
 | MINUTE | ✅ |
 | MONTH | ✅ |
-| NETWORKDAYS | 🔵 |
-| NETWORKDAYS.INTL | 🟡 |
+| NETWORKDAYS | ✅ |
+| NETWORKDAYS.INTL | ✅ |
 | NOW | ✅ |
 | SECOND | ✅ |
 | TIME | ✅ |
-| TIMEVALUE | 🔵 |
+| TIMEVALUE | ✅ |
 | TODAY | ✅ |
 | WEEKDAY | ✅ |
-| WEEKNUM | 🔵 |
-| WORKDAY | 🔵 |
-| WORKDAY.INTL | 🟡 |
+| WEEKNUM | ✅ |
+| WORKDAY | ✅ |
+| WORKDAY.INTL | ✅ |
 | YEAR | ✅ |
-| YEARFRAC | 🔵 |
+| YEARFRAC | ✅ |
 
 ### Engineering
 
 | Function | Status |
 | --- | --- |
-| BIN2DEC | 🟠 |
-| BIN2HEX | 🟠 |
-| BIN2OCT | 🟠 |
-| BITAND | 🟠 |
-| BITLSHIFT | 🟠 |
-| BITOR | 🟠 |
-| BITRSHIFT | 🟠 |
-| BITXOR | 🟠 |
-| COMPLEX | 🟠 |
-| DEC2BIN | 🟠 |
-| DEC2HEX | 🟠 |
-| DEC2OCT | 🟠 |
-| DELTA | 🟠 |
-| ERF | 🟠 |
-| ERF.PRECISE | 🟠 |
-| GESTEP | 🟠 |
-| HEX2BIN | 🟠 |
-| HEX2DEC | 🟠 |
-| HEX2OCT | 🟠 |
-| IMABS | 🟠 |
-| IMAGINARY | 🟠 |
-| IMARGUMENT | 🟠 |
-| IMCONJUGATE | 🟠 |
-| IMCOS | 🟠 |
-| IMCOSH | 🟠 |
-| IMCOT | 🟠 |
+| BIN2DEC | ✅ |
+| BIN2HEX | ✅ |
+| BIN2OCT | ✅ |
+| BITAND | ✅ |
+| BITLSHIFT | ✅ |
+| BITOR | ✅ |
+| BITRSHIFT | ✅ |
+| BITXOR | ✅ |
+| COMPLEX | ✅ |
+| DEC2BIN | ✅ |
+| DEC2HEX | ✅ |
+| DEC2OCT | ✅ |
+| DELTA | ✅ |
+| ERF | ✅ |
+| ERF.PRECISE | ✅ |
+| GESTEP | ✅ |
+| HEX2BIN | ✅ |
+| HEX2DEC | ✅ |
+| HEX2OCT | ✅ |
+| IMABS | ✅ |
+| IMAGINARY | ✅ |
+| IMARGUMENT | ✅ |
+| IMCONJUGATE | ✅ |
+| IMCOS | ✅ |
+| IMCOSH | ✅ |
+| IMCOT | ✅ |
 | IMCOTH | 🟠 |
-| IMCSC | 🟠 |
+| IMCSC | ✅ |
 | IMCSCH | 🟠 |
-| IMDIV | 🟠 |
-| IMEXP | 🟠 |
+| IMDIV | ✅ |
+| IMEXP | ✅ |
 | IMLOG | 🟠 |
-| IMLOG10 | 🟠 |
-| IMLOG2 | 🟠 |
-| IMPRODUCT | 🟠 |
-| IMREAL | 🟠 |
-| IMSEC | 🟠 |
+| IMLOG10 | ✅ |
+| IMLOG2 | ✅ |
+| IMPRODUCT | ✅ |
+| IMREAL | ✅ |
+| IMSEC | ✅ |
 | IMSECH | 🟠 |
-| IMSIN | 🟠 |
-| IMSINH | 🟠 |
-| IMSUB | 🟠 |
-| IMSUM | 🟠 |
-| IMTAN | 🟠 |
+| IMSIN | ✅ |
+| IMSINH | ✅ |
+| IMSUB | ✅ |
+| IMSUM | ✅ |
+| IMTAN | ✅ |
 | IMTANH | 🟠 |
-| OCT2BIN | 🟠 |
-| OCT2DEC | 🟠 |
-| OCT2HEX | 🟠 |
+| OCT2BIN | ✅ |
+| OCT2DEC | ✅ |
+| OCT2HEX | ✅ |
 
 ### Filter
 
 | Function | Status |
 | --- | --- |
-| FILTER | 🔵 |
-| SORT | 🔵 |
+| FILTER | ✅ |
+| SORT | ✅ |
 | SORTN | 🟡 |
-| UNIQUE | 🔵 |
+| UNIQUE | ✅ |
 
 ### Financial
 
 | Function | Status |
 | --- | --- |
-| ACCRINT | 🟠 |
-| ACCRINTM | 🟠 |
-| AMORLINC | 🟠 |
-| COUPDAYBS | 🟠 |
-| COUPDAYS | 🟠 |
-| COUPDAYSNC | 🟠 |
-| COUPNCD | 🟠 |
-| COUPNUM | 🟠 |
-| COUPPCD | 🟠 |
-| CUMIPMT | 🟠 |
-| CUMPRINC | 🟠 |
-| DB | 🟡 |
-| DDB | 🟡 |
-| DISC | 🟠 |
-| DOLLARDE | 🟠 |
-| DOLLARFR | 🟠 |
-| DURATION | 🟠 |
-| EFFECT | 🟡 |
-| FV | 🟡 |
-| FVSCHEDULE | 🟠 |
-| INTRATE | 🟠 |
-| IPMT | 🟡 |
-| IRR | 🟡 |
-| ISPMT | 🟠 |
-| MDURATION | 🟠 |
-| MIRR | 🟠 |
-| NOMINAL | 🟠 |
-| NPER | 🟡 |
-| NPV | 🟡 |
-| PDURATION | 🟠 |
-| PMT | 🟡 |
-| PPMT | 🟡 |
-| PRICE | 🟠 |
-| PRICEDISC | 🟠 |
-| PRICEMAT | 🟠 |
-| PV | 🟡 |
-| RATE | 🟡 |
-| RECEIVED | 🟠 |
-| RRI | 🟠 |
-| SLN | 🟡 |
-| SYD | 🟠 |
-| TBILLEQ | 🟠 |
-| TBILLPRICE | 🟠 |
-| TBILLYIELD | 🟠 |
+| ACCRINT | ✅ |
+| ACCRINTM | ✅ |
+| AMORLINC | ✅ |
+| COUPDAYBS | ✅ |
+| COUPDAYS | ✅ |
+| COUPDAYSNC | ✅ |
+| COUPNCD | ✅ |
+| COUPNUM | ✅ |
+| COUPPCD | ✅ |
+| CUMIPMT | ✅ |
+| CUMPRINC | ✅ |
+| DB | ✅ |
+| DDB | ✅ |
+| DISC | ✅ |
+| DOLLARDE | ✅ |
+| DOLLARFR | ✅ |
+| DURATION | ✅ |
+| EFFECT | ✅ |
+| FV | ✅ |
+| FVSCHEDULE | ✅ |
+| INTRATE | ✅ |
+| IPMT | ✅ |
+| IRR | ✅ |
+| ISPMT | ✅ |
+| MDURATION | ✅ |
+| MIRR | ✅ |
+| NOMINAL | ✅ |
+| NPER | ✅ |
+| NPV | ✅ |
+| PDURATION | ✅ |
+| PMT | ✅ |
+| PPMT | ✅ |
+| PRICE | ✅ |
+| PRICEDISC | ✅ |
+| PRICEMAT | ✅ |
+| PV | ✅ |
+| RATE | ✅ |
+| RECEIVED | ✅ |
+| RRI | ✅ |
+| SLN | ✅ |
+| SYD | ✅ |
+| TBILLEQ | ✅ |
+| TBILLPRICE | ✅ |
+| TBILLYIELD | ✅ |
 | VDB | 🟠 |
-| XIRR | 🟡 |
-| XNPV | 🟡 |
-| YIELD | 🟠 |
-| YIELDDISC | 🟠 |
-| YIELDMAT | 🟠 |
+| XIRR | ✅ |
+| XNPV | ✅ |
+| YIELD | ✅ |
+| YIELDDISC | ✅ |
+| YIELDMAT | ✅ |
 
 ### Info
 
 | Function | Status |
 | --- | --- |
-| CELL | ⬜ |
-| ERROR.TYPE | 🔵 |
+| CELL | ✅ |
+| ERROR.TYPE | ✅ |
 | ISBLANK | ✅ |
-| ISDATE | 🔵 |
+| ISDATE | ✅ |
 | ISEMAIL | ⬜ |
 | ISERR | ✅ |
 | ISERROR | ✅ |
-| ISFORMULA | ⬜ |
+| ISFORMULA | ✅ |
 | ISLOGICAL | ✅ |
 | ISNA | ✅ |
 | ISNONTEXT | ✅ |
 | ISNUMBER | ✅ |
-| ISREF | ⬜ |
+| ISREF | ✅ |
 | ISTEXT | ✅ |
-| N | 🔵 |
-| NA | 🔵 |
-| SHEETS | ⬜ |
-| TYPE | 🔵 |
+| N | ✅ |
+| NA | ✅ |
+| SHEETS | ✅ |
+| TYPE | ✅ |
 
 ### Logical
 
 | Function | Status |
 | --- | --- |
 | AND | ✅ |
-| FALSE | 🔵 |
+| FALSE | ✅ |
 | IF | ✅ |
 | IFERROR | ✅ |
 | IFNA | ✅ |
 | IFS | ✅ |
 | LAMBDA | 🟡 |
-| LET | 🔵 |
+| LET | 🟡 |
 | NOT | ✅ |
 | OR | ✅ |
 | SWITCH | ✅ |
-| TRUE | 🔵 |
-| XOR | 🔵 |
+| TRUE | ✅ |
+| XOR | ✅ |
 
 ### Lookup
 
 | Function | Status |
 | --- | --- |
-| ADDRESS | 🔵 |
-| CHOOSE | 🔵 |
-| COLUMN | 🔵 |
-| COLUMNS | 🔵 |
-| FORMULATEXT | 🟡 |
+| ADDRESS | ✅ |
+| CHOOSE | ✅ |
+| COLUMN | ✅ |
+| COLUMNS | ✅ |
+| FORMULATEXT | ✅ |
 | GETPIVOTDATA | ⬜ |
 | HLOOKUP | ✅ |
 | INDEX | ✅ |
-| INDIRECT | 🔵 |
-| LOOKUP | 🔵 |
+| INDIRECT | ✅ |
+| LOOKUP | ✅ |
 | MATCH | ✅ |
-| OFFSET | 🔵 |
-| ROW | 🔵 |
-| ROWS | 🔵 |
-| SHEET | ⬜ |
+| OFFSET | ✅ |
+| ROW | ✅ |
+| ROWS | ✅ |
+| SHEET | ✅ |
 | VLOOKUP | ✅ |
-| XLOOKUP | 🔵 |
+| XLOOKUP | ✅ |
 
 ### Math
 
 | Function | Status |
 | --- | --- |
 | ABS | ✅ |
-| ACOS | 🔵 |
-| ACOSH | 🟡 |
-| ACOT | 🟡 |
-| ACOTH | 🟡 |
-| ASIN | 🔵 |
-| ASINH | 🟡 |
-| ATAN | 🔵 |
-| ATAN2 | 🔵 |
-| ATANH | 🟡 |
-| BASE | 🟡 |
-| CEILING | 🔵 |
-| CEILING.MATH | 🟡 |
-| CEILING.PRECISE | 🟡 |
-| COMBIN | 🔵 |
-| COMBINA | 🟡 |
-| COS | 🔵 |
-| COSH | 🟡 |
-| COT | 🟡 |
-| COTH | 🟡 |
+| ACOS | ✅ |
+| ACOSH | ✅ |
+| ACOT | ✅ |
+| ACOTH | ✅ |
+| ASIN | ✅ |
+| ASINH | ✅ |
+| ATAN | ✅ |
+| ATAN2 | ✅ |
+| ATANH | ✅ |
+| BASE | ✅ |
+| CEILING | ✅ |
+| CEILING.MATH | ✅ |
+| CEILING.PRECISE | ✅ |
+| COMBIN | ✅ |
+| COMBINA | ✅ |
+| COS | ✅ |
+| COSH | ✅ |
+| COT | ✅ |
+| COTH | ✅ |
 | COUNTBLANK | ✅ |
 | COUNTIF | ✅ |
 | COUNTIFS | ✅ |
-| COUNTUNIQUE | 🔵 |
-| CSC | 🟡 |
-| CSCH | 🟡 |
-| DECIMAL | 🟡 |
-| DEGREES | 🔵 |
-| ERFC | 🟠 |
-| ERFC.PRECISE | 🟠 |
-| EVEN | 🔵 |
-| EXP | 🔵 |
-| FACT | 🔵 |
-| FACTDOUBLE | 🟡 |
-| FLOOR | 🔵 |
-| FLOOR.MATH | 🟡 |
-| FLOOR.PRECISE | 🟡 |
-| GAMMALN | 🟠 |
-| GAMMALN.PRECISE | 🟠 |
-| GCD | 🟡 |
-| IMLN | 🟠 |
-| IMPOWER | 🟠 |
-| IMSQRT | 🟠 |
+| COUNTUNIQUE | ✅ |
+| CSC | ✅ |
+| CSCH | ✅ |
+| DECIMAL | ✅ |
+| DEGREES | ✅ |
+| ERFC | ✅ |
+| ERFC.PRECISE | ✅ |
+| EVEN | ✅ |
+| EXP | ✅ |
+| FACT | ✅ |
+| FACTDOUBLE | ✅ |
+| FLOOR | ✅ |
+| FLOOR.MATH | ✅ |
+| FLOOR.PRECISE | ✅ |
+| GAMMALN | ✅ |
+| GAMMALN.PRECISE | ✅ |
+| GCD | ✅ |
+| IMLN | ✅ |
+| IMPOWER | ✅ |
+| IMSQRT | ✅ |
 | INT | ✅ |
-| ISEVEN | 🟡 |
-| ISO.CEILING | 🟡 |
-| ISODD | 🟡 |
-| LCM | 🟡 |
-| LN | 🔵 |
-| LOG | 🔵 |
-| LOG10 | 🔵 |
+| ISEVEN | ✅ |
+| ISO.CEILING | ✅ |
+| ISODD | ✅ |
+| LCM | ✅ |
+| LN | ✅ |
+| LOG | ✅ |
+| LOG10 | ⬜ |
 | MOD | ✅ |
-| MROUND | 🔵 |
-| MULTINOMIAL | 🟡 |
-| MUNIT | 🟠 |
-| ODD | 🔵 |
-| PI | 🔵 |
+| MROUND | ✅ |
+| MULTINOMIAL | ✅ |
+| MUNIT | ✅ |
+| ODD | ✅ |
+| PI | ✅ |
 | POWER | ✅ |
 | PRODUCT | ✅ |
-| QUOTIENT | 🔵 |
-| RADIANS | 🔵 |
+| QUOTIENT | ✅ |
+| RADIANS | ✅ |
 | RAND | ✅ |
-| RANDARRAY | 🟡 |
+| RANDARRAY | ✅ |
 | RANDBETWEEN | ✅ |
 | ROUND | ✅ |
 | ROUNDDOWN | ✅ |
 | ROUNDUP | ✅ |
-| SEC | 🟡 |
-| SECH | 🟡 |
-| SEQUENCE | 🟡 |
-| SERIESSUM | 🟠 |
-| SIGN | 🔵 |
-| SIN | 🔵 |
-| SINH | 🟡 |
+| SEC | ✅ |
+| SECH | ✅ |
+| SEQUENCE | ✅ |
+| SERIESSUM | ✅ |
+| SIGN | ✅ |
+| SIN | ✅ |
+| SINH | ✅ |
 | SQRT | ✅ |
-| SQRTPI | 🟡 |
-| SUBTOTAL | 🟡 |
+| SQRTPI | ✅ |
+| SUBTOTAL | ✅ |
 | SUM | ✅ |
 | SUMIF | ✅ |
 | SUMIFS | ✅ |
-| SUMSQ | 🔵 |
-| TAN | 🔵 |
-| TANH | 🟡 |
-| TRUNC | 🔵 |
+| SUMSQ | ✅ |
+| TAN | ✅ |
+| TANH | ✅ |
+| TRUNC | ✅ |
 
 ### Operator
 
@@ -647,14 +503,14 @@ Legend: ✅ = supported, 🔵 = Tier 1, 🟡 = Tier 2, 🟠 = Tier 3, ⬜ = out 
 | POW | ⬜ |
 | UMINUS | ⬜ |
 | UNARY_PERCENT | ⬜ |
-| UNIQUE | 🔵 |
+| UNIQUE | ✅ |
 | UPLUS | ⬜ |
 
 ### Parser
 
 | Function | Status |
 | --- | --- |
-| CONVERT | 🟡 |
+| CONVERT | ✅ |
 | TO_DATE | 🟡 |
 | TO_DOLLARS | 🟡 |
 | TO_PERCENT | 🟡 |
@@ -665,159 +521,160 @@ Legend: ✅ = supported, 🔵 = Tier 1, 🟡 = Tier 2, 🟠 = Tier 3, ⬜ = out 
 
 | Function | Status |
 | --- | --- |
-| AVEDEV | 🟡 |
+| AVEDEV | ✅ |
 | AVERAGE | ✅ |
 | AVERAGE.WEIGHTED | 🟡 |
-| AVERAGEA | 🟡 |
-| AVERAGEIF | 🔵 |
-| AVERAGEIFS | 🔵 |
-| BETA.DIST | 🟠 |
-| BETA.INV | 🟠 |
+| AVERAGEA | ✅ |
+| AVERAGEIF | ✅ |
+| AVERAGEIFS | ✅ |
+| BETA.DIST | ✅ |
+| BETA.INV | ✅ |
 | BETADIST | 🟠 |
 | BETAINV | 🟠 |
-| BINOM.DIST | 🟠 |
-| BINOM.INV | 🟠 |
+| BINOM.DIST | ✅ |
+| BINOM.DIST.RANGE | ✅ |
+| BINOM.INV | ✅ |
 | BINOMDIST | 🟠 |
 | CHIDIST | 🟠 |
 | CHIINV | 🟠 |
-| CHISQ.DIST | 🟠 |
-| CHISQ.DIST.RT | 🟠 |
-| CHISQ.INV | 🟠 |
-| CHISQ.INV.RT | 🟠 |
-| CHISQ.TEST | 🟠 |
+| CHISQ.DIST | ✅ |
+| CHISQ.DIST.RT | ✅ |
+| CHISQ.INV | ✅ |
+| CHISQ.INV.RT | ✅ |
+| CHISQ.TEST | ✅ |
 | CHITEST | 🟠 |
 | CONFIDENCE | 🟠 |
-| CONFIDENCE.NORM | 🟠 |
-| CONFIDENCE.T | 🟠 |
-| CORREL | 🔵 |
+| CONFIDENCE.NORM | ✅ |
+| CONFIDENCE.T | ✅ |
+| CORREL | ✅ |
 | COUNT | ✅ |
 | COUNTA | ✅ |
-| COVAR | 🟠 |
-| COVARIANCE.P | 🟠 |
-| COVARIANCE.S | 🟠 |
+| COVAR | ✅ |
+| COVARIANCE.P | ✅ |
+| COVARIANCE.S | ✅ |
 | CRITBINOM | 🟠 |
-| DEVSQ | 🟡 |
-| EXPON.DIST | 🟠 |
+| DEVSQ | ✅ |
+| EXPON.DIST | ✅ |
 | EXPONDIST | 🟠 |
-| F.DIST | 🟠 |
-| F.DIST.RT | 🟠 |
-| F.INV | 🟠 |
-| F.INV.RT | 🟠 |
-| F.TEST | 🟠 |
+| F.DIST | ✅ |
+| F.DIST.RT | ✅ |
+| F.INV | ✅ |
+| F.INV.RT | ✅ |
+| F.TEST | ✅ |
 | FDIST | 🟠 |
 | FINV | 🟠 |
-| FISHER | 🟠 |
-| FISHERINV | 🟠 |
-| FORECAST | 🔵 |
-| FORECAST.LINEAR | 🔵 |
+| FISHER | ✅ |
+| FISHERINV | ✅ |
+| FORECAST | ✅ |
+| FORECAST.LINEAR | ✅ |
 | FTEST | 🟠 |
-| GAMMA | 🟠 |
-| GAMMA.DIST | 🟠 |
-| GAMMA.INV | 🟠 |
+| GAMMA | ✅ |
+| GAMMA.DIST | ✅ |
+| GAMMA.INV | ✅ |
 | GAMMADIST | 🟠 |
 | GAMMAINV | 🟠 |
-| GAUSS | 🟠 |
-| GEOMEAN | 🟡 |
-| HARMEAN | 🟡 |
-| HYPGEOM.DIST | 🟠 |
+| GAUSS | ✅ |
+| GEOMEAN | ✅ |
+| HARMEAN | ✅ |
+| HYPGEOM.DIST | ✅ |
 | HYPGEOMDIST | 🟠 |
-| INTERCEPT | 🔵 |
-| KURT | 🟠 |
-| LARGE | 🔵 |
+| INTERCEPT | ✅ |
+| KURT | ✅ |
+| LARGE | ✅ |
 | LOGINV | 🟠 |
-| LOGNORM.DIST | 🟠 |
-| LOGNORM.INV | 🟠 |
+| LOGNORM.DIST | ✅ |
+| LOGNORM.INV | ✅ |
 | LOGNORMDIST | 🟠 |
 | MARGINOFERROR | 🟠 |
 | MAX | ✅ |
-| MAXA | 🟡 |
-| MAXIFS | 🔵 |
+| MAXA | ✅ |
+| MAXIFS | ✅ |
 | MEDIAN | ✅ |
 | MIN | ✅ |
-| MINA | 🟡 |
-| MINIFS | 🔵 |
-| MODE | 🔵 |
-| MODE.MULT | 🟡 |
-| MODE.SNGL | 🔵 |
-| NEGBINOM.DIST | 🟠 |
+| MINA | ✅ |
+| MINIFS | ✅ |
+| MODE | ✅ |
+| MODE.MULT | ✅ |
+| MODE.SNGL | ✅ |
+| NEGBINOM.DIST | ✅ |
 | NEGBINOMDIST | 🟠 |
-| NORM.DIST | 🟠 |
-| NORM.INV | 🟠 |
-| NORM.S.DIST | 🟠 |
-| NORM.S.INV | 🟠 |
-| NORMDIST | 🟠 |
-| NORMINV | 🟠 |
+| NORM.DIST | ✅ |
+| NORM.INV | ✅ |
+| NORM.S.DIST | ✅ |
+| NORM.S.INV | ✅ |
+| NORMDIST | ✅ |
+| NORMINV | ✅ |
 | NORMSDIST | 🟠 |
 | NORMSINV | 🟠 |
 | PEARSON | 🟡 |
-| PERCENTILE | 🔵 |
-| PERCENTILE.EXC | 🟡 |
-| PERCENTILE.INC | 🔵 |
-| PERCENTRANK | 🟡 |
-| PERCENTRANK.EXC | 🟡 |
-| PERCENTRANK.INC | 🟡 |
-| PERMUT | 🟡 |
-| PERMUTATIONA | 🟡 |
-| PHI | 🟠 |
+| PERCENTILE | ✅ |
+| PERCENTILE.EXC | ✅ |
+| PERCENTILE.INC | ✅ |
+| PERCENTRANK | ✅ |
+| PERCENTRANK.EXC | ✅ |
+| PERCENTRANK.INC | ✅ |
+| PERMUT | ✅ |
+| PERMUTATIONA | ✅ |
+| PHI | ✅ |
 | POISSON | 🟠 |
-| POISSON.DIST | 🟠 |
-| PROB | 🟠 |
-| QUARTILE | 🔵 |
-| QUARTILE.EXC | 🟡 |
-| QUARTILE.INC | 🔵 |
-| RANK | 🔵 |
-| RANK.AVG | 🟡 |
-| RANK.EQ | 🟡 |
-| RSQ | 🟡 |
-| SKEW | 🟠 |
-| SKEW.P | 🟠 |
-| SLOPE | 🔵 |
-| SMALL | 🔵 |
-| STANDARDIZE | 🟠 |
-| STDEV | 🔵 |
-| STDEV.P | 🔵 |
-| STDEV.S | 🔵 |
-| STDEVA | 🟡 |
-| STDEVP | 🔵 |
-| STDEVPA | 🟡 |
-| STEYX | 🟡 |
-| T.DIST | 🟠 |
-| T.DIST.2T | 🟠 |
-| T.DIST.RT | 🟠 |
-| T.INV | 🟠 |
-| T.INV.2T | 🟠 |
-| T.TEST | 🟠 |
+| POISSON.DIST | ✅ |
+| PROB | ✅ |
+| QUARTILE | ✅ |
+| QUARTILE.EXC | ✅ |
+| QUARTILE.INC | ✅ |
+| RANK | ✅ |
+| RANK.AVG | ✅ |
+| RANK.EQ | ✅ |
+| RSQ | ✅ |
+| SKEW | ✅ |
+| SKEW.P | ✅ |
+| SLOPE | ✅ |
+| SMALL | ✅ |
+| STANDARDIZE | ✅ |
+| STDEV | ✅ |
+| STDEV.P | ✅ |
+| STDEV.S | ✅ |
+| STDEVA | ✅ |
+| STDEVP | ✅ |
+| STDEVPA | ✅ |
+| STEYX | ✅ |
+| T.DIST | ✅ |
+| T.DIST.2T | ✅ |
+| T.DIST.RT | ✅ |
+| T.INV | ✅ |
+| T.INV.2T | ✅ |
+| T.TEST | ✅ |
 | TDIST | 🟠 |
 | TINV | 🟠 |
-| TRIMMEAN | 🟡 |
+| TRIMMEAN | ✅ |
 | TTEST | 🟠 |
-| VAR | 🔵 |
-| VAR.P | 🔵 |
-| VAR.S | 🔵 |
-| VARA | 🟡 |
-| VARP | 🔵 |
-| VARPA | 🟡 |
+| VAR | ✅ |
+| VAR.P | ✅ |
+| VAR.S | ✅ |
+| VARA | ✅ |
+| VARP | ✅ |
+| VARPA | ✅ |
 | WEIBULL | 🟠 |
-| WEIBULL.DIST | 🟠 |
-| Z.TEST | 🟠 |
+| WEIBULL.DIST | ✅ |
+| Z.TEST | ✅ |
 | ZTEST | 🟠 |
 
 ### Text
 
 | Function | Status |
 | --- | --- |
-| ARABIC | 🟡 |
+| ARABIC | ✅ |
 | ASC | 🟡 |
-| CHAR | 🔵 |
-| CLEAN | 🔵 |
-| CODE | 🔵 |
+| CHAR | ✅ |
+| CLEAN | ✅ |
+| CODE | ✅ |
 | CONCATENATE | ✅ |
-| DOLLAR | 🔵 |
-| EXACT | 🔵 |
+| DOLLAR | ✅ |
+| EXACT | ✅ |
 | FIND | ✅ |
 | FINDB | 🟡 |
-| FIXED | 🔵 |
-| JOIN | 🔵 |
+| FIXED | ✅ |
+| JOIN | ✅ |
 | LEFT | ✅ |
 | LEFTB | 🟡 |
 | LEN | ✅ |
@@ -826,37 +683,64 @@ Legend: ✅ = supported, 🔵 = Tier 1, 🟡 = Tier 2, 🟠 = Tier 3, ⬜ = out 
 | MID | ✅ |
 | MIDB | 🟡 |
 | PROPER | ✅ |
-| REGEXEXTRACT | 🟡 |
-| REGEXMATCH | 🔵 |
-| REGEXREPLACE | 🟡 |
-| REPLACE | 🔵 |
+| REGEXEXTRACT | ✅ |
+| REGEXMATCH | ✅ |
+| REGEXREPLACE | ✅ |
+| REPLACE | ✅ |
 | REPLACEB | 🟡 |
-| REPT | 🔵 |
+| REPT | ✅ |
 | RIGHT | ✅ |
 | RIGHTB | 🟡 |
-| ROMAN | 🟡 |
+| ROMAN | ✅ |
 | SEARCH | ✅ |
 | SEARCHB | 🟡 |
-| SPLIT | 🔵 |
+| SPLIT | ✅ |
 | SUBSTITUTE | ✅ |
-| T | 🔵 |
-| TEXT | 🔵 |
+| T | ✅ |
+| TEXT | ✅ |
 | TEXTJOIN | ✅ |
 | TRIM | ✅ |
-| UNICHAR | 🟡 |
-| UNICODE | 🟡 |
+| UNICHAR | ✅ |
+| UNICODE | ✅ |
 | UPPER | ✅ |
-| VALUE | 🔵 |
+| VALUE | ✅ |
 
 ### Web
 
 | Function | Status |
 | --- | --- |
-| ENCODEURL | ⬜ |
-| HYPERLINK | ⬜ |
+| ENCODEURL | ✅ |
+| HYPERLINK | ✅ |
 | IMPORTDATA | ⬜ |
 | IMPORTFEED | ⬜ |
 | IMPORTHTML | ⬜ |
 | IMPORTRANGE | ⬜ |
 | IMPORTXML | ⬜ |
-| ISURL | ⬜ |
+| ISURL | ✅ |
+
+### Additional Functions (not in Google Sheets)
+
+These functions are implemented but have no Google Sheets equivalent:
+
+| Function | Category | Description |
+| --- | --- | --- |
+| AREAS | Info | Number of areas in a reference |
+| BESSELJ | Engineering | Bessel function of the first kind |
+| BESSELY | Engineering | Bessel function of the second kind |
+| BESSELI | Engineering | Modified Bessel function (first kind) |
+| BESSELK | Engineering | Modified Bessel function (second kind) |
+| AGGREGATE | Statistical | Aggregate with ignore options |
+| CELL | Info | Cell information (row, col, address) |
+| CHOOSEROWS | Lookup | Select rows from array |
+| CHOOSECOLS | Lookup | Select columns from array |
+| DROP | Lookup | Remove rows/columns from array |
+| EXPAND | Lookup | Expand array dimensions |
+| FILTER | Lookup | Filter rows by criteria |
+| NUMBERVALUE | Text | Parse localized number string |
+| SORTBY | Lookup | Sort by separate key array |
+| TAKE | Lookup | Take rows/columns from array |
+| TEXTBEFORE | Text | Text before delimiter |
+| TEXTAFTER | Text | Text after delimiter |
+| TEXTSPLIT | Text | Split text by delimiter |
+| VALUETOTEXT | Text | Convert value to text |
+| XMATCH | Lookup | Modern MATCH with match modes |

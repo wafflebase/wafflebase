@@ -133,44 +133,21 @@ Source: `packages/sheet/src/formula/functions.ts`
 
 Functions are registered in `FunctionMap`. Each function receives a
 `FunctionContext` (ANTLR node), a `visit` callback, and an optional `Grid`.
+The engine implements **437 function entries (424 unique functions, plus 13
+aliases)** across 10 categories:
 
-| Function                 | Description                                         |
-| ------------------------ | --------------------------------------------------- |
-| `SUM`                    | Sum of numeric arguments                            |
-| `ABS`                    | Absolute value                                      |
-| `ROUND` / `ROUNDUP` / `ROUNDDOWN` | Decimal rounding controls                  |
-| `INT` / `MOD`            | Integer rounding and modular arithmetic             |
-| `SQRT` / `POWER`         | Square root and exponentiation                      |
-| `PRODUCT` / `MEDIAN`     | Multiplication and middle-value aggregation         |
-| `RAND` / `RANDBETWEEN`   | Volatile random values                              |
-| `AVERAGE`                | Arithmetic mean                                     |
-| `MIN` / `MAX`            | Minimum / maximum value                             |
-| `COUNT`                  | Count of numeric values                             |
-| `COUNTA` / `COUNTBLANK`  | Count of non-empty / blank values                   |
-| `COUNTIF` / `SUMIF`      | Single-criterion conditional count/sum              |
-| `COUNTIFS` / `SUMIFS`    | Multi-criteria conditional count/sum                |
-| `MATCH` / `INDEX`        | Lookup position and indexed value retrieval         |
-| `VLOOKUP` / `HLOOKUP`    | Vertical/horizontal table lookup                    |
-| `IF`                     | Conditional: `IF(condition, true_val, [false_val])` |
-| `IFS` / `SWITCH`         | Multi-branch conditional selection                  |
-| `AND` / `OR` / `NOT`     | Logical operators                                   |
-| `TRIM`                   | Remove leading/trailing whitespace                  |
-| `LEN`                    | String length                                       |
-| `LEFT` / `RIGHT` / `MID` | Substring extraction                                |
-| `CONCATENATE` / `CONCAT` | String concatenation                                |
-| `FIND` / `SEARCH`        | Text search (case-sensitive/insensitive)            |
-| `TEXTJOIN`               | Concatenation with delimiter and empty filtering    |
-| `LOWER` / `UPPER` / `PROPER` | Text case conversion                            |
-| `SUBSTITUTE`             | Replace text occurrences                            |
-| `TODAY` / `NOW`          | Current date / datetime                             |
-| `DATE` / `TIME` / `DAYS` | Date/time construction and date differences         |
-| `YEAR` / `MONTH` / `DAY` | Date component extraction                           |
-| `HOUR` / `MINUTE` / `SECOND` | Time component extraction                       |
-| `WEEKDAY`                | Day-of-week indexing                                |
-| `ISBLANK` / `ISNUMBER` / `ISTEXT` | Core value-type checks                     |
-| `ISERROR` / `ISERR` / `ISNA` | Error-type checks                              |
-| `ISLOGICAL` / `ISNONTEXT` | Additional type predicates                         |
-| `IFERROR` / `IFNA`       | Error handling with broad / #N/A-specific fallback  |
+| Category    | Count | Examples                                              |
+| ----------- | ----: | ----------------------------------------------------- |
+| Math        |    84 | SUM, ABS, ROUND, CEILING, FLOOR, SIN, COS, LOG, GCD  |
+| Statistical |   103 | AVERAGE, STDEV, NORM.DIST, T.DIST, CHISQ.TEST, CORREL|
+| Engineering |    50 | COMPLEX, IMSUM, BESSELJ, HEX2DEC, BITAND, ERF, DELTA |
+| Financial   |    49 | PMT, NPV, IRR, PRICE, YIELD, ACCRINT, DURATION, XIRR |
+| Text        |    38 | TRIM, LEFT, MID, SUBSTITUTE, TEXTJOIN, REGEXMATCH     |
+| Lookup      |    32 | VLOOKUP, XLOOKUP, INDEX, MATCH, SORT, FILTER, XMATCH  |
+| Date        |    25 | TODAY, DATE, EDATE, NETWORKDAYS, YEARFRAC, DAYS360     |
+| Info        |    21 | ISBLANK, ISNUMBER, TYPE, CELL, ISFORMULA, ERROR.TYPE   |
+| Database    |    12 | DSUM, DAVERAGE, DCOUNT, DGET, DMAX, DMIN, DVAR         |
+| Logical     |    10 | IF, IFS, SWITCH, AND, OR, NOT, XOR, IFERROR, IFNA      |
 
 New functions follow the same pattern: accept `(ctx, visit, grid?)`, return
 an `EvalNode`.
@@ -347,9 +324,12 @@ changes structure.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 69 built-in functions are implemented. New
-functions are added to `FunctionMap` and `FunctionCatalog` following the same
-pattern: accept `(ctx, visit, grid?)`, return an `EvalNode`.
+**Formula function coverage** — 437 function entries (424 unique) are
+implemented across all major categories. Remaining gaps are mainly legacy
+aliases, byte-variant text functions, and higher-order functions (LET,
+LAMBDA, MAP, REDUCE) that require grammar extensions. New functions are
+added to `FunctionMap` and `FunctionCatalog` following the same pattern:
+accept `(ctx, visit, grid?)`, return an `EvalNode`.
 
 **Circular references** — The calculator's topological sort detects cycles and
 marks affected cells with `#REF!` rather than entering an infinite loop.
