@@ -6,6 +6,7 @@ import { ParseTreeVisitor } from "antlr4ts/tree/ParseTreeVisitor";
 
 import { FunctionContext } from "./FormulaParser";
 import { UnarySignContext } from "./FormulaParser";
+import { CallContext } from "./FormulaParser";
 import { MulDivContext } from "./FormulaParser";
 import { AddSubContext } from "./FormulaParser";
 import { ConcatContext } from "./FormulaParser";
@@ -14,6 +15,7 @@ import { NumberContext } from "./FormulaParser";
 import { BooleanContext } from "./FormulaParser";
 import { StrContext } from "./FormulaParser";
 import { ReferenceContext } from "./FormulaParser";
+import { IdentifierContext } from "./FormulaParser";
 import { ParenthesesContext } from "./FormulaParser";
 import { ArrayLiteralContext } from "./FormulaParser";
 import { FormulaContext } from "./FormulaParser";
@@ -45,6 +47,14 @@ export interface FormulaVisitor<Result> extends ParseTreeVisitor<Result> {
 	 * @return the visitor result
 	 */
 	visitUnarySign?: (ctx: UnarySignContext) => Result;
+
+	/**
+	 * Visit a parse tree produced by the `Call`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	visitCall?: (ctx: CallContext) => Result;
 
 	/**
 	 * Visit a parse tree produced by the `MulDiv`
@@ -109,6 +119,14 @@ export interface FormulaVisitor<Result> extends ParseTreeVisitor<Result> {
 	 * @return the visitor result
 	 */
 	visitReference?: (ctx: ReferenceContext) => Result;
+
+	/**
+	 * Visit a parse tree produced by the `Identifier`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 * @return the visitor result
+	 */
+	visitIdentifier?: (ctx: IdentifierContext) => Result;
 
 	/**
 	 * Visit a parse tree produced by the `Parentheses`

@@ -3,6 +3,7 @@ formula: expr+ ;
 
 expr: FUNCNAME '(' args? ')'         # Function
     | op=(ADD|SUB) expr              # UnarySign
+    | expr '(' args? ')'             # Call
     | expr op=(MUL|DIV) expr         # MulDiv
     | expr op=(ADD|SUB) expr         # AddSub
     | expr AMP expr                  # Concat
@@ -11,6 +12,7 @@ expr: FUNCNAME '(' args? ')'         # Function
     | BOOL                           # Boolean
     | STRING                         # Str
     | REFERENCE                      # Reference
+    | FUNCNAME                        # Identifier
     | '(' expr ')'                   # Parentheses
     | '{' arrayRow (SEMI arrayRow)* '}'  # ArrayLiteral
     ;

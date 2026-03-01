@@ -6,6 +6,7 @@ import { ParseTreeListener } from "antlr4ts/tree/ParseTreeListener";
 
 import { FunctionContext } from "./FormulaParser";
 import { UnarySignContext } from "./FormulaParser";
+import { CallContext } from "./FormulaParser";
 import { MulDivContext } from "./FormulaParser";
 import { AddSubContext } from "./FormulaParser";
 import { ConcatContext } from "./FormulaParser";
@@ -14,6 +15,7 @@ import { NumberContext } from "./FormulaParser";
 import { BooleanContext } from "./FormulaParser";
 import { StrContext } from "./FormulaParser";
 import { ReferenceContext } from "./FormulaParser";
+import { IdentifierContext } from "./FormulaParser";
 import { ParenthesesContext } from "./FormulaParser";
 import { ArrayLiteralContext } from "./FormulaParser";
 import { FormulaContext } from "./FormulaParser";
@@ -52,6 +54,19 @@ export interface FormulaListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	exitUnarySign?: (ctx: UnarySignContext) => void;
+
+	/**
+	 * Enter a parse tree produced by the `Call`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	enterCall?: (ctx: CallContext) => void;
+	/**
+	 * Exit a parse tree produced by the `Call`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	exitCall?: (ctx: CallContext) => void;
 
 	/**
 	 * Enter a parse tree produced by the `MulDiv`
@@ -156,6 +171,19 @@ export interface FormulaListener extends ParseTreeListener {
 	 * @param ctx the parse tree
 	 */
 	exitReference?: (ctx: ReferenceContext) => void;
+
+	/**
+	 * Enter a parse tree produced by the `Identifier`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	enterIdentifier?: (ctx: IdentifierContext) => void;
+	/**
+	 * Exit a parse tree produced by the `Identifier`
+	 * labeled alternative in `FormulaParser.expr`.
+	 * @param ctx the parse tree
+	 */
+	exitIdentifier?: (ctx: IdentifierContext) => void;
 
 	/**
 	 * Enter a parse tree produced by the `Parentheses`

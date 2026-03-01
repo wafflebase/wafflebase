@@ -131,6 +131,20 @@ describe('Formula', () => {
     expect(evaluate('=1E3+1E2')).toBe('1100');
   });
 
+  it('should evaluate LET with single binding', () => {
+    expect(evaluate('=LET(x, 5, x*2)')).toBe('10');
+  });
+
+  it('should evaluate LET with multiple bindings', () => {
+    expect(evaluate('=LET(x, 1, y, 2, x+y)')).toBe('3');
+    expect(evaluate('=LET(x, 5, y, x+1, x*y)')).toBe('30');
+  });
+
+  it('should evaluate LAMBDA with immediate call', () => {
+    expect(evaluate('=LAMBDA(x, x*2)(5)')).toBe('10');
+    expect(evaluate('=LAMBDA(x, y, x+y)(3, 4)')).toBe('7');
+  });
+
   it('should handle empty arguments in IF', () => {
     expect(evaluate('=IF(TRUE,,1)')).toBe('0');
     expect(evaluate('=IF(FALSE,,1)')).toBe('1');

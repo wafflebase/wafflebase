@@ -6,12 +6,15 @@ import { FormulaLexer } from '../../antlr/FormulaLexer';
 import { FormulaVisitor } from '../../antlr/FormulaVisitor';
 import {
   AddSubContext,
+  ArgsContext,
   ArrayLiteralContext,
   BooleanContext,
+  CallContext,
   ComparisonContext,
   ConcatContext,
   FormulaParser,
   FunctionContext,
+  IdentifierContext,
   MulDivContext,
   NumberContext,
   ParenthesesContext,
@@ -441,6 +444,10 @@ export function evaluate(formula: string, grid?: Grid): string {
       return topLeft.v.toString();
     }
 
+    if (node.t === 'lambda') {
+      return '#ERROR!';
+    }
+
     return node.v.toString();
   } catch (e) {
     return '#ERROR!';
@@ -457,6 +464,12 @@ export type ErrNode = {
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
 export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number };
+export type LambdaNode = {
+  t: 'lambda';
+  params: string[];
+  body: ParseTree;
+  closureScope: Map<string, EvalNode>;
+};
 
 /**
  * `Result` represents the result of the evaluation.
@@ -468,7 +481,8 @@ export type EvalNode =
   | RefNode
   | ErrNode
   | EmptyNode
-  | ArrNode;
+  | ArrNode
+  | LambdaNode;
 
 /**
  * `Evaluator` class evaluates the formula. The grammar of the formula is defined in
@@ -476,6 +490,7 @@ export type EvalNode =
  */
 class Evaluator implements FormulaVisitor<EvalNode> {
   private grid: Grid | undefined;
+  private scope = new Map<string, EvalNode>();
 
   constructor(grid?: Grid) {
     this.visit = this.visit.bind(this);
@@ -507,9 +522,18 @@ class Evaluator implements FormulaVisitor<EvalNode> {
 
   visitFunction(ctx: FunctionContext): EvalNode {
     const name = ctx.FUNCNAME().text.toUpperCase();
+
+    if (name === 'LET') return this.evalLet(ctx);
+    if (name === 'LAMBDA') return this.evalLambda(ctx);
+
     if (FunctionMap.has(name)) {
       const func = FunctionMap.get(name)!;
       return func(ctx, this.visit, this.grid);
+    }
+
+    const scopeVal = this.scope.get(name);
+    if (scopeVal?.t === 'lambda') {
+      return this.invokeLambda(scopeVal, ctx.args());
     }
 
     throw new Error('Function not implemented.');
@@ -691,6 +715,92 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
     const cols = rows.reduce((max, r) => Math.max(max, r.length), 0);
     return { t: 'arr', v: rows, rows: rows.length, cols };
+  }
+
+  visitIdentifier(ctx: IdentifierContext): EvalNode {
+    const name = ctx.FUNCNAME().text.toUpperCase();
+    const val = this.scope.get(name);
+    if (val !== undefined) return val;
+    return { t: 'err', v: '#ERROR!' };
+  }
+
+  visitCall(ctx: CallContext): EvalNode {
+    const callee = this.visit(ctx.expr());
+    if (callee.t !== 'lambda') {
+      return { t: 'err', v: '#ERROR!' };
+    }
+    return this.invokeLambda(callee, ctx.args());
+  }
+
+  private evalLet(ctx: FunctionContext): EvalNode {
+    const args = ctx.args();
+    if (!args) return { t: 'err', v: '#ERROR!' };
+
+    const exprs = args.expr();
+    if (exprs.length < 3 || exprs.length % 2 === 0) {
+      return { t: 'err', v: '#ERROR!' };
+    }
+
+    const savedScope = new Map(this.scope);
+    for (let i = 0; i < exprs.length - 1; i += 2) {
+      const nameExpr = exprs[i];
+      if (!(nameExpr instanceof IdentifierContext)) {
+        this.scope = savedScope;
+        return { t: 'err', v: '#ERROR!' };
+      }
+      const name = nameExpr.FUNCNAME().text.toUpperCase();
+      this.scope.set(name, this.visit(exprs[i + 1]));
+    }
+
+    const result = this.visit(exprs[exprs.length - 1]);
+    this.scope = savedScope;
+    return result;
+  }
+
+  private evalLambda(ctx: FunctionContext): EvalNode {
+    const args = ctx.args();
+    if (!args) return { t: 'err', v: '#ERROR!' };
+
+    const exprs = args.expr();
+    if (exprs.length < 2) return { t: 'err', v: '#ERROR!' };
+
+    const params: string[] = [];
+    for (let i = 0; i < exprs.length - 1; i++) {
+      if (!(exprs[i] instanceof IdentifierContext)) {
+        return { t: 'err', v: '#ERROR!' };
+      }
+      params.push(
+        (exprs[i] as IdentifierContext).FUNCNAME().text.toUpperCase(),
+      );
+    }
+
+    return {
+      t: 'lambda',
+      params,
+      body: exprs[exprs.length - 1],
+      closureScope: new Map(this.scope),
+    };
+  }
+
+  private invokeLambda(
+    lambda: LambdaNode,
+    argsCtx: ArgsContext | undefined,
+  ): EvalNode {
+    const argExprs = argsCtx?.expr() || [];
+    if (argExprs.length !== lambda.params.length) {
+      return { t: 'err', v: '#ERROR!' };
+    }
+
+    const argValues = argExprs.map((e) => this.visit(e));
+    const savedScope = new Map(this.scope);
+    this.scope = new Map(lambda.closureScope);
+    for (let i = 0; i < lambda.params.length; i++) {
+      this.scope.set(lambda.params[i], argValues[i]);
+    }
+
+    const result = this.visit(lambda.body);
+    this.scope = savedScope;
+    return result;
   }
 
   visitStr(ctx: StrContext): EvalNode {
