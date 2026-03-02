@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconCheck, IconX } from "@tabler/icons-react";
+import { useKeyboardOffset } from "../hooks/use-keyboard-offset";
 
 interface MobileEditPanelProps {
   cellRef: string;
@@ -18,6 +19,7 @@ export function MobileEditPanel({
 }: MobileEditPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState(initialValue);
+  const keyboardOffset = useKeyboardOffset();
 
   useEffect(() => {
     setValue(initialValue);
@@ -49,7 +51,13 @@ export function MobileEditPanel({
   );
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 border-t bg-background px-2 py-1.5 shadow-lg">
+    <div
+      className="fixed inset-x-0 z-50 border-t bg-background px-2 py-1.5 shadow-lg"
+      style={{
+        bottom: keyboardOffset,
+        paddingBottom: `max(env(safe-area-inset-bottom, 0px), 6px)`,
+      }}
+    >
       <div className="flex items-center gap-2">
         <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
           {cellRef}
