@@ -7,6 +7,9 @@ const DoubleTapDelayMs = 280;
 const DoubleTapDistancePx = 24;
 const LongPressDelayMs = 500;
 const LongPressTolerancePx = 10;
+const InertiaFriction = 0.95;
+const InertiaMinVelocity = 0.5;
+const VelocitySampleCount = 4;
 
 interface UseMobileSheetGesturesOptions {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -48,7 +51,20 @@ export function useMobileSheetGestures({
 
     let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
+    const velocitySamples: Array<{ vx: number; vy: number; t: number }> = [];
+    let inertiaFrame: number | null = null;
+
+    const cancelInertia = () => {
+      if (inertiaFrame !== null) {
+        cancelAnimationFrame(inertiaFrame);
+        inertiaFrame = null;
+      }
+    };
+
     const onTouchStart = (e: TouchEvent) => {
+      cancelInertia();
+      velocitySamples.length = 0;
+
       if (e.touches.length !== 1) {
         hadMultiTouch = e.touches.length > 1;
         panning = false;
@@ -80,6 +96,13 @@ export function useMobileSheetGestures({
       const touch = e.touches[0];
       const deltaX = touch.clientX - lastX;
       const deltaY = touch.clientY - lastY;
+
+      const now = Date.now();
+      velocitySamples.push({ vx: deltaX, vy: deltaY, t: now });
+      if (velocitySamples.length > VelocitySampleCount) {
+        velocitySamples.shift();
+      }
+
       const movedDistance = Math.hypot(
         touch.clientX - startX,
         touch.clientY - startY,
@@ -121,6 +144,38 @@ export function useMobileSheetGestures({
 
       if (panning) {
         panning = false;
+
+        // Compute average velocity from recent samples
+        if (velocitySamples.length >= 2) {
+          const first = velocitySamples[0];
+          const last = velocitySamples[velocitySamples.length - 1];
+          const dt = last.t - first.t;
+          if (dt > 0) {
+            let totalDx = 0;
+            let totalDy = 0;
+            for (const s of velocitySamples) {
+              totalDx += s.vx;
+              totalDy += s.vy;
+            }
+            // Convert accumulated px over dt ms → px per 16ms frame
+            let vx = (totalDx / dt) * 16;
+            let vy = (totalDy / dt) * 16;
+
+            if (Math.hypot(vx, vy) >= InertiaMinVelocity) {
+              const step = () => {
+                vx *= InertiaFriction;
+                vy *= InertiaFriction;
+                if (Math.hypot(vx, vy) < InertiaMinVelocity) {
+                  inertiaFrame = null;
+                  return;
+                }
+                sheetRef.current?.panBy(-vx, -vy);
+                inertiaFrame = requestAnimationFrame(step);
+              };
+              inertiaFrame = requestAnimationFrame(step);
+            }
+          }
+        }
         return;
       }
 
@@ -147,6 +202,7 @@ export function useMobileSheetGestures({
     };
 
     const onTouchCancel = () => {
+      cancelInertia();
       if (longPressTimer) {
         clearTimeout(longPressTimer);
         longPressTimer = null;
@@ -161,6 +217,7 @@ export function useMobileSheetGestures({
     container.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
     return () => {
+      cancelInertia();
       if (longPressTimer) clearTimeout(longPressTimer);
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
