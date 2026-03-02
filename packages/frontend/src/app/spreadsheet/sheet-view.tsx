@@ -734,8 +734,9 @@ export function SheetView({
       <div className="relative flex-1 w-full">
         <div
           ref={containerRef}
-          className="h-full w-full"
-          style={{ touchAction: "manipulation" }}
+          className="h-full w-full select-none"
+          style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
+          onContextMenu={isMobile ? (e) => e.preventDefault() : undefined}
           onPointerDown={handleGridPointerDown}
         />
         {paintFormatSourceIndicator}
