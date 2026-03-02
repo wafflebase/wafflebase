@@ -3888,6 +3888,7 @@ export class Worksheet {
           if (this.readOnly) return;
           event.preventDefault();
           if (await this.sheet!.undo()) {
+            this.updateFreezeState();
             this.render();
             this.scrollIntoView();
           }
@@ -3901,6 +3902,7 @@ export class Worksheet {
           if (this.readOnly) return;
           event.preventDefault();
           if (await this.sheet!.redo()) {
+            this.updateFreezeState();
             this.render();
             this.scrollIntoView();
           }
