@@ -38,13 +38,14 @@ export function NavMain({ items }: { items: Array<NavItem> }) {
           {items.map((item) => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton
+                asChild
                 tooltip={item.title}
                 isActive={isActive(
                   item.url,
                   items.map((i) => i.url),
                 )}
               >
-                <Link to={item.url} className="flex items-center gap-2">
+                <Link to={item.url}>
                   {item.icon && <item.icon />}
                   <span>{item.title}</span>
                 </Link>
