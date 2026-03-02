@@ -66,6 +66,8 @@ export function MobileContextMenu({
   return (
     <div
       ref={menuRef}
+      role="menu"
+      aria-label="Cell actions"
       className="fixed z-50 min-w-[160px] rounded-lg border bg-background shadow-lg"
       style={{ top, left }}
     >
@@ -73,6 +75,7 @@ export function MobileContextMenu({
         <button
           key={label}
           type="button"
+          role="menuitem"
           className="flex w-full items-center gap-3 px-3 py-3 text-sm hover:bg-accent disabled:opacity-40 first:rounded-t-lg last:rounded-b-lg"
           disabled={disabled}
           onClick={() => {

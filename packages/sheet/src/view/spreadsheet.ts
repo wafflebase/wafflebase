@@ -443,8 +443,12 @@ export class Spreadsheet {
    */
   public async copy(): Promise<void> {
     if (!this.sheet) return;
-    const { text } = await this.sheet.copy();
-    await navigator.clipboard.writeText(text);
+    try {
+      const { text } = await this.sheet.copy();
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.error('Failed to copy cell content: ', err);
+    }
   }
 
   /**
@@ -452,9 +456,13 @@ export class Spreadsheet {
    */
   public async cut(): Promise<void> {
     if (!this.sheet || this._readOnly) return;
-    const { text } = await this.sheet.cut();
-    await navigator.clipboard.writeText(text);
-    this.worksheet.renderOverlay();
+    try {
+      const { text } = await this.sheet.cut();
+      await navigator.clipboard.writeText(text);
+      this.worksheet.renderOverlay();
+    } catch (err) {
+      console.error('Failed to cut cell content: ', err);
+    }
   }
 
   /**
