@@ -9,6 +9,7 @@ const LongPressDelayMs = 500;
 const LongPressTolerancePx = 10;
 const InertiaFriction = 0.95;
 const InertiaMinVelocity = 0.5;
+const InertiaMaxVelocity = 60;
 const VelocitySampleCount = 4;
 
 interface UseMobileSheetGesturesOptions {
@@ -145,7 +146,8 @@ export function useMobileSheetGestures({
       if (panning) {
         panning = false;
 
-        // Compute average velocity from recent samples
+        // Compute average velocity from recent samples (skip first
+        // sample's delta — it predates the first timestamp).
         if (velocitySamples.length >= 2) {
           const first = velocitySamples[0];
           const last = velocitySamples[velocitySamples.length - 1];
@@ -153,15 +155,23 @@ export function useMobileSheetGestures({
           if (dt > 0) {
             let totalDx = 0;
             let totalDy = 0;
-            for (const s of velocitySamples) {
-              totalDx += s.vx;
-              totalDy += s.vy;
+            for (let i = 1; i < velocitySamples.length; i++) {
+              totalDx += velocitySamples[i].vx;
+              totalDy += velocitySamples[i].vy;
             }
             // Convert accumulated px over dt ms → px per 16ms frame
             let vx = (totalDx / dt) * 16;
             let vy = (totalDy / dt) * 16;
 
-            if (Math.hypot(vx, vy) >= InertiaMinVelocity) {
+            // Cap maximum velocity to prevent jarring jumps
+            const speed = Math.hypot(vx, vy);
+            if (speed > InertiaMaxVelocity) {
+              const scale = InertiaMaxVelocity / speed;
+              vx *= scale;
+              vy *= scale;
+            }
+
+            if (speed >= InertiaMinVelocity) {
               const step = () => {
                 vx *= InertiaFriction;
                 vy *= InertiaFriction;
