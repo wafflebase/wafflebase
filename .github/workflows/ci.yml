@@ -51,6 +51,7 @@ jobs:
 
       - name: Post verification summary on PR
         if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
@@ -141,6 +142,7 @@ jobs:
 
       - name: Update PR comment with integration result
         if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
