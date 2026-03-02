@@ -1,6 +1,6 @@
 import { FormEvent, MouseEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ColumnDef,
   ColumnFiltersState,
@@ -14,7 +14,15 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import { FileText, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import {
+  FileText,
+  FolderOutput,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -34,6 +42,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -46,9 +61,14 @@ import { Document } from "@/types/documents";
 import {
   createDocument,
   deleteDocument,
+  moveDocument,
   renameDocument,
 } from "@/api/documents";
-import { createWorkspaceDocument } from "@/api/workspaces";
+import {
+  createWorkspaceDocument,
+  fetchWorkspaces,
+  type Workspace,
+} from "@/api/workspaces";
 
 /**
  * Renders the DocumentList component.
@@ -113,6 +133,19 @@ export function DocumentList({
                 Rename
               </DropdownMenuItem>
               <DropdownMenuItem
+                onClick={(e: MouseEvent<HTMLElement>) => {
+                  e.stopPropagation();
+                  setMovingDoc({
+                    id: String(row.getValue("id")),
+                    title: row.getValue("title"),
+                    workspaceId: row.original.workspaceId,
+                  });
+                }}
+              >
+                <FolderOutput className="mr-2 h-4 w-4" />
+                Move to...
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
@@ -133,6 +166,18 @@ export function DocumentList({
     id: string;
     title: string;
   } | null>(null);
+  const [movingDoc, setMovingDoc] = useState<{
+    id: string;
+    title: string;
+    workspaceId: string;
+  } | null>(null);
+  const [targetWorkspaceId, setTargetWorkspaceId] = useState<string>("");
+
+  const { data: workspaces = [] } = useQuery<Workspace[]>({
+    queryKey: ["workspaces"],
+    queryFn: fetchWorkspaces,
+    enabled: movingDoc !== null,
+  });
 
   const createDocumentMutation = useMutation({
     mutationFn: async (data: { title: string }) =>
@@ -165,6 +210,26 @@ export function DocumentList({
         });
       }
       setRenamingDoc(null);
+    },
+  });
+
+  const moveDocumentMutation = useMutation({
+    mutationFn: async ({
+      id,
+      workspaceId: targetId,
+    }: {
+      id: string;
+      workspaceId: string;
+    }) => await moveDocument(id, targetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      toast.success("Document moved successfully");
+      setMovingDoc(null);
+      setTargetWorkspaceId("");
+    },
+    onError: () => {
+      toast.error("Failed to move document");
     },
   });
 
@@ -358,6 +423,74 @@ export function DocumentList({
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={movingDoc !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMovingDoc(null);
+            setTargetWorkspaceId("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Move Document</DialogTitle>
+            <DialogDescription>
+              Select a workspace to move &ldquo;{movingDoc?.title}&rdquo; to.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <Label htmlFor="move-workspace">Workspace</Label>
+              <Select
+                value={targetWorkspaceId}
+                onValueChange={setTargetWorkspaceId}
+              >
+                <SelectTrigger id="move-workspace">
+                  <SelectValue placeholder="Select a workspace" />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspaces
+                    .filter((w) => w.id !== movingDoc?.workspaceId)
+                    .map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setMovingDoc(null);
+                setTargetWorkspaceId("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                !targetWorkspaceId || moveDocumentMutation.isPending
+              }
+              onClick={() => {
+                if (movingDoc && targetWorkspaceId) {
+                  moveDocumentMutation.mutate({
+                    id: movingDoc.id,
+                    workspaceId: targetWorkspaceId,
+                  });
+                }
+              }}
+            >
+              Move
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

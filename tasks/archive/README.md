@@ -6,14 +6,15 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 48
+Total archived tasks: 49
 
-## 2026/03 (11 tasks)
+## 2026/03 (12 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | hide formula bar mobile (2026-03-02) | [20260302-hide-formula-bar-mobile-todo.md](./2026/03/20260302-hide-formula-bar-mobile-todo.md) | [20260302-hide-formula-bar-mobile-lessons.md](./2026/03/20260302-hide-formula-bar-mobile-lessons.md) |
 | keyboard occlusion (2026-03-02) | [20260302-keyboard-occlusion-todo.md](./2026/03/20260302-keyboard-occlusion-todo.md) | [20260302-keyboard-occlusion-lessons.md](./2026/03/20260302-keyboard-occlusion-lessons.md) |
+| move document (2026-03-02) | [20260302-move-document-todo.md](./2026/03/20260302-move-document-todo.md) | [20260302-move-document-lessons.md](./2026/03/20260302-move-document-lessons.md) |
 | autocomplete overflow (2026-03-01) | [20260301-autocomplete-overflow-todo.md](./2026/03/20260301-autocomplete-overflow-todo.md) | [20260301-autocomplete-overflow-lessons.md](./2026/03/20260301-autocomplete-overflow-lessons.md) |
 | claude code hooks (2026-03-01) | [20260301-claude-code-hooks-todo.md](./2026/03/20260301-claude-code-hooks-todo.md) | [20260301-claude-code-hooks-lessons.md](./2026/03/20260301-claude-code-hooks-lessons.md) |
 | document sidebar unify (2026-03-01) | [20260301-document-sidebar-unify-todo.md](./2026/03/20260301-document-sidebar-unify-todo.md) | - |

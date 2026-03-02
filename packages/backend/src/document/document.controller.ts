@@ -110,19 +110,28 @@ export class DocumentController {
   async updateDocument(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
-    @Body() body: { title: string },
+    @Body() body: { title?: string; workspaceId?: string },
   ): Promise<DocumentModel> {
     const doc = await this.documentService.document({ id });
     if (!doc) {
       throw new NotFoundException('Document not found');
     }
-    await this.workspaceService.assertMember(
-      doc.workspaceId,
-      Number(req.user.id),
-    );
+    const userId = Number(req.user.id);
+    await this.workspaceService.assertMember(doc.workspaceId, userId);
+
+    const data: { title?: string; workspace?: { connect: { id: string } } } =
+      {};
+    if (body.title !== undefined) {
+      data.title = body.title;
+    }
+    if (body.workspaceId !== undefined) {
+      await this.workspaceService.assertMember(body.workspaceId, userId);
+      data.workspace = { connect: { id: body.workspaceId } };
+    }
+
     return this.documentService.updateDocument({
       where: { id },
-      data: { title: body.title },
+      data,
     });
   }
 
