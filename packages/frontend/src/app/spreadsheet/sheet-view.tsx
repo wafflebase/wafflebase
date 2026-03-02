@@ -29,6 +29,7 @@ import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { MobileContextMenu } from "@/components/mobile-context-menu";
+import { MobileSelectionHandles } from "@/components/mobile-selection-handles";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 
@@ -798,6 +799,12 @@ export function SheetView({
             onPaste={handleContextMenuPaste}
             onDelete={handleContextMenuDelete}
             onClose={handleContextMenuClose}
+          />
+        )}
+        {isMobile && !readOnly && !mobileEditState && !contextMenu && sheetRef.current && (
+          <MobileSelectionHandles
+            spreadsheet={sheetRef.current}
+            renderVersion={sheetRenderVersion}
           />
         )}
       </div>
