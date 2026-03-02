@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IconCheck, IconX } from "@tabler/icons-react";
 import { useKeyboardOffset } from "../hooks/use-keyboard-offset";
 
+const MaxLines = 4;
+const LineHeight = 20;
+
 interface MobileEditPanelProps {
   cellRef: string;
   initialValue: string;
@@ -17,37 +20,42 @@ export function MobileEditPanel({
   onCancel,
   onValueChange,
 }: MobileEditPanelProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [value, setValue] = useState(initialValue);
   const keyboardOffset = useKeyboardOffset();
+
+  const autoGrow = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, LineHeight * MaxLines)}px`;
+  }, []);
 
   useEffect(() => {
     setValue(initialValue);
   }, [initialValue]);
 
   useEffect(() => {
-    const el = inputRef.current;
+    const el = textareaRef.current;
     if (el) {
       el.focus();
       el.setSelectionRange(0, el.value.length);
+      autoGrow();
     }
-  }, []);
+  }, [autoGrow]);
 
   const handleCommit = useCallback(() => {
     onCommit(value);
   }, [onCommit, value]);
 
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleCommit();
-      } else if (e.key === "Escape") {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Escape") {
         e.preventDefault();
         onCancel();
       }
     },
-    [handleCommit, onCancel],
+    [onCancel],
   );
 
   return (
@@ -58,25 +66,25 @@ export function MobileEditPanel({
         paddingBottom: `max(env(safe-area-inset-bottom, 0px), 6px)`,
       }}
     >
-      <div className="flex items-center gap-2">
-        <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+      <div className="flex items-start gap-2">
+        <span className="mt-1 shrink-0 rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
           {cellRef}
         </span>
-        <input
-          ref={inputRef}
-          type="text"
-          className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-ring"
+        <textarea
+          ref={textareaRef}
+          className="min-w-0 flex-1 resize-none rounded border bg-background px-2 py-1 text-sm leading-5 outline-none focus:ring-1 focus:ring-ring"
+          rows={1}
           value={value}
           onChange={(e) => {
             setValue(e.target.value);
             onValueChange?.(e.target.value);
+            autoGrow();
           }}
           onKeyDown={handleKeyDown}
-          enterKeyHint="done"
         />
         <button
           type="button"
-          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted cursor-pointer"
+          className="mt-0.5 shrink-0 rounded p-1 text-muted-foreground hover:bg-muted cursor-pointer"
           onClick={onCancel}
           aria-label="Cancel editing"
         >
@@ -84,7 +92,7 @@ export function MobileEditPanel({
         </button>
         <button
           type="button"
-          className="shrink-0 rounded p-1 text-primary hover:bg-primary/10 cursor-pointer"
+          className="mt-0.5 shrink-0 rounded p-1 text-primary hover:bg-primary/10 cursor-pointer"
           onClick={handleCommit}
           aria-label="Confirm editing"
         >
