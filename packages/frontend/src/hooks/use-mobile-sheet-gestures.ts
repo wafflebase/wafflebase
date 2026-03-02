@@ -105,6 +105,11 @@ export function useMobileSheetGestures({
         now - lastTapAt <= DoubleTapDelayMs &&
         tapDistance <= DoubleTapDistancePx
       ) {
+        // Prevent the browser from synthesizing mousedown/dblclick after
+        // this touch sequence — those synthesized events would trigger the
+        // Worksheet's inline cell editor and a selection change that
+        // immediately dismisses the MobileEditPanel.
+        e.preventDefault();
         sheetRef.current?.handleMobileDoubleTap(lastX, lastY);
         lastTapAt = 0;
         return;
@@ -122,7 +127,7 @@ export function useMobileSheetGestures({
 
     container.addEventListener("touchstart", onTouchStart, { passive: true });
     container.addEventListener("touchmove", onTouchMove, { passive: false });
-    container.addEventListener("touchend", onTouchEnd, { passive: true });
+    container.addEventListener("touchend", onTouchEnd, { passive: false });
     container.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
     return () => {

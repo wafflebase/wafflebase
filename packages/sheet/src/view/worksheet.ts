@@ -1044,6 +1044,9 @@ export class Worksheet {
   }
 
   private handleDblClick(e: MouseEvent): void {
+    // When a mobile edit callback is registered, double-tap is handled
+    // via handleMobileDoubleTap instead of the inline cell editor.
+    if (this.mobileEditCallback) return;
     e.preventDefault();
     this.handleDblClickAt(e.offsetX, e.offsetY);
   }
