@@ -54,6 +54,7 @@ export function useMobileSheetGestures({
     let lastTapY = 0;
 
     let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+    let longPressFired = false;
 
     const velocitySamples: Array<{ vx: number; vy: number; t: number }> = [];
     let inertiaFrame: number | null = null;
@@ -105,9 +106,21 @@ export function useMobileSheetGestures({
       startY = touch.clientY;
       lastX = touch.clientX;
       lastY = touch.clientY;
+      longPressFired = false;
+
+      // Detect tap on row/column header and select immediately
+      const headerHit = sheetRef.current?.headerHitTest(startX, startY);
+      if (headerHit) {
+        if (headerHit.axis === 'row') {
+          sheetRef.current?.selectRow(headerHit.index);
+        } else {
+          sheetRef.current?.selectColumn(headerHit.index);
+        }
+      }
 
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
+        longPressFired = true;
         onLongPress?.(startX, startY);
       }, LongPressDelayMs);
     };
@@ -175,10 +188,27 @@ export function useMobileSheetGestures({
         return;
       }
 
+      // Prevent synthesized mousedown after long-press so it doesn't
+      // change the selection and dismiss the context menu.
+      if (longPressFired) {
+        longPressFired = false;
+        e.preventDefault();
+        return;
+      }
+
       if (hadMultiTouch) {
         hadMultiTouch = false;
         panning = false;
         pinching = false;
+        return;
+      }
+
+      // Prevent synthesized mousedown when a header was tapped — the
+      // gesture hook already called selectRow/selectColumn directly.
+      const headerHit = sheetRef.current?.headerHitTest(startX, startY);
+      if (headerHit && !panning) {
+        e.preventDefault();
+        lastTapAt = 0;
         return;
       }
 
@@ -260,6 +290,7 @@ export function useMobileSheetGestures({
       panning = false;
       hadMultiTouch = false;
       pinching = false;
+      longPressFired = false;
     };
 
     container.addEventListener("touchstart", onTouchStart, { passive: true });

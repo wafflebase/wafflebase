@@ -18,12 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| mobile longpress context menu (2026-03-02) | [20260302-mobile-longpress-context-menu-todo.md](./active/20260302-mobile-longpress-context-menu-todo.md) | [20260302-mobile-longpress-context-menu-lessons.md](./active/20260302-mobile-longpress-context-menu-lessons.md) |
-| mobile row col operations (2026-03-02) | [20260302-mobile-row-col-operations-todo.md](./active/20260302-mobile-row-col-operations-todo.md) | [20260302-mobile-row-col-operations-lessons.md](./active/20260302-mobile-row-col-operations-lessons.md) |
+| _None_ | - | - |
 
 ## Archive
 
-- Archived task count: 54
+- Archived task count: 56
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: mobile longpress context menu (2026-03-02)
+Latest active task: none

@@ -19,5 +19,5 @@ Google Sheets provides a long-press context menu for this purpose.
 - [x] Wire context menu to spreadsheet clipboard operations
 - [x] Dismiss context menu on tap outside, scroll, or selection change
 - [x] Handle paste via Clipboard API (`navigator.clipboard.readText()`)
-- [ ] Add visual regression baseline for context menu
+- [x] Add visual regression baseline for context menu
 - [x] Run `pnpm verify:fast` and confirm pass

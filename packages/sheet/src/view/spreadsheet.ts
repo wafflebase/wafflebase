@@ -1,4 +1,5 @@
 import {
+  Axis,
   BorderPreset,
   CellStyle,
   ConditionalFormatRule,
@@ -554,6 +555,85 @@ export class Spreadsheet {
       this.worksheet.render();
       this.notifySelectionChange();
     }
+  }
+
+  /**
+   * `selectRow` selects an entire row.
+   */
+  public selectRow(row: number): void {
+    if (!this.sheet) return;
+    this.sheet.selectRow(row);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `selectColumn` selects an entire column.
+   */
+  public selectColumn(col: number): void {
+    if (!this.sheet) return;
+    this.sheet.selectColumn(col);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `getSelectedIndices` returns the selected row/column range, or null for
+   * cell/all selections.
+   */
+  public getSelectedIndices(): { axis: Axis; from: number; to: number } | null {
+    return this.sheet?.getSelectedIndices() ?? null;
+  }
+
+  /**
+   * `insertRows` inserts rows at the given index.
+   */
+  public async insertRows(index: number, count: number = 1): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.insertRows(index, count);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `deleteRows` deletes rows at the given index.
+   */
+  public async deleteRows(index: number, count: number = 1): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.deleteRows(index, count);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `insertColumns` inserts columns at the given index.
+   */
+  public async insertColumns(index: number, count: number = 1): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.insertColumns(index, count);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `deleteColumns` deletes columns at the given index.
+   */
+  public async deleteColumns(index: number, count: number = 1): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.deleteColumns(index, count);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `headerHitTest` checks if client coordinates fall on a row or column
+   * header and returns the axis and 1-based index, or null if on the grid.
+   */
+  public headerHitTest(
+    clientX: number,
+    clientY: number,
+  ): { axis: 'row' | 'column'; index: number } | null {
+    return this.worksheet.headerHitTest(clientX, clientY);
   }
 
   /**

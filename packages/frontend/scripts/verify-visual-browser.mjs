@@ -31,6 +31,9 @@ const scenarioIds = [
   "sheet-formula-errors",
   "sheet-dimensions-freeze",
   "sheet-mobile-edit-panel",
+  "sheet-mobile-context-menu",
+  "sheet-mobile-row-menu",
+  "sheet-mobile-column-menu",
 ];
 
 const visualTargets = [

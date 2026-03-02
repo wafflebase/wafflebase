@@ -4106,6 +4106,30 @@ export class Worksheet {
   }
 
   /**
+   * `headerHitTest` checks if client coordinates fall on a row or column
+   * header and returns the axis and 1-based index, or null if on the grid.
+   */
+  public headerHitTest(
+    clientX: number,
+    clientY: number,
+  ): { axis: 'row' | 'column'; index: number } | null {
+    const x = clientX - this.viewport.left;
+    const y = clientY - this.viewport.top;
+
+    if (y < DefaultCellHeight && x > RowHeaderWidth) {
+      const ref = this.toRefFromMouse(x, y);
+      return { axis: 'column', index: ref.c };
+    }
+
+    if (x < RowHeaderWidth && y > DefaultCellHeight) {
+      const ref = this.toRefFromMouse(x, y);
+      return { axis: 'row', index: ref.r };
+    }
+
+    return null;
+  }
+
+  /**
    * `getCellRectInScrollableViewport` returns the cell rectangle using
    * scrollable-quadrant coordinates (Quadrant D), even for refs in frozen
    * rows/columns. Useful for floating objects that should move with scroll.

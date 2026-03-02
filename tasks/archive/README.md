@@ -6,17 +6,19 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 54
+Total archived tasks: 56
 
-## 2026/03 (17 tasks)
+## 2026/03 (19 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | hide formula bar mobile (2026-03-02) | [20260302-hide-formula-bar-mobile-todo.md](./2026/03/20260302-hide-formula-bar-mobile-todo.md) | [20260302-hide-formula-bar-mobile-lessons.md](./2026/03/20260302-hide-formula-bar-mobile-lessons.md) |
 | keyboard occlusion (2026-03-02) | [20260302-keyboard-occlusion-todo.md](./2026/03/20260302-keyboard-occlusion-todo.md) | [20260302-keyboard-occlusion-lessons.md](./2026/03/20260302-keyboard-occlusion-lessons.md) |
 | mobile edit panel multiline (2026-03-02) | [20260302-mobile-edit-panel-multiline-todo.md](./2026/03/20260302-mobile-edit-panel-multiline-todo.md) | [20260302-mobile-edit-panel-multiline-lessons.md](./2026/03/20260302-mobile-edit-panel-multiline-lessons.md) |
+| mobile longpress context menu (2026-03-02) | [20260302-mobile-longpress-context-menu-todo.md](./2026/03/20260302-mobile-longpress-context-menu-todo.md) | [20260302-mobile-longpress-context-menu-lessons.md](./2026/03/20260302-mobile-longpress-context-menu-lessons.md) |
 | mobile momentum scroll (2026-03-02) | [20260302-mobile-momentum-scroll-todo.md](./2026/03/20260302-mobile-momentum-scroll-todo.md) | [20260302-mobile-momentum-scroll-lessons.md](./2026/03/20260302-mobile-momentum-scroll-lessons.md) |
 | mobile pinch zoom (2026-03-02) | [20260302-mobile-pinch-zoom-todo.md](./2026/03/20260302-mobile-pinch-zoom-todo.md) | [20260302-mobile-pinch-zoom-lessons.md](./2026/03/20260302-mobile-pinch-zoom-lessons.md) |
+| mobile row col operations (2026-03-02) | [20260302-mobile-row-col-operations-todo.md](./2026/03/20260302-mobile-row-col-operations-todo.md) | [20260302-mobile-row-col-operations-lessons.md](./2026/03/20260302-mobile-row-col-operations-lessons.md) |
 | mobile selection handles (2026-03-02) | [20260302-mobile-selection-handles-todo.md](./2026/03/20260302-mobile-selection-handles-todo.md) | [20260302-mobile-selection-handles-lessons.md](./2026/03/20260302-mobile-selection-handles-lessons.md) |
 | mobile toolbar formatting (2026-03-02) | [20260302-mobile-toolbar-formatting-todo.md](./2026/03/20260302-mobile-toolbar-formatting-todo.md) | [20260302-mobile-toolbar-formatting-lessons.md](./2026/03/20260302-mobile-toolbar-formatting-lessons.md) |
 | move document (2026-03-02) | [20260302-move-document-todo.md](./2026/03/20260302-move-document-todo.md) | [20260302-move-document-lessons.md](./2026/03/20260302-move-document-lessons.md) |

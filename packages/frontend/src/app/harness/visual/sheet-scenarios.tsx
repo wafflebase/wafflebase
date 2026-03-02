@@ -4,7 +4,18 @@ import {
   Spreadsheet,
   type Grid,
 } from "@wafflebase/sheet";
-import { IconCheck, IconX } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconClipboard,
+  IconColumnInsertLeft,
+  IconColumnInsertRight,
+  IconCopy,
+  IconCut,
+  IconRowInsertBottom,
+  IconRowInsertTop,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -388,6 +399,172 @@ async function createMobileEditScenarioStore(): Promise<ScenarioSetup> {
   };
 }
 
+async function createMobileContextMenuScenarioStore(): Promise<ScenarioSetup> {
+  const grid: Grid = new Map([
+    ["A1", { v: "Name" }],
+    ["B1", { v: "Amount" }],
+    ["C1", { v: "Status" }],
+    ["A2", { v: "Alpha" }],
+    ["B2", { v: "120" }],
+    ["C2", { v: "Active" }],
+    ["A3", { v: "Beta" }],
+    ["B3", { v: "85" }],
+    ["C3", { v: "Pending" }],
+    ["A4", { v: "Gamma" }],
+    ["B4", { v: "200" }],
+    ["C4", { v: "Done" }],
+  ]);
+
+  const store = new MemStore(grid);
+  await store.addRangeStyle({
+    range: [
+      { r: 1, c: 1 },
+      { r: 1, c: 3 },
+    ],
+    style: { b: true, bg: "#f1f5f9" },
+  });
+
+  const menuItems = [
+    { icon: IconCut, label: "Cut" },
+    { icon: IconCopy, label: "Copy" },
+    { icon: IconClipboard, label: "Paste" },
+    { icon: IconTrash, label: "Delete" },
+  ];
+
+  return {
+    store,
+    afterInitialize: async (spreadsheet) => {
+      await spreadsheet.focusCell({ r: 2, c: 2 });
+    },
+    overlay: (
+      <div
+        role="menu"
+        aria-label="Cell actions"
+        className="absolute z-50 min-w-[160px] rounded-lg border bg-background shadow-lg"
+        style={{ top: 80, left: 60 }}
+      >
+        {menuItems.map(({ icon: Icon, label }) => (
+          <button
+            key={label}
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center gap-3 px-3 py-3 text-sm first:rounded-t-lg last:rounded-b-lg"
+          >
+            <Icon size={18} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+    ),
+  };
+}
+
+async function createMobileRowMenuScenarioStore(): Promise<ScenarioSetup> {
+  const grid: Grid = new Map([
+    ["A1", { v: "Task" }],
+    ["B1", { v: "Owner" }],
+    ["A2", { v: "Design" }],
+    ["B2", { v: "Alice" }],
+    ["A3", { v: "Build" }],
+    ["B3", { v: "Bob" }],
+  ]);
+
+  const store = new MemStore(grid);
+  await store.addRangeStyle({
+    range: [
+      { r: 1, c: 1 },
+      { r: 1, c: 2 },
+    ],
+    style: { b: true, bg: "#f1f5f9" },
+  });
+
+  const menuItems = [
+    { icon: IconRowInsertTop, label: "Insert row above" },
+    { icon: IconRowInsertBottom, label: "Insert row below" },
+    { icon: IconTrash, label: "Delete row" },
+  ];
+
+  return {
+    store,
+    afterInitialize: async (spreadsheet) => {
+      await spreadsheet.focusCell({ r: 2, c: 1 });
+    },
+    overlay: (
+      <div
+        role="menu"
+        aria-label="Row actions"
+        className="absolute z-50 min-w-[160px] rounded-lg border bg-background shadow-lg"
+        style={{ top: 60, left: 30 }}
+      >
+        {menuItems.map(({ icon: Icon, label }) => (
+          <button
+            key={label}
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center gap-3 px-3 py-3 text-sm first:rounded-t-lg last:rounded-b-lg"
+          >
+            <Icon size={18} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+    ),
+  };
+}
+
+async function createMobileColumnMenuScenarioStore(): Promise<ScenarioSetup> {
+  const grid: Grid = new Map([
+    ["A1", { v: "Task" }],
+    ["B1", { v: "Owner" }],
+    ["C1", { v: "Status" }],
+    ["A2", { v: "Design" }],
+    ["B2", { v: "Alice" }],
+    ["C2", { v: "Active" }],
+  ]);
+
+  const store = new MemStore(grid);
+  await store.addRangeStyle({
+    range: [
+      { r: 1, c: 1 },
+      { r: 1, c: 3 },
+    ],
+    style: { b: true, bg: "#f1f5f9" },
+  });
+
+  const menuItems = [
+    { icon: IconColumnInsertLeft, label: "Insert column left" },
+    { icon: IconColumnInsertRight, label: "Insert column right" },
+    { icon: IconTrash, label: "Delete column" },
+  ];
+
+  return {
+    store,
+    afterInitialize: async (spreadsheet) => {
+      await spreadsheet.focusCell({ r: 1, c: 2 });
+    },
+    overlay: (
+      <div
+        role="menu"
+        aria-label="Column actions"
+        className="absolute z-50 min-w-[160px] rounded-lg border bg-background shadow-lg"
+        style={{ top: 10, left: 120 }}
+      >
+        {menuItems.map(({ icon: Icon, label }) => (
+          <button
+            key={label}
+            type="button"
+            role="menuitem"
+            className="flex w-full items-center gap-3 px-3 py-3 text-sm first:rounded-t-lg last:rounded-b-lg"
+          >
+            <Icon size={18} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+    ),
+  };
+}
+
 const SCENARIOS: Scenario[] = [
   {
     id: "sheet-freeze-selection",
@@ -424,6 +601,24 @@ const SCENARIOS: Scenario[] = [
     title: "Mobile Edit Panel",
     description: "Verifies mobile bottom sheet editing panel overlay on the spreadsheet grid.",
     setup: createMobileEditScenarioStore,
+  },
+  {
+    id: "sheet-mobile-context-menu",
+    title: "Mobile Context Menu",
+    description: "Verifies mobile long-press context menu overlay with cut, copy, paste, delete actions.",
+    setup: createMobileContextMenuScenarioStore,
+  },
+  {
+    id: "sheet-mobile-row-menu",
+    title: "Mobile Row Menu",
+    description: "Verifies mobile row context menu overlay with insert above/below and delete actions.",
+    setup: createMobileRowMenuScenarioStore,
+  },
+  {
+    id: "sheet-mobile-column-menu",
+    title: "Mobile Column Menu",
+    description: "Verifies mobile column context menu overlay with insert left/right and delete actions.",
+    setup: createMobileColumnMenuScenarioStore,
   },
 ];
 

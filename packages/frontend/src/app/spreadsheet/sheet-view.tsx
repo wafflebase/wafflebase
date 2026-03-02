@@ -28,7 +28,7 @@ import { UserPresence } from "@/types/users";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
-import { MobileContextMenu } from "@/components/mobile-context-menu";
+import { MobileContextMenu, type MobileContextMenuType } from "@/components/mobile-context-menu";
 import { MobileSelectionHandles } from "@/components/mobile-selection-handles";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
@@ -415,6 +415,45 @@ export function SheetView({
     setContextMenu(null);
   }, []);
 
+  const handleInsertBefore = useCallback(async () => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const sel = sheet.getSelectedIndices();
+    if (!sel) return;
+    const count = sel.to - sel.from + 1;
+    if (sel.axis === "row") {
+      await sheet.insertRows(sel.from, count);
+    } else {
+      await sheet.insertColumns(sel.from, count);
+    }
+  }, []);
+
+  const handleInsertAfter = useCallback(async () => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const sel = sheet.getSelectedIndices();
+    if (!sel) return;
+    const count = sel.to - sel.from + 1;
+    if (sel.axis === "row") {
+      await sheet.insertRows(sel.to + 1, count);
+    } else {
+      await sheet.insertColumns(sel.to + 1, count);
+    }
+  }, []);
+
+  const handleDeleteRowCol = useCallback(async () => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const sel = sheet.getSelectedIndices();
+    if (!sel) return;
+    const count = sel.to - sel.from + 1;
+    if (sel.axis === "row") {
+      await sheet.deleteRows(sel.from, count);
+    } else {
+      await sheet.deleteColumns(sel.from, count);
+    }
+  }, []);
+
   useEffect(() => {
     setSelectedChartId(null);
     setChartEditorOpen(false);
@@ -793,11 +832,19 @@ export function SheetView({
           <MobileContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
+            menuType={(sheetRef.current?.getSelectionType() ?? "cell") as MobileContextMenuType}
             readOnly={readOnly}
             onCopy={handleContextMenuCopy}
             onCut={handleContextMenuCut}
             onPaste={handleContextMenuPaste}
-            onDelete={handleContextMenuDelete}
+            onDelete={
+              sheetRef.current?.getSelectionType() === "row" ||
+              sheetRef.current?.getSelectionType() === "column"
+                ? handleDeleteRowCol
+                : handleContextMenuDelete
+            }
+            onInsertBefore={handleInsertBefore}
+            onInsertAfter={handleInsertAfter}
             onClose={handleContextMenuClose}
           />
         )}
