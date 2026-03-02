@@ -439,6 +439,74 @@ export class Spreadsheet {
   }
 
   /**
+   * `copy` copies the current selection to the system clipboard.
+   */
+  public async copy(): Promise<void> {
+    if (!this.sheet) return;
+    const { text } = await this.sheet.copy();
+    await navigator.clipboard.writeText(text);
+  }
+
+  /**
+   * `cut` cuts the current selection to the system clipboard.
+   */
+  public async cut(): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    const { text } = await this.sheet.cut();
+    await navigator.clipboard.writeText(text);
+    this.worksheet.renderOverlay();
+  }
+
+  /**
+   * `paste` pastes from the system clipboard into the current selection.
+   */
+  public async paste(): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    try {
+      let text: string | undefined;
+      let html: string | undefined;
+
+      if (navigator.clipboard.read) {
+        try {
+          const items = await navigator.clipboard.read();
+          for (const item of items) {
+            if (item.types.includes('text/html')) {
+              const blob = await item.getType('text/html');
+              html = await blob.text();
+            }
+            if (item.types.includes('text/plain')) {
+              const blob = await item.getType('text/plain');
+              text = await blob.text();
+            }
+          }
+        } catch {
+          text = await navigator.clipboard.readText();
+        }
+      } else {
+        text = await navigator.clipboard.readText();
+      }
+
+      await this.sheet.paste({ text, html });
+      this.sheet.clearCopyBuffer();
+      this.worksheet.render();
+      this.notifySelectionChange();
+    } catch (err) {
+      console.error('Failed to paste cell content: ', err);
+    }
+  }
+
+  /**
+   * `removeData` deletes the contents of the current selection.
+   */
+  public async removeData(): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    if (await this.sheet.removeData()) {
+      this.worksheet.render();
+      this.notifySelectionChange();
+    }
+  }
+
+  /**
    * `toggleFunctionBrowser` toggles the function browser dialog.
    */
   public toggleFunctionBrowser() {
