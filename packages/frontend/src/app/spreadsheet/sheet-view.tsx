@@ -28,6 +28,7 @@ import { UserPresence } from "@/types/users";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
+import { MobileContextMenu } from "@/components/mobile-context-menu";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 
@@ -114,6 +115,7 @@ export function SheetView({
     cellRef: string;
     value: string;
   } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const mobileEditValueRef = useRef<string>("");
   const isMobileRef = useRef(isMobile);
   useEffect(() => {
@@ -133,7 +135,11 @@ export function SheetView({
     SpreadsheetDocument,
     UserPresence
   >();
-  useMobileSheetGestures({ containerRef, sheetRef });
+  const handleLongPress = useCallback((clientX: number, clientY: number) => {
+    setContextMenu({ x: clientX, y: clientY });
+  }, []);
+
+  useMobileSheetGestures({ containerRef, sheetRef, onLongPress: handleLongPress });
 
   const root = doc?.getRoot();
   const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
@@ -388,6 +394,26 @@ export function SheetView({
     mobileEditValueRef.current = value;
   }, []);
 
+  const handleContextMenuCopy = useCallback(async () => {
+    await sheetRef.current?.copy();
+  }, []);
+
+  const handleContextMenuCut = useCallback(async () => {
+    await sheetRef.current?.cut();
+  }, []);
+
+  const handleContextMenuPaste = useCallback(async () => {
+    await sheetRef.current?.paste();
+  }, []);
+
+  const handleContextMenuDelete = useCallback(async () => {
+    await sheetRef.current?.removeData();
+  }, []);
+
+  const handleContextMenuClose = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
   useEffect(() => {
     setSelectedChartId(null);
     setChartEditorOpen(false);
@@ -488,6 +514,12 @@ export function SheetView({
             }
             return null;
           });
+        }),
+      );
+
+      unsubs.push(
+        s.onSelectionChange(() => {
+          setContextMenu(null);
         }),
       );
 
@@ -752,6 +784,18 @@ export function SheetView({
             onCommit={handleMobileEditCommit}
             onCancel={handleMobileEditCancel}
             onValueChange={handleMobileEditValueChange}
+          />
+        )}
+        {isMobile && contextMenu && (
+          <MobileContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            readOnly={readOnly}
+            onCopy={handleContextMenuCopy}
+            onCut={handleContextMenuCut}
+            onPaste={handleContextMenuPaste}
+            onDelete={handleContextMenuDelete}
+            onClose={handleContextMenuClose}
           />
         )}
       </div>
