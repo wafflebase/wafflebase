@@ -20,6 +20,7 @@ export interface Options {
   store?: Store;
   readOnly?: boolean;
   hideFormulaBar?: boolean;
+  hideAutofillHandle?: boolean;
 }
 
 export type LayoutRect = {
@@ -68,7 +69,7 @@ export class Spreadsheet {
     this.theme = options?.theme || 'light';
     this._readOnly = options?.readOnly || false;
 
-    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar);
+    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar, options?.hideAutofillHandle);
   }
 
   /**
@@ -306,6 +307,33 @@ export class Spreadsheet {
    */
   public getCellRectInScrollableViewport(ref: Ref): LayoutRect {
     return this.worksheet.getCellRectInScrollableViewport(ref);
+  }
+
+  /**
+   * `cellRefFromPoint` converts client (screen) coordinates to a cell reference.
+   */
+  public cellRefFromPoint(clientX: number, clientY: number): Ref {
+    return this.worksheet.cellRefFromPoint(clientX, clientY);
+  }
+
+  /**
+   * `selectEnd` extends the current selection to the given cell.
+   */
+  public selectEnd(ref: Ref): void {
+    if (!this.sheet) return;
+    this.sheet.selectEnd(ref);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `selectStart` starts a new selection at the given cell.
+   */
+  public selectStart(ref: Ref): void {
+    if (!this.sheet) return;
+    this.sheet.selectStart(ref);
+    this.worksheet.render();
+    this.notifySelectionChange();
   }
 
   /**

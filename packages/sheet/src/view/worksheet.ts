@@ -154,6 +154,7 @@ export class Worksheet {
   private autofillPreview: Range | undefined;
   private onRenderCallback?: () => void;
   private readOnly: boolean;
+  private hideAutofillHandle: boolean;
   private mobileEditCallback:
     | ((cellRef: string, value: string) => void)
     | null = null;
@@ -176,10 +177,12 @@ export class Worksheet {
     theme: Theme = 'light',
     readOnly: boolean = false,
     hideFormulaBar?: boolean,
+    hideAutofillHandle?: boolean,
   ) {
     this.container = container;
     this.theme = theme;
     this.readOnly = readOnly;
+    this.hideAutofillHandle = hideAutofillHandle ?? false;
 
     this.formulaBar = new FormulaBar(theme, readOnly);
     this.gridContainer = new GridContainer(theme, hideFormulaBar);
@@ -2386,6 +2389,7 @@ export class Worksheet {
   }
 
   private shouldShowAutofillHandle(): boolean {
+    if (this.hideAutofillHandle) return false;
     if (this.readOnly) return false;
     if (!this.sheet || this.sheet.getSelectionType() !== 'cell') return false;
 
@@ -4059,6 +4063,16 @@ export class Worksheet {
       );
     }
     return toBoundingRect(ref, this.scroll, this.rowDim, this.colDim);
+  }
+
+  /**
+   * `cellRefFromPoint` converts client (screen) coordinates to a cell
+   * reference, accounting for scroll and freeze panes.
+   */
+  public cellRefFromPoint(clientX: number, clientY: number): Ref {
+    const x = clientX - this.viewport.left;
+    const y = clientY - this.viewport.top;
+    return this.toRefFromMouse(x, y);
   }
 
   /**

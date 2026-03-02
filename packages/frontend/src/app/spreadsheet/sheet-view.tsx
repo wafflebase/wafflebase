@@ -447,6 +447,7 @@ export function SheetView({
       store: new YorkieStore(doc, tabId),
       readOnly,
       hideFormulaBar: isMobileRef.current,
+      hideAutofillHandle: isMobileRef.current,
     }).then((s) => {
       if (cancelled) {
         s.cleanup();
