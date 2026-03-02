@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 46
+Total archived tasks: 47
 
-## 2026/03 (9 tasks)
+## 2026/03 (10 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| hide formula bar mobile (2026-03-02) | [20260302-hide-formula-bar-mobile-todo.md](./2026/03/20260302-hide-formula-bar-mobile-todo.md) | [20260302-hide-formula-bar-mobile-lessons.md](./2026/03/20260302-hide-formula-bar-mobile-lessons.md) |
 | autocomplete overflow (2026-03-01) | [20260301-autocomplete-overflow-todo.md](./2026/03/20260301-autocomplete-overflow-todo.md) | [20260301-autocomplete-overflow-lessons.md](./2026/03/20260301-autocomplete-overflow-lessons.md) |
 | claude code hooks (2026-03-01) | [20260301-claude-code-hooks-todo.md](./2026/03/20260301-claude-code-hooks-todo.md) | [20260301-claude-code-hooks-lessons.md](./2026/03/20260301-claude-code-hooks-lessons.md) |
 | document sidebar unify (2026-03-01) | [20260301-document-sidebar-unify-todo.md](./2026/03/20260301-document-sidebar-unify-todo.md) | - |
