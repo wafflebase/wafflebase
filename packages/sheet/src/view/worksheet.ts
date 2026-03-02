@@ -4055,8 +4055,10 @@ export class Worksheet {
   public getScrollableGridViewportRect(): BoundingRect {
     const viewport = this.getGridViewportRect();
     const freeze = this.freezeState;
-    const leftInset = RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
-    const topInset = DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
+    const zoom = this.zoom;
+    // Insets are in logical pixels; scale to screen pixels to match viewport.
+    const leftInset = (RowHeaderWidth + freeze.frozenWidth + freeze.gapX) * zoom;
+    const topInset = (DefaultCellHeight + freeze.frozenHeight + freeze.gapY) * zoom;
 
     return {
       left: viewport.left + leftInset,
