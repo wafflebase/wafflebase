@@ -5,22 +5,27 @@ import { useIsMobile } from "@/hooks/use-mobile";
 const PanThresholdPx = 8;
 const DoubleTapDelayMs = 280;
 const DoubleTapDistancePx = 24;
+const LongPressDelayMs = 500;
+const LongPressTolerancePx = 10;
 
 interface UseMobileSheetGesturesOptions {
   containerRef: RefObject<HTMLDivElement | null>;
   sheetRef: RefObject<Spreadsheet | undefined>;
   enabled?: boolean;
+  onLongPress?: (clientX: number, clientY: number) => void;
 }
 
 /**
  * Adds touch gestures for mobile spreadsheets:
  * - one-finger drag to pan the grid
  * - double-tap to enter cell edit mode
+ * - long-press to trigger a context action (e.g. clipboard menu)
  */
 export function useMobileSheetGestures({
   containerRef,
   sheetRef,
   enabled = true,
+  onLongPress,
 }: UseMobileSheetGesturesOptions): void {
   const isMobile = useIsMobile();
 
@@ -41,10 +46,16 @@ export function useMobileSheetGestures({
     let lastTapX = 0;
     let lastTapY = 0;
 
+    let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) {
         hadMultiTouch = e.touches.length > 1;
         panning = false;
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
         return;
       }
 
@@ -53,6 +64,11 @@ export function useMobileSheetGestures({
       startY = touch.clientY;
       lastX = touch.clientX;
       lastY = touch.clientY;
+
+      longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        onLongPress?.(startX, startY);
+      }, LongPressDelayMs);
     };
 
     const onTouchMove = (e: TouchEvent) => {
@@ -69,6 +85,11 @@ export function useMobileSheetGestures({
         touch.clientY - startY,
       );
 
+      if (longPressTimer && movedDistance >= LongPressTolerancePx) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+
       if (!panning && movedDistance >= PanThresholdPx) {
         panning = true;
       }
@@ -83,6 +104,11 @@ export function useMobileSheetGestures({
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+
       if (e.touches.length > 0) {
         return;
       }
@@ -121,6 +147,10 @@ export function useMobileSheetGestures({
     };
 
     const onTouchCancel = () => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
       panning = false;
       hadMultiTouch = false;
     };
@@ -131,10 +161,11 @@ export function useMobileSheetGestures({
     container.addEventListener("touchcancel", onTouchCancel, { passive: true });
 
     return () => {
+      if (longPressTimer) clearTimeout(longPressTimer);
       container.removeEventListener("touchstart", onTouchStart);
       container.removeEventListener("touchmove", onTouchMove);
       container.removeEventListener("touchend", onTouchEnd);
       container.removeEventListener("touchcancel", onTouchCancel);
     };
-  }, [containerRef, enabled, isMobile, sheetRef]);
+  }, [containerRef, enabled, isMobile, onLongPress, sheetRef]);
 }
