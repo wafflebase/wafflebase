@@ -102,8 +102,10 @@ export function ChartObjectLayer({
     let latestY = dragState.startY;
 
     const toDraft = (clientX: number, clientY: number): DraftLayout => {
-      const deltaX = clientX - dragState.startX;
-      const deltaY = clientY - dragState.startY;
+      // Drag deltas are in screen pixels; convert to logical pixels.
+      const z = spreadsheet?.getZoom() ?? 1;
+      const deltaX = (clientX - dragState.startX) / z;
+      const deltaY = (clientY - dragState.startY) / z;
 
       if (dragState.mode === "move") {
         return {
@@ -149,12 +151,13 @@ export function ChartObjectLayer({
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [dragState, onUpdateChart, readOnly]);
+  }, [dragState, onUpdateChart, readOnly, spreadsheet]);
 
   if (!spreadsheet || charts.length === 0) {
     return null;
   }
 
+  const zoom = spreadsheet.getZoom();
   const viewport = spreadsheet.getGridViewportRect();
   const scrollableViewport = spreadsheet.getScrollableGridViewportRect();
   const clipLeft = Math.max(0, scrollableViewport.left - viewport.left);
@@ -209,6 +212,7 @@ export function ChartObjectLayer({
                 chart={chart}
                 root={root}
                 spreadsheet={spreadsheet}
+                zoom={zoom}
                 selected={selectedChartId === chart.id}
                 readOnly={readOnly}
                 layout={layout}
@@ -254,6 +258,7 @@ function ChartObject({
   chart,
   root,
   spreadsheet,
+  zoom,
   selected,
   readOnly,
   layout,
@@ -266,6 +271,7 @@ function ChartObject({
   chart: SheetChart;
   root: SpreadsheetDocument;
   spreadsheet: Spreadsheet;
+  zoom: number;
   selected: boolean;
   readOnly: boolean;
   layout: DraftLayout;
@@ -281,8 +287,8 @@ function ChartObject({
   } catch {
     return null;
   }
-  const left = anchorRect.left + layout.offsetX;
-  const top = anchorRect.top + layout.offsetY;
+  const left = anchorRect.left + layout.offsetX * zoom;
+  const top = anchorRect.top + layout.offsetY * zoom;
 
   const dataset = buildChartDataset(root, chart);
   const yAxisWidth = getYAxisWidth(dataset);
@@ -293,8 +299,8 @@ function ChartObject({
       style={{
         left,
         top,
-        width: layout.width,
-        height: layout.height,
+        width: layout.width * zoom,
+        height: layout.height * zoom,
         borderColor: selected ? "var(--color-primary)" : undefined,
       }}
       onPointerDown={(event) => {
