@@ -3716,6 +3716,7 @@ export class Sheet {
       await this.loadMerges();
       await this.loadFreezePane();
       await this.loadFilterState();
+      await this.loadHiddenState();
 
       if (result.affectedRange) {
         const [start, end] = result.affectedRange;
@@ -3728,6 +3729,8 @@ export class Sheet {
         }
         this.store.updateActiveCell(this.activeCell);
       }
+
+      this.ensureActiveCellVisibleAfterHiding();
     }
     return result.success;
   }
@@ -3743,6 +3746,7 @@ export class Sheet {
       await this.loadMerges();
       await this.loadFreezePane();
       await this.loadFilterState();
+      await this.loadHiddenState();
 
       if (result.affectedRange) {
         const [start, end] = result.affectedRange;
@@ -3755,6 +3759,8 @@ export class Sheet {
         }
         this.store.updateActiveCell(this.activeCell);
       }
+
+      this.ensureActiveCellVisibleAfterHiding();
     }
     return result.success;
   }
