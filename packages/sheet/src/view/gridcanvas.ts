@@ -107,6 +107,12 @@ export class GridCanvas {
     this.canvas.style.height = viewport.height + 'px';
     ctx.scale(ratio * zoom, ratio * zoom);
 
+    // When zoomed out, the logical drawing area exceeds the raw viewport.
+    // Reassign so all subsequent drawing uses the effective dimensions.
+    if (zoom !== 1) {
+      viewport = { ...viewport, width: viewport.width / zoom, height: viewport.height / zoom };
+    }
+
     const [startID, endID] = viewRange;
     const mergeData = this.buildMergeRenderData(merges);
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;

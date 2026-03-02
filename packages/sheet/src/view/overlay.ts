@@ -85,6 +85,12 @@ export class Overlay {
     this.canvas.style.height = port.height + 'px';
     ctx.scale(ratio * zoom, ratio * zoom);
 
+    // When zoomed out, the logical drawing area exceeds the raw viewport.
+    // Reassign so all subsequent drawing uses the effective dimensions.
+    if (zoom !== 1) {
+      port = { ...port, width: port.width / zoom, height: port.height / zoom };
+    }
+
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
     const mergeData = this.buildMergeRenderData(merges);
     const selectionRange = this.resolveAutofillSelectionRange(
