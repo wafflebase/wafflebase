@@ -71,6 +71,7 @@ export class Overlay {
     showAutofillHandle: boolean = true,
     merges?: Map<string, MergeSpan>,
     filterRange?: Range,
+    zoom: number = 1,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -82,7 +83,7 @@ export class Overlay {
     this.canvas.height = port.height * ratio;
     this.canvas.style.width = port.width + 'px';
     this.canvas.style.height = port.height + 'px';
-    ctx.scale(ratio, ratio);
+    ctx.scale(ratio * zoom, ratio * zoom);
 
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
     const mergeData = this.buildMergeRenderData(merges);

@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 53
+Total archived tasks: 54
 
-## 2026/03 (16 tasks)
+## 2026/03 (17 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -19,6 +19,7 @@ Total archived tasks: 53
 | mobile selection handles (2026-03-02) | [20260302-mobile-selection-handles-todo.md](./2026/03/20260302-mobile-selection-handles-todo.md) | [20260302-mobile-selection-handles-lessons.md](./2026/03/20260302-mobile-selection-handles-lessons.md) |
 | mobile toolbar formatting (2026-03-02) | [20260302-mobile-toolbar-formatting-todo.md](./2026/03/20260302-mobile-toolbar-formatting-todo.md) | [20260302-mobile-toolbar-formatting-lessons.md](./2026/03/20260302-mobile-toolbar-formatting-lessons.md) |
 | move document (2026-03-02) | [20260302-move-document-todo.md](./2026/03/20260302-move-document-todo.md) | [20260302-move-document-lessons.md](./2026/03/20260302-move-document-lessons.md) |
+| sheet engine zoom (2026-03-02) | [20260302-sheet-engine-zoom-todo.md](./2026/03/20260302-sheet-engine-zoom-todo.md) | [20260302-sheet-engine-zoom-lessons.md](./2026/03/20260302-sheet-engine-zoom-lessons.md) |
 | autocomplete overflow (2026-03-01) | [20260301-autocomplete-overflow-todo.md](./2026/03/20260301-autocomplete-overflow-todo.md) | [20260301-autocomplete-overflow-lessons.md](./2026/03/20260301-autocomplete-overflow-lessons.md) |
 | claude code hooks (2026-03-01) | [20260301-claude-code-hooks-todo.md](./2026/03/20260301-claude-code-hooks-todo.md) | [20260301-claude-code-hooks-lessons.md](./2026/03/20260301-claude-code-hooks-lessons.md) |
 | document sidebar unify (2026-03-01) | [20260301-document-sidebar-unify-todo.md](./2026/03/20260301-document-sidebar-unify-todo.md) | - |

@@ -93,6 +93,7 @@ export class GridCanvas {
       axis: 'row' | 'column';
       boundary: number;
     } | null,
+    zoom: number = 1,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -104,7 +105,7 @@ export class GridCanvas {
     this.canvas.height = viewport.height * ratio;
     this.canvas.style.width = viewport.width + 'px';
     this.canvas.style.height = viewport.height + 'px';
-    ctx.scale(ratio, ratio);
+    ctx.scale(ratio * zoom, ratio * zoom);
 
     const [startID, endID] = viewRange;
     const mergeData = this.buildMergeRenderData(merges);

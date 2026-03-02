@@ -24,7 +24,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 53
+- Archived task count: 54
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: mobile longpress context menu (2026-03-02)

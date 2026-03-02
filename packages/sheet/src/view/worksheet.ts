@@ -155,6 +155,7 @@ export class Worksheet {
   private onRenderCallback?: () => void;
   private readOnly: boolean;
   private hideAutofillHandle: boolean;
+  private zoom = 1;
   private mobileEditCallback:
     | ((cellRef: string, value: string) => void)
     | null = null;
@@ -311,6 +312,21 @@ export class Worksheet {
    */
   public panBy(deltaX: number, deltaY: number): void {
     this.gridContainer.scrollBy(deltaX, deltaY);
+  }
+
+  /**
+   * `setZoom` sets the zoom level (clamped to 0.5–2.0) and re-renders.
+   */
+  public setZoom(level: number): void {
+    this.zoom = Math.min(2, Math.max(0.5, level));
+    this.render();
+  }
+
+  /**
+   * `getZoom` returns the current zoom level.
+   */
+  public getZoom(): number {
+    return this.zoom;
   }
 
   /**
@@ -2264,11 +2280,14 @@ export class Worksheet {
    * `toRefFromMouse` converts mouse event coordinates to a cell Ref, accounting for freeze panes.
    */
   private toRefFromMouse(x: number, y: number): Ref {
+    const zoom = this.zoom;
+    const zx = x / zoom;
+    const zy = y / zoom;
     const freeze = this.freezeState;
     if (freeze.frozenRows > 0 || freeze.frozenCols > 0) {
       return toRefWithFreeze(
-        x,
-        y,
+        zx,
+        zy,
         this.scroll,
         this.rowDim,
         this.colDim,
@@ -2276,8 +2295,8 @@ export class Worksheet {
       );
     }
     return toRef(
-      x + this.scroll.left,
-      y + this.scroll.top,
+      zx + this.scroll.left,
+      zy + this.scroll.top,
       this.rowDim,
       this.colDim,
     );
@@ -4052,17 +4071,26 @@ export class Worksheet {
    * viewport coordinate system.
    */
   public getCellRect(ref: Ref): BoundingRect {
+    const zoom = this.zoom;
     const freeze = this.freezeState;
+    let rect: BoundingRect;
     if (freeze.frozenRows > 0 || freeze.frozenCols > 0) {
-      return toBoundingRectWithFreeze(
+      rect = toBoundingRectWithFreeze(
         ref,
         this.scroll,
         this.rowDim,
         this.colDim,
         freeze,
       );
+    } else {
+      rect = toBoundingRect(ref, this.scroll, this.rowDim, this.colDim);
     }
-    return toBoundingRect(ref, this.scroll, this.rowDim, this.colDim);
+    return {
+      left: rect.left * zoom,
+      top: rect.top * zoom,
+      width: rect.width * zoom,
+      height: rect.height * zoom,
+    };
   }
 
   /**
@@ -4081,18 +4109,25 @@ export class Worksheet {
    * rows/columns. Useful for floating objects that should move with scroll.
    */
   public getCellRectInScrollableViewport(ref: Ref): BoundingRect {
+    const zoom = this.zoom;
     const freeze = this.freezeState;
     const scroll = this.scroll;
     const scrollableLeft =
       scroll.left + this.colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth - freeze.gapX;
     const scrollableTop =
       scroll.top + this.rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight - freeze.gapY;
-    return toBoundingRect(
+    const rect = toBoundingRect(
       ref,
       { left: scrollableLeft, top: scrollableTop },
       this.rowDim,
       this.colDim,
     );
+    return {
+      left: rect.left * zoom,
+      top: rect.top * zoom,
+      width: rect.width * zoom,
+      height: rect.height * zoom,
+    };
   }
 
   /**
@@ -4191,6 +4226,7 @@ export class Worksheet {
       this.shouldShowAutofillHandle(),
       this.sheet!.getMerges(),
       this.sheet!.getFilterRange(),
+      this.zoom,
     );
   }
 
@@ -4202,6 +4238,7 @@ export class Worksheet {
     const scroll = this.scroll;
     const port = this.viewport;
     const freeze = this.freezeState;
+    const zoom = this.zoom;
 
     const unfrozenRowStart = this.rowDim.getOffset(freeze.frozenRows + 1);
     const unfrozenColStart = this.colDim.getOffset(freeze.frozenCols + 1);
@@ -4213,7 +4250,7 @@ export class Worksheet {
     );
     const endRow = Math.max(
       startRow,
-      this.rowDim.findIndex(unfrozenRowStart + scroll.top + port.height) + 1,
+      this.rowDim.findIndex(unfrozenRowStart + scroll.top + port.height / zoom) + 1,
     );
     const startCol = Math.max(
       freeze.frozenCols + 1,
@@ -4221,7 +4258,7 @@ export class Worksheet {
     );
     const endCol = Math.max(
       startCol,
-      this.colDim.findIndex(unfrozenColStart + scroll.left + port.width) + 1,
+      this.colDim.findIndex(unfrozenColStart + scroll.left + port.width / zoom) + 1,
     );
 
     return [
@@ -4260,12 +4297,13 @@ export class Worksheet {
       cell.height = end.top + end.height - cell.top;
     }
 
-    // The unfrozen viewport area
+    // The unfrozen viewport area (in logical coordinates)
+    const zoom = this.zoom;
     const unfrozenColStart = this.colDim.getOffset(freeze.frozenCols + 1);
     const unfrozenRowStart = this.rowDim.getOffset(freeze.frozenRows + 1);
-    const availW = this.viewport.width - RowHeaderWidth - freeze.frozenWidth - freeze.gapX;
+    const availW = this.viewport.width / zoom - RowHeaderWidth - freeze.frozenWidth - freeze.gapX;
     const availH =
-      this.viewport.height - DefaultCellHeight - freeze.frozenHeight - freeze.gapY;
+      this.viewport.height / zoom - DefaultCellHeight - freeze.frozenHeight - freeze.gapY;
 
     let changed = false;
 
@@ -4551,8 +4589,8 @@ export class Worksheet {
     // the frozen pixel size back so the user can scroll far enough to reveal
     // the last rows/columns that would otherwise be hidden behind the frozen area.
     this.gridContainer.updateDummySize(
-      gridSize.width + RowHeaderWidth,
-      gridSize.height + DefaultCellHeight,
+      (gridSize.width + RowHeaderWidth) * this.zoom,
+      (gridSize.height + DefaultCellHeight) * this.zoom,
     );
 
     const viewport = this.viewport;
@@ -4594,6 +4632,7 @@ export class Worksheet {
       sheet.getHiddenRows().size > 0 ? sheet.getHiddenRows() : undefined,
       sheet.getHiddenColumns().size > 0 ? sheet.getHiddenColumns() : undefined,
       this.hiddenIndicatorHover,
+      this.zoom,
     );
   }
 

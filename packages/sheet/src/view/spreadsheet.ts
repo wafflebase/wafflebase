@@ -126,6 +126,20 @@ export class Spreadsheet {
   }
 
   /**
+   * `setZoom` sets the zoom level (0.5–2.0) and re-renders.
+   */
+  public setZoom(level: number): void {
+    this.worksheet.setZoom(level);
+  }
+
+  /**
+   * `getZoom` returns the current zoom level.
+   */
+  public getZoom(): number {
+    return this.worksheet.getZoom();
+  }
+
+  /**
    * `handleMobileDoubleTap` enters edit mode for the tapped cell.
    */
   public handleMobileDoubleTap(clientX: number, clientY: number) {
