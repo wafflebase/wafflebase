@@ -81,7 +81,7 @@ function SortableTab({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-t border-b-2 cursor-pointer select-none",
+        "shrink-0 flex items-center gap-1.5 px-3 py-1 text-sm whitespace-nowrap rounded-t border-b-2 cursor-pointer select-none",
         "hover:bg-muted/50 transition-colors",
         isActive
           ? "border-primary bg-background text-foreground font-medium"
@@ -209,89 +209,91 @@ export function TabBar({
   );
 
   return (
-    <div className="flex items-center border-t bg-muted/30 px-1 h-9 shrink-0">
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        modifiers={[restrictToHorizontalAxis]}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={tabs.map((t) => t.id)}
-          strategy={horizontalListSortingStrategy}
+    <div className="overflow-x-auto border-t bg-muted/30 px-1 h-9 shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex h-full items-center w-max">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToHorizontalAxis]}
+          onDragEnd={handleDragEnd}
         >
-          {tabs.map((tab) => (
-            <DropdownMenu
-              key={tab.id}
-              open={contextTabId === tab.id}
-              onOpenChange={(open) => {
-                if (!open) setContextTabId(null);
-              }}
-            >
-              <DropdownMenuTrigger asChild>
-                <div>
-                  <SortableTab
-                    tab={tab}
-                    isActive={tab.id === activeTabId}
-                    isEditing={editingTabId === tab.id}
-                    editValue={editValue}
-                    onEditValueChange={setEditValue}
-                    onSelect={() => onSelectTab(tab.id)}
-                    onStartRename={() => startRename(tab)}
-                    onCommitRename={commitRename}
-                    onCancelRename={cancelRename}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextTabId(tab.id);
+          <SortableContext
+            items={tabs.map((t) => t.id)}
+            strategy={horizontalListSortingStrategy}
+          >
+            {tabs.map((tab) => (
+              <DropdownMenu
+                key={tab.id}
+                open={contextTabId === tab.id}
+                onOpenChange={(open) => {
+                  if (!open) setContextTabId(null);
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <div>
+                    <SortableTab
+                      tab={tab}
+                      isActive={tab.id === activeTabId}
+                      isEditing={editingTabId === tab.id}
+                      editValue={editValue}
+                      onEditValueChange={setEditValue}
+                      onSelect={() => onSelectTab(tab.id)}
+                      onStartRename={() => startRename(tab)}
+                      onCommitRename={commitRename}
+                      onCancelRename={cancelRename}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextTabId(tab.id);
+                      }}
+                      inputRef={inputRef}
+                    />
+                  </div>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setContextTabId(null);
+                      // Delay so the dropdown fully unmounts before we try to focus the input
+                      setTimeout(() => startRename(tab), 0);
                     }}
-                    inputRef={inputRef}
-                  />
-                </div>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem
-                  onClick={() => {
-                    setContextTabId(null);
-                    // Delay so the dropdown fully unmounts before we try to focus the input
-                    setTimeout(() => startRename(tab), 0);
-                  }}
-                >
-                  Rename
-                </DropdownMenuItem>
-                {tabs.length > 1 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={() => onDeleteTab(tab.id)}
-                    >
-                      Delete
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ))}
-        </SortableContext>
-      </DndContext>
+                  >
+                    Rename
+                  </DropdownMenuItem>
+                  {tabs.length > 1 && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => onDeleteTab(tab.id)}
+                      >
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ))}
+          </SortableContext>
+        </DndContext>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="flex items-center justify-center size-7 ml-1 rounded hover:bg-muted/50 text-muted-foreground cursor-pointer">
-            <IconPlus className="size-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <DropdownMenuItem onClick={() => onAddTab("sheet")}>
-            <IconTable className="size-4" />
-            New Sheet
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onAddTab("datasource")}>
-            <IconDatabase className="size-4" />
-            New DataSource
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="shrink-0 flex items-center justify-center size-7 ml-1 rounded hover:bg-muted/50 text-muted-foreground cursor-pointer">
+              <IconPlus className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => onAddTab("sheet")}>
+              <IconTable className="size-4" />
+              New Sheet
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onAddTab("datasource")}>
+              <IconDatabase className="size-4" />
+              New DataSource
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   );
 }
