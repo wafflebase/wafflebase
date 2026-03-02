@@ -11,6 +11,8 @@ const InertiaFriction = 0.95;
 const InertiaMinVelocity = 0.5;
 const InertiaMaxVelocity = 60;
 const VelocitySampleCount = 4;
+const MinZoom = 0.5;
+const MaxZoom = 2.0;
 
 interface UseMobileSheetGesturesOptions {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -22,6 +24,7 @@ interface UseMobileSheetGesturesOptions {
 /**
  * Adds touch gestures for mobile spreadsheets:
  * - one-finger drag to pan the grid
+ * - two-finger pinch to zoom in/out
  * - double-tap to enter cell edit mode
  * - long-press to trigger a context action (e.g. clipboard menu)
  */
@@ -55,6 +58,11 @@ export function useMobileSheetGestures({
     const velocitySamples: Array<{ vx: number; vy: number; t: number }> = [];
     let inertiaFrame: number | null = null;
 
+    // Pinch-to-zoom state
+    let pinching = false;
+    let pinchStartDist = 0;
+    let pinchStartZoom = 1;
+
     const cancelInertia = () => {
       if (inertiaFrame !== null) {
         cancelAnimationFrame(inertiaFrame);
@@ -66,9 +74,25 @@ export function useMobileSheetGestures({
       cancelInertia();
       velocitySamples.length = 0;
 
+      if (e.touches.length === 2) {
+        hadMultiTouch = true;
+        panning = false;
+        pinching = true;
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchStartDist = Math.hypot(dx, dy);
+        pinchStartZoom = sheetRef.current?.getZoom() ?? 1;
+        return;
+      }
+
       if (e.touches.length !== 1) {
         hadMultiTouch = e.touches.length > 1;
         panning = false;
+        pinching = false;
         if (longPressTimer) {
           clearTimeout(longPressTimer);
           longPressTimer = null;
@@ -89,6 +113,19 @@ export function useMobileSheetGestures({
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinching) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        if (pinchStartDist > 0) {
+          const scale = dist / pinchStartDist;
+          const newZoom = Math.min(MaxZoom, Math.max(MinZoom, pinchStartZoom * scale));
+          sheetRef.current?.setZoom(newZoom);
+        }
+        return;
+      }
+
       if (e.touches.length !== 1) {
         hadMultiTouch = hadMultiTouch || e.touches.length > 1;
         return;
@@ -120,7 +157,8 @@ export function useMobileSheetGestures({
 
       if (panning) {
         e.preventDefault();
-        sheetRef.current?.panBy(-deltaX, -deltaY);
+        const zoom = sheetRef.current?.getZoom() ?? 1;
+        sheetRef.current?.panBy(-deltaX / zoom, -deltaY / zoom);
       }
 
       lastX = touch.clientX;
@@ -140,6 +178,7 @@ export function useMobileSheetGestures({
       if (hadMultiTouch) {
         hadMultiTouch = false;
         panning = false;
+        pinching = false;
         return;
       }
 
@@ -179,7 +218,8 @@ export function useMobileSheetGestures({
                   inertiaFrame = null;
                   return;
                 }
-                sheetRef.current?.panBy(-vx, -vy);
+                const z = sheetRef.current?.getZoom() ?? 1;
+                sheetRef.current?.panBy(-vx / z, -vy / z);
                 inertiaFrame = requestAnimationFrame(step);
               };
               inertiaFrame = requestAnimationFrame(step);
@@ -219,6 +259,7 @@ export function useMobileSheetGestures({
       }
       panning = false;
       hadMultiTouch = false;
+      pinching = false;
     };
 
     container.addEventListener("touchstart", onTouchStart, { passive: true });
