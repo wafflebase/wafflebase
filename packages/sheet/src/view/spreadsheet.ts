@@ -19,6 +19,7 @@ export interface Options {
   theme?: Theme;
   store?: Store;
   readOnly?: boolean;
+  hideFormulaBar?: boolean;
 }
 
 export type LayoutRect = {
@@ -67,7 +68,7 @@ export class Spreadsheet {
     this.theme = options?.theme || 'light';
     this._readOnly = options?.readOnly || false;
 
-    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly);
+    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar);
   }
 
   /**

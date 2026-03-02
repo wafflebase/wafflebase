@@ -175,13 +175,14 @@ export class Worksheet {
     container: HTMLDivElement,
     theme: Theme = 'light',
     readOnly: boolean = false,
+    hideFormulaBar?: boolean,
   ) {
     this.container = container;
     this.theme = theme;
     this.readOnly = readOnly;
 
     this.formulaBar = new FormulaBar(theme, readOnly);
-    this.gridContainer = new GridContainer(theme);
+    this.gridContainer = new GridContainer(theme, hideFormulaBar);
     this.overlay = new Overlay(theme);
     this.gridCanvas = new GridCanvas(theme);
     this.cellInput = new CellInput(theme);
@@ -200,7 +201,9 @@ export class Worksheet {
     this.gridContainer.appendChild(this.overlay.getContainer());
     this.gridContainer.appendChild(this.gridCanvas.getCanvas());
     this.gridContainer.appendChild(this.cellInput.getContainer());
-    this.container.appendChild(this.formulaBar.getContainer());
+    if (!hideFormulaBar) {
+      this.container.appendChild(this.formulaBar.getContainer());
+    }
     this.container.appendChild(this.gridContainer.getContainer());
     this.container.appendChild(this.contextMenu.getContainer());
     this.container.appendChild(this.autocomplete.getContainer());

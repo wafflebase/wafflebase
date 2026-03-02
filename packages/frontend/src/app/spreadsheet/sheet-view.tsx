@@ -420,6 +420,7 @@ export function SheetView({
       theme,
       store: new YorkieStore(doc, tabId),
       readOnly,
+      hideFormulaBar: isMobileRef.current,
     }).then((s) => {
       if (cancelled) {
         s.cleanup();

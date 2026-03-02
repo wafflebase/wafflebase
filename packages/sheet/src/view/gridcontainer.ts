@@ -21,16 +21,18 @@ export class GridContainer {
   private actualWidth = 0;
   private actualHeight = 0;
 
-  constructor(_theme: Theme = 'light') {
-    this.createContainers();
+  constructor(_theme: Theme = 'light', hideFormulaBar?: boolean) {
+    this.createContainers(hideFormulaBar);
   }
 
-  private createContainers(): void {
+  private createContainers(hideFormulaBar?: boolean): void {
     // Main sheet container
     this.container = document.createElement('div');
     this.container.style.position = 'relative';
     this.container.style.width = '100%';
-    this.container.style.height = `calc(100% - ${FormulaBarHeight + FormulaBarMargin * 2}px)`;
+    this.container.style.height = hideFormulaBar
+      ? '100%'
+      : `calc(100% - ${FormulaBarHeight + FormulaBarMargin * 2}px)`;
 
     // Scroll container
     this.scrollContainer = document.createElement('div');
