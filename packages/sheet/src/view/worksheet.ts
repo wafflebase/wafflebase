@@ -154,6 +154,9 @@ export class Worksheet {
   private autofillPreview: Range | undefined;
   private onRenderCallback?: () => void;
   private readOnly: boolean;
+  private mobileEditCallback:
+    | ((cellRef: string, value: string) => void)
+    | null = null;
 
   // Formula range selection state
   private formulaRangeAnchor: Ref | null = null;
@@ -308,8 +311,34 @@ export class Worksheet {
    * `handleMobileDoubleTap` enters edit mode from a mobile double-tap.
    */
   public handleMobileDoubleTap(clientX: number, clientY: number): void {
+    if (this.readOnly) return;
     const { x, y } = this.clampClientPointToViewport(clientX, clientY);
+
+    // If a mobile edit callback is registered, resolve the cell and
+    // invoke it instead of opening the inline editor.
+    if (this.mobileEditCallback) {
+      const ref = this.toRefFromMouse(x, y);
+      this.sheet!.selectStart(ref);
+      this.render();
+      this.scrollIntoView();
+      void this.sheet!.toInputString(ref).then((value) => {
+        this.mobileEditCallback?.(toSref(ref), value);
+      });
+      return;
+    }
+
     this.handleDblClickAt(x, y);
+  }
+
+  /**
+   * `setMobileEditCallback` registers a callback invoked instead of
+   * inline editing when a mobile double-tap occurs. Pass `null` to
+   * restore default inline editing.
+   */
+  public setMobileEditCallback(
+    cb: ((cellRef: string, value: string) => void) | null,
+  ): void {
+    this.mobileEditCallback = cb;
   }
 
   /**

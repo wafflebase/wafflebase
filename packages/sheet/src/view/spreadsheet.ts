@@ -131,6 +131,30 @@ export class Spreadsheet {
   }
 
   /**
+   * `setMobileEditCallback` registers a callback invoked on mobile
+   * double-tap instead of inline editing. The callback receives the
+   * cell reference string (e.g. "A1") and its current value.
+   */
+  public setMobileEditCallback(
+    cb: ((cellRef: string, value: string) => void) | null,
+  ): void {
+    this.worksheet.setMobileEditCallback(cb);
+  }
+
+  /**
+   * `commitExternalEdit` writes a value to the active cell from an
+   * external editor (e.g. the mobile edit panel). Re-renders the
+   * sheet after committing.
+   */
+  public async commitExternalEdit(value: string): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    const ref = this.sheet.getActiveCell();
+    await this.sheet.setData(ref, value);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
    * `focusCell` selects the target cell and scrolls it into view.
    */
   public async focusCell(ref: Ref): Promise<void> {

@@ -26,6 +26,8 @@ import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import { YorkieStore } from "./yorkie-store";
 import { UserPresence } from "@/types/users";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 
@@ -107,6 +109,16 @@ export function SheetView({
   );
   const [paintFormatSourceIndicatorVisible, setPaintFormatSourceIndicatorVisible] =
     useState(false);
+  const isMobile = useIsMobile();
+  const [mobileEditState, setMobileEditState] = useState<{
+    cellRef: string;
+    value: string;
+  } | null>(null);
+  const mobileEditValueRef = useRef<string>("");
+  const isMobileRef = useRef(isMobile);
+  useEffect(() => {
+    isMobileRef.current = isMobile;
+  }, [isMobile]);
   const lastHandledPeerJumpRequestIdRef = useRef(0);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
@@ -357,6 +369,25 @@ export function SheetView({
     [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId],
   );
 
+  const handleMobileEditCommit = useCallback(
+    async (value: string) => {
+      const sheet = sheetRef.current;
+      if (sheet) {
+        await sheet.commitExternalEdit(value);
+      }
+      setMobileEditState(null);
+    },
+    [],
+  );
+
+  const handleMobileEditCancel = useCallback(() => {
+    setMobileEditState(null);
+  }, []);
+
+  const handleMobileEditValueChange = useCallback((value: string) => {
+    mobileEditValueRef.current = value;
+  }, []);
+
   useEffect(() => {
     setSelectedChartId(null);
     setChartEditorOpen(false);
@@ -399,6 +430,13 @@ export function SheetView({
       sheetRef.current = s;
       setSheetRenderVersion((v) => v + 1);
 
+      if (isMobileRef.current && !readOnly) {
+        s.setMobileEditCallback((cellRef, value) => {
+          mobileEditValueRef.current = value;
+          setMobileEditState({ cellRef, value });
+        });
+      }
+
       // Track sheet render cycles (scroll/selection/edits) so floating chart
       // objects stay aligned with the canvas viewport.
       unsubs.push(
@@ -435,6 +473,19 @@ export function SheetView({
               : s.applyDefaultStyle();
           void applyPromise.finally(() => {
             clearPaintFormatState();
+          });
+        }),
+      );
+
+      unsubs.push(
+        s.onSelectionChange(() => {
+          setMobileEditState((prev) => {
+            if (!prev) return null;
+            const currentValue = mobileEditValueRef.current;
+            if (currentValue !== prev.value) {
+              void sheetRef.current?.commitExternalEdit(currentValue);
+            }
+            return null;
           });
         }),
       );
@@ -692,6 +743,15 @@ export function SheetView({
               getSelectionRange={getSelectionRange}
             />
           </Suspense>
+        )}
+        {isMobile && mobileEditState && (
+          <MobileEditPanel
+            cellRef={mobileEditState.cellRef}
+            initialValue={mobileEditState.value}
+            onCommit={handleMobileEditCommit}
+            onCancel={handleMobileEditCancel}
+            onValueChange={handleMobileEditValueChange}
+          />
         )}
       </div>
     </div>

@@ -4,12 +4,14 @@ import {
   Spreadsheet,
   type Grid,
 } from "@wafflebase/sheet";
+import { IconCheck, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 type ScenarioSetup = {
   store: MemStore;
   afterInitialize?: (spreadsheet: Spreadsheet) => Promise<void> | void;
+  overlay?: React.ReactNode;
 };
 
 type Scenario = {
@@ -338,6 +340,54 @@ async function createDimensionScenarioStore(): Promise<ScenarioSetup> {
   };
 }
 
+async function createMobileEditScenarioStore(): Promise<ScenarioSetup> {
+  const grid: Grid = new Map([
+    ["A1", { v: "Name" }],
+    ["B1", { v: "Amount" }],
+    ["A2", { v: "Alpha" }],
+    ["B2", { v: "120" }],
+    ["A3", { v: "Beta" }],
+    ["B3", { v: "85" }],
+  ]);
+
+  const store = new MemStore(grid);
+  await store.addRangeStyle({
+    range: [
+      { r: 1, c: 1 },
+      { r: 1, c: 2 },
+    ],
+    style: { b: true, bg: "#f1f5f9" },
+  });
+
+  return {
+    store,
+    afterInitialize: async (spreadsheet) => {
+      await spreadsheet.focusCell({ r: 2, c: 2 });
+    },
+    overlay: (
+      <div className="absolute inset-x-0 bottom-0 z-50 border-t bg-background px-2 py-1.5 shadow-lg">
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            B2
+          </span>
+          <input
+            type="text"
+            className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-sm outline-none"
+            defaultValue="120"
+            readOnly
+          />
+          <span className="shrink-0 rounded p-1 text-muted-foreground">
+            <IconX size={18} />
+          </span>
+          <span className="shrink-0 rounded p-1 text-primary">
+            <IconCheck size={18} />
+          </span>
+        </div>
+      </div>
+    ),
+  };
+}
+
 const SCENARIOS: Scenario[] = [
   {
     id: "sheet-freeze-selection",
@@ -369,6 +419,12 @@ const SCENARIOS: Scenario[] = [
     description: "Verifies layout regression of custom row/column sizes with top freeze pane.",
     setup: createDimensionScenarioStore,
   },
+  {
+    id: "sheet-mobile-edit-panel",
+    title: "Mobile Edit Panel",
+    description: "Verifies mobile bottom sheet editing panel overlay on the spreadsheet grid.",
+    setup: createMobileEditScenarioStore,
+  },
 ];
 
 function ScenarioCard({
@@ -380,6 +436,7 @@ function ScenarioCard({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<ScenarioState>("loading");
+  const [overlay, setOverlay] = useState<React.ReactNode>(null);
 
   useEffect(() => {
     onReadyChange(scenario.id, state === "ready");
@@ -396,6 +453,7 @@ function ScenarioCard({
       }
 
       setState("loading");
+      setOverlay(null);
       container.innerHTML = "";
 
       try {
@@ -412,6 +470,7 @@ function ScenarioCard({
         await result.afterInitialize?.(spreadsheet);
 
         if (mounted) {
+          setOverlay(result.overlay ?? null);
           setState("ready");
         }
       } catch (error) {
@@ -445,11 +504,12 @@ function ScenarioCard({
         <CardDescription>{scenario.description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        <div className="rounded-md border bg-background p-2">
+        <div className="relative rounded-md border bg-background p-2">
           <div
             className="h-[320px] w-full overflow-hidden rounded-sm bg-white"
             ref={containerRef}
           />
+          {overlay}
         </div>
         <p className="text-xs text-muted-foreground">
           {state === "ready" && "Scenario ready"}

@@ -30,6 +30,7 @@ const scenarioIds = [
   "sheet-merge-layout",
   "sheet-formula-errors",
   "sheet-dimensions-freeze",
+  "sheet-mobile-edit-panel",
 ];
 
 const visualTargets = [
