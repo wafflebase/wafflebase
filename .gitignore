@@ -178,3 +178,6 @@ tags
 
 # Git worktrees
 .worktrees/
+
+# Local Claude settings
+.claude/settings.local.json

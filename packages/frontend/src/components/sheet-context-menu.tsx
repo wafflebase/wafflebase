@@ -60,14 +60,13 @@ export function SheetContextMenu({
   );
   const [adjacentHidden, setAdjacentHidden] = useState<number[]>([]);
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
+  const updateMenuState = useCallback(
+    (clientX: number, clientY: number) => {
       if (!spreadsheet) return;
 
-      const hit = spreadsheet.headerHitTest(e.clientX, e.clientY);
+      const hit = spreadsheet.headerHitTest(clientX, clientY);
 
       if (hit) {
-        // If click is outside current selection, select the single row/column
         const sel = spreadsheet.getSelectedIndices();
         const withinSelection =
           sel &&
@@ -83,8 +82,7 @@ export function SheetContextMenu({
           }
         }
       } else {
-        // Cell area: check if the clicked cell is within the current selection
-        const ref = spreadsheet.cellRefFromPoint(e.clientX, e.clientY);
+        const ref = spreadsheet.cellRefFromPoint(clientX, clientY);
         const currentRange = spreadsheet.getSelectionRangeOrActiveCell();
         if (!currentRange || !inRange(ref, currentRange)) {
           spreadsheet.selectStart(ref);
@@ -115,6 +113,14 @@ export function SheetContextMenu({
       }
     },
     [spreadsheet],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (!spreadsheet) return;
+      updateMenuState(e.clientX, e.clientY);
+    },
+    [spreadsheet, updateMenuState],
   );
 
   const handleHideRowCol = useCallback(async () => {
