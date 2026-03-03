@@ -50,6 +50,23 @@ describe('formatValue', () => {
     expect(formatted).not.toContain('.');
   });
 
+  it('should use explicit currency regardless of locale', () => {
+    // KRW cell opened on en-US device must stay KRW, not become USD
+    const krwOnUs = formatValue('50000', 'currency', undefined, {
+      locale: 'en-US',
+      currency: 'KRW',
+    });
+    expect(krwOnUs).toContain('50,000');
+    expect(krwOnUs).not.toContain('$');
+
+    // USD cell opened on ko-KR device must stay USD, not become KRW
+    const usdOnKr = formatValue('1234.5', 'currency', undefined, {
+      locale: 'ko-KR',
+      currency: 'USD',
+    });
+    expect(usdOnKr).toContain('$');
+  });
+
   it('should format percent', () => {
     expect(formatValue('0.5', 'percent', undefined, { locale: 'en-US' })).toBe(
       '50.00%',

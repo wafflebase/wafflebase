@@ -1207,7 +1207,9 @@ export class GridCanvas {
 
     const rawData = cell?.v || '';
     if (rawData) {
-      const data = formatValue(rawData, style?.nf, style?.dp);
+      const data = formatValue(rawData, style?.nf, style?.dp, {
+        currency: style?.cu,
+      });
       const lines = data.split('\n');
 
       // Build font string (needed for measuring text width)
@@ -1374,7 +1376,9 @@ export class GridCanvas {
           continue;
         }
 
-        const data = formatValue(rawData, style?.nf, style?.dp);
+        const data = formatValue(rawData, style?.nf, style?.dp, {
+          currency: style?.cu,
+        });
         const lines = data.split('\n');
         if (lines.length !== 1) {
           continue;
