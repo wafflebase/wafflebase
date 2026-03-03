@@ -510,7 +510,7 @@ export function SheetView({
       unsubs.push(
         s.onSelectionChange(() => {
           if (
-            (hasChartsRef.current || paintFormatSourceIndicatorVisibleRef.current) &&
+            (hasChartsRef.current || paintFormatSourceIndicatorVisibleRef.current || isMobileRef.current) &&
             selectionFrame === null
           ) {
             selectionFrame = requestAnimationFrame(() => {

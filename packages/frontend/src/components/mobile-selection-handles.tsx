@@ -6,7 +6,7 @@ interface MobileSelectionHandlesProps {
   renderVersion: number;
 }
 
-const HandleSize = 20;
+const HandleSize = 8;
 const HandleTouchTarget = 44;
 
 export function MobileSelectionHandles({
@@ -72,6 +72,7 @@ export function MobileSelectionHandles({
     position: "absolute",
     left: x,
     top: y,
+    boxSizing: "content-box",
     width: HandleSize,
     height: HandleSize,
     // Expand touch target beyond visual circle

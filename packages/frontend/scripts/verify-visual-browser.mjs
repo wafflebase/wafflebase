@@ -44,6 +44,7 @@ const scenarioIds = [
   "sheet-mobile-context-menu",
   "sheet-mobile-row-menu",
   "sheet-mobile-column-menu",
+  "sheet-mobile-selection-handles",
   "chart-bar",
   "chart-line",
   "chart-area",

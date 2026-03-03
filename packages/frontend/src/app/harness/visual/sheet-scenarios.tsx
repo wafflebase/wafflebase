@@ -20,11 +20,12 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MobileSelectionHandles } from "@/components/mobile-selection-handles";
 
 type ScenarioSetup = {
   store: MemStore;
   afterInitialize?: (spreadsheet: Spreadsheet) => Promise<void> | void;
-  overlay?: React.ReactNode;
+  overlay?: React.ReactNode | ((spreadsheet: Spreadsheet) => React.ReactNode);
 };
 
 type Scenario = {
@@ -580,6 +581,43 @@ async function createMobileColumnMenuScenarioStore(): Promise<ScenarioSetup> {
   };
 }
 
+async function createMobileSelectionHandlesScenarioStore(): Promise<ScenarioSetup> {
+  const grid: Grid = new Map([
+    ["A1", { v: "Name" }],
+    ["B1", { v: "Score" }],
+    ["C1", { v: "Grade" }],
+    ["A2", { v: "Alice" }],
+    ["B2", { v: "92" }],
+    ["C2", { v: "A" }],
+    ["A3", { v: "Bob" }],
+    ["B3", { v: "78" }],
+    ["C3", { v: "B" }],
+    ["A4", { v: "Carol" }],
+    ["B4", { v: "85" }],
+    ["C4", { v: "A-" }],
+  ]);
+
+  const store = new MemStore(grid);
+  await store.addRangeStyle({
+    range: [
+      { r: 1, c: 1 },
+      { r: 1, c: 3 },
+    ],
+    style: { b: true, bg: "#f1f5f9" },
+  });
+
+  return {
+    store,
+    afterInitialize: async (spreadsheet) => {
+      spreadsheet.selectStart({ r: 2, c: 2 });
+      spreadsheet.selectEnd({ r: 3, c: 3 });
+    },
+    overlay: (spreadsheet: Spreadsheet) => (
+      <MobileSelectionHandles spreadsheet={spreadsheet} renderVersion={0} />
+    ),
+  };
+}
+
 const SCENARIOS: Scenario[] = [
   {
     id: "sheet-freeze-selection",
@@ -635,6 +673,12 @@ const SCENARIOS: Scenario[] = [
     description: "Verifies column context menu overlay with insert, delete, and hide actions.",
     setup: createMobileColumnMenuScenarioStore,
   },
+  {
+    id: "sheet-mobile-selection-handles",
+    title: "Mobile Selection Handles",
+    description: "Verifies mobile selection resize handles at top-left and bottom-right of range.",
+    setup: createMobileSelectionHandlesScenarioStore,
+  },
 ];
 
 function ScenarioCard({
@@ -649,6 +693,7 @@ function ScenarioCard({
   const containerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<ScenarioState>("loading");
   const [overlay, setOverlay] = useState<React.ReactNode>(null);
+  const spreadsheetRef = useRef<Spreadsheet | undefined>(undefined);
 
   useEffect(() => {
     onReadyChange(scenario.id, state === "ready");
@@ -666,6 +711,7 @@ function ScenarioCard({
 
       setState("loading");
       setOverlay(null);
+      spreadsheetRef.current = undefined;
       container.innerHTML = "";
 
       try {
@@ -682,7 +728,9 @@ function ScenarioCard({
         await result.afterInitialize?.(spreadsheet);
 
         if (mounted) {
-          setOverlay(result.overlay ?? null);
+          spreadsheetRef.current = spreadsheet;
+          const ov = result.overlay;
+          setOverlay(typeof ov === "function" ? ov(spreadsheet) : (ov ?? null));
           setState("ready");
         }
       } catch (error) {
@@ -698,6 +746,7 @@ function ScenarioCard({
     return () => {
       mounted = false;
       spreadsheet?.cleanup();
+      spreadsheetRef.current = undefined;
       if (container) {
         container.innerHTML = "";
       }
@@ -716,12 +765,14 @@ function ScenarioCard({
         <CardDescription>{scenario.description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        <div className="relative rounded-md border bg-background p-2">
-          <div
-            className={`h-[320px] w-full overflow-hidden rounded-sm ${theme === "dark" ? "bg-[#1E1E1E]" : "bg-white"}`}
-            ref={containerRef}
-          />
-          {overlay}
+        <div className="rounded-md border bg-background p-2">
+          <div className="relative">
+            <div
+              className={`h-[320px] w-full overflow-hidden rounded-sm ${theme === "dark" ? "bg-[#1E1E1E]" : "bg-white"}`}
+              ref={containerRef}
+            />
+            {overlay}
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">
           {state === "ready" && "Scenario ready"}
