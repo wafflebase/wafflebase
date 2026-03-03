@@ -301,6 +301,15 @@ export function SheetView({
         if (patch.seriesColumns !== undefined) {
           chart.seriesColumns = [...patch.seriesColumns];
         }
+        if (patch.legendPosition !== undefined) {
+          chart.legendPosition = patch.legendPosition;
+        }
+        if (patch.showGridlines !== undefined) {
+          chart.showGridlines = patch.showGridlines;
+        }
+        if (patch.colorPalette !== undefined) {
+          chart.colorPalette = patch.colorPalette;
+        }
       });
     },
     [doc, readOnly, tabId],

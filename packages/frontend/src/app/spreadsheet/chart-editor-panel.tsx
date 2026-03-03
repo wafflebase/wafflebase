@@ -1,11 +1,10 @@
 import { KeyboardEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { IconChartBar, IconChartLine, IconX } from "@tabler/icons-react";
+import { IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -13,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChartType, SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import {
   formatA1Range,
@@ -20,6 +20,7 @@ import {
   parseA1Range,
   resolveChartColumns,
 } from "./chart-utils";
+import { getAllChartEntries, getChartEntry } from "./charts/chart-registry";
 
 type ChartEditorPanelProps = {
   root: SpreadsheetDocument;
@@ -54,6 +55,9 @@ export function ChartEditorPanel({
   if (!open || !chart) {
     return null;
   }
+
+  const entry = getChartEntry(chart.type);
+  const capabilities = entry.editorCapabilities;
 
   const sourceTabName = root.tabs[chart.sourceTabId]?.name || chart.sourceTabId;
   const xAxisColumn = columnSelection.xAxisColumn;
@@ -126,6 +130,11 @@ export function ChartEditorPanel({
   };
 
   const handleSeriesToggle = (column: string, enabled: boolean) => {
+    if (!capabilities.multiSeries) {
+      onUpdateChart(chart.id, { seriesColumns: [column] });
+      return;
+    }
+
     const nextSeries = new Set(columnSelection.seriesColumns);
     if (enabled) {
       nextSeries.add(column);
@@ -143,7 +152,7 @@ export function ChartEditorPanel({
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <IconChartBar size={16} className="text-primary" />
+            <entry.icon size={16} className="text-primary" />
             <p className="text-sm font-semibold">Chart editor</p>
           </div>
           <p className="truncate text-xs text-muted-foreground">Source: {sourceTabName}</p>
@@ -158,136 +167,206 @@ export function ChartEditorPanel({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 pb-6">
-        <section className="space-y-2">
-          <Label htmlFor="chart-title">Chart title</Label>
-          <Input
-            id="chart-title"
-            value={chart.title || ""}
-            onChange={(event) =>
-              onUpdateChart(chart.id, {
-                title: event.target.value,
-              })
-            }
-            placeholder="Chart"
-          />
-        </section>
+      <Tabs defaultValue="setup" className="flex min-h-0 flex-1 flex-col">
+        <TabsList className="mx-4 mt-2 grid w-auto grid-cols-2">
+          <TabsTrigger value="setup">Setup</TabsTrigger>
+          <TabsTrigger value="customize">Customize</TabsTrigger>
+        </TabsList>
 
-        <Separator />
-
-        <section className="space-y-2">
-          <Label htmlFor="chart-type">Chart type</Label>
-          <Select
-            value={chart.type}
-            onValueChange={(value) => {
-              onUpdateChart(chart.id, { type: value as ChartType });
-            }}
-          >
-            <SelectTrigger id="chart-type" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="bar">
-                <span className="flex items-center gap-2">
-                  <IconChartBar size={14} />
-                  Bar chart
-                </span>
-              </SelectItem>
-              <SelectItem value="line">
-                <span className="flex items-center gap-2">
-                  <IconChartLine size={14} />
-                  Line chart
-                </span>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </section>
-
-        <Separator />
-
-        <section className="space-y-2">
-          <Label htmlFor="chart-range">Data range</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              id="chart-range"
-              value={rangeInput}
-              onChange={(event) => setRangeInput(event.target.value)}
-              onKeyDown={handleRangeKeyDown}
-              placeholder="A1:D20"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => applyRange(rangeInput)}
+        <TabsContent
+          value="setup"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 pb-6"
+        >
+          <section className="space-y-2">
+            <Label htmlFor="chart-type">Chart type</Label>
+            <Select
+              value={chart.type}
+              onValueChange={(value) => {
+                onUpdateChart(chart.id, { type: value as ChartType });
+              }}
             >
-              Apply
-            </Button>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="px-0"
-            onClick={handleUseSelectionRange}
-          >
-            Use selected range
-          </Button>
-        </section>
-
-        <Separator />
-
-        <section className="space-y-2">
-          <Label htmlFor="chart-x-axis">X-axis</Label>
-          {columnSelection.columns.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Set a valid range to configure X-axis and series.
-            </p>
-          ) : (
-            <Select value={xAxisColumn || ""} onValueChange={handleXAxisChange}>
-              <SelectTrigger id="chart-x-axis" className="w-full">
+              <SelectTrigger id="chart-type" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {columnSelection.columns.map((column) => (
-                  <SelectItem key={column.column} value={column.column}>
-                    {column.column} - {column.label}
-                  </SelectItem>
-                ))}
+                {getAllChartEntries().map((chartEntry) => {
+                  const Icon = chartEntry.icon;
+                  return (
+                    <SelectItem key={chartEntry.type} value={chartEntry.type}>
+                      <span className="flex items-center gap-2">
+                        <Icon size={14} />
+                        {chartEntry.label}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
-          )}
-        </section>
+          </section>
 
-        <section className="space-y-2">
-          <Label>Series</Label>
-          {seriesCandidates.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              No series columns available for this range.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {seriesCandidates.map((column) => (
-                <label
-                  key={column.column}
-                  className="flex cursor-pointer items-center justify-between rounded-sm border px-2 py-1.5 hover:bg-muted/40"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{column.label}</p>
-                    <p className="text-xs text-muted-foreground">{column.column}</p>
-                  </div>
-                  <Checkbox
-                    checked={selectedSeries.has(column.column)}
-                    onCheckedChange={(checked) =>
-                      handleSeriesToggle(column.column, checked === true)
-                    }
-                  />
-                </label>
-              ))}
+          <section className="space-y-2">
+            <Label htmlFor="chart-range">Data range</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="chart-range"
+                value={rangeInput}
+                onChange={(event) => setRangeInput(event.target.value)}
+                onKeyDown={handleRangeKeyDown}
+                placeholder="A1:D20"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => applyRange(rangeInput)}
+              >
+                Apply
+              </Button>
             </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="px-0"
+              onClick={handleUseSelectionRange}
+            >
+              Use selected range
+            </Button>
+          </section>
+
+          <section className="space-y-2">
+            <Label htmlFor="chart-x-axis">
+              {entry.category === "radial" ? "Label column" : "X-axis"}
+            </Label>
+            {columnSelection.columns.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Set a valid range to configure X-axis and series.
+              </p>
+            ) : (
+              <Select value={xAxisColumn || ""} onValueChange={handleXAxisChange}>
+                <SelectTrigger id="chart-x-axis" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {columnSelection.columns.map((column) => (
+                    <SelectItem key={column.column} value={column.column}>
+                      {column.column} - {column.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <Label>
+              {entry.category === "radial" ? "Value column" : "Series"}
+            </Label>
+            {seriesCandidates.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No series columns available for this range.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {seriesCandidates.map((column) => (
+                  <label
+                    key={column.column}
+                    className="flex cursor-pointer items-center justify-between rounded-sm border px-2 py-1.5 hover:bg-muted/40"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{column.label}</p>
+                      <p className="text-xs text-muted-foreground">{column.column}</p>
+                    </div>
+                    <Checkbox
+                      checked={selectedSeries.has(column.column)}
+                      onCheckedChange={(checked) =>
+                        handleSeriesToggle(column.column, checked === true)
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+          </section>
+        </TabsContent>
+
+        <TabsContent
+          value="customize"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4 pb-6"
+        >
+          <section className="space-y-2">
+            <Label htmlFor="chart-title">Chart title</Label>
+            <Input
+              id="chart-title"
+              value={chart.title || ""}
+              onChange={(e) => onUpdateChart(chart.id, { title: e.target.value })}
+              placeholder="Chart"
+            />
+          </section>
+
+          {capabilities.legendPosition && (
+            <section className="space-y-2">
+              <Label htmlFor="chart-legend">Legend</Label>
+              <Select
+                value={chart.legendPosition ?? (entry.category === "radial" ? "right" : "bottom")}
+                onValueChange={(value) =>
+                  onUpdateChart(chart.id, {
+                    legendPosition: value as SheetChart["legendPosition"],
+                  })
+                }
+              >
+                <SelectTrigger id="chart-legend" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="top">Top</SelectItem>
+                  <SelectItem value="bottom">Bottom</SelectItem>
+                  <SelectItem value="right">Right</SelectItem>
+                  <SelectItem value="left">Left</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
+                </SelectContent>
+              </Select>
+            </section>
           )}
-        </section>
-      </div>
+
+          {capabilities.gridlines && (
+            <section className="space-y-2">
+              <Label>Gridlines</Label>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="chart-gridlines"
+                  checked={chart.showGridlines ?? true}
+                  onCheckedChange={(checked) =>
+                    onUpdateChart(chart.id, { showGridlines: checked === true })
+                  }
+                />
+                <Label htmlFor="chart-gridlines" className="text-sm font-normal">
+                  Show gridlines
+                </Label>
+              </div>
+            </section>
+          )}
+
+          <section className="space-y-2">
+            <Label>Color palette</Label>
+            <Select
+              value={chart.colorPalette ?? "default"}
+              onValueChange={(value) =>
+                onUpdateChart(chart.id, { colorPalette: value })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Theme (default)</SelectItem>
+                <SelectItem value="warm">Warm</SelectItem>
+                <SelectItem value="cool">Cool</SelectItem>
+              </SelectContent>
+            </Select>
+          </section>
+        </TabsContent>
+      </Tabs>
     </aside>
   );
 }
