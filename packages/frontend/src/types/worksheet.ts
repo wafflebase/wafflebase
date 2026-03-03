@@ -8,7 +8,7 @@ import type {
   Sref,
 } from "@wafflebase/sheet";
 
-export type ChartType = "bar" | "line";
+export type ChartType = "bar" | "line" | "area" | "pie" | "scatter";
 
 export type SheetChart = {
   id: string;
@@ -23,6 +23,9 @@ export type SheetChart = {
   offsetY: number;
   width: number;
   height: number;
+  legendPosition?: "top" | "bottom" | "right" | "left" | "none";
+  showGridlines?: boolean;
+  colorPalette?: string;
 };
 
 export type WorksheetFilterState = {
