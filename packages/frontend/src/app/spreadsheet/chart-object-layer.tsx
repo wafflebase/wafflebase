@@ -5,22 +5,6 @@ import {
 } from "react";
 import { parseRef, Spreadsheet } from "@wafflebase/sheet";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
-  ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -28,7 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import { IconDotsVertical, IconPencil, IconTrash } from "@tabler/icons-react";
-import { buildChartDataset } from "./chart-utils";
+import { buildChartDataset, buildPieDataset } from "./chart-utils";
+import { getChartEntry } from "./charts/chart-registry";
 
 type ChartObjectLayerProps = {
   spreadsheet: Spreadsheet | undefined;
@@ -290,8 +275,32 @@ function ChartObject({
   const left = anchorRect.left + layout.offsetX * zoom;
   const top = anchorRect.top + layout.offsetY * zoom;
 
-  const dataset = buildChartDataset(root, chart);
-  const yAxisWidth = getYAxisWidth(dataset);
+  const entry = getChartEntry(chart.type);
+  const Renderer = entry.renderer;
+  const showGridlines = chart.showGridlines ?? true;
+  const legendPosition = chart.legendPosition ?? (entry.category === "radial" ? "right" : "bottom");
+
+  // Build dataset based on category
+  const isPie = entry.category === "radial";
+  const dataset = isPie ? null : buildChartDataset(root, chart, chart.colorPalette);
+  const pieDataset = isPie ? buildPieDataset(root, chart, chart.colorPalette) : null;
+
+  // Scatter charts need numeric X-axis values for proper axis scaling
+  if (entry.category === "scatter" && dataset) {
+    for (const row of dataset.rows) {
+      const xVal = row[dataset.xKey];
+      if (typeof xVal === "string") {
+        const num = Number(xVal.replace(/,/g, ""));
+        if (Number.isFinite(num)) {
+          row[dataset.xKey] = num;
+        }
+      }
+    }
+  }
+  const yAxisWidth = dataset ? getYAxisWidth(dataset) : 0;
+  const isEmpty = isPie
+    ? !pieDataset || pieDataset.entries.length === 0
+    : !dataset || dataset.rows.length === 0 || dataset.series.length === 0;
 
   return (
     <div
@@ -367,58 +376,26 @@ function ChartObject({
         )}
       </div>
       <div className="relative min-h-0 flex-1 p-2">
-        {dataset.rows.length === 0 || dataset.series.length === 0 ? (
+        {isEmpty ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             Not enough numeric data in {chart.sourceRange}
           </div>
+        ) : Renderer ? (
+          isPie ? (
+            <Renderer dataset={pieDataset} legendPosition={legendPosition} />
+          ) : (
+            <Renderer
+              dataset={dataset}
+              yAxisWidth={yAxisWidth}
+              showGridlines={showGridlines}
+              legendPosition={legendPosition}
+              formatYAxisTick={formatYAxisTick}
+            />
+          )
         ) : (
-          <ChartContainer config={dataset.config} className="!aspect-auto h-full w-full">
-            {chart.type === "line" ? (
-              <LineChart data={dataset.rows}>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey={dataset.xKey} tickLine={false} axisLine={false} />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  width={yAxisWidth}
-                  tickFormatter={formatYAxisTick}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <ChartLegend content={<ChartLegendContent />} />
-                {dataset.series.map((series) => (
-                  <Line
-                    key={series.key}
-                    type="monotone"
-                    dataKey={series.key}
-                    stroke={`var(--color-${series.key})`}
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                ))}
-              </LineChart>
-            ) : (
-              <BarChart data={dataset.rows}>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey={dataset.xKey} tickLine={false} axisLine={false} />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  width={yAxisWidth}
-                  tickFormatter={formatYAxisTick}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <ChartLegend content={<ChartLegendContent />} />
-                {dataset.series.map((series) => (
-                  <Bar
-                    key={series.key}
-                    dataKey={series.key}
-                    fill={`var(--color-${series.key})`}
-                    radius={2}
-                  />
-                ))}
-              </BarChart>
-            )}
-          </ChartContainer>
+          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+            Unsupported chart type
+          </div>
         )}
         {!readOnly && selected && (
           <div
