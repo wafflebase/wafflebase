@@ -14,12 +14,12 @@ const updateBaseline = process.env.UPDATE_VISUAL_BROWSER_BASELINE === "true";
 const captureProfiles = [
   {
     id: "desktop",
-    viewport: { width: 1800, height: 3400 },
+    viewport: { width: 1800, height: 5000 },
     colorScheme: "light",
   },
   {
     id: "mobile",
-    viewport: { width: 430, height: 4200 },
+    viewport: { width: 430, height: 8000 },
     colorScheme: "light",
   },
 ];
@@ -34,6 +34,11 @@ const scenarioIds = [
   "sheet-mobile-context-menu",
   "sheet-mobile-row-menu",
   "sheet-mobile-column-menu",
+  "chart-bar",
+  "chart-line",
+  "chart-area",
+  "chart-pie",
+  "chart-scatter",
 ];
 
 const visualTargets = [
@@ -166,6 +171,11 @@ async function captureScreenshots(playwright) {
           "[data-testid='visual-harness-sheet-section'][data-visual-sheet-ready='true']",
         );
         await sheetSection.waitFor({ state: "visible", timeout: 20000 });
+
+        const chartSection = page.locator(
+          "[data-testid='visual-harness-chart-section'][data-visual-chart-ready='true']",
+        );
+        await chartSection.waitFor({ state: "visible", timeout: 20000 });
 
         for (const target of visualTargets) {
           const locator = page.locator(target.locator).first();

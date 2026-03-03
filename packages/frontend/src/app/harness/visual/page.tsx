@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChartVisualScenarios } from "./chart-scenarios";
 import { SheetVisualScenarios } from "./sheet-scenarios";
 
 const documents = [
@@ -141,6 +142,7 @@ export default function VisualHarnessPage() {
         </Tabs>
 
         <SheetVisualScenarios />
+        <ChartVisualScenarios />
       </div>
     </main>
   );
