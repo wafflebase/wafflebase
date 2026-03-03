@@ -3715,8 +3715,8 @@ export class Sheet {
       await this.loadStyles();
       await this.loadMerges();
       await this.loadFreezePane();
-      await this.loadFilterState();
       await this.loadHiddenState();
+      await this.loadFilterState();
 
       if (result.affectedRange) {
         const [start, end] = result.affectedRange;
@@ -3745,8 +3745,8 @@ export class Sheet {
       await this.loadStyles();
       await this.loadMerges();
       await this.loadFreezePane();
-      await this.loadFilterState();
       await this.loadHiddenState();
+      await this.loadFilterState();
 
       if (result.affectedRange) {
         const [start, end] = result.affectedRange;
