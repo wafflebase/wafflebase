@@ -18,6 +18,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
 | [formula-coverage.md](formula-coverage.md)             | Google Sheets function parity — current coverage, tier plan, per-function status                   |
 | [charts.md](charts.md)                                 | Chart system — registry architecture, chart types, editor panel, phased roadmap                    |
+| [context-menu.md](context-menu.md)                     | Unified context menu — Radix ContextMenu, desktop/mobile parity, menu items                       |
 
 ## Template
 
