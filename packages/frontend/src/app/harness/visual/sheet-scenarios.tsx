@@ -12,6 +12,7 @@ import {
   IconColumnInsertRight,
   IconCopy,
   IconCut,
+  IconEyeOff,
   IconRowInsertBottom,
   IconRowInsertTop,
   IconTrash,
@@ -441,19 +442,18 @@ async function createMobileContextMenuScenarioStore(): Promise<ScenarioSetup> {
       <div
         role="menu"
         aria-label="Cell actions"
-        className="absolute z-50 min-w-[160px] rounded-lg border bg-background shadow-lg"
+        className="absolute z-50 min-w-[8rem] rounded-md border bg-popover text-popover-foreground p-1 shadow-md"
         style={{ top: 80, left: 60 }}
       >
         {menuItems.map(({ icon: Icon, label }) => (
-          <button
+          <div
             key={label}
-            type="button"
             role="menuitem"
-            className="flex w-full items-center gap-3 px-3 py-3 text-sm first:rounded-t-lg last:rounded-b-lg"
+            className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm [&_svg]:text-muted-foreground"
           >
-            <Icon size={18} />
+            <Icon size={16} />
             <span>{label}</span>
-          </button>
+          </div>
         ))}
       </div>
     ),
@@ -479,7 +479,7 @@ async function createMobileRowMenuScenarioStore(): Promise<ScenarioSetup> {
     style: { b: true, bg: "#f1f5f9" },
   });
 
-  const menuItems = [
+  const mainItems = [
     { icon: IconRowInsertTop, label: "Insert row above" },
     { icon: IconRowInsertBottom, label: "Insert row below" },
     { icon: IconTrash, label: "Delete row" },
@@ -494,20 +494,27 @@ async function createMobileRowMenuScenarioStore(): Promise<ScenarioSetup> {
       <div
         role="menu"
         aria-label="Row actions"
-        className="absolute z-50 min-w-[160px] rounded-lg border bg-background shadow-lg"
+        className="absolute z-50 min-w-[8rem] rounded-md border bg-popover text-popover-foreground p-1 shadow-md"
         style={{ top: 60, left: 30 }}
       >
-        {menuItems.map(({ icon: Icon, label }) => (
-          <button
+        {mainItems.map(({ icon: Icon, label }) => (
+          <div
             key={label}
-            type="button"
             role="menuitem"
-            className="flex w-full items-center gap-3 px-3 py-3 text-sm first:rounded-t-lg last:rounded-b-lg"
+            className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm [&_svg]:text-muted-foreground"
           >
-            <Icon size={18} />
+            <Icon size={16} />
             <span>{label}</span>
-          </button>
+          </div>
         ))}
+        <div className="bg-border -mx-1 my-1 h-px" role="separator" />
+        <div
+          role="menuitem"
+          className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm [&_svg]:text-muted-foreground"
+        >
+          <IconEyeOff size={16} />
+          <span>Hide row</span>
+        </div>
       </div>
     ),
   };
@@ -532,7 +539,7 @@ async function createMobileColumnMenuScenarioStore(): Promise<ScenarioSetup> {
     style: { b: true, bg: "#f1f5f9" },
   });
 
-  const menuItems = [
+  const mainItems = [
     { icon: IconColumnInsertLeft, label: "Insert column left" },
     { icon: IconColumnInsertRight, label: "Insert column right" },
     { icon: IconTrash, label: "Delete column" },
@@ -547,20 +554,27 @@ async function createMobileColumnMenuScenarioStore(): Promise<ScenarioSetup> {
       <div
         role="menu"
         aria-label="Column actions"
-        className="absolute z-50 min-w-[160px] rounded-lg border bg-background shadow-lg"
+        className="absolute z-50 min-w-[8rem] rounded-md border bg-popover text-popover-foreground p-1 shadow-md"
         style={{ top: 10, left: 120 }}
       >
-        {menuItems.map(({ icon: Icon, label }) => (
-          <button
+        {mainItems.map(({ icon: Icon, label }) => (
+          <div
             key={label}
-            type="button"
             role="menuitem"
-            className="flex w-full items-center gap-3 px-3 py-3 text-sm first:rounded-t-lg last:rounded-b-lg"
+            className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm [&_svg]:text-muted-foreground"
           >
-            <Icon size={18} />
+            <Icon size={16} />
             <span>{label}</span>
-          </button>
+          </div>
         ))}
+        <div className="bg-border -mx-1 my-1 h-px" role="separator" />
+        <div
+          role="menuitem"
+          className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm [&_svg]:text-muted-foreground"
+        >
+          <IconEyeOff size={16} />
+          <span>Hide column</span>
+        </div>
       </div>
     ),
   };
@@ -605,20 +619,20 @@ const SCENARIOS: Scenario[] = [
   },
   {
     id: "sheet-mobile-context-menu",
-    title: "Mobile Context Menu",
-    description: "Verifies mobile long-press context menu overlay with cut, copy, paste, delete actions.",
+    title: "Cell Context Menu",
+    description: "Verifies context menu overlay with cut, copy, paste, delete actions.",
     setup: createMobileContextMenuScenarioStore,
   },
   {
     id: "sheet-mobile-row-menu",
-    title: "Mobile Row Menu",
-    description: "Verifies mobile row context menu overlay with insert above/below and delete actions.",
+    title: "Row Context Menu",
+    description: "Verifies row context menu overlay with insert, delete, and hide actions.",
     setup: createMobileRowMenuScenarioStore,
   },
   {
     id: "sheet-mobile-column-menu",
-    title: "Mobile Column Menu",
-    description: "Verifies mobile column context menu overlay with insert left/right and delete actions.",
+    title: "Column Context Menu",
+    description: "Verifies column context menu overlay with insert, delete, and hide actions.",
     setup: createMobileColumnMenuScenarioStore,
   },
 ];
