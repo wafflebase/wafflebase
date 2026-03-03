@@ -1,6 +1,6 @@
 # Charts Phase 1 Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Status:** COMPLETED — all tasks done, pushed to `feat/charts-phase1`.
 
 **Goal:** Expand chart system from 2 types (bar, line) to 5 types (bar, line, area, pie, scatter) with a registry architecture and Setup/Customize editor.
 
@@ -9,6 +9,37 @@
 **Tech Stack:** React 19, Recharts 2.15, Radix UI (Tabs, Select, Checkbox), Tabler Icons, Vitest
 
 **Design doc:** `design/charts.md`
+
+## Summary
+
+16 commits on `feat/charts-phase1`:
+
+- Tasks 1–12: core implementation (types, palette, pie dataset, registry,
+  5 renderers, editor tabs, Yorkie persistence, docs)
+- Task 13: final verification
+- Visual regression baselines for all 5 chart types (desktop + mobile)
+- Recharts animation disabled (`isAnimationActive={false}`) for deterministic SVG
+- Scatter chart fixes: data point rendering (x/y mapping) and legend labels
+
+## Completed Tasks
+
+- [x] Task 1: Extend ChartType and SheetChart model
+- [x] Task 2: Add color palette system
+- [x] Task 3: Add buildPieDataset
+- [x] Task 4: Create chart registry
+- [x] Task 5: Extract bar and line renderers
+- [x] Task 6: Add area chart renderer
+- [x] Task 7: Add pie chart renderer
+- [x] Task 8: Add scatter chart renderer
+- [x] Task 9: Restructure chart editor (Setup/Customize tabs)
+- [x] Task 10: Update handleUpdateChart for new fields
+- [x] Task 11: Pass colorPalette through dataset building
+- [x] Task 12: Update frontend.md design doc
+- [x] Task 13: Final verification and cleanup
+- [x] Extra: Visual regression baselines (5 chart types × 2 viewports)
+- [x] Extra: Fix Recharts animation non-determinism
+- [x] Extra: Fix scatter chart data point rendering
+- [x] Extra: Fix scatter chart legend labels
 
 ---
 
