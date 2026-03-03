@@ -2,21 +2,21 @@
 
 ## Status
 
-Proposed — 2026-03-03
+Implemented — 2026-03-03
 
 ## Problem
 
-Three separate context menu implementations exist with inconsistent
+Three separate context menu implementations existed with inconsistent
 behavior across platforms:
 
-1. **Desktop (sheet package)**: Vanilla JS `contextmenu.ts` — row/column
+1. **Desktop (sheet package)**: Vanilla JS context menu — row/column
    headers only, no cell menu, no icons.
-2. **Mobile (frontend)**: React `MobileContextMenu` — cells and
+2. **Mobile (frontend)**: React mobile context menu — cells and
    rows/columns, but missing Hide/Show, no multi-selection labels.
 3. **Tab bar (frontend)**: Radix `DropdownMenu` — Rename/Delete only,
    different component base.
 
-Users see different capabilities depending on platform and interaction
+Users saw different capabilities depending on platform and interaction
 method.
 
 ## Solution
@@ -43,7 +43,7 @@ Mobile long-press     ──→  synthetic contextmenu ──→  (same path)
 
 Both platforms go through the same Radix ContextMenu. Mobile dispatches a
 synthetic `MouseEvent('contextmenu', { clientX, clientY, bubbles: true })`
-from the long-press handler in `use-mobile-sheet-gestures.ts`.
+from the long-press handler in `packages/frontend/src/hooks/use-mobile-sheet-gestures.ts`.
 
 ### Component Structure
 
@@ -119,25 +119,14 @@ getAdjacentHiddenColumns(from: number, to: number):
   { from: number; to: number } | null
 ```
 
-## Files Changed
+## Key Files
 
-### Created
-- `packages/frontend/src/components/ui/context-menu.tsx`
-- `packages/frontend/src/components/sheet-context-menu.tsx`
-
-### Modified
-- `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
-- `packages/frontend/src/components/tab-bar.tsx`
-- `packages/frontend/src/hooks/use-mobile-sheet-gestures.ts`
-- `packages/sheet/src/view/worksheet.ts`
-- `packages/sheet/src/view/spreadsheet.ts`
-
-### Deleted
-- `packages/sheet/src/view/contextmenu.ts`
-- `packages/frontend/src/components/mobile-context-menu.tsx`
-
-### New Dependency
-- `@radix-ui/react-context-menu`
+- `packages/frontend/src/components/ui/context-menu.tsx` — shadcn/ui wrapper
+- `packages/frontend/src/components/sheet-context-menu.tsx` — unified sheet menu
+- `packages/frontend/src/components/tab-bar.tsx` — tab context menu
+- `packages/frontend/src/hooks/use-mobile-sheet-gestures.ts` — mobile long-press
+- `packages/sheet/src/view/worksheet.ts` — canvas event handling
+- `packages/sheet/src/view/spreadsheet.ts` — facade API
 
 ## Risks
 
