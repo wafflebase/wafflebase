@@ -28,7 +28,7 @@ import { UserPresence } from "@/types/users";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
-import { MobileContextMenu, type MobileContextMenuType } from "@/components/mobile-context-menu";
+import { SheetContextMenu } from "@/components/sheet-context-menu";
 import { MobileSelectionHandles } from "@/components/mobile-selection-handles";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
@@ -116,7 +116,6 @@ export function SheetView({
     cellRef: string;
     value: string;
   } | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const mobileEditValueRef = useRef<string>("");
   const isMobileRef = useRef(isMobile);
   useEffect(() => {
@@ -136,11 +135,7 @@ export function SheetView({
     SpreadsheetDocument,
     UserPresence
   >();
-  const handleLongPress = useCallback((clientX: number, clientY: number) => {
-    setContextMenu({ x: clientX, y: clientY });
-  }, []);
-
-  useMobileSheetGestures({ containerRef, sheetRef, onLongPress: handleLongPress });
+  useMobileSheetGestures({ containerRef, sheetRef });
 
   const root = doc?.getRoot();
   const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
@@ -420,10 +415,6 @@ export function SheetView({
     await sheetRef.current?.removeData();
   }, []);
 
-  const handleContextMenuClose = useCallback(() => {
-    setContextMenu(null);
-  }, []);
-
   const handleInsertBefore = useCallback(async () => {
     const sheet = sheetRef.current;
     if (!sheet) return;
@@ -564,12 +555,6 @@ export function SheetView({
             }
             return null;
           });
-        }),
-      );
-
-      unsubs.push(
-        s.onSelectionChange(() => {
-          setContextMenu(null);
         }),
       );
 
@@ -782,13 +767,24 @@ export function SheetView({
         />
       )}
       <div className="relative flex-1 w-full">
-        <div
-          ref={containerRef}
-          className="h-full w-full select-none"
-          style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
-          onContextMenu={isMobile ? (e) => e.preventDefault() : undefined}
-          onPointerDown={handleGridPointerDown}
-        />
+        <SheetContextMenu
+          spreadsheet={sheetRef.current}
+          readOnly={readOnly}
+          onCopy={handleContextMenuCopy}
+          onCut={handleContextMenuCut}
+          onPaste={handleContextMenuPaste}
+          onDeleteCellData={handleContextMenuDelete}
+          onInsertBefore={handleInsertBefore}
+          onInsertAfter={handleInsertAfter}
+          onDeleteRowCol={handleDeleteRowCol}
+        >
+          <div
+            ref={containerRef}
+            className="h-full w-full select-none"
+            style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
+            onPointerDown={handleGridPointerDown}
+          />
+        </SheetContextMenu>
         {paintFormatSourceIndicator}
         {root && hasCharts && (
           <Suspense fallback={null}>
@@ -837,27 +833,7 @@ export function SheetView({
             onValueChange={handleMobileEditValueChange}
           />
         )}
-        {isMobile && contextMenu && (
-          <MobileContextMenu
-            x={contextMenu.x}
-            y={contextMenu.y}
-            menuType={(sheetRef.current?.getSelectionType() ?? "cell") as MobileContextMenuType}
-            readOnly={readOnly}
-            onCopy={handleContextMenuCopy}
-            onCut={handleContextMenuCut}
-            onPaste={handleContextMenuPaste}
-            onDelete={
-              sheetRef.current?.getSelectionType() === "row" ||
-              sheetRef.current?.getSelectionType() === "column"
-                ? handleDeleteRowCol
-                : handleContextMenuDelete
-            }
-            onInsertBefore={handleInsertBefore}
-            onInsertAfter={handleInsertAfter}
-            onClose={handleContextMenuClose}
-          />
-        )}
-        {isMobile && !readOnly && !mobileEditState && !contextMenu && sheetRef.current && (
+        {isMobile && !readOnly && !mobileEditState && sheetRef.current && (
           <MobileSelectionHandles
             spreadsheet={sheetRef.current}
             renderVersion={sheetRenderVersion}

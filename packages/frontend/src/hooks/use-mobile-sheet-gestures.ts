@@ -18,7 +18,6 @@ interface UseMobileSheetGesturesOptions {
   containerRef: RefObject<HTMLDivElement | null>;
   sheetRef: RefObject<Spreadsheet | undefined>;
   enabled?: boolean;
-  onLongPress?: (clientX: number, clientY: number) => void;
 }
 
 /**
@@ -32,7 +31,6 @@ export function useMobileSheetGestures({
   containerRef,
   sheetRef,
   enabled = true,
-  onLongPress,
 }: UseMobileSheetGesturesOptions): void {
   const isMobile = useIsMobile();
 
@@ -121,7 +119,14 @@ export function useMobileSheetGestures({
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
         longPressFired = true;
-        onLongPress?.(startX, startY);
+        container.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            clientX: startX,
+            clientY: startY,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
       }, LongPressDelayMs);
     };
 
@@ -306,5 +311,5 @@ export function useMobileSheetGestures({
       container.removeEventListener("touchend", onTouchEnd);
       container.removeEventListener("touchcancel", onTouchCancel);
     };
-  }, [containerRef, enabled, isMobile, onLongPress, sheetRef]);
+  }, [containerRef, enabled, isMobile, sheetRef]);
 }

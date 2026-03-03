@@ -19,7 +19,7 @@ import {
   HiddenBtnPadding,
   HiddenBtnMargin,
 } from './gridcanvas';
-import { ContextMenu } from './contextmenu';
+
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
 import { toTextRange, setTextRange } from './utils/textrange';
@@ -108,7 +108,7 @@ export class Worksheet {
   private overlay: Overlay;
   private gridContainer: GridContainer;
   private gridCanvas: GridCanvas;
-  private contextMenu: ContextMenu;
+
   private autocomplete: FormulaAutocomplete;
   private functionBrowser: FunctionBrowser;
   private resizeTooltip: HTMLDivElement;
@@ -193,7 +193,7 @@ export class Worksheet {
     this.cellInput.setOnPrimedActivate(() => {
       void this.syncCellInputStyleForActiveCell();
     });
-    this.contextMenu = new ContextMenu(theme);
+
     this.autocomplete = new FormulaAutocomplete(theme);
     this.functionBrowser = new FunctionBrowser(theme);
     this.resizeTooltip = document.createElement('div');
@@ -209,7 +209,7 @@ export class Worksheet {
       this.container.appendChild(this.formulaBar.getContainer());
     }
     this.container.appendChild(this.gridContainer.getContainer());
-    this.container.appendChild(this.contextMenu.getContainer());
+
     this.container.appendChild(this.autocomplete.getContainer());
     document.body.appendChild(this.functionBrowser.getContainer());
     this.resizeTooltip.style.position = 'fixed';
@@ -392,7 +392,7 @@ export class Worksheet {
     this.overlay.cleanup();
     this.gridCanvas.cleanup();
     this.gridContainer.cleanup();
-    this.contextMenu.cleanup();
+
     this.autocomplete.cleanup();
     this.functionBrowser.cleanup();
     this.resizeTooltip.remove();
@@ -1114,146 +1114,6 @@ export class Worksheet {
     this.showCellInput();
   }
 
-  private handleContextMenu(e: MouseEvent): void {
-    if (this.readOnly) return;
-
-    const x = e.offsetX;
-    const y = e.offsetY;
-
-    const isRowHeader = x < RowHeaderWidth;
-    const isColumnHeader = y < DefaultCellHeight;
-
-    if (!isRowHeader && !isColumnHeader) {
-      return;
-    }
-
-    e.preventDefault();
-
-    if (isRowHeader) {
-      const row = this.toRowFromMouse(y);
-      if (row < 1) return;
-
-      // Use multi-selection range if the right-clicked row is within the selection
-      const selected = this.sheet!.getSelectedIndices();
-      const useMulti =
-        selected &&
-        selected.axis === 'row' &&
-        row >= selected.from &&
-        row <= selected.to;
-      const from = useMulti ? selected!.from : row;
-      const count = useMulti ? selected!.to - selected!.from + 1 : 1;
-      const rowLabel = count > 1 ? `${count} rows` : 'row';
-
-      const rowItems = [
-        {
-          label: `Insert ${rowLabel} above`,
-          action: () => {
-            this.sheet!.insertRows(from, count).then(() => this.render());
-          },
-        },
-        {
-          label: `Insert ${rowLabel} below`,
-          action: () => {
-            this.sheet!.insertRows(from + count, count).then(() =>
-              this.render(),
-            );
-          },
-        },
-        {
-          label: `Delete ${rowLabel}`,
-          action: () => {
-            this.sheet!.deleteRows(from, count).then(() => this.render());
-          },
-        },
-        {
-          label: `Hide ${rowLabel}`,
-          action: () => {
-            const indices = Array.from({ length: count }, (_, i) => from + i);
-            this.sheet!.hideRows(indices).then(() => this.render());
-          },
-        },
-      ];
-
-      const adjacentHidden = this.findAdjacentHiddenRows(from, from + count - 1);
-      if (adjacentHidden.length > 0) {
-        const minRow = Math.min(...adjacentHidden);
-        const maxRow = Math.max(...adjacentHidden);
-        const showLabel =
-          minRow === maxRow ? `Show row ${minRow}` : `Show rows ${minRow}-${maxRow}`;
-        rowItems.push({
-          label: showLabel,
-          action: () => {
-            this.sheet!.showRows(adjacentHidden).then(() => this.render());
-          },
-        });
-      }
-
-      this.contextMenu.show(e.clientX, e.clientY, rowItems);
-    } else if (isColumnHeader) {
-      const col = this.toColFromMouse(x);
-      if (col < 1) return;
-
-      // Use multi-selection range if the right-clicked column is within the selection
-      const selected = this.sheet!.getSelectedIndices();
-      const useMulti =
-        selected &&
-        selected.axis === 'column' &&
-        col >= selected.from &&
-        col <= selected.to;
-      const from = useMulti ? selected!.from : col;
-      const count = useMulti ? selected!.to - selected!.from + 1 : 1;
-      const colLabel = count > 1 ? `${count} columns` : 'column';
-
-      const colItems = [
-        {
-          label: `Insert ${colLabel} left`,
-          action: () => {
-            this.sheet!.insertColumns(from, count).then(() => this.render());
-          },
-        },
-        {
-          label: `Insert ${colLabel} right`,
-          action: () => {
-            this.sheet!.insertColumns(from + count, count).then(() =>
-              this.render(),
-            );
-          },
-        },
-        {
-          label: `Delete ${colLabel}`,
-          action: () => {
-            this.sheet!.deleteColumns(from, count).then(() => this.render());
-          },
-        },
-        {
-          label: `Hide ${colLabel}`,
-          action: () => {
-            const indices = Array.from({ length: count }, (_, i) => from + i);
-            this.sheet!.hideColumns(indices).then(() => this.render());
-          },
-        },
-      ];
-
-      const adjacentHiddenCols = this.findAdjacentHiddenColumns(from, from + count - 1);
-      if (adjacentHiddenCols.length > 0) {
-        const minCol = Math.min(...adjacentHiddenCols);
-        const maxCol = Math.max(...adjacentHiddenCols);
-        const showLabel =
-          minCol === maxCol
-            ? `Show column ${toColumnLabel(minCol)}`
-            : `Show columns ${toColumnLabel(minCol)}-${toColumnLabel(maxCol)}`;
-        colItems.push({
-          label: showLabel,
-          action: () => {
-            this.sheet!.showColumns(adjacentHiddenCols).then(() => this.render());
-          },
-        });
-      }
-
-      this.contextMenu.show(e.clientX, e.clientY, colItems);
-    }
-  }
-
   private getFilterButtonRect(
     col: number,
   ): { left: number; top: number; width: number; height: number } | null {
@@ -1942,9 +1802,7 @@ export class Worksheet {
     this.addEventListener(scrollContainer, 'dblclick', (e) => {
       this.handleDblClick(e);
     });
-    this.addEventListener(scrollContainer, 'contextmenu', (e) => {
-      this.handleContextMenu(e);
-    });
+
 
     this.addEventListener(document, 'keydown', (e) => {
       this.handleKeyDown(e);
@@ -4697,7 +4555,7 @@ export class Worksheet {
   /**
    * `findAdjacentHiddenRows` finds user-hidden rows adjacent to the given range.
    */
-  private findAdjacentHiddenRows(from: number, to: number): number[] {
+  public findAdjacentHiddenRows(from: number, to: number): number[] {
     const sheet = this.sheet;
     if (!sheet) return [];
     const userHidden = sheet.getUserHiddenRows();
@@ -4724,7 +4582,7 @@ export class Worksheet {
   /**
    * `findAdjacentHiddenColumns` finds user-hidden columns adjacent to the given range.
    */
-  private findAdjacentHiddenColumns(from: number, to: number): number[] {
+  public findAdjacentHiddenColumns(from: number, to: number): number[] {
     const sheet = this.sheet;
     if (!sheet) return [];
     const userHidden = sheet.getHiddenColumns();

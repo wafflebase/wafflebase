@@ -643,6 +643,38 @@ export class Spreadsheet {
     this.worksheet.toggleFunctionBrowser();
   }
 
+  public async hideRows(indices: number[]): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.hideRows(indices);
+    this.worksheet.render();
+  }
+
+  public async showRows(indices: number[]): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.showRows(indices);
+    this.worksheet.render();
+  }
+
+  public async hideColumns(indices: number[]): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.hideColumns(indices);
+    this.worksheet.render();
+  }
+
+  public async showColumns(indices: number[]): Promise<void> {
+    if (!this.sheet || this._readOnly) return;
+    await this.sheet.showColumns(indices);
+    this.worksheet.render();
+  }
+
+  public findAdjacentHiddenRows(from: number, to: number): number[] {
+    return this.worksheet.findAdjacentHiddenRows(from, to);
+  }
+
+  public findAdjacentHiddenColumns(from: number, to: number): number[] {
+    return this.worksheet.findAdjacentHiddenColumns(from, to);
+  }
+
   public cleanup() {
     this.worksheet.cleanup();
     this.selectionChangeCallbacks = [];

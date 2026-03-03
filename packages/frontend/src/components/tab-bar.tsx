@@ -1,11 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { IconPlus, IconTable, IconDatabase } from "@tabler/icons-react";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   DndContext,
@@ -45,7 +51,6 @@ function SortableTab({
   onStartRename,
   onCommitRename,
   onCancelRename,
-  onContextMenu,
   inputRef,
 }: {
   tab: TabMeta;
@@ -57,7 +62,6 @@ function SortableTab({
   onStartRename: () => void;
   onCommitRename: () => void;
   onCancelRename: () => void;
-  onContextMenu: (e: React.MouseEvent) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const {
@@ -89,7 +93,6 @@ function SortableTab({
       )}
       onClick={onSelect}
       onDoubleClick={onStartRename}
-      onContextMenu={onContextMenu}
       {...attributes}
       {...listeners}
     >
@@ -135,7 +138,6 @@ export function TabBar({
 }: TabBarProps) {
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [contextTabId, setContextTabId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const sensors = useSensors(
@@ -222,14 +224,8 @@ export function TabBar({
             strategy={horizontalListSortingStrategy}
           >
             {tabs.map((tab) => (
-              <DropdownMenu
-                key={tab.id}
-                open={contextTabId === tab.id}
-                onOpenChange={(open) => {
-                  if (!open) setContextTabId(null);
-                }}
-              >
-                <DropdownMenuTrigger asChild>
+              <ContextMenu key={tab.id}>
+                <ContextMenuTrigger asChild>
                   <div>
                     <SortableTab
                       tab={tab}
@@ -241,37 +237,31 @@ export function TabBar({
                       onStartRename={() => startRename(tab)}
                       onCommitRename={commitRename}
                       onCancelRename={cancelRename}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setContextTabId(tab.id);
-                      }}
                       inputRef={inputRef}
                     />
                   </div>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setContextTabId(null);
-                      // Delay so the dropdown fully unmounts before we try to focus the input
+                </ContextMenuTrigger>
+                <ContextMenuContent>
+                  <ContextMenuItem
+                    onSelect={() => {
                       setTimeout(() => startRename(tab), 0);
                     }}
                   >
                     Rename
-                  </DropdownMenuItem>
+                  </ContextMenuItem>
                   {tabs.length > 1 && (
                     <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
                         variant="destructive"
-                        onClick={() => onDeleteTab(tab.id)}
+                        onSelect={() => onDeleteTab(tab.id)}
                       >
                         Delete
-                      </DropdownMenuItem>
+                      </ContextMenuItem>
                     </>
                   )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </ContextMenuContent>
+              </ContextMenu>
             ))}
           </SortableContext>
         </DndContext>

@@ -24,6 +24,7 @@ import {
   type GridResolver,
 } from './model/types';
 import {
+  toColumnLabel,
   toSref,
   toSrefs,
   parseRef,
@@ -126,6 +127,7 @@ export {
   SelectionType,
   GridResolver,
   DimensionIndex,
+  toColumnLabel,
   toSref,
   toSrefs,
   parseRef,
