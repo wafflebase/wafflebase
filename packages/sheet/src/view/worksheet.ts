@@ -1,5 +1,5 @@
 import { Range, Ref, Direction, FilterCondition } from '../model/types';
-import { toColumnLabel, toSref } from '../model/coordinates';
+import { toColumnLabel, toSref, inRange } from '../model/coordinates';
 import {
   extractFormulaRanges,
   isReferenceInsertPosition,
@@ -2557,19 +2557,29 @@ export class Worksheet {
         return;
       }
 
-      // Check if clicking on already-selected column header → start drag-move
+      // Check if clicking on already-selected column header
       const selected = this.sheet!.getSelectedIndices();
-      if (
-        !this.readOnly &&
+      const withinColumnSelection =
         selected &&
         selected.axis === 'column' &&
         col >= selected.from &&
-        col <= selected.to
+        col <= selected.to;
+
+      // Right-click inside selected columns → preserve selection, let
+      // contextmenu event handle the rest
+      if (e.button === 2 && withinColumnSelection) {
+        return;
+      }
+
+      // Left-click on already-selected column header → start drag-move
+      if (
+        !this.readOnly &&
+        withinColumnSelection
       ) {
         this.startDragMove(
           'column',
-          selected.from,
-          selected.to - selected.from + 1,
+          selected!.from,
+          selected!.to - selected!.from + 1,
           e,
         );
         return;
@@ -2673,19 +2683,29 @@ export class Worksheet {
         return;
       }
 
-      // Check if clicking on already-selected row header → start drag-move
-      const selected = this.sheet!.getSelectedIndices();
+      // Check if clicking on already-selected row header
+      const selectedRow = this.sheet!.getSelectedIndices();
+      const withinRowSelection =
+        selectedRow &&
+        selectedRow.axis === 'row' &&
+        row >= selectedRow.from &&
+        row <= selectedRow.to;
+
+      // Right-click inside selected rows → preserve selection, let
+      // contextmenu event handle the rest
+      if (e.button === 2 && withinRowSelection) {
+        return;
+      }
+
+      // Left-click on already-selected row header → start drag-move
       if (
         !this.readOnly &&
-        selected &&
-        selected.axis === 'row' &&
-        row >= selected.from &&
-        row <= selected.to
+        withinRowSelection
       ) {
         this.startDragMove(
           'row',
-          selected.from,
-          selected.to - selected.from + 1,
+          selectedRow!.from,
+          selectedRow!.to - selectedRow!.from + 1,
           e,
         );
         return;
@@ -2861,6 +2881,16 @@ export class Worksheet {
       this.sheet!.selectEnd(ref);
       this.render();
       return;
+    }
+
+    // Right-click inside existing selection → preserve selection, let
+    // contextmenu event handle the rest
+    if (e.button === 2) {
+      const clickedRef = this.toRefFromMouse(e.offsetX, e.offsetY);
+      const currentRange = this.sheet!.getRangeOrActiveCell();
+      if (inRange(clickedRef, currentRange)) {
+        return;
+      }
     }
 
     this.sheet!.selectStart(this.toRefFromMouse(e.offsetX, e.offsetY));

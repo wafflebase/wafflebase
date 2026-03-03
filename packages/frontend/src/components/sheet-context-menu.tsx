@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import type { Spreadsheet } from "@wafflebase/sheet";
-import { toColumnLabel } from "@wafflebase/sheet";
+import { toColumnLabel, inRange } from "@wafflebase/sheet";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -81,6 +81,13 @@ export function SheetContextMenu({
           } else {
             spreadsheet.selectColumn(hit.index);
           }
+        }
+      } else {
+        // Cell area: check if the clicked cell is within the current selection
+        const ref = spreadsheet.cellRefFromPoint(e.clientX, e.clientY);
+        const currentRange = spreadsheet.getSelectionRangeOrActiveCell();
+        if (!currentRange || !inRange(ref, currentRange)) {
+          spreadsheet.selectStart(ref);
         }
       }
 

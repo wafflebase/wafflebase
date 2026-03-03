@@ -1,4 +1,5 @@
 import type { Spreadsheet } from "@wafflebase/sheet";
+import { inRange } from "@wafflebase/sheet";
 import { useEffect, type RefObject } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -119,6 +120,17 @@ export function useMobileSheetGestures({
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
         longPressFired = true;
+
+        // If long-press is on a cell (not a header), select it if outside
+        // the current selection so the context menu acts on the right cell.
+        if (!headerHit && sheetRef.current) {
+          const ref = sheetRef.current.cellRefFromPoint(startX, startY);
+          const currentRange = sheetRef.current.getSelectionRangeOrActiveCell();
+          if (!currentRange || !inRange(ref, currentRange)) {
+            sheetRef.current.selectStart(ref);
+          }
+        }
+
         container.dispatchEvent(
           new MouseEvent("contextmenu", {
             clientX: startX,
