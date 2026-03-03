@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 56
+Total archived tasks: 57
 
-## 2026/03 (19 tasks)
+## 2026/03 (20 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| charts phase1 (2026-03-02) | [20260302-charts-phase1-todo.md](./2026/03/20260302-charts-phase1-todo.md) | [20260302-charts-phase1-lessons.md](./2026/03/20260302-charts-phase1-lessons.md) |
 | hide formula bar mobile (2026-03-02) | [20260302-hide-formula-bar-mobile-todo.md](./2026/03/20260302-hide-formula-bar-mobile-todo.md) | [20260302-hide-formula-bar-mobile-lessons.md](./2026/03/20260302-hide-formula-bar-mobile-lessons.md) |
 | keyboard occlusion (2026-03-02) | [20260302-keyboard-occlusion-todo.md](./2026/03/20260302-keyboard-occlusion-todo.md) | [20260302-keyboard-occlusion-lessons.md](./2026/03/20260302-keyboard-occlusion-lessons.md) |
 | mobile edit panel multiline (2026-03-02) | [20260302-mobile-edit-panel-multiline-todo.md](./2026/03/20260302-mobile-edit-panel-multiline-todo.md) | [20260302-mobile-edit-panel-multiline-lessons.md](./2026/03/20260302-mobile-edit-panel-multiline-lessons.md) |

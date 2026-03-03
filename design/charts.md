@@ -203,7 +203,7 @@ type ScatterChartRendererProps = {
 
 ### 5. Chart Editor Panel
 
-Restructure `chart-editor-panel.tsx` from a flat layout into a two-tab
+Restructure the chart editor panel from a flat layout into a two-tab
 structure using the existing `Tabs` component from Radix UI.
 
 #### Setup Tab
@@ -286,9 +286,9 @@ The current lazy-loading strategy is preserved:
 
 ### 10. Testing Strategy
 
-- **Unit tests** for `chart-utils.ts`: `buildPieDataset()`, scatter dataset
+- **Unit tests** for chart-utils: `buildPieDataset()`, scatter dataset
   building with numeric X values
-- **Unit tests** for `chart-registry.ts`: all types registered, lookup
+- **Unit tests** for chart-registry: all types registered, lookup
   returns correct entry
 - **Visual regression tests**: snapshot each chart type with sample data
 - **Editor interaction tests**: tab switching, type change updates UI,

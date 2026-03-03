@@ -108,13 +108,16 @@ It also exposes `Conditional formatting` (`CF`), which opens a right-side
 rules panel (same layout pattern as chart editor). Rules are applied to an A1
 range and persisted through the sheet engine/store APIs.
 It also exposes `Insert chart`, which creates a floating chart object from the
-current cell selection. Floating chart cards include a top-right context menu
-(`Edit chart`, `Delete chart`) and open a right-side chart editor panel for
-configuring chart type, data range, X-axis column, and visible series columns.
-Chart series colors are derived from theme tokens (`primary` with tonal
-variants), so they stay visually consistent across light and dark mode.
-Chart overlay/editor UI is lazy-loaded, and chart overlay render-version
-tracking is enabled only when the current tab actually has charts.
+current cell selection. Five chart types are supported: bar, line, area, pie,
+and scatter. Charts are rendered by type-specific renderer components selected
+through a chart registry. The right-side chart editor panel has two tabs:
+`Setup` (chart type, data range, axis, series columns) and `Customize` (title,
+legend position, gridlines, color palette). Pie charts enforce single-series
+selection, and labels are adapted per chart category (e.g. "Label column"
+instead of "X-axis" for pie). Chart series colors support three palettes
+(theme default, warm, cool). Chart overlay/editor UI is lazy-loaded, and chart
+overlay render-version tracking is enabled only when the current tab actually
+has charts.
 
 A `didMount` ref guards against React 19 StrictMode double-mounting in
 development.
@@ -139,7 +142,7 @@ type TabMeta = {
 
 type SheetChart = {
   id: string;
-  type: 'bar' | 'line';
+  type: 'bar' | 'line' | 'area' | 'pie' | 'scatter';
   title?: string;
   sourceTabId: string;   // tab that provides chart data
   sourceRange: string;   // A1 range (e.g. "A1:C20")
@@ -150,6 +153,9 @@ type SheetChart = {
   offsetY: number;       // px offset from anchor cell top
   width: number;         // px
   height: number;        // px
+  legendPosition?: 'top' | 'bottom' | 'right' | 'left' | 'none';
+  showGridlines?: boolean;
+  colorPalette?: string;
 };
 
 type WorksheetFilterState = {
