@@ -38,6 +38,7 @@ export class FormulaBar {
     this.cellLabel.style.width = '120px';
     this.cellLabel.style.textAlign = 'center';
     this.cellLabel.style.font = '12px Arial';
+    this.cellLabel.style.color = getThemeColor(this.theme, 'cellTextColor');
     this.cellLabel.style.borderRight = `1px solid ${getThemeColor(this.theme, 'cellBorderColor')}`;
     this.container.appendChild(this.cellLabel);
 
@@ -48,6 +49,7 @@ export class FormulaBar {
     this.formulaInput.style.height = '12px';
     this.formulaInput.style.border = 'none';
     this.formulaInput.style.font = '12px Arial';
+    this.formulaInput.style.color = getThemeColor(this.theme, 'cellTextColor');
     this.formulaInput.style.outline = 'none';
     this.formulaInput.style.overflow = 'hidden';
     this.formulaInput.style.whiteSpace = 'nowrap';
