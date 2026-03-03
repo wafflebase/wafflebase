@@ -42,6 +42,17 @@ export type Size = { width: number; height: number };
 export type BoundingRect = Position & Size;
 
 /**
+ * Calculates the height of a multi-line text block.
+ * @param lineCount The number of lines in the text block
+ * @returns The total height of the text block
+ */
+export function getTextBlockHeight(
+  lineCount: number
+): number {
+  return (lineCount - 1) * CellFontSize * CellLineHeight + CellFontSize;
+}
+
+/**
  * Calculates the bounding rectangle for a cell reference with scroll position
  * @param id The cell reference
  * @param scroll The scroll position

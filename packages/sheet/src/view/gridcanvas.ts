@@ -31,6 +31,7 @@ import {
   NoFreeze,
   FreezeHandleThickness,
   toBoundingRect,
+  getTextBlockHeight,
 } from './layout';
 
 type TextOverflowRenderData = {
@@ -1274,7 +1275,7 @@ export class GridCanvas {
 
       // Compute vertical alignment offset
       const vAlign = style?.va || 'top';
-      const totalTextHeight = lines.length * CellFontSize * CellLineHeight;
+      const totalTextHeight = getTextBlockHeight(lines.length);
       let baseY: number;
       if (vAlign === 'middle') {
         baseY = rect.top + (rect.height - totalTextHeight) / 2;
