@@ -20,9 +20,22 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Theme } from "@wafflebase/sheet";
 import { useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
 import { ChartVisualScenarios } from "./chart-scenarios";
 import { SheetVisualScenarios } from "./sheet-scenarios";
+
+/**
+ * Read the theme query-param directly from the URL so that the visual
+ * harness page can be SSR-rendered by verify-visual without pulling in
+ * react-router-dom (whose CJS exports break Vite's SSR module runner).
+ */
+function useThemeFromSearchParams(): Theme {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("theme") === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
 
 const documents = [
   {
@@ -53,8 +66,7 @@ function statusBadgeVariant(status: string): "default" | "secondary" {
 }
 
 export default function VisualHarnessPage() {
-  const [searchParams] = useSearchParams();
-  const theme: Theme = searchParams.get("theme") === "dark" ? "dark" : "light";
+  const theme: Theme = useThemeFromSearchParams();
 
   useEffect(() => {
     const root = document.documentElement;
