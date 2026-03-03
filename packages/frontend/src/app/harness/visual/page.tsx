@@ -18,6 +18,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Theme } from "@wafflebase/sheet";
+import { useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ChartVisualScenarios } from "./chart-scenarios";
 import { SheetVisualScenarios } from "./sheet-scenarios";
 
@@ -50,6 +53,18 @@ function statusBadgeVariant(status: string): "default" | "secondary" {
 }
 
 export default function VisualHarnessPage() {
+  const [searchParams] = useSearchParams();
+  const theme: Theme = searchParams.get("theme") === "dark" ? "dark" : "light";
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark");
+    root.classList.toggle("light", theme === "light");
+    return () => {
+      root.classList.remove("dark", "light");
+    };
+  }, [theme]);
+
   return (
     <main className="min-h-screen bg-muted/20 p-6 md:p-10" data-testid="visual-harness-root">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -141,7 +156,7 @@ export default function VisualHarnessPage() {
           </TabsContent>
         </Tabs>
 
-        <SheetVisualScenarios />
+        <SheetVisualScenarios theme={theme} />
         <ChartVisualScenarios />
       </div>
     </main>

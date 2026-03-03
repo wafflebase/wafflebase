@@ -22,6 +22,16 @@ const captureProfiles = [
     viewport: { width: 430, height: 8000 },
     colorScheme: "light",
   },
+  {
+    id: "desktop.dark",
+    viewport: { width: 1800, height: 5000 },
+    colorScheme: "dark",
+  },
+  {
+    id: "mobile.dark",
+    viewport: { width: 430, height: 8000 },
+    colorScheme: "dark",
+  },
 ];
 
 const scenarioIds = [
@@ -60,6 +70,13 @@ function shortHash(value) {
 
 function captureKey(profileId, targetId) {
   return `${profileId}:${targetId}`;
+}
+
+function profileUrl(profile) {
+  if (profile.colorScheme === "dark") {
+    return `${targetUrl}?theme=dark`;
+  }
+  return targetUrl;
 }
 
 function baselineFilenameFor(target, profile) {
@@ -153,7 +170,7 @@ async function captureScreenshots(playwright) {
 
       try {
         const page = await context.newPage();
-        await page.goto(targetUrl, { waitUntil: "networkidle" });
+        await page.goto(profileUrl(profile), { waitUntil: "networkidle" });
         await page.addStyleTag({
           content:
             "*,*::before,*::after{animation:none!important;transition:none!important;}",

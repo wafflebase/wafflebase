@@ -3,6 +3,7 @@ import {
   MemStore,
   Spreadsheet,
   type Grid,
+  type Theme,
 } from "@wafflebase/sheet";
 import {
   IconCheck,
@@ -624,9 +625,11 @@ const SCENARIOS: Scenario[] = [
 
 function ScenarioCard({
   scenario,
+  theme,
   onReadyChange,
 }: {
   scenario: Scenario;
+  theme: Theme;
   onReadyChange: (id: string, ready: boolean) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -658,7 +661,7 @@ function ScenarioCard({
         }
 
         spreadsheet = await initialize(container, {
-          theme: "light",
+          theme,
           store: result.store,
           readOnly: true,
         });
@@ -685,7 +688,7 @@ function ScenarioCard({
         container.innerHTML = "";
       }
     };
-  }, [scenario]);
+  }, [scenario, theme]);
 
   return (
     <Card
@@ -701,7 +704,7 @@ function ScenarioCard({
       <CardContent className="space-y-2">
         <div className="relative rounded-md border bg-background p-2">
           <div
-            className="h-[320px] w-full overflow-hidden rounded-sm bg-white"
+            className={`h-[320px] w-full overflow-hidden rounded-sm ${theme === "dark" ? "bg-[#1E1E1E]" : "bg-white"}`}
             ref={containerRef}
           />
           {overlay}
@@ -716,7 +719,7 @@ function ScenarioCard({
   );
 }
 
-export function SheetVisualScenarios() {
+export function SheetVisualScenarios({ theme }: { theme: Theme }) {
   const [readyMap, setReadyMap] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(SCENARIOS.map((scenario) => [scenario.id, false])),
   );
@@ -756,6 +759,7 @@ export function SheetVisualScenarios() {
             key={scenario.id}
             onReadyChange={handleReadyChange}
             scenario={scenario}
+            theme={theme}
           />
         ))}
       </div>

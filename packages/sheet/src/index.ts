@@ -79,7 +79,7 @@ import { MemStore } from './store/memory';
 import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
 import { ReadOnlyStore } from './store/readonly';
-import { initialize, Spreadsheet, type LayoutRect } from './view/spreadsheet';
+import { initialize, Spreadsheet, type LayoutRect, type Theme } from './view/spreadsheet';
 import {
   buildLocaleFormatPreview,
   resolveCurrencyForLocale,
@@ -176,4 +176,5 @@ export {
   InferInputOptions,
   InferredInput,
   InferredInputFormat,
+  Theme,
 };
