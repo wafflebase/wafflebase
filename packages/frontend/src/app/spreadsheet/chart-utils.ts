@@ -1,5 +1,7 @@
 import { parseRef, toSref } from "@wafflebase/sheet";
-import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
+import type { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
+export { COLOR_PALETTES, getSeriesColor } from "./chart-colors";
+import { getSeriesColor } from "./chart-colors";
 
 type ParsedRange = readonly [
   { r: number; c: number },
@@ -19,6 +21,9 @@ export type ChartDataset = {
   series: ChartSeries[];
   config: Record<string, { label: string; color: string }>;
 };
+
+export type PieDatasetEntry = { name: string; value: number; color: string };
+export type PieDataset = { entries: PieDatasetEntry[] };
 
 export type ChartColumnOption = {
   column: string;
@@ -170,6 +175,7 @@ export function buildChartDataset(
     SheetChart,
     "sourceTabId" | "sourceRange" | "xAxisColumn" | "seriesColumns"
   >,
+  palette?: string,
 ): ChartDataset {
   const sourceSheet = root.sheets[chart.sourceTabId];
   if (!sourceSheet) {
@@ -218,7 +224,7 @@ export function buildChartDataset(
     resolvedSeries.push({ ...chartSeries, index: colIndex });
     config[key] = {
       label,
-      color: getSeriesThemeColor(index),
+      color: getSeriesColor(index, palette),
     };
   }
 
@@ -250,6 +256,58 @@ export function buildChartDataset(
   }
 
   return { xKey, rows, series, config };
+}
+
+/**
+ * Builds pie chart dataset.
+ */
+export function buildPieDataset(
+  root: SpreadsheetDocument,
+  chart: Pick<
+    SheetChart,
+    "sourceTabId" | "sourceRange" | "xAxisColumn" | "seriesColumns"
+  >,
+  palette?: string,
+): PieDataset {
+  const sourceSheet = root.sheets[chart.sourceTabId];
+  if (!sourceSheet) {
+    return { entries: [] };
+  }
+
+  const parsed = parseA1Range(chart.sourceRange);
+  if (!parsed) {
+    return { entries: [] };
+  }
+
+  const [from, to] = parsed;
+
+  const labelColIndex = toColumnIndex(normalizeColumnName(chart.xAxisColumn));
+  const valueColumn = chart.seriesColumns?.[0];
+  const valueColIndex = toColumnIndex(normalizeColumnName(valueColumn));
+
+  if (labelColIndex === null || valueColIndex === null) {
+    return { entries: [] };
+  }
+
+  const entries: PieDatasetEntry[] = [];
+  for (let r = from.r + 1; r <= to.r; r++) {
+    const label = getCellDisplayValue(sourceSheet, r, labelColIndex);
+    const numeric = toNumeric(
+      getCellDisplayValue(sourceSheet, r, valueColIndex),
+    );
+
+    if (numeric === null || numeric <= 0) {
+      continue;
+    }
+
+    entries.push({
+      name: label || `Row ${r - from.r}`,
+      value: numeric,
+      color: getSeriesColor(entries.length, palette),
+    });
+  }
+
+  return { entries };
 }
 
 function getCellDisplayValue(
@@ -307,16 +365,4 @@ function normalizeColumnName(value: unknown): string | null {
   }
 
   return normalized;
-}
-
-function getSeriesThemeColor(index: number): string {
-  const palette = [
-    "var(--color-primary)",
-    "color-mix(in oklch, var(--color-primary) 78%, var(--color-background))",
-    "color-mix(in oklch, var(--color-primary) 68%, var(--color-foreground))",
-    "color-mix(in oklch, var(--color-primary) 56%, var(--color-background))",
-    "color-mix(in oklch, var(--color-primary) 46%, var(--color-foreground))",
-  ];
-
-  return palette[index % palette.length];
 }
