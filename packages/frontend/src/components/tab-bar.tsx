@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { IconPlus, IconTable, IconDatabase } from "@tabler/icons-react";
+import { IconPlus, IconTable, IconDatabase, IconLayoutRows } from "@tabler/icons-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -98,6 +98,8 @@ function SortableTab({
     >
       {tab.type === "datasource" ? (
         <IconDatabase className="size-3.5" />
+      ) : tab.kind === "pivot" ? (
+        <IconLayoutRows className="size-3.5" />
       ) : (
         <IconTable className="size-3.5" />
       )}
