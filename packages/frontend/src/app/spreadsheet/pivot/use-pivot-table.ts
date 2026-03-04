@@ -41,15 +41,23 @@ export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
     null,
   );
 
-  // Load definition from Yorkie document
+  // Load definition from Yorkie document.
+  // Yorkie CRDT arrays may deserialize as plain objects with numeric keys,
+  // so we normalize all field arrays with Array.from().
   useEffect(() => {
     if (!doc) return;
     const root = doc.getRoot();
     const ws = root.sheets?.[tabId];
     if (ws?.pivotTable) {
-      setDefinition(
-        JSON.parse(JSON.stringify(ws.pivotTable)) as PivotTableDefinition,
-      );
+      const raw = JSON.parse(JSON.stringify(ws.pivotTable));
+      setDefinition({
+        ...raw,
+        rowFields: Array.from(raw.rowFields ?? []),
+        columnFields: Array.from(raw.columnFields ?? []),
+        valueFields: Array.from(raw.valueFields ?? []),
+        filterFields: Array.from(raw.filterFields ?? []),
+        showTotals: raw.showTotals ?? { rows: true, columns: true },
+      } as PivotTableDefinition);
     }
   }, [doc, tabId]);
 
