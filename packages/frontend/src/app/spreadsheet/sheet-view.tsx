@@ -15,6 +15,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -81,6 +82,11 @@ const ConditionalFormatPanel = lazy(() =>
     default: module.ConditionalFormatPanel,
   })),
 );
+const PivotEditorPanel = lazy(() =>
+  import("./pivot/pivot-editor-panel").then((module) => ({
+    default: module.PivotEditorPanel,
+  })),
+);
 
 /**
  * Renders the SheetView component.
@@ -89,7 +95,7 @@ export function SheetView({
   tabId,
   readOnly = false,
   peerJumpTarget = null,
-  addPivotTab: _addPivotTab,
+  addPivotTab,
 }: {
   tabId: string;
   readOnly?: boolean;
@@ -100,7 +106,6 @@ export function SheetView({
   } | null;
   addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
 }) {
-  void _addPivotTab;
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
@@ -140,10 +145,39 @@ export function SheetView({
   >();
   useMobileSheetGestures({ containerRef, sheetRef });
 
+  const [pivotEditorOpen, setPivotEditorOpen] = useState(false);
   const root = doc?.getRoot();
   const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
   const selectedChart =
     root && selectedChartId ? root.sheets[tabId]?.charts?.[selectedChartId] : undefined;
+
+  // Detect whether the active tab is a pivot sheet
+  const isPivotTab = !!root?.sheets[tabId]?.pivotTable;
+  const pivotDefinition = root?.sheets[tabId]?.pivotTable;
+
+  // Build the source grid from the source tab's data for the pivot engine
+  const sourceGrid = useMemo((): Grid | null => {
+    if (!root || !pivotDefinition) return null;
+    const sourceWs = root.sheets[pivotDefinition.sourceTabId];
+    if (!sourceWs?.sheet) return null;
+
+    const grid: Grid = new Map();
+    for (const [sref, cell] of Object.entries(sourceWs.sheet)) {
+      if (cell) {
+        grid.set(sref as Sref, cell as Cell);
+      }
+    }
+    return grid;
+  }, [root, pivotDefinition]);
+
+  useEffect(() => {
+    // Auto-open pivot editor when switching to a pivot tab
+    if (isPivotTab) {
+      setPivotEditorOpen(true);
+    } else {
+      setPivotEditorOpen(false);
+    }
+  }, [isPivotTab, tabId]);
 
   useEffect(() => {
     hasChartsRef.current = hasCharts;
@@ -341,6 +375,33 @@ export function SheetView({
     setConditionalFormatOpen(true);
     setChartEditorOpen(false);
   }, []);
+
+  const handleInsertPivotTable = useCallback(() => {
+    if (readOnly || !addPivotTab) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    if (sheet.getSelectionType() !== "cell") {
+      toast.error("Select a cell range to create a pivot table.");
+      return;
+    }
+
+    const range = sheet.getSelectionRangeOrActiveCell();
+    if (!range) {
+      toast.error("Select a cell range to create a pivot table.");
+      return;
+    }
+
+    const rowCount = range[1].r - range[0].r + 1;
+    const colCount = range[1].c - range[0].c + 1;
+    if (rowCount < 2 || colCount < 1) {
+      toast.error("Select at least 2 rows and 1 column.");
+      return;
+    }
+
+    const sourceRange = `${toSref(range[0])}:${toSref(range[1])}`;
+    addPivotTab(tabId, sourceRange);
+  }, [addPivotTab, readOnly, tabId]);
 
   const getSelectionRange = useCallback(() => {
     const sheet = sheetRef.current;
@@ -780,6 +841,7 @@ export function SheetView({
           onInsertBefore={handleInsertBefore}
           onInsertAfter={handleInsertAfter}
           onDeleteRowCol={handleDeleteRowCol}
+          onInsertPivotTable={addPivotTab ? handleInsertPivotTable : undefined}
         >
           <div
             ref={containerRef}
@@ -824,6 +886,16 @@ export function SheetView({
               open={conditionalFormatOpen}
               onClose={() => setConditionalFormatOpen(false)}
               getSelectionRange={getSelectionRange}
+            />
+          </Suspense>
+        )}
+        {doc && isPivotTab && pivotEditorOpen && (
+          <Suspense fallback={null}>
+            <PivotEditorPanel
+              doc={doc}
+              tabId={tabId}
+              sourceGrid={sourceGrid}
+              onClose={() => setPivotEditorOpen(false)}
             />
           </Suspense>
         )}
