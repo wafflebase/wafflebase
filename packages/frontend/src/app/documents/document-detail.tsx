@@ -260,10 +260,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     (sourceTabId: string, sourceRange: string) => {
       if (!doc) return;
       const tabId = generateTabId();
-      const existingPivotCount = Object.values(doc.getRoot().tabs).filter(
-        (t: TabMeta) => t.kind === "pivot",
-      ).length;
-      const tabName = `Pivot Table ${existingPivotCount + 1}`;
+      const tabName = getUniqueTabName(
+        doc.getRoot().tabs,
+        "Pivot Table 1",
+        "Pivot Table",
+      );
 
       doc.update((r: SpreadsheetDocument) => {
         r.tabs[tabId] = {

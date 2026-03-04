@@ -55,18 +55,20 @@ export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
 
   const updateDefinition = useCallback(
     (updater: (def: PivotTableDefinition) => PivotTableDefinition) => {
-      if (!doc || !definition) return;
-      const updated = updater(definition);
-      setDefinition(updated);
-      // Persist to Yorkie
-      doc.update((root) => {
-        const ws = root.sheets[tabId];
-        if (ws) {
-          ws.pivotTable = updated;
-        }
+      if (!doc) return;
+      setDefinition((prev) => {
+        if (!prev) return prev;
+        const updated = updater(prev);
+        doc.update((root) => {
+          const ws = root.sheets[tabId];
+          if (ws) {
+            ws.pivotTable = updated;
+          }
+        });
+        return updated;
       });
     },
-    [doc, tabId, definition],
+    [doc, tabId],
   );
 
   const addRowField = useCallback(

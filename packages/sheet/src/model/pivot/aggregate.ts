@@ -56,9 +56,19 @@ export function aggregateValues(
       for (const n of nums) sum += n;
       return String(sum / nums.length);
     }
-    case 'MIN':
-      return String(Math.min(...nums));
-    case 'MAX':
-      return String(Math.max(...nums));
+    case 'MIN': {
+      let min = nums[0];
+      for (let i = 1; i < nums.length; i++) {
+        if (nums[i] < min) min = nums[i];
+      }
+      return String(min);
+    }
+    case 'MAX': {
+      let max = nums[0];
+      for (let i = 1; i < nums.length; i++) {
+        if (nums[i] > max) max = nums[i];
+      }
+      return String(max);
+    }
   }
 }

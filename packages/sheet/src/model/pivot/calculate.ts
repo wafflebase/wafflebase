@@ -25,7 +25,9 @@ function flattenLeaves(
 
   const result: { label: string; indices: number[] }[] = [];
   for (const child of node.children) {
-    result.push(...flattenLeaves(child, [...path, child.value]));
+    for (const leaf of flattenLeaves(child, [...path, child.value])) {
+      result.push(leaf);
+    }
   }
   return result;
 }
@@ -39,7 +41,9 @@ function allIndices(node: GroupNode): number[] {
   }
   const result: number[] = [];
   for (const child of node.children) {
-    result.push(...allIndices(child));
+    for (const idx of allIndices(child)) {
+      result.push(idx);
+    }
   }
   return result;
 }
