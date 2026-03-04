@@ -89,6 +89,7 @@ export function SheetView({
   tabId,
   readOnly = false,
   peerJumpTarget = null,
+  addPivotTab: _addPivotTab,
 }: {
   tabId: string;
   readOnly?: boolean;
@@ -97,7 +98,9 @@ export function SheetView({
     targetTabId?: UserPresence["activeTabId"];
     requestId: number;
   } | null;
+  addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
 }) {
+  void _addPivotTab;
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);

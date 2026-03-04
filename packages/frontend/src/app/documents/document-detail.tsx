@@ -256,6 +256,51 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     setActiveTabId(tabId);
   }, [doc]);
 
+  const addPivotTab = useCallback(
+    (sourceTabId: string, sourceRange: string) => {
+      if (!doc) return;
+      const tabId = generateTabId();
+      const existingPivotCount = Object.values(doc.getRoot().tabs).filter(
+        (t: TabMeta) => t.kind === "pivot",
+      ).length;
+      const tabName = `Pivot Table ${existingPivotCount + 1}`;
+
+      doc.update((r: SpreadsheetDocument) => {
+        r.tabs[tabId] = {
+          id: tabId,
+          name: tabName,
+          type: "sheet",
+          kind: "pivot",
+        };
+        r.tabOrder.push(tabId);
+        r.sheets[tabId] = {
+          sheet: {},
+          rowHeights: {},
+          colWidths: {},
+          colStyles: {},
+          rowStyles: {},
+          conditionalFormats: [],
+          merges: {},
+          charts: {},
+          frozenRows: 0,
+          frozenCols: 0,
+          pivotTable: {
+            id: crypto.randomUUID(),
+            sourceTabId,
+            sourceRange,
+            rowFields: [],
+            columnFields: [],
+            valueFields: [],
+            filterFields: [],
+            showTotals: { rows: true, columns: true },
+          },
+        };
+      });
+      setActiveTabId(tabId);
+    },
+    [doc],
+  );
+
   const addDataSourceTab = useCallback(
     (ds: DataSource) => {
       if (!doc) return;
@@ -430,7 +475,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 {activeTab?.type === "datasource" ? (
                   <DataSourceView tabId={activeTabId} />
                 ) : (
-                  <SheetView tabId={activeTabId} peerJumpTarget={peerJumpTarget} />
+                  <SheetView tabId={activeTabId} peerJumpTarget={peerJumpTarget} addPivotTab={addPivotTab} />
                 )}
               </Suspense>
             </div>
