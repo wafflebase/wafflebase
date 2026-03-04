@@ -105,6 +105,7 @@ import {
   type InferredInput,
   type InferredInputFormat,
 } from './model/input';
+import { calculatePivot, materialize } from './model/pivot/index';
 
 export {
   initialize,
@@ -201,4 +202,6 @@ export {
   InferredInput,
   InferredInputFormat,
   Theme,
+  calculatePivot,
+  materialize,
 };
