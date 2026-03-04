@@ -48,7 +48,7 @@ export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
     const ws = root.sheets?.[tabId];
     if (ws?.pivotTable) {
       setDefinition(
-        structuredClone(ws.pivotTable) as unknown as PivotTableDefinition,
+        JSON.parse(JSON.stringify(ws.pivotTable)) as PivotTableDefinition,
       );
     }
   }, [doc, tabId]);
