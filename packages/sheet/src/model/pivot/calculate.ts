@@ -80,6 +80,10 @@ export function calculatePivot(
   const hasColumns = def.columnFields.length > 0;
   const valueFields = def.valueFields;
 
+  if (valueFields.length === 0) {
+    return { cells: [], rowCount: 0, colCount: 0 };
+  }
+
   const cells: PivotCell[][] = [];
 
   // 5. Build header row.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Document as YorkieDoc } from "yorkie-js-sdk";
 import type {
   PivotTableDefinition,
@@ -45,7 +45,10 @@ export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
   // Yorkie CRDT arrays may deserialize as plain objects with numeric keys,
   // so we normalize all field arrays with Array.from().
   useEffect(() => {
-    if (!doc) return;
+    if (!doc) {
+      setDefinition(null);
+      return;
+    }
     const root = doc.getRoot();
     const ws = root.sheets?.[tabId];
     if (ws?.pivotTable) {
@@ -58,25 +61,29 @@ export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
         filterFields: Array.from(raw.filterFields ?? []),
         showTotals: raw.showTotals ?? { rows: true, columns: true },
       } as PivotTableDefinition);
+    } else {
+      setDefinition(null);
     }
   }, [doc, tabId]);
 
+  // Sync definition changes to Yorkie document
+  const definitionRef = useRef(definition);
+  useEffect(() => {
+    // Skip the initial load (when definitionRef.current transitions from null)
+    const isInitialLoad = definitionRef.current === null && definition !== null;
+    definitionRef.current = definition;
+    if (isInitialLoad || !doc || !definition) return;
+    doc.update((root) => {
+      const ws = root.sheets[tabId];
+      if (ws) ws.pivotTable = definition;
+    });
+  }, [doc, tabId, definition]);
+
   const updateDefinition = useCallback(
     (updater: (def: PivotTableDefinition) => PivotTableDefinition) => {
-      if (!doc) return;
-      setDefinition((prev) => {
-        if (!prev) return prev;
-        const updated = updater(prev);
-        doc.update((root) => {
-          const ws = root.sheets[tabId];
-          if (ws) {
-            ws.pivotTable = updated;
-          }
-        });
-        return updated;
-      });
+      setDefinition((prev) => (prev ? updater(prev) : prev));
     },
-    [doc, tabId],
+    [],
   );
 
   const addRowField = useCallback(

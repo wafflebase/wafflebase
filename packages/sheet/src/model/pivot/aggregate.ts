@@ -70,5 +70,7 @@ export function aggregateValues(
       }
       return String(max);
     }
+    default:
+      throw new Error(`Unsupported aggregation: ${String(aggregation)}`);
   }
 }

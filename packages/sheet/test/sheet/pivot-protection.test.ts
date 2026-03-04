@@ -59,6 +59,52 @@ describe('Pivot sheet protection', () => {
     expect(cell).toBeUndefined();
   });
 
+  it('blocks insertRows on pivot sheets', async () => {
+    const store = new MemStore();
+    await store.set({ r: 1, c: 1 }, { v: 'A' });
+    await store.setPivotDefinition(pivotDef);
+    const sheet = new Sheet(store);
+    await sheet.loadPivotDefinition();
+    await sheet.insertRows(1);
+    // Cell should not have moved — insert was blocked
+    const cell = await store.get({ r: 1, c: 1 });
+    expect(cell?.v).toBe('A');
+  });
+
+  it('blocks deleteRows on pivot sheets', async () => {
+    const store = new MemStore();
+    await store.set({ r: 2, c: 1 }, { v: 'B' });
+    await store.setPivotDefinition(pivotDef);
+    const sheet = new Sheet(store);
+    await sheet.loadPivotDefinition();
+    await sheet.deleteRows(1);
+    // Cell should not have shifted — delete was blocked
+    const cell = await store.get({ r: 2, c: 1 });
+    expect(cell?.v).toBe('B');
+  });
+
+  it('blocks insertColumns on pivot sheets', async () => {
+    const store = new MemStore();
+    await store.set({ r: 1, c: 1 }, { v: 'C' });
+    await store.setPivotDefinition(pivotDef);
+    const sheet = new Sheet(store);
+    await sheet.loadPivotDefinition();
+    await sheet.insertColumns(1);
+    const cell = await store.get({ r: 1, c: 1 });
+    expect(cell?.v).toBe('C');
+  });
+
+  it('blocks deleteColumns on pivot sheets', async () => {
+    const store = new MemStore();
+    await store.set({ r: 1, c: 2 }, { v: 'D' });
+    await store.setPivotDefinition(pivotDef);
+    const sheet = new Sheet(store);
+    await sheet.loadPivotDefinition();
+    await sheet.deleteColumns(1);
+    const cell = await store.get({ r: 1, c: 2 });
+    expect(cell?.v).toBe('D');
+  });
+
   it('allows normal sheets to edit cells', async () => {
     const store = new MemStore();
     const sheet = new Sheet(store);

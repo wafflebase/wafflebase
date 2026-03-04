@@ -980,6 +980,7 @@ export class Sheet {
    * `insertRows` inserts rows at the given index.
    */
   async insertRows(index: number, count: number = 1): Promise<void> {
+    if (this.pivotDefinition) return;
     await this.shiftCells('row', index, count);
   }
 
@@ -987,6 +988,7 @@ export class Sheet {
    * `deleteRows` deletes rows at the given index.
    */
   async deleteRows(index: number, count: number = 1): Promise<void> {
+    if (this.pivotDefinition) return;
     await this.shiftCells('row', index, -count);
   }
 
@@ -994,6 +996,7 @@ export class Sheet {
    * `insertColumns` inserts columns at the given index.
    */
   async insertColumns(index: number, count: number = 1): Promise<void> {
+    if (this.pivotDefinition) return;
     await this.shiftCells('column', index, count);
   }
 
@@ -1001,6 +1004,7 @@ export class Sheet {
    * `deleteColumns` deletes columns at the given index.
    */
   async deleteColumns(index: number, count: number = 1): Promise<void> {
+    if (this.pivotDefinition) return;
     await this.shiftCells('column', index, -count);
   }
 
