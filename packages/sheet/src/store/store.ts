@@ -6,6 +6,7 @@ import {
   FilterState,
   Grid,
   HiddenState,
+  PivotTableDefinition,
   MergeSpan,
   Ref,
   Range,
@@ -190,6 +191,16 @@ export interface Store {
    * `getHiddenState` gets manually hidden rows/columns.
    */
   getHiddenState(): Promise<HiddenState | undefined>;
+
+  /**
+   * `setPivotDefinition` sets the pivot table definition for this sheet.
+   */
+  setPivotDefinition(def: PivotTableDefinition | undefined): Promise<void>;
+
+  /**
+   * `getPivotDefinition` gets the pivot table definition for this sheet.
+   */
+  getPivotDefinition(): Promise<PivotTableDefinition | undefined>;
 
   /**
    * `updateActiveCell` method updates the active cell of the current user.
