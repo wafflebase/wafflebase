@@ -8,7 +8,12 @@ import type {
   AggregateFunction,
   Grid,
 } from "@wafflebase/sheet";
-import { calculatePivot, materialize } from "@wafflebase/sheet";
+import {
+  calculatePivot,
+  materialize,
+  parseSourceData,
+  parseRange,
+} from "@wafflebase/sheet";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 
 type UsePivotTableProps = {
@@ -17,24 +22,6 @@ type UsePivotTableProps = {
   sourceGrid: Grid | null;
 };
 
-function colLetterToNumber(letters: string): number {
-  let result = 0;
-  for (let i = 0; i < letters.length; i++) {
-    result = result * 26 + letters.charCodeAt(i) - 64;
-  }
-  return result;
-}
-
-function numberToColLetter(num: number): string {
-  let result = "";
-  let n = num;
-  while (n > 0) {
-    const mod = (n - 1) % 26;
-    result = String.fromCharCode(65 + mod) + result;
-    n = Math.floor((n - 1) / 26);
-  }
-  return result;
-}
 
 export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
   const [definition, setDefinition] = useState<PivotTableDefinition | null>(
@@ -204,31 +191,18 @@ export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
     });
   }, [doc, tabId, definition, sourceGrid]);
 
-  // Get available source columns (headers from source data)
+  // Get available source columns (headers from source data).
+  // Uses the already-built sourceGrid (plain Map) to avoid Yorkie proxy issues.
   const getSourceHeaders = useCallback((): string[] => {
-    if (!doc || !definition) return [];
-    const root = doc.getRoot();
-    const sourceWs = root.sheets?.[definition.sourceTabId];
-    if (!sourceWs?.sheet) return [];
-
-    // Parse source range to find first row
-    const match = definition.sourceRange.match(
-      /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/,
-    );
-    if (!match) return [];
-
-    const startCol = colLetterToNumber(match[1]);
-    const startRow = parseInt(match[2], 10);
-    const endCol = colLetterToNumber(match[3]);
-
-    const headers: string[] = [];
-    for (let c = startCol; c <= endCol; c++) {
-      const sref = numberToColLetter(c) + startRow;
-      const cell = sourceWs.sheet[sref];
-      headers.push(cell?.v ?? `Column ${c}`);
+    if (!definition || !sourceGrid) return [];
+    try {
+      const range = parseRange(definition.sourceRange);
+      const { headers } = parseSourceData(sourceGrid, range);
+      return headers.map((h, i) => h || `Column ${i + 1}`);
+    } catch {
+      return [];
     }
-    return headers;
-  }, [doc, definition]);
+  }, [definition, sourceGrid]);
 
   return {
     definition,

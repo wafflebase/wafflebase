@@ -106,6 +106,8 @@ import {
   type InferredInputFormat,
 } from './model/input';
 import { calculatePivot, materialize } from './model/pivot/index';
+import { parseSourceData } from './model/pivot/parse';
+import { parseRange } from './model/coordinates';
 
 export {
   initialize,
@@ -204,4 +206,6 @@ export {
   Theme,
   calculatePivot,
   materialize,
+  parseSourceData,
+  parseRange,
 };
