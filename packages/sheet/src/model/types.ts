@@ -34,6 +34,15 @@ export type Ref = {
 };
 
 /**
+ * ARef (Absolute-aware Ref) extends Ref with optional absolute-reference flags.
+ * Used during formula relocation to decide which axes should stay fixed.
+ */
+export type ARef = Ref & {
+  absCol?: boolean;
+  absRow?: boolean;
+};
+
+/**
  * Range type represents a range of cells in the sheet.
  */
 export type Range = [Ref, Ref];
