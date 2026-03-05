@@ -1,6 +1,6 @@
 import { extractTokens } from '../formula/formula';
-import { parseRef, toSref } from './coordinates';
-import { Axis, Cell, Grid, Ref, Sref } from './types';
+import { parseARef, parseRef, toASref, toSref } from './coordinates';
+import { ARef, Axis, Cell, Grid, Ref, Sref } from './types';
 
 /**
  * `remapIndex` maps an old 1-based index to its new position after moving
@@ -77,15 +77,15 @@ export function moveFormula(
         result += text;
       } else if (text.includes(':')) {
         const [startStr, endStr] = text.split(':');
-        const startRef = parseRef(startStr.toUpperCase());
-        const endRef = parseRef(endStr.toUpperCase());
-        const newStart = moveRef(startRef, axis, src, count, dst);
-        const newEnd = moveRef(endRef, axis, src, count, dst);
-        result += toSref(newStart) + ':' + toSref(newEnd);
+        const startARef = parseARef(startStr.toUpperCase());
+        const endARef = parseARef(endStr.toUpperCase());
+        const newStart = moveRef(startARef, axis, src, count, dst);
+        const newEnd = moveRef(endARef, axis, src, count, dst);
+        result += toASref({ ...newStart, ...(startARef.absCol ? { absCol: true } : {}), ...(startARef.absRow ? { absRow: true } : {}) }) + ':' + toASref({ ...newEnd, ...(endARef.absCol ? { absCol: true } : {}), ...(endARef.absRow ? { absRow: true } : {}) });
       } else {
-        const ref = parseRef(text.toUpperCase());
-        const moved = moveRef(ref, axis, src, count, dst);
-        result += toSref(moved);
+        const aref = parseARef(text.toUpperCase());
+        const moved = moveRef(aref, axis, src, count, dst);
+        result += toASref({ ...moved, ...(aref.absCol ? { absCol: true } : {}), ...(aref.absRow ? { absRow: true } : {}) });
       }
     } else {
       result += token.text;
@@ -149,6 +149,18 @@ export function moveDimensionMap<T = number>(
 }
 
 /**
+ * `relocateARef` shifts an ARef by deltas, skipping absolute axes.
+ */
+function relocateARef(ref: ARef, deltaRow: number, deltaCol: number): ARef {
+  return {
+    r: ref.absRow ? ref.r : ref.r + deltaRow,
+    c: ref.absCol ? ref.c : ref.c + deltaCol,
+    ...(ref.absCol ? { absCol: true } : {}),
+    ...(ref.absRow ? { absRow: true } : {}),
+  };
+}
+
+/**
  * `relocateFormula` adjusts all cell references in a formula by the given
  * row and column deltas. Used when copy-pasting formulas to a new location.
  * Returns a formula with `#REF!` if any reference goes below row 1 or column 1.
@@ -169,22 +181,19 @@ export function relocateFormula(
         result += text;
       } else if (text.includes(':')) {
         const [startStr, endStr] = text.split(':');
-        const startRef = parseRef(startStr.toUpperCase());
-        const endRef = parseRef(endStr.toUpperCase());
-        const newStart = { r: startRef.r + deltaRow, c: startRef.c + deltaCol };
-        const newEnd = { r: endRef.r + deltaRow, c: endRef.c + deltaCol };
-        if (newStart.r < 1 || newStart.c < 1 || newEnd.r < 1 || newEnd.c < 1) {
+        const startRef = relocateARef(parseARef(startStr.toUpperCase()), deltaRow, deltaCol);
+        const endRef = relocateARef(parseARef(endStr.toUpperCase()), deltaRow, deltaCol);
+        if (startRef.r < 1 || startRef.c < 1 || endRef.r < 1 || endRef.c < 1) {
           result += '#REF!';
         } else {
-          result += toSref(newStart) + ':' + toSref(newEnd);
+          result += toASref(startRef) + ':' + toASref(endRef);
         }
       } else {
-        const ref = parseRef(text.toUpperCase());
-        const newRef = { r: ref.r + deltaRow, c: ref.c + deltaCol };
-        if (newRef.r < 1 || newRef.c < 1) {
+        const ref = relocateARef(parseARef(text.toUpperCase()), deltaRow, deltaCol);
+        if (ref.r < 1 || ref.c < 1) {
           result += '#REF!';
         } else {
-          result += toSref(newRef);
+          result += toASref(ref);
         }
       }
     } else {
@@ -193,6 +202,18 @@ export function relocateFormula(
   }
 
   return result;
+}
+
+/**
+ * `applyAbsMarkers` copies the absolute markers from an ARef onto a plain Sref.
+ */
+function applyAbsMarkers(aref: ARef, sref: Sref): Sref {
+  const parsed = parseRef(sref);
+  return toASref({
+    ...parsed,
+    ...(aref.absCol ? { absCol: true } : {}),
+    ...(aref.absRow ? { absRow: true } : {}),
+  });
 }
 
 /**
@@ -218,19 +239,22 @@ export function redirectFormula(
         result += text;
       } else if (text.includes(':')) {
         const [startStr, endStr] = text.split(':');
-        const startSref = toSref(parseRef(startStr.toUpperCase()));
-        const endSref = toSref(parseRef(endStr.toUpperCase()));
+        const startARef = parseARef(startStr.toUpperCase());
+        const endARef = parseARef(endStr.toUpperCase());
+        const startSref = toSref(startARef);
+        const endSref = toSref(endARef);
         const newStart = refMap.get(startSref);
         const newEnd = refMap.get(endSref);
         if (newStart && newEnd) {
-          result += newStart + ':' + newEnd;
+          result += applyAbsMarkers(startARef, newStart) + ':' + applyAbsMarkers(endARef, newEnd);
         } else {
           result += text;
         }
       } else {
-        const sref = toSref(parseRef(text.toUpperCase()));
+        const aref = parseARef(text.toUpperCase());
+        const sref = toSref(aref);
         const newSref = refMap.get(sref);
-        result += newSref ?? text;
+        result += newSref ? applyAbsMarkers(aref, newSref) : text;
       }
     } else {
       result += token.text;
@@ -292,9 +316,33 @@ export function shiftSref(
   index: number,
   count: number,
 ): Sref | null {
-  const ref = parseRef(sref);
+  const aref = parseARef(sref);
+  const shifted = shiftRef(aref, axis, index, count);
+  if (!shifted) return null;
+  return toASref({
+    ...shifted,
+    ...(aref.absCol ? { absCol: true } : {}),
+    ...(aref.absRow ? { absRow: true } : {}),
+  });
+}
+
+/**
+ * `shiftARef` shifts an ARef and preserves absolute markers.
+ * Insert/delete shifts even absolute refs (Excel behavior), but the `$` flags are kept.
+ */
+function shiftARef(
+  ref: ARef,
+  axis: Axis,
+  index: number,
+  count: number,
+): ARef | null {
   const shifted = shiftRef(ref, axis, index, count);
-  return shifted ? toSref(shifted) : null;
+  if (!shifted) return null;
+  return {
+    ...shifted,
+    ...(ref.absCol ? { absCol: true } : {}),
+    ...(ref.absRow ? { absRow: true } : {}),
+  };
 }
 
 /**
@@ -322,23 +370,20 @@ export function shiftFormula(
       } else if (text.includes(':')) {
         // Range reference: shift each endpoint
         const [startStr, endStr] = text.split(':');
-        const startRef = parseRef(startStr.toUpperCase());
-        const endRef = parseRef(endStr.toUpperCase());
-        const newStart = shiftRef(startRef, axis, index, count);
-        const newEnd = shiftRef(endRef, axis, index, count);
+        const newStart = shiftARef(parseARef(startStr.toUpperCase()), axis, index, count);
+        const newEnd = shiftARef(parseARef(endStr.toUpperCase()), axis, index, count);
         if (!newStart || !newEnd) {
           result += '#REF!';
         } else {
-          result += toSref(newStart) + ':' + toSref(newEnd);
+          result += toASref(newStart) + ':' + toASref(newEnd);
         }
       } else {
         // Single reference
-        const ref = parseRef(text.toUpperCase());
-        const shifted = shiftRef(ref, axis, index, count);
+        const shifted = shiftARef(parseARef(text.toUpperCase()), axis, index, count);
         if (!shifted) {
           result += '#REF!';
         } else {
-          result += toSref(shifted);
+          result += toASref(shifted);
         }
       }
     } else {

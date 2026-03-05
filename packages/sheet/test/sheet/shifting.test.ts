@@ -6,6 +6,7 @@ import {
   shiftGrid,
   shiftDimensionMap,
   relocateFormula,
+  redirectFormula,
 } from '../../src/model/shifting';
 import { Grid } from '../../src/model/types';
 
@@ -269,6 +270,75 @@ describe('shiftDimensionMap', () => {
     const result = shiftDimensionMap(map, 2, 1);
 
     expect(result.size).toBe(0);
+  });
+});
+
+describe('absolute reference ($) support in relocateFormula', () => {
+  it('should not shift fully absolute ref ($A$1)', () => {
+    expect(relocateFormula('=$A$1+B1', 1, 1)).toBe('=$A$1+C2');
+  });
+
+  it('should fix column only ($A1)', () => {
+    expect(relocateFormula('=$A1+B1', 1, 1)).toBe('=$A2+C2');
+  });
+
+  it('should fix row only (A$1)', () => {
+    expect(relocateFormula('=A$1+B1', 1, 1)).toBe('=B$1+C2');
+  });
+
+  it('should handle mixed refs in one formula', () => {
+    expect(relocateFormula('=A$1+$B2', 1, 1)).toBe('=B$1+$B3');
+  });
+
+  it('should preserve $ in range references', () => {
+    expect(relocateFormula('=SUM($A$1:$B$3)', 2, 0)).toBe('=SUM($A$1:$B$3)');
+  });
+
+  it('should shift only relative parts of a range', () => {
+    expect(relocateFormula('=SUM($A1:B$3)', 1, 1)).toBe('=SUM($A2:C$3)');
+  });
+
+  it('should return #REF! when relative part goes below 1', () => {
+    expect(relocateFormula('=A$1', 0, -1)).toBe('=#REF!');
+  });
+
+  it('should be identity when delta is zero', () => {
+    expect(relocateFormula('=$A$1+$B2', 0, 0)).toBe('=$A$1+$B2');
+  });
+});
+
+describe('absolute reference ($) preservation in shiftFormula', () => {
+  it('should shift absolute refs on insert and preserve $ markers', () => {
+    expect(shiftFormula('=$A$1', 'row', 1, 1)).toBe('=$A$2');
+  });
+
+  it('should preserve mixed $ markers after row insert', () => {
+    expect(shiftFormula('=A$1+$B2', 'row', 1, 2)).toBe('=A$3+$B4');
+  });
+
+  it('should preserve $ markers after column insert', () => {
+    expect(shiftFormula('=$A1', 'column', 1, 1)).toBe('=$B1');
+  });
+
+  it('should preserve $ in range after insert', () => {
+    expect(shiftFormula('=SUM($A$1:$B$3)', 'row', 1, 1)).toBe('=SUM($A$2:$B$4)');
+  });
+});
+
+describe('absolute reference ($) preservation in redirectFormula', () => {
+  it('should preserve $ markers when redirecting single ref', () => {
+    const refMap = new Map([['A1', 'C1']]);
+    expect(redirectFormula('=$A$1', refMap)).toBe('=$C$1');
+  });
+
+  it('should preserve mixed $ markers when redirecting', () => {
+    const refMap = new Map([['A1', 'C3']]);
+    expect(redirectFormula('=$A1', refMap)).toBe('=$C3');
+  });
+
+  it('should preserve $ in range redirect', () => {
+    const refMap = new Map([['A1', 'C1'], ['B3', 'D3']]);
+    expect(redirectFormula('=SUM($A$1:B$3)', refMap)).toBe('=SUM($C$1:D$3)');
   });
 });
 
