@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Document as YorkieDoc } from "yorkie-js-sdk";
 import type {
   PivotTableDefinition,
@@ -7,23 +7,25 @@ import type {
   PivotFilterField,
   AggregateFunction,
   Grid,
+  Cell,
+  Sref,
 } from "@wafflebase/sheet";
 import {
   calculatePivot,
   materialize,
   parseSourceData,
   parseRange,
+  toSref,
 } from "@wafflebase/sheet";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 
 type UsePivotTableProps = {
   doc: YorkieDoc<SpreadsheetDocument> | null;
   tabId: string;
-  sourceGrid: Grid | null;
 };
 
 
-export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
+export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
   const [definition, setDefinition] = useState<PivotTableDefinition | null>(
     null,
   );
@@ -65,6 +67,34 @@ export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
       if (ws) ws.pivotTable = definition;
     });
   }, [doc, tabId, definition]);
+
+  // Build source grid by reading cells individually from the Yorkie document.
+  // Avoids Object.entries() on Yorkie CRDT proxies (which can fail).
+  const sourceGrid = useMemo((): Grid | null => {
+    if (!doc || !definition) return null;
+    const root = doc.getRoot();
+    const sourceWs = root.sheets[definition.sourceTabId];
+    if (!sourceWs?.sheet) return null;
+
+    try {
+      const range = parseRange(definition.sourceRange);
+      const [from, to] = range;
+      const grid: Grid = new Map();
+      for (let r = from.r; r <= to.r; r++) {
+        for (let c = from.c; c <= to.c; c++) {
+          const sref = toSref({ r, c }) as Sref;
+          const cell = sourceWs.sheet[sref];
+          if (cell) {
+            // Deep-copy via JSON to detach from Yorkie CRDT proxy
+            grid.set(sref, JSON.parse(JSON.stringify(cell)) as Cell);
+          }
+        }
+      }
+      return grid;
+    } catch {
+      return null;
+    }
+  }, [doc, definition]);
 
   const updateDefinition = useCallback(
     (updater: (def: PivotTableDefinition) => PivotTableDefinition) => {
@@ -192,7 +222,6 @@ export function usePivotTable({ doc, tabId, sourceGrid }: UsePivotTableProps) {
   }, [doc, tabId, definition, sourceGrid]);
 
   // Get available source columns (headers from source data).
-  // Uses the already-built sourceGrid (plain Map) to avoid Yorkie proxy issues.
   const getSourceHeaders = useCallback((): string[] => {
     if (!definition || !sourceGrid) return [];
     try {

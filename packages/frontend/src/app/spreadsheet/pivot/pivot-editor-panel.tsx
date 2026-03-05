@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Document as YorkieDoc } from "yorkie-js-sdk";
-import type { AggregateFunction, Grid } from "@wafflebase/sheet";
+import type { AggregateFunction } from "@wafflebase/sheet";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -33,7 +33,6 @@ import { usePivotTable } from "./use-pivot-table";
 type PivotEditorPanelProps = {
   doc: YorkieDoc<SpreadsheetDocument> | null;
   tabId: string;
-  sourceGrid: Grid | null;
   onClose: () => void;
 };
 
@@ -82,7 +81,6 @@ function CollapsibleSection({
 export function PivotEditorPanel({
   doc,
   tabId,
-  sourceGrid,
   onClose,
 }: PivotEditorPanelProps) {
   const {
@@ -97,7 +95,7 @@ export function PivotEditorPanel({
     setShowTotals,
     refresh,
     getSourceHeaders,
-  } = usePivotTable({ doc, tabId, sourceGrid });
+  } = usePivotTable({ doc, tabId });
 
   const headers = useMemo(() => getSourceHeaders(), [getSourceHeaders]);
 

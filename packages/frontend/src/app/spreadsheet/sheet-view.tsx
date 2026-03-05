@@ -15,7 +15,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -151,24 +150,9 @@ export function SheetView({
   const selectedChart =
     root && selectedChartId ? root.sheets[tabId]?.charts?.[selectedChartId] : undefined;
 
-  // Detect whether the active tab is a pivot sheet
-  const isPivotTab = !!root?.sheets[tabId]?.pivotTable;
-  const pivotDefinition = root?.sheets[tabId]?.pivotTable;
-
-  // Build the source grid from the source tab's data for the pivot engine
-  const sourceGrid = useMemo((): Grid | null => {
-    if (!root || !pivotDefinition) return null;
-    const sourceWs = root.sheets[pivotDefinition.sourceTabId];
-    if (!sourceWs?.sheet) return null;
-
-    const grid: Grid = new Map();
-    for (const [sref, cell] of Object.entries(sourceWs.sheet)) {
-      if (cell) {
-        grid.set(sref as Sref, cell as Cell);
-      }
-    }
-    return grid;
-  }, [root, pivotDefinition]);
+  // Detect whether the active tab is a pivot sheet via TabMeta.kind
+  // (avoids reading deeply nested pivotTable from Yorkie CRDT proxy)
+  const isPivotTab = root?.tabs[tabId]?.kind === "pivot";
 
   useEffect(() => {
     // Auto-open pivot editor when switching to a pivot tab
@@ -894,7 +878,6 @@ export function SheetView({
             <PivotEditorPanel
               doc={doc}
               tabId={tabId}
-              sourceGrid={sourceGrid}
               onClose={() => setPivotEditorOpen(false)}
             />
           </Suspense>
