@@ -29,7 +29,6 @@ import {
   DefaultCellHeight,
   RowHeaderWidth,
   CellFontSize,
-  CellLineHeight,
   CellPaddingY,
   BoundingRect,
   Position,
@@ -44,6 +43,7 @@ import {
   expandBoundingRect,
   toRef,
   toRefWithFreeze,
+  getTextBlockHeight,
 } from './layout';
 
 const ResizeEdgeThreshold = 6;
@@ -3277,7 +3277,7 @@ export class Worksheet {
 
     return Math.max(
       DefaultCellHeight,
-      Math.ceil(maxLines * CellFontSize * CellLineHeight + 2 * CellPaddingY),
+      Math.ceil(getTextBlockHeight(maxLines) + 2 * CellPaddingY),
     );
   }
 
