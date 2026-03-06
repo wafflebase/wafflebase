@@ -124,21 +124,24 @@ describeDb('Database-backed integration', () => {
         password: pgConfig.password,
       });
       await rawClient.connect();
-      await rawClient.query(`
-        CREATE TABLE IF NOT EXISTS _test_products (
-          id SERIAL PRIMARY KEY,
-          name TEXT NOT NULL,
-          price NUMERIC(10, 2) NOT NULL
-        )
-      `);
-      await rawClient.query(`TRUNCATE _test_products RESTART IDENTITY`);
-      await rawClient.query(`
-        INSERT INTO _test_products (name, price) VALUES
-          ('Widget', 9.99),
-          ('Gadget', 24.50),
-          ('Doohickey', 3.75)
-      `);
-      await rawClient.end();
+      try {
+        await rawClient.query(`
+          CREATE TABLE IF NOT EXISTS _test_products (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            price NUMERIC(10, 2) NOT NULL
+          )
+        `);
+        await rawClient.query(`TRUNCATE _test_products RESTART IDENTITY`);
+        await rawClient.query(`
+          INSERT INTO _test_products (name, price) VALUES
+            ('Widget', 9.99),
+            ('Gadget', 24.50),
+            ('Doohickey', 3.75)
+        `);
+      } finally {
+        await rawClient.end();
+      }
 
       const ds = await datasourceService.create(owner.id, workspace.id, {
         name: 'table-test',
@@ -183,8 +186,11 @@ describeDb('Database-backed integration', () => {
         password: pgConfig.password,
       });
       await cleanupClient.connect();
-      await cleanupClient.query('DROP TABLE IF EXISTS _test_products');
-      await cleanupClient.end();
+      try {
+        await cleanupClient.query('DROP TABLE IF EXISTS _test_products');
+      } finally {
+        await cleanupClient.end();
+      }
     });
 
     it('maps runtime SQL failures to bad request', async () => {
