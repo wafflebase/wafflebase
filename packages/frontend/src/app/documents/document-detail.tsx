@@ -447,9 +447,10 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         </div>
       </SidebarInset>
 
-      {showDsSelector && (
+      {showDsSelector && documentData?.workspaceId && (
         <Suspense fallback={null}>
           <DataSourceSelector
+            workspaceId={documentData.workspaceId}
             open={showDsSelector}
             onOpenChange={setShowDsSelector}
             onSelect={addDataSourceTab}
