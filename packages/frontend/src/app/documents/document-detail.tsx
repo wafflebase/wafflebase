@@ -450,6 +450,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
       {showDsSelector && (
         <Suspense fallback={null}>
           <DataSourceSelector
+            workspaceId={documentData?.workspaceId ?? ""}
             open={showDsSelector}
             onOpenChange={setShowDsSelector}
             onSelect={addDataSourceTab}

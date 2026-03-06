@@ -54,7 +54,8 @@ import { toast } from "sonner";
 /**
  * Renders the DataSourceList component.
  */
-export function DataSourceList({ data }: { data: DataSource[] }) {
+export function DataSourceList({ data, workspaceId }: { data: DataSource[]; workspaceId?: string }) {
+  const resolvedWorkspaceId = workspaceId ?? data[0]?.workspaceId ?? "";
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [editingDs, setEditingDs] = useState<DataSource | null>(null);
@@ -334,6 +335,7 @@ export function DataSourceList({ data }: { data: DataSource[] }) {
       </div>
 
       <DataSourceDialog
+        workspaceId={resolvedWorkspaceId}
         open={showCreate}
         onOpenChange={setShowCreate}
         onCreated={() => {

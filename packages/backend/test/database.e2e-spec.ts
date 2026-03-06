@@ -4,6 +4,7 @@ import {
   GoneException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { Client } from 'pg';
 import { PrismaService } from 'src/database/prisma.service';
 import { DataSourceService } from 'src/datasource/datasource.service';
 import { ShareLinkService } from 'src/share-link/share-link.service';
@@ -106,6 +107,84 @@ describeDb('Database-backed integration', () => {
         query: 'SELECT 1::int4 AS n',
       });
       expect(queryResult.rows).toEqual([{ n: 1 }]);
+    });
+
+    it('queries real tables with rows', async () => {
+      const owner = await createUser();
+      const workspace = await createWorkspace(prisma, owner.id);
+      const pgConfig = parseDatabaseUrl(process.env.DATABASE_URL!);
+
+      // Create a test table and insert data using a raw pg client
+      // (DataSourceService only allows SELECT)
+      const rawClient = new Client({
+        host: pgConfig.host,
+        port: pgConfig.port,
+        database: pgConfig.database,
+        user: pgConfig.username,
+        password: pgConfig.password,
+      });
+      await rawClient.connect();
+      await rawClient.query(`
+        CREATE TABLE IF NOT EXISTS _test_products (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          price NUMERIC(10, 2) NOT NULL
+        )
+      `);
+      await rawClient.query(`TRUNCATE _test_products RESTART IDENTITY`);
+      await rawClient.query(`
+        INSERT INTO _test_products (name, price) VALUES
+          ('Widget', 9.99),
+          ('Gadget', 24.50),
+          ('Doohickey', 3.75)
+      `);
+      await rawClient.end();
+
+      const ds = await datasourceService.create(owner.id, workspace.id, {
+        name: 'table-test',
+        host: pgConfig.host,
+        port: pgConfig.port,
+        database: pgConfig.database,
+        username: pgConfig.username,
+        password: pgConfig.password,
+        sslEnabled: false,
+      });
+
+      // List tables via information_schema
+      const tablesResult = await datasourceService.executeQuery(ds.id, {
+        query: `SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = '_test_products'`,
+      });
+      expect(tablesResult.rows).toEqual([{ table_name: '_test_products' }]);
+
+      // Query table data
+      const dataResult = await datasourceService.executeQuery(ds.id, {
+        query: 'SELECT id, name, price FROM _test_products ORDER BY id',
+      });
+      expect(dataResult.rowCount).toBe(3);
+      expect(dataResult.columns.map((c) => c.name)).toEqual([
+        'id',
+        'name',
+        'price',
+      ]);
+      expect(dataResult.rows).toEqual([
+        { id: 1, name: 'Widget', price: '9.99' },
+        { id: 2, name: 'Gadget', price: '24.50' },
+        { id: 3, name: 'Doohickey', price: '3.75' },
+      ]);
+      expect(dataResult.truncated).toBe(false);
+
+      // Cleanup
+      const cleanupClient = new Client({
+        host: pgConfig.host,
+        port: pgConfig.port,
+        database: pgConfig.database,
+        user: pgConfig.username,
+        password: pgConfig.password,
+      });
+      await cleanupClient.connect();
+      await cleanupClient.query('DROP TABLE IF EXISTS _test_products');
+      await cleanupClient.end();
     });
 
     it('maps runtime SQL failures to bad request', async () => {

@@ -15,6 +15,7 @@ import type { DataSource } from "@/types/datasource";
 import { cn } from "@/lib/utils";
 
 type DataSourceSelectorProps = {
+  workspaceId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (ds: DataSource) => void;
@@ -24,6 +25,7 @@ type DataSourceSelectorProps = {
  * Renders the DataSourceSelector component.
  */
 export function DataSourceSelector({
+  workspaceId,
   open,
   onOpenChange,
   onSelect,
@@ -121,6 +123,7 @@ export function DataSourceSelector({
       </Dialog>
 
       <DataSourceDialog
+        workspaceId={workspaceId}
         open={showCreate}
         onOpenChange={(v) => {
           setShowCreate(v);
