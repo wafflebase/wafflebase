@@ -32,6 +32,7 @@ import {
   ConditionalFormatRule,
   Grid,
   HiddenState,
+  PivotTableDefinition,
   MergeSpan,
   Ref,
   Range,
@@ -60,6 +61,7 @@ export class MemStore implements Store {
   private merges: Map<Sref, MergeSpan> = new Map();
   private filterState?: FilterState;
   private hiddenState?: HiddenState;
+  private pivotDefinition?: PivotTableDefinition;
   private frozenRows = 0;
   private frozenCols = 0;
 
@@ -442,6 +444,18 @@ export class MemStore implements Store {
       rows: [...this.hiddenState.rows],
       columns: [...this.hiddenState.columns],
     };
+  }
+
+  async setPivotDefinition(
+    def: PivotTableDefinition | undefined,
+  ): Promise<void> {
+    this.pivotDefinition = def ? structuredClone(def) : undefined;
+  }
+
+  async getPivotDefinition(): Promise<PivotTableDefinition | undefined> {
+    return this.pivotDefinition
+      ? structuredClone(this.pivotDefinition)
+      : undefined;
   }
 
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {

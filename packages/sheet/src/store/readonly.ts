@@ -6,6 +6,7 @@ import {
   ConditionalFormatRule,
   FilterState,
   HiddenState,
+  PivotTableDefinition,
   Grid,
   MergeSpan,
   Ref,
@@ -230,6 +231,16 @@ export class ReadOnlyStore implements Store {
   }
 
   async getHiddenState(): Promise<HiddenState | undefined> {
+    return undefined;
+  }
+
+  async setPivotDefinition(
+    _def: PivotTableDefinition | undefined,
+  ): Promise<void> {
+    // no-op
+  }
+
+  async getPivotDefinition(): Promise<PivotTableDefinition | undefined> {
     return undefined;
   }
 

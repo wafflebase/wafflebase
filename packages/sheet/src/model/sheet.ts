@@ -27,6 +27,7 @@ import {
   FilterCondition,
   FilterState,
   MergeSpan,
+  PivotTableDefinition,
   Ref,
   Sref,
   Range,
@@ -225,6 +226,11 @@ export class Sheet {
   private userHiddenColumns: Set<number> = new Set();
 
   /**
+   * `pivotDefinition` stores the pivot table definition if this sheet is a pivot sheet.
+   */
+  private pivotDefinition?: PivotTableDefinition;
+
+  /**
    * `copyBuffer` stores the source range and grid from the last copy operation.
    * Used for internal formula-aware paste with reference relocation.
    */
@@ -409,6 +415,30 @@ export class Sheet {
     for (const col of state.columns) {
       if (col >= 1) this.userHiddenColumns.add(col);
     }
+  }
+
+  /**
+   * `isPivotSheet` returns true if this sheet has a pivot table definition.
+   */
+  isPivotSheet(): boolean {
+    return this.pivotDefinition !== undefined;
+  }
+
+  /**
+   * `getPivotDefinition` returns a clone of the pivot definition, or undefined.
+   */
+  getPivotDefinition(): PivotTableDefinition | undefined {
+    return this.pivotDefinition
+      ? structuredClone(this.pivotDefinition)
+      : undefined;
+  }
+
+  /**
+   * `loadPivotDefinition` loads the pivot table definition from the store.
+   */
+  async loadPivotDefinition(): Promise<void> {
+    const def = await this.store.getPivotDefinition();
+    this.pivotDefinition = def ? structuredClone(def) : undefined;
   }
 
   /**
@@ -865,6 +895,7 @@ export class Sheet {
    * `setData` sets the data at the given row and column.
    */
   async setData(ref: Ref, value: string): Promise<void> {
+    if (this.pivotDefinition) return;
     const target = this.normalizeRefToAnchor(ref);
     this.store.beginBatch();
     try {
@@ -909,6 +940,7 @@ export class Sheet {
    * Uses getGrid() to iterate only over populated cells for efficiency.
    */
   async removeData(): Promise<boolean> {
+    if (this.pivotDefinition) return false;
     this.store.beginBatch();
     try {
       const range: Range = this.getRangeOrActiveCell();
@@ -948,6 +980,7 @@ export class Sheet {
    * `insertRows` inserts rows at the given index.
    */
   async insertRows(index: number, count: number = 1): Promise<void> {
+    if (this.pivotDefinition) return;
     await this.shiftCells('row', index, count);
   }
 
@@ -955,6 +988,7 @@ export class Sheet {
    * `deleteRows` deletes rows at the given index.
    */
   async deleteRows(index: number, count: number = 1): Promise<void> {
+    if (this.pivotDefinition) return;
     await this.shiftCells('row', index, -count);
   }
 
@@ -962,6 +996,7 @@ export class Sheet {
    * `insertColumns` inserts columns at the given index.
    */
   async insertColumns(index: number, count: number = 1): Promise<void> {
+    if (this.pivotDefinition) return;
     await this.shiftCells('column', index, count);
   }
 
@@ -969,6 +1004,7 @@ export class Sheet {
    * `deleteColumns` deletes columns at the given index.
    */
   async deleteColumns(index: number, count: number = 1): Promise<void> {
+    if (this.pivotDefinition) return;
     await this.shiftCells('column', index, -count);
   }
 
@@ -2165,6 +2201,7 @@ export class Sheet {
    * 3. Plain TSV paste — existing behavior
    */
   public async paste(options: { text?: string; html?: string }): Promise<void> {
+    if (this.pivotDefinition) return;
     const { text, html } = options;
     let grid: Grid;
     let rangeStylePatches: RangeStylePatch[] = [];
