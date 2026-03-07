@@ -141,6 +141,7 @@ export class CellInput {
     height?: number,
     maxWidth?: number,
     maxHeight?: number,
+    preventFocus?: boolean,
   ): void {
     this.primed = true;
     this.updateFrame(
@@ -155,7 +156,9 @@ export class CellInput {
     this.renderInput();
     this.adjustSize();
     this.applyPrimedAppearance();
-    this.input.focus();
+    if (!preventFocus) {
+      this.input.focus();
+    }
   }
 
   public hide(): void {

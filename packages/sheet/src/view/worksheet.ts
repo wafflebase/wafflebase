@@ -4419,6 +4419,7 @@ export class Worksheet {
       layout.height,
       layout.maxWidth,
       layout.maxHeight,
+      !!this.mobileEditCallback,
     );
     this.cellInput.setCellPositionHint(undefined);
   }
