@@ -20,12 +20,12 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { MobileSelectionHandles } from "@/components/mobile-selection-handles";
 
 type ScenarioSetup = {
   store: MemStore;
   afterInitialize?: (spreadsheet: Spreadsheet) => Promise<void> | void;
   overlay?: React.ReactNode | ((spreadsheet: Spreadsheet) => React.ReactNode);
+  options?: Record<string, unknown>;
 };
 
 type Scenario = {
@@ -612,9 +612,7 @@ async function createMobileSelectionHandlesScenarioStore(): Promise<ScenarioSetu
       spreadsheet.selectStart({ r: 2, c: 2 });
       spreadsheet.selectEnd({ r: 3, c: 3 });
     },
-    overlay: (spreadsheet: Spreadsheet) => (
-      <MobileSelectionHandles spreadsheet={spreadsheet} renderVersion={0} />
-    ),
+    options: { showMobileHandles: true },
   };
 }
 
@@ -724,6 +722,7 @@ function ScenarioCard({
           theme,
           store: result.store,
           readOnly: true,
+          ...result.options,
         });
         await result.afterInitialize?.(spreadsheet);
 

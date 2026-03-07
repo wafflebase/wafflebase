@@ -58,6 +58,9 @@ export function useMobileSheetGestures({
     const velocitySamples: Array<{ vx: number; vy: number; t: number }> = [];
     let inertiaFrame: number | null = null;
 
+    // Mobile selection handle drag state
+    let handleDragging = false;
+
     // Pinch-to-zoom state
     let pinching = false;
     let pinchStartDist = 0;
@@ -107,6 +110,14 @@ export function useMobileSheetGestures({
       lastY = touch.clientY;
       longPressFired = false;
 
+      // Detect tap on mobile selection handle — start drag and skip other gestures
+      const handleHit = sheetRef.current?.detectMobileSelectionHandle(startX, startY);
+      if (handleHit) {
+        handleDragging = true;
+        sheetRef.current?.startMobileHandleDrag(handleHit);
+        return;
+      }
+
       // Detect tap on row/column header and select immediately
       const headerHit = sheetRef.current?.headerHitTest(startX, startY);
       if (headerHit) {
@@ -143,6 +154,8 @@ export function useMobileSheetGestures({
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (handleDragging) return;
+
       if (e.touches.length === 2 && pinching) {
         e.preventDefault();
         const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -196,6 +209,11 @@ export function useMobileSheetGestures({
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      if (handleDragging) {
+        handleDragging = false;
+        return;
+      }
+
       if (longPressTimer) {
         clearTimeout(longPressTimer);
         longPressTimer = null;
@@ -308,6 +326,7 @@ export function useMobileSheetGestures({
       hadMultiTouch = false;
       pinching = false;
       longPressFired = false;
+      handleDragging = false;
     };
 
     container.addEventListener("touchstart", onTouchStart, { passive: true });

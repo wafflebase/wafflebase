@@ -29,7 +29,6 @@ import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { SheetContextMenu } from "@/components/sheet-context-menu";
-import { MobileSelectionHandles } from "@/components/mobile-selection-handles";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 
@@ -488,6 +487,7 @@ export function SheetView({
       readOnly,
       hideFormulaBar: isMobileRef.current,
       hideAutofillHandle: isMobileRef.current,
+      showMobileHandles: isMobileRef.current,
     }).then((s) => {
       if (cancelled) {
         s.cleanup();
@@ -831,12 +831,6 @@ export function SheetView({
             onCommit={handleMobileEditCommit}
             onCancel={handleMobileEditCancel}
             onValueChange={handleMobileEditValueChange}
-          />
-        )}
-        {isMobile && !readOnly && !mobileEditState && sheetRef.current && (
-          <MobileSelectionHandles
-            spreadsheet={sheetRef.current}
-            renderVersion={sheetRenderVersion}
           />
         )}
       </div>

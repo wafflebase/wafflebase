@@ -22,6 +22,7 @@ export interface Options {
   readOnly?: boolean;
   hideFormulaBar?: boolean;
   hideAutofillHandle?: boolean;
+  showMobileHandles?: boolean;
 }
 
 export type LayoutRect = {
@@ -70,7 +71,7 @@ export class Spreadsheet {
     this.theme = options?.theme || 'light';
     this._readOnly = options?.readOnly || false;
 
-    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar, options?.hideAutofillHandle);
+    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar, options?.hideAutofillHandle, options?.showMobileHandles);
   }
 
   /**
@@ -145,6 +146,25 @@ export class Spreadsheet {
    */
   public handleMobileDoubleTap(clientX: number, clientY: number) {
     this.worksheet.handleMobileDoubleTap(clientX, clientY);
+  }
+
+  /**
+   * `detectMobileSelectionHandle` checks if client coordinates hit a
+   * mobile selection handle. Returns 'start', 'end', or null.
+   */
+  public detectMobileSelectionHandle(
+    clientX: number,
+    clientY: number,
+  ): 'start' | 'end' | null {
+    return this.worksheet.detectMobileSelectionHandle(clientX, clientY);
+  }
+
+  /**
+   * `startMobileHandleDrag` begins a touch-drag session for a mobile
+   * selection handle.
+   */
+  public startMobileHandleDrag(handle: 'start' | 'end'): void {
+    this.worksheet.startMobileHandleDrag(handle);
   }
 
   /**
