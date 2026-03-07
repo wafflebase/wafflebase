@@ -1,4 +1,4 @@
-import { ARef, Ref, Range, Reference, Sref, Srng, Grid } from './types';
+import { Ref, Range, Reference, Sref, Srng, Grid } from './types';
 
 /**
  * `isIntersect` returns whether the given Ranges are intersected.
@@ -334,39 +334,6 @@ export function parseRef(ref: Sref): Ref {
   }
 
   return { r: row, c: col };
-}
-
-/**
- * `parseARef` parses a string ref preserving absolute-reference `$` markers.
- * e.g. "$A$1" → { r: 1, c: 1, absCol: true, absRow: true }
- *      "A$1"  → { r: 1, c: 1, absRow: true }
- *      "$A1"  → { r: 1, c: 1, absCol: true }
- */
-export function parseARef(ref: Sref): ARef {
-  const absCol = ref.startsWith('$') || ref.includes('!$');
-  // Find the column-row boundary to detect row dollar sign.
-  // After optional leading '$' and column letters, check for '$' before digits.
-  const match = ref.match(/^(\$?)([A-Za-z]+)(\$?)(\d+)$/);
-  if (!match) {
-    throw new Error('Invalid Reference');
-  }
-  const absRow = match[3] === '$';
-  const parsed = parseRef(ref);
-  return {
-    ...parsed,
-    ...(absCol ? { absCol: true } : {}),
-    ...(absRow ? { absRow: true } : {}),
-  };
-}
-
-/**
- * `toASref` converts an ARef back to a string ref, restoring `$` markers.
- * e.g. { r: 1, c: 1, absCol: true, absRow: true } → "$A$1"
- */
-export function toASref(ref: ARef): Sref {
-  const col = toColumnLabel(ref.c);
-  const row = String(ref.r);
-  return (ref.absCol ? '$' : '') + col + (ref.absRow ? '$' : '') + row;
 }
 
 /**

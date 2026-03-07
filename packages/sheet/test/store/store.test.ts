@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Store } from '../../src/store/store';
 import { MemStore } from '../../src/store/memory';
+import { PivotTableDefinition } from '../../src/model/types';
 
 describe('MemStore', () => {
   runTests(async () => new MemStore());
@@ -238,5 +239,52 @@ function runTests(createStore: (key: string) => Promise<Store>) {
 
     const result = await store.findEdge({ r: 1, c: 5 }, 'left', dim);
     expect(result).toEqual({ r: 1, c: 3 });
+  });
+
+  it('should store and retrieve pivot definition', async function ({ task }) {
+    const store = await createStore(task.name);
+    const def: PivotTableDefinition = {
+      id: 'pivot-1',
+      sourceTabId: 'tab-1',
+      sourceRange: 'A1:D10',
+      rowFields: [{ sourceColumn: 0, label: 'Category' }],
+      columnFields: [],
+      valueFields: [
+        { sourceColumn: 2, label: 'Amount', aggregation: 'SUM' },
+      ],
+      filterFields: [],
+      showTotals: { rows: true, columns: true },
+    };
+
+    await store.setPivotDefinition(def);
+    const result = await store.getPivotDefinition();
+    expect(result).toEqual(def);
+
+    // Verify deep clone (mutation safety)
+    def.rowFields[0].label = 'Changed';
+    const result2 = await store.getPivotDefinition();
+    expect(result2!.rowFields[0].label).toBe('Category');
+  });
+
+  it('should clear pivot definition when set to undefined', async function ({ task }) {
+    const store = await createStore(task.name);
+    const def: PivotTableDefinition = {
+      id: 'pivot-2',
+      sourceTabId: 'tab-1',
+      sourceRange: 'A1:C5',
+      rowFields: [],
+      columnFields: [],
+      valueFields: [
+        { sourceColumn: 1, label: 'Count', aggregation: 'COUNT' },
+      ],
+      filterFields: [],
+      showTotals: { rows: false, columns: false },
+    };
+
+    await store.setPivotDefinition(def);
+    expect(await store.getPivotDefinition()).toBeDefined();
+
+    await store.setPivotDefinition(undefined);
+    expect(await store.getPivotDefinition()).toBeUndefined();
   });
 }

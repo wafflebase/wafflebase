@@ -8,7 +8,6 @@ export type DataSource = {
   password: string; // Always masked from API
   sslEnabled: boolean;
   authorID: number;
-  workspaceId: string;
   createdAt: string;
   updatedAt: string;
 };

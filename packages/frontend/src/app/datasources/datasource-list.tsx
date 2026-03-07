@@ -54,8 +54,7 @@ import { toast } from "sonner";
 /**
  * Renders the DataSourceList component.
  */
-export function DataSourceList({ data, workspaceId }: { data: DataSource[]; workspaceId?: string }) {
-  const resolvedWorkspaceId = workspaceId;
+export function DataSourceList({ data }: { data: DataSource[] }) {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [editingDs, setEditingDs] = useState<DataSource | null>(null);
@@ -68,9 +67,6 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
     mutationFn: async (id: string) => await deleteDataSource(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["datasources"] });
-      if (resolvedWorkspaceId) {
-        queryClient.invalidateQueries({ queryKey: ["workspaces", resolvedWorkspaceId, "datasources"] });
-      }
       toast.success("DataSource deleted");
     },
     onError: (error) => {
@@ -251,7 +247,6 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
         />
         <Button
           onClick={() => setShowCreate(true)}
-          disabled={!resolvedWorkspaceId}
           className="flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
@@ -339,15 +334,11 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
       </div>
 
       <DataSourceDialog
-        workspaceId={resolvedWorkspaceId}
         open={showCreate}
         onOpenChange={setShowCreate}
         onCreated={() => {
           setShowCreate(false);
           queryClient.invalidateQueries({ queryKey: ["datasources"] });
-          if (resolvedWorkspaceId) {
-            queryClient.invalidateQueries({ queryKey: ["workspaces", resolvedWorkspaceId, "datasources"] });
-          }
         }}
       />
 
@@ -360,9 +351,6 @@ export function DataSourceList({ data, workspaceId }: { data: DataSource[]; work
         onSaved={() => {
           setEditingDs(null);
           queryClient.invalidateQueries({ queryKey: ["datasources"] });
-          if (resolvedWorkspaceId) {
-            queryClient.invalidateQueries({ queryKey: ["workspaces", resolvedWorkspaceId, "datasources"] });
-          }
         }}
       />
     </div>

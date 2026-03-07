@@ -6,7 +6,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/types/nav-items";
 
@@ -15,7 +14,6 @@ import { NavItem } from "@/types/nav-items";
  */
 export function NavMain({ items }: { items: Array<NavItem> }) {
   const location = useLocation();
-  const { setOpenMobile, isMobile } = useSidebar();
 
   const isActive = useCallback(
     (url: string, allUrls: string[]) => {
@@ -47,12 +45,7 @@ export function NavMain({ items }: { items: Array<NavItem> }) {
                   items.map((i) => i.url),
                 )}
               >
-                <Link
-                  to={item.url}
-                  onClick={() => {
-                    if (isMobile) setOpenMobile(false);
-                  }}
-                >
+                <Link to={item.url}>
                   {item.icon && <item.icon />}
                   <span>{item.title}</span>
                 </Link>

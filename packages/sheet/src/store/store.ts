@@ -6,6 +6,7 @@ import {
   FilterState,
   Grid,
   HiddenState,
+  PivotTableDefinition,
   MergeSpan,
   Ref,
   Range,
@@ -192,6 +193,16 @@ export interface Store {
   getHiddenState(): Promise<HiddenState | undefined>;
 
   /**
+   * `setPivotDefinition` sets the pivot table definition for this sheet.
+   */
+  setPivotDefinition(def: PivotTableDefinition | undefined): Promise<void>;
+
+  /**
+   * `getPivotDefinition` gets the pivot table definition for this sheet.
+   */
+  getPivotDefinition(): Promise<PivotTableDefinition | undefined>;
+
+  /**
    * `updateActiveCell` method updates the active cell of the current user.
    */
   updateActiveCell(activeCell: Ref): void;
@@ -239,4 +250,11 @@ export interface Store {
    * `canRedo` method returns true if there is a change to redo.
    */
   canRedo(): boolean;
+
+  /**
+   * `invalidate` marks any cached cell index as stale so it is rebuilt
+   * on the next read. Call this after external writes that bypass the
+   * store's own mutation methods (e.g. pivot table refresh).
+   */
+  invalidate(): void;
 }

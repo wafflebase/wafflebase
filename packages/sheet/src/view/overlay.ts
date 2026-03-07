@@ -72,7 +72,6 @@ export class Overlay {
     merges?: Map<string, MergeSpan>,
     filterRange?: Range,
     zoom: number = 1,
-    showMobileHandles: boolean = false,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -101,14 +100,7 @@ export class Overlay {
     );
 
     if (!hasFrozen) {
-      // No freeze: render everything in a single pass, clipped to the content
-      // area so overlays don't bleed into column/row headers.
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(RowHeaderWidth, DefaultCellHeight,
-        port.width - RowHeaderWidth, port.height - DefaultCellHeight);
-      ctx.clip();
-
+      // No freeze: render everything in a single pass (original behavior)
       this.renderActiveCellSimple(
         ctx,
         activeCell,
@@ -130,8 +122,6 @@ export class Overlay {
       this.renderFilterRangeSimple(ctx, filterRange, scroll, rowDim, colDim);
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
       this.renderCopyRangeSimple(ctx, copyRange, isCut, scroll, rowDim, colDim);
-
-      ctx.restore();
     } else {
       // Freeze: render per-quadrant with clipping
       const quadrants = this.buildQuadrants(port, scroll, freeze, rowDim, colDim);
@@ -273,14 +263,6 @@ export class Overlay {
       ctx.restore();
     }
 
-    // Clip autofill preview and handle to the content area so they don't
-    // overlap column/row headers during scrolling.
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(RowHeaderWidth, DefaultCellHeight,
-      port.width - RowHeaderWidth, port.height - DefaultCellHeight);
-    ctx.clip();
-
     if (autofillPreview && !isSameRange(autofillPreview, selectionRange)) {
       this.renderAutofillPreview(
         ctx,
@@ -302,19 +284,6 @@ export class Overlay {
         freeze,
       );
     }
-
-    if (showMobileHandles) {
-      this.renderMobileSelectionHandles(
-        ctx,
-        selectionRange,
-        scroll,
-        rowDim,
-        colDim,
-        freeze,
-      );
-    }
-
-    ctx.restore();
 
     // Render resize hover indicator (same for freeze/no-freeze)
     if (resizeHover && colDim && rowDim) {
@@ -857,41 +826,6 @@ export class Overlay {
     ctx.strokeStyle = this.getThemeColor('cellBGColor');
     ctx.lineWidth = 1;
     ctx.strokeRect(left + 0.5, top + 0.5, size, size);
-  }
-
-  private renderMobileSelectionHandles(
-    ctx: CanvasRenderingContext2D,
-    range: Range | undefined,
-    scroll: { left: number; top: number },
-    rowDim?: DimensionIndex,
-    colDim?: DimensionIndex,
-    freeze: FreezeState = NoFreeze,
-  ): void {
-    if (!range) return;
-
-    const rect = this.toRangeRect(range, scroll, rowDim, colDim, freeze);
-    if (!rect) return;
-
-    const radius = 5;
-    const color = this.getThemeColor('activeCellColor');
-
-    // Top-left handle at start of range
-    const tlX = rect.left;
-    const tlY = rect.top;
-
-    // Bottom-right handle at end of range
-    const brX = rect.left + rect.width;
-    const brY = rect.top + rect.height;
-
-    ctx.fillStyle = color;
-
-    ctx.beginPath();
-    ctx.arc(tlX, tlY, radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(brX, brY, radius, 0, Math.PI * 2);
-    ctx.fill();
   }
 
   /**

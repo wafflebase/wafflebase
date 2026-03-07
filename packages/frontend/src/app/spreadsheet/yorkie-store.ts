@@ -8,6 +8,7 @@ import {
   FilterState,
   HiddenState,
   MergeSpan,
+  PivotTableDefinition,
   Ref,
   Sref,
   Range,
@@ -1176,6 +1177,37 @@ export class YorkieStore implements Store {
     return this.fromWorksheetFilterState(this.getSheet().filter);
   }
 
+  async setPivotDefinition(def: PivotTableDefinition | undefined): Promise<void> {
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      this.batchOps.push((root) => {
+        const ws = root.sheets[tabId];
+        if (!def) {
+          delete ws.pivotTable;
+          return;
+        }
+        ws.pivotTable = def;
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      const ws = root.sheets[tabId];
+      if (!def) {
+        delete ws.pivotTable;
+        return;
+      }
+      ws.pivotTable = def;
+    });
+  }
+
+  async getPivotDefinition(): Promise<PivotTableDefinition | undefined> {
+    const ws = this.getSheet();
+    if (!ws.pivotTable) return undefined;
+    return structuredClone(ws.pivotTable) as PivotTableDefinition;
+  }
+
   async setHiddenState(state: HiddenState | undefined): Promise<void> {
     if (this.batchOps) {
       const tabId = this.tabId;
@@ -1371,5 +1403,9 @@ export class YorkieStore implements Store {
 
   canRedo(): boolean {
     return this.doc.history.canRedo();
+  }
+
+  invalidate(): void {
+    this.dirty = true;
   }
 }

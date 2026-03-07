@@ -10,14 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { testDataSourceConnection } from "@/api/datasources";
-import { createWorkspaceDataSource } from "@/api/workspaces";
+import {
+  createDataSource,
+  testDataSourceConnection,
+} from "@/api/datasources";
 import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
 import { toast } from "sonner";
 
 type DataSourceDialogProps = {
-  workspaceId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: (ds: DataSource) => void;
@@ -27,7 +28,6 @@ type DataSourceDialogProps = {
  * Renders the DataSourceDialog component.
  */
 export function DataSourceDialog({
-  workspaceId,
   open,
   onOpenChange,
   onCreated,
@@ -57,7 +57,7 @@ export function DataSourceDialog({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const ds = await createWorkspaceDataSource(workspaceId, {
+      const ds = await createDataSource({
         name,
         host,
         port: Number(port),
@@ -84,7 +84,7 @@ export function DataSourceDialog({
       // Save first, then test
       setSaving(true);
       try {
-        const ds = await createWorkspaceDataSource(workspaceId, {
+        const ds = await createDataSource({
           name: name || "Untitled",
           host,
           port: Number(port),

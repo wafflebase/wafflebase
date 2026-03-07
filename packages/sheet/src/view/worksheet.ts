@@ -29,6 +29,7 @@ import {
   DefaultCellHeight,
   RowHeaderWidth,
   CellFontSize,
+  CellLineHeight,
   CellPaddingY,
   BoundingRect,
   Position,
@@ -43,7 +44,6 @@ import {
   expandBoundingRect,
   toRef,
   toRefWithFreeze,
-  getTextBlockHeight,
 } from './layout';
 
 const ResizeEdgeThreshold = 6;
@@ -155,7 +155,6 @@ export class Worksheet {
   private onRenderCallback?: () => void;
   private readOnly: boolean;
   private hideAutofillHandle: boolean;
-  private showMobileHandles: boolean;
   private zoom = 1;
   private mobileEditCallback:
     | ((cellRef: string, value: string) => void)
@@ -180,13 +179,11 @@ export class Worksheet {
     readOnly: boolean = false,
     hideFormulaBar?: boolean,
     hideAutofillHandle?: boolean,
-    showMobileHandles?: boolean,
   ) {
     this.container = container;
     this.theme = theme;
     this.readOnly = readOnly;
     this.hideAutofillHandle = hideAutofillHandle ?? false;
-    this.showMobileHandles = showMobileHandles ?? false;
 
     this.formulaBar = new FormulaBar(theme, readOnly);
     this.gridContainer = new GridContainer(theme, hideFormulaBar);
@@ -3280,7 +3277,7 @@ export class Worksheet {
 
     return Math.max(
       DefaultCellHeight,
-      Math.ceil(getTextBlockHeight(maxLines) + 2 * CellPaddingY),
+      Math.ceil(maxLines * CellFontSize * CellLineHeight + 2 * CellPaddingY),
     );
   }
 
@@ -3999,76 +3996,6 @@ export class Worksheet {
   }
 
   /**
-   * `detectMobileSelectionHandle` checks if client coordinates fall on a
-   * mobile selection handle circle. Returns 'start' or 'end', or null.
-   */
-  public detectMobileSelectionHandle(
-    clientX: number,
-    clientY: number,
-  ): 'start' | 'end' | null {
-    if (!this.showMobileHandles || !this.sheet) return null;
-
-    const range = this.sheet.getRangeOrActiveCell();
-    const rect = this.getAutofillSelectionRect(range);
-    if (!rect) return null;
-
-    const x = (clientX - this.viewport.left) / this.zoom;
-    const y = (clientY - this.viewport.top) / this.zoom;
-    const hitRadius = 22;
-
-    // Top-left handle
-    const tlX = rect.left;
-    const tlY = rect.top;
-    if (Math.hypot(x - tlX, y - tlY) <= hitRadius) {
-      return 'start';
-    }
-
-    // Bottom-right handle
-    const brX = rect.left + rect.width;
-    const brY = rect.top + rect.height;
-    if (Math.hypot(x - brX, y - brY) <= hitRadius) {
-      return 'end';
-    }
-
-    return null;
-  }
-
-  /**
-   * `startMobileHandleDrag` begins a touch-drag session for a mobile
-   * selection handle. Attaches document-level touchmove/touchend listeners.
-   */
-  public startMobileHandleDrag(handle: 'start' | 'end'): void {
-    if (!this.sheet) return;
-
-    const onTouchMove = (ev: TouchEvent) => {
-      ev.preventDefault();
-      const touch = ev.touches[0];
-      const { x, y } = this.clampClientPointToViewport(touch.clientX, touch.clientY);
-      const ref = this.toRefFromMouse(x, y);
-
-      if (handle === 'end') {
-        this.sheet!.selectEnd(ref);
-      } else {
-        // For start handle: swap anchor to the current end, then extend to touch
-        const currentRange = this.sheet!.getRangeOrActiveCell();
-        this.sheet!.selectStart(currentRange[1]);
-        this.sheet!.selectEnd(ref);
-      }
-      this.render();
-    };
-
-    const onTouchEnd = () => {
-      document.removeEventListener('touchmove', onTouchMove);
-      document.removeEventListener('touchend', onTouchEnd);
-      document.removeEventListener('touchcancel', onTouchEnd);
-    };
-
-    document.addEventListener('touchmove', onTouchMove, { passive: false });
-    document.addEventListener('touchend', onTouchEnd);
-    document.addEventListener('touchcancel', onTouchEnd);
-  }
-
-  /**
    * `headerHitTest` checks if client coordinates fall on a row or column
    * header and returns the axis and 1-based index, or null if on the grid.
    */
@@ -4216,7 +4143,6 @@ export class Worksheet {
       this.sheet!.getMerges(),
       this.sheet!.getFilterRange(),
       this.zoom,
-      this.showMobileHandles,
     );
   }
 
@@ -4493,7 +4419,6 @@ export class Worksheet {
       layout.height,
       layout.maxWidth,
       layout.maxHeight,
-      !!this.mobileEditCallback,
     );
     this.cellInput.setCellPositionHint(undefined);
   }
