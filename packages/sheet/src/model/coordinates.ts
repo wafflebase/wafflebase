@@ -1,6 +1,12 @@
 import { Ref, Range, Reference, Sref, Srng, Grid } from './types';
 
 /**
+ * `AbsRef` extends `Ref` with flags indicating whether the column and/or row
+ * are absolute references (prefixed with `$` in A1 notation).
+ */
+export type AbsRef = Ref & { absCol: boolean; absRow: boolean };
+
+/**
  * `isIntersect` returns whether the given Ranges are intersected.
  */
 export function isIntersect(range1: Range, range2: Range): boolean {
@@ -334,6 +340,31 @@ export function parseRef(ref: Sref): Ref {
   }
 
   return { r: row, c: col };
+}
+
+/**
+ * `parseAbsRef` parses a string ref that may contain `$` markers for absolute
+ * references, returning an `AbsRef` with the position and absolute flags.
+ */
+export function parseAbsRef(ref: Sref): AbsRef {
+  // Detect $ positions before stripping
+  const absCol = ref.startsWith('$');
+  // Find $ before digits (row part)
+  const digitMatch = ref.search(/[0-9]/);
+  const absRow = digitMatch > 0 && ref[digitMatch - 1] === '$';
+
+  const parsed = parseRef(ref);
+  return { ...parsed, absCol, absRow };
+}
+
+/**
+ * `toAbsSref` converts an `AbsRef` back to a string ref, re-inserting `$`
+ * markers based on the absolute flags.
+ */
+export function toAbsSref(ref: AbsRef): Sref {
+  const col = toColumnLabel(ref.c);
+  const row = ref.r;
+  return (ref.absCol ? '$' : '') + col + (ref.absRow ? '$' : '') + row;
 }
 
 /**

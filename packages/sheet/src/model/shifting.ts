@@ -1,5 +1,5 @@
 import { extractTokens } from '../formula/formula';
-import { parseRef, toSref } from './coordinates';
+import { parseAbsRef, parseRef, toAbsSref, toSref } from './coordinates';
 import { Axis, Cell, Grid, Ref, Sref } from './types';
 
 /**
@@ -77,15 +77,18 @@ export function moveFormula(
         result += text;
       } else if (text.includes(':')) {
         const [startStr, endStr] = text.split(':');
-        const startRef = parseRef(startStr.toUpperCase());
-        const endRef = parseRef(endStr.toUpperCase());
-        const newStart = moveRef(startRef, axis, src, count, dst);
-        const newEnd = moveRef(endRef, axis, src, count, dst);
-        result += toSref(newStart) + ':' + toSref(newEnd);
+        const startAbs = parseAbsRef(startStr.toUpperCase());
+        const endAbs = parseAbsRef(endStr.toUpperCase());
+        const newStart = moveRef(startAbs, axis, src, count, dst);
+        const newEnd = moveRef(endAbs, axis, src, count, dst);
+        result +=
+          toAbsSref({ ...newStart, absCol: startAbs.absCol, absRow: startAbs.absRow }) +
+          ':' +
+          toAbsSref({ ...newEnd, absCol: endAbs.absCol, absRow: endAbs.absRow });
       } else {
-        const ref = parseRef(text.toUpperCase());
-        const moved = moveRef(ref, axis, src, count, dst);
-        result += toSref(moved);
+        const abs = parseAbsRef(text.toUpperCase());
+        const moved = moveRef(abs, axis, src, count, dst);
+        result += toAbsSref({ ...moved, absCol: abs.absCol, absRow: abs.absRow });
       }
     } else {
       result += token.text;
@@ -169,22 +172,34 @@ export function relocateFormula(
         result += text;
       } else if (text.includes(':')) {
         const [startStr, endStr] = text.split(':');
-        const startRef = parseRef(startStr.toUpperCase());
-        const endRef = parseRef(endStr.toUpperCase());
-        const newStart = { r: startRef.r + deltaRow, c: startRef.c + deltaCol };
-        const newEnd = { r: endRef.r + deltaRow, c: endRef.c + deltaCol };
+        const startAbs = parseAbsRef(startStr.toUpperCase());
+        const endAbs = parseAbsRef(endStr.toUpperCase());
+        const newStart = {
+          r: startAbs.r + (startAbs.absRow ? 0 : deltaRow),
+          c: startAbs.c + (startAbs.absCol ? 0 : deltaCol),
+        };
+        const newEnd = {
+          r: endAbs.r + (endAbs.absRow ? 0 : deltaRow),
+          c: endAbs.c + (endAbs.absCol ? 0 : deltaCol),
+        };
         if (newStart.r < 1 || newStart.c < 1 || newEnd.r < 1 || newEnd.c < 1) {
           result += '#REF!';
         } else {
-          result += toSref(newStart) + ':' + toSref(newEnd);
+          result +=
+            toAbsSref({ ...newStart, absCol: startAbs.absCol, absRow: startAbs.absRow }) +
+            ':' +
+            toAbsSref({ ...newEnd, absCol: endAbs.absCol, absRow: endAbs.absRow });
         }
       } else {
-        const ref = parseRef(text.toUpperCase());
-        const newRef = { r: ref.r + deltaRow, c: ref.c + deltaCol };
+        const abs = parseAbsRef(text.toUpperCase());
+        const newRef = {
+          r: abs.r + (abs.absRow ? 0 : deltaRow),
+          c: abs.c + (abs.absCol ? 0 : deltaCol),
+        };
         if (newRef.r < 1 || newRef.c < 1) {
           result += '#REF!';
         } else {
-          result += toSref(newRef);
+          result += toAbsSref({ ...newRef, absCol: abs.absCol, absRow: abs.absRow });
         }
       }
     } else {
@@ -218,19 +233,32 @@ export function redirectFormula(
         result += text;
       } else if (text.includes(':')) {
         const [startStr, endStr] = text.split(':');
+        const startAbs = parseAbsRef(startStr.toUpperCase());
+        const endAbs = parseAbsRef(endStr.toUpperCase());
         const startSref = toSref(parseRef(startStr.toUpperCase()));
         const endSref = toSref(parseRef(endStr.toUpperCase()));
         const newStart = refMap.get(startSref);
         const newEnd = refMap.get(endSref);
         if (newStart && newEnd) {
-          result += newStart + ':' + newEnd;
+          const newStartAbs = parseAbsRef(newStart);
+          const newEndAbs = parseAbsRef(newEnd);
+          result +=
+            toAbsSref({ ...newStartAbs, absCol: startAbs.absCol, absRow: startAbs.absRow }) +
+            ':' +
+            toAbsSref({ ...newEndAbs, absCol: endAbs.absCol, absRow: endAbs.absRow });
         } else {
           result += text;
         }
       } else {
+        const abs = parseAbsRef(text.toUpperCase());
         const sref = toSref(parseRef(text.toUpperCase()));
         const newSref = refMap.get(sref);
-        result += newSref ?? text;
+        if (newSref) {
+          const newAbs = parseAbsRef(newSref);
+          result += toAbsSref({ ...newAbs, absCol: abs.absCol, absRow: abs.absRow });
+        } else {
+          result += text;
+        }
       }
     } else {
       result += token.text;
@@ -322,23 +350,26 @@ export function shiftFormula(
       } else if (text.includes(':')) {
         // Range reference: shift each endpoint
         const [startStr, endStr] = text.split(':');
-        const startRef = parseRef(startStr.toUpperCase());
-        const endRef = parseRef(endStr.toUpperCase());
-        const newStart = shiftRef(startRef, axis, index, count);
-        const newEnd = shiftRef(endRef, axis, index, count);
+        const startAbs = parseAbsRef(startStr.toUpperCase());
+        const endAbs = parseAbsRef(endStr.toUpperCase());
+        const newStart = shiftRef(startAbs, axis, index, count);
+        const newEnd = shiftRef(endAbs, axis, index, count);
         if (!newStart || !newEnd) {
           result += '#REF!';
         } else {
-          result += toSref(newStart) + ':' + toSref(newEnd);
+          result +=
+            toAbsSref({ ...newStart, absCol: startAbs.absCol, absRow: startAbs.absRow }) +
+            ':' +
+            toAbsSref({ ...newEnd, absCol: endAbs.absCol, absRow: endAbs.absRow });
         }
       } else {
         // Single reference
-        const ref = parseRef(text.toUpperCase());
-        const shifted = shiftRef(ref, axis, index, count);
+        const abs = parseAbsRef(text.toUpperCase());
+        const shifted = shiftRef(abs, axis, index, count);
         if (!shifted) {
           result += '#REF!';
         } else {
-          result += toSref(shifted);
+          result += toAbsSref({ ...shifted, absCol: abs.absCol, absRow: abs.absRow });
         }
       }
     } else {
