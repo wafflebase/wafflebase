@@ -1204,8 +1204,34 @@ export class YorkieStore implements Store {
 
   async getPivotDefinition(): Promise<PivotTableDefinition | undefined> {
     const ws = this.getSheet();
-    if (!ws.pivotTable) return undefined;
-    return structuredClone(ws.pivotTable) as PivotTableDefinition;
+    const pt = ws.pivotTable;
+    if (!pt) return undefined;
+
+    // Read properties directly from Yorkie CRDT proxy to avoid
+    // structuredClone failures on proxy objects.
+    const readField = (f: { sourceColumn: number; label: string; sort?: string }) => ({
+      sourceColumn: f.sourceColumn,
+      label: f.label,
+      sort: f.sort as 'asc' | 'desc' | undefined,
+    });
+    return {
+      id: pt.id,
+      sourceTabId: pt.sourceTabId,
+      sourceRange: pt.sourceRange,
+      rowFields: Array.from(pt.rowFields ?? []).map(readField),
+      columnFields: Array.from(pt.columnFields ?? []).map(readField),
+      valueFields: Array.from(pt.valueFields ?? []).map((f: Record<string, unknown>) => ({
+        ...readField(f as { sourceColumn: number; label: string; sort?: string }),
+        aggregation: (f as { aggregation: string }).aggregation,
+      })),
+      filterFields: Array.from(pt.filterFields ?? []).map((f: Record<string, unknown>) => ({
+        ...readField(f as { sourceColumn: number; label: string; sort?: string }),
+        hiddenValues: Array.from((f as { hiddenValues?: string[] }).hiddenValues ?? []),
+      })),
+      showTotals: pt.showTotals
+        ? { rows: pt.showTotals.rows, columns: pt.showTotals.columns }
+        : { rows: true, columns: true },
+    } as PivotTableDefinition;
   }
 
   async setHiddenState(state: HiddenState | undefined): Promise<void> {

@@ -43,7 +43,7 @@ the existing Canvas renderer and collaboration infrastructure.
 
 The pivot table system spans three layers:
 
-```
+```text
 ┌──────────────────────────────────────────────────┐
 │                  Frontend (React)                │
 │  PivotEditorPanel  ─── usePivotTable hook        │
@@ -163,7 +163,7 @@ Location: `packages/sheet/src/model/pivot/`
 
 #### Pipeline
 
-```
+```text
 Source Grid
   → parseSourceData()     // extract headers + records
   → applyFilters()        // remove rows matching hiddenValues
@@ -254,8 +254,8 @@ Convert `PivotResult` into `Cell` objects and write to the pivot sheet
 starting at A1. Apply default styling:
 
 - Row/column headers: bold
-- Grand total row/column: bold + light gray background
-- Value cells: number format matching source data
+- Grand total row/column: bold
+- Value cells: plain (no styling)
 
 All writes are wrapped in a single batch transaction for atomic undo/redo.
 
@@ -294,21 +294,21 @@ definition changes to all connected clients.
 Pivot sheets block direct cell editing to prevent inconsistency between
 the pivot definition and displayed results.
 
-Implementation in `Sheet.setData()`:
+Pivot detection uses `TabMeta.kind === "pivot"` at the tab level and
+a cached `pivotDefinition` in the `Sheet` class. `Sheet.setData()` checks
+the cached definition and early-returns to block edits:
 
 ```typescript
-if (this.isPivotSheet()) {
-  // Block edit — show notification via callback
-  return;
-}
+if (this.pivotDefinition) return;
 ```
 
-The `isPivotSheet()` check reads the pivot definition from the store.
-Internal materialization bypasses this guard via a private method.
+The `pivotDefinition` cache is populated via `loadPivotDefinition()` during
+sheet initialization. Internal materialization writes cells directly via
+`doc.update()`, bypassing the `Sheet` mutation methods entirely.
 
 ### 6. Frontend: Pivot Creation Flow
 
-```
+```text
 1. User selects data range on a normal sheet
 2. Menu → Insert → Pivot Table
 3. System creates a new tab:
@@ -326,7 +326,7 @@ Internal materialization bypasses this guard via a private method.
 Side panel on the right side of the spreadsheet view, visible whenever
 a pivot sheet tab is active.
 
-```
+```text
 ┌─────────────────────────────┐
 │  Pivot Table Editor     [×] │
 ├─────────────────────────────┤
@@ -367,7 +367,7 @@ a pivot sheet tab is active.
 
 #### Component Structure
 
-```
+```text
 packages/frontend/src/app/spreadsheet/pivot/
   pivot-editor-panel.tsx       // side panel container
   pivot-field-list.tsx         // available fields from source headers

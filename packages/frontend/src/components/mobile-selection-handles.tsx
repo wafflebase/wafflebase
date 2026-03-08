@@ -20,19 +20,21 @@ export function MobileSelectionHandles({
       e.stopPropagation();
       draggingRef.current = handle;
 
+      // Capture the opposite corner once at the start of the gesture
+      // to prevent anchor drift from re-reading the mutated selection.
+      const initialRange = spreadsheet.getSelectionRangeOrActiveCell();
+      const fixedEnd = initialRange ? initialRange[1] : null;
+
       const onTouchMove = (ev: TouchEvent) => {
         ev.preventDefault();
         const touch = ev.touches[0];
         const ref = spreadsheet.cellRefFromPoint(touch.clientX, touch.clientY);
         if (draggingRef.current === "end") {
           spreadsheet.selectEnd(ref);
-        } else {
-          // For top-left handle: swap anchor to bottom-right, extend to touch
-          const currentRange = spreadsheet.getSelectionRangeOrActiveCell();
-          if (currentRange) {
-            spreadsheet.selectStart(currentRange[1]);
-            spreadsheet.selectEnd(ref);
-          }
+        } else if (fixedEnd) {
+          // For top-left handle: anchor at the captured bottom-right corner
+          spreadsheet.selectStart(fixedEnd);
+          spreadsheet.selectEnd(ref);
         }
       };
 

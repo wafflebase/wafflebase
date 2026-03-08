@@ -120,6 +120,13 @@ export function PivotEditorPanel({
     [headers, usedColumns],
   );
 
+  // Value fields allow the same column to be used multiple times with different
+  // aggregations (e.g., SUM + COUNT of Revenue), so we don't filter by used.
+  const availableValueColumns = useMemo(
+    () => headers.map((label, sourceColumn) => ({ label, sourceColumn })),
+    [headers],
+  );
+
   if (!definition) {
     return null;
   }
@@ -317,7 +324,7 @@ export function PivotEditorPanel({
             <div className="space-y-1.5">
               {definition.valueFields.map((field, index) => (
                 <div
-                  key={`val-${field.sourceColumn}`}
+                  key={`val-${field.sourceColumn}-${index}`}
                   className="space-y-1.5 rounded-md border px-2 py-1.5"
                 >
                   <div className="flex items-center justify-between">
@@ -353,7 +360,7 @@ export function PivotEditorPanel({
             </div>
           )}
           <AddFieldDropdown
-            available={availableColumns}
+            available={availableValueColumns}
             onAdd={(col) =>
               addValueField({
                 sourceColumn: col.sourceColumn,

@@ -873,7 +873,7 @@ export function SheetView({
             />
           </Suspense>
         )}
-        {doc && isPivotTab && pivotEditorOpen && (
+        {!readOnly && doc && isPivotTab && pivotEditorOpen && (
           <Suspense fallback={null}>
             <PivotEditorPanel
               doc={doc}

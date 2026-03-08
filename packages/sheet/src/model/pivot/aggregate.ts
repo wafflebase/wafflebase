@@ -4,7 +4,7 @@ import type { PivotRecord, PivotValueField } from '../types';
  * `aggregateValues` computes an aggregated value for the given records and
  * value field.
  *
- * - COUNT: returns the count of all indices (includes empty cells).
+ * - COUNT: returns the count of numeric values (skips empty and non-numeric).
  * - COUNTA: returns the count of non-empty values at the field's source column.
  * - SUM / AVERAGE / MIN / MAX: parses values to numbers with `Number(v)`,
  *   skipping `NaN` and empty strings. Returns '' when no valid numeric values
@@ -18,13 +18,20 @@ export function aggregateValues(
   const { sourceColumn, aggregation } = field;
 
   if (aggregation === 'COUNT') {
-    return String(indices.length);
+    let count = 0;
+    for (const i of indices) {
+      const v = records[i][sourceColumn];
+      if (v === undefined || v === '') continue;
+      if (!Number.isNaN(Number(v))) count++;
+    }
+    return String(count);
   }
 
   if (aggregation === 'COUNTA') {
     let count = 0;
     for (const i of indices) {
-      if (records[i][sourceColumn] !== '') {
+      const v = records[i][sourceColumn];
+      if (v !== undefined && v !== '') {
         count++;
       }
     }

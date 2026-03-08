@@ -3761,6 +3761,7 @@ export class Sheet {
       await this.loadFreezePane();
       await this.loadHiddenState();
       await this.loadFilterState();
+      await this.loadPivotDefinition();
 
       if (result.affectedRange) {
         const [start, end] = result.affectedRange;
@@ -3791,6 +3792,7 @@ export class Sheet {
       await this.loadFreezePane();
       await this.loadHiddenState();
       await this.loadFilterState();
+      await this.loadPivotDefinition();
 
       if (result.affectedRange) {
         const [start, end] = result.affectedRange;

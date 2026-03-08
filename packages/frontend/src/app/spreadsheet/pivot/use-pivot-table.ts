@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Document as YorkieDoc } from "yorkie-js-sdk";
 import type {
   PivotTableDefinition,
@@ -86,9 +86,10 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
     });
   }, [doc, tabId, definition]);
 
-  // Build source grid by reading cells individually from the Yorkie document.
-  // Avoids Object.entries() on Yorkie CRDT proxies (which can fail).
-  const sourceGrid = useMemo((): Grid | null => {
+  // Build source grid on-demand by reading cells from the Yorkie document.
+  // Called inside refresh() and getSourceHeaders() to always read current data,
+  // since Yorkie document references don't change on content updates.
+  const buildSourceGrid = useCallback((): Grid | null => {
     if (!doc || !definition) return null;
     const root = doc.getRoot();
     const sourceWs = root.sheets[definition.sourceTabId];
@@ -222,7 +223,10 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
   );
 
   const refresh = useCallback(() => {
-    if (!doc || !definition || !sourceGrid) return;
+    if (!doc || !definition) return;
+
+    const sourceGrid = buildSourceGrid();
+    if (!sourceGrid) return;
 
     const pivotResult = calculatePivot(sourceGrid, definition);
     const grid = materialize(pivotResult);
@@ -232,8 +236,18 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
       const ws = root.sheets[tabId];
       if (!ws) return;
 
-      // Clear existing cells
-      for (const key of Object.keys(ws.sheet)) {
+      // Clear existing cells. Use toJSON() to snapshot keys from the Yorkie
+      // CRDT proxy, which avoids "ownKeys duplicate" errors.
+      let keys: string[];
+      try {
+        keys = Object.keys(ws.sheet);
+      } catch {
+        const maybeToJSON = (ws.sheet as { toJSON?: () => string }).toJSON;
+        keys = typeof maybeToJSON === 'function'
+          ? Object.keys(JSON.parse(maybeToJSON.call(ws.sheet)))
+          : [];
+      }
+      for (const key of keys) {
         delete ws.sheet[key];
       }
 
@@ -242,11 +256,13 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
         ws.sheet[sref] = cell;
       }
     });
-  }, [doc, tabId, definition, sourceGrid]);
+  }, [doc, tabId, definition, buildSourceGrid]);
 
   // Get available source columns (headers from source data).
   const getSourceHeaders = useCallback((): string[] => {
-    if (!definition || !sourceGrid) return [];
+    if (!definition) return [];
+    const sourceGrid = buildSourceGrid();
+    if (!sourceGrid) return [];
     try {
       const range = parseRange(definition.sourceRange);
       const { headers } = parseSourceData(sourceGrid, range);
@@ -254,7 +270,7 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
     } catch {
       return [];
     }
-  }, [definition, sourceGrid]);
+  }, [definition, buildSourceGrid]);
 
   return {
     definition,

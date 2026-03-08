@@ -260,6 +260,7 @@ export class Worksheet {
     await this.sheet.loadFreezePane();
     await this.sheet.loadFilterState();
     await this.sheet.loadHiddenState();
+    await this.sheet.loadPivotDefinition();
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
     this.hiddenColumns.clear();
@@ -3914,6 +3915,7 @@ export class Worksheet {
     await this.sheet!.loadFreezePane();
     await this.sheet!.loadFilterState();
     await this.sheet!.loadHiddenState();
+    await this.sheet!.loadPivotDefinition();
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
     this.hiddenColumns.clear();

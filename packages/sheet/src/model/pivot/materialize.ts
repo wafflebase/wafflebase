@@ -5,7 +5,7 @@ import type { Cell, Grid, PivotResult } from '../types';
  * `materialize` converts a PivotResult into a Grid (Map<Sref, Cell>).
  *
  * - rowHeader / colHeader / empty cells get bold styling.
- * - total cells get bold + gray background styling.
+ * - total cells get bold styling.
  * - value cells are plain (no styling); empty value cells are skipped.
  *
  * Grid positions are 1-based: cells[r][c] maps to {r: r+1, c: c+1}.

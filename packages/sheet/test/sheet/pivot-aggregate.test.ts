@@ -16,9 +16,9 @@ describe('aggregateValues', () => {
   it('SUM adds numeric values, skips non-numeric', () => {
     expect(aggregateValues(records, [0, 1, 2, 3, 4], sumField)).toBe('600');
   });
-  it('COUNT counts all values including empty', () => {
+  it('COUNT counts numeric values only', () => {
     const f: PivotValueField = { ...sumField, aggregation: 'COUNT' };
-    expect(aggregateValues(records, [0, 1, 2, 3, 4], f)).toBe('5');
+    expect(aggregateValues(records, [0, 1, 2, 3, 4], f)).toBe('3');
   });
   it('COUNTA counts non-empty values', () => {
     const f: PivotValueField = { ...sumField, aggregation: 'COUNTA' };
