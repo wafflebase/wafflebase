@@ -221,8 +221,8 @@ function aggregateValues(
 ```
 
 Type coercion: parse cell string values to numbers. Non-numeric values
-are skipped for SUM/AVERAGE/MIN/MAX. COUNT counts all values, COUNTA
-counts non-empty values.
+are skipped for SUM/AVERAGE/MIN/MAX. COUNT counts numeric values only,
+COUNTA counts non-empty values.
 
 Grand totals aggregate across all records in a row or column group.
 

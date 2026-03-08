@@ -24,62 +24,98 @@ type UsePivotTableProps = {
   tabId: string;
 };
 
+/**
+ * Read a PivotTableDefinition from a Yorkie CRDT proxy object.
+ * Extracts each field manually to avoid structuredClone / double-encoding.
+ */
+function readPivotProxy(
+  pt: PivotTableDefinition,
+): PivotTableDefinition {
+  const readField = (f: PivotField) => ({
+    sourceColumn: f.sourceColumn,
+    label: f.label,
+    sort: f.sort,
+  });
+  return {
+    id: pt.id,
+    sourceTabId: pt.sourceTabId,
+    sourceRange: pt.sourceRange,
+    rowFields: Array.from(pt.rowFields ?? []).map(readField),
+    columnFields: Array.from(pt.columnFields ?? []).map(readField),
+    valueFields: Array.from(pt.valueFields ?? []).map(
+      (f: PivotValueField) => ({
+        ...readField(f),
+        aggregation: f.aggregation,
+      }),
+    ),
+    filterFields: Array.from(pt.filterFields ?? []).map(
+      (f: PivotFilterField) => ({
+        ...readField(f),
+        hiddenValues: Array.from(f.hiddenValues ?? []),
+      }),
+    ),
+    showTotals: pt.showTotals
+      ? { rows: pt.showTotals.rows, columns: pt.showTotals.columns }
+      : { rows: true, columns: true },
+  } as PivotTableDefinition;
+}
 
 export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
   const [definition, setDefinition] = useState<PivotTableDefinition | null>(
     null,
   );
 
+  // Track which tabId the current definition was loaded from.
+  // Prevents stale definitions from being synced to a newly switched tab.
+  const loadedTabIdRef = useRef<string | null>(null);
+
   // Load definition from Yorkie document.
   // Yorkie CRDT arrays may deserialize as plain objects with numeric keys,
   // so we normalize all field arrays with Array.from().
   useEffect(() => {
     if (!doc) {
+      loadedTabIdRef.current = null;
       setDefinition(null);
       return;
     }
     const root = doc.getRoot();
     const ws = root.sheets?.[tabId];
     if (ws?.pivotTable) {
-      // Read properties directly from Yorkie CRDT proxy.
-      // JSON.parse(JSON.stringify(proxy)) fails because Yorkie's toJSON()
-      // returns a JSON string, causing double-encoding.
-      const pt = ws.pivotTable;
-      const readField = (f: PivotField) => ({
-        sourceColumn: f.sourceColumn,
-        label: f.label,
-        sort: f.sort,
-      });
-      setDefinition({
-        id: pt.id,
-        sourceTabId: pt.sourceTabId,
-        sourceRange: pt.sourceRange,
-        rowFields: Array.from(pt.rowFields ?? []).map(readField),
-        columnFields: Array.from(pt.columnFields ?? []).map(readField),
-        valueFields: Array.from(pt.valueFields ?? []).map((f: PivotValueField) => ({
-          ...readField(f),
-          aggregation: f.aggregation,
-        })),
-        filterFields: Array.from(pt.filterFields ?? []).map((f: PivotFilterField) => ({
-          ...readField(f),
-          hiddenValues: Array.from(f.hiddenValues ?? []),
-        })),
-        showTotals: pt.showTotals
-          ? { rows: pt.showTotals.rows, columns: pt.showTotals.columns }
-          : { rows: true, columns: true },
-      } as PivotTableDefinition);
+      loadedTabIdRef.current = tabId;
+      setDefinition(readPivotProxy(ws.pivotTable));
     } else {
+      loadedTabIdRef.current = tabId;
       setDefinition(null);
     }
   }, [doc, tabId]);
 
-  // Sync definition changes to Yorkie document
+  // Reload definition when remote changes arrive (e.g. another user
+  // modifies the pivot configuration).
+  useEffect(() => {
+    if (!doc) return;
+    const unsub = doc.subscribe((event) => {
+      if (event.type !== "remote-change") return;
+      const root = doc.getRoot();
+      const ws = root.sheets?.[tabId];
+      if (ws?.pivotTable) {
+        loadedTabIdRef.current = tabId;
+        setDefinition(readPivotProxy(ws.pivotTable));
+      }
+    });
+    return unsub;
+  }, [doc, tabId]);
+
+  // Sync definition changes to Yorkie document.
   const definitionRef = useRef(definition);
   useEffect(() => {
     // Skip the initial load (when definitionRef.current transitions from null)
     const isInitialLoad = definitionRef.current === null && definition !== null;
     definitionRef.current = definition;
     if (isInitialLoad || !doc || !definition) return;
+
+    // Guard: don't sync if tabId changed but definition hasn't re-loaded yet.
+    if (loadedTabIdRef.current !== tabId) return;
+
     doc.update((root) => {
       const ws = root.sheets[tabId];
       if (ws) ws.pivotTable = definition;

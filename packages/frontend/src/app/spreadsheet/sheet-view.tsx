@@ -873,6 +873,15 @@ export function SheetView({
             />
           </Suspense>
         )}
+        {!readOnly && isPivotTab && !pivotEditorOpen && (
+          <button
+            type="button"
+            className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted"
+            onClick={() => setPivotEditorOpen(true)}
+          >
+            Edit pivot table
+          </button>
+        )}
         {!readOnly && doc && isPivotTab && pivotEditorOpen && (
           <Suspense fallback={null}>
             <PivotEditorPanel
