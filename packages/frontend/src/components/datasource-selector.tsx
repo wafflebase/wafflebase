@@ -8,14 +8,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { fetchWorkspaceDataSources } from "@/api/workspaces";
+import { fetchDataSources } from "@/api/datasources";
 import { DataSourceDialog } from "./datasource-dialog";
 import { IconDatabase, IconPlus } from "@tabler/icons-react";
 import type { DataSource } from "@/types/datasource";
 import { cn } from "@/lib/utils";
 
 type DataSourceSelectorProps = {
-  workspaceId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (ds: DataSource) => void;
@@ -25,7 +24,6 @@ type DataSourceSelectorProps = {
  * Renders the DataSourceSelector component.
  */
 export function DataSourceSelector({
-  workspaceId,
   open,
   onOpenChange,
   onSelect,
@@ -36,13 +34,14 @@ export function DataSourceSelector({
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    fetchWorkspaceDataSources(workspaceId)
-      .then(setDatasources)
-      .catch(() => setDatasources([]))
-      .finally(() => setLoading(false));
-  }, [open, workspaceId]);
+    if (open) {
+      setLoading(true);
+      fetchDataSources()
+        .then(setDatasources)
+        .catch(() => setDatasources([]))
+        .finally(() => setLoading(false));
+    }
+  }, [open]);
 
   const handleSelect = () => {
     const ds = datasources.find((d) => d.id === selectedId);
@@ -122,13 +121,12 @@ export function DataSourceSelector({
       </Dialog>
 
       <DataSourceDialog
-        workspaceId={workspaceId}
         open={showCreate}
         onOpenChange={(v) => {
           setShowCreate(v);
           if (!v) {
             // Refresh list after creating
-            fetchWorkspaceDataSources(workspaceId)
+            fetchDataSources()
               .then(setDatasources)
               .catch(() => {});
           }

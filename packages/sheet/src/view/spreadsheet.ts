@@ -22,7 +22,6 @@ export interface Options {
   readOnly?: boolean;
   hideFormulaBar?: boolean;
   hideAutofillHandle?: boolean;
-  showMobileHandles?: boolean;
 }
 
 export type LayoutRect = {
@@ -71,7 +70,7 @@ export class Spreadsheet {
     this.theme = options?.theme || 'light';
     this._readOnly = options?.readOnly || false;
 
-    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar, options?.hideAutofillHandle, options?.showMobileHandles);
+    this.worksheet = new Worksheet(this.container, this.theme, this._readOnly, options?.hideFormulaBar, options?.hideAutofillHandle);
   }
 
   /**
@@ -96,6 +95,14 @@ export class Spreadsheet {
    */
   public async reloadDimensions() {
     await this.worksheet.reloadDimensions();
+  }
+
+  /**
+   * `invalidateStore` marks the store's cell index as stale so it is rebuilt
+   * on the next read. Call this after external writes that bypass the store.
+   */
+  public invalidateStore(): void {
+    this.sheet?.invalidateStore();
   }
 
   /**
@@ -146,25 +153,6 @@ export class Spreadsheet {
    */
   public handleMobileDoubleTap(clientX: number, clientY: number) {
     this.worksheet.handleMobileDoubleTap(clientX, clientY);
-  }
-
-  /**
-   * `detectMobileSelectionHandle` checks if client coordinates hit a
-   * mobile selection handle. Returns 'start', 'end', or null.
-   */
-  public detectMobileSelectionHandle(
-    clientX: number,
-    clientY: number,
-  ): 'start' | 'end' | null {
-    return this.worksheet.detectMobileSelectionHandle(clientX, clientY);
-  }
-
-  /**
-   * `startMobileHandleDrag` begins a touch-drag session for a mobile
-   * selection handle.
-   */
-  public startMobileHandleDrag(handle: 'start' | 'end'): void {
-    this.worksheet.startMobileHandleDrag(handle);
   }
 
   /**

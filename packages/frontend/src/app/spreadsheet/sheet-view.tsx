@@ -29,6 +29,7 @@ import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { SheetContextMenu } from "@/components/sheet-context-menu";
+import { MobileSelectionHandles } from "@/components/mobile-selection-handles";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 
@@ -80,6 +81,11 @@ const ConditionalFormatPanel = lazy(() =>
     default: module.ConditionalFormatPanel,
   })),
 );
+const PivotEditorPanel = lazy(() =>
+  import("./pivot/pivot-editor-panel").then((module) => ({
+    default: module.PivotEditorPanel,
+  })),
+);
 
 /**
  * Renders the SheetView component.
@@ -88,6 +94,7 @@ export function SheetView({
   tabId,
   readOnly = false,
   peerJumpTarget = null,
+  addPivotTab,
 }: {
   tabId: string;
   readOnly?: boolean;
@@ -96,6 +103,7 @@ export function SheetView({
     targetTabId?: UserPresence["activeTabId"];
     requestId: number;
   } | null;
+  addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
 }) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -136,10 +144,24 @@ export function SheetView({
   >();
   useMobileSheetGestures({ containerRef, sheetRef });
 
+  const [pivotEditorOpen, setPivotEditorOpen] = useState(false);
   const root = doc?.getRoot();
   const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
   const selectedChart =
     root && selectedChartId ? root.sheets[tabId]?.charts?.[selectedChartId] : undefined;
+
+  // Detect whether the active tab is a pivot sheet via TabMeta.kind
+  // (avoids reading deeply nested pivotTable from Yorkie CRDT proxy)
+  const isPivotTab = root?.tabs[tabId]?.kind === "pivot";
+
+  useEffect(() => {
+    // Auto-open pivot editor when switching to a pivot tab
+    if (isPivotTab) {
+      setPivotEditorOpen(true);
+    } else {
+      setPivotEditorOpen(false);
+    }
+  }, [isPivotTab, tabId]);
 
   useEffect(() => {
     hasChartsRef.current = hasCharts;
@@ -338,6 +360,33 @@ export function SheetView({
     setChartEditorOpen(false);
   }, []);
 
+  const handleInsertPivotTable = useCallback(() => {
+    if (readOnly || !addPivotTab) return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    if (sheet.getSelectionType() !== "cell") {
+      toast.error("Select a cell range to create a pivot table.");
+      return;
+    }
+
+    const range = sheet.getSelectionRangeOrActiveCell();
+    if (!range) {
+      toast.error("Select a cell range to create a pivot table.");
+      return;
+    }
+
+    const rowCount = range[1].r - range[0].r + 1;
+    const colCount = range[1].c - range[0].c + 1;
+    if (rowCount < 2 || colCount < 1) {
+      toast.error("Select at least 2 rows and 1 column.");
+      return;
+    }
+
+    const sourceRange = `${toSref(range[0])}:${toSref(range[1])}`;
+    addPivotTab(tabId, sourceRange);
+  }, [addPivotTab, readOnly, tabId]);
+
   const getSelectionRange = useCallback(() => {
     const sheet = sheetRef.current;
     if (!sheet) return null;
@@ -487,7 +536,6 @@ export function SheetView({
       readOnly,
       hideFormulaBar: isMobileRef.current,
       hideAutofillHandle: isMobileRef.current,
-      showMobileHandles: isMobileRef.current,
     }).then((s) => {
       if (cancelled) {
         s.cleanup();
@@ -777,6 +825,7 @@ export function SheetView({
           onInsertBefore={handleInsertBefore}
           onInsertAfter={handleInsertAfter}
           onDeleteRowCol={handleDeleteRowCol}
+          onInsertPivotTable={addPivotTab ? handleInsertPivotTable : undefined}
         >
           <div
             ref={containerRef}
@@ -824,6 +873,34 @@ export function SheetView({
             />
           </Suspense>
         )}
+        {!readOnly && isPivotTab && !pivotEditorOpen && (
+          <button
+            type="button"
+            className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted"
+            onClick={() => setPivotEditorOpen(true)}
+          >
+            Edit pivot table
+          </button>
+        )}
+        {!readOnly && doc && isPivotTab && pivotEditorOpen && (
+          <Suspense fallback={null}>
+            <PivotEditorPanel
+              doc={doc}
+              tabId={tabId}
+              onClose={() => setPivotEditorOpen(false)}
+              onRefresh={() => {
+                const sheet = sheetRef.current;
+                if (sheet) {
+                  sheet.invalidateStore();
+                  sheet.reloadDimensions().then(() => {
+                    sheet.render();
+                    setSheetRenderVersion((v) => v + 1);
+                  });
+                }
+              }}
+            />
+          </Suspense>
+        )}
         {isMobile && mobileEditState && (
           <MobileEditPanel
             cellRef={mobileEditState.cellRef}
@@ -831,6 +908,12 @@ export function SheetView({
             onCommit={handleMobileEditCommit}
             onCancel={handleMobileEditCancel}
             onValueChange={handleMobileEditValueChange}
+          />
+        )}
+        {isMobile && !readOnly && !mobileEditState && sheetRef.current && (
+          <MobileSelectionHandles
+            spreadsheet={sheetRef.current}
+            renderVersion={sheetRenderVersion}
           />
         )}
       </div>
