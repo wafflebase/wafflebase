@@ -12,6 +12,7 @@ import {
   IconCopy,
   IconCut,
   IconClipboard,
+  IconLayoutRows,
   IconTrash,
   IconRowInsertBottom,
   IconRowInsertTop,
@@ -40,6 +41,7 @@ interface SheetContextMenuProps {
   onInsertBefore: () => void;
   onInsertAfter: () => void;
   onDeleteRowCol: () => void;
+  onInsertPivotTable?: () => void;
 }
 
 export function SheetContextMenu({
@@ -53,6 +55,7 @@ export function SheetContextMenu({
   onInsertBefore,
   onInsertAfter,
   onDeleteRowCol,
+  onInsertPivotTable,
 }: SheetContextMenuProps) {
   const [menuType, setMenuType] = useState<MenuType>("cell");
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(
@@ -188,6 +191,14 @@ export function SheetContextMenu({
             <ContextMenuItem disabled={readOnly} onSelect={onDeleteCellData}>
               <IconTrash size={16} /> Delete
             </ContextMenuItem>
+            {onInsertPivotTable && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem disabled={readOnly} onSelect={onInsertPivotTable}>
+                  <IconLayoutRows size={16} /> Insert pivot table
+                </ContextMenuItem>
+              </>
+            )}
           </>
         )}
         {menuType === "row" && (

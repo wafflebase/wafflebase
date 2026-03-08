@@ -19,6 +19,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [formula-coverage.md](formula-coverage.md)             | Google Sheets function parity — current coverage, tier plan, per-function status                   |
 | [charts.md](charts.md)                                 | Chart system — registry architecture, chart types, editor panel, phased roadmap                    |
 | [context-menu.md](context-menu.md)                     | Unified context menu — Radix ContextMenu, desktop/mobile parity, menu items                       |
+| [pivot-table.md](pivot-table.md)                       | Pivot table — materialized cells, calculation engine, side panel editor, collaboration             |
 
 ## Template
 

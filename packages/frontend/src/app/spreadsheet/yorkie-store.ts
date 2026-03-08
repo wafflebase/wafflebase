@@ -8,6 +8,7 @@ import {
   FilterState,
   HiddenState,
   MergeSpan,
+  PivotTableDefinition,
   Ref,
   Sref,
   Range,
@@ -1176,6 +1177,63 @@ export class YorkieStore implements Store {
     return this.fromWorksheetFilterState(this.getSheet().filter);
   }
 
+  async setPivotDefinition(def: PivotTableDefinition | undefined): Promise<void> {
+    if (this.batchOps) {
+      const tabId = this.tabId;
+      this.batchOps.push((root) => {
+        const ws = root.sheets[tabId];
+        if (!def) {
+          delete ws.pivotTable;
+          return;
+        }
+        ws.pivotTable = def;
+      });
+      return;
+    }
+
+    const tabId = this.tabId;
+    this.doc.update((root) => {
+      const ws = root.sheets[tabId];
+      if (!def) {
+        delete ws.pivotTable;
+        return;
+      }
+      ws.pivotTable = def;
+    });
+  }
+
+  async getPivotDefinition(): Promise<PivotTableDefinition | undefined> {
+    const ws = this.getSheet();
+    const pt = ws.pivotTable;
+    if (!pt) return undefined;
+
+    // Read properties directly from Yorkie CRDT proxy to avoid
+    // structuredClone failures on proxy objects.
+    const readField = (f: { sourceColumn: number; label: string; sort?: string }) => ({
+      sourceColumn: f.sourceColumn,
+      label: f.label,
+      sort: f.sort as 'asc' | 'desc' | undefined,
+    });
+    return {
+      id: pt.id,
+      sourceTabId: pt.sourceTabId,
+      sourceRange: pt.sourceRange,
+      rowFields: Array.from(pt.rowFields ?? []).map(readField),
+      columnFields: Array.from(pt.columnFields ?? []).map(readField),
+      valueFields: Array.from(pt.valueFields ?? []).map((f: Record<string, unknown>) => ({
+        ...readField(f as { sourceColumn: number; label: string; sort?: string }),
+        aggregation: (f as { aggregation: string }).aggregation,
+      })),
+      filterFields: Array.from(pt.filterFields ?? []).map((f: Record<string, unknown>) => ({
+        ...readField(f as { sourceColumn: number; label: string; sort?: string }),
+        hiddenValues: Array.from((f as { hiddenValues?: string[] }).hiddenValues ?? []),
+      })),
+      showTotals: pt.showTotals
+        ? { rows: pt.showTotals.rows, columns: pt.showTotals.columns }
+        : { rows: true, columns: true },
+    } as PivotTableDefinition;
+  }
+
   async setHiddenState(state: HiddenState | undefined): Promise<void> {
     if (this.batchOps) {
       const tabId = this.tabId;
@@ -1371,5 +1429,9 @@ export class YorkieStore implements Store {
 
   canRedo(): boolean {
     return this.doc.history.canRedo();
+  }
+
+  invalidate(): void {
+    this.dirty = true;
   }
 }

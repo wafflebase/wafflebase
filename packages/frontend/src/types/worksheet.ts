@@ -4,6 +4,7 @@ import type {
   ConditionalFormatRule,
   FilterCondition,
   MergeSpan,
+  PivotTableDefinition,
   RangeStylePatch,
   Sref,
 } from "@wafflebase/sheet";
@@ -69,14 +70,18 @@ export type Worksheet = {
   };
   frozenRows: number;
   frozenCols: number;
+  pivotTable?: PivotTableDefinition;
 };
 
 export type TabType = "sheet" | "datasource";
+
+export type SheetKind = "normal" | "pivot";
 
 export type TabMeta = {
   id: string;
   name: string;
   type: TabType;
+  kind?: SheetKind;
   datasourceId?: string;
   query?: string;
 };
