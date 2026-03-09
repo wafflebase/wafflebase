@@ -99,6 +99,14 @@ export class Spreadsheet {
   }
 
   /**
+   * `invalidateStore` marks the store's cell index as stale so it is rebuilt
+   * on the next read. Call this after external writes that bypass the store.
+   */
+  public invalidateStore(): void {
+    this.sheet?.invalidateStore();
+  }
+
+  /**
    * `setFreezePane` sets the freeze pane position and re-renders.
    */
   public async setFreezePane(frozenRows: number, frozenCols: number) {

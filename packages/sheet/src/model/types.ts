@@ -189,6 +189,103 @@ export type HiddenState = {
 };
 
 /**
+ * AggregateFunction represents the aggregation functions available in pivot tables.
+ */
+export type AggregateFunction =
+  | 'SUM'
+  | 'COUNT'
+  | 'COUNTA'
+  | 'AVERAGE'
+  | 'MIN'
+  | 'MAX';
+
+/**
+ * PivotFieldSort represents the sort direction for a pivot field.
+ */
+export type PivotFieldSort = 'asc' | 'desc';
+
+/**
+ * PivotField represents a row or column field in a pivot table.
+ */
+export type PivotField = {
+  sourceColumn: number;
+  label: string;
+  sort?: PivotFieldSort;
+};
+
+/**
+ * PivotValueField represents a value field with an aggregation function.
+ */
+export type PivotValueField = PivotField & {
+  aggregation: AggregateFunction;
+};
+
+/**
+ * PivotFilterField represents a filter field with hidden values.
+ */
+export type PivotFilterField = PivotField & {
+  hiddenValues: string[];
+};
+
+/**
+ * PivotTableDefinition describes the full configuration of a pivot table.
+ */
+export type PivotTableDefinition = {
+  id: string;
+  sourceTabId: string;
+  sourceRange: string;
+  rowFields: PivotField[];
+  columnFields: PivotField[];
+  valueFields: PivotValueField[];
+  filterFields: PivotFilterField[];
+  showTotals: {
+    rows: boolean;
+    columns: boolean;
+  };
+};
+
+/**
+ * PivotRecord represents a single data record as an array of string values.
+ */
+export type PivotRecord = string[];
+
+/**
+ * GroupNode represents a node in the pivot table grouping tree.
+ */
+export type GroupNode = {
+  value: string;
+  children: GroupNode[];
+  records: number[];
+};
+
+/**
+ * PivotCellType represents the type of a cell in the pivot table output.
+ */
+export type PivotCellType =
+  | 'rowHeader'
+  | 'colHeader'
+  | 'value'
+  | 'total'
+  | 'empty';
+
+/**
+ * PivotCell represents a single cell in the pivot table output.
+ */
+export type PivotCell = {
+  value: string;
+  type: PivotCellType;
+};
+
+/**
+ * PivotResult represents the computed output of a pivot table.
+ */
+export type PivotResult = {
+  cells: PivotCell[][];
+  rowCount: number;
+  colCount: number;
+};
+
+/**
  * Grid type represents a grid of rows and columns.
  */
 export type Grid = Map<Sref, Cell>;

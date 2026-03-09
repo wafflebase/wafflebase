@@ -22,6 +22,15 @@ import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { TabBar } from "@/components/tab-bar";
 import {
   SpreadsheetDocument,
@@ -107,6 +116,10 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [migrated, setMigrated] = useState(false);
   const [showDsSelector, setShowDsSelector] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{
+    tabId: string;
+    dependentNames: string[];
+  } | null>(null);
   const [peerJumpTarget, setPeerJumpTarget] = useState<PeerJumpTarget | null>(
     null,
   );
@@ -256,6 +269,52 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     setActiveTabId(tabId);
   }, [doc]);
 
+  const addPivotTab = useCallback(
+    (sourceTabId: string, sourceRange: string) => {
+      if (!doc) return;
+      const tabId = generateTabId();
+      const tabName = getUniqueTabName(
+        doc.getRoot().tabs,
+        "Pivot Table 1",
+        "Pivot Table",
+      );
+
+      doc.update((r: SpreadsheetDocument) => {
+        r.tabs[tabId] = {
+          id: tabId,
+          name: tabName,
+          type: "sheet",
+          kind: "pivot",
+        };
+        r.tabOrder.push(tabId);
+        r.sheets[tabId] = {
+          sheet: {},
+          rowHeights: {},
+          colWidths: {},
+          colStyles: {},
+          rowStyles: {},
+          conditionalFormats: [],
+          merges: {},
+          charts: {},
+          frozenRows: 0,
+          frozenCols: 0,
+          pivotTable: {
+            id: crypto.randomUUID(),
+            sourceTabId,
+            sourceRange,
+            rowFields: [],
+            columnFields: [],
+            valueFields: [],
+            filterFields: [],
+            showTotals: { rows: true, columns: true },
+          },
+        };
+      });
+      setActiveTabId(tabId);
+    },
+    [doc],
+  );
+
   const addDataSourceTab = useCallback(
     (ds: DataSource) => {
       if (!doc) return;
@@ -317,26 +376,34 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc],
   );
 
-  const handleDeleteTab = useCallback(
-    (tabId: string) => {
+  const deleteTabWithDependents = useCallback(
+    (tabId: string, dependentPivotIds: string[]) => {
       if (!doc) return;
       const root = doc.getRoot();
-      if (root.tabOrder.length <= 1) return;
 
+      const allToDelete = [tabId, ...dependentPivotIds];
       const idx = root.tabOrder.indexOf(tabId);
       doc.update((r) => {
-        delete r.tabs[tabId];
-        if (r.sheets[tabId]) {
-          delete r.sheets[tabId];
-        }
-        const orderIdx = r.tabOrder.indexOf(tabId);
-        if (orderIdx !== -1) {
-          r.tabOrder.splice(orderIdx, 1);
+        for (const id of allToDelete) {
+          delete r.tabs[id];
+          if (r.sheets[id]) {
+            delete r.sheets[id];
+          }
+          const orderIdx = r.tabOrder.indexOf(id);
+          if (orderIdx !== -1) {
+            r.tabOrder.splice(orderIdx, 1);
+          }
         }
       });
 
-      // Switch to an adjacent tab
-      if (activeTabId === tabId) {
+      if (dependentPivotIds.length > 0) {
+        toast.info(
+          `Deleted ${dependentPivotIds.length} dependent pivot table(s).`,
+        );
+      }
+
+      // Switch to an adjacent tab if active tab was deleted.
+      if (allToDelete.includes(activeTabId)) {
         const newRoot = doc.getRoot();
         const newIdx = Math.min(idx, newRoot.tabOrder.length - 1);
         setActiveTabId(newRoot.tabOrder[newIdx]);
@@ -344,6 +411,66 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     },
     [doc, activeTabId],
   );
+
+  const handleDeleteTab = useCallback(
+    (tabId: string) => {
+      if (!doc) return;
+      const root = doc.getRoot();
+      if (root.tabOrder.length <= 1) return;
+
+      // Collect pivot tabs that depend on the tab being deleted.
+      const dependentPivotIds: string[] = [];
+      for (const tid of root.tabOrder) {
+        const id = String(tid);
+        const pt = root.sheets?.[id]?.pivotTable;
+        if (pt && String(pt.sourceTabId) === tabId) {
+          dependentPivotIds.push(id);
+        }
+      }
+
+      // If there are dependent pivots, confirm before deleting.
+      if (dependentPivotIds.length > 0) {
+        // Ensure at least one tab remains after cascade deletion.
+        const allToDelete = new Set([tabId, ...dependentPivotIds]);
+        const remaining = Array.from(root.tabOrder).filter(
+          (t) => !allToDelete.has(String(t)),
+        );
+        if (remaining.length === 0) {
+          toast.error(
+            "Cannot delete: all remaining tabs depend on this sheet.",
+          );
+          return;
+        }
+
+        const dependentNames = dependentPivotIds.map(
+          (id) => root.tabs[id]?.name ?? id,
+        );
+        setPendingDelete({ tabId, dependentNames });
+        return;
+      }
+
+      deleteTabWithDependents(tabId, []);
+    },
+    [doc, deleteTabWithDependents],
+  );
+
+  const confirmPendingDelete = useCallback(() => {
+    if (!pendingDelete || !doc) return;
+    const root = doc.getRoot();
+
+    // Re-collect dependents (state may have changed).
+    const dependentPivotIds: string[] = [];
+    for (const tid of root.tabOrder) {
+      const id = String(tid);
+      const pt = root.sheets?.[id]?.pivotTable;
+      if (pt && String(pt.sourceTabId) === pendingDelete.tabId) {
+        dependentPivotIds.push(id);
+      }
+    }
+
+    deleteTabWithDependents(pendingDelete.tabId, dependentPivotIds);
+    setPendingDelete(null);
+  }, [pendingDelete, doc, deleteTabWithDependents]);
 
   const handleMoveTab = useCallback(
     (fromIndex: number, toIndex: number) => {
@@ -430,7 +557,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 {activeTab?.type === "datasource" ? (
                   <DataSourceView tabId={activeTabId} />
                 ) : (
-                  <SheetView tabId={activeTabId} peerJumpTarget={peerJumpTarget} />
+                  <SheetView tabId={activeTabId} peerJumpTarget={peerJumpTarget} addPivotTab={addPivotTab} />
                 )}
               </Suspense>
             </div>
@@ -446,6 +573,39 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           />
         </div>
       </SidebarInset>
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete tab</DialogTitle>
+            <DialogDescription>
+              This tab is referenced by{" "}
+              {pendingDelete?.dependentNames.length === 1
+                ? "a pivot table"
+                : `${pendingDelete?.dependentNames.length} pivot tables`}
+              . Deleting it will also remove:
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="list-disc pl-5 text-sm text-muted-foreground">
+            {pendingDelete?.dependentNames.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmPendingDelete}>
+              Delete all
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {showDsSelector && documentData?.workspaceId && (
         <Suspense fallback={null}>

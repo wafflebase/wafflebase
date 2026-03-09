@@ -32,6 +32,7 @@ import {
   ConditionalFormatRule,
   Grid,
   HiddenState,
+  PivotTableDefinition,
   MergeSpan,
   Ref,
   Range,
@@ -60,6 +61,7 @@ export class MemStore implements Store {
   private merges: Map<Sref, MergeSpan> = new Map();
   private filterState?: FilterState;
   private hiddenState?: HiddenState;
+  private pivotDefinition?: PivotTableDefinition;
   private frozenRows = 0;
   private frozenCols = 0;
 
@@ -444,6 +446,18 @@ export class MemStore implements Store {
     };
   }
 
+  async setPivotDefinition(
+    def: PivotTableDefinition | undefined,
+  ): Promise<void> {
+    this.pivotDefinition = def ? structuredClone(def) : undefined;
+  }
+
+  async getPivotDefinition(): Promise<PivotTableDefinition | undefined> {
+    return this.pivotDefinition
+      ? structuredClone(this.pivotDefinition)
+      : undefined;
+  }
+
   async setFreezePane(frozenRows: number, frozenCols: number): Promise<void> {
     this.frozenRows = frozenRows;
     this.frozenCols = frozenCols;
@@ -475,6 +489,11 @@ export class MemStore implements Store {
 
   canRedo(): boolean {
     return false;
+  }
+
+  invalidate(): void {
+    // MemStore has no lazy cache; rebuild index immediately.
+    this.rebuildIndex();
   }
 
   private rebuildIndex(): void {

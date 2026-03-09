@@ -6,6 +6,7 @@ import {
   ConditionalFormatRule,
   FilterState,
   HiddenState,
+  PivotTableDefinition,
   Grid,
   MergeSpan,
   Ref,
@@ -233,6 +234,16 @@ export class ReadOnlyStore implements Store {
     return undefined;
   }
 
+  async setPivotDefinition(
+    _def: PivotTableDefinition | undefined,
+  ): Promise<void> {
+    // no-op
+  }
+
+  async getPivotDefinition(): Promise<PivotTableDefinition | undefined> {
+    return undefined;
+  }
+
   async setFreezePane(_frozenRows: number, _frozenCols: number): Promise<void> {
     // no-op
   }
@@ -263,6 +274,10 @@ export class ReadOnlyStore implements Store {
 
   canRedo(): boolean {
     return false;
+  }
+
+  invalidate(): void {
+    this.rebuildIndex();
   }
 
   private rebuildIndex(): void {

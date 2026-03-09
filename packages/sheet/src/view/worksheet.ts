@@ -263,6 +263,7 @@ export class Worksheet {
     await this.sheet.loadFreezePane();
     await this.sheet.loadFilterState();
     await this.sheet.loadHiddenState();
+    await this.sheet.loadPivotDefinition();
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
     this.hiddenColumns.clear();
@@ -3819,7 +3820,7 @@ export class Worksheet {
       {
         match: (event) => matchesKeyCombo(event, { key: 'x', mod: true }),
         run: async (event) => {
-          if (this.readOnly) return;
+          if (this.readOnly || this.sheet?.isPivotSheet()) return;
           event.preventDefault();
           await this.cut();
         },
@@ -3917,6 +3918,7 @@ export class Worksheet {
     await this.sheet!.loadFreezePane();
     await this.sheet!.loadFilterState();
     await this.sheet!.loadHiddenState();
+    await this.sheet!.loadPivotDefinition();
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
     this.hiddenColumns.clear();
@@ -4473,7 +4475,7 @@ export class Worksheet {
   }
 
   private primeCellInputForSelection(): void {
-    if (this.readOnly || !this.sheet) {
+    if (this.readOnly || !this.sheet || this.sheet.isPivotSheet()) {
       return;
     }
     if (this.formulaBar.isFocused()) {
@@ -4525,6 +4527,8 @@ export class Worksheet {
     withoutFocus: boolean = false,
     keyboardEntry: boolean = false,
   ) {
+    if (this.sheet?.isPivotSheet()) return;
+
     if (!withoutFocus) {
       this.editMode = !withoutValue;
     }

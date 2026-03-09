@@ -14,6 +14,17 @@ import {
   type FilterCondition,
   type FilterState,
   type HiddenState,
+  type AggregateFunction,
+  type PivotFieldSort,
+  type PivotField,
+  type PivotValueField,
+  type PivotFilterField,
+  type PivotTableDefinition,
+  type PivotRecord,
+  type GroupNode,
+  type PivotCellType,
+  type PivotCell,
+  type PivotResult,
   type Ref,
   type Sref,
   type Range,
@@ -94,6 +105,9 @@ import {
   type InferredInput,
   type InferredInputFormat,
 } from './model/input';
+import { calculatePivot, materialize } from './model/pivot/index';
+import { parseSourceData } from './model/pivot/parse';
+import { parseRange } from './model/coordinates';
 
 export {
   initialize,
@@ -118,6 +132,17 @@ export {
   FilterCondition,
   FilterState,
   HiddenState,
+  AggregateFunction,
+  PivotFieldSort,
+  PivotField,
+  PivotValueField,
+  PivotFilterField,
+  PivotTableDefinition,
+  PivotRecord,
+  GroupNode,
+  PivotCellType,
+  PivotCell,
+  PivotResult,
   Ref,
   Sref,
   Range,
@@ -179,4 +204,8 @@ export {
   InferredInput,
   InferredInputFormat,
   Theme,
+  calculatePivot,
+  materialize,
+  parseSourceData,
+  parseRange,
 };
