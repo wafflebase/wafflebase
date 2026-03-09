@@ -23,14 +23,18 @@ export function applyFilters(
   );
 }
 
+// Pinned collator ensures deterministic group ordering across environments.
+const groupCollator = new Intl.Collator('en', { numeric: true });
+
 /**
  * `buildGroups` groups records by unique values of each field's sourceColumn,
  * producing a tree of `GroupNode`s.
  *
  * - Field order determines the hierarchy depth.
  * - Leaf nodes carry `records` with original record indices.
- * - Group values are sorted with `localeCompare({ numeric: true })`,
- *   ascending by default or descending when `sort === 'desc'`.
+ * - Group values are sorted with a pinned `'en'` locale collator
+ *   (`{ numeric: true }`), ascending by default or descending when
+ *   `sort === 'desc'`.
  * - If fields is empty, the root node contains all record indices directly.
  */
 export function buildGroups(
@@ -74,7 +78,7 @@ function buildLevel(
   // Sort group keys.
   const sortDir = field.sort ?? 'asc';
   const keys = [...groups.keys()].sort((a, b) => {
-    const cmp = a.localeCompare(b, undefined, { numeric: true });
+    const cmp = groupCollator.compare(a, b);
     return sortDir === 'desc' ? -cmp : cmp;
   });
 
