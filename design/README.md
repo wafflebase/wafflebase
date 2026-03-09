@@ -20,6 +20,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [charts.md](charts.md)                                 | Chart system — registry architecture, chart types, editor panel, phased roadmap                    |
 | [context-menu.md](context-menu.md)                     | Unified context menu — Radix ContextMenu, desktop/mobile parity, menu items                       |
 | [pivot-table.md](pivot-table.md)                       | Pivot table — materialized cells, calculation engine, side panel editor, collaboration             |
+| [rest-api-and-cli.md](rest-api-and-cli.md)             | REST API, API key auth, and CLI — external access, Yorkie service, Go CLI tool                     |
 
 ## Template
 
