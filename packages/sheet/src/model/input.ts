@@ -1,3 +1,5 @@
+import { CellStyle } from './types';
+
 const CurrencySymbolToCode = {
   '$': 'USD',
   '₩': 'KRW',
@@ -154,6 +156,16 @@ function parseIsoDate(input: string): string | undefined {
   return toIsoDate(year, month, day);
 }
 
+function parseDatetime(input: string): string | undefined {
+  const match = input.match(/^(\d{4})-(\d{2})-(\d{2}) \d{2}:\d{2}:\d{2}$/);
+  if (!match) return undefined;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return toIsoDate(year, month, day) ? input : undefined;
+}
+
 function parseMonthDay(input: string, year: number): string | undefined {
   const match = input.match(/^(\d{1,2})\/(\d{1,2})$/);
   if (!match) return undefined;
@@ -254,6 +266,15 @@ export function inferInput(
     };
   }
 
+  const datetime = parseDatetime(trimmed);
+  if (datetime) {
+    return {
+      type: 'date',
+      value: datetime,
+      format: 'yyyy-mm-dd',
+    };
+  }
+
   const year =
     options?.referenceDate?.getFullYear() ?? new Date().getFullYear();
   const mdDate = parseMonthDay(trimmed, year);
@@ -275,4 +296,38 @@ export function inferInput(
   }
 
   return { type: 'text', value: trimmed };
+}
+
+/**
+ * `applyInferredFormat` applies inferred format metadata onto an existing style.
+ */
+export function applyInferredFormat(
+  existing: CellStyle | undefined,
+  inferred: InferredInput,
+): CellStyle | undefined {
+  if (inferred.type === 'date') {
+    const style: CellStyle = { ...(existing || {}), nf: 'date' };
+    delete style.cu;
+    return style;
+  }
+
+  if (inferred.type === 'number' && inferred.format === 'percent') {
+    const style: CellStyle = { ...(existing || {}), nf: 'percent' };
+    delete style.cu;
+    return style;
+  }
+
+  if (
+    inferred.type === 'number' &&
+    inferred.format?.startsWith('currency:')
+  ) {
+    const style: CellStyle = {
+      ...(existing || {}),
+      nf: 'currency',
+      cu: inferred.format.slice('currency:'.length),
+    };
+    return style;
+  }
+
+  return existing ? { ...existing } : undefined;
 }
