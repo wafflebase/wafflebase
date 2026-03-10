@@ -65,8 +65,10 @@ export async function calculate(
     const references = extractReferences(cell.f!);
     const grid = await sheet.fetchGridByReferences(references);
     const value = evaluate(cell.f!, grid);
-    const inferred = inferInput(value);
-    const style = applyInferredFormat(cell.s, inferred);
+    const hasExplicitFormat = cell.s?.nf != null;
+    const style = hasExplicitFormat
+      ? cell.s
+      : applyInferredFormat(cell.s, inferInput(value));
     const nextCell = {
       v: value,
       f: cell.f,

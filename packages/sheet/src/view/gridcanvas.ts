@@ -14,6 +14,7 @@ import { RangeStylePatch, resolveRangeStyleAt } from '../model/range-styles';
 import { resolveConditionalFormatStyleAt } from '../model/conditional-format';
 import { DimensionIndex } from '../model/dimensions';
 import { formatValue } from '../model/format';
+import { inferInput } from '../model/input';
 import { Theme, ThemeKey, getThemeColor } from './theme';
 import { parseRef, toColumnLabel, toSref } from '../model/coordinates';
 import {
@@ -62,7 +63,8 @@ function defaultAlign(rawData: string, nf?: NumberFormat): TextAlign {
   if (nf === 'date') {
     return 'right';
   }
-  if (rawData !== '' && isFinite(Number(rawData))) {
+  const inferred = inferInput(rawData);
+  if (inferred.type === 'number') {
     return 'right';
   }
   return 'left';
@@ -1392,7 +1394,7 @@ export class GridCanvas {
 
         const style = resolveCellStyle?.(row, col, cell);
 
-        const align = style?.al || 'left';
+        const align = style?.al || defaultAlign(rawData, style?.nf);
         if (align !== 'left') {
           continue;
         }

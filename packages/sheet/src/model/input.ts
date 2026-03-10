@@ -157,12 +157,18 @@ function parseIsoDate(input: string): string | undefined {
 }
 
 function parseDatetime(input: string): string | undefined {
-  const match = input.match(/^(\d{4})-(\d{2})-(\d{2}) \d{2}:\d{2}:\d{2}$/);
+  const match = input.match(
+    /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/,
+  );
   if (!match) return undefined;
 
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (hour > 23 || minute > 59 || second > 59) return undefined;
   return toIsoDate(year, month, day) ? input : undefined;
 }
 
@@ -257,20 +263,20 @@ export function inferInput(
     };
   }
 
-  const isoDate = parseIsoDate(trimmed);
-  if (isoDate) {
-    return {
-      type: 'date',
-      value: isoDate,
-      format: 'yyyy-mm-dd',
-    };
-  }
-
   const datetime = parseDatetime(trimmed);
   if (datetime) {
     return {
       type: 'date',
       value: datetime,
+      format: 'yyyy-mm-dd',
+    };
+  }
+
+  const isoDate = parseIsoDate(trimmed);
+  if (isoDate) {
+    return {
+      type: 'date',
+      value: isoDate,
       format: 'yyyy-mm-dd',
     };
   }

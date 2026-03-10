@@ -77,6 +77,10 @@ describe('inferInput', () => {
     // Invalid date components should not match
     expect(inferInput('2025-13-01 00:00:00').type).toBe('text');
     expect(inferInput('2025-02-30 00:00:00').type).toBe('text');
+    // Invalid time components should not match
+    expect(inferInput('2025-01-01 24:00:00').type).toBe('text');
+    expect(inferInput('2025-01-01 00:60:00').type).toBe('text');
+    expect(inferInput('2025-01-01 00:00:60').type).toBe('text');
   });
 
   it('infers boolean', () => {
