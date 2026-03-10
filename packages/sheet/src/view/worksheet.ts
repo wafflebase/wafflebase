@@ -3238,8 +3238,11 @@ export class Worksheet {
       const grid = await this.sheet!.fetchGrid(range);
       for (const [, cell] of grid) {
         if (cell.v) {
-          const w = ctx.measureText(cell.v).width + padding;
-          if (w > maxWidth) maxWidth = w;
+          const lines = cell.v.split('\n');
+          for (const line of lines) {
+            const w = ctx.measureText(line).width + padding;
+            if (w > maxWidth) maxWidth = w;
+          }
         }
       }
 
