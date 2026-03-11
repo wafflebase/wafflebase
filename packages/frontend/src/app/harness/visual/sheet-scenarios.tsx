@@ -21,14 +21,14 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-type ScenarioSetup = {
+export type ScenarioSetup = {
   store: MemStore;
   afterInitialize?: (spreadsheet: Spreadsheet) => Promise<void> | void;
   overlay?: React.ReactNode | ((spreadsheet: Spreadsheet) => React.ReactNode);
   options?: Record<string, unknown>;
 };
 
-type Scenario = {
+export type Scenario = {
   id: string;
   title: string;
   description: string;
@@ -679,7 +679,7 @@ const SCENARIOS: Scenario[] = [
   },
 ];
 
-function ScenarioCard({
+export function ScenarioCard({
   scenario,
   theme,
   onReadyChange,

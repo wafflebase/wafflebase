@@ -45,6 +45,11 @@ const scenarioIds = [
   "sheet-mobile-row-menu",
   "sheet-mobile-column-menu",
   "sheet-mobile-selection-handles",
+  "format-text-decoration",
+  "format-text-bg-colors",
+  "format-alignment",
+  "format-borders",
+  "format-number",
   "chart-bar",
   "chart-line",
   "chart-area",
@@ -189,6 +194,11 @@ async function captureScreenshots(playwright) {
           "[data-testid='visual-harness-sheet-section'][data-visual-sheet-ready='true']",
         );
         await sheetSection.waitFor({ state: "visible", timeout: 20000 });
+
+        const formatSection = page.locator(
+          "[data-testid='visual-harness-format-section'][data-visual-format-ready='true']",
+        );
+        await formatSection.waitFor({ state: "visible", timeout: 20000 });
 
         const chartSection = page.locator(
           "[data-testid='visual-harness-chart-section'][data-visual-chart-ready='true']",
