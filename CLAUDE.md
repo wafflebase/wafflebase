@@ -1,98 +1,30 @@
 # CLAUDE.md — Wafflebase
 
-This file provides context for AI assistants working on this codebase.
+Wafflebase is a web-based collaborative spreadsheet (Google Sheets alternative).
+Yorkie CRDTs for real-time collaboration, ANTLR4-based formula engine, Canvas rendering.
 
-## Project
-
-Wafflebase is a web-based collaborative spreadsheet application (Google Sheets alternative).
-It uses Yorkie CRDTs for real-time collaboration and an ANTLR4-based formula engine.
-
-## Monorepo Structure
-
-```
-packages/
-  sheet/      — Core spreadsheet engine (data model, formulas, Canvas rendering)
-  frontend/   — React 19 web app (Vite, TailwindCSS, Radix UI)
-  backend/    — NestJS API server (Prisma, PostgreSQL, GitHub OAuth + JWT)
-```
-
-The frontend depends on `@wafflebase/sheet` as a workspace dependency.
+See @docs/design/README.md for architecture, @packages/sheet/README.md,
+@packages/frontend/README.md, @packages/backend/README.md for package details.
 
 ## Commands
 
-### Development
-
 ```bash
-pnpm install                # Install all dependencies
-docker compose up -d        # Start PostgreSQL + Yorkie server
-pnpm dev                    # Start frontend (:5173) + backend (:3000)
-```
-
-### Testing
-
-```bash
-pnpm verify:architecture            # Frontend/backend import boundary checks
-pnpm verify:fast                    # Lint + unit tests (local/default lane)
-pnpm verify:self                    # verify:fast + frontend/backend/sheet build
-pnpm verify:frontend:visual         # Browser screenshot baseline gate
-pnpm verify:frontend:interaction    # Browser interaction regression lane
-pnpm verify:browser:docker          # Run browser visual+interaction in Docker
-pnpm verify:entropy                 # Dead-code + doc-staleness entropy gate
-pnpm verify:integration             # Prisma migrate + backend e2e (DB required)
-pnpm verify:integration:local       # Skip integration if local DB is unreachable
-pnpm verify:integration:docker      # Start local postgres, run integration, stop
-pnpm verify:integration:repeat      # Repeat-run stability check (default 3 runs)
-pnpm verify:full                    # Alias: verify:self + verify:integration
-pnpm test                           # Run sheet package tests (Vitest)
-pnpm backend test                   # Run backend tests (Jest)
-pnpm backend test:e2e               # Run backend e2e tests
-```
-
-### Building
-
-```bash
-pnpm build                          # Build all packages
-pnpm sheet build                    # Build sheet library only
-pnpm frontend build                 # Build frontend only
-pnpm backend build                  # Build backend only
-```
-
-### Other
-
-```bash
-pnpm sheet build:formula            # Regenerate ANTLR formula parser
+pnpm install                        # Install all dependencies
+docker compose up -d                # Start PostgreSQL + Yorkie server
+pnpm dev                            # Start frontend (:5173) + backend (:3000)
+pnpm verify:fast                    # Lint + unit tests (pre-commit gate)
+pnpm verify:self                    # verify:fast + all builds
+pnpm verify:full                    # verify:self + integration (DB required)
+pnpm verify:browser:docker          # Visual + interaction tests in Docker
+pnpm test                           # Sheet package tests only (Vitest)
+pnpm sheet build:formula            # IMPORTANT: regenerate ANTLR formula parser
 pnpm backend migrate                # Run Prisma database migrations
 ```
 
-## High-Signal Entry Points
+## Commit Messages
 
-- `packages/sheet/src/model/sheet.ts` — core spreadsheet model behavior
-- `packages/sheet/src/formula/formula.ts` — formula parse/evaluate pipeline
-- `packages/sheet/src/view/worksheet.ts` — canvas worksheet rendering and input
-- `packages/frontend/src/app/spreadsheet/sheet-view.tsx` — frontend sheet integration
-- `packages/backend/src/auth/` — GitHub OAuth + JWT authentication flow
-
-## Conventions
-
-- **File names**: kebab-case (`sheet-view.tsx`, `auth.service.ts`)
-- **Classes/interfaces**: PascalCase (`Sheet`, `Store`, `DocumentService`)
-- **Functions/variables**: camelCase (`getCell`, `updateActiveCell`)
-- **Backend**: NestJS module-per-feature pattern (auth, user, document)
-- **Frontend pages**: `src/app/` directory, reusable UI in `src/components/ui/`
-- **Environment variables**: backend uses `.env`, frontend uses `VITE_*` prefix
-
-### Commit Message Format
-
-Use commit messages that answer two questions: what changed and why.
-
-- Subject line: describe what changed, max 70 characters.
-- Body: describe why the change was needed.
-- Keep line 2 blank.
-- Wrap body lines at 80 characters.
-- In shell commits, do not place `\n` inside regular quoted `-m` strings.
-  Use multiple `-m` flags or `$'...'` so body line breaks are real newlines.
-
-Example:
+Subject ≤70 chars (what changed). Body explains why. Blank line 2.
+In shell, use multiple `-m` flags or `$'...'` for real newlines — not `\n` in `"..."`.
 
 ```text
 Remove the synced seq when detaching the document
@@ -103,52 +35,19 @@ if the document is no longer used by this client, it should be
 detached.
 ```
 
-## Architecture Notes
+## Pitfalls
 
-- **Store abstraction**: The `Store` interface decouples the spreadsheet engine from persistence. `MemStore` is for dev/testing, `YorkieStore` is for production with real-time sync.
-- **Formula engine**: ANTLR4 grammar generates a parser. A visitor pattern evaluates the AST. Error types: `#VALUE!`, `#REF!`, `#N/A!`, `#ERROR!`.
-- **Rendering**: The spreadsheet grid is drawn on HTML Canvas for performance.
-- **Real-time collaboration**: Yorkie CRDT handles conflict-free merging. Presence tracking shows other users' active cells.
-- **Auth flow**: GitHub OAuth redirect → callback → user upsert in DB → JWT token set as cookie.
-- **ANTLR generated files**: Have `@ts-nocheck` at the top — do not remove this or add type fixes to generated files. Regenerate with `pnpm sheet build:formula`.
+- **ANTLR generated files** have `@ts-nocheck` — do NOT hand-edit or add type fixes. Regenerate with `pnpm sheet build:formula` and commit the output.
+- **Store abstraction** — all spreadsheet behavior must go through the `Store` interface. Do not bypass with ad-hoc persistence.
+- **Integration/e2e tests** require `docker compose up -d` first.
+- **Frontend chunk-gate** defaults are in `harness.config.json`; override with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT`.
 
-## Documentation
+## Task Workflow
 
-Start from these indexes, then open specific docs only as needed.
+Non-trivial tasks use paired files in `docs/tasks/active/`:
+- `YYYYMMDD-<slug>-todo.md` and `YYYYMMDD-<slug>-lessons.md`
 
-- [`docs/design/README.md`](docs/design/README.md) — central index for architecture/design docs
-- [`packages/sheet/README.md`](packages/sheet/README.md) — sheet engine concepts and APIs
-- [`packages/frontend/README.md`](packages/frontend/README.md) — frontend structure and features
-- [`packages/backend/README.md`](packages/backend/README.md) — backend modules and API behavior
-
-## Operational Pitfalls
-
-- Formula grammar changes require regeneration: run `pnpm sheet build:formula` and commit generated outputs.
-- ANTLR-generated files intentionally include `@ts-nocheck`; do not hand-edit generated parser/lexer files.
-- Backend and realtime flows assume local services are up (`docker compose up -d`) before running integration/e2e workflows.
-- Frontend chunk-gate defaults are defined in `harness.config.json` and can be
-  overridden with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT`.
-- Spreadsheet behavior should go through the `Store` abstraction; avoid bypassing it with ad-hoc persistence paths.
-
-## Task Documentation
-
-- Track non-trivial tasks in `docs/tasks/active/` using paired files:
-  - `docs/tasks/active/YYYYMMDD-<slug>-todo.md`
-  - `docs/tasks/active/YYYYMMDD-<slug>-lessons.md`
-- Completed task records are archived in `docs/tasks/archive/YYYY/MM/`.
-- Use `pnpm tasks:archive` to move completed tasks and `pnpm tasks:index` to
-  regenerate `docs/tasks/README.md` and `docs/tasks/archive/README.md`.
-
-## Post-Task Checklist
-
-Every non-trivial task must complete these steps before marking done:
-
-1. **Design docs** — If the change alters architecture, data flow, or public
-   API behavior described in `docs/design/`, update the relevant design doc to
-   match the new implementation.
-2. **Task files** — Create `docs/tasks/active/YYYYMMDD-<slug>-todo.md` and
-   `docs/tasks/active/YYYYMMDD-<slug>-lessons.md` for the task. Mark items
-   complete, then archive with `pnpm tasks:archive` and reindex with
-   `pnpm tasks:index`.
-3. **Tests pass** — Run `pnpm verify:fast` (or the relevant verify command)
-   and confirm all tests pass.
+Before marking done:
+1. Update `docs/design/` if architecture changed
+2. Run `pnpm verify:fast` and confirm pass
+3. Archive: `pnpm tasks:archive && pnpm tasks:index`
