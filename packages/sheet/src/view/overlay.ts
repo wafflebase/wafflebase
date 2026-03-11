@@ -73,6 +73,8 @@ export class Overlay {
     filterRange?: Range,
     zoom: number = 1,
     showMobileHandles: boolean = false,
+    searchResults?: Ref[],
+    searchCurrentIndex?: number,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -130,6 +132,7 @@ export class Overlay {
       this.renderFilterRangeSimple(ctx, filterRange, scroll, rowDim, colDim);
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
       this.renderCopyRangeSimple(ctx, copyRange, isCut, scroll, rowDim, colDim);
+      this.renderSearchHighlightsSimple(ctx, port, searchResults, searchCurrentIndex, scroll, rowDim, colDim);
 
       ctx.restore();
     } else {
@@ -231,6 +234,32 @@ export class Overlay {
 
           ctx.restore();
         }
+      }
+    }
+
+    // Render search highlights per quadrant (freeze path)
+    if (hasFrozen && searchResults && searchResults.length > 0) {
+      for (const q of this.buildQuadrants(port, scroll, freeze, rowDim, colDim)) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(q.x, q.y, q.width, q.height);
+        ctx.clip();
+
+        const qScroll = { left: q.scrollLeft, top: q.scrollTop };
+        for (let i = 0; i < searchResults.length; i++) {
+          const ref = searchResults[i];
+          const rect = toBoundingRect(ref, qScroll, rowDim, colDim);
+          if (rect.left + rect.width < q.x || rect.left > q.x + q.width ||
+              rect.top + rect.height < q.y || rect.top > q.y + q.height) {
+            continue;
+          }
+          ctx.fillStyle = i === searchCurrentIndex
+            ? this.getThemeColor('searchCurrentColor')
+            : this.getThemeColor('searchHighlightColor');
+          ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+        }
+
+        ctx.restore();
       }
     }
 
@@ -551,6 +580,31 @@ export class Overlay {
   ): void {
     if (!copyRange) return;
     this.drawCopyRangeBorder(ctx, copyRange, isCut, scroll, rowDim, colDim);
+  }
+
+  private renderSearchHighlightsSimple(
+    ctx: CanvasRenderingContext2D,
+    port: BoundingRect,
+    results: Ref[] | undefined,
+    currentIndex: number | undefined,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+  ): void {
+    if (!results || results.length === 0) return;
+
+    for (let i = 0; i < results.length; i++) {
+      const ref = results[i];
+      const rect = toBoundingRect(ref, scroll, rowDim, colDim);
+      if (rect.left + rect.width < RowHeaderWidth || rect.left > port.width ||
+          rect.top + rect.height < DefaultCellHeight || rect.top > port.height) {
+        continue;
+      }
+      ctx.fillStyle = i === currentIndex
+        ? this.getThemeColor('searchCurrentColor')
+        : this.getThemeColor('searchHighlightColor');
+      ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+    }
   }
 
   private drawCopyRangeBorder(

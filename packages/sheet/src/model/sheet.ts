@@ -3866,4 +3866,42 @@ export class Sheet {
 
     this.setActiveCell(this.normalizeRefToAnchor({ r: row, c: col }));
   }
+
+  /**
+   * `findCells` searches all populated cells for the given query string and
+   * returns matching cell references in row-major order (left→right, top→bottom).
+   */
+  async findCells(
+    query: string,
+    options?: { caseSensitive?: boolean },
+  ): Promise<Ref[]> {
+    if (!query) return [];
+
+    const caseSensitive = options?.caseSensitive ?? false;
+    const needle = caseSensitive ? query : query.toLowerCase();
+    const fullRange: Range = [
+      { r: 1, c: 1 },
+      { r: this.dimension.rows, c: this.dimension.columns },
+    ];
+
+    const grid = await this.store.getGrid(fullRange);
+    const results: Ref[] = [];
+
+    for (const [sref, cell] of grid) {
+      if (!cell.v) continue;
+      const ref = parseRef(sref);
+      const anchor = this.normalizeRefToAnchor(ref);
+      const effective = this.resolveEffectiveStyle(anchor.r, anchor.c, cell.s);
+      const display = formatValue(cell.v, effective?.nf, effective?.dp, {
+        currency: effective?.cu,
+      });
+      const haystack = caseSensitive ? display : display.toLowerCase();
+      if (haystack.includes(needle)) {
+        results.push(anchor);
+      }
+    }
+
+    results.sort((a, b) => a.r !== b.r ? a.r - b.r : a.c - b.c);
+    return results;
+  }
 }

@@ -156,6 +156,8 @@ export class Worksheet {
   private readOnly: boolean;
   private hideAutofillHandle: boolean;
   private showMobileHandles: boolean;
+  private _searchResults: Ref[] = [];
+  private _searchCurrentIndex: number = -1;
   private zoom = 1;
   private mobileEditCallback:
     | ((cellRef: string, value: string) => void)
@@ -4222,7 +4224,17 @@ export class Worksheet {
       this.sheet!.getFilterRange(),
       this.zoom,
       this.showMobileHandles,
+      this._searchResults.length > 0 ? this._searchResults : undefined,
+      this._searchCurrentIndex >= 0 ? this._searchCurrentIndex : undefined,
     );
+  }
+
+  /**
+   * `setSearchHighlights` updates the search highlight state for overlay rendering.
+   */
+  public setSearchHighlights(results: Ref[], currentIndex: number): void {
+    this._searchResults = results;
+    this._searchCurrentIndex = currentIndex;
   }
 
   /**

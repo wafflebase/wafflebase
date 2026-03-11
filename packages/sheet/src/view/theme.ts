@@ -33,6 +33,8 @@ export const LightTheme = {
   formulaRange5: '#F39C12',
   formulaRange6: '#00ACC1',
   filterRangeBorderColor: '#1A73E8',
+  searchHighlightColor: 'rgba(255, 200, 0, 0.35)',
+  searchCurrentColor: 'rgba(255, 150, 0, 0.55)',
 };
 
 export const DarkTheme = {
@@ -68,6 +70,8 @@ export const DarkTheme = {
   formulaRange5: '#FFB74D',
   formulaRange6: '#4DD0E1',
   filterRangeBorderColor: '#8AB4F8',
+  searchHighlightColor: 'rgba(255, 200, 0, 0.35)',
+  searchCurrentColor: 'rgba(255, 150, 0, 0.55)',
 };
 
 export type ThemeKey = keyof typeof LightTheme;

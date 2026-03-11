@@ -29,6 +29,7 @@ import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
 import { SheetContextMenu } from "@/components/sheet-context-menu";
+import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
 
@@ -117,6 +118,7 @@ export function SheetView({
   );
   const [paintFormatSourceIndicatorVisible, setPaintFormatSourceIndicatorVisible] =
     useState(false);
+  const [findBarOpen, setFindBarOpen] = useState(false);
   const isMobile = useIsMobile();
   const [mobileEditState, setMobileEditState] = useState<{
     cellRef: string;
@@ -502,9 +504,25 @@ export function SheetView({
   }, []);
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        setFindBarOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const handleFindBarClose = useCallback(() => {
+    setFindBarOpen(false);
+  }, []);
+
+  useEffect(() => {
     setSelectedChartId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
+    setFindBarOpen(false);
     clearPaintFormatState();
   }, [clearPaintFormatState, tabId]);
 
@@ -834,6 +852,12 @@ export function SheetView({
             onPointerDown={handleGridPointerDown}
           />
         </SheetContextMenu>
+        {findBarOpen && (
+          <FindBar
+            spreadsheet={sheetRef.current}
+            onClose={handleFindBarClose}
+          />
+        )}
         {paintFormatSourceIndicator}
         {root && hasCharts && (
           <Suspense fallback={null}>

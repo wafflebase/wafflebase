@@ -60,6 +60,8 @@ export class Spreadsheet {
   private theme: Theme;
   private _readOnly: boolean;
   private selectionChangeCallbacks: SelectionChangeCallback[] = [];
+  private searchResults: Ref[] = [];
+  private searchCurrentIndex: number = -1;
 
   /**
    * `constructor` initializes the spreadsheet with the given grid.
@@ -701,6 +703,76 @@ export class Spreadsheet {
 
   public findAdjacentHiddenColumns(from: number, to: number): number[] {
     return this.worksheet.findAdjacentHiddenColumns(from, to);
+  }
+
+  /**
+   * `find` searches for the given query in all cells and highlights matches.
+   * Returns the number of matches found.
+   */
+  public async find(query: string, options?: { caseSensitive?: boolean }): Promise<number> {
+    if (!this.sheet) return 0;
+    if (!query) {
+      this.clearFind();
+      return 0;
+    }
+    this.searchResults = await this.sheet.findCells(query, options);
+    if (this.searchResults.length > 0) {
+      // Find the first match after the current active cell
+      const active = this.sheet.getActiveCell();
+      let idx = this.searchResults.findIndex(
+        (ref) => ref.r > active.r || (ref.r === active.r && ref.c >= active.c),
+      );
+      if (idx === -1) idx = 0;
+      this.searchCurrentIndex = idx;
+      await this.focusCell(this.searchResults[idx]);
+    } else {
+      this.searchCurrentIndex = -1;
+    }
+    this.worksheet.setSearchHighlights(this.searchResults, this.searchCurrentIndex);
+    this.worksheet.renderOverlay();
+    return this.searchResults.length;
+  }
+
+  /**
+   * `findNext` moves to the next search result. Wraps around.
+   */
+  public async findNext(): Promise<void> {
+    if (this.searchResults.length === 0) return;
+    this.searchCurrentIndex = (this.searchCurrentIndex + 1) % this.searchResults.length;
+    await this.focusCell(this.searchResults[this.searchCurrentIndex]);
+    this.worksheet.setSearchHighlights(this.searchResults, this.searchCurrentIndex);
+    this.worksheet.renderOverlay();
+  }
+
+  /**
+   * `findPrevious` moves to the previous search result. Wraps around.
+   */
+  public async findPrevious(): Promise<void> {
+    if (this.searchResults.length === 0) return;
+    this.searchCurrentIndex = (this.searchCurrentIndex - 1 + this.searchResults.length) % this.searchResults.length;
+    await this.focusCell(this.searchResults[this.searchCurrentIndex]);
+    this.worksheet.setSearchHighlights(this.searchResults, this.searchCurrentIndex);
+    this.worksheet.renderOverlay();
+  }
+
+  /**
+   * `clearFind` clears search state and highlights.
+   */
+  public clearFind(): void {
+    this.searchResults = [];
+    this.searchCurrentIndex = -1;
+    this.worksheet.setSearchHighlights([], -1);
+    this.worksheet.renderOverlay();
+  }
+
+  /**
+   * `getSearchState` returns current search state for the UI.
+   */
+  public getSearchState(): { total: number; currentIndex: number } {
+    return {
+      total: this.searchResults.length,
+      currentIndex: this.searchCurrentIndex,
+    };
   }
 
   public cleanup() {
