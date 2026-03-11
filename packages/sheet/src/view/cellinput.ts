@@ -24,6 +24,7 @@ export class CellInput {
   private primed: boolean = false;
   private boundHandleCompositionStart: () => void;
   private boundHandleCompositionEnd: () => void;
+  private boundHandlePaste: (e: ClipboardEvent) => void;
   private onPrimedActivate?: () => void;
 
   constructor(theme: Theme = 'light') {
@@ -72,12 +73,14 @@ export class CellInput {
     this.boundHandleInput = this.handleInput.bind(this);
     this.boundHandleCompositionStart = this.handleCompositionStart.bind(this);
     this.boundHandleCompositionEnd = this.handleCompositionEnd.bind(this);
+    this.boundHandlePaste = this.handlePaste.bind(this);
     this.input.addEventListener('input', this.boundHandleInput);
     this.input.addEventListener(
       'compositionstart',
       this.boundHandleCompositionStart,
     );
     this.input.addEventListener('compositionend', this.boundHandleCompositionEnd);
+    this.input.addEventListener('paste', this.boundHandlePaste);
   }
 
   public cleanup(): void {
@@ -87,6 +90,7 @@ export class CellInput {
       this.boundHandleCompositionStart,
     );
     this.input.removeEventListener('compositionend', this.boundHandleCompositionEnd);
+    this.input.removeEventListener('paste', this.boundHandlePaste);
     this.container.remove();
   }
 
@@ -263,6 +267,12 @@ export class CellInput {
   private handleCompositionStart(): void {
     this.activatePrimedInput();
     this.composing = true;
+  }
+
+  private handlePaste(e: ClipboardEvent): void {
+    e.preventDefault();
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    document.execCommand('insertText', false, text);
   }
 
   private handleCompositionEnd(): void {

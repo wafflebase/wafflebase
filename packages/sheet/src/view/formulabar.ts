@@ -19,6 +19,7 @@ export class FormulaBar {
   private boundHandleInput: () => void;
   private boundHandleCompositionStart: () => void;
   private boundHandleCompositionEnd: () => void;
+  private boundHandlePaste: (e: ClipboardEvent) => void;
   private composing: boolean = false;
 
   constructor(theme: Theme = 'light', readOnly: boolean = false) {
@@ -59,6 +60,7 @@ export class FormulaBar {
     this.boundHandleInput = this.handleInput.bind(this);
     this.boundHandleCompositionStart = this.handleCompositionStart.bind(this);
     this.boundHandleCompositionEnd = this.handleCompositionEnd.bind(this);
+    this.boundHandlePaste = this.handlePaste.bind(this);
     this.formulaInput.addEventListener('input', this.boundHandleInput);
     this.formulaInput.addEventListener(
       'compositionstart',
@@ -68,6 +70,7 @@ export class FormulaBar {
       'compositionend',
       this.boundHandleCompositionEnd,
     );
+    this.formulaInput.addEventListener('paste', this.boundHandlePaste);
   }
 
   public getContainer(): HTMLElement {
@@ -88,6 +91,7 @@ export class FormulaBar {
       'compositionend',
       this.boundHandleCompositionEnd,
     );
+    this.formulaInput.removeEventListener('paste', this.boundHandlePaste);
     this.sheet = undefined;
     this.container.remove();
   }
@@ -154,6 +158,12 @@ export class FormulaBar {
 
   private handleCompositionStart(): void {
     this.composing = true;
+  }
+
+  private handlePaste(e: ClipboardEvent): void {
+    e.preventDefault();
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    document.execCommand('insertText', false, text);
   }
 
   private handleCompositionEnd(): void {
