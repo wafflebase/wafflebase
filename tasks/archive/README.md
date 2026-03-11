@@ -6,12 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 59
+Total archived tasks: 61
 
-## 2026/03 (22 tasks)
+## 2026/03 (24 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sheet find (2026-03-12) | [20260312-sheet-find-todo.md](./2026/03/20260312-sheet-find-todo.md) | [20260312-sheet-find-lessons.md](./2026/03/20260312-sheet-find-lessons.md) |
+| docker browser tests (2026-03-11) | [20260311-docker-browser-tests-todo.md](./2026/03/20260311-docker-browser-tests-todo.md) | [20260311-docker-browser-tests-lessons.md](./2026/03/20260311-docker-browser-tests-lessons.md) |
 | context menu selection (2026-03-04) | [20260304-context-menu-selection-todo.md](./2026/03/20260304-context-menu-selection-todo.md) | [20260304-context-menu-selection-lessons.md](./2026/03/20260304-context-menu-selection-lessons.md) |
 | unified context menu (2026-03-03) | [20260303-unified-context-menu-todo.md](./2026/03/20260303-unified-context-menu-todo.md) | [20260303-unified-context-menu-lessons.md](./2026/03/20260303-unified-context-menu-lessons.md) |
 | charts phase1 (2026-03-02) | [20260302-charts-phase1-todo.md](./2026/03/20260302-charts-phase1-todo.md) | [20260302-charts-phase1-lessons.md](./2026/03/20260302-charts-phase1-lessons.md) |

@@ -18,11 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| docker browser tests (2026-03-11) | [20260311-docker-browser-tests-todo.md](./active/20260311-docker-browser-tests-todo.md) | [20260311-docker-browser-tests-lessons.md](./active/20260311-docker-browser-tests-lessons.md) |
+| _None_ | - | - |
 
 ## Archive
 
-- Archived task count: 59
+- Archived task count: 61
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docker browser tests (2026-03-11)
+Latest active task: none

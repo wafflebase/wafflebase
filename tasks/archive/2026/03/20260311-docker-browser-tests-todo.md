@@ -21,8 +21,8 @@ Ubuntu (CI) using a Docker container with consistent font rendering.
 - [x] Add `verify-browser` job to `.github/workflows/ci.yml`
 - [x] Update `CLAUDE.md` with Docker test command
 - [x] Update `design/harness-engineering.md` with Phase 23 documentation
-- [ ] Regenerate baselines in Docker (deferred: requires Docker runtime)
-- [ ] Verify Docker tests pass (deferred: requires Docker runtime)
+- [x] Regenerate baselines in Docker (done in commit 2867349)
+- [x] Verify Docker tests pass (done in commit 0c06bb1)
 
 ## Review
 
