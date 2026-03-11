@@ -8,6 +8,8 @@ const PREFIX = "[verify:browser]";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 
+const isDocker = process.env.WAFFLEBASE_DOCKER_BROWSER === "true";
+
 function isPlaywrightAvailable() {
   try {
     const require = createRequire(
@@ -24,7 +26,7 @@ function isPlaywrightAvailable() {
   }
 }
 
-if (!isPlaywrightAvailable()) {
+if (!isDocker && !isPlaywrightAvailable()) {
   console.log(
     `${PREFIX} ⚠ Chromium not found — skipping browser lanes.`,
   );
@@ -37,11 +39,11 @@ if (!isPlaywrightAvailable()) {
 console.log(`${PREFIX} Chromium found — running browser lanes.`);
 
 try {
-  execSync("pnpm verify:frontend:visual:browser", {
+  execSync("pnpm verify:frontend:visual", {
     cwd: repoRoot,
     stdio: "inherit",
   });
-  execSync("pnpm verify:frontend:interaction:browser", {
+  execSync("pnpm verify:frontend:interaction", {
     cwd: repoRoot,
     stdio: "inherit",
   });

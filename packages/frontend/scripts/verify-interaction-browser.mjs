@@ -11,13 +11,13 @@ const bridgeKey = "__WB_INTERACTION__";
 
 function printPlaywrightInstallHelp() {
   console.error(
-    "[verify:interaction:browser] Playwright is required for browser interaction checks.",
+    "[verify:interaction] Playwright is required for browser interaction checks.",
   );
   console.error(
-    "[verify:interaction:browser] Install project dependencies first: `pnpm install`.",
+    "[verify:interaction] Install project dependencies first: `pnpm install`.",
   );
   console.error(
-    "[verify:interaction:browser] Install Chromium once per environment: " +
+    "[verify:interaction] Install Chromium once per environment: " +
       "`pnpm --filter @wafflebase/frontend exec playwright install chromium`",
   );
 }
@@ -44,7 +44,7 @@ async function loadPlaywright() {
 
 function assert(condition, message) {
   if (!condition) {
-    throw new Error(`[verify:interaction:browser] ${message}`);
+    throw new Error(`[verify:interaction] ${message}`);
   }
 }
 
@@ -86,7 +86,7 @@ async function waitForPredicate(description, predicate, timeoutMs = 5000) {
   const reason =
     lastError instanceof Error ? ` Last error: ${lastError.message}` : "";
   throw new Error(
-    `[verify:interaction:browser] Timed out waiting for ${description}.${reason}`,
+    `[verify:interaction] Timed out waiting for ${description}.${reason}`,
   );
 }
 
@@ -127,7 +127,7 @@ async function runCellInputScenario(page) {
     activeCell === "B3",
     `expected active cell B3 after Enter, got ${activeCell}`,
   );
-  console.log("[verify:interaction:browser] Scenario passed: value input commit.");
+  console.log("[verify:interaction] Scenario passed: value input commit.");
 }
 
 async function runFormulaScenario(page) {
@@ -144,7 +144,7 @@ async function runFormulaScenario(page) {
     activeCell === "C3",
     `expected active cell C3 after formula Enter, got ${activeCell}`,
   );
-  console.log("[verify:interaction:browser] Scenario passed: formula input commit.");
+  console.log("[verify:interaction] Scenario passed: formula input commit.");
 }
 
 async function runWheelScrollScenario(page) {
@@ -173,7 +173,7 @@ async function runWheelScrollScenario(page) {
 
   const after = await bridgeCall(page, "getScrollPosition");
   console.log(
-    `[verify:interaction:browser] Scenario passed: wheel scroll ${before.top} -> ${after.top}.`,
+    `[verify:interaction] Scenario passed: wheel scroll ${before.top} -> ${after.top}.`,
   );
 }
 
@@ -208,7 +208,7 @@ try {
     await runCellInputScenario(page);
     await runFormulaScenario(page);
     await runWheelScrollScenario(page);
-    console.log("[verify:interaction:browser] All interaction scenarios passed.");
+    console.log("[verify:interaction] All interaction scenarios passed.");
   } finally {
     await context.close();
   }

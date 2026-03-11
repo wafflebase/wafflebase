@@ -17,13 +17,14 @@ maintainable software. Where context engineering asks *what should the agent
 see*, harness engineering asks *what should the system prevent, measure, and
 correct*.
 
-As of 2026-02-28, phases 1 through 20 and 22 are completed. Browser visual
-and interaction lanes are integrated into `verify:self` with graceful
-Chromium skip. Structured JSON lane reports are generated per lane and as a
-summary. Dependency freshness (vulnerability + outdated package detection) is
-integrated into `verify:entropy`. PR verification evidence is automated via
-CI artifact upload and auto-comment on PRs. Remaining work focuses on agent
-observability.
+As of 2026-03-11, phases 1 through 20, 22, and 23 are completed. Browser
+visual and interaction lanes are integrated into `verify:self` with graceful
+Chromium skip. Docker-based browser testing ensures consistent font rendering
+across macOS and CI (Ubuntu). Structured JSON lane reports are generated per
+lane and as a summary. Dependency freshness (vulnerability + outdated package
+detection) is integrated into `verify:entropy`. PR verification evidence is
+automated via CI artifact upload and auto-comment on PRs. Remaining work
+focuses on agent observability.
 
 ## Principles
 
@@ -70,7 +71,6 @@ baselines, interaction replays, and deterministic screenshots let agents (and
 humans) see what changed.
 
 **How we apply this:**
-- SSR markup baselines for deterministic HTML snapshot comparison.
 - Browser screenshot baselines via Playwright (desktop + mobile profiles).
 - Interaction regression tests replay cell input, formula evaluation, and
   scroll behavior in a real browser.
@@ -161,10 +161,9 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:architecture` | Frontend/backend import boundary checks |
 | `pnpm verify:fast` | Architecture + lint + unit tests |
 | `pnpm verify:frontend:chunks` | Built JS chunk size/count gate |
-| `pnpm verify:frontend:visual` | SSR HTML markup baseline gate |
-| `pnpm verify:frontend:visual:browser` | Playwright screenshot baseline (desktop+mobile) |
-| `pnpm verify:frontend:visual:all` | Both visual gates combined |
-| `pnpm verify:frontend:interaction:browser` | Browser interaction regression (cell input, formula, scroll) |
+| `pnpm verify:frontend:visual` | Playwright screenshot baseline (desktop+mobile) |
+| `pnpm verify:frontend:interaction` | Browser interaction regression (cell input, formula, scroll) |
+| `pnpm verify:browser:docker` | Browser visual+interaction via Docker (CI-consistent) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
 | `pnpm verify:self` | Runner: `verify:fast` + builds + chunk/visual/interaction + entropy + browser; generates `.harness-reports/` JSON |
 
@@ -186,6 +185,8 @@ Hook scripts live in `scripts/hooks/`.
 ### CI Contract
 
 - `verify-self` job runs first (no external services).
+- `verify-browser` job depends on `verify-self` and runs browser visual +
+  interaction tests inside a Docker container for font-rendering consistency.
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
 - Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
   retention).
@@ -245,6 +246,20 @@ database → auth/user/document → controllers/modules
 | 19 | Harness report artifacts (per-lane JSON + summary via verify-self runner) | Completed |
 | 20 | PR evidence trust automation (CI artifact + auto-comment) | Completed |
 | 22 | Dependency freshness detection (vulnerability + outdated in verify:entropy) | Completed |
+| 23 | Docker-based browser test environment for CI-consistent rendering | Completed |
+
+Phase 23 delivered:
+- `Dockerfile.playwright` using Playwright official image (Chromium + fonts
+  included). Version tag matches `packages/frontend/package.json`.
+- `scripts/run-browser-tests-docker.sh` wrapper with modes: `visual`,
+  `visual:update`, `interaction`, `all`. Validates Playwright version match,
+  runs with host UID/GID to preserve file ownership.
+- `scripts/verify-browser-lanes.mjs` skips Chromium existence check when
+  `WAFFLEBASE_DOCKER_BROWSER=true` (Docker image bundles Chromium).
+- `packages/frontend/scripts/verify-visual-browser.mjs` warns when updating
+  baselines outside Docker.
+- CI `verify-browser` job builds Docker image and runs browser lanes in
+  container. Uploads `*.actual.png` artifacts on failure.
 
 Phase 17 delivered:
 - Shared integration test helpers (`packages/backend/test/helpers/integration-helpers.ts`):
@@ -264,7 +279,7 @@ Detailed task records:
 |---|---|---|---|---|
 | A | Fail on breakage by default | Mechanical Enforcement | Completed | Maintain zero-warning, zero-drift baseline |
 | B | Two-lane verification split | Mechanical Enforcement | Completed | Stable; improve integration determinism |
-| C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Playwright CI provisioning deferred |
+| C | Frontend regression harness | Visual Feedback | Completed | Browser lanes in verify:self; Docker-based CI provisioning delivered (Phase 23) |
 | D | Agent-oriented contracts | Information Accessibility | In progress | Lane reports + PR auto-evidence (Phases 19-20); agent observability next (Phase 21) |
 | E | Entropy cleanup loop | Entropy Management | Completed | Dead-code + doc-staleness + dependency freshness delivered |
 

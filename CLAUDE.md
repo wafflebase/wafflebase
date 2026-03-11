@@ -34,10 +34,9 @@ pnpm dev                    # Start frontend (:5173) + backend (:3000)
 pnpm verify:architecture            # Frontend/backend import boundary checks
 pnpm verify:fast                    # Lint + unit tests (local/default lane)
 pnpm verify:self                    # verify:fast + frontend/backend/sheet build
-pnpm verify:frontend:visual         # Frontend visual snapshot regression lane
-pnpm verify:frontend:visual:browser # Browser-rendered visual regression lane
-pnpm verify:frontend:visual:all     # Run both frontend visual lanes
-pnpm verify:frontend:interaction:browser # Browser interaction regression lane
+pnpm verify:frontend:visual         # Browser screenshot baseline gate
+pnpm verify:frontend:interaction    # Browser interaction regression lane
+pnpm verify:browser:docker          # Run browser visual+interaction in Docker
 pnpm verify:entropy                 # Dead-code + doc-staleness entropy gate
 pnpm verify:integration             # Prisma migrate + backend e2e (DB required)
 pnpm verify:integration:local       # Skip integration if local DB is unreachable

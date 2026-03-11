@@ -11,13 +11,13 @@
     "lint:arch": "eslint -c eslint.arch.config.js \"src/**/*.{ts,tsx}\"",
     "test": "node --experimental-strip-types --import ./tests/register-hooks.mjs --test \"tests/**/*.test.ts\"",
     "test:watch": "node --experimental-strip-types --import ./tests/register-hooks.mjs --test --watch \"tests/**/*.test.ts\"",
-    "test:visual": "node ./scripts/verify-visual.mjs",
-    "test:visual:update": "UPDATE_VISUAL_BASELINE=true node ./scripts/verify-visual.mjs",
     "test:visual:browser": "node ./scripts/verify-visual-browser.mjs",
     "test:visual:browser:update": "UPDATE_VISUAL_BROWSER_BASELINE=true node ./scripts/verify-visual-browser.mjs",
-    "test:visual:all": "pnpm test:visual && pnpm test:visual:browser",
-    "test:visual:all:update": "pnpm test:visual:update && pnpm test:visual:browser:update",
-    "test:interaction:browser": "node ./scripts/verify-interaction-browser.mjs",
+    "test:interaction": "node ./scripts/verify-interaction-browser.mjs",
+    "test:visual:browser:docker": "bash ../../scripts/run-browser-tests-docker.sh visual",
+    "test:visual:browser:docker:update": "bash ../../scripts/run-browser-tests-docker.sh visual:update",
+    "test:interaction:docker": "bash ../../scripts/run-browser-tests-docker.sh interaction",
+    "test:browser:docker": "bash ../../scripts/run-browser-tests-docker.sh all",
     "preview": "vite preview"
   },
   "dependencies": {

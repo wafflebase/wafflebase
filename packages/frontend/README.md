@@ -44,10 +44,8 @@ pnpm frontend dev
 ```bash
 pnpm frontend build
 pnpm verify:frontend:chunks  # run after build to enforce JS chunk budget
-pnpm verify:frontend:visual  # run after build to enforce SSR visual snapshots
-pnpm verify:frontend:visual:browser  # browser-rendered visual snapshots
-pnpm verify:frontend:visual:all  # run both visual lanes together
-pnpm verify:frontend:interaction:browser  # browser interaction regression checks
+pnpm verify:frontend:visual  # browser screenshot baseline gate
+pnpm verify:frontend:interaction  # browser interaction regression checks
 ```
 
 `pnpm verify:frontend:chunks` checks default limits of `500 kB` per chunk and
@@ -55,12 +53,9 @@ pnpm verify:frontend:interaction:browser  # browser interaction regression check
 `FRONTEND_CHUNK_COUNT_LIMIT`.
 Default limits are defined in `/harness.config.json`.
 
-`pnpm verify:frontend:visual` compares deterministic baseline markup rendered
-from `/harness/visual` via Vite SSR.
-
-`pnpm verify:frontend:visual:browser` compares deterministic screenshot
+`pnpm verify:frontend:visual` compares deterministic screenshot
 baselines rendered in headless Chromium across desktop + mobile profiles.
-`pnpm verify:frontend:interaction:browser` validates deterministic browser
+`pnpm verify:frontend:interaction` validates deterministic browser
 interactions on `/harness/interaction`:
 - grid cell typing + commit
 - formula bar typing + commit + formula recalculation
@@ -74,13 +69,9 @@ Install Chromium once per environment (browser lanes):
 ```bash
 pnpm frontend lint                 # ESLint checks
 pnpm frontend test                 # Node unit tests
-pnpm frontend test:visual          # Visual baseline regression check
-pnpm frontend test:visual:update   # Update visual baseline file
 pnpm frontend test:visual:browser  # Browser visual baseline check
 pnpm frontend test:visual:browser:update # Update browser baseline
-pnpm frontend test:visual:all      # Run SSR + browser visual checks
-pnpm frontend test:visual:all:update # Update SSR + browser visual baselines
-pnpm frontend test:interaction:browser  # Browser interaction regression check
+pnpm frontend test:interaction  # Browser interaction regression check
 pnpm frontend test:watch           # Node watch mode
 ```
 

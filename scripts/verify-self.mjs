@@ -11,7 +11,6 @@ const LANES = [
   { name: "verify:fast", cmd: "pnpm verify:fast" },
   { name: "frontend:build", cmd: "pnpm frontend build" },
   { name: "verify:frontend:chunks", cmd: "pnpm verify:frontend:chunks" },
-  { name: "verify:frontend:visual", cmd: "pnpm verify:frontend:visual" },
   { name: "backend:build", cmd: "pnpm backend build" },
   { name: "sheet:build", cmd: "pnpm sheet build" },
   { name: "verify:entropy", cmd: "pnpm verify:entropy" },
