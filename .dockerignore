@@ -1,0 +1,6 @@
+node_modules
+.git
+dist
+.harness-reports
+*.actual.png
+*.actual.html

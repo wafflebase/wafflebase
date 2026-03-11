@@ -243,6 +243,15 @@ const capturedById = await captureScreenshots(playwright);
 
 await mkdir(baselineDir, { recursive: true });
 
+if (updateBaseline && process.env.WAFFLEBASE_DOCKER_BROWSER !== "true") {
+  console.warn(
+    "[verify:visual:browser] WARNING: Updating baselines outside Docker.",
+  );
+  console.warn(
+    "[verify:visual:browser] For CI-consistent baselines, use: bash scripts/run-browser-tests-docker.sh visual:update",
+  );
+}
+
 if (updateBaseline) {
   for (const profile of captureProfiles) {
     for (const target of visualTargets) {

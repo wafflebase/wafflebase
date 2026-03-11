@@ -96,6 +96,47 @@ jobs:
               });
             }
 
+  verify-browser:
+    runs-on: ubuntu-latest
+    needs: verify-self
+
+    strategy:
+      matrix:
+        node-version: [22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Docker image
+        run: docker build -t wafflebase-playwright -f Dockerfile.playwright .
+
+      - name: Run browser tests in Docker
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/workspace" \
+            -e WAFFLEBASE_DOCKER_BROWSER=true \
+            wafflebase-playwright
+
+      - name: Upload actual screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-visual-actual
+          path: packages/frontend/tests/visual/baselines/*.actual.png
+          retention-days: 14
+
   verify-integration:
     runs-on: ubuntu-latest
     needs: verify-self
