@@ -88,4 +88,4 @@ pnpm sheet build:formula
 
 ## Further Reading
 
-See [/design/sheet.md](../../design/sheet.md) for the full design document covering the data model, store interface, formula engine, rendering pipeline, and coordinate system.
+See [/docs/design/sheet.md](../../docs/design/sheet.md) for the full design document covering the data model, store interface, formula engine, rendering pipeline, and coordinate system.

@@ -149,4 +149,4 @@ API requests use `credentials: "include"`.
 
 ## Further Reading
 
-See [/design/frontend.md](../../design/frontend.md) for the full design document covering Yorkie integration, presence, and app architecture.
+See [/docs/design/frontend.md](../../docs/design/frontend.md) for the full design document covering Yorkie integration, presence, and app architecture.

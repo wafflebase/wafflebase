@@ -116,7 +116,7 @@ detached.
 
 Start from these indexes, then open specific docs only as needed.
 
-- [`design/README.md`](design/README.md) — central index for architecture/design docs
+- [`docs/design/README.md`](docs/design/README.md) — central index for architecture/design docs
 - [`packages/sheet/README.md`](packages/sheet/README.md) — sheet engine concepts and APIs
 - [`packages/frontend/README.md`](packages/frontend/README.md) — frontend structure and features
 - [`packages/backend/README.md`](packages/backend/README.md) — backend modules and API behavior
@@ -132,22 +132,22 @@ Start from these indexes, then open specific docs only as needed.
 
 ## Task Documentation
 
-- Track non-trivial tasks in `tasks/active/` using paired files:
-  - `tasks/active/YYYYMMDD-<slug>-todo.md`
-  - `tasks/active/YYYYMMDD-<slug>-lessons.md`
-- Completed task records are archived in `tasks/archive/YYYY/MM/`.
+- Track non-trivial tasks in `docs/tasks/active/` using paired files:
+  - `docs/tasks/active/YYYYMMDD-<slug>-todo.md`
+  - `docs/tasks/active/YYYYMMDD-<slug>-lessons.md`
+- Completed task records are archived in `docs/tasks/archive/YYYY/MM/`.
 - Use `pnpm tasks:archive` to move completed tasks and `pnpm tasks:index` to
-  regenerate `tasks/README.md` and `tasks/archive/README.md`.
+  regenerate `docs/tasks/README.md` and `docs/tasks/archive/README.md`.
 
 ## Post-Task Checklist
 
 Every non-trivial task must complete these steps before marking done:
 
 1. **Design docs** — If the change alters architecture, data flow, or public
-   API behavior described in `design/`, update the relevant design doc to
+   API behavior described in `docs/design/`, update the relevant design doc to
    match the new implementation.
-2. **Task files** — Create `tasks/active/YYYYMMDD-<slug>-todo.md` and
-   `tasks/active/YYYYMMDD-<slug>-lessons.md` for the task. Mark items
+2. **Task files** — Create `docs/tasks/active/YYYYMMDD-<slug>-todo.md` and
+   `docs/tasks/active/YYYYMMDD-<slug>-lessons.md` for the task. Mark items
    complete, then archive with `pnpm tasks:archive` and reindex with
    `pnpm tasks:index`.
 3. **Tests pass** — Run `pnpm verify:fast` (or the relevant verify command)

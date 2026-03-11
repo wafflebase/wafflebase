@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const tasksDir = path.resolve(repoRoot, 'tasks');
+const tasksDir = path.resolve(repoRoot, 'docs', 'tasks');
 const activeDir = path.resolve(tasksDir, 'active');
 const archiveDir = path.resolve(tasksDir, 'archive');
 

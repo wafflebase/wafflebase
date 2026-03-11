@@ -8,9 +8,9 @@
 
 cat <<'WORKFLOW'
 === WORKFLOW REQUIREMENTS ===
-1. Non-trivial tasks → create tasks/active/YYYYMMDD-<slug>-todo.md FIRST
+1. Non-trivial tasks → create docs/tasks/active/YYYYMMDD-<slug>-todo.md FIRST
 2. Before commit → run pnpm verify:fast and confirm pass
-3. Architecture changes → update the relevant design/ doc
+3. Architecture changes → update the relevant docs/design/ doc
 4. Commit messages → <70 char subject, blank line 2, body explains WHY
 5. After task completion → pnpm tasks:archive && pnpm tasks:index
 === END ===

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const tasksDir = path.resolve(repoRoot, 'tasks');
+const tasksDir = path.resolve(repoRoot, 'docs', 'tasks');
 const activeDir = path.resolve(tasksDir, 'active');
 const archiveDir = path.resolve(tasksDir, 'archive');
 
@@ -170,8 +170,8 @@ const tasksReadmeLines = [
   '',
   '## Layout',
   '',
-  '- Active tasks: `tasks/active/`',
-  '- Archived tasks: `tasks/archive/YYYY/MM/`',
+  '- Active tasks: `docs/tasks/active/`',
+  '- Archived tasks: `docs/tasks/archive/YYYY/MM/`',
   '- Regenerate indexes: `pnpm tasks:index`',
   '- Archive completed tasks: `pnpm tasks:archive`',
   '',
@@ -217,5 +217,5 @@ await writeFile(
   'utf8',
 );
 
-console.log(`[tasks:index] Wrote tasks/README.md (${activeTasks.length} active tasks).`);
-console.log(`[tasks:index] Wrote tasks/archive/README.md (${archiveTasks.length} archived tasks).`);
+console.log(`[tasks:index] Wrote docs/tasks/README.md (${activeTasks.length} active tasks).`);
+console.log(`[tasks:index] Wrote docs/tasks/archive/README.md (${archiveTasks.length} archived tasks).`);

@@ -18,8 +18,8 @@ COMMAND=$(echo "$INPUT" | node -e "
 case "$COMMAND" in
   *"git commit"*)
     echo "[post-task-checklist] Verify before finalizing:" >&2
-    echo "  1. design/ docs updated if architecture changed" >&2
-    echo "  2. tasks/active/ todo+lessons files created (non-trivial tasks)" >&2
+    echo "  1. docs/design/ docs updated if architecture changed" >&2
+    echo "  2. docs/tasks/active/ todo+lessons files created (non-trivial tasks)" >&2
     echo "  3. pnpm verify:fast passed" >&2
     echo "  4. pnpm tasks:archive && pnpm tasks:index (if task completed)" >&2
     ;;

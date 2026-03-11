@@ -40,9 +40,9 @@ knowledge.
 
 **How we apply this:**
 - `CLAUDE.md` at repo root serves as a concise map (~100 lines) pointing to
-  deeper sources of truth in `design/`, `packages/*/README.md`.
-- Design documents live in `design/` and are cross-linked from the root.
-- Task history is tracked in `tasks/` with paired todo/lessons files.
+  deeper sources of truth in `docs/design/`, `packages/*/README.md`.
+- Design documents live in `docs/design/` and are cross-linked from the root.
+- Task history is tracked in `docs/tasks/` with paired todo/lessons files.
 - Harness policy is externalized to `harness.config.json` (versioned,
   reviewable).
 
@@ -85,7 +85,7 @@ as a signal to improve the harness.
 
 **How we apply this:**
 - Each completed phase has a paired lessons file
-  (`tasks/archive/*/lessons.md`) capturing what went wrong and what harness
+  (`docs/tasks/archive/*/lessons.md`) capturing what went wrong and what harness
   improvement fixed it.
 - Flaky tests are treated as harness bugs (missing determinism), not test bugs.
 - New verification lanes are added when a class of regression goes undetected.
@@ -270,8 +270,8 @@ Phase 17 delivered:
 - Repeat-run stability script: `pnpm verify:integration:repeat`.
 
 Detailed task records:
-- `tasks/active/` for in-progress work
-- `tasks/archive/2026/02/` for completed phase history
+- `docs/tasks/active/` for in-progress work
+- `docs/tasks/archive/2026/02/` for completed phase history
 
 ## Top-Level Plan Status
 
@@ -314,7 +314,7 @@ Harness policy is managed in `harness.config.json`:
   },
   "entropy": {
     "deadCode": { "enabled": true },
-    "docStaleness": { "enabled": true, "designDir": "design" },
+    "docStaleness": { "enabled": true, "designDir": "docs/design" },
     "dependencyFreshness": { "enabled": true, "failOnCritical": true }
   }
 }

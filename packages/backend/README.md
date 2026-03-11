@@ -163,4 +163,4 @@ src/
 
 ## Further Reading
 
-See [/design/backend.md](../../design/backend.md) for the full design document covering the auth system, security model, and API details.
+See [/docs/design/backend.md](../../docs/design/backend.md) for the full design document covering the auth system, security model, and API details.

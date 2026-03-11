@@ -11,7 +11,7 @@
     },
     "docStaleness": {
       "enabled": true,
-      "designDir": "design"
+      "designDir": "docs/design"
     },
     "dependencyFreshness": {
       "enabled": true,
