@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as request from 'supertest';
 import { AppModule } from 'src/app.module';
 import { PrismaService } from 'src/database/prisma.service';
+import { YorkieService } from 'src/yorkie/yorkie.service';
 import * as cookieParser from 'cookie-parser';
 import {
   describeDb,
@@ -46,9 +47,18 @@ describeDb('API Key HTTP integration', () => {
     setIntegrationEnvDefaults();
     setAuthEnvDefaults();
 
+    const yorkieStub = {
+      onModuleInit: () => Promise.resolve(),
+      onModuleDestroy: () => Promise.resolve(),
+      withDocument: () => Promise.resolve(null),
+    };
+
     moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(YorkieService)
+      .useValue(yorkieStub)
+      .compile();
 
     app = moduleRef.createNestApplication();
     app.use(cookieParser());
