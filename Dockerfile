@@ -10,12 +10,16 @@ WORKDIR /app
 # Copy package.json and workspace files
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY packages/backend/package.json ./packages/backend/
+COPY packages/sheet/package.json ./packages/sheet/
 
 # Copy Prisma schema before installing dependencies
 COPY packages/backend/prisma ./packages/backend/prisma
 
-# Install dependencies for the backend
-RUN pnpm install --frozen-lockfile --filter @wafflebase/backend
+# Install dependencies for the backend and its workspace dependency (sheet)
+RUN pnpm install --frozen-lockfile --filter @wafflebase/backend...
+
+# Copy the sheet package source (backend uses type-only imports)
+COPY packages/sheet/ ./packages/sheet/
 
 # Copy the rest of the backend files
 COPY packages/backend/ ./packages/backend/
