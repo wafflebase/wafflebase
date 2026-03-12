@@ -6,22 +6,23 @@ function createMockContext(
   user: Record<string, unknown>,
   workspaceId: string,
 ): ExecutionContext {
+  const request = { user, params: { workspaceId } };
   return {
     switchToHttp: () => ({
-      getRequest: () => ({
-        user,
-        params: { workspaceId },
-      }),
+      getRequest: () => request,
     }),
   } as unknown as ExecutionContext;
 }
 
 describe('WorkspaceScopeGuard', () => {
   let guard: WorkspaceScopeGuard;
-  let workspaceService: { assertMember: jest.Mock };
+  let workspaceService: { assertMember: jest.Mock; resolveId: jest.Mock };
 
   beforeEach(() => {
-    workspaceService = { assertMember: jest.fn().mockResolvedValue({}) };
+    workspaceService = {
+      assertMember: jest.fn().mockResolvedValue({}),
+      resolveId: jest.fn().mockImplementation((id: string) => Promise.resolve(id)),
+    };
     guard = new WorkspaceScopeGuard(
       workspaceService as unknown as WorkspaceService,
     );
@@ -68,5 +69,20 @@ describe('WorkspaceScopeGuard', () => {
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  it('resolves slug to UUID and replaces params.workspaceId', async () => {
+    workspaceService.resolveId.mockResolvedValue('uuid-123');
+    const ctx = createMockContext(
+      { id: 1, isApiKey: true, workspaceId: 'uuid-123' },
+      'my-slug',
+    );
+
+    const result = await guard.canActivate(ctx);
+
+    expect(result).toBe(true);
+    expect(workspaceService.resolveId).toHaveBeenCalledWith('my-slug');
+    const request = ctx.switchToHttp().getRequest();
+    expect(request.params.workspaceId).toBe('uuid-123');
   });
 });

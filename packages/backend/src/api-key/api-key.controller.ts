@@ -28,10 +28,11 @@ export class ApiKeyController {
     @Body() body: { name: string; scopes?: string[]; expiresAt?: string },
   ) {
     const userId = Number(req.user.id);
-    await this.workspaceService.assertOwner(workspaceId, userId);
+    const resolvedId = await this.workspaceService.resolveId(workspaceId);
+    await this.workspaceService.assertOwner(resolvedId, userId);
     return this.apiKeyService.create(
       userId,
-      workspaceId,
+      resolvedId,
       body.name,
       body.scopes,
       body.expiresAt ? new Date(body.expiresAt) : undefined,
@@ -44,8 +45,9 @@ export class ApiKeyController {
     @Req() req: AuthenticatedRequest,
   ) {
     const userId = Number(req.user.id);
-    await this.workspaceService.assertMember(workspaceId, userId);
-    return this.apiKeyService.list(workspaceId);
+    const resolvedId = await this.workspaceService.resolveId(workspaceId);
+    await this.workspaceService.assertMember(resolvedId, userId);
+    return this.apiKeyService.list(resolvedId);
   }
 
   @Delete(':id')
@@ -55,7 +57,8 @@ export class ApiKeyController {
     @Req() req: AuthenticatedRequest,
   ) {
     const userId = Number(req.user.id);
-    await this.workspaceService.assertOwner(workspaceId, userId);
-    return this.apiKeyService.revoke(id, workspaceId);
+    const resolvedId = await this.workspaceService.resolveId(workspaceId);
+    await this.workspaceService.assertOwner(resolvedId, userId);
+    return this.apiKeyService.revoke(id, resolvedId);
   }
 }

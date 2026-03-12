@@ -20,8 +20,11 @@ export class WorkspaceScopeGuard implements CanActivate {
     const user = request.user;
     const workspaceId = request.params.workspaceId;
 
+    const resolvedId = await this.workspaceService.resolveId(workspaceId);
+    request.params.workspaceId = resolvedId;
+
     if (user.isApiKey) {
-      if (user.workspaceId !== workspaceId) {
+      if (user.workspaceId !== resolvedId) {
         throw new ForbiddenException(
           'API key is not scoped to this workspace',
         );
@@ -29,7 +32,7 @@ export class WorkspaceScopeGuard implements CanActivate {
       return true;
     }
 
-    await this.workspaceService.assertMember(workspaceId, Number(user.id));
+    await this.workspaceService.assertMember(resolvedId, Number(user.id));
     return true;
   }
 }
