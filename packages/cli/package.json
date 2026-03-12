@@ -1,0 +1,32 @@
+{
+  "name": "@wafflebase/cli",
+  "version": "0.1.0",
+  "description": "CLI for Wafflebase spreadsheet API",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "wafflebase": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/bin.ts",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "lint:check": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^13.0.0",
+    "yaml": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "eslint": "^9.18.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.1.0"
+  }
+}

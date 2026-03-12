@@ -16,6 +16,10 @@
     "packages/backend": {
       "entry": ["src/main.ts", "test/**/*.{spec,e2e-spec}.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/cli": {
+      "entry": ["src/bin.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
     }
   },
   "ignoreDependencies": [

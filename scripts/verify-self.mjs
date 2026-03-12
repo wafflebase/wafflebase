@@ -12,6 +12,7 @@ const LANES = [
   { name: "frontend:build", cmd: "pnpm frontend build" },
   { name: "verify:frontend:chunks", cmd: "pnpm verify:frontend:chunks" },
   { name: "backend:build", cmd: "pnpm backend build" },
+  { name: "cli:build", cmd: "pnpm cli build" },
   { name: "sheet:build", cmd: "pnpm sheet build" },
   { name: "verify:entropy", cmd: "pnpm verify:entropy" },
   { name: "verify:browser", cmd: "node ./scripts/verify-browser-lanes.mjs" },

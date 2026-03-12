@@ -100,6 +100,46 @@ All document endpoints require JWT authentication.
 | `POST` | `/documents` | Create a new document (`{ title }`) |
 | `DELETE` | `/documents/:id` | Delete document (owner only) |
 
+### API Keys (`/workspaces/:workspaceId/api-keys`)
+
+All API key endpoints require JWT authentication.
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/workspaces/:wid/api-keys` | JWT (Owner) | Create API key (returns raw key once) |
+| `GET` | `/workspaces/:wid/api-keys` | JWT (Member) | List non-revoked API keys |
+| `DELETE` | `/workspaces/:wid/api-keys/:id` | JWT (Owner) | Revoke API key (soft-delete) |
+
+### REST API v1 (`/api/v1/`)
+
+All v1 endpoints accept both JWT cookies and `Authorization: Bearer wfb_...` API key auth.
+
+#### Documents
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/api/v1/workspaces/:wid/documents` | List documents in workspace |
+| `POST` | `/api/v1/workspaces/:wid/documents` | Create document (`{ title }`) |
+| `GET` | `/api/v1/workspaces/:wid/documents/:did` | Get document metadata |
+| `PATCH` | `/api/v1/workspaces/:wid/documents/:did` | Update document (`{ title }`) |
+| `DELETE` | `/api/v1/workspaces/:wid/documents/:did` | Delete document |
+
+#### Tabs
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/api/v1/workspaces/:wid/documents/:did/tabs` | List tabs (id, name, type) |
+
+#### Cells
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `.../tabs/:tid/cells` | Get all cells (optional `?range=A1:C10`) |
+| `GET` | `.../tabs/:tid/cells/:sref` | Get single cell |
+| `PUT` | `.../tabs/:tid/cells/:sref` | Set single cell (`{ value, formula }`) |
+| `DELETE` | `.../tabs/:tid/cells/:sref` | Delete single cell |
+| `PATCH` | `.../tabs/:tid/cells` | Batch update (`{ cells: { "A1": {...}, "B2": null } }`) |
+
 ## Auth Flow
 
 ```
@@ -116,7 +156,7 @@ All document endpoints require JWT authentication.
 
 ## Database Schema
 
-Two models managed by Prisma:
+Key models managed by Prisma:
 
 **User** — authenticated users (auto-created on first GitHub login)
 
@@ -135,6 +175,22 @@ Two models managed by Prisma:
 | `id` | String (PK) | UUID |
 | `title` | String | |
 | `authorID` | Int? | FK to User |
+| `createdAt` | DateTime | Auto-set |
+
+**ApiKey** — workspace-scoped API keys for external access
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | String (PK) | UUID |
+| `name` | String | Human-readable label |
+| `prefix` | String | First 8 chars of raw key |
+| `hashedKey` | String | Unique, SHA-256 of full key |
+| `workspaceId` | String | FK to Workspace (CASCADE) |
+| `createdBy` | Int | FK to User |
+| `scopes` | String[] | Default `["read", "write"]` |
+| `lastUsedAt` | DateTime? | Updated on each auth |
+| `expiresAt` | DateTime? | Optional expiration |
+| `revokedAt` | DateTime? | Soft-revoke timestamp |
 | `createdAt` | DateTime | Auto-set |
 
 ## Module Structure
@@ -157,6 +213,23 @@ src/
 │   ├── document.module.ts
 │   ├── document.controller.ts # Document REST endpoints
 │   └── document.service.ts    # Document CRUD
+├── api-key/
+│   ├── api-key.module.ts      # API key management module
+│   ├── api-key.service.ts     # Key generation, hashing, validation
+│   ├── api-key.controller.ts  # CRUD endpoints for API keys
+│   ├── api-key.strategy.ts    # Passport custom strategy for wfb_ tokens
+│   ├── api-key-auth.guard.ts  # AuthGuard('api-key')
+│   └── combined-auth.guard.ts # Routes to JWT or API key guard
+├── yorkie/
+│   ├── yorkie.module.ts       # Global Yorkie client module
+│   ├── yorkie.service.ts      # withDocument(id, cb) pattern
+│   └── yorkie.types.ts        # SpreadsheetDocument, Worksheet, TabMeta
+├── api/v1/
+│   ├── api-v1.module.ts       # REST API v1 module
+│   ├── documents.controller.ts # Document CRUD via API
+│   ├── tabs.controller.ts     # Tab listing via Yorkie
+│   ├── cells.controller.ts    # Cell CRUD via Yorkie
+│   └── workspace-scope.guard.ts # Workspace access verification
 └── database/
     └── prisma.service.ts      # Prisma client lifecycle
 ```
