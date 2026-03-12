@@ -34,12 +34,12 @@ so external programs can read/write spreadsheet data. Design doc: `docs/design/r
 - [x] Create `api/v1/cells.controller.ts` — GET/GET/:sref/PUT/:sref/DELETE/:sref/PATCH (batch) under `.../tabs/:tid/cells`
 - [x] Register `ApiKeyModule`, `YorkieModule`, `ApiV1Module` in `app.module.ts`
 - [x] Write unit tests for workspace-scope guard
-- [ ] Write integration tests (JWT + API key auth, CRUD operations) — deferred, requires running DB
-- [ ] Update `packages/backend/README.md` with new endpoints
+- [x] Write integration tests (JWT + API key auth, CRUD operations)
+- [x] Update `packages/backend/README.md` with new endpoints
 
 ## Verification
 
 - [x] `pnpm verify:fast` passes
-- [ ] API key create → use → revoke flow works end-to-end — requires running services
-- [ ] Cell CRUD via REST API merges correctly with live Yorkie document — requires running services
-- [ ] Integration tests pass with `docker compose up -d` — deferred
+- [x] API key create → use → revoke flow works end-to-end (integration test)
+- [ ] Cell CRUD via REST API merges correctly with live Yorkie document — requires Yorkie server
+- [x] Integration tests pass with `docker compose up -d`
