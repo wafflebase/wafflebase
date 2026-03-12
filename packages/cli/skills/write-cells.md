@@ -1,7 +1,7 @@
 ---
 name: write-cells
 description: Write cell data to a Wafflebase spreadsheet
-safety: write
+safety: destructive
 tools:
   - wafflebase cell set
   - wafflebase cell batch

@@ -13,7 +13,8 @@ export function registerApiKeyCommand(program: Command) {
       try {
         const res = await getClient(opts).createApiKey(name);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        // Never suppress output — the raw key is shown only once
+        output(res.data, opts.format, false);
       } catch (e) {
         outputError(e, opts.quiet);
       }

@@ -54,6 +54,21 @@ describe('formatCsv', () => {
   it('returns empty string for empty array', () => {
     expect(formatCsv([])).toBe('');
   });
+
+  it('formats a single object as one-row CSV', () => {
+    const result = formatCsv({ id: '1', title: 'Doc' });
+    const lines = result.split('\n');
+    expect(lines[0]).toBe('id,title');
+    expect(lines[1]).toBe('1,Doc');
+  });
+
+  it('serializes nested objects as JSON', () => {
+    const data = [{ name: 'a', meta: { x: 1 } }];
+    const result = formatCsv(data);
+    const lines = result.split('\n');
+    // JSON is CSV-escaped: {"x":1} → "{""x"":1}"
+    expect(lines[1]).toBe('a,"{""x"":1}"');
+  });
 });
 
 describe('format dispatcher', () => {

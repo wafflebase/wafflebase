@@ -34,6 +34,24 @@ describe('CombinedAuthGuard', () => {
     expect(jwtGuard.canActivate).not.toHaveBeenCalled();
   });
 
+  it('delegates to ApiKeyAuthGuard with lowercase bearer scheme', async () => {
+    const ctx = createMockContext('bearer wfb_abc123');
+
+    await guard.canActivate(ctx);
+
+    expect(apiKeyGuard.canActivate).toHaveBeenCalledWith(ctx);
+    expect(jwtGuard.canActivate).not.toHaveBeenCalled();
+  });
+
+  it('delegates to ApiKeyAuthGuard with extra whitespace', async () => {
+    const ctx = createMockContext('Bearer   wfb_abc123');
+
+    await guard.canActivate(ctx);
+
+    expect(apiKeyGuard.canActivate).toHaveBeenCalledWith(ctx);
+    expect(jwtGuard.canActivate).not.toHaveBeenCalled();
+  });
+
   it('delegates to JwtAuthGuard when header does not start with Bearer wfb_', async () => {
     const ctx = createMockContext('Bearer eyJhbG...');
 

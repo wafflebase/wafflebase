@@ -17,7 +17,8 @@ export class CombinedAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const authHeader: string | undefined = request.headers?.authorization;
 
-    if (authHeader?.startsWith('Bearer wfb_')) {
+    const [scheme, token] = authHeader?.trim().split(/\s+/, 2) ?? [];
+    if (scheme?.toLowerCase() === 'bearer' && token?.startsWith('wfb_')) {
       return this.apiKeyGuard.canActivate(context) as Promise<boolean>;
     }
 

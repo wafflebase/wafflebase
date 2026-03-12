@@ -13,6 +13,7 @@ import {
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
+import { DocumentService } from '../../document/document.service';
 import type { Sref } from '@wafflebase/sheet';
 
 @Controller(
@@ -20,14 +21,30 @@ import type { Sref } from '@wafflebase/sheet';
 )
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
 export class ApiV1CellsController {
-  constructor(private readonly yorkieService: YorkieService) {}
+  constructor(
+    private readonly yorkieService: YorkieService,
+    private readonly documentService: DocumentService,
+  ) {}
+
+  private async assertDocumentInWorkspace(
+    documentId: string,
+    workspaceId: string,
+  ) {
+    const doc = await this.documentService.document({
+      id: documentId,
+      workspaceId,
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+  }
 
   @Get()
   async getCells(
+    @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Param('tabId') tabId: string,
     @Query('range') range?: string,
   ) {
+    await this.assertDocumentInWorkspace(documentId, workspaceId);
     return this.yorkieService.withDocument(documentId, (doc) => {
       const root = doc.getRoot();
       const worksheet = root.sheets?.[tabId];
@@ -52,10 +69,12 @@ export class ApiV1CellsController {
 
   @Get(':sref')
   async getCell(
+    @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Param('tabId') tabId: string,
     @Param('sref') sref: string,
   ) {
+    await this.assertDocumentInWorkspace(documentId, workspaceId);
     return this.yorkieService.withDocument(documentId, (doc) => {
       const root = doc.getRoot();
       const worksheet = root.sheets?.[tabId];
@@ -73,11 +92,13 @@ export class ApiV1CellsController {
 
   @Put(':sref')
   async setCell(
+    @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Param('tabId') tabId: string,
     @Param('sref') sref: string,
     @Body() body: { value?: string; formula?: string },
   ) {
+    await this.assertDocumentInWorkspace(documentId, workspaceId);
     return this.yorkieService.withDocument(documentId, (doc) => {
       doc.update((root) => {
         const worksheet = root.sheets?.[tabId];
@@ -100,10 +121,12 @@ export class ApiV1CellsController {
 
   @Delete(':sref')
   async deleteCell(
+    @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Param('tabId') tabId: string,
     @Param('sref') sref: string,
   ) {
+    await this.assertDocumentInWorkspace(documentId, workspaceId);
     return this.yorkieService.withDocument(documentId, (doc) => {
       doc.update((root) => {
         const worksheet = root.sheets?.[tabId];
@@ -119,10 +142,12 @@ export class ApiV1CellsController {
 
   @Patch()
   async batchUpdate(
+    @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Param('tabId') tabId: string,
     @Body() body: { cells: Record<string, { value?: string; formula?: string } | null> },
   ) {
+    await this.assertDocumentInWorkspace(documentId, workspaceId);
     return this.yorkieService.withDocument(documentId, (doc) => {
       doc.update((root) => {
         const worksheet = root.sheets?.[tabId];

@@ -1,7 +1,7 @@
 ---
 name: manage-docs
 description: Create, list, rename, and delete Wafflebase documents
-safety: write
+safety: destructive
 tools:
   - wafflebase doc list
   - wafflebase doc create
