@@ -18,11 +18,12 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| _None_ | - | - |
+| backend rest api (2026-03-12) | [20260312-backend-rest-api-todo.md](./active/20260312-backend-rest-api-todo.md) | - |
+| cli (2026-03-12) | [20260312-cli-todo.md](./active/20260312-cli-todo.md) | - |
 
 ## Archive
 
-- Archived task count: 61
+- Archived task count: 62
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: none
+Latest active task: backend rest api (2026-03-12)

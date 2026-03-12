@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 61
+Total archived tasks: 62
 
-## 2026/03 (24 tasks)
+## 2026/03 (25 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| api key settings ui (2026-03-12) | [20260312-api-key-settings-ui-todo.md](./2026/03/20260312-api-key-settings-ui-todo.md) | - |
 | sheet find (2026-03-12) | [20260312-sheet-find-todo.md](./2026/03/20260312-sheet-find-todo.md) | [20260312-sheet-find-lessons.md](./2026/03/20260312-sheet-find-lessons.md) |
 | docker browser tests (2026-03-11) | [20260311-docker-browser-tests-todo.md](./2026/03/20260311-docker-browser-tests-todo.md) | [20260311-docker-browser-tests-lessons.md](./2026/03/20260311-docker-browser-tests-lessons.md) |
 | context menu selection (2026-03-04) | [20260304-context-menu-selection-todo.md](./2026/03/20260304-context-menu-selection-todo.md) | [20260304-context-menu-selection-lessons.md](./2026/03/20260304-context-menu-selection-lessons.md) |
