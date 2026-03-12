@@ -2,12 +2,14 @@
   "name": "@wafflebase/cli",
   "version": "0.1.0",
   "description": "CLI for Wafflebase spreadsheet API",
-  "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "wafflebase": "./dist/bin.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/bin.ts",
@@ -17,7 +19,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@wafflebase/sheet": "workspace:*",
     "commander": "^13.0.0",
     "yaml": "^2.0.0"
   },

@@ -189,9 +189,6 @@ importers:
 
   packages/cli:
     dependencies:
-      '@wafflebase/sheet':
-        specifier: workspace:*
-        version: link:../sheet
       commander:
         specifier: ^13.0.0
         version: 13.1.0
