@@ -9,6 +9,7 @@ model User {
   datasources DataSource[]
   workspaceMembers  WorkspaceMember[]
   workspaceInvites  WorkspaceInvite[]
+  apiKeys           ApiKey[]
 }
 
 model DataSource {
@@ -61,6 +62,7 @@ model Workspace {
   documents   Document[]
   invites     WorkspaceInvite[]
   datasources DataSource[]
+  apiKeys     ApiKey[]
 }
 
 model WorkspaceMember {
@@ -87,6 +89,22 @@ model WorkspaceInvite {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy   Int
   creator     User      @relation(fields: [createdBy], references: [id])
+}
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  name        String
+  prefix      String
+  hashedKey   String    @unique
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   Int
+  creator     User      @relation(fields: [createdBy], references: [id])
+  scopes      String[]  @default(["read", "write"])
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
 }
 
 datasource db {

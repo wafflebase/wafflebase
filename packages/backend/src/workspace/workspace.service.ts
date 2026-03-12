@@ -174,7 +174,7 @@ export class WorkspaceService {
     return member;
   }
 
-  private async assertOwner(workspaceId: string, userId: number) {
+  async assertOwner(workspaceId: string, userId: number) {
     const resolvedId = await this.resolveId(workspaceId);
     const member = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: resolvedId, userId } },

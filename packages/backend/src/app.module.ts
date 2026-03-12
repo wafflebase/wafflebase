@@ -5,6 +5,7 @@ import { DocumentModule } from './document/document.module';
 import { ShareLinkModule } from './share-link/share-link.module';
 import { DataSourceModule } from './datasource/datasource.module';
 import { WorkspaceModule } from './workspace/workspace.module';
+import { ApiKeyModule } from './api-key/api-key.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     ShareLinkModule,
     DataSourceModule,
     WorkspaceModule,
+    ApiKeyModule,
   ],
   controllers: [],
   providers: [],
