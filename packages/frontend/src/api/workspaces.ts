@@ -157,6 +157,61 @@ export async function acceptInvite(
   return res.json();
 }
 
+export interface ApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+}
+
+export interface ApiKeyCreateResponse {
+  id: string;
+  name: string;
+  prefix: string;
+  key: string;
+}
+
+/**
+ * Fetches API keys for a workspace.
+ */
+export async function fetchApiKeys(workspaceId: string): Promise<ApiKey[]> {
+  const res = await fetchWithAuth(`${BASE}/${workspaceId}/api-keys`);
+  await assertOk(res, "Failed to fetch API keys");
+  return res.json();
+}
+
+/**
+ * Creates an API key for a workspace.
+ */
+export async function createApiKey(
+  workspaceId: string,
+  data: { name: string },
+): Promise<ApiKeyCreateResponse> {
+  const res = await fetchWithAuth(`${BASE}/${workspaceId}/api-keys`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  await assertOk(res, "Failed to create API key");
+  return res.json();
+}
+
+/**
+ * Revokes an API key.
+ */
+export async function revokeApiKey(
+  workspaceId: string,
+  keyId: string,
+): Promise<void> {
+  const res = await fetchWithAuth(`${BASE}/${workspaceId}/api-keys/${keyId}`, {
+    method: "DELETE",
+  });
+  await assertOk(res, "Failed to revoke API key");
+}
+
 /**
  * Fetches workspace documents.
  */

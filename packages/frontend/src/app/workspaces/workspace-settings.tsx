@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Copy, Plus, Trash2 } from "lucide-react";
+import { Copy, Key, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,8 +27,13 @@ import {
   createInvite,
   revokeInvite,
   removeMember,
+  fetchApiKeys,
+  createApiKey,
+  revokeApiKey,
   type WorkspaceDetail,
   type WorkspaceInvite,
+  type ApiKey,
+  type ApiKeyCreateResponse,
 } from "@/api/workspaces";
 import {
   Dialog,
@@ -50,6 +55,11 @@ export default function WorkspaceSettings() {
   const [slug, setSlug] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [createKeyDialogOpen, setCreateKeyDialogOpen] = useState(false);
+  const [keyName, setKeyName] = useState("");
+  const [revealedKey, setRevealedKey] = useState<ApiKeyCreateResponse | null>(
+    null,
+  );
 
   const {
     data: workspace,
@@ -79,6 +89,10 @@ export default function WorkspaceSettings() {
     queryKey: ["me"],
     queryFn: fetchMe,
   });
+
+  const isOwner =
+    me &&
+    workspace?.members.some((m) => m.user.id === me.id && m.role === "owner");
 
   const updateMutation = useMutation({
     mutationFn: (data: { name?: string; slug?: string }) =>
@@ -124,6 +138,36 @@ export default function WorkspaceSettings() {
       toast.success("Member removed");
     },
     onError: () => toast.error("Failed to remove member"),
+  });
+
+  const { data: apiKeys = [] } = useQuery<ApiKey[]>({
+    queryKey: ["workspaces", workspaceId, "api-keys"],
+    queryFn: () => fetchApiKeys(workspaceId!),
+    enabled: !!workspaceId && !!isOwner,
+  });
+
+  const createApiKeyMutation = useMutation({
+    mutationFn: (data: { name: string }) => createApiKey(workspaceId!, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspaces", workspaceId, "api-keys"],
+      });
+      setCreateKeyDialogOpen(false);
+      setKeyName("");
+      setRevealedKey(result);
+    },
+    onError: () => toast.error("Failed to create API key"),
+  });
+
+  const revokeApiKeyMutation = useMutation({
+    mutationFn: (keyId: string) => revokeApiKey(workspaceId!, keyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["workspaces", workspaceId, "api-keys"],
+      });
+      toast.success("API key revoked");
+    },
+    onError: () => toast.error("Failed to revoke API key"),
   });
 
   const deleteMutation = useMutation({
@@ -176,9 +220,6 @@ export default function WorkspaceSettings() {
   }
 
   if (!workspace) return null;
-
-  const isOwner =
-    me && workspace.members.some((m) => m.user.id === me.id && m.role === "owner");
 
   const copyInviteLink = (token: string) => {
     const link = `${window.location.origin}/invite/${token}`;
@@ -370,6 +411,79 @@ export default function WorkspaceSettings() {
         )}
       </section>
 
+      {/* API Keys */}
+      {isOwner && (
+        <>
+          <Separator />
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">API Keys</h2>
+                <p className="text-sm text-muted-foreground">
+                  Create API keys for programmatic access via the CLI or REST
+                  API.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setCreateKeyDialogOpen(true)}
+                className="flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Create API Key
+              </Button>
+            </div>
+            {apiKeys.length > 0 ? (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Key</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Last Used</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {apiKeys.map((apiKey) => (
+                      <TableRow key={apiKey.id}>
+                        <TableCell>{apiKey.name}</TableCell>
+                        <TableCell className="font-mono text-sm text-muted-foreground">
+                          {apiKey.prefix}...
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(apiKey.createdAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {apiKey.lastUsedAt
+                            ? new Date(apiKey.lastUsedAt).toLocaleDateString()
+                            : "Never"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() =>
+                              revokeApiKeyMutation.mutate(apiKey.id)
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No API keys.</p>
+            )}
+          </section>
+        </>
+      )}
+
       {/* Danger Zone */}
       {isOwner && <Separator />}
       {isOwner && (
@@ -450,6 +564,98 @@ export default function WorkspaceSettings() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create API Key dialog */}
+      <Dialog
+        open={createKeyDialogOpen}
+        onOpenChange={(open) => {
+          setCreateKeyDialogOpen(open);
+          if (!open) setKeyName("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create API Key</DialogTitle>
+            <DialogDescription>
+              Enter a name to identify this key.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e: FormEvent) => {
+              e.preventDefault();
+              const trimmed = keyName.trim();
+              if (trimmed) {
+                createApiKeyMutation.mutate({ name: trimmed });
+              }
+            }}
+          >
+            <Input
+              value={keyName}
+              onChange={(e) => setKeyName(e.target.value)}
+              placeholder="e.g. CI pipeline"
+              autoFocus
+            />
+            <DialogFooter className="mt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setCreateKeyDialogOpen(false);
+                  setKeyName("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  !keyName.trim() || createApiKeyMutation.isPending
+                }
+              >
+                Create
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reveal API Key dialog */}
+      <Dialog
+        open={!!revealedKey}
+        onOpenChange={(open) => {
+          if (!open) setRevealedKey(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>API Key Created</DialogTitle>
+            <DialogDescription>
+              Copy your key now. It will only be shown once.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-md border bg-muted p-3">
+            <Key className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <code className="flex-1 text-sm break-all">
+              {revealedKey?.key}
+            </code>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (revealedKey) {
+                  navigator.clipboard.writeText(revealedKey.key);
+                  toast.success("API key copied");
+                }
+              }}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setRevealedKey(null)}>Done</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
