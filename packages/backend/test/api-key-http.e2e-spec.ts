@@ -128,7 +128,7 @@ describeDb('API Key HTTP integration', () => {
     await request(app.getHttpServer())
       .get(`/api/v1/workspaces/wrong-workspace-id/documents`)
       .set('Authorization', `Bearer ${rawKey}`)
-      .expect(403);
+      .expect(404);
 
     // Revoke API key
     await request(app.getHttpServer())
