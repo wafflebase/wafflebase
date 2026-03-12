@@ -25,8 +25,11 @@ client that attaches to the CRDT document on each request.
   versioned REST API.
 - Reuse Yorkie CRDT for cell reads and writes so that API mutations merge
   conflict-free with live collaborative edits.
-- Ship a cross-platform CLI (`wafflebase`) written in Go that wraps the
-  REST API for data pipelines, scripting, and document management.
+- Ship a CLI (`wafflebase`) as a TypeScript package within the pnpm
+  monorepo that wraps the REST API for data pipelines, scripting, and
+  document management.
+- Make the CLI first-class for AI agent consumption: structured output,
+  self-describing schema, dry-run support, and bundled skill definitions.
 
 ### Non-Goals
 
@@ -37,6 +40,7 @@ client that attaches to the CRDT document on each request.
 - Rate limiting or usage metering (deferred to a future iteration).
 - Frontend UI for API key management (can be added later; initial management
   is via the REST endpoints themselves).
+- MCP server (may be added later as a thin wrapper over the REST API).
 
 ## Proposal Details
 
@@ -217,17 +221,35 @@ Registered in the root application module: `ApiKeyModule`, `YorkieModule`, `ApiV
 
 ### 7. CLI (`wafflebase`)
 
-A standalone command-line tool written in Go that wraps the REST API. It
-lives in a new top-level directory `cli/` outside the pnpm monorepo.
+A TypeScript CLI package (`@wafflebase/cli`) within the pnpm monorepo at
+`packages/cli/`. Living inside the monorepo lets the CLI import types
+directly from `@wafflebase/sheet`, share the existing lint/test/build
+toolchain, and avoid the type-duplication problem of a separate Go project.
 
 #### 7.1 Technology
 
-- **Language**: Go (single static binary, cross-platform)
-- **CLI framework**: [cobra](https://github.com/spf13/cobra)
-- **HTTP client**: `net/http` (standard library)
-- **Output formats**: table (default), JSON (`--json`), CSV (`--csv`)
-- **Distribution**: `go install`, GitHub Releases (prebuilt binaries for
-  linux/darwin/windows amd64/arm64), Homebrew tap
+- **Language**: TypeScript (same toolchain as the rest of the monorepo)
+- **CLI framework**: [commander](https://github.com/tj/commander.js)
+  (lightweight, well-maintained, subcommand support)
+- **HTTP client**: built-in `fetch` (Node.js 18+)
+- **Output formats**: JSON (default), table (`--format table`),
+  CSV (`--format csv`), YAML (`--format yaml`)
+- **Config files**: [yaml](https://www.npmjs.com/package/yaml) for
+  `~/.config/wafflebase/config.yaml`
+- **Distribution**: `npx @wafflebase/cli`, `npm install -g @wafflebase/cli`,
+  or `pnpm dlx @wafflebase/cli`
+
+JSON is the default output format because agents and scripts are the
+primary consumers. Human users can switch to `--format table` for
+readability.
+
+**Why TypeScript over Go**:
+- Shares types with `@wafflebase/sheet` — no duplication of `Cell`,
+  `Sref`, `CellStyle`, `SpreadsheetDocument`
+- Single toolchain — no separate Go compiler, linter, or CI pipeline
+- AI agent environments (Claude Code, Cursor) already have Node.js
+- Can be converted to a standalone binary later via `bun build --compile`
+  if single-binary distribution becomes important
 
 #### 7.2 Configuration
 
@@ -272,6 +294,7 @@ wafflebase
 ├── cell
 │   ├── get <doc-id> [<range>]  Get cells (default: all, or A1, or A1:C10)
 │   ├── set <doc-id> <ref> <value>  Set a single cell value
+│   ├── batch <doc-id>          Batch update cells (JSON from stdin or --data)
 │   └── delete <doc-id> <ref>  Delete a single cell
 │
 ├── import <doc-id> <file>     Import CSV/JSON into a tab
@@ -285,6 +308,8 @@ wafflebase
 │   --range <range>             Export range (default: all data)
 │   --format csv|json           Auto-detected from extension
 │
+├── schema [<command>]          Describe command parameters and response shape
+│
 ├── api-key
 │   ├── create <name>           Create a new API key
 │   ├── list                    List API keys in workspace
@@ -294,7 +319,8 @@ wafflebase
 ```
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
-`--json`, `--csv`, `--quiet`, `--verbose`
+`--format json|table|csv|yaml` (default: json), `--quiet`, `--verbose`,
+`--dry-run`
 
 #### 7.4 Usage Examples
 
@@ -302,18 +328,25 @@ wafflebase
 # Setup
 wafflebase auth login
 
-# List documents
+# List documents (JSON by default)
 wafflebase doc list
+wafflebase doc list --format table        # human-readable table
 
 # Read cells
-wafflebase cell get abc-123                      # all cells, table format
-wafflebase cell get abc-123 A1:C10               # range
-wafflebase cell get abc-123 A1:C10 --json        # JSON output
-wafflebase cell get abc-123 --tab tab-2          # specific tab
+wafflebase cell get abc-123               # all cells, JSON
+wafflebase cell get abc-123 A1:C10        # range
+wafflebase cell get abc-123 --tab tab-2   # specific tab
 
 # Write cells
 wafflebase cell set abc-123 A1 "Hello World"
 wafflebase cell set abc-123 B2 "=SUM(A1:A10)"
+
+# Batch update (JSON from stdin)
+echo '{"A1":"Name","B1":"Score","A2":"Alice","B2":"95"}' \
+  | wafflebase cell batch abc-123
+
+# Dry-run: show the request without executing
+wafflebase cell set abc-123 A1 "Hello" --dry-run
 
 # Import/Export
 wafflebase import abc-123 data.csv
@@ -322,6 +355,10 @@ wafflebase export abc-123 output.json --range A1:D100
 # Pipe-friendly (reads from stdin, writes to stdout)
 cat data.csv | wafflebase import abc-123 -
 wafflebase export abc-123 - --format csv | head -20
+
+# Schema introspection
+wafflebase schema cell.get               # show parameters and response shape
+wafflebase schema cell.batch             # show batch update format
 
 # API key management
 wafflebase api-key create "CI Pipeline"
@@ -332,41 +369,313 @@ wafflebase api-key revoke key-uuid
 #### 7.5 Project Structure
 
 ```
-cli/
-  go.mod
-  go.sum
-  main.go
-  cmd/
-    root.go            Root command, global flags, config loading
-    auth.go            auth login
-    document.go        document list/create/get/rename/delete
-    tab.go             tab list
-    cell.go            cell get/set/delete
-    import.go          import CSV/JSON
-    export.go          export CSV/JSON
-    apikey.go          api-key create/list/revoke
-    version.go         version
-  internal/
+packages/cli/
+  package.json           @wafflebase/cli, bin: { "wafflebase": "./dist/bin.js" }
+  tsconfig.json
+  vitest.config.ts
+  src/
+    bin.ts               Entry point (#!/usr/bin/env node)
+    commands/
+      root.ts            Root program, global flags, config loading
+      auth.ts            auth login
+      document.ts        doc list/create/get/rename/delete
+      tab.ts             tab list
+      cell.ts            cell get/set/batch/delete
+      import.ts          import CSV/JSON
+      export.ts          export CSV/JSON
+      schema.ts          schema introspection
+      api-key.ts         api-key create/list/revoke
     client/
-      client.go        HTTP client wrapping REST API v1
-      types.go         Request/response types
+      http-client.ts     REST API v1 wrapper (built-in fetch)
+      dry-run.ts         Dry-run request printer
+      types.ts           Request/response types (re-exports from @wafflebase/sheet)
     config/
-      config.go        Config file + env + flag resolution
+      config.ts          Config file + env + flag resolution
     output/
-      table.go         Table formatter
-      json.go          JSON formatter
-      csv.go           CSV formatter
-  Makefile             Build targets for all platforms
+      formatter.ts       Format dispatcher (json | table | csv | yaml)
+      table.ts           Table formatter
+      json.ts            JSON formatter
+      csv.ts             CSV formatter
+      yaml.ts            YAML formatter
+    schema/
+      registry.ts        Command metadata registry for introspection
+  skills/                Agent skill definitions (Markdown)
+    SKILL.md             Skill index and conventions
+    read-cells.md        Read cell data from a spreadsheet
+    write-cells.md       Write cell data to a spreadsheet
+    manage-docs.md       Create, list, and delete documents
+    import-export.md     Import/export CSV and JSON data
+    recipe-csv-pipeline.md   Multi-step recipe: CSV → spreadsheet → analyze
+    recipe-data-collect.md   Multi-step recipe: collect data across documents
+```
+
+**package.json** (key fields):
+
+```json
+{
+  "name": "@wafflebase/cli",
+  "version": "0.1.0",
+  "bin": { "wafflebase": "./dist/bin.js" },
+  "dependencies": {
+    "@wafflebase/sheet": "workspace:*",
+    "commander": "^13.0.0",
+    "yaml": "^2.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "typescript": "^5.8.0"
+  }
+}
+```
+
+**Root pnpm scripts** (added to the monorepo root `package.json`):
+
+```json
+{
+  "cli": "pnpm --filter @wafflebase/cli",
+  "cli:dev": "pnpm --filter @wafflebase/cli dev"
+}
+```
+
+**Usage during development**:
+
+```bash
+# Run directly in the monorepo
+pnpm cli dev -- doc list
+
+# After npm publish
+npx @wafflebase/cli doc list
+
+# Global install
+npm install -g @wafflebase/cli
+wafflebase doc list
 ```
 
 #### 7.6 Design Principles
 
 - **Stdin/stdout friendly**: support `-` as filename for piping.
-- **Scriptable**: `--json` output for machine consumption, `--quiet` to
-  suppress non-essential output, exit codes for success (0) and failure (1).
+- **Scriptable**: JSON output by default for machine consumption, `--quiet`
+  to suppress non-essential output, exit codes for success (0) and failure (1).
 - **Progressive disclosure**: simple commands for common tasks, flags for
   advanced options.
 - **Offline-safe**: the CLI is stateless; all state lives on the server.
+
+#### 7.7 Agent Integration
+
+The CLI is designed to be a first-class tool for AI agents (Claude Code,
+Gemini CLI, Cursor, etc.). This section describes the patterns that make the
+CLI agent-friendly, inspired by the
+[Google Workspace CLI](https://github.com/googleworkspace/cli).
+
+##### 7.7.1 Structured Output
+
+All output is JSON by default. Errors are also JSON so agents can parse
+success and failure uniformly:
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Document abc-123 not found",
+    "command": "cell.get"
+  }
+}
+```
+
+Exit codes: `0` success, `1` user error (bad input, not found),
+`2` system error (network, auth). Agents can branch on the exit code
+without parsing the error body.
+
+##### 7.7.2 Dry-Run
+
+The `--dry-run` flag validates inputs, resolves the target API endpoint,
+and prints the request that would be sent — without executing it. This
+lets agents verify intent before committing to a write operation.
+
+```bash
+$ wafflebase cell set abc-123 A1 "Revenue" --dry-run
+{
+  "dry_run": true,
+  "method": "PUT",
+  "url": "https://app.wafflebase.io/api/v1/workspaces/ws-1/documents/abc-123/tabs/default/cells/A1",
+  "body": { "value": "Revenue" }
+}
+```
+
+##### 7.7.3 Schema Introspection
+
+The `schema` command lets agents discover command parameters and response
+shapes at runtime, without consulting external documentation.
+
+```bash
+# Show parameters for a command
+$ wafflebase schema cell.get
+{
+  "command": "cell.get",
+  "description": "Get cells from a spreadsheet tab",
+  "parameters": {
+    "doc-id":  { "type": "string", "required": true, "description": "Document ID" },
+    "range":   { "type": "string", "required": false, "description": "Cell range (e.g. A1:C10)", "default": "all" },
+    "--tab":   { "type": "string", "required": false, "description": "Tab ID", "default": "first tab" }
+  },
+  "response": {
+    "type": "array",
+    "items": {
+      "ref": "string",
+      "value": "string | number | boolean | null",
+      "formula": "string | null",
+      "style": "object | null"
+    }
+  },
+  "safety": "read-only"
+}
+
+# List all available commands
+$ wafflebase schema
+{
+  "commands": [
+    { "name": "doc.list",    "safety": "read-only" },
+    { "name": "doc.create",  "safety": "write" },
+    { "name": "doc.delete",  "safety": "destructive" },
+    { "name": "cell.get",    "safety": "read-only" },
+    { "name": "cell.set",    "safety": "write" },
+    { "name": "cell.batch",  "safety": "write" },
+    { "name": "cell.delete", "safety": "destructive" },
+    ...
+  ]
+}
+```
+
+##### 7.7.4 Safety Annotations
+
+Every command has a `safety` level that agents can use to decide whether
+to auto-execute or ask the user for confirmation:
+
+| Level | Meaning | Agent behavior |
+|-------|---------|----------------|
+| `read-only` | No side effects | Safe to execute without confirmation |
+| `write` | Creates or modifies data | Agent should confirm or use `--dry-run` first |
+| `destructive` | Deletes data irreversibly | Agent must ask for user confirmation |
+
+Safety levels are exposed via `wafflebase schema` and embedded in skill
+definitions. This aligns with how Claude Code handles tool approval:
+read-only tools run freely, write tools require user approval.
+
+##### 7.7.5 Skills
+
+Skills are Markdown files in the `packages/cli/skills/` directory that serve
+as self-contained instruction sets for AI agents. Each skill describes a
+focused capability with command syntax, examples, and safety notes. Agents
+load the relevant skill file and follow its instructions.
+
+Skill files follow this structure:
+
+```markdown
+---
+name: read-cells
+description: Read cell data from a Wafflebase spreadsheet
+safety: read-only
+tools:
+  - wafflebase cell get
+  - wafflebase tab list
+---
+
+# Read Cells
+
+## When to Use
+When the user wants to read, inspect, or analyze spreadsheet data.
+
+## Commands
+
+### List tabs in a document
+\`\`\`bash
+wafflebase tab list <doc-id>
+\`\`\`
+
+### Read all cells
+\`\`\`bash
+wafflebase cell get <doc-id>
+\`\`\`
+
+### Read a specific range
+\`\`\`bash
+wafflebase cell get <doc-id> A1:C10
+wafflebase cell get <doc-id> A1:C10 --tab <tab-id>
+\`\`\`
+
+## Output Format
+Returns a JSON array of cell objects:
+\`\`\`json
+[
+  { "ref": "A1", "value": "Name", "formula": null, "style": null },
+  { "ref": "B1", "value": "42", "formula": "=SUM(B2:B10)", "style": { "bold": true } }
+]
+\`\`\`
+
+## Safety
+read-only — no data is modified. Safe to execute without user confirmation.
+```
+
+##### 7.7.6 Recipes
+
+Recipes are multi-step workflow templates that compose multiple CLI
+commands. They live alongside skills in the `packages/cli/skills/`
+directory and are prefixed with `recipe-`. Agents can follow recipes to accomplish complex
+tasks that span multiple commands.
+
+```markdown
+---
+name: recipe-csv-pipeline
+description: Import a CSV file, apply formulas, and export results
+safety: write
+---
+
+# CSV Analysis Pipeline
+
+## Steps
+
+1. Create a new document:
+   \`\`\`bash
+   wafflebase doc create "Q1 Analysis"
+   \`\`\`
+
+2. Import CSV data:
+   \`\`\`bash
+   wafflebase import <doc-id> data.csv
+   \`\`\`
+
+3. Add summary formulas:
+   \`\`\`bash
+   echo '{"E1":"Total","E2":"=SUM(B2:B100)","E3":"Average","E4":"=AVERAGE(B2:B100)"}' \
+     | wafflebase cell batch <doc-id>
+   \`\`\`
+
+4. Export results:
+   \`\`\`bash
+   wafflebase export <doc-id> - --format csv --range A1:E100
+   \`\`\`
+```
+
+##### 7.7.7 How Agents Discover and Use the CLI
+
+An agent integrates with the Wafflebase CLI through this flow:
+
+```
+1. Agent loads skill/recipe files (bundled with CLI or fetched from repo)
+2. Reads skill frontmatter to understand safety and available tools
+3. Uses `wafflebase schema <command>` to check parameter details
+4. For writes, runs with `--dry-run` to show intent to user
+5. Executes the command, parses JSON output
+6. On error, parses the JSON error response to decide next action
+```
+
+No special SDK, MCP server, or API wrapper is needed. The CLI itself is the
+agent interface. This approach has key advantages:
+
+- **Zero integration cost**: any agent that can run shell commands works.
+- **Self-describing**: `schema` and skill files eliminate documentation lookup.
+- **Safe by default**: safety annotations + dry-run prevent accidental data loss.
+- **Composable**: recipes show agents how to chain commands for complex tasks.
 
 ### 8. Implementation Order
 
@@ -377,9 +686,12 @@ cli/
 5. REST API v1 controllers (documents → tabs → cells)
 6. Register modules in the root application module
 7. Backend tests
-8. CLI scaffold — Go project, config loading, HTTP client
-9. CLI commands — document, tab, cell, import/export, api-key
-10. CLI tests and cross-platform build
+8. CLI scaffold — `packages/cli`, commander setup, config loading, HTTP client
+9. CLI commands — document, tab, cell (including batch), import/export, api-key
+10. Schema registry and `schema` command
+11. Dry-run support in HTTP client layer
+12. Skill and recipe Markdown files
+13. CLI tests and npm publish setup
 
 ### Risks and Mitigation
 
@@ -389,6 +701,8 @@ cli/
 | Attach/detach per request adds latency | Acceptable for v1. A connection pool with LRU eviction can be added later if latency becomes a problem. |
 | Concurrent API writes and live user edits | Yorkie CRDT handles conflict-free merging by design. Document this for API consumers. |
 | API key leakage | Store only SHA-256 hashes. Show raw key once at creation. Support revocation and optional expiration. |
-| SpreadsheetDocument type duplication | Keep a backend-local copy. Long-term, move shared types to `@wafflebase/sheet`. |
-| CLI binary size and distribution | Go produces small static binaries (~10 MB). Use GitHub Releases and Homebrew for distribution. |
+| SpreadsheetDocument type duplication (backend) | Keep a backend-local copy. Long-term, move shared types to `@wafflebase/sheet`. CLI already imports directly. |
+| CLI requires Node.js runtime | Acceptable for v1 — target users (developers, CI, AI agents) have Node.js. Can produce standalone binary later via `bun build --compile`. |
 | CLI and API version drift | CLI includes `version` command; REST API is versioned (`/api/v1/`). CLI checks API compatibility on startup. |
+| Skill files become outdated | Keep skills next to the CLI source. CI can validate that skill tool references match real commands. |
+| Agents bypassing safety levels | Safety is advisory; the server enforces actual permissions via API key scopes. Safety annotations help agents make better decisions but are not access control. |
