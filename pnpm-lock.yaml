@@ -53,6 +53,12 @@ importers:
       '@types/passport-github2':
         specifier: ^1.2.9
         version: 1.2.9
+      '@wafflebase/sheet':
+        specifier: workspace:^
+        version: link:../sheet
+      '@yorkie-js/sdk':
+        specifier: 0.6.49
+        version: 0.6.49
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
