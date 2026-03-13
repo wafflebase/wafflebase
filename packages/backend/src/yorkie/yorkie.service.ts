@@ -17,7 +17,8 @@ export class YorkieService implements OnModuleInit, OnModuleDestroy {
     const rpcAddr =
       this.configService.get<string>('YORKIE_RPC_ADDR') ??
       'http://localhost:8080';
-    this.client = new yorkie.Client({ rpcAddr });
+    const apiKey = this.configService.get<string>('YORKIE_API_KEY');
+    this.client = new yorkie.Client({ rpcAddr, apiKey });
   }
 
   async onModuleInit() {
