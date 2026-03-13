@@ -18,6 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| crdt structural concurrency test architecture (2026-03-13) | [20260313-crdt-structural-concurrency-test-architecture-todo.md](./active/20260313-crdt-structural-concurrency-test-architecture-todo.md) | [20260313-crdt-structural-concurrency-test-architecture-lessons.md](./active/20260313-crdt-structural-concurrency-test-architecture-lessons.md) |
+| crdt structural concurrency analysis (2026-03-13) | [20260313-crdt-structural-concurrency-analysis-todo.md](./active/20260313-crdt-structural-concurrency-analysis-todo.md) | [20260313-crdt-structural-concurrency-analysis-lessons.md](./active/20260313-crdt-structural-concurrency-analysis-lessons.md) |
 | backend rest api (2026-03-12) | [20260312-backend-rest-api-todo.md](./active/20260312-backend-rest-api-todo.md) | - |
 | cli (2026-03-12) | [20260312-cli-todo.md](./active/20260312-cli-todo.md) | - |
 
@@ -26,4 +28,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 62
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: backend rest api (2026-03-12)
+Latest active task: crdt structural concurrency test architecture (2026-03-13)

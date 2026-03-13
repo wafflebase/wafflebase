@@ -15,6 +15,13 @@ const FRONTEND_SRC = pathResolve(
   "src",
 );
 
+const SHEET_ROOT = pathResolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "..",
+  "..",
+  "sheet",
+);
+
 const SHEET_DIST = pathResolve(
   fileURLToPath(new URL(".", import.meta.url)),
   "..",
@@ -48,11 +55,22 @@ export async function resolve(specifier, context, nextResolve) {
     return nextResolve(pathToFileURL(exactPath).href, context);
   }
 
+  if (
+    specifier.startsWith("antlr4ts/") &&
+    !specifier.endsWith(".js") &&
+    !specifier.endsWith(".mjs")
+  ) {
+    return nextResolve(`${specifier}.js`, context);
+  }
+
   // Handle extensionless relative imports within frontend src/ — add .ts/.tsx
   if (
-    specifier.startsWith("./") &&
+    (specifier.startsWith("./") || specifier.startsWith("../")) &&
     context.parentURL &&
-    fileURLToPath(context.parentURL).startsWith(FRONTEND_SRC)
+    (
+      fileURLToPath(context.parentURL).startsWith(FRONTEND_SRC) ||
+      fileURLToPath(context.parentURL).startsWith(SHEET_ROOT)
+    )
   ) {
     const parentDir = dirname(fileURLToPath(context.parentURL));
     for (const ext of [".ts", ".tsx"]) {

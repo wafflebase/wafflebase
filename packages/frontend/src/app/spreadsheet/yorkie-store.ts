@@ -1,19 +1,5 @@
-import { Document } from "@yorkie-js/react";
+import type { Document } from "@yorkie-js/react";
 import {
-  Store,
-  Grid,
-  Cell,
-  CellStyle,
-  FilterCondition,
-  FilterState,
-  HiddenState,
-  MergeSpan,
-  PivotTableDefinition,
-  Ref,
-  Sref,
-  Range,
-  Direction,
-  Axis,
   CellIndex,
   findEdgeWithIndex,
   toSref,
@@ -28,19 +14,39 @@ import {
   isCrossSheetRef,
   shiftMergeMap,
   moveMergeMap,
-  ConditionalFormatRule,
   cloneConditionalFormatRule,
   moveConditionalFormatRules,
   normalizeConditionalFormatRule,
-  RangeStylePatch,
   cloneRangeStylePatch,
+  normalizeRangeStylePatch,
   shiftConditionalFormatRules,
   moveRangeStylePatches,
-  normalizeRangeStylePatch,
   shiftRangeStylePatches,
 } from "@wafflebase/sheet";
-import { SheetChart, SpreadsheetDocument, Worksheet } from "@/types/worksheet";
-import { UserPresence } from "@/types/users";
+import type {
+  Store,
+  Grid,
+  Cell,
+  CellStyle,
+  FilterCondition,
+  FilterState,
+  HiddenState,
+  MergeSpan,
+  PivotTableDefinition,
+  Ref,
+  Sref,
+  Range,
+  Direction,
+  Axis,
+  ConditionalFormatRule,
+  RangeStylePatch,
+} from "@wafflebase/sheet";
+import type {
+  SheetChart,
+  SpreadsheetDocument,
+  Worksheet,
+} from "@/types/worksheet";
+import type { UserPresence } from "@/types/users";
 
 export class YorkieStore implements Store {
   private doc: Document<SpreadsheetDocument, UserPresence>;
