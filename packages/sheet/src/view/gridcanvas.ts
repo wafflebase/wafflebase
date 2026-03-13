@@ -5,6 +5,8 @@ import {
   Range,
   SelectionType,
   CellStyle,
+  TextAlign,
+  NumberFormat,
   ConditionalFormatRule,
   MergeSpan,
 } from '../model/types';
@@ -12,6 +14,7 @@ import { RangeStylePatch, resolveRangeStyleAt } from '../model/range-styles';
 import { resolveConditionalFormatStyleAt } from '../model/conditional-format';
 import { DimensionIndex } from '../model/dimensions';
 import { formatValue } from '../model/format';
+import { inferInput } from '../model/input';
 import { Theme, ThemeKey, getThemeColor } from './theme';
 import { parseRef, toColumnLabel, toSref } from '../model/coordinates';
 import {
@@ -47,6 +50,25 @@ export const HiddenBtnArrowGap = 3;
 export const HiddenBtnPadding = 3;
 export const HiddenBtnRadius = 3;
 export const HiddenBtnMargin = 1;
+
+/**
+ * `defaultAlign` returns the implicit horizontal alignment for a cell value
+ * when no explicit alignment is set. Matches Excel/Google Sheets behavior:
+ * numbers and dates right-align, booleans center-align, text left-aligns.
+ */
+function defaultAlign(rawData: string, nf?: NumberFormat): TextAlign {
+  if (rawData === 'TRUE' || rawData === 'FALSE') {
+    return 'center';
+  }
+  if (nf === 'date') {
+    return 'right';
+  }
+  const inferred = inferInput(rawData);
+  if (inferred.type === 'number') {
+    return 'right';
+  }
+  return 'left';
+}
 
 /**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.
@@ -1218,7 +1240,7 @@ export class GridCanvas {
 
       // Compute overflow clip width for single-line, left-aligned text
       let clipWidth = rect.width;
-      const align = style?.al || 'left';
+      const align = style?.al || defaultAlign(rawData, style?.nf);
       if (!mergeSpan && overflowEndCol && colDim && overflowEndCol > id.c) {
         let extraWidth = 0;
         for (let nextCol = id.c + 1; nextCol <= overflowEndCol; nextCol++) {
@@ -1372,7 +1394,7 @@ export class GridCanvas {
 
         const style = resolveCellStyle?.(row, col, cell);
 
-        const align = style?.al || 'left';
+        const align = style?.al || defaultAlign(rawData, style?.nf);
         if (align !== 'left') {
           continue;
         }

@@ -1,5 +1,6 @@
 import { evaluate, extractReferences } from '../formula/formula';
 import { parseRef } from './coordinates';
+import { inferInput, applyInferredFormat } from './input';
 import { Sheet } from './sheet';
 import { CellStyle, Sref } from './types';
 
@@ -63,11 +64,15 @@ export async function calculate(
 
     const references = extractReferences(cell.f!);
     const grid = await sheet.fetchGridByReferences(references);
-    const value = await evaluate(cell.f!, grid);
+    const value = evaluate(cell.f!, grid);
+    const hasExplicitFormat = cell.s?.nf != null;
+    const style = hasExplicitFormat
+      ? cell.s
+      : applyInferredFormat(cell.s, inferInput(value));
     const nextCell = {
       v: value,
       f: cell.f,
-      s: cell.s,
+      s: style,
     };
     if (
       cell.v === nextCell.v &&
