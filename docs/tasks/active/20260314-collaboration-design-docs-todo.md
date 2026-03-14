@@ -18,7 +18,7 @@ documented in one place.
 
 ### What Changed
 
-- Added `docs/design/spreadsheet-collaboration.md` as the canonical design doc
+- Added `docs/design/collaboration.md` as the canonical design doc
   for Yorkie-backed spreadsheet collaboration.
 - Updated `docs/design/frontend.md` so its Yorkie integration section matches
   the current `Worksheet.cells + rowOrder + colOrder` model instead of the old

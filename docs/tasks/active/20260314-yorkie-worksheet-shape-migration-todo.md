@@ -41,7 +41,7 @@ the only runtime format.
 - Added the backend package script
   `pnpm --filter @wafflebase/backend migrate:yorkie:worksheet-shape`.
 - Documented the rollout guidance in
-  `docs/design/spreadsheet-collaboration.md`.
+  `docs/design/collaboration.md`.
 - Hardened the migration detector and snapshot parsing based on restored
   production-like documents:
   - support flat current worksheet roots

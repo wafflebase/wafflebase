@@ -250,7 +250,7 @@ fall inside frozen rows/columns.
 New documents are created directly in this canonical shape. Runtime support
 for the older flat `root.sheet` format has been removed. For the full
 collaboration data model and structural concurrency rationale, see
-[spreadsheet-collaboration.md](spreadsheet-collaboration.md).
+[collaboration.md](collaboration.md).
 
 #### YorkieStore
 
