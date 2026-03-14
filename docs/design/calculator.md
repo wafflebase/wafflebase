@@ -54,7 +54,7 @@ Source: `packages/sheet/src/model/worksheet/calculator.ts`
    - No-op writes are skipped when the evaluated result matches the existing
      cell value to reduce CRDT churn.
 
-```
+```text
 setData(ref, value)
   │
   ├── store.set(ref, cell)
@@ -123,7 +123,7 @@ includes cross-sheet edges before running `topologicalSort`.
 5. Feed the global map into `topologicalSort`, which detects cycles spanning
    any number of sheets.
 
-```
+```text
 Sheet1!A1 = =Sheet2!B1
 Sheet2!B1 = =Sheet1!A1
 
@@ -145,7 +145,7 @@ Result: A1 gets #REF!
 The BFS traversal follows cross-sheet references transitively, so cycles
 spanning three or more sheets are detected:
 
-```
+```text
 Sheet1!A1 = =Sheet2!A1
 Sheet2!A1 = =Sheet3!A1
 Sheet3!A1 = =Sheet1!A1  →  cycle detected, A1 = #REF!
