@@ -112,12 +112,12 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
 
 | Function                                         | Source       | Description                                                                               |
 | ------------------------------------------------ | ------------ | ----------------------------------------------------------------------------------------- |
-| `extractReferences(formula)`                     | `formula.ts` | Returns all `REFERENCE` tokens (uppercased) as a `Set<Reference>`                         |
-| `extractTokens(formula)`                         | `formula.ts` | Returns all tokens with type, position, and text — fills gaps with `STRING` tokens        |
-| `extractFormulaRanges(formula)`                   | `formula.ts` | Returns ranges referenced in the formula (skips cross-sheet refs) for visual highlighting |
-| `evaluate(formula, grid?)`                       | `formula.ts` | Full parse → visit → resolve pipeline, returns a display string                           |
-| `isReferenceInsertPosition(formula, cursorPos)`  | `formula.ts` | Checks if the cursor is at a valid position to insert a cell reference                    |
-| `findReferenceTokenAtCursor(formula, cursorPos)` | `formula.ts` | Returns the `REFERENCE` token at the cursor, or `undefined`                               |
+| `extractReferences(formula)`                     | (see above) | Returns all `REFERENCE` tokens (uppercased) as a `Set<Reference>`                         |
+| `extractTokens(formula)`                         | (see above) | Returns all tokens with type, position, and text — fills gaps with `STRING` tokens        |
+| `extractFormulaRanges(formula)`                   | (see above) | Returns ranges referenced in the formula (skips cross-sheet refs) for visual highlighting |
+| `evaluate(formula, grid?)`                       | (see above) | Full parse → visit → resolve pipeline, returns a display string                           |
+| `isReferenceInsertPosition(formula, cursorPos)`  | (see above) | Checks if the cursor is at a valid position to insert a cell reference                    |
+| `findReferenceTokenAtCursor(formula, cursorPos)` | (see above) | Returns the `REFERENCE` token at the cursor, or `undefined`                               |
 
 ### Arguments System
 
