@@ -15,16 +15,7 @@ curl -X PUT ${API}/\\
 # Set a formula
 curl -X PUT ${API}/\\
   tabs/:tid/cells/C1 \\
-  -d '{"formula": "=SUM(A1:B1)"}'
-
-# Batch update
-curl -X PATCH ${API}/\\
-  tabs/:tid/cells \\
-  -d '{"cells": {
-    "A1": {"value": "Revenue"},
-    "B1": {"formula": "=SUM(B2:B10)"},
-    "C1": null
-  }}'`;
+  -d '{"formula": "=SUM(A1:B1)"}'`;
 
 const cliCode = `# List documents
 $ wafflebase document list
@@ -42,14 +33,7 @@ $ wafflebase cell set abc-123 A1 "Revenue"
 
 # Write a formula
 $ wafflebase cell set abc-123 B2 \\
-    "=SUM(A1:A10)" --formula
-
-# Batch update via stdin
-$ echo '{"A1":"Name","B1":"Score"}' \\
-    | wafflebase cell batch abc-123
-
-# Output as table or CSV
-$ wafflebase cell get abc-123 --format table`;
+    "=SUM(A1:A10)" --formula`;
 
 type Token = { type: "comment" | "string" | "flag" | "cmd" | "method" | "prompt" | "text"; value: string };
 
