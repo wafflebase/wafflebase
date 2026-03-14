@@ -19,7 +19,7 @@
 **Files:**
 - Modify: `packages/frontend/src/index.css`
 
-- [ ] **Step 1: Add homepage variables to `:root`**
+- [x] **Step 1: Add homepage variables to `:root`**
 
 Add after the existing `--sidebar-ring` line in `:root` (line 76):
 
@@ -31,7 +31,7 @@ Add after the existing `--sidebar-ring` line in `:root` (line 76):
   --homepage-accent: oklch(0.78 0.18 78);
 ```
 
-- [ ] **Step 2: Add homepage dark overrides**
+- [x] **Step 2: Add homepage dark overrides**
 
 Add after the existing `--sidebar-ring` line in `.dark` (line 110):
 
@@ -43,7 +43,7 @@ Add after the existing `--sidebar-ring` line in `.dark` (line 110):
   --homepage-accent: oklch(0.78 0.18 78);
 ```
 
-- [ ] **Step 3: Register homepage colors in Tailwind theme**
+- [x] **Step 3: Register homepage colors in Tailwind theme**
 
 Add inside `@theme inline` block (after line 41):
 
@@ -55,12 +55,12 @@ Add inside `@theme inline` block (after line 41):
   --color-homepage-accent: var(--homepage-accent);
 ```
 
-- [ ] **Step 4: Verify the app still builds**
+- [x] **Step 4: Verify the app still builds**
 
 Run: `pnpm frontend build`
 Expected: Build succeeds with no errors
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/index.css
@@ -72,7 +72,7 @@ git commit -m "Add homepage color tokens to Tailwind theme"
 **Files:**
 - Modify: `packages/frontend/src/components/theme-provider.tsx`
 
-- [ ] **Step 1: Add query param detection on mount**
+- [x] **Step 1: Add query param detection on mount**
 
 Update the `useState` for `theme` to check URL params first:
 
@@ -90,7 +90,7 @@ const [theme, setThemeState] = useState<Theme>(() => {
 });
 ```
 
-- [ ] **Step 2: Add postMessage listener**
+- [x] **Step 2: Add postMessage listener**
 
 Add a new `useEffect` after the existing media query listener:
 
@@ -110,7 +110,7 @@ useEffect(() => {
 }, []);
 ```
 
-- [ ] **Step 3: Skip localStorage when externally controlled**
+- [x] **Step 3: Skip localStorage when externally controlled**
 
 Update the `setTheme` in the value object:
 
@@ -127,12 +127,12 @@ const value = {
 };
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/components/theme-provider.tsx
@@ -150,7 +150,7 @@ Skips localStorage when theme is set via URL parameter."
 - Create: `packages/frontend/src/app/home-or-redirect.tsx`
 - Modify: `packages/frontend/src/App.tsx`
 
-- [ ] **Step 1: Create HomeOrRedirect**
+- [x] **Step 1: Create HomeOrRedirect**
 
 ```tsx
 // packages/frontend/src/app/home-or-redirect.tsx
@@ -192,7 +192,7 @@ export function HomeOrRedirect() {
 }
 ```
 
-- [ ] **Step 2: Update App.tsx routing**
+- [x] **Step 2: Update App.tsx routing**
 
 Add the import at the top:
 
@@ -218,7 +218,7 @@ To:
 
 Remove the `WorkspaceRedirect` import if no longer used elsewhere.
 
-- [ ] **Step 3: Create placeholder HomePage**
+- [x] **Step 3: Create placeholder HomePage**
 
 ```tsx
 // packages/frontend/src/app/home/page.tsx
@@ -227,12 +227,12 @@ export default function HomePage() {
 }
 ```
 
-- [ ] **Step 4: Verify routing works**
+- [x] **Step 4: Verify routing works**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/home-or-redirect.tsx \
@@ -251,7 +251,7 @@ Authenticated users redirect to their workspace."
 **Files:**
 - Create: `packages/frontend/src/app/home/nav-bar.tsx`
 
-- [ ] **Step 1: Create NavBar**
+- [x] **Step 1: Create NavBar**
 
 ```tsx
 // packages/frontend/src/app/home/nav-bar.tsx
@@ -277,7 +277,7 @@ export function NavBar() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/frontend/src/app/home/nav-bar.tsx
@@ -289,7 +289,7 @@ git commit -m "Add homepage NavBar component"
 **Files:**
 - Create: `packages/frontend/src/app/home/hero-section.tsx`
 
-- [ ] **Step 1: Create HeroSection**
+- [x] **Step 1: Create HeroSection**
 
 ```tsx
 // packages/frontend/src/app/home/hero-section.tsx
@@ -330,7 +330,7 @@ export function HeroSection() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/frontend/src/app/home/hero-section.tsx
@@ -342,7 +342,7 @@ git commit -m "Add homepage HeroSection component"
 **Files:**
 - Create: `packages/frontend/src/app/home/demo-section.tsx`
 
-- [ ] **Step 1: Create DemoSection**
+- [x] **Step 1: Create DemoSection**
 
 ```tsx
 // packages/frontend/src/app/home/demo-section.tsx
@@ -416,7 +416,7 @@ export function DemoSection() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/frontend/src/app/home/demo-section.tsx
@@ -431,7 +431,7 @@ Shows loading skeleton while iframe loads."
 **Files:**
 - Create: `packages/frontend/src/app/home/features-section.tsx`
 
-- [ ] **Step 1: Create FeaturesSection**
+- [x] **Step 1: Create FeaturesSection**
 
 ```tsx
 // packages/frontend/src/app/home/features-section.tsx
@@ -492,7 +492,7 @@ export function FeaturesSection() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/frontend/src/app/home/features-section.tsx
@@ -504,7 +504,7 @@ git commit -m "Add homepage FeaturesSection component"
 **Files:**
 - Create: `packages/frontend/src/app/home/developer-section.tsx`
 
-- [ ] **Step 1: Create DeveloperSection**
+- [x] **Step 1: Create DeveloperSection**
 
 ```tsx
 // packages/frontend/src/app/home/developer-section.tsx
@@ -574,7 +574,7 @@ export function DeveloperSection() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/frontend/src/app/home/developer-section.tsx
@@ -586,7 +586,7 @@ git commit -m "Add homepage DeveloperSection component"
 **Files:**
 - Create: `packages/frontend/src/app/home/opensource-section.tsx`
 
-- [ ] **Step 1: Create OpenSourceSection**
+- [x] **Step 1: Create OpenSourceSection**
 
 ```tsx
 // packages/frontend/src/app/home/opensource-section.tsx
@@ -628,7 +628,7 @@ export function OpenSourceSection() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/frontend/src/app/home/opensource-section.tsx
@@ -640,7 +640,7 @@ git commit -m "Add homepage OpenSourceSection component"
 **Files:**
 - Create: `packages/frontend/src/app/home/footer.tsx`
 
-- [ ] **Step 1: Create Footer**
+- [x] **Step 1: Create Footer**
 
 ```tsx
 // packages/frontend/src/app/home/footer.tsx
@@ -681,7 +681,7 @@ export function Footer() {
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/frontend/src/app/home/footer.tsx
@@ -695,7 +695,7 @@ git commit -m "Add homepage Footer with theme toggle"
 **Files:**
 - Modify: `packages/frontend/src/app/home/page.tsx`
 
-- [ ] **Step 1: Update page.tsx to compose all sections**
+- [x] **Step 1: Update page.tsx to compose all sections**
 
 ```tsx
 // packages/frontend/src/app/home/page.tsx
@@ -722,12 +722,12 @@ export default function HomePage() {
 }
 ```
 
-- [ ] **Step 2: Run full verification**
+- [x] **Step 2: Run full verification**
 
 Run: `pnpm verify:fast`
 Expected: All lint and tests pass
 
-- [ ] **Step 3: Manual test**
+- [x] **Step 3: Manual test**
 
 Run: `pnpm dev`
 - Visit `http://localhost:5173/` while logged out → should see homepage
@@ -736,7 +736,7 @@ Run: `pnpm dev`
 - Click "Get Started" → should go to `/login`
 - Click anchor links (Features, Developers) → should smooth scroll
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/home/page.tsx
@@ -748,16 +748,16 @@ OpenSource, and Footer sections into the landing page."
 
 ### Task 12: Final cleanup and verify
 
-- [ ] **Step 1: Run full verification**
+- [x] **Step 1: Run full verification**
 
 Run: `pnpm verify:fast`
 Expected: All pass
 
-- [ ] **Step 2: Visual check in both themes**
+- [x] **Step 2: Visual check in both themes**
 
 Verify in browser:
 - Light mode: warm amber/gold tones, readable contrast
 - Dark mode: dark backgrounds, amber text, iframe theme matches
 - Responsive: resize window to check grid breakpoints
 
-- [ ] **Step 3: Final commit if any adjustments needed**
+- [x] **Step 3: Final commit if any adjustments needed**
