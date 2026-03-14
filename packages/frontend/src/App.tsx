@@ -8,7 +8,7 @@ import { Loader } from "@/components/loader";
 import { PrivateRoute } from "./PrivateRoute";
 import { PublicRoute } from "./PublicRoute";
 import { ThemeProvider } from "./components/theme-provider";
-import { WorkspaceRedirect } from "./app/workspaces/workspace-redirect";
+import { HomeOrRedirect } from "./app/home-or-redirect";
 
 const Login = lazy(() => import("@/app/login/page"));
 const Documents = lazy(() => import("@/app/documents/page"));
@@ -52,9 +52,9 @@ function App() {
                   element={<InteractionHarnessPage />}
                 />
                 <Route path="/shared/:token" element={<SharedDocument />} />
+                <Route path="/" element={<HomeOrRedirect />} />
                 <Route element={<PrivateRoute />}>
                   <Route element={<Layout />}>
-                    <Route path="/" element={<WorkspaceRedirect />} />
                     <Route
                       path="/w/:workspaceId"
                       element={<WorkspaceDocuments />}

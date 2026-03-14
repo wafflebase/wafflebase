@@ -33,9 +33,13 @@ export function ThemeProvider({
   storageKey = "vite-ui-theme",
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-  );
+  const isIframe = window.self !== window.top;
+  const [theme, setThemeState] = useState<Theme>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlTheme = params.get("theme");
+    if (urlTheme === "light" || urlTheme === "dark") return urlTheme;
+    return (localStorage.getItem(storageKey) as Theme) || defaultTheme;
+  });
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(
     window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
   );
@@ -82,12 +86,28 @@ export function ThemeProvider({
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, [theme]);
 
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === "theme-change") {
+        const t = e.data.theme;
+        if (t === "light" || t === "dark") {
+          setThemeState(t);
+        }
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
   const value = {
     theme,
     resolvedTheme,
-    setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme);
-      setTheme(theme);
+    setTheme: (newTheme: Theme) => {
+      if (!isIframe) {
+        localStorage.setItem(storageKey, newTheme);
+      }
+      setThemeState(newTheme);
     },
   };
 

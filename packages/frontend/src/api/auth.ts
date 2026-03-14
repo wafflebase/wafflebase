@@ -22,12 +22,12 @@ type LogoutOptions = {
   suppressFailure?: boolean;
 };
 
-let isRedirectingToLogin = false;
+let isRedirecting = false;
 
-function redirectToLogin() {
-  if (isRedirectingToLogin) return;
-  isRedirectingToLogin = true;
-  window.location.href = "/login";
+function redirectTo(path: string) {
+  if (isRedirecting) return;
+  isRedirecting = true;
+  window.location.href = path;
 }
 
 const refreshSession = createSingleFlightRunner(async (): Promise<boolean> => {
@@ -74,7 +74,7 @@ export async function logout(options: LogoutOptions = {}): Promise<void> {
   }
 
   if (redirect) {
-    redirectToLogin();
+    redirectTo("/");
   }
 }
 
@@ -156,7 +156,7 @@ export async function fetchWithAuth(
       showSuccessToast: false,
       suppressFailure: true,
     });
-    redirectToLogin();
+    redirectTo("/login");
     throw new AuthExpiredError();
   }
 
