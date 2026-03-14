@@ -19,7 +19,8 @@
     "test:visual:browser:docker:update": "bash ../../scripts/run-browser-tests-docker.sh visual:update",
     "test:interaction:docker": "bash ../../scripts/run-browser-tests-docker.sh interaction",
     "test:browser:docker": "bash ../../scripts/run-browser-tests-docker.sh all",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docs:screenshots": "node ./scripts/capture-docs-screenshots.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

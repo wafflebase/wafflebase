@@ -148,6 +148,9 @@ export function DeveloperSection() {
           <pre className="text-sm font-mono leading-7 whitespace-pre">
             {highlightCode(restApiCode)}
           </pre>
+          <a href="/docs/api/rest-api" className="inline-block mt-4 text-sm text-amber-400 hover:text-amber-300 no-underline">
+            View full API documentation →
+          </a>
         </div>
         <div className="bg-stone-800 rounded-xl p-6 overflow-x-auto">
           <div className="text-xs text-stone-400 font-semibold uppercase tracking-wider mb-3">
@@ -156,6 +159,9 @@ export function DeveloperSection() {
           <pre className="text-sm font-mono leading-7 whitespace-pre">
             {highlightCode(cliCode)}
           </pre>
+          <a href="/docs/api/cli" className="inline-block mt-4 text-sm text-amber-400 hover:text-amber-300 no-underline">
+            View CLI documentation →
+          </a>
         </div>
       </div>
     </section>
