@@ -1,39 +1,67 @@
-# Start from the node:20-alpine image
-FROM node:20-alpine
+# ---------------------------------------------------------------------------
+# Stage 1: Build (runs on the CI host architecture — no QEMU emulation)
+# ---------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
 
-# Install pnpm using corepack (available in Node.js 16.9.0+)
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
-# Set the working directory
 WORKDIR /app
 
-# Copy package.json and workspace files
+# Copy package manifests and workspace config
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/sheet/package.json ./packages/sheet/
 
-# Copy Prisma schema before installing dependencies
+# Copy Prisma schema (needed by postinstall: prisma generate)
 COPY packages/backend/prisma ./packages/backend/prisma
 
-# Install dependencies for the backend and its workspace dependency (sheet)
+# Install all dependencies (runs natively — fast)
 RUN pnpm install --frozen-lockfile --filter @wafflebase/backend...
 
-# Copy the sheet package source (backend uses type-only imports)
+# Copy source
 COPY packages/sheet/ ./packages/sheet/
-
-# Copy the rest of the backend files
 COPY packages/backend/ ./packages/backend/
 
-# Build the backend
+# Build sheet → platform-independent JS bundle
+WORKDIR /app/packages/sheet
+RUN pnpm run build
+
+# Build backend → platform-independent JS via SWC
 WORKDIR /app/packages/backend
 RUN pnpm run build
 
-# Set the working directory for the backend
+# ---------------------------------------------------------------------------
+# Stage 2: Runtime (target platform)
+# ---------------------------------------------------------------------------
+FROM node:20-alpine
+
+RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
+
+WORKDIR /app
+
+# Copy workspace manifests
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
+COPY packages/backend/package.json ./packages/backend/
+COPY packages/sheet/package.json ./packages/sheet/
+
+# Copy Prisma schema (needed for prisma generate)
+COPY packages/backend/prisma ./packages/backend/prisma
+
+# Install production dependencies only, skip postinstall scripts to avoid
+# needing the prisma CLI (which is a devDependency).
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @wafflebase/backend...
+
+# Generate Prisma client for the target platform using npx (one-off).
+WORKDIR /app/packages/backend
+RUN npx prisma@6.6.0 generate
+
+# Copy built artifacts from builder stage
+COPY --from=builder /app/packages/sheet/dist /app/packages/sheet/dist
+COPY --from=builder /app/packages/backend/dist /app/packages/backend/dist
+
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Expose the port the app runs on
 EXPOSE 3000
 
-# Start the backend server
-CMD ["pnpm", "run", "start:prod"]
+CMD ["node", "dist/main"]
