@@ -6,12 +6,23 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 62
+Total archived tasks: 73
 
-## 2026/03 (25 tasks)
+## 2026/03 (36 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| ci export failure (2026-03-14) | [20260314-ci-export-failure-todo.md](./2026/03/20260314-ci-export-failure-todo.md) | [20260314-ci-export-failure-lessons.md](./2026/03/20260314-ci-export-failure-lessons.md) |
+| collaboration design docs (2026-03-14) | [20260314-collaboration-design-docs-todo.md](./2026/03/20260314-collaboration-design-docs-todo.md) | [20260314-collaboration-design-docs-lessons.md](./2026/03/20260314-collaboration-design-docs-lessons.md) |
+| local hackerwins access (2026-03-14) | [20260314-local-hackerwins-access-todo.md](./2026/03/20260314-local-hackerwins-access-todo.md) | [20260314-local-hackerwins-access-lessons.md](./2026/03/20260314-local-hackerwins-access-lessons.md) |
+| local prod restore (2026-03-14) | [20260314-local-prod-restore-todo.md](./2026/03/20260314-local-prod-restore-todo.md) | [20260314-local-prod-restore-lessons.md](./2026/03/20260314-local-prod-restore-lessons.md) |
+| worksheet model boundary (2026-03-14) | [20260314-worksheet-model-boundary-todo.md](./2026/03/20260314-worksheet-model-boundary-todo.md) | [20260314-worksheet-model-boundary-lessons.md](./2026/03/20260314-worksheet-model-boundary-lessons.md) |
+| yorkie worksheet shape migration (2026-03-14) | [20260314-yorkie-worksheet-shape-migration-todo.md](./2026/03/20260314-yorkie-worksheet-shape-migration-todo.md) | [20260314-yorkie-worksheet-shape-migration-lessons.md](./2026/03/20260314-yorkie-worksheet-shape-migration-lessons.md) |
+| backend dev start failure (2026-03-13) | [20260313-backend-dev-start-failure-todo.md](./2026/03/20260313-backend-dev-start-failure-todo.md) | [20260313-backend-dev-start-failure-lessons.md](./2026/03/20260313-backend-dev-start-failure-lessons.md) |
+| crdt structural concurrency analysis (2026-03-13) | [20260313-crdt-structural-concurrency-analysis-todo.md](./2026/03/20260313-crdt-structural-concurrency-analysis-todo.md) | [20260313-crdt-structural-concurrency-analysis-lessons.md](./2026/03/20260313-crdt-structural-concurrency-analysis-lessons.md) |
+| crdt structural concurrency fix (2026-03-13) | [20260313-crdt-structural-concurrency-fix-todo.md](./2026/03/20260313-crdt-structural-concurrency-fix-todo.md) | [20260313-crdt-structural-concurrency-fix-lessons.md](./2026/03/20260313-crdt-structural-concurrency-fix-lessons.md) |
+| crdt structural concurrency retrospective (2026-03-13) | [20260313-crdt-structural-concurrency-retrospective-todo.md](./2026/03/20260313-crdt-structural-concurrency-retrospective-todo.md) | [20260313-crdt-structural-concurrency-retrospective-lessons.md](./2026/03/20260313-crdt-structural-concurrency-retrospective-lessons.md) |
+| crdt structural concurrency test architecture (2026-03-13) | [20260313-crdt-structural-concurrency-test-architecture-todo.md](./2026/03/20260313-crdt-structural-concurrency-test-architecture-todo.md) | [20260313-crdt-structural-concurrency-test-architecture-lessons.md](./2026/03/20260313-crdt-structural-concurrency-test-architecture-lessons.md) |
 | api key settings ui (2026-03-12) | [20260312-api-key-settings-ui-todo.md](./2026/03/20260312-api-key-settings-ui-todo.md) | - |
 | sheet find (2026-03-12) | [20260312-sheet-find-todo.md](./2026/03/20260312-sheet-find-todo.md) | [20260312-sheet-find-lessons.md](./2026/03/20260312-sheet-find-lessons.md) |
 | docker browser tests (2026-03-11) | [20260311-docker-browser-tests-todo.md](./2026/03/20260311-docker-browser-tests-todo.md) | [20260311-docker-browser-tests-lessons.md](./2026/03/20260311-docker-browser-tests-lessons.md) |

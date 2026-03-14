@@ -51,7 +51,8 @@ COPY packages/backend/prisma ./packages/backend/prisma
 # needing the prisma CLI (which is a devDependency).
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @wafflebase/backend...
 
-# Generate Prisma client for the target platform using npx (one-off).
+# Install Prisma CLI (pinned version) and generate client for target platform.
+# The CLI stays in the image so init containers can run `npx prisma migrate deploy`.
 WORKDIR /app/packages/backend
 RUN npx prisma@6.6.0 generate
 
