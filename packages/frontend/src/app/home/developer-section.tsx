@@ -1,35 +1,53 @@
-const restApiCode = `# Read a cell
-curl /api/v1/workspaces/:wid/\\
-  documents/:did/tabs/:tid/\\
-  cells/A1 \\
+const API = "/api/v1/workspaces/:wid/documents/:did";
+
+const restApiCode = `# Read cells (with optional range)
+curl ${API}/\\
+  tabs/:tid/cells?range=A1:C10 \\
   -H "Authorization: Bearer wfb_..."
 
 # Write a cell
-curl -X PUT /api/v1/.../cells/B2 \\
+curl -X PUT ${API}/\\
+  tabs/:tid/cells/B2 \\
   -d '{"value": "Hello"}'
 
+# Set a formula
+curl -X PUT ${API}/\\
+  tabs/:tid/cells/C1 \\
+  -d '{"formula": "=SUM(A1:B1)"}'
+
 # Batch update
-curl -X PATCH /api/v1/.../cells \\
-  -d '{"cells": {"A1": {"value": "1"},
-    "B1": {"formula": "=A1*2"}}}'`;
+curl -X PATCH ${API}/\\
+  tabs/:tid/cells \\
+  -d '{"cells": {
+    "A1": {"value": "Revenue"},
+    "B1": {"formula": "=SUM(B2:B10)"},
+    "C1": null
+  }}'`;
 
-const cliCode = `# Authenticate
-$ wfb auth login
-
-# List documents
-$ wfb document list
+const cliCode = `# List documents
+$ wafflebase document list
 [
   {"id": "abc-123",
    "title": "Q1 Report"}
 ]
 
-# Read / write cells
-$ wfb cell get abc-123 Sheet1 A1
-$ wfb cell set abc-123 Sheet1 B2 \\
-    --value "Hello"
+# Read cells (range or single)
+$ wafflebase cell get abc-123 A1:C10
+$ wafflebase cell get abc-123 A1
 
-# Export to CSV
-$ wfb export abc-123 -o data.csv`;
+# Write a cell value
+$ wafflebase cell set abc-123 A1 "Revenue"
+
+# Write a formula
+$ wafflebase cell set abc-123 B2 \\
+    "=SUM(A1:A10)" --formula
+
+# Batch update via stdin
+$ echo '{"A1":"Name","B1":"Score"}' \\
+    | wafflebase cell batch abc-123
+
+# Output as table or CSV
+$ wafflebase cell get abc-123 --format table`;
 
 export function DeveloperSection() {
   return (
