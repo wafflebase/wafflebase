@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/theme-provider";
 
-const DEMO_TOKEN = "bed3dbe8-bdce-46ef-a76e-65fd67178cde";
+const DEMO_TOKEN =
+  import.meta.env.VITE_DEMO_SHARED_TOKEN ??
+  "bed3dbe8-bdce-46ef-a76e-65fd67178cde";
 
 export function DemoSection() {
   const { resolvedTheme } = useTheme();

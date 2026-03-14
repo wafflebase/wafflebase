@@ -33,10 +33,7 @@ export function ThemeProvider({
   storageKey = "vite-ui-theme",
   ...props
 }: ThemeProviderProps) {
-  const [externallyControlled] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.has("theme");
-  });
+  const isIframe = window.self !== window.top;
   const [theme, setThemeState] = useState<Theme>(() => {
     const params = new URLSearchParams(window.location.search);
     const urlTheme = params.get("theme");
@@ -107,7 +104,7 @@ export function ThemeProvider({
     theme,
     resolvedTheme,
     setTheme: (newTheme: Theme) => {
-      if (!externallyControlled) {
+      if (!isIframe) {
         localStorage.setItem(storageKey, newTheme);
       }
       setThemeState(newTheme);

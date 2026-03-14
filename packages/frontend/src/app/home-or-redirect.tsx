@@ -13,13 +13,13 @@ export function HomeOrRedirect() {
     retry: false,
   });
 
-  const { data: workspaces } = useQuery({
+  const { data: workspaces, isLoading: workspacesLoading } = useQuery({
     queryKey: ["workspaces"],
     queryFn: fetchWorkspaces,
     enabled: !!user,
   });
 
-  if (userLoading) return <Loader />;
+  if (userLoading || (user && workspacesLoading)) return <Loader />;
 
   const workspacePath =
     user && workspaces && workspaces.length > 0
