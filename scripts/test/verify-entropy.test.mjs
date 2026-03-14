@@ -4,10 +4,10 @@ import { extractFileRefs } from "../verify-entropy.mjs";
 
 describe("extractFileRefs", () => {
   it("extracts backtick-wrapped file paths with extensions", () => {
-    const content = "See `src/model/sheet.ts` for details.";
+    const content = "See `src/model/worksheet/sheet.ts` for details.";
     const refs = extractFileRefs(content, "test.md");
     assert.deepStrictEqual(refs, [
-      { path: "src/model/sheet.ts", source: "test.md" },
+      { path: "src/model/worksheet/sheet.ts", source: "test.md" },
     ]);
   });
 

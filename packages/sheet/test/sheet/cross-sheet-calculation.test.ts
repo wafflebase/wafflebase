@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/sheet';
-import { Grid, Cell, Sref, GridResolver } from '../../src/model/types';
+import { Sheet } from '../../src/model/worksheet/sheet';
+import { Grid, Cell, Sref, GridResolver } from '../../src/model/core/types';
 
 describe('Cross-Sheet Calculation', () => {
   it('should evaluate cross-sheet formula with GridResolver', async () => {

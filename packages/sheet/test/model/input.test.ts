@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inferInput } from '../../src/model/input';
+import { inferInput } from '../../src/model/worksheet/input';
 
 describe('inferInput', () => {
   it('infers currency', () => {

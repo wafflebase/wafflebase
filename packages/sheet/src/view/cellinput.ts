@@ -1,4 +1,4 @@
-import { CellStyle } from '../model/types';
+import { CellStyle } from '../model/core/types';
 import { extractTokens } from '../formula/formula';
 import { Theme, ThemeKey, getThemeColor, getFormulaRangeColor } from './theme';
 import { setTextRange, toTextRange } from './utils/textrange';

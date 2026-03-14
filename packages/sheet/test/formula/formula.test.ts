@@ -7,7 +7,7 @@ import {
   findReferenceTokenAtCursor,
   normalizeFormulaOnCommit,
 } from '../../src/formula/formula';
-import { Grid, Cell } from '../../src/model/types';
+import { Grid, Cell } from '../../src/model/core/types';
 
 describe('Formula', () => {
   it('should correctly evaluate addition', () => {

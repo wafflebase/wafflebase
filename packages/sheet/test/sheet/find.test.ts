@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/sheet';
+import { Sheet } from '../../src/model/worksheet/sheet';
 
 describe('Sheet.findCells', () => {
   it('should find cells matching a query (case-insensitive)', async () => {

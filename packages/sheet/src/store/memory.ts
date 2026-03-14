@@ -4,27 +4,27 @@ import {
   parseRef,
   toSref,
   toSrefs,
-} from '../model/coordinates';
+} from '../model/core/coordinates';
 import {
   shiftGrid,
   shiftDimensionMap,
   moveGrid,
   moveDimensionMap,
-} from '../model/shifting';
+} from '../model/worksheet/shifting';
 import {
   RangeStylePatch,
   cloneRangeStylePatch,
   moveRangeStylePatches,
   normalizeRangeStylePatch,
   shiftRangeStylePatches,
-} from '../model/range-styles';
+} from '../model/worksheet/range-styles';
 import {
   cloneConditionalFormatRule,
   moveConditionalFormatRules,
   normalizeConditionalFormatRule,
   shiftConditionalFormatRules,
-} from '../model/conditional-format';
-import { shiftMergeMap, moveMergeMap } from '../model/merging';
+} from '../model/worksheet/conditional-format';
+import { shiftMergeMap, moveMergeMap } from '../model/worksheet/merging';
 import {
   Axis,
   Cell,
@@ -39,7 +39,7 @@ import {
   Sref,
   Direction,
   FilterState,
-} from '../model/types';
+} from '../model/core/types';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';

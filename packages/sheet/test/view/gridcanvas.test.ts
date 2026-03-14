@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { toSref } from '../../src/model/coordinates';
-import { MergeSpan, Ref } from '../../src/model/types';
+import { toSref } from '../../src/model/core/coordinates';
+import { MergeSpan, Ref } from '../../src/model/core/types';
 import { GridCanvas } from '../../src/view/gridcanvas';
 
 type MergeData = {

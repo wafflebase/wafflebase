@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/sheet';
+import { Sheet } from '../../src/model/worksheet/sheet';
 
 describe('Sheet.mergeSelection', () => {
   it('should merge selected cells and alias covered cells to anchor', async () => {

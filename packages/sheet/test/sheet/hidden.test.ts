@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Sheet } from '../../src/model/sheet';
+import { Sheet } from '../../src/model/worksheet/sheet';
 import { MemStore } from '../../src/store/memory';
 
 describe('Sheet.Hidden', () => {

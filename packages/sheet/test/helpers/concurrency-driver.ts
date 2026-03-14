@@ -1,5 +1,5 @@
-import { parseRef } from '../../src/model/coordinates.ts';
-import { Sheet } from '../../src/model/sheet.ts';
+import { parseRef } from '../../src/model/core/coordinates.ts';
+import { Sheet } from '../../src/model/worksheet/sheet.ts';
 import { MemStore } from '../../src/store/memory.ts';
 import {
   ConcurrencyCase,

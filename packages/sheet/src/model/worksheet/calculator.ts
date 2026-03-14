@@ -1,7 +1,7 @@
-import { evaluate, extractReferences } from '../formula/formula';
-import { parseRef } from './coordinates';
+import { evaluate, extractReferences } from '../../formula/formula';
+import { parseRef } from '../core/coordinates';
 import { Sheet } from './sheet';
-import { CellStyle, Sref } from './types';
+import { CellStyle, Sref } from '../core/types';
 
 function stylesEqual(
   left: CellStyle | undefined,

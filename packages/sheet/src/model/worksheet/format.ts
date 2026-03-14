@@ -1,5 +1,5 @@
-import { NumberFormat } from './types';
-import { resolveCurrencyForLocale, resolveSystemLocale } from './locale';
+import { NumberFormat } from '../core/types';
+import { resolveCurrencyForLocale, resolveSystemLocale } from '../core/locale';
 
 export type FormatValueOptions = {
   locale?: string;

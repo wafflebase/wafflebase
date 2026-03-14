@@ -1,4 +1,4 @@
-import { parseRef, toSref } from '../model/coordinates';
+import { parseRef, toSref } from '../model/core/coordinates';
 import {
   Axis,
   Cell,
@@ -13,8 +13,8 @@ import {
   Range,
   Sref,
   Direction,
-} from '../model/types';
-import { RangeStylePatch } from '../model/range-styles';
+} from '../model/core/types';
+import { RangeStylePatch } from '../model/worksheet/range-styles';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';

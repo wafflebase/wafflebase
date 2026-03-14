@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   pruneShadowedRangeStylePatches,
   RangeStylePatch,
-} from '../../src/model/range-styles';
+} from '../../src/model/worksheet/range-styles';
 
 describe('pruneShadowedRangeStylePatches', () => {
   it('should remove shadowed keys from earlier patch when later patch covers same range', () => {

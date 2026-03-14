@@ -23,14 +23,14 @@ import {
   UnarySignContext,
 } from '../../antlr/FormulaParser';
 import { FunctionMap } from './functions';
-import { Grid, Range, Reference } from '../model/types';
+import { Grid, Range, Reference } from '../model/core/types';
 import { NumberArgs, StringArgs } from './arguments';
 import {
   isSrng,
   parseRef,
   parseRange,
   isCrossSheetRef,
-} from '../model/coordinates';
+} from '../model/core/coordinates';
 
 /**
  * `Token` represents a token in the formula.

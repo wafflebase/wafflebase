@@ -7,13 +7,13 @@ import {
   CellStyle,
   ConditionalFormatRule,
   MergeSpan,
-} from '../model/types';
-import { RangeStylePatch, resolveRangeStyleAt } from '../model/range-styles';
-import { resolveConditionalFormatStyleAt } from '../model/conditional-format';
-import { DimensionIndex } from '../model/dimensions';
-import { formatValue } from '../model/format';
+} from '../model/core/types';
+import { RangeStylePatch, resolveRangeStyleAt } from '../model/worksheet/range-styles';
+import { resolveConditionalFormatStyleAt } from '../model/worksheet/conditional-format';
+import { DimensionIndex } from '../model/worksheet/dimensions';
+import { formatValue } from '../model/worksheet/format';
 import { Theme, ThemeKey, getThemeColor } from './theme';
-import { parseRef, toColumnLabel, toSref } from '../model/coordinates';
+import { parseRef, toColumnLabel, toSref } from '../model/core/coordinates';
 import {
   DefaultCellWidth,
   DefaultCellHeight,

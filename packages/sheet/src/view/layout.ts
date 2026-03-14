@@ -1,5 +1,5 @@
-import { Ref } from '../model/types';
-import { DimensionIndex } from '../model/dimensions';
+import { Ref } from '../model/core/types';
+import { DimensionIndex } from '../model/worksheet/dimensions';
 
 // Cell dimensions
 export const DefaultCellWidth = 100;

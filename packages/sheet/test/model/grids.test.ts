@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from 'vitest';
-import { html2grid, isSpreadsheetHtml, cssColorToHex, grid2string, string2grid } from '../../src/model/grids';
+import { html2grid, isSpreadsheetHtml, cssColorToHex, grid2string, string2grid } from '../../src/model/worksheet/grids';
 
 describe('cssColorToHex', () => {
   it('should convert rgb to hex', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CellIndex } from '../../src/store/cell-index';
 import { findEdgeWithIndex } from '../../src/store/find-edge';
-import { Range } from '../../src/model/types';
+import { Range } from '../../src/model/core/types';
 
 // Standard dimension: rows 1..100, cols 1..26
 const dim: Range = [{ r: 1, c: 1 }, { r: 100, c: 26 }];

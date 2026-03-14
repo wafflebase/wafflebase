@@ -1,6 +1,6 @@
-import { extractTokens } from '../formula/formula';
-import { parseARef, parseRef, toASref, toSref } from './coordinates';
-import { ARef, Axis, Cell, Grid, Ref, Sref } from './types';
+import { extractTokens } from '../../formula/formula';
+import { parseARef, parseRef, toASref, toSref } from '../core/coordinates';
+import { ARef, Axis, Cell, Grid, Ref, Sref } from '../core/types';
 
 /**
  * `remapIndex` maps an old 1-based index to its new position after moving

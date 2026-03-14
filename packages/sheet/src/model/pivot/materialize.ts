@@ -1,5 +1,5 @@
-import { toSref } from '../coordinates';
-import type { Cell, Grid, PivotResult } from '../types';
+import { toSref } from '../core/coordinates';
+import type { Cell, Grid, PivotResult } from '../core/types';
 
 /**
  * `materialize` converts a PivotResult into a Grid (Map<Sref, Cell>).

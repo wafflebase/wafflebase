@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { evaluate, extractReferences } from '../../src/formula/formula';
-import { Grid, Cell } from '../../src/model/types';
+import { Grid, Cell } from '../../src/model/core/types';
 
 describe('Cross-Sheet References - Formula', () => {
   describe('extractReferences', () => {

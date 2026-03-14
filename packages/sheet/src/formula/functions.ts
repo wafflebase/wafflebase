@@ -2,7 +2,7 @@ import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
 import { EvalNode, ErrNode } from './formula';
 import { NumberArgs, BoolArgs, ref2str } from './arguments';
-import { Grid } from '../model/types';
+import { Grid } from '../model/core/types';
 import {
   isCrossSheetRef,
   isSrng,
@@ -12,7 +12,7 @@ import {
   toColumnLabel,
   toSref,
   toSrefs,
-} from '../model/coordinates';
+} from '../model/core/coordinates';
 
 /**
  * FunctionMap is a map of function name to the function implementation.

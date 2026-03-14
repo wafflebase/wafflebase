@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/sheet';
+import { Sheet } from '../../src/model/worksheet/sheet';
 
 describe('Sheet.setData input inference', () => {
   it('normalizes currency value and stores inferred currency format', async () => {

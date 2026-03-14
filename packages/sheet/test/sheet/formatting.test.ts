@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/sheet';
-import { formatValue } from '../../src/model/format';
+import { Sheet } from '../../src/model/worksheet/sheet';
+import { formatValue } from '../../src/model/worksheet/format';
 
 describe('Sheet.Formatting', () => {
   it('should get undefined style for empty cell', async () => {

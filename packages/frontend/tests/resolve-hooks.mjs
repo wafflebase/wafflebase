@@ -31,13 +31,24 @@ const SHEET_DIST = pathResolve(
   "wafflebase-sheet.es.js",
 );
 
+const SHEET_SRC_INDEX = pathResolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "..",
+  "..",
+  "sheet",
+  "src",
+  "index.ts",
+);
+
 export async function resolve(specifier, context, nextResolve) {
   // Map @wafflebase/sheet → built ES module in sheet dist.
-  // If the dist file is missing (e.g. CI before sheet build), resolve to a
-  // virtual stub so tests that transitively import it can still run.
+  // If the dist file is missing, fall back to the workspace source.
   if (specifier === "@wafflebase/sheet") {
     if (existsSync(SHEET_DIST)) {
       return nextResolve(pathToFileURL(SHEET_DIST).href, context);
+    }
+    if (existsSync(SHEET_SRC_INDEX)) {
+      return nextResolve(pathToFileURL(SHEET_SRC_INDEX).href, context);
     }
     return { url: "virtual:wafflebase-sheet", shortCircuit: true };
   }

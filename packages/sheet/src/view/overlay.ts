@@ -1,6 +1,6 @@
-import { MergeSpan, Ref, Range, SelectionType } from '../model/types';
-import { DimensionIndex } from '../model/dimensions';
-import { parseRef, toSref, isSameRange } from '../model/coordinates';
+import { MergeSpan, Ref, Range, SelectionType } from '../model/core/types';
+import { DimensionIndex } from '../model/worksheet/dimensions';
+import { parseRef, toSref, isSameRange } from '../model/core/coordinates';
 import { Theme, ThemeKey, getThemeColor, getPeerCursorColor, getFormulaRangeColor } from './theme';
 import {
   BoundingRect,

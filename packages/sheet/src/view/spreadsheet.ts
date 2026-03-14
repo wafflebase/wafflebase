@@ -8,8 +8,8 @@ import {
   Range,
   Ref,
   SelectionType,
-} from '../model/types';
-import { Sheet } from '../model/sheet';
+} from '../model/core/types';
+import { Sheet } from '../model/worksheet/sheet';
 import { Store } from '../store/store';
 import { MemStore } from '../store/memory';
 import { Worksheet } from './worksheet';

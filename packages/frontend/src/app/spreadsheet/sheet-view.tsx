@@ -6,6 +6,7 @@ import {
   CellStyle,
   Ref,
   Sref,
+  getWorksheetCell,
   parseRef,
   toSref,
 } from "@wafflebase/sheet";
@@ -701,7 +702,7 @@ export function SheetView({
             const ref = parseRef(localRef);
             const sref = toSref(ref);
             const anchorSref = coverToAnchor.get(sref) || sref;
-            const cellData = ws.sheet[anchorSref];
+            const cellData = getWorksheetCell(ws, parseRef(anchorSref));
             if (cellData) {
               grid.set(localRef, cellData as Cell);
             }

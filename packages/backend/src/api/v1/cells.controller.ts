@@ -14,6 +14,13 @@ import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
+import {
+  getWorksheetCell,
+  getWorksheetEntries,
+  parseRef,
+  updateWorksheetCell,
+  writeWorksheetCell,
+} from '@wafflebase/sheet';
 import type { Sref } from '@wafflebase/sheet';
 
 @Controller(
@@ -50,8 +57,7 @@ export class ApiV1CellsController {
       const worksheet = root.sheets?.[tabId];
       if (!worksheet) throw new NotFoundException('Tab not found');
 
-      const sheet = worksheet.sheet ?? {};
-      const cells = Object.entries(sheet).map(([ref, cell]) => ({
+      const cells = getWorksheetEntries(worksheet).map(([ref, cell]) => ({
         ref,
         value: cell?.v ?? null,
         formula: cell?.f ?? null,
@@ -80,7 +86,7 @@ export class ApiV1CellsController {
       const worksheet = root.sheets?.[tabId];
       if (!worksheet) throw new NotFoundException('Tab not found');
 
-      const cell = worksheet.sheet?.[sref as Sref];
+      const cell = getWorksheetCell(worksheet, parseRef(sref));
       return {
         ref: sref,
         value: cell?.v ?? null,
@@ -104,15 +110,12 @@ export class ApiV1CellsController {
         const worksheet = root.sheets?.[tabId];
         if (!worksheet) throw new NotFoundException('Tab not found');
 
-        if (!worksheet.sheet) {
-          worksheet.sheet = {} as any;
-        }
-        const existing = worksheet.sheet[sref as Sref] ?? {};
-        worksheet.sheet[sref as Sref] = {
-          ...existing,
-          v: body.value ?? existing.v ?? '',
-          f: body.formula ?? existing.f,
-        } as any;
+        const ref = parseRef(sref);
+        updateWorksheetCell(worksheet, ref, (existing) => ({
+          ...(existing ?? {}),
+          v: body.value ?? existing?.v ?? '',
+          f: body.formula ?? existing?.f,
+        }));
       });
 
       return { ref: sref, value: body.value, formula: body.formula };
@@ -131,9 +134,7 @@ export class ApiV1CellsController {
       doc.update((root) => {
         const worksheet = root.sheets?.[tabId];
         if (!worksheet) throw new NotFoundException('Tab not found');
-        if (worksheet.sheet) {
-          delete worksheet.sheet[sref as Sref];
-        }
+        writeWorksheetCell(worksheet, parseRef(sref), undefined);
       });
 
       return { ref: sref, deleted: true };
@@ -152,20 +153,17 @@ export class ApiV1CellsController {
       doc.update((root) => {
         const worksheet = root.sheets?.[tabId];
         if (!worksheet) throw new NotFoundException('Tab not found');
-        if (!worksheet.sheet) {
-          worksheet.sheet = {} as any;
-        }
 
         for (const [ref, cellData] of Object.entries(body.cells)) {
+          const parsedRef = parseRef(ref);
           if (cellData === null) {
-            delete worksheet.sheet[ref as Sref];
+            writeWorksheetCell(worksheet, parsedRef, undefined);
           } else {
-            const existing = worksheet.sheet[ref as Sref] ?? {};
-            worksheet.sheet[ref as Sref] = {
-              ...existing,
-              v: cellData.value ?? existing.v ?? '',
-              f: cellData.formula ?? existing.f,
-            } as any;
+            updateWorksheetCell(worksheet, parsedRef, (existing) => ({
+              ...(existing ?? {}),
+              v: cellData.value ?? existing?.v ?? '',
+              f: cellData.formula ?? existing?.f,
+            }));
           }
         }
       });

@@ -3,7 +3,7 @@ import type {
   PivotField,
   PivotFilterField,
   PivotRecord,
-} from '../types';
+} from '../core/types';
 
 /**
  * `applyFilters` removes records where any filter field's column value

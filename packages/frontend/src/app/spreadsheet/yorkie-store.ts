@@ -6,22 +6,15 @@ import {
   parseRef,
   extractReferences,
   toSrefs,
-  shiftSref,
-  shiftFormula,
-  moveRef,
-  moveFormula,
-  remapIndex,
+  getWorksheetCell,
+  getWorksheetEntries,
+  getWorksheetKeys,
   isCrossSheetRef,
-  shiftMergeMap,
-  moveMergeMap,
   cloneConditionalFormatRule,
-  moveConditionalFormatRules,
   normalizeConditionalFormatRule,
   cloneRangeStylePatch,
   normalizeRangeStylePatch,
-  shiftConditionalFormatRules,
-  moveRangeStylePatches,
-  shiftRangeStylePatches,
+  writeWorksheetCell,
 } from "@wafflebase/sheet";
 import type {
   Store,
@@ -31,7 +24,6 @@ import type {
   FilterCondition,
   FilterState,
   HiddenState,
-  MergeSpan,
   PivotTableDefinition,
   Ref,
   Sref,
@@ -41,12 +33,12 @@ import type {
   ConditionalFormatRule,
   RangeStylePatch,
 } from "@wafflebase/sheet";
-import type {
-  SheetChart,
-  SpreadsheetDocument,
-  Worksheet,
-} from "@/types/worksheet";
+import type { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import type { UserPresence } from "@/types/users";
+import {
+  applyYorkieWorksheetMove,
+  applyYorkieWorksheetShift,
+} from "./yorkie-worksheet-structure";
 
 export class YorkieStore implements Store {
   private doc: Document<SpreadsheetDocument, UserPresence>;
@@ -81,52 +73,24 @@ export class YorkieStore implements Store {
     return this.doc.getRoot().sheets[this.tabId];
   }
 
-  private isDuplicateOwnKeysError(error: unknown): boolean {
-    return (
-      error instanceof TypeError &&
-      error.message.includes("ownKeys") &&
-      error.message.includes("duplicate")
-    );
+  private worksheetKeys(ws: Worksheet): Sref[] {
+    return getWorksheetKeys(ws);
   }
 
-  private snapshotObject<T>(obj: Record<string, T>): Record<string, T> {
-    const maybeToJSON = (obj as { toJSON?: () => string }).toJSON;
-    if (typeof maybeToJSON === "function") {
-      return JSON.parse(maybeToJSON.call(obj)) as Record<string, T>;
-    }
-    return { ...obj };
+  private worksheetEntries(ws: Worksheet): Array<[Sref, Cell]> {
+    return getWorksheetEntries(ws);
   }
 
-  private stableObjectKeys<T>(obj: Record<string, T>): string[] {
-    try {
-      return Object.keys(obj);
-    } catch (error) {
-      if (this.isDuplicateOwnKeysError(error)) {
-        console.warn(error);
-        return Object.keys(this.snapshotObject(obj));
-      }
-      throw error;
-    }
+  private getWorksheetCell(ws: Worksheet, ref: Ref): Cell | undefined {
+    return getWorksheetCell(ws, ref);
   }
 
-  private stableObjectEntries<T>(obj: Record<string, T>): Array<[string, T]> {
-    try {
-      return Object.entries(obj);
-    } catch (error) {
-      if (this.isDuplicateOwnKeysError(error)) {
-        console.warn(error);
-        return Object.entries(this.snapshotObject(obj));
-      }
-      throw error;
-    }
-  }
-
-  private stableSheetKeys(sheet: Worksheet["sheet"]): Sref[] {
-    return this.stableObjectKeys<Cell>(sheet) as Sref[];
-  }
-
-  private stableSheetEntries(sheet: Worksheet["sheet"]): Array<[Sref, Cell]> {
-    return this.stableObjectEntries<Cell>(sheet) as Array<[Sref, Cell]>;
+  private setWorksheetCell(
+    ws: Worksheet,
+    ref: Ref,
+    cell: Cell | undefined,
+  ): void {
+    writeWorksheetCell(ws, ref, cell);
   }
 
   private toPlainString(value: unknown): string {
@@ -205,9 +169,9 @@ export class YorkieStore implements Store {
   private ensureIndex(): void {
     if (!this.dirty) return;
 
-    const sheet = this.getSheet().sheet;
+    const ws = this.getSheet();
     const entries: Array<[number, number]> = [];
-    for (const sref of this.stableSheetKeys(sheet)) {
+    for (const sref of this.worksheetKeys(ws)) {
       const ref = parseRef(sref);
       entries.push([ref.r, ref.c]);
     }
@@ -276,7 +240,7 @@ export class YorkieStore implements Store {
 
     const tabId = this.tabId;
     this.doc.update((root) => {
-      root.sheets[tabId].sheet[sref] = normalized;
+      this.setWorksheetCell(root.sheets[tabId], ref, normalized);
     });
     if (!this.dirty) {
       this.cellIndex.add(ref.r, ref.c);
@@ -292,7 +256,7 @@ export class YorkieStore implements Store {
       const val = this.batchOverlay.get(sref);
       return val === null ? undefined : val;
     }
-    return this.getSheet().sheet[sref];
+    return this.getWorksheetCell(this.getSheet(), ref);
   }
 
   /**
@@ -303,8 +267,7 @@ export class YorkieStore implements Store {
     if (this.batchOverlay && this.batchOverlay.has(sref)) {
       return this.batchOverlay.get(sref) !== null;
     }
-    const sheet = this.getSheet().sheet;
-    return sheet[sref] !== undefined;
+    return this.getWorksheetCell(this.getSheet(), ref) !== undefined;
   }
 
   /**
@@ -318,7 +281,7 @@ export class YorkieStore implements Store {
       if (this.batchOverlay.has(sref)) {
         exists = this.batchOverlay.get(sref) !== null;
       } else {
-        exists = this.getSheet().sheet[sref] !== undefined;
+        exists = this.getWorksheetCell(this.getSheet(), ref) !== undefined;
       }
       if (!exists) return false;
 
@@ -332,8 +295,8 @@ export class YorkieStore implements Store {
     let deleted = false;
     const tabId = this.tabId;
     this.doc.update((root) => {
-      if (root.sheets[tabId].sheet[sref] !== undefined) {
-        delete root.sheets[tabId].sheet[sref];
+      if (this.getWorksheetCell(root.sheets[tabId], ref) !== undefined) {
+        this.setWorksheetCell(root.sheets[tabId], ref, undefined);
         deleted = true;
       }
     });
@@ -374,9 +337,9 @@ export class YorkieStore implements Store {
     const tabId = this.tabId;
     this.doc.update((root) => {
       for (const [row, col] of cellsToDelete) {
-        const sref = toSref({ r: row, c: col });
-        delete root.sheets[tabId].sheet[sref];
-        deleted.add(sref);
+        const ref = { r: row, c: col };
+        this.setWorksheetCell(root.sheets[tabId], ref, undefined);
+        deleted.add(toSref(ref));
       }
     });
 
@@ -413,11 +376,12 @@ export class YorkieStore implements Store {
     const tabId = this.tabId;
     this.doc.update((root) => {
       for (const [sref, cell] of grid) {
+        const ref = parseRef(sref);
         const normalized = this.normalizeCell(cell);
         if (normalized) {
-          root.sheets[tabId].sheet[sref] = normalized;
-        } else if (root.sheets[tabId].sheet[sref] !== undefined) {
-          delete root.sheets[tabId].sheet[sref];
+          this.setWorksheetCell(root.sheets[tabId], ref, normalized);
+        } else {
+          this.setWorksheetCell(root.sheets[tabId], ref, undefined);
         }
       }
     });
@@ -439,7 +403,7 @@ export class YorkieStore implements Store {
   async getGrid(range: Range): Promise<Grid> {
     this.ensureIndex();
 
-    const sheet = this.getSheet().sheet;
+    const ws = this.getSheet();
     const grid: Grid = new Map();
 
     for (const [row, col] of this.cellIndex.cellsInRange(range)) {
@@ -451,7 +415,7 @@ export class YorkieStore implements Store {
         }
         continue;
       }
-      const value = sheet[sref];
+      const value = this.getWorksheetCell(ws, { r: row, c: col });
       if (value !== undefined) {
         grid.set(sref, value);
       }
@@ -476,8 +440,7 @@ export class YorkieStore implements Store {
       direction,
       dimension,
       (r, c) => {
-        const sref = toSref({ r, c });
-        const cell = this.getSheet().sheet[sref];
+        const cell = this.getWorksheetCell(this.getSheet(), { r, c });
         return cell !== undefined && (!!cell.v || !!cell.f);
       },
     );
@@ -486,157 +449,13 @@ export class YorkieStore implements Store {
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
     const tabId = this.tabId;
     const applyShift = (root: SpreadsheetDocument) => {
-      const ws = root.sheets[tabId];
-      // Collect all entries and compute new keys/formulas
-      const entries: Array<[string, Cell]> = [];
-      for (const [sref, cell] of this.stableSheetEntries(ws.sheet)) {
-        entries.push([sref, { v: cell.v, f: cell.f, s: cell.s }]);
-      }
-
-      const nextSheet = new Map<Sref, Cell>();
-
-      // Write all new keys with shifted positions and updated formulas
-      for (const [sref, cell] of entries) {
-        const newSref = shiftSref(sref, axis, index, count);
-        if (newSref === null) {
-          continue;
-        }
-
-        let nextCell: Cell;
-        if (cell.f) {
-          nextCell = {
-            ...cell,
-            f: shiftFormula(cell.f, axis, index, count),
-          };
-        } else {
-          nextCell = { ...cell };
-        }
-
-        const normalized = this.normalizeCell(nextCell);
-        if (normalized) {
-          nextSheet.set(newSref, normalized);
-        }
-      }
-
-      // Delete only keys removed by the remap.
-      for (const [sref] of entries) {
-        if (!nextSheet.has(sref) && ws.sheet[sref] !== undefined) {
-          delete ws.sheet[sref];
-        }
-      }
-
-      // Upsert remapped keys and formulas.
-      for (const [sref, cell] of nextSheet) {
-        ws.sheet[sref] = cell;
-      }
-
-      // Shift dimension sizes for the affected axis
-      const dimObj = axis === "row" ? ws.rowHeights : ws.colWidths;
-      const dimEntries: Array<[string, number]> = [];
-      for (const [key, value] of Object.entries(dimObj)) {
-        dimEntries.push([key, value]);
-      }
-      for (const [key] of dimEntries) {
-        delete dimObj[key];
-      }
-      for (const [key, value] of dimEntries) {
-        const idx = Number(key);
-        if (count > 0) {
-          if (idx >= index) {
-            dimObj[String(idx + count)] = value;
-          } else {
-            dimObj[key] = value;
-          }
-        } else {
-          const absCount = Math.abs(count);
-          if (idx >= index && idx < index + absCount) {
-            // In deleted zone — drop it
-          } else if (idx >= index + absCount) {
-            dimObj[String(idx + count)] = value;
-          } else {
-            dimObj[key] = value;
-          }
-        }
-      }
-
-      // Shift style maps for the affected axis
-      const styleObj = axis === "row" ? ws.rowStyles : ws.colStyles;
-      if (styleObj) {
-        const styleEntries: Array<[string, CellStyle]> = [];
-        for (const [key, value] of Object.entries(styleObj)) {
-          styleEntries.push([key, value]);
-        }
-        for (const [key] of styleEntries) {
-          delete styleObj[key];
-        }
-        for (const [key, value] of styleEntries) {
-          const idx = Number(key);
-          if (count > 0) {
-            if (idx >= index) {
-              styleObj[String(idx + count)] = value;
-            } else {
-              styleObj[key] = value;
-            }
-          } else {
-            const absCount = Math.abs(count);
-            if (idx >= index && idx < index + absCount) {
-              // In deleted zone — drop it
-            } else if (idx >= index + absCount) {
-              styleObj[String(idx + count)] = value;
-            } else {
-              styleObj[key] = value;
-            }
-          }
-        }
-      }
-
-      if (ws.rangeStyles) {
-        ws.rangeStyles = shiftRangeStylePatches(
-          ws.rangeStyles as RangeStylePatch[],
-          axis,
-          index,
-          count,
-        );
-      }
-
-      if (ws.conditionalFormats) {
-        ws.conditionalFormats = shiftConditionalFormatRules(
-          ws.conditionalFormats as ConditionalFormatRule[],
-          axis,
-          index,
-          count,
-        );
-      }
-
-      // Shift merged ranges for the affected axis
-      const mergeMap = new Map<Sref, MergeSpan>(
-        Object.entries(ws.merges || {}) as Array<[Sref, MergeSpan]>,
-      );
-      const shiftedMerges = shiftMergeMap(mergeMap, axis, index, count);
-      ws.merges = {};
-      for (const [sref, span] of shiftedMerges) {
-        ws.merges[sref] = span;
-      }
-
-      // Shift chart anchor refs.
-      if (ws.charts) {
-        for (const chart of Object.values(ws.charts as Record<string, SheetChart>)) {
-          const shiftedAnchor = shiftSref(chart.anchor, axis, index, count);
-          if (shiftedAnchor) {
-            chart.anchor = shiftedAnchor;
-            continue;
-          }
-
-          // If anchor cell was deleted, pin to the deletion boundary.
-          const fallback = parseRef(chart.anchor);
-          if (axis === "row") {
-            fallback.r = Math.max(1, index);
-          } else {
-            fallback.c = Math.max(1, index);
-          }
-          chart.anchor = toSref(fallback);
-        }
-      }
+      applyYorkieWorksheetShift({
+        ws: root.sheets[tabId],
+        axis,
+        index,
+        count,
+        normalizeCell: this.normalizeCell.bind(this),
+      });
     };
 
     if (this.batchOps) {
@@ -660,124 +479,14 @@ export class YorkieStore implements Store {
   ): Promise<void> {
     const tabId = this.tabId;
     const applyMove = (root: SpreadsheetDocument) => {
-      const ws = root.sheets[tabId];
-      // Collect all entries
-      const entries: Array<[string, Cell]> = [];
-      for (const [sref, cell] of this.stableSheetEntries(ws.sheet)) {
-        entries.push([sref, { v: cell.v, f: cell.f, s: cell.s }]);
-      }
-
-      const nextSheet = new Map<Sref, Cell>();
-
-      // Write new keys with remapped positions and formulas
-      for (const [sref, cell] of entries) {
-        const ref = parseRef(sref);
-        const newRef = moveRef(ref, axis, srcIndex, count, dstIndex);
-        const newSref = toSref(newRef);
-
-        let nextCell: Cell;
-        if (cell.f) {
-          nextCell = {
-            ...cell,
-            f: moveFormula(cell.f, axis, srcIndex, count, dstIndex),
-          };
-        } else {
-          nextCell = { ...cell };
-        }
-
-        const normalized = this.normalizeCell(nextCell);
-        if (normalized) {
-          nextSheet.set(newSref, normalized);
-        }
-      }
-
-      // Delete only keys removed by the remap.
-      for (const [sref] of entries) {
-        if (!nextSheet.has(sref) && ws.sheet[sref] !== undefined) {
-          delete ws.sheet[sref];
-        }
-      }
-
-      // Upsert remapped keys and formulas.
-      for (const [sref, cell] of nextSheet) {
-        ws.sheet[sref] = cell;
-      }
-
-      // Remap dimension sizes
-      const dimObj = axis === "row" ? ws.rowHeights : ws.colWidths;
-      const dimEntries: Array<[string, number]> = [];
-      for (const [key, value] of Object.entries(dimObj)) {
-        dimEntries.push([key, value]);
-      }
-      for (const [key] of dimEntries) {
-        delete dimObj[key];
-      }
-      for (const [key, value] of dimEntries) {
-        const idx = Number(key);
-        const newIdx = remapIndex(idx, srcIndex, count, dstIndex);
-        dimObj[String(newIdx)] = value;
-      }
-
-      // Remap style maps
-      const styleObj = axis === "row" ? ws.rowStyles : ws.colStyles;
-      if (styleObj) {
-        const styleEntries: Array<[string, CellStyle]> = [];
-        for (const [key, value] of Object.entries(styleObj)) {
-          styleEntries.push([key, value]);
-        }
-        for (const [key] of styleEntries) {
-          delete styleObj[key];
-        }
-        for (const [key, value] of styleEntries) {
-          const idx = Number(key);
-          const newIdx = remapIndex(idx, srcIndex, count, dstIndex);
-          styleObj[String(newIdx)] = value;
-        }
-      }
-
-      if (ws.rangeStyles) {
-        ws.rangeStyles = moveRangeStylePatches(
-          ws.rangeStyles as RangeStylePatch[],
-          axis,
-          srcIndex,
-          count,
-          dstIndex,
-        );
-      }
-
-      if (ws.conditionalFormats) {
-        ws.conditionalFormats = moveConditionalFormatRules(
-          ws.conditionalFormats as ConditionalFormatRule[],
-          axis,
-          srcIndex,
-          count,
-          dstIndex,
-        );
-      }
-
-      // Remap merged ranges
-      const mergeMap = new Map<Sref, MergeSpan>(
-        Object.entries(ws.merges || {}) as Array<[Sref, MergeSpan]>,
-      );
-      const movedMerges = moveMergeMap(mergeMap, axis, srcIndex, count, dstIndex);
-      ws.merges = {};
-      for (const [sref, span] of movedMerges) {
-        ws.merges[sref] = span;
-      }
-
-      // Remap chart anchor refs.
-      if (ws.charts) {
-        for (const chart of Object.values(ws.charts as Record<string, SheetChart>)) {
-          const nextAnchor = moveRef(
-            parseRef(chart.anchor),
-            axis,
-            srcIndex,
-            count,
-            dstIndex,
-          );
-          chart.anchor = toSref(nextAnchor);
-        }
-      }
+      applyYorkieWorksheetMove({
+        ws: root.sheets[tabId],
+        axis,
+        srcIndex,
+        count,
+        dstIndex,
+        normalizeCell: this.normalizeCell.bind(this),
+      });
     };
 
     if (this.batchOps) {
@@ -795,8 +504,8 @@ export class YorkieStore implements Store {
 
   async getFormulaGrid(): Promise<Map<Sref, Cell>> {
     const grid = new Map<Sref, Cell>();
-    const sheet = this.getSheet().sheet;
-    for (const [sref, cell] of this.stableSheetEntries(sheet)) {
+    const ws = this.getSheet();
+    for (const [sref, cell] of this.worksheetEntries(ws)) {
       if (cell.f) {
         grid.set(sref, cell as Cell);
       }
@@ -809,11 +518,11 @@ export class YorkieStore implements Store {
   ): Promise<Map<Sref, Set<Sref>>> {
     void srefs;
     const dependantsMap = new Map<Sref, Set<Sref>>();
-    const sheet = this.getSheet().sheet;
+    const ws = this.getSheet();
 
     if (this.batchOverlay) {
       // Iterate document cells, skipping those deleted in overlay
-      for (const [sref, cell] of this.stableSheetEntries(sheet)) {
+      for (const [sref, cell] of this.worksheetEntries(ws)) {
         if (this.batchOverlay.has(sref)) continue;
         if (!cell.f) continue;
         for (const r of toSrefs(extractReferences(cell.f))) {
@@ -834,7 +543,7 @@ export class YorkieStore implements Store {
       return dependantsMap;
     }
 
-    for (const [sref, cell] of this.stableSheetEntries(sheet)) {
+    for (const [sref, cell] of this.worksheetEntries(ws)) {
       if (!cell.f) {
         continue;
       }
@@ -1326,17 +1035,12 @@ export class YorkieStore implements Store {
       // Apply cell overlay: deletes first, then sets
       if (overlay) {
         for (const [sref, cell] of overlay) {
+          const ref = parseRef(sref);
           if (cell === null) {
-            if (ws.sheet[sref] !== undefined) {
-              delete ws.sheet[sref];
-            }
+            this.setWorksheetCell(ws, ref, undefined);
           } else {
             const normalized = this.normalizeCell(cell);
-            if (normalized) {
-              ws.sheet[sref] = normalized;
-            } else if (ws.sheet[sref] !== undefined) {
-              delete ws.sheet[sref];
-            }
+            this.setWorksheetCell(ws, ref, normalized ?? undefined);
           }
         }
       }
@@ -1354,7 +1058,7 @@ export class YorkieStore implements Store {
   async undo(): Promise<{ success: boolean; affectedRange?: Range }> {
     if (!this.doc.history.canUndo()) return { success: false };
 
-    const beforeCellKeys = new Set(this.stableSheetKeys(this.getSheet().sheet));
+    const beforeCellKeys = new Set(this.worksheetKeys(this.getSheet()));
     const beforeMerges = new Map<Sref, MergeSpan>(
       Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
     );
@@ -1368,7 +1072,7 @@ export class YorkieStore implements Store {
   async redo(): Promise<{ success: boolean; affectedRange?: Range }> {
     if (!this.doc.history.canRedo()) return { success: false };
 
-    const beforeCellKeys = new Set(this.stableSheetKeys(this.getSheet().sheet));
+    const beforeCellKeys = new Set(this.worksheetKeys(this.getSheet()));
     const beforeMerges = new Map<Sref, MergeSpan>(
       Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
     );
@@ -1386,7 +1090,7 @@ export class YorkieStore implements Store {
     beforeCellKeys: Set<string>,
     beforeMerges: Map<Sref, MergeSpan>,
   ): Range | undefined {
-    const afterKeys = new Set(this.stableSheetKeys(this.getSheet().sheet));
+    const afterKeys = new Set(this.worksheetKeys(this.getSheet()));
     const afterMerges = new Map<Sref, MergeSpan>(
       Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
     );

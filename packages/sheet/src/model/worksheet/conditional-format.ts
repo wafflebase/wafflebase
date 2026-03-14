@@ -1,4 +1,4 @@
-import { inRange, toRange } from './coordinates';
+import { inRange, toRange } from '../core/coordinates';
 import { remapIndex } from './shifting';
 import {
   Axis,
@@ -7,7 +7,7 @@ import {
   ConditionalFormatRule,
   ConditionalFormatStyle,
   Range,
-} from './types';
+} from '../core/types';
 
 const ConditionalFormatOperators = new Set<ConditionalFormatOperator>([
   'isEmpty',

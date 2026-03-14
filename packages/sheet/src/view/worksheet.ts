@@ -1,12 +1,12 @@
-import { Range, Ref, Direction, FilterCondition } from '../model/types';
-import { toColumnLabel, toSref, inRange } from '../model/coordinates';
+import { Range, Ref, Direction, FilterCondition } from '../model/core/types';
+import { toColumnLabel, toSref, inRange } from '../model/core/coordinates';
 import {
   extractFormulaRanges,
   isReferenceInsertPosition,
   findReferenceTokenAtCursor,
 } from '../formula/formula';
-import { DimensionIndex } from '../model/dimensions';
-import { Sheet } from '../model/sheet';
+import { DimensionIndex } from '../model/worksheet/dimensions';
+import { Sheet } from '../model/worksheet/sheet';
 import { Theme, getThemeColor } from './theme';
 import { FormulaBar } from './formulabar';
 import { CellInput } from './cellinput';

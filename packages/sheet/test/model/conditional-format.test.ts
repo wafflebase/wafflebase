@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   matchesConditionalFormatRule,
   resolveConditionalFormatStyleAt,
-} from '../../src/model/conditional-format';
-import { ConditionalFormatRule } from '../../src/model/types';
+} from '../../src/model/worksheet/conditional-format';
+import { ConditionalFormatRule } from '../../src/model/core/types';
 
 describe('ConditionalFormat', () => {
   it('matches text contains case-insensitively', () => {

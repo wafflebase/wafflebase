@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { aggregateValues } from '../../src/model/pivot/aggregate';
-import type { PivotRecord, PivotValueField } from '../../src/model/types';
+import type { PivotRecord, PivotValueField } from '../../src/model/core/types';
 
 const records: PivotRecord[] = [
   ['Alice', '100'],

@@ -1,5 +1,5 @@
-import { toSref } from '../coordinates';
-import type { Grid, PivotRecord, Range } from '../types';
+import { toSref } from '../core/coordinates';
+import type { Grid, PivotRecord, Range } from '../core/types';
 
 /**
  * `parseSourceData` extracts headers and records from a grid within the given range.

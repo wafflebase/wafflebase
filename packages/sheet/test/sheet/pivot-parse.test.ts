@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseSourceData } from '../../src/model/pivot/parse';
-import type { Grid, Range } from '../../src/model/types';
-import { toSref } from '../../src/model/coordinates';
+import type { Grid, Range } from '../../src/model/core/types';
+import { toSref } from '../../src/model/core/coordinates';
 
 function buildGrid(data: string[][]): Grid {
   const grid: Grid = new Map();

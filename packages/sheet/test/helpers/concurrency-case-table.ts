@@ -1,4 +1,4 @@
-import type { Sref } from '../../src/model/types.ts';
+import type { Sref } from '../../src/model/core/types.ts';
 
 export type ConcurrencyOp =
   | {

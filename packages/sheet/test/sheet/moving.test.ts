@@ -5,10 +5,10 @@ import {
   moveFormula,
   moveGrid,
   moveDimensionMap,
-} from '../../src/model/shifting';
-import { Grid } from '../../src/model/types';
+} from '../../src/model/worksheet/shifting';
+import { Grid } from '../../src/model/core/types';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/sheet';
+import { Sheet } from '../../src/model/worksheet/sheet';
 
 describe('remapIndex', () => {
   describe('move forward (dst > src + count)', () => {

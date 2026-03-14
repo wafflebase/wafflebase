@@ -7,8 +7,8 @@ import {
   shiftDimensionMap,
   relocateFormula,
   redirectFormula,
-} from '../../src/model/shifting';
-import { Grid } from '../../src/model/types';
+} from '../../src/model/worksheet/shifting';
+import { Grid } from '../../src/model/core/types';
 
 describe('shiftRef', () => {
   describe('insert (count > 0)', () => {

@@ -1,4 +1,4 @@
-import type { PivotRecord, PivotValueField } from '../types';
+import type { PivotRecord, PivotValueField } from '../core/types';
 
 /**
  * `aggregateValues` computes an aggregated value for the given records and
