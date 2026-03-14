@@ -67,7 +67,7 @@ Markdown files reference images with absolute paths like
 to the `base`, so the final URL becomes
 `/docs/images/getting-started-contact-list.png`.
 
-The root `index.md` uses a `<meta http-equiv="refresh">` tag to redirect to
+The root `packages/docs/index.md` uses a `<meta http-equiv="refresh">` tag to redirect to
 `/docs/guide/getting-started`, since VitePress does not support a landing page
 redirect natively with the `base` subpath setup.
 
@@ -132,7 +132,7 @@ Current scenarios:
 
 #### Capture Script
 
-`capture-docs-screenshots.mjs` spins up a Vite dev server on port 4177,
+`packages/frontend/scripts/capture-docs-screenshots.mjs` spins up a Vite dev server on port 4177,
 launches headless Chromium via Playwright, navigates to the harness page, waits
 for all scenarios to report `data-docs-scenario-ready="true"`, then captures
 each scenario's sheet container (excluding the title) as a 2× DPI PNG.
