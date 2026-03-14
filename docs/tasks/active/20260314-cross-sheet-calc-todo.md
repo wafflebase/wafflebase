@@ -63,11 +63,11 @@ Each sheet builds its dependency map independently, skipping cross-sheet refs.
 Circular references across sheets (e.g. `Sheet1!A1 = Sheet2!A1`,
 `Sheet2!A1 = Sheet1!A1`) are not detected and may cause incorrect values.
 
-- [ ] 5-1. Design a workbook-level global dependency graph
-- [ ] 5-2. Include cross-sheet refs in topological sort for cycle detection
-- [ ] 5-3. Mark cycles with `#REF!` error
-- [ ] 5-4. Tests for cross-sheet circular reference error handling
-- [ ] 5-5. `pnpm verify:fast` passed
+- [x] 5-1. Design a workbook-level global dependency graph
+- [x] 5-2. Include cross-sheet refs in topological sort for cycle detection
+- [x] 5-3. Mark cycles with `#REF!` error
+- [x] 5-4. Tests for cross-sheet circular reference error handling
+- [x] 5-5. `pnpm verify:fast` passed
 
 ---
 
@@ -79,4 +79,4 @@ Circular references across sheets (e.g. `Sheet1!A1 = Sheet2!A1`,
 | 2 | Cross-sheet formula cache | Medium | Low | Done |
 | 3 | Remote-change event filtering | High | Medium | Done |
 | 4 | Remove hardcoded range | Low | Low | Done |
-| 5 | Global dependency graph | Low | High | Pending |
+| 5 | Global dependency graph | Low | High | Done |
