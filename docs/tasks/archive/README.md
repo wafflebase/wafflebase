@@ -6,15 +6,16 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 77
+Total archived tasks: 78
 
-## 2026/03 (40 tasks)
+## 2026/03 (41 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| cross sheet cycle (2026-03-15) | [20260315-cross-sheet-cycle-todo.md](./2026/03/20260315-cross-sheet-cycle-todo.md) | - |
 | ci export failure (2026-03-14) | [20260314-ci-export-failure-todo.md](./2026/03/20260314-ci-export-failure-todo.md) | [20260314-ci-export-failure-lessons.md](./2026/03/20260314-ci-export-failure-lessons.md) |
 | collaboration design docs (2026-03-14) | [20260314-collaboration-design-docs-todo.md](./2026/03/20260314-collaboration-design-docs-todo.md) | [20260314-collaboration-design-docs-lessons.md](./2026/03/20260314-collaboration-design-docs-lessons.md) |
-| cross sheet calc (2026-03-14) | - | [20260314-cross-sheet-calc-lessons.md](./2026/03/20260314-cross-sheet-calc-lessons.md) |
+| cross sheet calc (2026-03-14) | [20260314-cross-sheet-calc-todo.md](./2026/03/20260314-cross-sheet-calc-todo.md) | [20260314-cross-sheet-calc-lessons.md](./2026/03/20260314-cross-sheet-calc-lessons.md) |
 | cross sheet yorkie integration (2026-03-14) | [20260314-cross-sheet-yorkie-integration-todo.md](./2026/03/20260314-cross-sheet-yorkie-integration-todo.md) | - |
 | docs site (2026-03-14) | [20260314-docs-site-todo.md](./2026/03/20260314-docs-site-todo.md) | [20260314-docs-site-lessons.md](./2026/03/20260314-docs-site-lessons.md) |
 | local hackerwins access (2026-03-14) | [20260314-local-hackerwins-access-todo.md](./2026/03/20260314-local-hackerwins-access-todo.md) | [20260314-local-hackerwins-access-lessons.md](./2026/03/20260314-local-hackerwins-access-lessons.md) |
