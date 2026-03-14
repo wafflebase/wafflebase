@@ -133,7 +133,7 @@ function highlightCode(code: string): ReactNode[] {
 
 export function DeveloperSection() {
   return (
-    <section id="developers" className="bg-stone-900 py-20 px-12">
+    <section id="developers" className="bg-stone-900 py-12 md:py-20 px-4 md:px-12">
       <h2 className="text-center text-3xl font-bold text-amber-300 mb-2">
         Built for Developers
       </h2>

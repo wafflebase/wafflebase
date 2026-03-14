@@ -33,7 +33,7 @@ const features = [
 
 export function FeaturesSection() {
   return (
-    <section id="features" className="bg-background py-20 px-12">
+    <section id="features" className="bg-background py-12 md:py-20 px-4 md:px-12">
       <h2 className="text-center text-3xl font-bold text-homepage-text mb-2">
         A Spreadsheet for Every Team
       </h2>

@@ -4,7 +4,7 @@ const badges = ["Apache-2.0", "TypeScript", "Self-Hosted"];
 
 export function OpenSourceSection() {
   return (
-    <section className="bg-homepage-hero-end py-20 px-12 text-center">
+    <section className="bg-homepage-hero-end py-12 md:py-20 px-4 md:px-12 text-center">
       <h2 className="text-3xl font-bold text-homepage-text mb-3">
         Join the Open Source Community
       </h2>
@@ -12,7 +12,7 @@ export function OpenSourceSection() {
         Wafflebase is open-source under the Apache-2.0 license. Contributions
         are welcome from everyone.
       </p>
-      <div className="flex gap-4 justify-center mb-6">
+      <div className="flex flex-wrap gap-4 justify-center mb-6">
         {badges.map((b) => (
           <span
             key={b}

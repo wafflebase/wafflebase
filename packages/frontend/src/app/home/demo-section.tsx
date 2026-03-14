@@ -21,7 +21,7 @@ export function DemoSection() {
   }, [resolvedTheme, loaded]);
 
   return (
-    <section className="bg-homepage-bg px-12 pb-15 text-center">
+    <section className="bg-homepage-bg px-4 md:px-12 pb-15 text-center">
       <div className="max-w-[960px] mx-auto rounded-xl border border-border shadow-xl overflow-hidden">
         <div className="bg-muted px-4 py-2.5 flex gap-1.5 items-center border-b border-border">
           <div className="size-2.5 rounded-full bg-[#FF5F57]" />

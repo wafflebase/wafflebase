@@ -8,12 +8,12 @@ export function Footer() {
   }
 
   return (
-    <footer className="bg-stone-900 px-12 py-6">
+    <footer className="bg-stone-900 px-4 md:px-12 py-6">
       <div className="max-w-[960px] mx-auto flex justify-between items-center">
         <span className="text-stone-500 text-xs">© 2026 Wafflebase</span>
         <div className="flex items-center gap-5">
-          <a href="https://github.com/wafflebase/wafflebase" target="_blank" rel="noopener noreferrer" className="text-stone-400 text-sm no-underline">Docs</a>
-          <a href="https://github.com/wafflebase/wafflebase" target="_blank" rel="noopener noreferrer" className="text-stone-400 text-sm no-underline">API</a>
+          <a href="https://github.com/wafflebase/wafflebase" target="_blank" rel="noopener noreferrer" className="hidden md:inline text-stone-400 text-sm no-underline">Docs</a>
+          <a href="https://github.com/wafflebase/wafflebase" target="_blank" rel="noopener noreferrer" className="hidden md:inline text-stone-400 text-sm no-underline">API</a>
           <a href="https://github.com/wafflebase/wafflebase" target="_blank" rel="noopener noreferrer" className="text-stone-400 text-sm no-underline">GitHub</a>
           <button
             onClick={toggleTheme}
