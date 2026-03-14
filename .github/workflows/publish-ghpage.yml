@@ -29,6 +29,7 @@ jobs:
           pnpm i
           pnpm frontend build
           pnpm vpdocs build
+          rm -rf packages/frontend/dist/docs
           cp -r packages/docs/.vitepress/dist packages/frontend/dist/docs
 
       - name: Deploy 🚀
