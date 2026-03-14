@@ -366,7 +366,7 @@ converted).
 
 ### Calculator
 
-The `Calculator` module (`packages/sheet/src/model/calculator.ts`) recalculates formulas
+The `Calculator` module (`packages/sheet/src/model/worksheet/calculator.ts`) recalculates formulas
 after a cell change.
 
 **Algorithm:**
@@ -561,7 +561,7 @@ top-level fields with `?? 0` fallback for backward compatibility.
 Cell coordinates are **1-based** (`A1` = `{r: 1, c: 1}`). Column labels use
 base-26 encoding: A=1, Z=26, AA=27, up to ZZZ=18278.
 
-Key functions in `packages/sheet/src/model/coordinates.ts`:
+Key functions in `packages/sheet/src/model/core/coordinates.ts`:
 
 - `parseRef("A1")` → `{r: 1, c: 1}`
 - `toSref({r: 1, c: 1})` → `"A1"`

@@ -1,4 +1,4 @@
-import { parseRef, toSref } from "@wafflebase/sheet";
+import { getWorksheetCell, parseRef, toSref } from "@wafflebase/sheet";
 import type { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 export { COLOR_PALETTES, getSeriesColor } from "./chart-colors";
 import { getSeriesColor } from "./chart-colors";
@@ -315,7 +315,7 @@ function getCellDisplayValue(
   row: number,
   col: number,
 ): string {
-  const value = sheet.sheet[toSref({ r: row, c: col })]?.v;
+  const value = getWorksheetCell(sheet, { r: row, c: col })?.v;
   if (typeof value === "string") {
     return value;
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { redirectFormula } from '../../src/model/shifting';
-import { Sref } from '../../src/model/types';
+import { redirectFormula } from '../../src/model/worksheet/shifting';
+import { Sref } from '../../src/model/core/types';
 
 describe('redirectFormula', () => {
   it('should redirect a single cell reference', () => {

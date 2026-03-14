@@ -33,7 +33,7 @@ import {
   type Axis,
   type SelectionType,
   type GridResolver,
-} from './model/types';
+} from './model/core/types';
 import {
   toColumnLabel,
   toSref,
@@ -42,7 +42,7 @@ import {
   inRange,
   isCrossSheetRef,
   parseCrossSheetRef,
-} from './model/coordinates';
+} from './model/core/coordinates';
 import {
   shiftSref,
   shiftFormula,
@@ -53,7 +53,7 @@ import {
   moveGrid,
   moveDimensionMap,
   relocateFormula,
-} from './model/shifting';
+} from './model/worksheet/shifting';
 import {
   cloneConditionalFormatRule,
   moveConditionalFormatRules,
@@ -61,7 +61,7 @@ import {
   normalizeConditionalFormatStyle,
   resolveConditionalFormatStyleAt,
   shiftConditionalFormatRules,
-} from './model/conditional-format';
+} from './model/worksheet/conditional-format';
 import {
   type RangeStylePatch,
   cloneRangeStylePatch,
@@ -75,7 +75,7 @@ import {
   clipRangeStylePatches,
   translateRangeStylePatches,
   resolveRangeStyleAt,
-} from './model/range-styles';
+} from './model/worksheet/range-styles';
 import {
   toMergeRange,
   isRefInMerge,
@@ -84,8 +84,8 @@ import {
   shiftMergeMap,
   moveMergeMap,
   isMergeSplitByMove,
-} from './model/merging';
-import { DimensionIndex } from './model/dimensions';
+} from './model/worksheet/merging';
+import { DimensionIndex } from './model/worksheet/dimensions';
 import { type Store } from './store/store';
 import { MemStore } from './store/memory';
 import { CellIndex } from './store/cell-index';
@@ -97,60 +97,56 @@ import {
   resolveCurrencyForLocale,
   resolveSystemLocale,
   type LocaleFormatPreview,
-} from './model/locale';
-import { type FormatValueOptions } from './model/format';
+} from './model/core/locale';
+import { type FormatValueOptions } from './model/worksheet/format';
 import {
   inferInput,
   type InferInputOptions,
   type InferredInput,
   type InferredInputFormat,
-} from './model/input';
+} from './model/worksheet/input';
+import {
+  getWorksheetCell,
+  getWorksheetEntries,
+  getWorksheetKeys,
+  forEachWorksheetStoredCell,
+  writeWorksheetCell,
+  updateWorksheetCell,
+  replaceWorksheetCells,
+} from './model/workbook/worksheet-grid';
+import {
+  safeWorksheetRecordKeys,
+  safeWorksheetRecordEntries,
+  createWorksheetAxisId,
+  createWorksheetCellKey,
+  parseWorksheetCellKey,
+} from './model/workbook/worksheet-record';
 import { calculatePivot, materialize } from './model/pivot/index';
 import { parseSourceData } from './model/pivot/parse';
-import { parseRange } from './model/coordinates';
+import { parseRange } from './model/core/coordinates';
+import {
+  DEFAULT_TAB_ID,
+  DEFAULT_TAB_NAME,
+  type ChartType,
+  type SheetChart,
+  type WorksheetFilterState,
+  type Worksheet,
+  type TabType,
+  type SheetKind,
+  type TabMeta,
+  type SpreadsheetDocument,
+  createWorksheet,
+  createSpreadsheetDocument,
+  initialSpreadsheetDocument,
+} from './model/workbook/worksheet-document';
 
 export {
   initialize,
   Spreadsheet,
-  LayoutRect,
-  Store,
   MemStore,
   CellIndex,
   ReadOnlyStore,
   findEdgeWithIndex,
-  Grid,
-  Cell,
-  CellStyle,
-  ConditionalFormatOperator,
-  ConditionalFormatRule,
-  ConditionalFormatStyle,
-  BorderPreset,
-  TextAlign,
-  VerticalAlign,
-  NumberFormat,
-  FilterOperator,
-  FilterCondition,
-  FilterState,
-  HiddenState,
-  AggregateFunction,
-  PivotFieldSort,
-  PivotField,
-  PivotValueField,
-  PivotFilterField,
-  PivotTableDefinition,
-  PivotRecord,
-  GroupNode,
-  PivotCellType,
-  PivotCell,
-  PivotResult,
-  Ref,
-  Sref,
-  Range,
-  MergeSpan,
-  Direction,
-  Axis,
-  SelectionType,
-  GridResolver,
   DimensionIndex,
   toColumnLabel,
   toSref,
@@ -186,7 +182,6 @@ export {
   clipRangeStylePatches,
   translateRangeStylePatches,
   resolveRangeStyleAt,
-  type RangeStylePatch,
   toMergeRange,
   isRefInMerge,
   shiftMerge,
@@ -197,15 +192,79 @@ export {
   resolveSystemLocale,
   resolveCurrencyForLocale,
   buildLocaleFormatPreview,
-  type LocaleFormatPreview,
-  type FormatValueOptions,
   inferInput,
-  InferInputOptions,
-  InferredInput,
-  InferredInputFormat,
-  Theme,
+  getWorksheetCell,
+  getWorksheetEntries,
+  getWorksheetKeys,
+  forEachWorksheetStoredCell,
+  writeWorksheetCell,
+  updateWorksheetCell,
+  replaceWorksheetCells,
+  safeWorksheetRecordKeys,
+  safeWorksheetRecordEntries,
+  createWorksheetAxisId,
+  createWorksheetCellKey,
+  parseWorksheetCellKey,
   calculatePivot,
   materialize,
   parseSourceData,
   parseRange,
+  DEFAULT_TAB_ID,
+  DEFAULT_TAB_NAME,
+  createWorksheet,
+  createSpreadsheetDocument,
+  initialSpreadsheetDocument,
+};
+
+export type {
+  LayoutRect,
+  Store,
+  Grid,
+  Cell,
+  CellStyle,
+  ConditionalFormatOperator,
+  ConditionalFormatRule,
+  ConditionalFormatStyle,
+  BorderPreset,
+  TextAlign,
+  VerticalAlign,
+  NumberFormat,
+  FilterOperator,
+  FilterCondition,
+  FilterState,
+  HiddenState,
+  AggregateFunction,
+  PivotFieldSort,
+  PivotField,
+  PivotValueField,
+  PivotFilterField,
+  PivotTableDefinition,
+  PivotRecord,
+  GroupNode,
+  PivotCellType,
+  PivotCell,
+  PivotResult,
+  Ref,
+  Sref,
+  Range,
+  MergeSpan,
+  Direction,
+  Axis,
+  SelectionType,
+  GridResolver,
+  RangeStylePatch,
+  LocaleFormatPreview,
+  FormatValueOptions,
+  InferInputOptions,
+  InferredInput,
+  InferredInputFormat,
+  Theme,
+  ChartType,
+  SheetChart,
+  WorksheetFilterState,
+  Worksheet,
+  TabType,
+  SheetKind,
+  TabMeta,
+  SpreadsheetDocument,
 };

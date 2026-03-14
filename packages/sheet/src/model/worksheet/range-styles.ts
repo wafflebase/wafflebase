@@ -1,4 +1,4 @@
-import { Axis, CellStyle, Range } from './types';
+import { Axis, CellStyle, Range } from '../core/types';
 
 export type RangeStylePatch = {
   range: Range;

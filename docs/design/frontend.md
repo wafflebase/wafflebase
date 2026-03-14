@@ -203,18 +203,26 @@ type ConditionalFormatRule = {
 };
 
 type Worksheet = {
-  sheet: { [sref: Sref]: Cell };
+  cells: { [stableCellKey: string]: Cell };
+  rowOrder: string[];
+  colOrder: string[];
+  nextRowId: number;
+  nextColId: number;
   rowHeights: { [index: string]: number };
   colWidths: { [index: string]: number };
   colStyles: { [index: string]: CellStyle };
   rowStyles: { [index: string]: CellStyle };
   sheetStyle?: CellStyle;
+  rangeStyles?: RangeStylePatch[];
   conditionalFormats?: ConditionalFormatRule[];
   merges?: { [anchor: Sref]: { rs: number; cs: number } };
   filter?: WorksheetFilterState;
+  hiddenRows?: number[];
+  hiddenColumns?: number[];
   charts?: { [id: string]: SheetChart };
   frozenRows: number;
   frozenCols: number;
+  pivotTable?: PivotTableDefinition;
 };
 
 type SpreadsheetDocument = {
@@ -223,6 +231,11 @@ type SpreadsheetDocument = {
   sheets: { [tabId: string]: Worksheet };
 };
 ```
+
+`cells` is keyed by stable row/column ids (`rowId|colId`) rather than visible
+`A1` coordinates. `rowOrder` and `colOrder` map those stable ids back to the
+current visual order, which lets concurrent row/column inserts preserve
+logical cell identity instead of bulk-rewriting `A1` keys.
 
 Tab metadata and sheet data are synced via Yorkie. Datasource query results
 are fetched from the backend on demand and displayed using `ReadOnlyStore`.
@@ -234,9 +247,10 @@ frozen rows/columns. Chart anchor layout also uses scrollable-quadrant
 coordinates, so charts continue moving with scroll even if their anchor refs
 fall inside frozen rows/columns.
 
-**Migration:** Old documents (flat `Worksheet` format with `root.sheet`) are
-automatically migrated to the new `SpreadsheetDocument` structure on load,
-wrapping existing data into a single tab.
+New documents are created directly in this canonical shape. Runtime support
+for the older flat `root.sheet` format has been removed. For the full
+collaboration data model and structural concurrency rationale, see
+[collaboration.md](collaboration.md).
 
 #### YorkieStore
 
@@ -247,15 +261,15 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 
 | Store method | Yorkie operation |
 |-------------|-----------------|
-| `set(ref, cell)` | `root.sheet[sref] = cell` |
-| `get(ref)` | Read `root.sheet[sref]` |
-| `delete(ref)` | `delete root.sheet[sref]` |
+| `set(ref, cell)` | Write through shared worksheet helpers into `root.sheets[tabId].cells` |
+| `get(ref)` | Read through shared worksheet helpers (`cells` + `rowOrder` + `colOrder`) |
+| `delete(ref)` | Delete through shared worksheet helpers |
 | `deleteRange(range)` | Use CellIndex to find cells in range, delete in single `doc.update()` |
-| `setGrid(grid)` | Batch write to `root.sheet` |
+| `setGrid(grid)` | Batch write through worksheet helpers |
 | `getGrid(range)` | Use CellIndex to iterate only populated cells in range |
 | `findEdge(ref, direction, dimension)` | Delegate to `findEdgeWithIndex` using CellIndex |
-| `shiftCells(axis, index, count)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors and conditional-format ranges |
-| `moveCells(axis, src, count, dst)` | Remap sheet refs/formulas in place (delete removed keys, upsert remapped keys); also remap chart anchors and conditional-format ranges |
+| `shiftCells(axis, index, count)` | Mutate `rowOrder`/`colOrder` through `packages/frontend/src/app/spreadsheet/yorkie-worksheet-axis.ts`, then rewrite formulas, indexed metadata, merges, and chart anchors through `packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts` |
+| `moveCells(axis, src, count, dst)` | Same helper split as `shiftCells`, but with move semantics |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |
 | `addRangeStyle(patch)` | Append to `root.sheets[tabId].rangeStyles` |
@@ -276,9 +290,16 @@ Yorkie server and broadcasts to all connected peers.
 
 Cell payloads are normalized before persistence. `YorkieStore` drops default
 empty values (`v: ""`) and empty style/formula fields; if a cell has no
-remaining meaningful payload, it is removed from `sheet` instead of stored.
+remaining meaningful payload, it is removed from `cells` instead of stored.
 Range-style patches are stored separately in optional `rangeStyles`; documents
 without that field remain valid and are treated as having no patches.
+
+The current ownership split is:
+
+- `@wafflebase/sheet` owns generic worksheet document types, cell read/write
+  helpers, and pure remap helpers.
+- frontend Yorkie helpers own CRDT-specific axis mutation and post-structure
+  orchestration.
 
 **Batch transactions** — YorkieStore implements `beginBatch()` / `endBatch()`
 to group multiple mutations into a single `doc.update()` call, creating one
@@ -298,15 +319,15 @@ document at any time, YorkieStore uses a lazy rebuild strategy:
    events, sets `dirty = true`.
 2. **`ensureIndex()`** — Called before any query that uses the index
    (`getGrid`, `deleteRange`, `findEdge`). If dirty, rebuilds the index from
-   sheet keys and clears the flag. If Yorkie proxy key enumeration throws
+   worksheet keys and clears the flag. If Yorkie proxy key enumeration throws
    duplicate-key `ownKeys` errors, YorkieStore falls back to
-   `sheet.toJSON()` + `JSON.parse(...)` snapshot enumeration so rendering
+   `toJSON()` + `JSON.parse(...)` snapshot enumeration so rendering
    and navigation stay stable.
 3. **Local mutations** (`set`, `delete`, `setGrid`) update the index
    incrementally with a `if (!this.dirty)` guard — skip incremental update
    if the index is already stale.
 4. **Bulk operations** (`shiftCells`, `moveCells`) set `dirty = true` at the
-   end after key/formula remapping.
+   end after order-list and metadata remapping.
 
 ### Presence System
 

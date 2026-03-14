@@ -192,7 +192,7 @@ required trailing `)` and stores the corrected formula.
 
 ### Calculator
 
-Source: `packages/sheet/src/model/calculator.ts`
+Source: `packages/sheet/src/model/worksheet/calculator.ts`
 
 The Calculator recalculates formulas after a cell change, propagating updates
 through the dependency graph in topological order.
@@ -252,7 +252,7 @@ optional `SheetName!` or `'Quoted Name'!` prefixes.
 
 #### Coordinate Helpers
 
-Source: `packages/sheet/src/model/coordinates.ts`
+Source: `packages/sheet/src/model/core/coordinates.ts`
 
 | Function                  | Description                                                                                                 |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -338,7 +338,7 @@ Source: `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
 
 Cross-sheet references are **not shifted or moved** when rows/columns are
 inserted, deleted, or moved. The `shiftFormula` and `moveFormula` functions
-in `packages/sheet/src/model/shifting.ts` detect cross-sheet refs (via the `!` character)
+in `packages/sheet/src/model/worksheet/shifting.ts` detect cross-sheet refs (via the `!` character)
 and preserve them as-is. This matches Excel/Google Sheets behavior where
 cross-sheet references are only adjusted when the referenced sheet itself
 changes structure.

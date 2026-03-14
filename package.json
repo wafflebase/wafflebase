@@ -4,7 +4,7 @@
   "private": true,
   "description": "Super Simple Spreadsheet",
   "scripts": {
-    "dev": "concurrently \"pnpm frontend dev\" \"pnpm backend start\"",
+    "dev": "concurrently \"pnpm frontend dev\" \"pnpm backend start:dev\"",
     "build": "concurrently \"pnpm sheet build\" \"pnpm frontend build\" \"pnpm backend build\" \"pnpm cli build\"",
     "test": "concurrently \"pnpm sheet test\" \"pnpm frontend test\" \"pnpm backend test\" \"pnpm cli test\"",
     "verify:architecture": "pnpm frontend lint:arch && pnpm backend lint:arch",

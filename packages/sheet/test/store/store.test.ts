@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Store } from '../../src/store/store';
 import { MemStore } from '../../src/store/memory';
-import { PivotTableDefinition } from '../../src/model/types';
+import { PivotTableDefinition } from '../../src/model/core/types';
 
 describe('MemStore', () => {
   runTests(async () => new MemStore());

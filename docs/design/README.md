@@ -11,6 +11,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [formula-and-calculator.md](formula-and-calculator.md) | Formula engine and calculator — parsing, evaluating, and recalculating formulas                    |
 | [scroll-and-rendering.md](scroll-and-rendering.md)     | Viewport-based Canvas rendering and proportional scroll remapping for large grids                  |
 | [frontend.md](frontend.md)                             | Frontend package — app architecture, Yorkie integration, presence system, auth flow                |
+| [collaboration.md](collaboration.md)                       | Yorkie collaboration — worksheet storage, structural concurrency, and test strategy              |
 | [batch-transactions.md](batch-transactions.md)         | Store-level batch transactions for atomic undo/redo grouping                                       |
 | [backend.md](backend.md)                               | Backend package — NestJS modules, API reference, auth system, database schema, security            |
 | [sharing.md](sharing.md)                               | URL-based token sharing with anonymous access and role-based permissions                           |

@@ -12,9 +12,12 @@ import type {
 } from "@wafflebase/sheet";
 import {
   calculatePivot,
+  getWorksheetCell,
   materialize,
   parseSourceData,
   parseRange,
+  parseRef,
+  replaceWorksheetCells,
   toSref,
 } from "@wafflebase/sheet";
 import type { SpreadsheetDocument } from "@/types/worksheet";
@@ -129,7 +132,7 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
     if (!doc || !definition) return null;
     const root = doc.getRoot();
     const sourceWs = root.sheets[definition.sourceTabId];
-    if (!sourceWs?.sheet) return null;
+    if (!sourceWs) return null;
 
     try {
       const range = parseRange(definition.sourceRange);
@@ -138,7 +141,7 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
       for (let r = from.r; r <= to.r; r++) {
         for (let c = from.c; c <= to.c; c++) {
           const sref = toSref({ r, c }) as Sref;
-          const cell = sourceWs.sheet[sref];
+          const cell = getWorksheetCell(sourceWs, { r, c });
           if (cell) {
             // Read properties directly to detach from Yorkie CRDT proxy.
             // JSON.parse(JSON.stringify(proxy)) fails due to double-encoding.
@@ -272,25 +275,10 @@ export function usePivotTable({ doc, tabId }: UsePivotTableProps) {
       const ws = root.sheets[tabId];
       if (!ws) return;
 
-      // Clear existing cells. Use toJSON() to snapshot keys from the Yorkie
-      // CRDT proxy, which avoids "ownKeys duplicate" errors.
-      let keys: string[];
-      try {
-        keys = Object.keys(ws.sheet);
-      } catch {
-        const maybeToJSON = (ws.sheet as { toJSON?: () => string }).toJSON;
-        keys = typeof maybeToJSON === 'function'
-          ? Object.keys(JSON.parse(maybeToJSON.call(ws.sheet)))
-          : [];
-      }
-      for (const key of keys) {
-        delete ws.sheet[key];
-      }
-
-      // Write new cells
-      for (const [sref, cell] of grid) {
-        ws.sheet[sref] = cell;
-      }
+      replaceWorksheetCells(
+        ws,
+        Array.from(grid, ([sref, cell]) => [parseRef(sref), cell] as const),
+      );
     });
   }, [doc, tabId, definition, buildSourceGrid]);
 

@@ -20,5 +20,7 @@
     "noImplicitAny": true,
     "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true
-  }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "prisma", "scripts", "test"]
 }

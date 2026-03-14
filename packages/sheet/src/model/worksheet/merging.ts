@@ -1,5 +1,5 @@
-import { Axis, MergeSpan, Range, Ref, Sref } from './types';
-import { parseRef, toSref } from './coordinates';
+import { Axis, MergeSpan, Range, Ref, Sref } from '../core/types';
+import { parseRef, toSref } from '../core/coordinates';
 import { remapIndex } from './shifting';
 
 /**

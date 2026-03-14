@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { formatValue } from '../../src/model/format';
+import { formatValue } from '../../src/model/worksheet/format';
 import {
   resolveCurrencyForLocale,
   resolveSystemLocale,
-} from '../../src/model/locale';
+} from '../../src/model/core/locale';
 
 describe('formatValue', () => {
   it('should return original value for plain format', () => {

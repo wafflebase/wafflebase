@@ -34,7 +34,7 @@ import {
 import { TabBar } from "@/components/tab-bar";
 import {
   SpreadsheetDocument,
-  Worksheet,
+  createWorksheet,
   TabType,
   TabMeta,
   initialSpreadsheetDocument,
@@ -48,10 +48,6 @@ import {
   isTabNameTaken,
   normalizeTabName,
 } from "./tab-name";
-import {
-  buildLegacySpreadsheetDocument,
-  shouldMigrateLegacyDocument,
-} from "./migration";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
 const DataSourceView = lazy(() =>
@@ -64,40 +60,6 @@ const DataSourceSelector = lazy(() =>
     default: module.DataSourceSelector,
   })),
 );
-
-/**
- * Detects old flat Worksheet format and migrates to SpreadsheetDocument.
- */
-function migrateDocument(
-  doc: ReturnType<
-    typeof useDocument<SpreadsheetDocument, UserPresenceType>
-  >["doc"],
-) {
-  if (!doc) return;
-
-  const root = doc.getRoot() as unknown as Record<string, unknown>;
-  if (!shouldMigrateLegacyDocument(root)) return;
-
-  doc.update((r: Record<string, unknown>) => {
-    const migrated = buildLegacySpreadsheetDocument(r);
-    if (!migrated) return;
-
-    r.tabs = migrated.tabs;
-    r.tabOrder = migrated.tabOrder;
-    r.sheets = migrated.sheets;
-
-    // Remove old flat keys
-    delete r.sheet;
-    delete r.rowHeights;
-    delete r.colWidths;
-    delete r.colStyles;
-    delete r.rowStyles;
-    delete r.sheetStyle;
-    delete r.merges;
-    delete r.frozenRows;
-    delete r.frozenCols;
-  });
-}
 
 function generateTabId(): string {
   return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -114,7 +76,6 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [migrated, setMigrated] = useState(false);
   const [showDsSelector, setShowDsSelector] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
     tabId: string;
@@ -192,25 +153,17 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
-  // Perform migration on first load
   useEffect(() => {
     if (!doc) return;
-    migrateDocument(doc);
-    setMigrated(true);
-  }, [doc]);
-
-  // Set initial active tab after migration
-  useEffect(() => {
-    if (!doc || !migrated) return;
     const root = doc.getRoot();
     if (root.tabOrder && root.tabOrder.length > 0 && !activeTabId) {
       setActiveTabId(root.tabOrder[0]);
     }
-  }, [doc, migrated, activeTabId]);
+  }, [doc, activeTabId]);
 
   // Backfill old documents that may already contain duplicate tab names.
   useEffect(() => {
-    if (!doc || !migrated) return;
+    if (!doc) return;
 
     let normalizing = false;
 
@@ -238,7 +191,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         normalizeTabNames();
       }
     });
-  }, [doc, migrated]);
+  }, [doc]);
 
   const addSheetTab = useCallback(() => {
     if (!doc) return;
@@ -253,18 +206,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         type: "sheet",
       } as TabMeta;
       r.tabOrder.push(tabId);
-      r.sheets[tabId] = {
-        sheet: {},
-        rowHeights: {},
-        colWidths: {},
-        colStyles: {},
-        rowStyles: {},
-        conditionalFormats: [],
-        merges: {},
-        charts: {},
-        frozenRows: 0,
-        frozenCols: 0,
-      } as Worksheet;
+      r.sheets[tabId] = createWorksheet();
     });
     setActiveTabId(tabId);
   }, [doc]);
@@ -287,17 +229,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           kind: "pivot",
         };
         r.tabOrder.push(tabId);
-        r.sheets[tabId] = {
-          sheet: {},
-          rowHeights: {},
-          colWidths: {},
-          colStyles: {},
-          rowStyles: {},
-          conditionalFormats: [],
-          merges: {},
-          charts: {},
-          frozenRows: 0,
-          frozenCols: 0,
+        r.sheets[tabId] = createWorksheet({
           pivotTable: {
             id: crypto.randomUUID(),
             sourceTabId,
@@ -308,7 +240,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             filterFields: [],
             showTotals: { rows: true, columns: true },
           },
-        };
+        });
       });
       setActiveTabId(tabId);
     },
@@ -520,7 +452,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc, activeTabId],
   );
 
-  if (!doc || !migrated || !activeTabId) {
+  if (!doc || !activeTabId) {
     return <Loader />;
   }
 
@@ -656,7 +588,7 @@ export function DocumentDetail() {
   return (
     <DocumentProvider
       docKey={`sheet-${id}`}
-      initialRoot={initialSpreadsheetDocument}
+      initialRoot={initialSpreadsheetDocument()}
       initialPresence={{
         username: currentUser.username,
         email: currentUser.email,

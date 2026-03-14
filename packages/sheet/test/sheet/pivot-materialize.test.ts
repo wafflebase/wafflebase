@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { materialize } from '../../src/model/pivot/materialize';
-import type { PivotResult } from '../../src/model/types';
-import { toSref } from '../../src/model/coordinates';
+import type { PivotResult } from '../../src/model/core/types';
+import { toSref } from '../../src/model/core/coordinates';
 
 describe('materialize', () => {
   it('converts PivotResult into Grid of cells starting at A1', () => {

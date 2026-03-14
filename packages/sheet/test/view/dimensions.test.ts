@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DimensionIndex } from '../../src/model/dimensions';
+import { DimensionIndex } from '../../src/model/worksheet/dimensions';
 
 describe('DimensionIndex', () => {
   describe('getSize', () => {

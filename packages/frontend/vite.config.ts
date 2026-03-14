@@ -85,6 +85,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@wafflebase/sheet": path.resolve(__dirname, "../sheet/src/index.ts"),
       util: utilShimPath,
       assert: assertShimPath,
     },

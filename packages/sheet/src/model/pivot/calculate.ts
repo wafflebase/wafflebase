@@ -1,11 +1,11 @@
-import { parseRange } from '../coordinates';
+import { parseRange } from '../core/coordinates';
 import type {
   Grid,
   GroupNode,
   PivotCell,
   PivotResult,
   PivotTableDefinition,
-} from '../types';
+} from '../core/types';
 import { parseSourceData } from './parse';
 import { applyFilters, buildGroups } from './group';
 import { aggregateValues } from './aggregate';

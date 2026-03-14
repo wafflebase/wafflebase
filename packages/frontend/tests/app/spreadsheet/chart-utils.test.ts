@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseRef, writeWorksheetCell } from "@wafflebase/sheet";
 import {
   getSeriesColor,
   COLOR_PALETTES,
@@ -7,6 +8,7 @@ import {
 import {
   buildPieDataset,
 } from "../../../src/app/spreadsheet/chart-utils.ts";
+import { createWorksheet } from "../../../src/types/worksheet.ts";
 
 // ---------------------------------------------------------------------------
 // getSeriesColor
@@ -44,24 +46,18 @@ function buildDoc(
   tabId: string,
   cells: Record<string, string | number>,
 ): Parameters<typeof buildPieDataset>[0] {
-  const sheet: Record<string, { v: string | number }> = {};
+  const worksheet = createWorksheet();
   for (const [key, value] of Object.entries(cells)) {
-    sheet[key] = { v: typeof value === "number" ? String(value) : value };
+    writeWorksheetCell(worksheet, parseRef(key), {
+      v: typeof value === "number" ? String(value) : value,
+    });
   }
 
   return {
     tabs: { [tabId]: { id: tabId, name: "Sheet1", type: "sheet" as const } },
     tabOrder: [tabId],
     sheets: {
-      [tabId]: {
-        sheet: sheet as never,
-        rowHeights: {},
-        colWidths: {},
-        colStyles: {},
-        rowStyles: {},
-        frozenRows: 0,
-        frozenCols: 0,
-      },
+      [tabId]: worksheet,
     },
   };
 }

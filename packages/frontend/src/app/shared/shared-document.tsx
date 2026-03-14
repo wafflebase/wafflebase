@@ -130,7 +130,7 @@ function SharedDocumentInner({
     >
       <DocumentProvider
         docKey={`sheet-${resolved.documentId}`}
-        initialRoot={initialSpreadsheetDocument}
+        initialRoot={initialSpreadsheetDocument()}
         initialPresence={presence}
         enableDevtools={import.meta.env.DEV}
       >

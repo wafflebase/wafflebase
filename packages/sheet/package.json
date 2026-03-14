@@ -5,7 +5,17 @@
   "license": "Apache-2.0",
   "description": "Frontend for Wafflebase",
   "type": "module",
-  "main": "src/index.js",
+  "main": "dist/wafflebase-sheet.js",
+  "module": "dist/wafflebase-sheet.es.js",
+  "types": "dist/wafflebase-sheet.es.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/wafflebase-sheet.es.d.ts",
+      "import": "./dist/wafflebase-sheet.es.js",
+      "require": "./dist/wafflebase-sheet.js",
+      "default": "./dist/wafflebase-sheet.es.js"
+    }
+  },
   "scripts": {
     "dev": "vite",
     "test": "vitest --run",

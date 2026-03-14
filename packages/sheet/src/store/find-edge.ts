@@ -1,5 +1,5 @@
-import { Ref, Range, Direction } from '../model/types';
-import { inRange } from '../model/coordinates';
+import { Ref, Range, Direction } from '../model/core/types';
+import { inRange } from '../model/core/coordinates';
 import { CellIndex } from './cell-index';
 
 /**

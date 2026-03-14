@@ -1,5 +1,5 @@
-import { toSref, toSrng, toColumnLabel } from '../model/coordinates';
-import { Sheet } from '../model/sheet';
+import { toSref, toSrng, toColumnLabel } from '../model/core/coordinates';
+import { Sheet } from '../model/worksheet/sheet';
 import { extractTokens } from '../formula/formula';
 import { Theme, ThemeKey, getThemeColor, getFormulaRangeColor } from './theme';
 import { setTextRange, toTextRange } from './utils/textrange';

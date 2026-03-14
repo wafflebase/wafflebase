@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { toSref } from '../../src/model/coordinates';
-import { MergeSpan, Range, Ref } from '../../src/model/types';
+import { toSref } from '../../src/model/core/coordinates';
+import { MergeSpan, Range, Ref } from '../../src/model/core/types';
 import { Overlay } from '../../src/view/overlay';
 
 type MergeData = {

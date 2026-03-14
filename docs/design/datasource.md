@@ -93,8 +93,6 @@ type SpreadsheetDocument = {
 - **Sheet tabs** store data in `sheets[tabId]` (the existing `Worksheet` structure).
 - **Datasource tabs** store only metadata (`datasourceId`, `query`) in `tabs[tabId]`. Query results are ephemeral and loaded into a `ReadOnlyStore` on execution.
 
-**Auto-migration**: On document load, if the old flat format is detected (has `sheet` but no `tabs`), it is automatically migrated to the new structure in a single Yorkie update. See `migrateDocument()` in `packages/frontend/src/app/documents/document-detail.tsx`.
-
 ### 2. Backend DataSource Module
 
 Located at `packages/backend/src/datasource/`.
@@ -236,4 +234,4 @@ These are known gaps in the current implementation that represent opportunities 
 | Credential exposure | Passwords encrypted at rest with AES-256-GCM. Masked in API responses. Encryption key must be kept secure via environment variable. |
 | Resource exhaustion from large queries | 30s timeout + 10,000 row limit + per-query connection (no shared resources). Consider adding rate limiting per user. |
 | Stale connections to unreachable hosts | 10s connection timeout. Connections are cleaned up in `finally` blocks. |
-| Migration data loss | Migration is additive (wraps existing data in new structure, then deletes old keys). Tested with the auto-migration logic in `migrateDocument()`. |
+| Legacy document compatibility | Legacy pre-tab Yorkie documents were removed from storage before this code path cleanup, so the runtime no longer carries migration fallback for that format. |

@@ -1,4 +1,4 @@
-import { Sref } from "@wafflebase/sheet";
+import type { Sref } from "@wafflebase/sheet";
 
 export type User = {
   id: number;

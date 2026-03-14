@@ -1,4 +1,4 @@
-import { Store } from '../store/store';
+import { Store } from '../../store/store';
 import { calculate } from './calculator';
 import {
   cloneRange,
@@ -14,8 +14,8 @@ import {
   mergeRanges,
   isCrossSheetRef,
   parseCrossSheetRef,
-} from './coordinates';
-import { extractReferences, normalizeFormulaOnCommit } from '../formula/formula';
+} from '../core/coordinates';
+import { extractReferences, normalizeFormulaOnCommit } from '../../formula/formula';
 import {
   Axis,
   BorderPreset,
@@ -33,7 +33,7 @@ import {
   Range,
   Direction,
   SelectionType,
-} from './types';
+} from '../core/types';
 import {
   moveRef,
   remapIndex,

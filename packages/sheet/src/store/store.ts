@@ -12,8 +12,8 @@ import {
   Range,
   Sref,
   Direction,
-} from '../model/types';
-import { RangeStylePatch } from '../model/range-styles';
+} from '../model/core/types';
+import { RangeStylePatch } from '../model/worksheet/range-styles';
 
 /**
  * `Store` interface represents a storage that stores the cell values.

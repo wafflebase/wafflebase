@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGroups, applyFilters } from '../../src/model/pivot/group';
-import type { PivotField, PivotFilterField, PivotRecord } from '../../src/model/types';
+import type { PivotField, PivotFilterField, PivotRecord } from '../../src/model/core/types';
 
 const records: PivotRecord[] = [
   ['Alice', 'Eng', 'Q1', '100'],

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { calculatePivot } from '../../src/model/pivot/calculate';
 import { materialize } from '../../src/model/pivot/materialize';
 import { parseSourceData } from '../../src/model/pivot/parse';
-import type { Grid, PivotTableDefinition, Sref } from '../../src/model/types';
-import { toSref, parseRange } from '../../src/model/coordinates';
+import type { Grid, PivotTableDefinition, Sref } from '../../src/model/core/types';
+import { toSref, parseRange } from '../../src/model/core/coordinates';
 
 /**
  * End-to-end pivot table tests that exercise the full pipeline:

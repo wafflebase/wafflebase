@@ -15,6 +15,13 @@ const FRONTEND_SRC = pathResolve(
   "src",
 );
 
+const SHEET_ROOT = pathResolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "..",
+  "..",
+  "sheet",
+);
+
 const SHEET_DIST = pathResolve(
   fileURLToPath(new URL(".", import.meta.url)),
   "..",
@@ -24,13 +31,24 @@ const SHEET_DIST = pathResolve(
   "wafflebase-sheet.es.js",
 );
 
+const SHEET_SRC_INDEX = pathResolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "..",
+  "..",
+  "sheet",
+  "src",
+  "index.ts",
+);
+
 export async function resolve(specifier, context, nextResolve) {
   // Map @wafflebase/sheet → built ES module in sheet dist.
-  // If the dist file is missing (e.g. CI before sheet build), resolve to a
-  // virtual stub so tests that transitively import it can still run.
+  // If the dist file is missing, fall back to the workspace source.
   if (specifier === "@wafflebase/sheet") {
     if (existsSync(SHEET_DIST)) {
       return nextResolve(pathToFileURL(SHEET_DIST).href, context);
+    }
+    if (existsSync(SHEET_SRC_INDEX)) {
+      return nextResolve(pathToFileURL(SHEET_SRC_INDEX).href, context);
     }
     return { url: "virtual:wafflebase-sheet", shortCircuit: true };
   }
@@ -48,11 +66,22 @@ export async function resolve(specifier, context, nextResolve) {
     return nextResolve(pathToFileURL(exactPath).href, context);
   }
 
+  if (
+    specifier.startsWith("antlr4ts/") &&
+    !specifier.endsWith(".js") &&
+    !specifier.endsWith(".mjs")
+  ) {
+    return nextResolve(`${specifier}.js`, context);
+  }
+
   // Handle extensionless relative imports within frontend src/ — add .ts/.tsx
   if (
-    specifier.startsWith("./") &&
+    (specifier.startsWith("./") || specifier.startsWith("../")) &&
     context.parentURL &&
-    fileURLToPath(context.parentURL).startsWith(FRONTEND_SRC)
+    (
+      fileURLToPath(context.parentURL).startsWith(FRONTEND_SRC) ||
+      fileURLToPath(context.parentURL).startsWith(SHEET_ROOT)
+    )
   ) {
     const parentDir = dirname(fileURLToPath(context.parentURL));
     for (const ext of [".ts", ".tsx"]) {

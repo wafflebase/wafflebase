@@ -7,6 +7,7 @@
   "scripts": {
     "build": "nest build",
     "postinstall": "prisma generate",
+    "prestart:dev": "pnpm --filter @wafflebase/sheet build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -20,7 +21,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "migrate": "prisma migrate dev --name init"
+    "migrate": "prisma migrate dev --name init",
+    "migrate:yorkie:worksheet-shape": "tsx scripts/migrate-yorkie-worksheet-shape.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.0",
@@ -72,6 +74,7 @@
     "prisma": "^6.6.0",
     "source-map-support": "^0.5.21",
     "supertest": "^7.2.0",
+    "tsx": "^4.19.0",
     "ts-jest": "^29.2.5",
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
@@ -91,7 +94,8 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "moduleNameMapper": {
-      "^src/(.*)$": "<rootDir>/$1"
+      "^src/(.*)$": "<rootDir>/$1",
+      "^@wafflebase/sheet$": "<rootDir>/../../sheet/src/index.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

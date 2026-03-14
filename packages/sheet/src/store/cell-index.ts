@@ -1,4 +1,4 @@
-import { Range } from '../model/types';
+import { Range } from '../model/core/types';
 
 /**
  * `CellIndex` provides a spatial index over populated cells using dual

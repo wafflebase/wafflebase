@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/sheet';
-import { DimensionIndex } from '../../src/model/dimensions';
+import { Sheet } from '../../src/model/worksheet/sheet';
+import { DimensionIndex } from '../../src/model/worksheet/dimensions';
 import { buildFreezeState, NoFreeze, toRefWithFreeze } from '../../src/view/layout';
 
 describe('Sheet.FreezePane', () => {

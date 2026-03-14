@@ -1,5 +1,5 @@
-import { parseRef, toSref } from './coordinates';
-import { Cell, CellStyle, Grid, Ref, Sref, TextAlign } from './types';
+import { parseRef, toSref } from '../core/coordinates';
+import { Cell, CellStyle, Grid, Ref, Sref, TextAlign } from '../core/types';
 
 /**
  * `grid2string` converts the given grid to a string representation.

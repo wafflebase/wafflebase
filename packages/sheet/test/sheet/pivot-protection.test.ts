@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { Sheet } from '../../src/model/sheet';
+import { Sheet } from '../../src/model/worksheet/sheet';
 import { MemStore } from '../../src/store/memory';
-import type { PivotTableDefinition } from '../../src/model/types';
+import type { PivotTableDefinition } from '../../src/model/core/types';
 
 const pivotDef: PivotTableDefinition = {
   id: 'p1',
