@@ -47,6 +47,9 @@ function createStore(doc: object): YorkieStore {
   return new YorkieStore(doc as never, "tab-1");
 }
 
+// 4 rounds ensures convergence: each client must push its local changes,
+// pull the other client's changes, then push any conflict-resolution
+// mutations, and finally pull those resolutions.
 async function syncClients(
   clients: Array<{
     client: YorkieClient;
@@ -82,6 +85,12 @@ async function applyStoreOp(store: YorkieStore, op: ConcurrencyOp): Promise<void
     case "delete-columns":
       await store.shiftCells("column", op.index, -(op.count ?? 1));
       return;
+    case "set-row-height":
+      await store.setDimensionSize("row", op.index, op.height);
+      return;
+    case "set-column-width":
+      await store.setDimensionSize("column", op.index, op.width);
+      return;
     default: {
       const _exhaustive: never = op;
       throw new Error(`Unknown op kind: ${(_exhaustive as ConcurrencyOp).kind}`);
@@ -91,17 +100,37 @@ async function applyStoreOp(store: YorkieStore, op: ConcurrencyOp): Promise<void
 
 async function captureStoreSnapshot(
   store: YorkieStore,
-  refs: string[],
+  observe: ConcurrencyCase["observe"],
 ): Promise<ConcurrencySnapshot> {
   const cells: ConcurrencySnapshot["cells"] = {};
-  for (const sref of refs) {
+  for (const sref of observe.refs) {
     const cell = await store.get(parseRef(sref));
     cells[sref] = {
       input: cell?.f || cell?.v || "",
       display: cell?.v || cell?.f || "",
     };
   }
-  return { cells };
+
+  const snapshot: ConcurrencySnapshot = { cells };
+
+  if (observe.dimensions?.length) {
+    const dims: NonNullable<ConcurrencySnapshot["dimensions"]> = {};
+    for (const axis of observe.dimensions) {
+      const sizes = await store.getDimensionSizes(axis === "row" ? "row" : "column");
+      const record: Record<string, number> = {};
+      for (const [k, v] of sizes) {
+        record[String(k)] = v;
+      }
+      if (axis === "row") {
+        dims.rowHeights = record;
+      } else {
+        dims.colWidths = record;
+      }
+    }
+    snapshot.dimensions = dims;
+  }
+
+  return snapshot;
 }
 
 function snapshotMatchesOneOf(
@@ -154,8 +183,8 @@ export async function runConcurrentYorkieCase(testCase: ConcurrencyCase): Promis
       { client: clientB, doc: docB },
     ]);
 
-    const collaboratorA = await captureStoreSnapshot(storeA, testCase.observe.refs);
-    const collaboratorB = await captureStoreSnapshot(storeB, testCase.observe.refs);
+    const collaboratorA = await captureStoreSnapshot(storeA, testCase.observe);
+    const collaboratorB = await captureStoreSnapshot(storeB, testCase.observe);
     const converged =
       JSON.stringify(collaboratorA) === JSON.stringify(collaboratorB);
 

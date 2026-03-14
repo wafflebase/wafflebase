@@ -25,6 +25,16 @@ export type ConcurrencyOp =
       kind: 'delete-columns';
       index: number;
       count?: number;
+    }
+  | {
+      kind: 'set-row-height';
+      index: number;
+      height: number;
+    }
+  | {
+      kind: 'set-column-width';
+      index: number;
+      width: number;
     };
 
 export type ObservedCellSnapshot = {
@@ -34,6 +44,10 @@ export type ObservedCellSnapshot = {
 
 export type ConcurrencySnapshot = {
   cells: Record<Sref, ObservedCellSnapshot>;
+  dimensions?: {
+    rowHeights?: Record<string, number>;
+    colWidths?: Record<string, number>;
+  };
 };
 
 export type ConcurrencyCase = {
@@ -49,6 +63,7 @@ export type ConcurrencyCase = {
   userB: ConcurrencyOp;
   observe: {
     refs: Sref[];
+    dimensions?: Array<'row' | 'column'>;
   };
   expect: {
     aThenB: ConcurrencySnapshot;
@@ -381,6 +396,255 @@ export const concurrencyCases: ConcurrencyCase[] = [
           A2: { input: '', display: '' },
           A3: { input: '30', display: '30' },
           A4: { input: '40', display: '40' },
+        },
+      },
+    },
+  },
+
+  // --- Same-cell cases ---
+  {
+    name: 'same-cell concurrent value edit',
+    relation: 'same-cell',
+    userA: { kind: 'set-data', ref: 'A1', value: 'alice' },
+    userB: { kind: 'set-data', ref: 'A1', value: 'bob' },
+    observe: { refs: ['A1'] },
+    expect: {
+      aThenB: {
+        cells: {
+          A1: { input: 'bob', display: 'bob' },
+        },
+      },
+      bThenA: {
+        cells: {
+          A1: { input: 'alice', display: 'alice' },
+        },
+      },
+    },
+  },
+  {
+    name: 'same-cell formula vs value edit',
+    relation: 'same-cell',
+    seed: [{ kind: 'set-data', ref: 'B1', value: '10' }],
+    userA: { kind: 'set-data', ref: 'A1', value: '=B1+1' },
+    userB: { kind: 'set-data', ref: 'A1', value: '99' },
+    observe: { refs: ['A1'] },
+    expect: {
+      aThenB: {
+        cells: {
+          A1: { input: '99', display: '99' },
+        },
+      },
+      bThenA: {
+        cells: {
+          A1: { input: '=B1+1', display: '11' },
+        },
+      },
+    },
+  },
+
+  // --- Same-row / same-column band cases ---
+  {
+    name: 'same-row different-column concurrent edits',
+    relation: 'same-row-band',
+    userA: { kind: 'set-data', ref: 'A1', value: 'left' },
+    userB: { kind: 'set-data', ref: 'B1', value: 'right' },
+    observe: { refs: ['A1', 'B1'] },
+    expect: {
+      aThenB: {
+        cells: {
+          A1: { input: 'left', display: 'left' },
+          B1: { input: 'right', display: 'right' },
+        },
+      },
+      bThenA: {
+        cells: {
+          A1: { input: 'left', display: 'left' },
+          B1: { input: 'right', display: 'right' },
+        },
+      },
+    },
+  },
+  {
+    name: 'same-column different-row concurrent edits',
+    relation: 'same-column-band',
+    userA: { kind: 'set-data', ref: 'A1', value: 'top' },
+    userB: { kind: 'set-data', ref: 'A2', value: 'bottom' },
+    observe: { refs: ['A1', 'A2'] },
+    expect: {
+      aThenB: {
+        cells: {
+          A1: { input: 'top', display: 'top' },
+          A2: { input: 'bottom', display: 'bottom' },
+        },
+      },
+      bThenA: {
+        cells: {
+          A1: { input: 'top', display: 'top' },
+          A2: { input: 'bottom', display: 'bottom' },
+        },
+      },
+    },
+  },
+
+  // --- Multi-count structural cases ---
+  {
+    name: 'value edit vs bulk row insert (count=2)',
+    relation: 'shift-affected',
+    seed: [{ kind: 'set-data', ref: 'A3', value: '20' }],
+    userA: { kind: 'insert-rows', index: 2, count: 2 },
+    userB: { kind: 'set-data', ref: 'A3', value: '99' },
+    observe: { refs: ['A3', 'A4', 'A5'] },
+    expect: {
+      aThenB: {
+        cells: {
+          A3: { input: '99', display: '99' },
+          A4: { input: '', display: '' },
+          A5: { input: '20', display: '20' },
+        },
+      },
+      bThenA: {
+        cells: {
+          A3: { input: '', display: '' },
+          A4: { input: '', display: '' },
+          A5: { input: '99', display: '99' },
+        },
+      },
+    },
+  },
+  {
+    name: 'value edit vs bulk row delete (count=2)',
+    relation: 'shift-affected',
+    seed: [
+      { kind: 'set-data', ref: 'A2', value: '10' },
+      { kind: 'set-data', ref: 'A3', value: '20' },
+      { kind: 'set-data', ref: 'A4', value: '30' },
+    ],
+    userA: { kind: 'delete-rows', index: 2, count: 2 },
+    userB: { kind: 'set-data', ref: 'A2', value: '99' },
+    observe: { refs: ['A2', 'A3', 'A4'] },
+    expect: {
+      aThenB: {
+        cells: {
+          A2: { input: '99', display: '99' },
+          A3: { input: '', display: '' },
+          A4: { input: '', display: '' },
+        },
+      },
+      bThenA: {
+        cells: {
+          A2: { input: '30', display: '30' },
+          A3: { input: '', display: '' },
+          A4: { input: '', display: '' },
+        },
+      },
+    },
+  },
+  {
+    name: 'bulk insert vs bulk insert (count=2)',
+    relation: 'structure-structure',
+    seed: [{ kind: 'set-data', ref: 'A2', value: '10' }],
+    userA: { kind: 'insert-rows', index: 2, count: 2 },
+    userB: { kind: 'insert-rows', index: 2, count: 2 },
+    observe: { refs: ['A2', 'A3', 'A4', 'A5', 'A6'] },
+    expect: {
+      aThenB: {
+        cells: {
+          A2: { input: '', display: '' },
+          A3: { input: '', display: '' },
+          A4: { input: '', display: '' },
+          A5: { input: '', display: '' },
+          A6: { input: '10', display: '10' },
+        },
+      },
+      bThenA: {
+        cells: {
+          A2: { input: '', display: '' },
+          A3: { input: '', display: '' },
+          A4: { input: '', display: '' },
+          A5: { input: '', display: '' },
+          A6: { input: '10', display: '10' },
+        },
+      },
+    },
+  },
+
+  // --- Metadata + structure interaction cases ---
+  {
+    name: 'row height vs row insert at same index',
+    relation: 'shift-affected',
+    seed: [{ kind: 'set-data', ref: 'A2', value: '10' }],
+    userA: { kind: 'insert-rows', index: 2, count: 1 },
+    userB: { kind: 'set-row-height', index: 2, height: 60 },
+    observe: { refs: ['A2', 'A3'], dimensions: ['row'] },
+    expect: {
+      aThenB: {
+        cells: {
+          A2: { input: '', display: '' },
+          A3: { input: '10', display: '10' },
+        },
+        dimensions: {
+          rowHeights: { '2': 60 },
+        },
+      },
+      bThenA: {
+        cells: {
+          A2: { input: '', display: '' },
+          A3: { input: '10', display: '10' },
+        },
+        dimensions: {
+          rowHeights: { '3': 60 },
+        },
+      },
+    },
+  },
+  {
+    name: 'column width vs column delete at same index',
+    relation: 'shift-affected',
+    seed: [
+      { kind: 'set-data', ref: 'B1', value: '10' },
+      { kind: 'set-data', ref: 'C1', value: '30' },
+    ],
+    userA: { kind: 'delete-columns', index: 2, count: 1 },
+    userB: { kind: 'set-column-width', index: 2, width: 200 },
+    observe: { refs: ['B1', 'C1'], dimensions: ['column'] },
+    expect: {
+      aThenB: {
+        cells: {
+          B1: { input: '30', display: '30' },
+          C1: { input: '', display: '' },
+        },
+        dimensions: {
+          colWidths: { '2': 200 },
+        },
+      },
+      bThenA: {
+        cells: {
+          B1: { input: '30', display: '30' },
+          C1: { input: '', display: '' },
+        },
+        dimensions: {
+          colWidths: {},
+        },
+      },
+    },
+  },
+  {
+    name: 'concurrent row height edits on same row',
+    relation: 'same-row-band',
+    userA: { kind: 'set-row-height', index: 3, height: 50 },
+    userB: { kind: 'set-row-height', index: 3, height: 80 },
+    observe: { refs: [], dimensions: ['row'] },
+    expect: {
+      aThenB: {
+        cells: {},
+        dimensions: {
+          rowHeights: { '3': 80 },
+        },
+      },
+      bThenA: {
+        cells: {},
+        dimensions: {
+          rowHeights: { '3': 50 },
         },
       },
     },

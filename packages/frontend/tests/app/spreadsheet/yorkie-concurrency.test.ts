@@ -17,6 +17,13 @@ const serialIntentCases = concurrencyCases.filter((testCase) =>
     "column insert vs column delete at same index",
     "row insert vs row insert at adjacent indexes",
     "row delete vs row insert at adjacent indexes",
+    "same-row different-column concurrent edits",
+    "same-column different-row concurrent edits",
+    "value edit vs bulk row insert (count=2)",
+    "value edit vs bulk row delete (count=2)",
+    "bulk insert vs bulk insert (count=2)",
+    "row height vs row insert at same index",
+    "column width vs column delete at same index",
   ].includes(testCase.name),
 );
 
@@ -24,6 +31,9 @@ const characterizationCases = concurrencyCases.filter((testCase) =>
   [
     "column delete vs column delete at same index",
     "row delete vs row delete at same index",
+    "same-cell concurrent value edit",
+    "same-cell formula vs value edit",
+    "concurrent row height edits on same row",
   ].includes(testCase.name),
 );
 
