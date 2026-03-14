@@ -28,6 +28,8 @@ jobs:
         run: |
           pnpm i
           pnpm frontend build
+          pnpm vpdocs build
+          cp -r packages/docs/.vitepress/dist packages/frontend/dist/docs
 
       - name: Deploy 🚀
         uses: peaceiris/actions-gh-pages@v4

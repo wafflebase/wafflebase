@@ -20,6 +20,7 @@ const VisualHarnessPage = lazy(() => import("@/app/harness/visual/page"));
 const InteractionHarnessPage = lazy(
   () => import("@/app/harness/interaction/page"),
 );
+const DocsHarnessPage = lazy(() => import("@/app/harness/docs/page"));
 const Layout = lazy(() => import("./app/Layout"));
 
 const WorkspaceDocuments = lazy(
@@ -51,6 +52,7 @@ function App() {
                   path="/harness/interaction"
                   element={<InteractionHarnessPage />}
                 />
+                <Route path="/harness/docs" element={<DocsHarnessPage />} />
                 <Route path="/shared/:token" element={<SharedDocument />} />
                 <Route path="/" element={<HomeOrRedirect />} />
                 <Route element={<PrivateRoute />}>

@@ -180,3 +180,9 @@ tags
 
 # Local Claude settings
 .claude/settings.local.json
+
+# VitePress cache
+.vitepress/cache/
+
+# Superpowers
+.superpowers/

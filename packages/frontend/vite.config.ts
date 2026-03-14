@@ -1,7 +1,7 @@
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, type Plugin, type Connect } from "vite";
 
 const utilShimPath = path.resolve(__dirname, "./src/lib/util-shim.js");
 const assertShimPath = path.resolve(__dirname, "./src/lib/assert-shim.cjs");
@@ -81,7 +81,33 @@ function manualChunks(id: string): string | undefined {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [antlr4tsAssertShim(), react(), tailwindcss()],
+  plugins: [
+    antlr4tsAssertShim(),
+    react(),
+    tailwindcss(),
+    {
+      name: "docs-trailing-slash",
+      configureServer(server) {
+        server.middlewares.use(((req, res, next) => {
+          if (req.url === "/docs") {
+            res.writeHead(302, { Location: "/docs/" });
+            res.end();
+            return;
+          }
+          next();
+        }) as Connect.NextHandleFunction);
+      },
+    },
+  ],
+  server: {
+    proxy: {
+      "/docs": {
+        target: "http://localhost:5174",
+        changeOrigin: true,
+        ws: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
