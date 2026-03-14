@@ -248,6 +248,13 @@ export class Sheet {
   private gridResolver?: GridResolver;
 
   /**
+   * `crossSheetFormulaSrefs` caches the set of cell srefs that contain
+   * cross-sheet formula references. `null` means the cache is stale and
+   * must be rebuilt on next `recalculateCrossSheetFormulas()` call.
+   */
+  private crossSheetFormulaSrefs: Set<Sref> | null = null;
+
+  /**
    * `constructor` creates a new `Sheet` instance.
    * @param grid optional grid to initialize the sheet.
    */
@@ -903,6 +910,7 @@ export class Sheet {
    */
   async setData(ref: Ref, value: string): Promise<void> {
     if (this.pivotDefinition) return;
+    this.invalidateCrossSheetCache();
     const target = this.normalizeRefToAnchor(ref);
     this.store.beginBatch();
     try {
@@ -948,6 +956,7 @@ export class Sheet {
    */
   async removeData(): Promise<boolean> {
     if (this.pivotDefinition) return false;
+    this.invalidateCrossSheetCache();
     this.store.beginBatch();
     try {
       const range: Range = this.getRangeOrActiveCell();
@@ -1037,6 +1046,7 @@ export class Sheet {
     index: number,
     count: number,
   ): Promise<void> {
+    this.invalidateCrossSheetCache();
     await this.store.shiftCells(axis, index, count);
 
     // Shift dimension custom sizes
@@ -1156,6 +1166,7 @@ export class Sheet {
     dst: number,
     options?: { skipPostRecalculate?: boolean },
   ): Promise<void> {
+    this.invalidateCrossSheetCache();
     // No-op if source and destination are the same
     if (dst >= src && dst <= src + count) {
       return;
@@ -1230,17 +1241,8 @@ export class Sheet {
    * `recalculateAllFormulaCells` recalculates all formula cells in the worksheet.
    */
   private async recalculateAllFormulaCells(): Promise<void> {
-    const allSrefs = new Set<Sref>();
-    const fullRange: Range = [
-      { r: 1, c: 1 },
-      { r: 1000, c: 100 },
-    ];
-    const grid = await this.store.getGrid(fullRange);
-    for (const [sref, cell] of grid) {
-      if (cell.f) {
-        allSrefs.add(sref);
-      }
-    }
+    const formulaGrid = await this.store.getFormulaGrid();
+    const allSrefs = new Set<Sref>(formulaGrid.keys());
 
     if (allSrefs.size > 0) {
       const dependantsMap = await this.store.buildDependantsMap(allSrefs);
@@ -2209,6 +2211,7 @@ export class Sheet {
    */
   public async paste(options: { text?: string; html?: string }): Promise<void> {
     if (this.pivotDefinition) return;
+    this.invalidateCrossSheetCache();
     const { text, html } = options;
     let grid: Grid;
     let rangeStylePatches: RangeStylePatch[] = [];
@@ -2624,33 +2627,45 @@ export class Sheet {
    * Call this when another sheet's data changes so cross-sheet values refresh.
    */
   public async recalculateCrossSheetFormulas(): Promise<void> {
-    const formulaGrid = await this.store.getFormulaGrid();
-    const formulaSrefs = new Set<Sref>();
-    for (const [sref, cell] of formulaGrid) {
-      if (!cell.f) continue;
-      const hasCrossSheetReference = Array.from(extractReferences(cell.f)).some(
-        (reference) => isCrossSheetRef(reference),
-      );
-      if (!hasCrossSheetReference) {
-        continue;
+    if (!this.crossSheetFormulaSrefs) {
+      const formulaGrid = await this.store.getFormulaGrid();
+      const srefs = new Set<Sref>();
+      for (const [sref, cell] of formulaGrid) {
+        if (!cell.f) continue;
+        const hasCrossSheetReference = Array.from(
+          extractReferences(cell.f),
+        ).some((reference) => isCrossSheetRef(reference));
+        if (hasCrossSheetReference) {
+          srefs.add(sref);
+        }
       }
-      formulaSrefs.add(sref);
+      this.crossSheetFormulaSrefs = srefs;
     }
 
-    if (formulaSrefs.size === 0) {
+    if (this.crossSheetFormulaSrefs.size === 0) {
       return;
     }
 
     this.store.beginBatch();
     try {
-      const dependantsMap = await this.store.buildDependantsMap(formulaSrefs);
-      await calculate(this, dependantsMap, formulaSrefs);
+      const dependantsMap = await this.store.buildDependantsMap(
+        this.crossSheetFormulaSrefs,
+      );
+      await calculate(this, dependantsMap, this.crossSheetFormulaSrefs);
       if (this.filterRange) {
         await this.recomputeFilterHiddenRows();
       }
     } finally {
       this.store.endBatch();
     }
+  }
+
+  /**
+   * `invalidateCrossSheetCache` marks the cross-sheet formula cache as stale.
+   * Call this when local formulas are added, removed, or changed.
+   */
+  private invalidateCrossSheetCache(): void {
+    this.crossSheetFormulaSrefs = null;
   }
 
   /**
@@ -3032,6 +3047,7 @@ export class Sheet {
     col: number,
     direction: 'asc' | 'desc',
   ): Promise<boolean> {
+    this.invalidateCrossSheetCache();
     if (!this.filterRange || !this.isColumnInFilter(col)) {
       return false;
     }

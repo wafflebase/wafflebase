@@ -715,10 +715,24 @@ export function SheetView({
       // so that any changes made in other sheets are reflected immediately.
       runCrossSheetRecalc();
 
-      // TODO(hackerwins): We need to optimize the rendering performance.
+      // Trigger cross-sheet recalc only when remote changes include cell
+      // data modifications. Non-cell changes (styles, dimensions, presence)
+      // don't affect formula values and can be skipped.
       unsubs.push(
         doc.subscribe((e) => {
-          if (e.type === "remote-change") {
+          if (e.type !== "remote-change") return;
+          const ops = (
+            e as { value?: { operations?: Array<{ path?: string }> } }
+          ).value?.operations;
+          if (!ops) {
+            scheduleCrossSheetRecalc();
+            return;
+          }
+          const hasCellChange = ops.some((op) => {
+            if (!op.path) return false;
+            return /^\$\.sheets\.[^.]+\.cells/.test(op.path);
+          });
+          if (hasCellChange) {
             scheduleCrossSheetRecalc();
           }
         }),
