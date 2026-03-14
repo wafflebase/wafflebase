@@ -308,8 +308,19 @@ function isLegacyWorksheetShape(value: unknown): value is LegacyWorksheet {
     'sheet' in value ||
     'rowHeights' in value ||
     'colWidths' in value ||
+    'colStyles' in value ||
+    'rowStyles' in value ||
+    'sheetStyle' in value ||
+    'rangeStyles' in value ||
+    'conditionalFormats' in value ||
+    'merges' in value ||
+    'filter' in value ||
+    'hiddenRows' in value ||
+    'hiddenColumns' in value ||
+    'charts' in value ||
     'frozenRows' in value ||
-    'frozenCols' in value
+    'frozenCols' in value ||
+    'pivotTable' in value
   );
 }
 

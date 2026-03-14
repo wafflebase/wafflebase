@@ -588,7 +588,7 @@ export function DocumentDetail() {
   return (
     <DocumentProvider
       docKey={`sheet-${id}`}
-      initialRoot={initialSpreadsheetDocument}
+      initialRoot={initialSpreadsheetDocument()}
       initialPresence={{
         username: currentUser.username,
         email: currentUser.email,

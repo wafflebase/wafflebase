@@ -1,55 +1,10 @@
-import type { Axis } from "@wafflebase/sheet";
+import {
+  safeWorksheetRecordKeys,
+  createWorksheetAxisId,
+  parseWorksheetCellKey,
+  type Axis,
+} from "@wafflebase/sheet";
 import type { Worksheet } from "@/types/worksheet";
-
-const CellKeySeparator = "|";
-
-function isDuplicateOwnKeysError(error: unknown): boolean {
-  return (
-    error instanceof TypeError &&
-    error.message.includes("ownKeys") &&
-    error.message.includes("duplicate")
-  );
-}
-
-function snapshotRecord<T>(obj: Record<string, T>): Record<string, T> {
-  const maybeToJSON = (obj as { toJSON?: () => string | Record<string, T> })
-    .toJSON;
-  if (typeof maybeToJSON === "function") {
-    const value = maybeToJSON.call(obj);
-    if (typeof value === "string") {
-      return JSON.parse(value) as Record<string, T>;
-    }
-    return value;
-  }
-  return { ...obj };
-}
-
-function safeYorkieRecordKeys<T>(obj: Record<string, T>): string[] {
-  try {
-    return Object.keys(obj);
-  } catch (error) {
-    if (isDuplicateOwnKeysError(error)) {
-      return Object.keys(snapshotRecord(obj));
-    }
-    throw error;
-  }
-}
-
-function createAxisId(prefix: "r" | "c", index: number): string {
-  return `${prefix}${index}`;
-}
-
-function parseCellKey(key: string): { rowId: string; colId: string } {
-  const pivot = key.indexOf(CellKeySeparator);
-  if (pivot === -1) {
-    return { rowId: "", colId: "" };
-  }
-
-  return {
-    rowId: key.slice(0, pivot),
-    colId: key.slice(pivot + 1),
-  };
-}
 
 function ensureAxisLength(
   ws: Worksheet,
@@ -62,7 +17,7 @@ function ensureAxisLength(
   let nextValue = ws[counterKey] ?? order.length + 1;
 
   while (order.length < minLength) {
-    order.push(createAxisId(prefix, nextValue));
+    order.push(createWorksheetAxisId(prefix, nextValue));
     nextValue += 1;
   }
 
@@ -84,7 +39,7 @@ export function insertYorkieWorksheetAxis(
   const created: string[] = [];
 
   for (let i = 0; i < count; i++) {
-    created.push(createAxisId(prefix, nextValue));
+    created.push(createWorksheetAxisId(prefix, nextValue));
     nextValue += 1;
   }
 
@@ -108,8 +63,8 @@ export function deleteYorkieWorksheetAxis(
   }
 
   const cells = ws.cells;
-  for (const key of safeYorkieRecordKeys(cells)) {
-    const { rowId, colId } = parseCellKey(key);
+  for (const key of safeWorksheetRecordKeys(cells)) {
+    const { rowId, colId } = parseWorksheetCellKey(key);
     const axisId = axis === "row" ? rowId : colId;
     if (removedIds.has(axisId)) {
       delete cells[key];

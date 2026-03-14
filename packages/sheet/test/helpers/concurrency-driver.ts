@@ -41,6 +41,10 @@ export async function applyConcurrencyOp(
     case 'delete-columns':
       await sheet.deleteColumns(op.index, op.count ?? 1);
       return;
+    default: {
+      const _exhaustive: never = op;
+      throw new Error(`Unknown op kind: ${(_exhaustive as ConcurrencyOp).kind}`);
+    }
   }
 }
 

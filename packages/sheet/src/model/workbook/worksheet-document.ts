@@ -145,4 +145,6 @@ export function createSpreadsheetDocument(options?: {
   };
 }
 
-export const initialSpreadsheetDocument = createSpreadsheetDocument();
+export function initialSpreadsheetDocument(): SpreadsheetDocument {
+  return createSpreadsheetDocument();
+}

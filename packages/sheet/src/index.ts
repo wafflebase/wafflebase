@@ -114,6 +114,13 @@ import {
   updateWorksheetCell,
   replaceWorksheetCells,
 } from './model/workbook/worksheet-grid';
+import {
+  safeWorksheetRecordKeys,
+  safeWorksheetRecordEntries,
+  createWorksheetAxisId,
+  createWorksheetCellKey,
+  parseWorksheetCellKey,
+} from './model/workbook/worksheet-record';
 import { calculatePivot, materialize } from './model/pivot/index';
 import { parseSourceData } from './model/pivot/parse';
 import { parseRange } from './model/core/coordinates';
@@ -193,6 +200,11 @@ export {
   writeWorksheetCell,
   updateWorksheetCell,
   replaceWorksheetCells,
+  safeWorksheetRecordKeys,
+  safeWorksheetRecordEntries,
+  createWorksheetAxisId,
+  createWorksheetCellKey,
+  parseWorksheetCellKey,
   calculatePivot,
   materialize,
   parseSourceData,

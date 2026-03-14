@@ -25,7 +25,7 @@ const { Client, Document, SyncMode } = yorkie as {
 };
 
 function cloneInitialDocument() {
-  return JSON.parse(JSON.stringify(initialSpreadsheetDocument));
+  return JSON.parse(JSON.stringify(initialSpreadsheetDocument()));
 }
 
 function createDocument(key: string) {
@@ -82,6 +82,10 @@ async function applyStoreOp(store: YorkieStore, op: ConcurrencyOp): Promise<void
     case "delete-columns":
       await store.shiftCells("column", op.index, -(op.count ?? 1));
       return;
+    default: {
+      const _exhaustive: never = op;
+      throw new Error(`Unknown op kind: ${(_exhaustive as ConcurrencyOp).kind}`);
+    }
   }
 }
 
