@@ -302,84 +302,15 @@ positions from the `CellIndex`.
 
 ### Formula Engine
 
-#### ANTLR Grammar
-
-The grammar (`packages/sheet/antlr/Formula.g4`) defines:
-
-```
-formula: expr+
-expr: FUNCNAME '(' args? ')'   // Function call
-    | expr (MUL|DIV) expr      // Multiplication / division
-    | expr (ADD|SUB) expr       // Addition / subtraction
-    | NUM                       // Number literal
-    | BOOL                      // TRUE / FALSE
-    | REFERENCE                 // Cell ref (A1) or range (A1:B2)
-    | '(' expr ')'             // Parentheses
-```
-
-Operator precedence: `* /` binds tighter than `+ -`. Cell references support
-up to 3 letters and arbitrary row numbers (e.g., `ZZZ729443`).
-
-#### Evaluation Pipeline
-
-1. **Parse** — The formula string (minus the `=` prefix) is tokenized and
-   parsed by the ANTLR-generated lexer/parser into an AST.
-2. **Visit** — An `Evaluator` class (implementing the ANTLR visitor pattern)
-   walks the AST. Each node evaluates to an `EvalNode`:
-   - `NumNode { t: 'num', v: number }`
-   - `StrNode { t: 'str', v: string }`
-   - `BoolNode { t: 'bool', v: boolean }`
-   - `RefNode { t: 'ref', v: Reference }`
-   - `ErrNode { t: 'err', v: '#VALUE!' | '#REF!' | '#N/A!' | '#ERROR!' }`
-3. **Resolve** — If the final result is a `RefNode`, its value is looked up
-   from the provided `Grid`. Otherwise the result is converted to a string.
-
-#### Built-in Functions
-
-Functions are registered in `FunctionMap`. Currently implemented:
-
-- **Math** — `SUM`, `ABS`, `ROUND`, `ROUNDUP`, `ROUNDDOWN`, `INT`, `MOD`,
-  `SQRT`, `POWER`, `PRODUCT`, `MEDIAN`, `AVERAGE`, `MIN`, `MAX`, `COUNT`,
-  `COUNTA`, `COUNTBLANK`, `COUNTIF`, `SUMIF`, `COUNTIFS`, `SUMIFS`, `RAND`,
-  `RANDBETWEEN`.
-- **Logical** — `IF`, `IFS`, `SWITCH`, `AND`, `OR`, `NOT`, `IFERROR`, `IFNA`.
-- **Lookup/Reference** — `MATCH`, `INDEX`, `VLOOKUP`, `HLOOKUP`.
-- **Text** — `TRIM`, `LEN`, `LEFT`, `RIGHT`, `MID`, `CONCATENATE`, `CONCAT`,
-  `FIND`, `SEARCH`, `TEXTJOIN`, `LOWER`, `UPPER`, `PROPER`, `SUBSTITUTE`.
-- **Date/Time** — `TODAY`, `NOW`, `DATE`, `TIME`, `DAYS`, `YEAR`, `MONTH`,
-  `DAY`, `HOUR`, `MINUTE`, `SECOND`, `WEEKDAY`.
-- **Information** — `ISBLANK`, `ISNUMBER`, `ISTEXT`, `ISERROR`, `ISERR`,
-  `ISNA`, `ISLOGICAL`, `ISNONTEXT`.
-
-Ranges are expanded to individual cells where relevant. Numeric coercion uses
-`NumberArgs` (booleans → 0/1, strings → `parseFloat`, refs → looked up and
-converted).
-
-#### Error Types
-
-| Error | Meaning |
-|-------|---------|
-| `#VALUE!` | Type mismatch (e.g., arithmetic on non-numeric) |
-| `#REF!` | Invalid cell reference (deleted cell, or out-of-range) |
-| `#N/A!` | Function returned no applicable result |
-| `#ERROR!` | Catch-all for unexpected evaluation errors |
+ANTLR-based parser, visitor-pattern evaluator, 439 built-in functions, and
+cross-sheet reference resolution via pluggable `GridResolver` / `FormulaResolver`
+callbacks. See [formula.md](formula.md) for full details.
 
 ### Calculator
 
-The `Calculator` module (`packages/sheet/src/model/worksheet/calculator.ts`) recalculates formulas
-after a cell change.
-
-**Algorithm:**
-
-1. `Sheet.setData` calls `store.buildDependantsMap(srefs)` to get a map of
-   `Sref → Set<Sref>` (which cells depend on which).
-2. `topologicalSort` performs a DFS on the dependants graph:
-   - Tracks visited and in-stack nodes to detect cycles.
-   - Returns `[sortedRefs, cycledRefs]`.
-3. For each ref in topological order:
-   - If the ref is in `cycledRefs`, its value is set to `#REF!`.
-   - Otherwise, the formula is evaluated with the current grid state and the
-     cell is updated.
+Topological-sort recalculation with single-sheet and cross-sheet cycle
+detection. Cycled cells are marked `#REF!`. See [calculator.md](calculator.md)
+for full details.
 
 ### Shifting (Insert/Delete Rows and Columns)
 
@@ -601,20 +532,12 @@ canvas-rendered cells while respecting scroll remapping and freeze panes.
 
 ## Risks and Mitigation
 
-**Formula function coverage** — 69 built-in functions are implemented. New functions
-are added to `FunctionMap` following the same pattern: accept a
-`FunctionContext`, visitor, and optional grid; return an `EvalNode`.
+**Formula function coverage** — 439 function entries (426 unique) are
+implemented. See [formula.md](formula.md) for details.
 
 **Function discoverability UI** — The engine exposes a function browser dialog
-that is backed by `packages/sheet/src/formula/function-catalog.ts` and supports search by
-name/signature/description, with functions grouped by Google Sheets-style
-categories (`Date`, `Info`, `Logical`, `Lookup`, `Math`, `Statistical`,
-`Text`).
-Consumers can toggle it via
-`Spreadsheet.toggleFunctionBrowser()`. Insertion writes `FUNCTION(` using the
-formula cursor context and then focuses the in-cell editor (`CellInput`) so the
-user can continue editing directly in the active cell. Existing autocomplete
-and argument hints remain active after insertion.
+backed by `packages/sheet/src/formula/function-catalog.ts` with search by
+name/signature/description, grouped by Google Sheets-style categories.
 
 **Large grid performance** — The rendering pipeline only draws visible cells,
 and `DimensionIndex.findIndex` uses binary search, so performance is O(visible
@@ -623,8 +546,9 @@ browser element-size limits. The `CellIndex` spatial index ensures that range
 queries (`getGrid`, `deleteRange`) and navigation (`findEdge`) scale with the
 number of populated cells, not the total grid size or query range span.
 
-**Circular references** — The calculator's topological sort detects cycles and
-marks affected cells with `#REF!` rather than entering an infinite loop.
+**Circular references** — The calculator detects cycles both within a single
+sheet and across multiple sheets, marking affected cells with `#REF!`. See
+[calculator.md](calculator.md) for details.
 
 ### Interactive Formula Range Selection
 
