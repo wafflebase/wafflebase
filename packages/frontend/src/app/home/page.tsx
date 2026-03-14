@@ -6,11 +6,15 @@ import { DeveloperSection } from "./developer-section";
 import { OpenSourceSection } from "./opensource-section";
 import { Footer } from "./footer";
 
-export default function HomePage() {
+export default function HomePage({
+  workspacePath,
+}: {
+  workspacePath: string | null;
+}) {
   return (
     <main className="scroll-smooth">
-      <NavBar />
-      <HeroSection />
+      <NavBar workspacePath={workspacePath} />
+      <HeroSection workspacePath={workspacePath} />
       <DemoSection />
       <FeaturesSection />
       <DeveloperSection />

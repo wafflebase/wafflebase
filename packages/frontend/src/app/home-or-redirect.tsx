@@ -1,9 +1,8 @@
-import { Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMeOptional } from "@/api/auth";
 import { fetchWorkspaces } from "@/api/workspaces";
-import { Loader } from "@/components/loader";
 import { lazy, Suspense } from "react";
+import { Loader } from "@/components/loader";
 
 const HomePage = lazy(() => import("@/app/home/page"));
 
@@ -22,15 +21,14 @@ export function HomeOrRedirect() {
 
   if (userLoading) return <Loader />;
 
-  if (user && workspaces && workspaces.length > 0) {
-    return <Navigate to={`/w/${workspaces[0].slug}`} replace />;
-  }
-
-  if (user) return <Loader />;
+  const workspacePath =
+    user && workspaces && workspaces.length > 0
+      ? `/w/${workspaces[0].slug}`
+      : null;
 
   return (
     <Suspense fallback={<Loader />}>
-      <HomePage />
+      <HomePage workspacePath={workspacePath} />
     </Suspense>
   );
 }

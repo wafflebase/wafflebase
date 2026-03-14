@@ -2,7 +2,11 @@ import { Link } from "react-router-dom";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
-export function HeroSection() {
+export function HeroSection({
+  workspacePath,
+}: {
+  workspacePath: string | null;
+}) {
   return (
     <section className="bg-gradient-to-b from-homepage-bg to-homepage-hero-end py-20 px-12 text-center">
       <h1 className="text-5xl font-extrabold text-homepage-text mb-4 leading-tight">
@@ -16,10 +20,10 @@ export function HeroSection() {
       </p>
       <div className="flex gap-3 justify-center">
         <Link
-          to="/login"
+          to={workspacePath ?? "/login"}
           className="bg-homepage-accent text-white px-8 py-3.5 rounded-lg text-base font-semibold no-underline"
         >
-          Get Started Free →
+          {workspacePath ? "Go to Workspace →" : "Get Started Free →"}
         </Link>
         <a
           href={GITHUB_URL}
