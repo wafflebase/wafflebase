@@ -117,6 +117,51 @@ describe('Cross-Sheet Cycle Detection', () => {
     expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('100');
   });
 
+  it('should detect self-reference via own sheet name', async () => {
+    // Sheet1!A1 references itself through its own sheet name
+    const remotes = new Map<string, Grid>();
+    const sheet = createSheetWithRemotes(remotes);
+
+    await sheet.setData({ r: 1, c: 1 }, '=Sheet1!A1');
+    await sheet.recalculateCrossSheetFormulas();
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('#REF!');
+  });
+
+  it('should handle diamond dependency without false positive', async () => {
+    // A1 → Sheet2!B1, A2 → Sheet2!B1, A3 = A1 + A2 (no cycle)
+    const remoteGrid: Grid = new Map();
+    remoteGrid.set('B1', { v: '5' });
+
+    const remotes = new Map([['SHEET2', remoteGrid]]);
+    const sheet = createSheetWithRemotes(remotes);
+
+    await sheet.setData({ r: 1, c: 1 }, '=Sheet2!B1');
+    await sheet.setData({ r: 2, c: 1 }, '=Sheet2!B1');
+    await sheet.setData({ r: 3, c: 1 }, '=A1+A2');
+    await sheet.recalculateCrossSheetFormulas();
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('5');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('5');
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('10');
+  });
+
+  it('should detect cycle through range-based cross-sheet reference', async () => {
+    // Sheet1!A1 = =SUM(Sheet2!A1:A3), Sheet2!A2 = =Sheet1!A1
+    const remoteGrid: Grid = new Map();
+    remoteGrid.set('A1', { v: '1' });
+    remoteGrid.set('A2', { v: '', f: '=Sheet1!A1' });
+    remoteGrid.set('A3', { v: '3' });
+
+    const remotes = new Map([['SHEET2', remoteGrid]]);
+    const sheet = createSheetWithRemotes(remotes);
+
+    await sheet.setData({ r: 1, c: 1 }, '=SUM(Sheet2!A1:A3)');
+    await sheet.recalculateCrossSheetFormulas();
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('#REF!');
+  });
+
   it('should work without FormulaResolver (backward compatible)', async () => {
     const store = new MemStore();
     const sheet = new Sheet(store);

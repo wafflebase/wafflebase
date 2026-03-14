@@ -2645,11 +2645,6 @@ export class Sheet {
   }
 
   /**
-   * `buildGlobalDependantsMap` builds a dependency map that includes
-   * cross-sheet edges for cycle detection. Uses BFS to transitively
-   * follow cross-sheet references across all reachable sheets.
-   */
-  /**
    * Normalize a cross-sheet sref: if it points back to the current sheet,
    * strip the prefix so it matches local sref keys.
    */
@@ -2664,16 +2659,21 @@ export class Sheet {
     return qualifiedRef;
   }
 
+  /**
+   * `buildGlobalDependantsMap` builds a dependency map that includes
+   * cross-sheet edges for cycle detection. Uses BFS to transitively
+   * follow cross-sheet references across all reachable sheets.
+   */
   private async buildGlobalDependantsMap(
     localDependantsMap: Map<Sref, Set<Sref>>,
     crossSheetFormulaSrefs: Set<Sref>,
+    formulaGrid: Grid,
   ): Promise<Map<Sref, Set<Sref>>> {
     if (!this.formulaResolver) {
       return localDependantsMap;
     }
 
     const globalMap = new Map<Sref, Set<Sref>>(localDependantsMap);
-    const formulaGrid = await this.store.getFormulaGrid();
     const processedSheets = new Set<string>();
     const queue: Array<{ sheetName: string; formulas: Map<Sref, string> }> = [];
 
@@ -2733,6 +2733,11 @@ export class Sheet {
               }
             }
           } else {
+            // Intra-sheet reference within a remote sheet. Both sides are
+            // qualified (e.g. SHEET2!A1 → SHEET2!B1) so they stay distinct
+            // from local refs. normalizeSref only collapses refs that match
+            // the *current* sheet name, so remote-to-remote edges are kept
+            // fully qualified intentionally.
             const qualifiedRef = `${sheetName}!${ref}` as Sref;
             addEdge(qualifiedRef, qualifiedSref);
           }
@@ -2749,8 +2754,9 @@ export class Sheet {
    * Call this when another sheet's data changes so cross-sheet values refresh.
    */
   public async recalculateCrossSheetFormulas(): Promise<void> {
+    const formulaGrid = await this.store.getFormulaGrid();
+
     if (!this.crossSheetFormulaSrefs) {
-      const formulaGrid = await this.store.getFormulaGrid();
       const srefs = new Set<Sref>();
       for (const [sref, cell] of formulaGrid) {
         if (!cell.f) continue;
@@ -2776,6 +2782,7 @@ export class Sheet {
       const dependantsMap = await this.buildGlobalDependantsMap(
         localDependantsMap,
         this.crossSheetFormulaSrefs,
+        formulaGrid,
       );
       await calculate(this, dependantsMap, this.crossSheetFormulaSrefs);
       if (this.filterRange) {

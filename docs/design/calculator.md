@@ -131,7 +131,7 @@ buildGlobalDependantsMap:
   local map:       (empty — cross-sheet refs skipped)
   + cross-sheet:   SHEET2!B1 → {A1}         (A1 depends on Sheet2!B1)
   + BFS Sheet2:    A1 → {SHEET2!B1}         (Sheet2!B1's formula =Sheet1!A1
-                                              → normalized to A1 → A1)
+                                              → SHEET1!A1 normalized to A1)
 
 topologicalSort({SHEET2!B1 → {A1}, A1 → {SHEET2!B1}}, [A1]):
   DFS: A1 → SHEET2!B1 → A1 (in stack) → CYCLE
