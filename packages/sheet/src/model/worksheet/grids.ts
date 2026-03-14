@@ -2,6 +2,17 @@ import { parseRef, toSref } from '../core/coordinates';
 import { Cell, CellStyle, Grid, Ref, Sref, TextAlign } from '../core/types';
 
 /**
+ * `quoteTsvField` wraps a field in double-quotes when it contains a tab,
+ * newline, or double-quote character (RFC 4180 style quoting for TSV).
+ */
+function quoteTsvField(field: string): string {
+  if (field.includes('\t') || field.includes('\n') || field.includes('"')) {
+    return '"' + field.replace(/"/g, '""') + '"';
+  }
+  return field;
+}
+
+/**
  * `grid2string` converts the given grid to a string representation.
  */
 export function grid2string(grid: Grid): string {
@@ -28,27 +39,87 @@ export function grid2string(grid: Grid): string {
     table[row - minRow][col - minCol] = value.v || value.f || '';
   }
 
-  return table.map((row) => row.join('\t')).join('\n');
+  return table.map((row) => row.map(quoteTsvField).join('\t')).join('\n');
+}
+
+/**
+ * `parseTsvRows` splits a TSV string into rows and fields, respecting
+ * double-quote quoting so that embedded tabs and newlines are preserved.
+ */
+function parseTsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let i = 0;
+
+  while (i <= text.length) {
+    if (i === text.length) {
+      rows.push(row);
+      break;
+    }
+
+    if (text[i] === '"') {
+      // Quoted field — collect until closing quote.
+      let field = '';
+      i++; // skip opening quote
+      while (i < text.length) {
+        if (text[i] === '"') {
+          if (i + 1 < text.length && text[i + 1] === '"') {
+            // Escaped double-quote
+            field += '"';
+            i += 2;
+          } else {
+            // Closing quote
+            i++; // skip closing quote
+            break;
+          }
+        } else {
+          field += text[i];
+          i++;
+        }
+      }
+      row.push(field);
+      // After the closing quote, expect tab, newline, or end of text.
+      if (i < text.length && text[i] === '\t') {
+        i++;
+      } else if (i < text.length && text[i] === '\n') {
+        rows.push(row);
+        row = [];
+        i++;
+      }
+    } else {
+      // Unquoted field — read until tab or newline.
+      let field = '';
+      while (i < text.length && text[i] !== '\t' && text[i] !== '\n') {
+        field += text[i];
+        i++;
+      }
+      row.push(field);
+      if (i < text.length && text[i] === '\t') {
+        i++;
+      } else if (i < text.length && text[i] === '\n') {
+        rows.push(row);
+        row = [];
+        i++;
+      }
+    }
+  }
+
+  return rows;
 }
 
 /**
  * `string2grid` converts the given string to a grid representation.
  */
 export function string2grid(ref: Ref, value: string): Grid {
-  let row = ref.r;
-  let col = ref.c;
-
   const grid = new Map<Sref, Cell>();
-  const lines = value.split('\n');
-  for (const line of lines) {
-    const cells = line.split('\t');
-    for (const cell of cells) {
-      grid.set(toSref({ r: row, c: col }), { v: cell });
-      col += 1;
-    }
+  const rows = parseTsvRows(value);
 
-    row += 1;
-    col = ref.c;
+  for (let ri = 0; ri < rows.length; ri++) {
+    for (let ci = 0; ci < rows[ri].length; ci++) {
+      grid.set(toSref({ r: ref.r + ri, c: ref.c + ci }), {
+        v: rows[ri][ci],
+      });
+    }
   }
 
   return grid;

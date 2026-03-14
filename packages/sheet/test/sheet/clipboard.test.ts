@@ -1,6 +1,73 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
 import { Sheet } from '../../src/model/worksheet/sheet';
+import {
+  grid2string,
+  string2grid,
+} from '../../src/model/worksheet/grids';
+import { Cell, Sref } from '../../src/model/core/types';
+
+describe('TSV quoting round-trip', () => {
+  it('should quote fields containing newlines', () => {
+    const grid = new Map<Sref, Cell>([
+      ['A1' as Sref, { v: 'hello\nworld' }],
+      ['B1' as Sref, { v: 'plain' }],
+    ]);
+    const tsv = grid2string(grid);
+    expect(tsv).toBe('"hello\nworld"\tplain');
+
+    const parsed = string2grid({ r: 1, c: 1 }, tsv);
+    expect(parsed.get('A1' as Sref)?.v).toBe('hello\nworld');
+    expect(parsed.get('B1' as Sref)?.v).toBe('plain');
+  });
+
+  it('should quote fields containing tabs', () => {
+    const grid = new Map<Sref, Cell>([
+      ['A1' as Sref, { v: 'col1\tcol2' }],
+    ]);
+    const tsv = grid2string(grid);
+    expect(tsv).toBe('"col1\tcol2"');
+
+    const parsed = string2grid({ r: 1, c: 1 }, tsv);
+    expect(parsed.get('A1' as Sref)?.v).toBe('col1\tcol2');
+  });
+
+  it('should escape double-quotes inside fields', () => {
+    const grid = new Map<Sref, Cell>([
+      ['A1' as Sref, { v: 'say "hello"' }],
+    ]);
+    const tsv = grid2string(grid);
+    expect(tsv).toBe('"say ""hello"""');
+
+    const parsed = string2grid({ r: 1, c: 1 }, tsv);
+    expect(parsed.get('A1' as Sref)?.v).toBe('say "hello"');
+  });
+
+  it('should handle multiline cell among multiple rows and columns', () => {
+    const grid = new Map<Sref, Cell>([
+      ['A1' as Sref, { v: 'line1\nline2' }],
+      ['B1' as Sref, { v: '10' }],
+      ['A2' as Sref, { v: '20' }],
+      ['B2' as Sref, { v: '30' }],
+    ]);
+    const tsv = grid2string(grid);
+    expect(tsv).toBe('"line1\nline2"\t10\n20\t30');
+
+    const parsed = string2grid({ r: 1, c: 1 }, tsv);
+    expect(parsed.get('A1' as Sref)?.v).toBe('line1\nline2');
+    expect(parsed.get('B1' as Sref)?.v).toBe('10');
+    expect(parsed.get('A2' as Sref)?.v).toBe('20');
+    expect(parsed.get('B2' as Sref)?.v).toBe('30');
+  });
+
+  it('should preserve plain TSV without quoting (backward compat)', () => {
+    const parsed = string2grid({ r: 1, c: 1 }, '10\t20\n30\t40');
+    expect(parsed.get('A1' as Sref)?.v).toBe('10');
+    expect(parsed.get('B1' as Sref)?.v).toBe('20');
+    expect(parsed.get('A2' as Sref)?.v).toBe('30');
+    expect(parsed.get('B2' as Sref)?.v).toBe('40');
+  });
+});
 
 describe('Sheet.copy', () => {
   it('should return TSV text of selected range', async () => {
