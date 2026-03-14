@@ -304,3 +304,12 @@ export type GridResolver = (
   sheetName: string,
   refs: Set<Sref>,
 ) => Grid | undefined;
+
+/**
+ * FormulaResolver returns formula strings from other sheets.
+ * Takes a sheet name, returns a Map from local Sref to formula string,
+ * or undefined if the sheet doesn't exist.
+ */
+export type FormulaResolver = (
+  sheetName: string,
+) => Map<Sref, string> | undefined;

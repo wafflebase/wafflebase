@@ -1,25 +1,22 @@
 ---
-title: formula-and-calculator
+title: formula
 target-version: 0.1.0
 ---
 
-# Formula Engine and Calculator
+# Formula Engine
 
 ## Summary
 
-The formula engine and calculator are responsible for parsing, evaluating, and
-recalculating spreadsheet formulas in the `@wafflebase/sheet` package. The
-engine uses an ANTLR-generated parser for formula syntax, a visitor-based
-evaluator for computing results, and a topological-sort calculator for
-propagating changes through cell dependencies. Cross-sheet formula references
-allow formulas in one sheet to read values from another sheet.
+The formula engine parses and evaluates spreadsheet formulas in the
+`@wafflebase/sheet` package. It uses an ANTLR-generated parser for formula
+syntax and a visitor-based evaluator for computing results. Cross-sheet
+references allow formulas in one sheet to read values from another sheet
+through pluggable resolvers.
 
 ### Goals
 
 - Parse and evaluate formulas with correct operator precedence and function
   calls.
-- Recalculate dependent cells in topological order after any cell change.
-- Detect circular references and mark them with `#REF!` instead of looping.
 - Support cross-sheet references (e.g., `=Sheet2!A1`, `=SUM(Sheet2!A1:A3)`)
   with a pluggable resolver.
 
@@ -115,12 +112,12 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
 
 | Function                                         | Source       | Description                                                                               |
 | ------------------------------------------------ | ------------ | ----------------------------------------------------------------------------------------- |
-| `extractReferences(formula)`                     | `packages/sheet/src/formula/formula.ts` | Returns all `REFERENCE` tokens (uppercased) as a `Set<Reference>`                         |
-| `extractTokens(formula)`                         | `packages/sheet/src/formula/formula.ts` | Returns all tokens with type, position, and text — fills gaps with `STRING` tokens        |
-| `extractFormulaRanges(formula)`                  | `packages/sheet/src/formula/formula.ts` | Returns ranges referenced in the formula (skips cross-sheet refs) for visual highlighting |
-| `evaluate(formula, grid?)`                       | `packages/sheet/src/formula/formula.ts` | Full parse → visit → resolve pipeline, returns a display string                           |
-| `isReferenceInsertPosition(formula, cursorPos)`  | `packages/sheet/src/formula/formula.ts` | Checks if the cursor is at a valid position to insert a cell reference                    |
-| `findReferenceTokenAtCursor(formula, cursorPos)` | `packages/sheet/src/formula/formula.ts` | Returns the `REFERENCE` token at the cursor, or `undefined`                               |
+| `extractReferences(formula)`                     | (see above) | Returns all `REFERENCE` tokens (uppercased) as a `Set<Reference>`                         |
+| `extractTokens(formula)`                         | (see above) | Returns all tokens with type, position, and text — fills gaps with `STRING` tokens        |
+| `extractFormulaRanges(formula)`                   | (see above) | Returns ranges referenced in the formula (skips cross-sheet refs) for visual highlighting |
+| `evaluate(formula, grid?)`                       | (see above) | Full parse → visit → resolve pipeline, returns a display string                           |
+| `isReferenceInsertPosition(formula, cursorPos)`  | (see above) | Checks if the cursor is at a valid position to insert a cell reference                    |
+| `findReferenceTokenAtCursor(formula, cursorPos)` | (see above) | Returns the `REFERENCE` token at the cursor, or `undefined`                               |
 
 ### Arguments System
 
@@ -190,49 +187,7 @@ On commit (`Sheet.setData`), formula input is normalized for one safe case:
 if syntax errors are only `missing ')' at '<EOF>'`, the engine appends the
 required trailing `)` and stores the corrected formula.
 
-### Calculator
-
-Source: `packages/sheet/src/model/worksheet/calculator.ts`
-
-The Calculator recalculates formulas after a cell change, propagating updates
-through the dependency graph in topological order.
-
-**Algorithm:**
-
-1. **Build dependants map** — `Sheet.setData` calls
-   `store.buildDependantsMap(srefs)` to get a map of `Sref → Set<Sref>`
-   (which cells are depended upon by which formula cells). Cross-sheet refs
-   are excluded from this map since they are resolved through a different
-   mechanism.
-2. **Topological sort** — `topologicalSort(dependantsMap, refs)` performs a
-   DFS on the dependants graph:
-   - Tracks `visited` and `stack` (in-progress) sets to detect cycles.
-   - When a cycle is detected, all refs currently on the stack are added to
-     `cycledRefs`.
-   - Returns `[sortedRefs, cycledRefs]` with refs in evaluation order
-     (reversed post-order).
-3. **Evaluate** — For each ref in topological order:
-   - If the ref is in `cycledRefs`, its value is set to `#REF!`.
-   - Otherwise, `extractReferences` finds all referenced cells,
-     `fetchGridByReferences` loads their current values (including
-     cross-sheet data), `evaluate` computes the result, and the cell is
-     updated.
-
-```
-setData(ref, value)
-  │
-  ├── store.set(ref, cell)
-  ├── store.buildDependantsMap([ref])  ──→  { A1 → {B1, C1}, B1 → {D1} }
-  └── calculate(sheet, dependantsMap, [ref])
-        │
-        ├── topologicalSort(...)  ──→  [A1, B1, C1, D1], cycled={}
-        └── for each sref in sorted:
-              ├── extractReferences(formula)
-              ├── fetchGridByReferences(refs)  ──→  Grid (including cross-sheet data)
-              └── evaluate(formula, grid)  ──→  new value
-```
-
-### Cross-Sheet Formula References
+### Cross-Sheet References
 
 Cross-sheet references allow a formula in one sheet to read values from another
 sheet. For example, `=SUM(Sheet2!A1:A3)` in Sheet1 reads cells A1–A3 from
@@ -262,20 +217,36 @@ Source: `packages/sheet/src/model/core/coordinates.ts`
 
 #### GridResolver
 
-The `GridResolver` callback allows the `Sheet` class to fetch data from other
-sheets without knowing about the multi-sheet container:
+The `GridResolver` callback allows the `Sheet` class to fetch cell data from
+other sheets without knowing about the multi-sheet container:
 
 ```typescript
 type GridResolver = (
   sheetName: string, // Uppercased sheet name
-  refs: Set<Sref>, // Set of local cell refs needed
+  refs: Set<Sref>,   // Set of local cell refs needed
 ) => Grid | undefined; // Map of localRef → Cell, or undefined if sheet not found
 ```
 
-- Set via `Sheet.setGridResolver(resolver)` or `Spreadsheet.setGridResolver(resolver)`.
+- Set via `Sheet.setGridResolver(resolver)`.
 - Called by `fetchGridByReferences` when it encounters cross-sheet refs.
-- The resolver groups cross-sheet refs by sheet name, calls the resolver once
-  per sheet, and merges results into the grid with `SHEETNAME!localRef` keys.
+- Groups cross-sheet refs by sheet name, calls the resolver once per sheet,
+  and merges results into the grid with `SHEETNAME!localRef` keys.
+
+#### FormulaResolver
+
+The `FormulaResolver` callback returns formula strings from other sheets,
+enabling cross-sheet cycle detection (see [calculator.md](calculator.md)):
+
+```typescript
+type FormulaResolver = (
+  sheetName: string, // Uppercased sheet name
+) => Map<Sref, string> | undefined; // Map of localRef → formula string
+```
+
+- Set via `Sheet.setFormulaResolver(resolver, sheetName)`.
+- The `sheetName` parameter identifies the current sheet so that references
+  back to itself (e.g., `SHEET1!A1` from Sheet1) are normalized to local
+  form (`A1`) in the dependency graph.
 
 #### Data Flow
 
@@ -297,51 +268,14 @@ Sheet1: =SUM(Sheet2!A1:A3)
       └── evaluate with grid {SHEET2!A1: 10, SHEET2!A2: 20, SHEET2!A3: 30}  →  "60"
 ```
 
-#### Recalculation
-
-Cross-sheet dependencies are **not** included in `buildDependantsMap` — both
-`MemStore` and `YorkieStore` skip refs where `isCrossSheetRef(r)` is true.
-This means local `setData` recalculation does not automatically propagate
-across sheets.
-
-Instead, cross-sheet recalculation is handled explicitly:
-
-- **`Sheet.recalculateCrossSheetFormulas()`** — Scans formula cells, selects
-  only formulas that include at least one cross-sheet reference, and runs a
-  single dependency recalculation pass using the existing calculator
-  (`buildDependantsMap` + topological evaluation). Starting from cross-sheet
-  roots still propagates through local dependant chains while avoiding
-  unrelated local-only formula recalculation.
-
-- **`Spreadsheet.recalculateCrossSheetFormulas()`** — Calls the Sheet method
-  and then re-renders.
-
-#### Triggers in the Frontend
-
-Source: `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
-
-1. **GridResolver setup** — When a `SheetView` mounts, it sets a resolver that
-   looks up other **sheet tabs** in the Yorkie document by name
-   (case-insensitive) and returns their cell data. Tab names are enforced as
-   case-insensitive unique, so cross-sheet references map to exactly one tab.
-
-2. **Remote changes** — `doc.subscribe("remote-change")` triggers a coalesced
-   recalculation flow. If multiple remote-change events arrive while
-   recalculation is running, they are merged into one additional follow-up
-   pass.
-
-3. **Tab switch** — When the user switches tabs, the `SheetView` component
-   re-mounts and calls `recalculateCrossSheetFormulas()` on initialization, so
-   any changes made in other sheets are reflected immediately.
-
 #### Shifting and Moving
 
 Cross-sheet references are **not shifted or moved** when rows/columns are
 inserted, deleted, or moved. The `shiftFormula` and `moveFormula` functions
-in `packages/sheet/src/model/worksheet/shifting.ts` detect cross-sheet refs (via the `!` character)
-and preserve them as-is. This matches Excel/Google Sheets behavior where
-cross-sheet references are only adjusted when the referenced sheet itself
-changes structure.
+in `packages/sheet/src/model/worksheet/shifting.ts` detect cross-sheet refs
+(via the `!` character) and preserve them as-is. This matches Excel/Google
+Sheets behavior where cross-sheet references are only adjusted when the
+referenced sheet itself changes structure.
 
 ## Risks and Mitigation
 
@@ -354,20 +288,3 @@ MAKEARRAY) that need function implementations using the existing LAMBDA
 infrastructure. New functions are added to `FunctionMap` and
 `FunctionCatalog` following the same pattern: accept `(ctx, visit, grid?)`,
 return an `EvalNode`.
-
-**Circular references** — The calculator's topological sort detects cycles and
-marks affected cells with `#REF!` rather than entering an infinite loop.
-
-**Cross-sheet stale values** — Because cross-sheet refs are excluded from the
-local dependants map, values can become stale until
-`recalculateCrossSheetFormulas()` is called. The frontend mitigates this by
-calling it on tab switch and remote changes.
-
-**Performance** — Cross-sheet refresh starts from cross-sheet formula roots
-only (not all formulas), and calculator writes are skipped when evaluated
-results are unchanged. This keeps dependency behavior deterministic while
-reducing unnecessary CRDT writes and sync churn. Additional mitigations:
-
-1. Batched writes during recalculation to reduce transaction overhead.
-2. Coalesced remote-change triggers in the frontend to avoid overlapping
-   recalculation runs.

@@ -711,6 +711,42 @@ export function SheetView({
         },
       );
 
+      // Wire up FormulaResolver for cross-sheet cycle detection
+      const currentTabName = doc.getRoot().tabs[tabId]?.name ?? '';
+      s.setFormulaResolver(
+        (sheetName: string): Map<string, string> | undefined => {
+          const root = doc.getRoot();
+          const targetTabId = root.tabOrder.find((candidateTabId: string) => {
+            const tab = root.tabs[candidateTabId];
+            return (
+              tab?.type === "sheet" &&
+              tab.name.toUpperCase() === sheetName
+            );
+          });
+          if (!targetTabId) return undefined;
+
+          const ws = root.sheets[targetTabId];
+          if (!ws?.cells) return undefined;
+
+          const formulas = new Map<string, string>();
+          for (const [rowStr, cols] of Object.entries(ws.cells)) {
+            if (!cols || typeof cols !== 'object') continue;
+            for (const [colStr, cellData] of Object.entries(
+              cols as Record<string, unknown>,
+            )) {
+              const cell = cellData as { f?: string } | undefined;
+              if (cell?.f) {
+                const r = parseInt(rowStr, 10);
+                const c = parseInt(colStr, 10);
+                formulas.set(toSref({ r, c }), cell.f);
+              }
+            }
+          }
+          return formulas;
+        },
+        currentTabName,
+      );
+
       // Recalculate cross-sheet formulas on initial load (tab switch)
       // so that any changes made in other sheets are reflected immediately.
       runCrossSheetRecalc();
