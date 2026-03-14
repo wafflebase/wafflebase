@@ -39,6 +39,11 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-homepage-bg: var(--homepage-bg);
+  --color-homepage-hero-end: var(--homepage-hero-end);
+  --color-homepage-text: var(--homepage-text);
+  --color-homepage-text-secondary: var(--homepage-text-secondary);
+  --color-homepage-accent: var(--homepage-accent);
 }
 
 :root {
@@ -74,6 +79,11 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.82 0.19 88);
+  --homepage-bg: oklch(0.99 0.02 88);
+  --homepage-hero-end: oklch(0.96 0.06 88);
+  --homepage-text: oklch(0.45 0.12 55);
+  --homepage-text-secondary: oklch(0.50 0.13 70);
+  --homepage-accent: oklch(0.78 0.18 78);
 }
 
 .dark {
@@ -108,6 +118,11 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.75 0.22 88);
+  --homepage-bg: oklch(0.18 0.02 55);
+  --homepage-hero-end: oklch(0.22 0.03 70);
+  --homepage-text: oklch(0.82 0.15 88);
+  --homepage-text-secondary: oklch(0.65 0.15 75);
+  --homepage-accent: oklch(0.78 0.18 78);
 }
 
 @layer base {
