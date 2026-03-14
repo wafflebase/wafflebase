@@ -6,16 +6,20 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 73
+Total archived tasks: 77
 
-## 2026/03 (36 tasks)
+## 2026/03 (40 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | ci export failure (2026-03-14) | [20260314-ci-export-failure-todo.md](./2026/03/20260314-ci-export-failure-todo.md) | [20260314-ci-export-failure-lessons.md](./2026/03/20260314-ci-export-failure-lessons.md) |
 | collaboration design docs (2026-03-14) | [20260314-collaboration-design-docs-todo.md](./2026/03/20260314-collaboration-design-docs-todo.md) | [20260314-collaboration-design-docs-lessons.md](./2026/03/20260314-collaboration-design-docs-lessons.md) |
+| cross sheet calc (2026-03-14) | - | [20260314-cross-sheet-calc-lessons.md](./2026/03/20260314-cross-sheet-calc-lessons.md) |
+| cross sheet yorkie integration (2026-03-14) | [20260314-cross-sheet-yorkie-integration-todo.md](./2026/03/20260314-cross-sheet-yorkie-integration-todo.md) | - |
+| docs site (2026-03-14) | [20260314-docs-site-todo.md](./2026/03/20260314-docs-site-todo.md) | [20260314-docs-site-lessons.md](./2026/03/20260314-docs-site-lessons.md) |
 | local hackerwins access (2026-03-14) | [20260314-local-hackerwins-access-todo.md](./2026/03/20260314-local-hackerwins-access-todo.md) | [20260314-local-hackerwins-access-lessons.md](./2026/03/20260314-local-hackerwins-access-lessons.md) |
 | local prod restore (2026-03-14) | [20260314-local-prod-restore-todo.md](./2026/03/20260314-local-prod-restore-todo.md) | [20260314-local-prod-restore-lessons.md](./2026/03/20260314-local-prod-restore-lessons.md) |
+| multiline tsv quoting (2026-03-14) | [20260314-multiline-tsv-quoting-todo.md](./2026/03/20260314-multiline-tsv-quoting-todo.md) | - |
 | worksheet model boundary (2026-03-14) | [20260314-worksheet-model-boundary-todo.md](./2026/03/20260314-worksheet-model-boundary-todo.md) | [20260314-worksheet-model-boundary-lessons.md](./2026/03/20260314-worksheet-model-boundary-lessons.md) |
 | yorkie worksheet shape migration (2026-03-14) | [20260314-yorkie-worksheet-shape-migration-todo.md](./2026/03/20260314-yorkie-worksheet-shape-migration-todo.md) | [20260314-yorkie-worksheet-shape-migration-lessons.md](./2026/03/20260314-yorkie-worksheet-shape-migration-lessons.md) |
 | backend dev start failure (2026-03-13) | [20260313-backend-dev-start-failure-todo.md](./2026/03/20260313-backend-dev-start-failure-todo.md) | [20260313-backend-dev-start-failure-lessons.md](./2026/03/20260313-backend-dev-start-failure-lessons.md) |
