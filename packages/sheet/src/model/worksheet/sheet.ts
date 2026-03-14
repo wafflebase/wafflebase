@@ -2539,6 +2539,7 @@ export class Sheet {
       }
 
       if (changedSrefs.size > 0) {
+        this.invalidateCrossSheetCache();
         const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
         const dependantsMap = await this.store.buildDependantsMap(expanded);
         await calculate(this, dependantsMap, expanded);
@@ -3771,6 +3772,7 @@ export class Sheet {
   async undo(): Promise<boolean> {
     const result = await this.store.undo();
     if (result.success) {
+      this.invalidateCrossSheetCache();
       await this.loadDimensions();
       await this.loadStyles();
       await this.loadMerges();
@@ -3802,6 +3804,7 @@ export class Sheet {
   async redo(): Promise<boolean> {
     const result = await this.store.redo();
     if (result.success) {
+      this.invalidateCrossSheetCache();
       await this.loadDimensions();
       await this.loadStyles();
       await this.loadMerges();

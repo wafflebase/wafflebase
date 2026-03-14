@@ -730,7 +730,10 @@ export function SheetView({
           }
           const hasCellChange = ops.some((op) => {
             if (!op.path) return false;
-            return /^\$\.sheets\.[^.]+\.cells/.test(op.path);
+            return (
+              /^\$\.sheets\.[^.]+\.(cells|merges)/.test(op.path) ||
+              /^\$\.tabs\.[^.]+\.name/.test(op.path)
+            );
           });
           if (hasCellChange) {
             scheduleCrossSheetRecalc();
