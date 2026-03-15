@@ -9,9 +9,7 @@ import {
   Patch,
   Post,
   UseGuards,
-  ForbiddenException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { DocumentService } from './document.service';
 import { Document as DocumentModel } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
@@ -24,7 +22,6 @@ export class DocumentController {
   constructor(
     private readonly documentService: DocumentService,
     private readonly workspaceService: WorkspaceService,
-    private readonly configService: ConfigService,
   ) {}
 
   // --- Workspace-scoped endpoints ---

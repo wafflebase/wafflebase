@@ -21,7 +21,6 @@ import {
   updateWorksheetCell,
   writeWorksheetCell,
 } from '@wafflebase/sheet';
-import type { Sref } from '@wafflebase/sheet';
 
 @Controller(
   'api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId/cells',
