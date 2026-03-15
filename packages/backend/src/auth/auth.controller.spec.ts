@@ -125,6 +125,58 @@ describe('AuthController', () => {
     );
   });
 
+  it('returns JSON tokens when refresh token is provided in body (no cookie)', async () => {
+    const req = {
+      cookies: {},
+      body: { refreshToken: 'body-refresh-token' },
+    } as unknown as Request;
+    const res = createMockResponse();
+    (res.json as jest.Mock).mockReturnValue(undefined);
+    (authService.verifyRefreshToken as jest.Mock).mockReturnValue({ sub: 7 });
+    (userService.user as jest.Mock).mockResolvedValue({
+      id: 7,
+      authProvider: 'github',
+      username: 'alice',
+      email: 'alice@example.com',
+      photo: null,
+    });
+    (authService.createTokens as jest.Mock).mockReturnValue({
+      accessToken: 'new-access-token',
+      refreshToken: 'new-refresh-token',
+    });
+
+    await controller.refresh(req, res);
+
+    expect(authService.verifyRefreshToken).toHaveBeenCalledWith(
+      'body-refresh-token',
+    );
+    expect(res.json).toHaveBeenCalledWith({
+      accessToken: 'new-access-token',
+      refreshToken: 'new-refresh-token',
+    });
+    // Should NOT set cookies for body-based flow
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.sendStatus).not.toHaveBeenCalled();
+  });
+
+  it('rejects refresh when body token is invalid', async () => {
+    const req = {
+      cookies: {},
+      body: { refreshToken: 'bad-body-token' },
+    } as unknown as Request;
+    const res = createMockResponse();
+    (authService.verifyRefreshToken as jest.Mock).mockImplementation(() => {
+      throw new Error('invalid token');
+    });
+
+    await expect(controller.refresh(req, res)).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    expect(res.json).not.toHaveBeenCalled();
+    expect(res.sendStatus).not.toHaveBeenCalled();
+  });
+
   describe('githubAuthCallback — CLI flow', () => {
     const mockUser = {
       id: 42,

@@ -129,8 +129,15 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(200)
   async refresh(@Req() req: Request, @Res() res: Response) {
-    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
-    if (!refreshToken || typeof refreshToken !== 'string') {
+    const cookieToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    const bodyToken =
+      typeof req.body?.refreshToken === 'string'
+        ? req.body.refreshToken
+        : undefined;
+    const fromBody = !cookieToken && !!bodyToken;
+    const refreshToken = cookieToken ?? bodyToken;
+
+    if (!refreshToken) {
       this.clearAuthCookies(res);
       throw new UnauthorizedException('Refresh token missing');
     }
@@ -142,15 +149,23 @@ export class AuthController {
       });
 
       if (!user) {
-        this.clearAuthCookies(res);
+        if (!fromBody) this.clearAuthCookies(res);
         throw new UnauthorizedException('User not found');
       }
 
       const tokens = this.authService.createTokens(user);
+
+      if (fromBody) {
+        return res.json({
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+        });
+      }
+
       this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
       return res.sendStatus(200);
     } catch (error) {
-      this.clearAuthCookies(res);
+      if (!fromBody) this.clearAuthCookies(res);
       if (error instanceof UnauthorizedException) {
         throw error;
       }
