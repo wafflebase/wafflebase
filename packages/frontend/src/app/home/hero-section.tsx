@@ -10,13 +10,13 @@ export function HeroSection({
   return (
     <section className="bg-gradient-to-b from-homepage-bg to-homepage-hero-end py-12 md:py-20 px-4 md:px-12 text-center">
       <h1 className="text-3xl md:text-5xl font-extrabold text-homepage-text mb-4 leading-tight">
-        Super Simple Spreadsheet
+        The Open-Source Spreadsheet
         <br />
-        for Data Analysis
+        You Can Own
       </h1>
       <p className="text-base md:text-xl text-homepage-text-secondary mb-8 max-w-xl mx-auto">
-        A collaborative, open-source spreadsheet with real-time editing,
-        formulas, charts, and a powerful REST API &amp; CLI for automation.
+        Self-host a collaborative spreadsheet with real-time editing,
+        Google Sheets-compatible formulas, and a REST API for automation.
       </p>
       <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
         <Link
