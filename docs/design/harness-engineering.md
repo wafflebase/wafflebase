@@ -136,13 +136,13 @@ Runs `pnpm verify:fast` before every commit.
 
 ### Pre-Push Hook
 
-Runs `verify:fast` + builds + chunk budgets + entropy before every push.
+Runs `pnpm verify:self` before every push.
 
 - **Scope:** everything in `verify:fast` plus sheet/frontend/backend/cli
   builds, frontend chunk budget gate, and entropy checks (dead code, doc
   staleness, dependency freshness).
-- **Out of scope:** browser visual/interaction tests — these require
-  Docker/CI Chromium and are covered by the CI `verify-browser` job.
+- **Out of scope:** browser and integration tests — these require Docker
+  Chromium / PostgreSQL and are covered by `verify:ci` in CI.
 - **Purpose:** catches build failures, broken doc refs, and dead code before
   they reach the remote — issues that are too slow for per-commit but should
   not land on a shared branch.
@@ -182,7 +182,7 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:frontend:interaction` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:browser:docker` | Browser visual+interaction via Docker (CI-consistent) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
-| `pnpm verify:self` | Runner: `verify:fast` + builds + chunk/visual/interaction + entropy + browser; generates `.harness-reports/` JSON |
+| `pnpm verify:self` | Runner: `verify:fast` + builds + chunk budgets + entropy; generates `.harness-reports/` JSON |
 
 ### Integration Lanes (require database)
 
@@ -193,11 +193,17 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:integration:docker` | One-command: postgres up + integration + stop |
 | `pnpm verify:integration:repeat` | Repeat-run stability check (default 3 runs) |
 
+### CI Lanes (require Docker Chromium + database)
+
+| Command | Purpose |
+|---|---|
+| `pnpm verify:ci` | Runner: browser visual/interaction + integration; generates CI summary report |
+
 ### Composite Lanes
 
 | Command | Purpose |
 |---|---|
-| `pnpm verify:full` | `verify:self` + `verify:integration` |
+| `pnpm verify:full` | `verify:self` + `verify:ci` |
 
 ### CI Contract
 

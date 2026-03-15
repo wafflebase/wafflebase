@@ -1,10 +1,2 @@
 #!/bin/sh
-# Run verify:self lanes except browser tests (require Docker/CI Chromium).
-# Browser tests are covered by CI's verify-browser job.
-pnpm verify:fast && \
-pnpm sheet build && \
-pnpm frontend build && \
-pnpm verify:frontend:chunks && \
-pnpm backend build && \
-pnpm cli build && \
-pnpm verify:entropy
+exec pnpm verify:self
