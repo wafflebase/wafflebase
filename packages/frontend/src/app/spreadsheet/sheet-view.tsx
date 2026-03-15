@@ -126,6 +126,7 @@ export function SheetView({
     value: string;
   } | null>(null);
   const mobileEditValueRef = useRef<string>("");
+  const mobileEditOpenedAtRef = useRef<number>(0);
   const isMobileRef = useRef(isMobile);
   useEffect(() => {
     isMobileRef.current = isMobile;
@@ -568,6 +569,7 @@ export function SheetView({
       if (isMobileRef.current && !readOnly) {
         s.setMobileEditCallback((cellRef, value) => {
           mobileEditValueRef.current = value;
+          mobileEditOpenedAtRef.current = Date.now();
           setMobileEditState({ cellRef, value });
         });
       }
@@ -616,6 +618,13 @@ export function SheetView({
         s.onSelectionChange(() => {
           setMobileEditState((prev) => {
             if (!prev) return null;
+            // Guard against synthesized mouse events that iOS browsers
+            // fire after touchend despite preventDefault().  These cause
+            // a selectStart → selectionChange that would immediately
+            // dismiss the mobile edit panel after a double-tap opens it.
+            if (Date.now() - mobileEditOpenedAtRef.current < 500) {
+              return prev;
+            }
             const currentValue = mobileEditValueRef.current;
             if (currentValue !== prev.value) {
               void sheetRef.current?.commitExternalEdit(currentValue);

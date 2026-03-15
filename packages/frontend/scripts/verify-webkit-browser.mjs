@@ -194,6 +194,48 @@ async function runTouchScrollScenario(page) {
   );
 }
 
+async function runDoubleTapEditPanelScenario(page) {
+  // First, select A1 so the sheet is in a known state.
+  await bridgeCall(page, "focusCell", "A1");
+
+  // Verify panel is not visible initially.
+  let editState = await bridgeCall(page, "getMobileEditState");
+  assert(editState === null, `expected no edit state initially, got ${JSON.stringify(editState)}`);
+
+  // Simulate double-tap via bridge (calls handleMobileDoubleTap internally).
+  await bridgeCall(page, "doubleTapCell", "B1");
+
+  // Wait for the mobile edit panel to appear.
+  // handleMobileDoubleTap calls toInputString() which is async, so we need to wait.
+  await waitForPredicate("mobile edit panel to open", async () => {
+    const state = await bridgeCall(page, "getMobileEditState");
+    return state !== null;
+  }, 5000);
+
+  editState = await bridgeCall(page, "getMobileEditState");
+  assert(editState !== null, "mobile edit panel did not open after double-tap");
+  console.log(
+    `[verify:webkit] Double-tap opened edit panel for ${editState.cellRef} with value "${editState.value}"`,
+  );
+
+  // THE KEY CHECK: dispatch a synthesized mousedown event on the same cell,
+  // simulating what iOS browsers do after a touch sequence. This is the root
+  // cause of the "panel opens then immediately closes" bug — the synthesized
+  // mousedown triggers selectStart → selectionChange → panel dismissed.
+  // The fix installs a one-shot capture-phase listener that swallows it.
+  await bridgeCall(page, "dispatchSynthesizedMouseDown", "B1");
+  await sleep(100);
+
+  const editStateAfterMouse = await bridgeCall(page, "getMobileEditState");
+  assert(
+    editStateAfterMouse !== null,
+    "mobile edit panel closed after synthesized mousedown — " +
+    "the panel should remain open after double-tap",
+  );
+
+  console.log("[verify:webkit] Scenario passed: double-tap edit panel stays open.");
+}
+
 // --- Main ---
 
 const playwright = await loadPlaywright();
@@ -236,6 +278,7 @@ try {
     await runCellInputScenario(page);
     await runFormulaScenario(page);
     await runTouchScrollScenario(page);
+    await runDoubleTapEditPanelScenario(page);
 
     console.log("[verify:webkit] All WebKit interaction scenarios passed.");
   } finally {

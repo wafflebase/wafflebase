@@ -306,6 +306,26 @@ export function useMobileSheetGestures({
         // Worksheet's inline cell editor and a selection change that
         // immediately dismisses the MobileEditPanel.
         e.preventDefault();
+
+        // On iOS Chrome, preventDefault on touchend does not reliably
+        // suppress synthesized mouse events.  Install a one-shot capture-
+        // phase mousedown listener that swallows the next mousedown before
+        // it can reach the worksheet and trigger a selectionChange.
+        const swallowMouseDown = (me: MouseEvent) => {
+          me.preventDefault();
+          me.stopImmediatePropagation();
+        };
+        container.addEventListener('mousedown', swallowMouseDown, {
+          capture: true,
+          once: true,
+        });
+        // Safety: remove the listener after 1s in case no mousedown fires.
+        setTimeout(() => {
+          container.removeEventListener('mousedown', swallowMouseDown, {
+            capture: true,
+          });
+        }, 1000);
+
         sheetRef.current?.handleMobileDoubleTap(lastX, lastY);
         lastTapAt = 0;
         return;
