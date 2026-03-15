@@ -119,17 +119,32 @@ systematically.
 - Introduce path-based selective execution ahead of baseline stability.
 - Build custom LLM-based linters before deterministic rules are exhausted.
 
-## Local Pre-Commit Hook
+## Local Git Hooks
 
-A git pre-commit hook runs `pnpm verify:fast` before every commit, providing
-a local defense layer in addition to CI.
+Git hooks provide local defense layers in addition to CI. All hooks live in
+`.githooks/` and are activated automatically via `core.hooksPath` (set by the
+`postinstall` script — no manual setup required).
+
+### Pre-Commit Hook
+
+Runs `pnpm verify:fast` before every commit.
 
 - **Scope:** architecture + lint + typecheck + unit tests (~11 s).
-- **Out of scope:** builds, visual regression, entropy — these remain CI-only
-  (`verify:self`).
-- **Activation:** `pnpm install` automatically sets `core.hooksPath` to
-  `.githooks/` via a `postinstall` script. No manual setup required.
+- **Out of scope:** builds, visual regression, entropy — these are caught by
+  the pre-push hook.
 - **Bypass:** `git commit --no-verify` skips the hook for emergencies.
+
+### Pre-Push Hook
+
+Runs `pnpm verify:self` before every push.
+
+- **Scope:** everything in `verify:fast` plus builds, chunk budgets,
+  visual/interaction browser tests, and entropy checks (dead code, doc
+  staleness, dependency freshness).
+- **Purpose:** catches build failures, broken doc refs, and dead code before
+  they reach the remote — issues that are too slow for per-commit but should
+  not land on a shared branch.
+- **Bypass:** `git push --no-verify` skips the hook for emergencies.
 
 ## Claude Code Hooks
 
