@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Install WebKit browser for Playwright
+## Task 1: Install WebKit browser for Playwright
 
 **Files:**
 - None (CLI command only)
@@ -31,7 +31,7 @@ Expected: WebKit is already installed.
 
 ---
 
-### Task 2: Create the WebKit interaction test script
+## Task 2: Create the WebKit interaction test script
 
 **Files:**
 - Create: `packages/frontend/scripts/verify-webkit-browser.mjs`
@@ -270,7 +270,7 @@ ls -la packages/frontend/scripts/verify-webkit-browser.mjs
 
 ---
 
-### Task 3: Add npm scripts
+## Task 3: Add npm scripts
 
 **Files:**
 - Modify: `packages/frontend/package.json`
@@ -305,7 +305,7 @@ Separate from Chromium CI pipeline."
 
 ---
 
-### Task 4: Run and fix
+## Task 4: Run and fix
 
 - [ ] **Step 1: Run the tests and fix any issues**
 
