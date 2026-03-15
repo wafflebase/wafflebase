@@ -505,7 +505,7 @@ $ wafflebase cell set abc-123 A1 "Revenue" --dry-run
 {
   "dry_run": true,
   "method": "PUT",
-  "url": "https://app.wafflebase.io/api/v1/workspaces/ws-1/documents/abc-123/tabs/default/cells/A1",
+  "url": "https://api.wafflebase.io/api/v1/workspaces/ws-1/documents/abc-123/tabs/default/cells/A1",
   "body": { "value": "Revenue" }
 }
 ```

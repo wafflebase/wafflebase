@@ -19,13 +19,13 @@ Include the key in the `Authorization` header:
 
 ```bash
 curl -H "Authorization: Bearer wfb_your_key_here" \
-  https://wafflebase.io/api/v1/workspaces/:wid/documents
+  https://api.wafflebase.io/api/v1/workspaces/:wid/documents
 ```
 
 ## Base URL
 
 ```
-https://wafflebase.io/api/v1/workspaces/:workspaceId
+https://api.wafflebase.io/api/v1/workspaces/:workspaceId
 ```
 
 Replace `:workspaceId` with your workspace ID.
@@ -40,7 +40,7 @@ GET /api/v1/workspaces/:wid/documents
 
 ```bash
 curl -H "Authorization: Bearer wfb_..." \
-  https://wafflebase.io/api/v1/workspaces/:wid/documents
+  https://api.wafflebase.io/api/v1/workspaces/:wid/documents
 ```
 
 ### Create Document
@@ -54,7 +54,7 @@ curl -X POST \
   -H "Authorization: Bearer wfb_..." \
   -H "Content-Type: application/json" \
   -d '{"title": "Q1 Report"}' \
-  https://wafflebase.io/api/v1/workspaces/:wid/documents
+  https://api.wafflebase.io/api/v1/workspaces/:wid/documents
 ```
 
 ### Get Document
@@ -74,7 +74,7 @@ curl -X PATCH \
   -H "Authorization: Bearer wfb_..." \
   -H "Content-Type: application/json" \
   -d '{"title": "Q1 Report (Updated)"}' \
-  https://wafflebase.io/api/v1/workspaces/:wid/documents/:did
+  https://api.wafflebase.io/api/v1/workspaces/:wid/documents/:did
 ```
 
 ### Delete Document
