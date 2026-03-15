@@ -136,11 +136,13 @@ Runs `pnpm verify:fast` before every commit.
 
 ### Pre-Push Hook
 
-Runs `pnpm verify:self` before every push.
+Runs `verify:fast` + builds + chunk budgets + entropy before every push.
 
-- **Scope:** everything in `verify:fast` plus builds, chunk budgets,
-  visual/interaction browser tests, and entropy checks (dead code, doc
+- **Scope:** everything in `verify:fast` plus sheet/frontend/backend/cli
+  builds, frontend chunk budget gate, and entropy checks (dead code, doc
   staleness, dependency freshness).
+- **Out of scope:** browser visual/interaction tests — these require
+  Docker/CI Chromium and are covered by the CI `verify-browser` job.
 - **Purpose:** catches build failures, broken doc refs, and dead code before
   they reach the remote — issues that are too slow for per-commit but should
   not land on a shared branch.
