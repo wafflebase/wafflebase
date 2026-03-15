@@ -12,6 +12,7 @@ describe('resolveConfig', () => {
     delete process.env.WAFFLEBASE_API_KEY;
     delete process.env.WAFFLEBASE_WORKSPACE;
     delete process.env.WAFFLEBASE_CONFIG;
+    delete process.env.WAFFLEBASE_SESSION;
   });
 
   afterEach(() => {
@@ -19,8 +20,9 @@ describe('resolveConfig', () => {
   });
 
   it('uses defaults when nothing is provided', () => {
-    // Point to non-existent config file
+    // Point to non-existent config/session files
     process.env.WAFFLEBASE_CONFIG = '/tmp/nonexistent-wafflebase-config.yaml';
+    process.env.WAFFLEBASE_SESSION = '/tmp/nonexistent-wafflebase-session.json';
     const config = resolveConfig({});
     expect(config.server).toBe(DEFAULT_SERVER);
     expect(config.apiKey).toBe('');

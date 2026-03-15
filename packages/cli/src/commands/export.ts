@@ -26,20 +26,20 @@ export function registerExportCommand(program: Command) {
     .description('Export tab data to CSV/JSON')
     .option('--tab <tab-id>', 'Source tab', 'tab-1')
     .option('--range <range>', 'Cell range to export (e.g. A1:D100)')
-    .option('--format <fmt>', 'Output format (csv, json)')
+    .option('--file-format <fmt>', 'File format (csv, json)')
     .action(async function (this: Command, docId: string, file: string) {
       const opts = getGlobalOpts(this);
       const localOpts = this.opts<{
         tab: string;
         range?: string;
-        format?: string;
+        fileFormat?: string;
       }>();
 
       try {
         const res = await getClient(opts).getCells(docId, localOpts.tab, localOpts.range);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        const fmt = detectFormat(file, localOpts.format);
+        const fmt = detectFormat(file, localOpts.fileFormat);
         const formatted = fmt === 'csv' ? formatCsv(res.data) : formatJson(res.data);
 
         if (file === '-') {

@@ -13,9 +13,9 @@ export function registerLoginCommand(program: Command): void {
   program
     .command('login')
     .description('Log in via GitHub OAuth in the browser')
-    .option('--server <url>', 'Server URL', DEFAULT_SERVER)
-    .action(async (opts: { server: string }) => {
-      const server = opts.server.replace(/\/$/, '');
+    .action(async function (this: Command) {
+      const parentOpts = this.optsWithGlobals<{ server?: string }>();
+      const server = (parentOpts.server ?? DEFAULT_SERVER).replace(/\/$/, '');
 
       // 1. Check existing session
       const existing = loadSession();
@@ -179,10 +179,44 @@ function startCallbackServer(): Promise<{
         return;
       }
 
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(
-        '<html><body><h2>Login successful!</h2><p>You can close this tab.</p></body></html>',
-      );
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wafflebase CLI</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    background: #fafafa;
+    color: #1a1a1a;
+  }
+  .card {
+    text-align: center;
+    padding: 3rem 2.5rem;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+  }
+  .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+  h2 { margin: 0 0 0.5rem; font-size: 1.25rem; font-weight: 600; }
+  p { margin: 0; color: #666; font-size: 0.95rem; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">&#10003;</div>
+    <h2>Login successful!</h2>
+    <p>You can close this tab and return to the terminal.</p>
+  </div>
+</body>
+</html>`);
 
       if (!settled) {
         settled = true;

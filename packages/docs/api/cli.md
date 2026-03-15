@@ -228,7 +228,7 @@ wafflebase import <doc-id> data.csv --dry-run
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--tab <tab-id>` | Target tab | `tab-1` |
-| `--format <fmt>` | File format (`csv`, `json`) | auto-detected |
+| `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
 | `--no-header` | First row is data, not a header | `false` |
 | `--start <ref>` | Top-left cell for import | `A1` |
 
@@ -256,14 +256,14 @@ wafflebase export <doc-id> output.json
 wafflebase export <doc-id> output.csv --range A1:D100
 
 # Export to stdout (pipe-friendly)
-wafflebase export <doc-id> - --format csv | head -20
+wafflebase export <doc-id> - --file-format csv | head -20
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--tab <tab-id>` | Source tab | `tab-1` |
 | `--range <range>` | Cell range to export | all data |
-| `--format <fmt>` | Output format (`csv`, `json`) | auto-detected |
+| `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
 
 ## Output Formats
 

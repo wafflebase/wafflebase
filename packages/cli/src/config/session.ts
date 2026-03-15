@@ -35,6 +35,9 @@ export interface Session {
  * Returns the default session file path: ~/.wafflebase/session.json
  */
 export function getSessionPath(): string {
+  if (process.env.WAFFLEBASE_SESSION) {
+    return process.env.WAFFLEBASE_SESSION;
+  }
   return join(homedir(), '.wafflebase', 'session.json');
 }
 
