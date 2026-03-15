@@ -29,7 +29,7 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     super.authenticate(req, opts);
   }
 
-  async validate(accessToken: string, refreshToken: string, profile: Profile) {
+  async validate(accessToken: string, _refreshToken: string, profile: Profile) {
     const { id, username, emails, photos } = profile;
 
     return {

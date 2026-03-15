@@ -2,7 +2,6 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
-const AUTH_TAG_LENGTH = 16;
 
 function getKey(): Buffer {
   const key = process.env.DATASOURCE_ENCRYPTION_KEY;
