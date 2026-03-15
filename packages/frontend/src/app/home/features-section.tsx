@@ -42,10 +42,10 @@ export function FeaturesSection() {
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-[960px] mx-auto">
         {features.map((f) => (
-          <div key={f.title} className="bg-homepage-bg border border-homepage-accent/30 rounded-xl p-7">
-            <div className="text-3xl mb-3">{f.icon}</div>
+          <div key={f.title} className="bg-homepage-bg border border-homepage-accent/30 rounded-xl p-6 hover:border-homepage-accent/60 hover:shadow-md transition-all duration-200">
+            <div className="text-3xl mb-3" role="img" aria-hidden="true">{f.icon}</div>
             <h3 className="text-lg font-semibold text-homepage-text mb-2">{f.title}</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">{f.description}</p>
+            <p className="text-sm text-homepage-text-secondary leading-relaxed">{f.description}</p>
           </div>
         ))}
       </div>

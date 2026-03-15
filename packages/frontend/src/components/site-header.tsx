@@ -51,8 +51,9 @@ export function SiteHeader({
           {editing ? (
             <input
               ref={inputRef}
-              className="text-base font-medium bg-transparent border-b border-primary outline-none px-1 min-w-[120px]"
+              className="text-base font-medium bg-transparent border-b border-primary px-1 min-w-[120px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
               value={editValue}
+              aria-label="Document title"
               onChange={(e) => setEditValue(e.target.value)}
               onBlur={commitRename}
               onKeyDown={(e) => {
@@ -65,11 +66,19 @@ export function SiteHeader({
             />
           ) : (
             <h1
-              className={`text-base font-medium ${editable ? "cursor-pointer hover:bg-muted/50 px-1 rounded transition-colors" : ""}`}
+              className={`text-base font-medium ${editable ? "cursor-pointer hover:bg-muted/50 px-1 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""}`}
               onClick={() => {
                 if (editable) setEditing(true);
               }}
-              title={editable ? "Click to rename" : undefined}
+              onKeyDown={(e) => {
+                if (editable && (e.key === "Enter" || e.key === " ")) {
+                  e.preventDefault();
+                  setEditing(true);
+                }
+              }}
+              role={editable ? "button" : undefined}
+              tabIndex={editable ? 0 : undefined}
+              aria-label={editable ? `Rename "${title}"` : undefined}
             >
               {title}
             </h1>

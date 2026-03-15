@@ -32,8 +32,9 @@ export function DemoSection() {
         </div>
         <div className="w-full aspect-video relative">
           {!loaded && (
-            <div className="absolute inset-0 flex items-center justify-center bg-muted">
-              <div className="text-muted-foreground text-sm">Loading demo...</div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted gap-3">
+              <div className="size-6 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+              <div className="text-foreground text-sm">Loading demo...</div>
             </div>
           )}
           {error ? (

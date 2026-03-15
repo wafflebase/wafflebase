@@ -18,10 +18,10 @@ export function HeroSection({
         A collaborative, open-source spreadsheet with real-time editing,
         formulas, charts, and a powerful REST API &amp; CLI for automation.
       </p>
-      <div className="flex gap-3 justify-center">
+      <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
         <Link
           to={workspacePath ?? "/login"}
-          className="bg-homepage-accent text-white px-8 py-3.5 rounded-lg text-base font-semibold no-underline"
+          className="bg-homepage-accent text-white px-8 py-3.5 rounded-lg text-base font-semibold no-underline hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {workspacePath ? "Go to Workspace →" : "Get Started Free →"}
         </Link>
@@ -29,7 +29,7 @@ export function HeroSection({
           href={GITHUB_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="border-2 border-homepage-accent text-homepage-text px-8 py-3.5 rounded-lg text-base font-semibold no-underline"
+          className="border-2 border-homepage-accent text-homepage-text px-8 py-3.5 rounded-lg text-base font-semibold no-underline hover:bg-homepage-accent/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           View on GitHub →
         </a>

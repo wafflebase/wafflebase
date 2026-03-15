@@ -13,7 +13,7 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
         <a href="/docs" className="hidden md:inline text-sm text-homepage-text-secondary no-underline">Docs</a>
         <Link
           to={workspacePath ?? "/login"}
-          className="bg-homepage-accent text-white px-5 py-2 rounded-md text-sm font-semibold no-underline"
+          className="bg-homepage-accent text-white px-5 py-2 rounded-md text-sm font-semibold no-underline hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {workspacePath ? "Go to Workspace" : "Get Started"}
         </Link>

@@ -149,7 +149,10 @@ export function DocumentList({
                 className="text-destructive focus:text-destructive"
                 onClick={(e: MouseEvent<HTMLElement>) => {
                   e.stopPropagation();
-                  deleteDocumentMutation.mutate(String(row.getValue("id")));
+                  setDeletingDoc({
+                    id: String(row.getValue("id")),
+                    title: row.getValue("title"),
+                  });
                 }}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -162,6 +165,10 @@ export function DocumentList({
     },
   ];
 
+  const [deletingDoc, setDeletingDoc] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
   const [renamingDoc, setRenamingDoc] = useState<{
     id: string;
     title: string;
@@ -489,6 +496,45 @@ export function DocumentList({
               }}
             >
               Move
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deletingDoc !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingDoc(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Document</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &ldquo;{deletingDoc?.title}
+              &rdquo;? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeletingDoc(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteDocumentMutation.isPending}
+              onClick={() => {
+                if (deletingDoc) {
+                  deleteDocumentMutation.mutate(deletingDoc.id, {
+                    onSuccess: () => setDeletingDoc(null),
+                  });
+                }
+              }}
+            >
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>
