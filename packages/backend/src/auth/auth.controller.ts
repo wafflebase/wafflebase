@@ -1,9 +1,12 @@
 import { CookieOptions, Request, Response } from 'express';
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
   HttpCode,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -15,6 +18,8 @@ import { UserService } from '../user/user.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthenticatedRequest } from './auth.types';
+import { CliAuthStore } from './cli-auth.store';
+import { GitHubAuthGuard } from './github-auth.guard';
 
 const ACCESS_COOKIE_NAME = 'wafflebase_session';
 const REFRESH_COOKIE_NAME = 'wafflebase_refresh';
@@ -27,6 +32,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly userService: UserService,
     private readonly configService: ConfigService,
+    private readonly cliAuthStore: CliAuthStore,
   ) {}
 
   @Get('me')
@@ -42,9 +48,18 @@ export class AuthController {
   }
 
   @Get('github')
-  @UseGuards(AuthGuard('github'))
-  async githubAuth() {
+  @UseGuards(GitHubAuthGuard)
+  async githubAuth(
+    @Query('mode') mode: string | undefined,
+    @Query('port') port: string | undefined,
+    @Req() req: Request,
+  ) {
     // NOTE(hackerwins): Redirect to GitHub for authentication.
+    // For CLI mode, the state token is injected in the guard via
+    // __cliStateToken (see below). The guard handles the redirect.
+    void mode;
+    void port;
+    void req;
   }
 
   @Get('github/callback')
@@ -52,6 +67,7 @@ export class AuthController {
   async githubAuthCallback(
     @Req() req: AuthenticatedRequest,
     @Res() res: Response,
+    @Query('state') stateToken: string | undefined,
   ) {
     const githubUser = req.user;
 
@@ -66,10 +82,48 @@ export class AuthController {
       throw new Error('User not found or created');
     }
 
+    // Check if this is a CLI OAuth flow by consuming the state token.
+    if (stateToken) {
+      const state = this.cliAuthStore.consumeState(stateToken);
+      if (state && state.mode === 'cli') {
+        const port = state.port;
+        if (port < 1024 || port > 65535) {
+          throw new BadRequestException('Invalid CLI port');
+        }
+        const code = this.cliAuthStore.createCode(user.id);
+        return res.redirect(
+          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}`,
+        );
+      }
+    }
+
+    // Default web flow: set cookies and redirect to frontend.
     const tokens = this.authService.createTokens(user);
     this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
     return res.redirect(this.configService.get('FRONTEND_URL')!);
+  }
+
+  @Post('cli/exchange')
+  @HttpCode(200)
+  async cliExchange(@Body() body: { code: string }) {
+    const code = body?.code;
+    if (!code || typeof code !== 'string') {
+      throw new UnauthorizedException('Code is required');
+    }
+
+    const userId = this.cliAuthStore.consumeCode(code);
+    if (userId === undefined) {
+      throw new UnauthorizedException('Invalid or expired code');
+    }
+
+    const user = await this.userService.user({ id: userId });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const tokens = this.authService.createTokens(user);
+    return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
   }
 
   @Post('refresh')

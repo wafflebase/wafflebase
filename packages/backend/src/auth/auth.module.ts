@@ -5,6 +5,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import type ms from 'ms';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { CliAuthStore } from './cli-auth.store';
+import { GitHubAuthGuard } from './github-auth.guard';
 import { GitHubStrategy } from './github.strategy';
 import { JwtStrategy } from './jwt.strategy';
 
@@ -25,6 +27,6 @@ import { JwtStrategy } from './jwt.strategy';
     UserModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GitHubStrategy],
+  providers: [AuthService, CliAuthStore, GitHubAuthGuard, JwtStrategy, GitHubStrategy],
 })
 export class AuthModule {}
