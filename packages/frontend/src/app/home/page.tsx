@@ -1,6 +1,7 @@
 import { NavBar } from "./nav-bar";
 import { HeroSection } from "./hero-section";
 import { DemoSection } from "./demo-section";
+import { WhySection } from "./why-section";
 import { FeaturesSection } from "./features-section";
 import { DeveloperSection } from "./developer-section";
 import { OpenSourceSection } from "./opensource-section";
@@ -16,6 +17,7 @@ export default function HomePage({
       <NavBar workspacePath={workspacePath} />
       <HeroSection workspacePath={workspacePath} />
       <DemoSection />
+      <WhySection />
       <FeaturesSection />
       <DeveloperSection />
       <OpenSourceSection />
