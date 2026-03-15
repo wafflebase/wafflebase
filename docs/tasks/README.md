@@ -18,13 +18,12 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| cross sheet cycle (2026-03-15) | [20260315-cross-sheet-cycle-todo.md](./active/20260315-cross-sheet-cycle-todo.md) | - |
+| ui design improvements (2026-03-15) | [20260315-ui-design-improvements-todo.md](./active/20260315-ui-design-improvements-todo.md) | - |
 | backend rest api (2026-03-12) | [20260312-backend-rest-api-todo.md](./active/20260312-backend-rest-api-todo.md) | - |
-| cli (2026-03-12) | [20260312-cli-todo.md](./active/20260312-cli-todo.md) | - |
 
 ## Archive
 
-- Archived task count: 78
+- Archived task count: 80
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: cross sheet cycle (2026-03-15)
+Latest active task: ui design improvements (2026-03-15)
