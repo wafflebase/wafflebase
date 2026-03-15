@@ -8,6 +8,29 @@ The Wafflebase CLI lets you manage documents and cells from the terminal.
 npm install -g @wafflebase/cli
 ```
 
+## Quick Setup
+
+Run `auth login` to configure the CLI interactively:
+
+```bash
+wafflebase auth login
+```
+
+You will be prompted for the server URL, API key, and workspace ID. The values are saved to `~/.config/wafflebase/config.yaml`.
+
+To configure a named profile:
+
+```bash
+wafflebase auth login --profile production
+```
+
+You can also pass values directly (useful for CI):
+
+```bash
+wafflebase auth login --server https://api.example.com \
+  --api-key wfb_xxx --workspace my-workspace-id
+```
+
 ## Configuration
 
 The CLI resolves settings in this order: **flags > environment variables > config file**.
@@ -146,6 +169,70 @@ wafflebase schema document.list
 wafflebase schema cell.get
 ```
 
+### import
+
+Import CSV or JSON data into a spreadsheet tab.
+
+```bash
+# Import a CSV file
+wafflebase import <doc-id> data.csv
+
+# Import a JSON file
+wafflebase import <doc-id> data.json
+
+# Import from stdin
+cat data.csv | wafflebase import <doc-id> -
+
+# Import starting at a specific cell
+wafflebase import <doc-id> data.csv --start C5
+
+# Target a specific tab
+wafflebase import <doc-id> data.csv --tab tab-2
+
+# Preview without writing
+wafflebase import <doc-id> data.csv --dry-run
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--tab <tab-id>` | Target tab | `tab-1` |
+| `--format <fmt>` | File format (`csv`, `json`) | auto-detected |
+| `--no-header` | First row is data, not a header | `false` |
+| `--start <ref>` | Top-left cell for import | `A1` |
+
+JSON input accepts an array of arrays or an array of objects:
+
+```json
+[
+  { "Name": "Alice", "Score": 95 },
+  { "Name": "Bob", "Score": 87 }
+]
+```
+
+### export
+
+Export tab data to a CSV or JSON file.
+
+```bash
+# Export to CSV
+wafflebase export <doc-id> output.csv
+
+# Export to JSON
+wafflebase export <doc-id> output.json
+
+# Export a specific range
+wafflebase export <doc-id> output.csv --range A1:D100
+
+# Export to stdout (pipe-friendly)
+wafflebase export <doc-id> - --format csv | head -20
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--tab <tab-id>` | Source tab | `tab-1` |
+| `--range <range>` | Cell range to export | all data |
+| `--format <fmt>` | Output format (`csv`, `json`) | auto-detected |
+
 ## Output Formats
 
 ### JSON (default)
@@ -182,7 +269,20 @@ B2,500
 
 ## Examples
 
-### Script: Export to CSV
+### Import CSV, add formulas, export results
+
+```bash
+# Import raw data
+wafflebase import abc-123 sales.csv
+
+# Add a SUM formula
+wafflebase cell set abc-123 C1 "=SUM(B2:B100)" --formula
+
+# Export results
+wafflebase export abc-123 report.csv --range A1:C100
+```
+
+### Export to CSV (cell get)
 
 ```bash
 wafflebase --format csv cell get abc-123 A1:Z100 > report.csv
@@ -203,5 +303,10 @@ wafflebase cell batch abc-123 --data '{
 
 ```bash
 $ wafflebase --dry-run cell set abc-123 A1 "Hello"
-GET http://localhost:3000/api/v1/workspaces/.../cells/A1
+{
+  "dry_run": true,
+  "method": "PUT",
+  "url": "http://localhost:3000/api/v1/workspaces/.../cells/A1",
+  "body": { "value": "Hello" }
+}
 ```

@@ -18,6 +18,18 @@ export interface CommandSchema {
 
 const registry: CommandSchema[] = [
   {
+    name: 'auth.login',
+    description: 'Set up API key and server configuration',
+    safety: 'write',
+    parameters: {
+      '--profile': { type: 'string', required: false, description: 'Profile name', default: 'default' },
+      '--server': { type: 'string', required: false, description: 'Server URL' },
+      '--api-key': { type: 'string', required: false, description: 'API key' },
+      '--workspace': { type: 'string', required: false, description: 'Workspace ID' },
+    },
+    response: { profile: 'string', path: 'string' },
+  },
+  {
     name: 'doc.list',
     description: 'List documents in workspace',
     safety: 'read-only',
@@ -117,6 +129,33 @@ const registry: CommandSchema[] = [
       '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
     },
     response: { ref: 'string', deleted: 'boolean' },
+  },
+  {
+    name: 'import',
+    description: 'Import CSV/JSON into a tab',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      file: { type: 'string', required: true, description: 'File path or - for stdin' },
+      '--tab': { type: 'string', required: false, description: 'Target tab', default: 'tab-1' },
+      '--format': { type: 'string', required: false, description: 'File format (csv, json)' },
+      '--no-header': { type: 'boolean', required: false, description: 'First row is not a header' },
+      '--start': { type: 'string', required: false, description: 'Top-left cell', default: 'A1' },
+    },
+    response: { imported: 'number' },
+  },
+  {
+    name: 'export',
+    description: 'Export tab data to CSV/JSON',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      file: { type: 'string', required: true, description: 'File path or - for stdout' },
+      '--tab': { type: 'string', required: false, description: 'Source tab', default: 'tab-1' },
+      '--range': { type: 'string', required: false, description: 'Cell range (e.g. A1:D100)' },
+      '--format': { type: 'string', required: false, description: 'Output format (csv, json)' },
+    },
+    response: { type: 'string', description: 'Formatted cell data' },
   },
   {
     name: 'api-key.create',

@@ -20,6 +20,7 @@ examples, and safety notes.
 | [read-cells.md](read-cells.md) | read-only | Read cell data from spreadsheets |
 | [write-cells.md](write-cells.md) | write | Write cell data to spreadsheets |
 | [manage-docs.md](manage-docs.md) | write | Create, rename, and delete documents |
+| [import-export.md](import-export.md) | write / read-only | Import and export data as CSV or JSON |
 
 ## Available Recipes
 
