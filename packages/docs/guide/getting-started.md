@@ -42,5 +42,6 @@ Your document starts with one tab called **Sheet1**. Click the **+** button next
 Now that you have a document with some data, try these guides:
 
 - [Build a Budget Spreadsheet](./build-a-budget) — Learn formulas, formatting, and layout
-- [Collaborate with Your Team](./collaboration) — Share documents and edit together
+- [Collaboration & Sharing](./collaboration) — Share documents and edit together in real time
+- [Charts & Pivot Tables](./charts) — Visualize your data with charts and pivot tables
 - [Keyboard Shortcuts](./keyboard-shortcuts) — Speed up your workflow
