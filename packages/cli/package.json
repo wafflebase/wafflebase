@@ -7,6 +7,9 @@
   "bin": {
     "wafflebase": "./dist/bin.js"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "files": [
     "dist"
   ],

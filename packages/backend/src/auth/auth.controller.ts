@@ -95,6 +95,12 @@ export class AuthController {
           `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}`,
         );
       }
+
+      // State token was provided but invalid/expired — this is a CLI flow
+      // that failed. Return an error instead of falling through to web flow.
+      throw new BadRequestException(
+        'CLI login state expired or invalid. Please run `wafflebase login` again.',
+      );
     }
 
     // Default web flow: set cookies and redirect to frontend.

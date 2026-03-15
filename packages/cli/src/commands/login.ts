@@ -96,6 +96,8 @@ export function registerLoginCommand(program: Command): void {
       let workspaces: WorkspaceInfo[] = [];
       if (wsRes.ok) {
         workspaces = (await wsRes.json()) as WorkspaceInfo[];
+      } else {
+        console.warn(`Warning: failed to fetch workspaces (HTTP ${wsRes.status})`);
       }
 
       // 8. Select workspace

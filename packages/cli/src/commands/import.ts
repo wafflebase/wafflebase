@@ -6,8 +6,15 @@ import { output, outputError } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { parseCsv, parseStartRef, buildCellMap } from '../util/csv-parse.js';
 
+const VALID_FORMATS = ['csv', 'json'] as const;
+
 function detectFormat(file: string, formatFlag?: string): 'csv' | 'json' {
-  if (formatFlag) return formatFlag as 'csv' | 'json';
+  if (formatFlag) {
+    if (!VALID_FORMATS.includes(formatFlag as 'csv' | 'json')) {
+      throw new Error(`Unsupported format "${formatFlag}". Use csv or json.`);
+    }
+    return formatFlag as 'csv' | 'json';
+  }
   const ext = extname(file).toLowerCase();
   if (ext === '.json') return 'json';
   return 'csv';

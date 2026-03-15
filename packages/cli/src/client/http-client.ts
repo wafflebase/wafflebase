@@ -67,7 +67,10 @@ export class HttpClient {
     this.config.accessToken = data.accessToken;
     this.config.refreshToken = data.refreshToken;
 
-    // Persist to session file
+    // Persist refreshed tokens to session file (if it exists).
+    // If the session file is missing the in-memory config is already
+    // updated, so the current process will keep working; the user can
+    // run `wafflebase login` to recreate the session file.
     const session = loadSession();
     if (session) {
       session.accessToken = data.accessToken;
