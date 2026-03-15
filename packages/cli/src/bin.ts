@@ -7,6 +7,9 @@ import { registerApiKeyCommand } from './commands/api-key.js';
 import { registerSchemaCommand } from './commands/schema.js';
 import { registerAuthCommand } from './commands/auth.js';
 import { registerLoginCommand } from './commands/login.js';
+import { registerLogoutCommand } from './commands/logout.js';
+import { registerStatusCommand } from './commands/status.js';
+import { registerCtxCommand } from './commands/ctx.js';
 import { registerImportCommand } from './commands/import.js';
 import { registerExportCommand } from './commands/export.js';
 
@@ -14,6 +17,9 @@ const program = createProgram();
 
 registerAuthCommand(program);
 registerLoginCommand(program);
+registerLogoutCommand(program);
+registerStatusCommand(program);
+registerCtxCommand(program);
 registerDocumentCommand(program);
 registerTabCommand(program);
 registerCellCommand(program);
