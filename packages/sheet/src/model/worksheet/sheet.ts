@@ -40,7 +40,6 @@ import {
   remapIndex,
   shiftDimensionMap,
   moveDimensionMap,
-  relocateFormula,
   redirectFormula,
 } from './shifting';
 import {
@@ -77,6 +76,33 @@ import {
   stylesEqual,
   translateRangeStylePatches,
 } from './range-styles';
+import {
+  normalizeFilterText,
+  normalizeFilterCondition,
+  matchesFilterCondition,
+  shiftFilterBoundary,
+  buildFilterStatePayload,
+  normalizeFilterColumnsToRange,
+  pruneHiddenRowsOutsideFilter,
+} from './filter';
+import {
+  relocateGrid,
+  buildCutRefMap,
+  computeAutofillRange,
+  positiveMod,
+  cloneCellForAutofill,
+} from './clipboard';
+import {
+  hasCellContent,
+  isEmptyCell,
+  compactCell,
+  rangesIntersect,
+  tryMergeRangeStylePatches,
+  sameRangeStylePatchList,
+  pruneRedundantDefaultStyleKeys,
+  toBorderPatchForPreset,
+  type StyleSources,
+} from './style-mutation';
 
 /**
  * `Dimensions` represents the dimensions of the sheet.
@@ -85,22 +111,6 @@ import {
  */
 const Dimensions = { rows: 1000000, columns: 18278 };
 const MaxBorderSelectionCells = 50000;
-const DefaultStyleValues: Partial<CellStyle> = {
-  b: false,
-  i: false,
-  u: false,
-  st: false,
-  bt: false,
-  br: false,
-  bb: false,
-  bl: false,
-  tc: '',
-  bg: '',
-  al: 'left',
-  va: 'top',
-  nf: 'plain',
-  dp: 2,
-};
 const DefaultResetStylePatch: Partial<CellStyle> = {
   b: false,
   i: false,
@@ -913,7 +923,7 @@ export class Sheet {
         inferred.type === 'formula'
           ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
           : { v: this.toStoredValue(inferred) };
-      normalized.set(sref, this.compactCell(base, style));
+      normalized.set(sref, compactCell(base, style));
     }
     return normalized;
   }
@@ -935,10 +945,10 @@ export class Sheet {
         inferred.type === 'formula'
           ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
           : { v: this.toStoredValue(inferred) };
-      const cell = this.compactCell(base, style);
+      const cell = compactCell(base, style);
 
       // If the cell is effectively empty (no value, no formula, no style), delete it.
-      if (this.isEmptyCell(cell)) {
+      if (isEmptyCell(cell)) {
         await this.store.delete(target);
       } else {
         await this.store.set(target, cell);
@@ -1267,157 +1277,33 @@ export class Sheet {
    * `buildFilterStatePayload` serializes in-memory filter state for persistence.
    */
   private buildFilterStatePayload(): FilterState | undefined {
-    if (!this.filterRange) return undefined;
-
-    const columns: Record<string, FilterCondition> = {};
-    const sortedColumns = Array.from(this.filterColumns.entries()).sort(
-      (a, b) => a[0] - b[0],
+    return buildFilterStatePayload(
+      this.filterRange,
+      this.filterColumns,
+      this.hiddenRows,
+      (col) => this.isColumnInFilter(col),
     );
-    for (const [col, condition] of sortedColumns) {
-      if (!this.isColumnInFilter(col)) continue;
-      columns[String(col)] = { ...condition };
-    }
-
-    return {
-      range: cloneRange(this.filterRange),
-      columns,
-      hiddenRows: Array.from(this.hiddenRows).sort((a, b) => a - b),
-    };
   }
 
   /**
    * `normalizeFilterColumnsToRange` removes criteria outside the active filter range.
    */
   private normalizeFilterColumnsToRange(): void {
-    if (!this.filterRange) {
-      this.filterColumns.clear();
-      return;
-    }
-
-    for (const col of this.filterColumns.keys()) {
-      if (!this.isColumnInFilter(col)) {
-        this.filterColumns.delete(col);
-      }
-    }
+    normalizeFilterColumnsToRange(
+      this.filterRange,
+      this.filterColumns,
+      (col) => this.isColumnInFilter(col),
+    );
   }
 
   /**
    * `pruneHiddenRowsOutsideFilter` keeps hidden rows within filter data rows only.
    */
   private pruneHiddenRowsOutsideFilter(): void {
-    if (!this.filterRange) {
-      this.hiddenRows.clear();
-      return;
-    }
-
-    const dataStart = this.filterRange[0].r + 1;
-    const dataEnd = this.filterRange[1].r;
-    const next = new Set<number>();
-    for (const row of this.hiddenRows) {
-      if (row >= dataStart && row <= dataEnd) {
-        next.add(row);
-      }
-    }
-    this.hiddenRows = next;
-  }
-
-  /**
-   * `normalizeFilterText` converts runtime cell/filter values into plain strings.
-   * Yorkie may expose wrapped primitive objects at runtime.
-   */
-  private normalizeFilterText(value: unknown): string {
-    if (typeof value === 'string') {
-      return value;
-    }
-    if (value === null || value === undefined) {
-      return '';
-    }
-    if (typeof value === 'number' || typeof value === 'boolean') {
-      return String(value);
-    }
-    if (typeof value === 'object') {
-      const withValue = value as { value?: unknown; toJSON?: () => unknown };
-      if (withValue.value !== undefined && withValue.value !== value) {
-        return this.normalizeFilterText(withValue.value);
-      }
-      if (typeof withValue.toJSON === 'function') {
-        try {
-          const jsonValue = withValue.toJSON.call(value);
-          if (jsonValue !== value) {
-            return this.normalizeFilterText(jsonValue);
-          }
-        } catch {
-          // Ignore and fall back to string conversion.
-        }
-      }
-    }
-    return String(value);
-  }
-
-  /**
-   * `normalizeFilterCondition` normalizes and validates a filter condition.
-   */
-  private normalizeFilterCondition(
-    condition: FilterCondition,
-  ): FilterCondition | undefined {
-    const op = condition.op;
-    if (op === 'in') {
-      const values = Array.from(
-        new Set(
-          (condition.values || []).map((value) =>
-            this.normalizeFilterText(value).trim(),
-          ),
-        ),
-      );
-      return { op, values };
-    }
-
-    if (op === 'isEmpty' || op === 'isNotEmpty') {
-      return { op };
-    }
-
-    const value = this.normalizeFilterText(condition.value).trim();
-    if (value.length === 0) {
-      return undefined;
-    }
-    return { op, value };
-  }
-
-  /**
-   * `matchesFilterCondition` checks whether a cell text satisfies a condition.
-   */
-  private matchesFilterCondition(
-    value: string,
-    condition: FilterCondition,
-  ): boolean {
-    const normalizedText = this.normalizeFilterText(value).trim();
-    const normalizedValue = normalizedText.toLowerCase();
-    const conditionValue = this.normalizeFilterText(condition.value)
-      .trim()
-      .toLowerCase();
-
-    switch (condition.op) {
-      case 'in':
-        return new Set(
-          (condition.values || []).map((item) =>
-            this.normalizeFilterText(item).trim(),
-          ),
-        ).has(normalizedText);
-      case 'contains':
-        return normalizedValue.includes(conditionValue);
-      case 'notContains':
-        return !normalizedValue.includes(conditionValue);
-      case 'equals':
-        return normalizedValue === conditionValue;
-      case 'notEquals':
-        return normalizedValue !== conditionValue;
-      case 'isEmpty':
-        return normalizedValue.length === 0;
-      case 'isNotEmpty':
-        return normalizedValue.length > 0;
-      default:
-        return true;
-    }
+    this.hiddenRows = pruneHiddenRowsOutsideFilter(
+      this.filterRange,
+      this.hiddenRows,
+    );
   }
 
   /**
@@ -1431,10 +1317,10 @@ export class Sheet {
     for (const [col, condition] of this.filterColumns) {
       if (col === excludedCol) continue;
       const cell = await this.getCell({ r: row, c: col });
-      const value = this.normalizeFilterText(
+      const value = normalizeFilterText(
         (cell as { v?: unknown } | undefined)?.v,
       );
-      if (!this.matchesFilterCondition(value, condition)) {
+      if (!matchesFilterCondition(value, condition)) {
         return false;
       }
     }
@@ -1491,24 +1377,6 @@ export class Sheet {
   }
 
   /**
-   * `shiftFilterBoundary` remaps an index after insertion/deletion.
-   */
-  private shiftFilterBoundary(indexValue: number, index: number, count: number): number {
-    if (count > 0) {
-      return indexValue >= index ? indexValue + count : indexValue;
-    }
-
-    const absCount = Math.abs(count);
-    if (indexValue >= index && indexValue < index + absCount) {
-      return index;
-    }
-    if (indexValue >= index + absCount) {
-      return indexValue + count;
-    }
-    return indexValue;
-  }
-
-  /**
    * `shiftFilterState` remaps filter metadata for insert/delete operations.
    */
   private shiftFilterState(axis: Axis, index: number, count: number): void {
@@ -1517,8 +1385,8 @@ export class Sheet {
     }
 
     if (axis === 'row') {
-      const startRow = this.shiftFilterBoundary(this.filterRange[0].r, index, count);
-      const endRow = this.shiftFilterBoundary(this.filterRange[1].r, index, count);
+      const startRow = shiftFilterBoundary(this.filterRange[0].r, index, count);
+      const endRow = shiftFilterBoundary(this.filterRange[1].r, index, count);
       this.filterRange = toRange(
         { r: Math.max(1, startRow), c: this.filterRange[0].c },
         { r: Math.max(1, endRow), c: this.filterRange[1].c },
@@ -1534,8 +1402,8 @@ export class Sheet {
       return;
     }
 
-    const startCol = this.shiftFilterBoundary(this.filterRange[0].c, index, count);
-    const endCol = this.shiftFilterBoundary(this.filterRange[1].c, index, count);
+    const startCol = shiftFilterBoundary(this.filterRange[0].c, index, count);
+    const endCol = shiftFilterBoundary(this.filterRange[1].c, index, count);
     this.filterRange = toRange(
       { r: this.filterRange[0].r, c: Math.max(1, startCol) },
       { r: this.filterRange[1].r, c: Math.max(1, endCol) },
@@ -1752,26 +1620,6 @@ export class Sheet {
     return this.store.getGrid(range);
   }
 
-  /**
-   * `hasCellContent` checks whether a cell has value or formula content.
-   * Style-only cells return false.
-   */
-  private hasCellContent(cell: Cell): boolean {
-    const hasValue = cell.v !== undefined && cell.v !== '' && cell.v !== null;
-    const hasFormula = !!cell.f;
-    return hasValue || hasFormula;
-  }
-
-  /**
-   * `isEmptyCell` checks if a cell has no meaningful data.
-   * A cell is empty if it has no value (or empty string), no formula, and no style.
-   */
-  private isEmptyCell(cell: Cell): boolean {
-    const hasContent = this.hasCellContent(cell);
-    const hasStyle = cell.s !== undefined && Object.keys(cell.s).length > 0;
-    return !hasContent && !hasStyle;
-  }
-
   private normalizeStylePatch(
     style: Partial<CellStyle>,
   ): CellStyle | undefined {
@@ -1785,196 +1633,24 @@ export class Sheet {
     return mergeStylePatch(base, patch);
   }
 
-  private rangesIntersect(a: Range, b: Range): boolean {
-    return (
-      a[0].r <= b[1].r &&
-      a[1].r >= b[0].r &&
-      a[0].c <= b[1].c &&
-      a[1].c >= b[0].c
-    );
-  }
 
-  private hasConflictingStyleSourceForKey(
-    range: Range,
-    key: keyof CellStyle,
-    targetValue: CellStyle[keyof CellStyle],
-    excludedRangeStyleIndex?: number,
-  ): boolean {
-    const sheetValue = this.sheetStyle?.[key];
-    if (sheetValue !== undefined && sheetValue !== targetValue) {
-      return true;
-    }
 
-    for (const [col, style] of this.colStyles) {
-      if (col < range[0].c || col > range[1].c) {
-        continue;
-      }
-      const value = style[key];
-      if (value !== undefined && value !== targetValue) {
-        return true;
-      }
-    }
-
-    for (const [row, style] of this.rowStyles) {
-      if (row < range[0].r || row > range[1].r) {
-        continue;
-      }
-      const value = style[key];
-      if (value !== undefined && value !== targetValue) {
-        return true;
-      }
-    }
-
-    for (let i = 0; i < this.rangeStyles.length; i++) {
-      if (excludedRangeStyleIndex !== undefined && i === excludedRangeStyleIndex) {
-        continue;
-      }
-      const patch = this.rangeStyles[i];
-      const value = patch.style[key];
-      if (value === undefined || value === targetValue) {
-        continue;
-      }
-      if (!this.rangesIntersect(range, patch.range)) {
-        continue;
-      }
-      return true;
-    }
-
-    return false;
-  }
-
-  private pruneRedundantDefaultStyleKeys(
-    range: Range,
-    style: CellStyle,
-    excludedRangeStyleIndex?: number,
-  ): CellStyle | undefined {
-    const pruned: Partial<
-      Record<keyof CellStyle, CellStyle[keyof CellStyle]>
-    > = {};
-
-    for (const key of Object.keys(style) as Array<keyof CellStyle>) {
-      const value = style[key];
-      if (value === undefined) {
-        continue;
-      }
-
-      const defaultValue = DefaultStyleValues[key];
-      if (
-        defaultValue !== undefined &&
-        value === defaultValue &&
-        !this.hasConflictingStyleSourceForKey(
-          range,
-          key,
-          value,
-          excludedRangeStyleIndex,
-        )
-      ) {
-        continue;
-      }
-
-      pruned[key] = value as CellStyle[keyof CellStyle];
-    }
-
-    return Object.keys(pruned).length > 0
-      ? (pruned as CellStyle)
-      : undefined;
-  }
-
-  private sameRangeStylePatchList(
-    a: RangeStylePatch[],
-    b: RangeStylePatch[],
-  ): boolean {
-    if (a.length !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < a.length; i++) {
-      if (!isSameRange(a[i].range, b[i].range)) {
-        return false;
-      }
-      if (!stylesEqual(a[i].style, b[i].style)) {
-        return false;
-      }
-    }
-    return true;
+  private getStyleSources(): StyleSources {
+    return {
+      sheetStyle: this.sheetStyle,
+      colStyles: this.colStyles,
+      rowStyles: this.rowStyles,
+      rangeStyles: this.rangeStyles,
+    };
   }
 
   private compactShadowedRangeStyles(): boolean {
     const compacted = pruneShadowedRangeStylePatches(this.rangeStyles);
-    if (this.sameRangeStylePatchList(compacted, this.rangeStyles)) {
+    if (sameRangeStylePatchList(compacted, this.rangeStyles)) {
       return false;
     }
     this.rangeStyles = compacted;
     return true;
-  }
-
-  private containsRange(outer: Range, inner: Range): boolean {
-    return (
-      outer[0].r <= inner[0].r &&
-      outer[0].c <= inner[0].c &&
-      outer[1].r >= inner[1].r &&
-      outer[1].c >= inner[1].c
-    );
-  }
-
-  private mergeableColBand(a: Range, b: Range): boolean {
-    if (a[0].r !== b[0].r || a[1].r !== b[1].r) return false;
-    return b[0].c <= a[1].c + 1 && a[0].c <= b[1].c + 1;
-  }
-
-  private mergeableRowBand(a: Range, b: Range): boolean {
-    if (a[0].c !== b[0].c || a[1].c !== b[1].c) return false;
-    return b[0].r <= a[1].r + 1 && a[0].r <= b[1].r + 1;
-  }
-
-  private tryMergeRangeStylePatches(
-    prev: RangeStylePatch,
-    next: RangeStylePatch,
-  ): RangeStylePatch | undefined {
-    if (!stylesEqual(prev.style, next.style)) {
-      return undefined;
-    }
-
-    if (isSameRange(prev.range, next.range) || this.containsRange(prev.range, next.range)) {
-      return prev;
-    }
-
-    if (this.containsRange(next.range, prev.range)) {
-      return next;
-    }
-
-    if (this.mergeableColBand(prev.range, next.range)) {
-      return {
-        range: [
-          {
-            r: prev.range[0].r,
-            c: Math.min(prev.range[0].c, next.range[0].c),
-          },
-          {
-            r: prev.range[1].r,
-            c: Math.max(prev.range[1].c, next.range[1].c),
-          },
-        ],
-        style: { ...prev.style },
-      };
-    }
-
-    if (this.mergeableRowBand(prev.range, next.range)) {
-      return {
-        range: [
-          {
-            r: Math.min(prev.range[0].r, next.range[0].r),
-            c: prev.range[0].c,
-          },
-          {
-            r: Math.max(prev.range[1].r, next.range[1].r),
-            c: prev.range[1].c,
-          },
-        ],
-        style: { ...prev.style },
-      };
-    }
-
-    return undefined;
   }
 
   private async addRangeStylePatch(
@@ -1995,11 +1671,13 @@ export class Sheet {
     }
 
     const current = this.rangeStyles;
+    const sources = this.getStyleSources();
 
     // If the style only sets defaults and no layer needs overriding, skip.
-    const prunedStyle = this.pruneRedundantDefaultStyleKeys(
+    const prunedStyle = pruneRedundantDefaultStyleKeys(
       normalizedPatch.range,
       normalizedPatch.style,
+      sources,
     );
     if (!prunedStyle) {
       return;
@@ -2018,9 +1696,10 @@ export class Sheet {
         return;
       }
 
-      const normalizedTailStyle = this.pruneRedundantDefaultStyleKeys(
+      const normalizedTailStyle = pruneRedundantDefaultStyleKeys(
         tail.range,
         mergedTailStyle,
+        sources,
         current.length - 1,
       );
       if (!normalizedTailStyle) {
@@ -2044,7 +1723,7 @@ export class Sheet {
 
     for (let i = current.length - 1; i >= 0; i--) {
       const prev = current[i];
-      const merged = this.tryMergeRangeStylePatches(prev, nextPatch);
+      const merged = tryMergeRangeStylePatches(prev, nextPatch);
       if (!merged) {
         break;
       }
@@ -2141,8 +1820,8 @@ export class Sheet {
         continue;
       }
 
-      const nextCell = this.compactCell(existing);
-      if (this.isEmptyCell(nextCell)) {
+      const nextCell = compactCell(existing);
+      if (isEmptyCell(nextCell)) {
         await this.store.delete(anchor);
       } else {
         await this.store.set(anchor, nextCell);
@@ -2150,22 +1829,6 @@ export class Sheet {
     }
   }
 
-  /**
-   * `compactCell` removes undefined fields to keep persisted cell payload minimal.
-   */
-  private compactCell(base: Cell, style?: CellStyle): Cell {
-    const cell: Cell = {};
-    if (base.v !== undefined) {
-      cell.v = base.v;
-    }
-    if (base.f !== undefined) {
-      cell.f = base.f;
-    }
-    if (style && Object.keys(style).length > 0) {
-      cell.s = style;
-    }
-    return cell;
-  }
 
   /**
    * `getCopyRange` returns the source range from the last copy operation,
@@ -2235,7 +1898,7 @@ export class Sheet {
 
     if (this.copyBuffer && text === this.copyBuffer.text) {
       // Internal paste: relocate formulas based on position delta
-      grid = this.relocateGrid(
+      grid = relocateGrid(
         this.copyBuffer.grid,
         this.copyBuffer.sourceRange,
         this.activeCell,
@@ -2251,7 +1914,7 @@ export class Sheet {
       if (this.copyBuffer.isCut) {
         isCut = true;
         cutSourceRange = this.copyBuffer.sourceRange;
-        cutRefMap = this.buildCutRefMap(
+        cutRefMap = buildCutRefMap(
           this.copyBuffer.sourceRange,
           deltaRow,
           deltaCol,
@@ -2347,32 +2010,12 @@ export class Sheet {
   }
 
   /**
-   * `buildCutRefMap` builds a mapping from source srefs to destination srefs
-   * for redirecting formula references after a cut-paste operation.
-   */
-  private buildCutRefMap(
-    sourceRange: Range,
-    deltaRow: number,
-    deltaCol: number,
-  ): Map<Sref, Sref> {
-    const refMap = new Map<Sref, Sref>();
-    for (let r = sourceRange[0].r; r <= sourceRange[1].r; r++) {
-      for (let c = sourceRange[0].c; c <= sourceRange[1].c; c++) {
-        const oldSref = toSref({ r, c });
-        const newSref = toSref({ r: r + deltaRow, c: c + deltaCol });
-        refMap.set(oldSref, newSref);
-      }
-    }
-    return refMap;
-  }
-
-  /**
    * `removeRangeStylesOverlapping` removes range style patches that overlap
    * with the given range. Used to clear styles from cut source cells.
    */
   private removeRangeStylesOverlapping(range: Range): void {
     this.rangeStyles = this.rangeStyles.filter(
-      (patch) => !this.rangesIntersect(range, patch.range),
+      (patch) => !rangesIntersect(range, patch.range),
     );
   }
 
@@ -2405,46 +2048,6 @@ export class Sheet {
   }
 
   /**
-   * `relocateGrid` clones a grid with formula references adjusted by the
-   * position delta between sourceRange and destRef. For formula cells,
-   * recalculated values are cleared (they'll be recalculated after paste).
-   */
-  private relocateGrid(grid: Grid, sourceRange: Range, destRef: Ref): Grid {
-    const deltaRow = destRef.r - sourceRange[0].r;
-    const deltaCol = destRef.c - sourceRange[0].c;
-    const newGrid: Grid = new Map();
-
-    for (const [sref, cell] of grid) {
-      const ref = parseRef(sref);
-      const newRef = { r: ref.r + deltaRow, c: ref.c + deltaCol };
-      const newSref = toSref(newRef);
-
-      if (cell.f) {
-        const newFormula = relocateFormula(cell.f, deltaRow, deltaCol);
-        newGrid.set(newSref, { f: newFormula, s: cell.s });
-      } else {
-        newGrid.set(newSref, { ...cell });
-      }
-    }
-
-    return newGrid;
-  }
-
-  /**
-   * `computeAutofillRange` returns the expanded fill range, or undefined
-   * when `target` is inside the source range.
-   */
-  private computeAutofillRange(
-    sourceRange: Range,
-    target: Ref,
-  ): Range | undefined {
-    if (inRange(target, sourceRange)) {
-      return undefined;
-    }
-    return mergeRanges(sourceRange, [target, target]);
-  }
-
-  /**
    * `getAutofillPreviewRange` returns the current preview range for fill-handle drag.
    */
   public getAutofillPreviewRange(target: Ref): Range | undefined {
@@ -2452,38 +2055,7 @@ export class Sheet {
       return undefined;
     }
     const sourceRange = this.getRangeOrActiveCell();
-    return this.computeAutofillRange(sourceRange, target);
-  }
-
-  /**
-   * `positiveMod` returns a positive modulo result for wrap-around indexing.
-   */
-  private positiveMod(value: number, mod: number): number {
-    return ((value % mod) + mod) % mod;
-  }
-
-  /**
-   * `cloneCellForAutofill` clones a source cell for a destination position.
-   * Formula cells are relocated and their cached values are dropped.
-   */
-  private cloneCellForAutofill(
-    sourceCell: Cell,
-    deltaRow: number,
-    deltaCol: number,
-  ): Cell {
-    if (sourceCell.f) {
-      const formula = relocateFormula(sourceCell.f, deltaRow, deltaCol);
-      return sourceCell.s ? { f: formula, s: { ...sourceCell.s } } : { f: formula };
-    }
-
-    const next: Cell = {};
-    if (sourceCell.v !== undefined) {
-      next.v = sourceCell.v;
-    }
-    if (sourceCell.s) {
-      next.s = { ...sourceCell.s };
-    }
-    return next;
+    return computeAutofillRange(sourceRange, target);
   }
 
   /**
@@ -2496,7 +2068,7 @@ export class Sheet {
     }
 
     const sourceRange = cloneRange(this.getRangeOrActiveCell());
-    const fillRange = this.computeAutofillRange(sourceRange, target);
+    const fillRange = computeAutofillRange(sourceRange, target);
     if (!fillRange) {
       return false;
     }
@@ -2523,10 +2095,10 @@ export class Sheet {
           const sourceRef = {
             r:
               sourceRange[0].r +
-              this.positiveMod(dest.r - sourceRange[0].r, sourceRowCount),
+              positiveMod(dest.r - sourceRange[0].r, sourceRowCount),
             c:
               sourceRange[0].c +
-              this.positiveMod(dest.c - sourceRange[0].c, sourceColCount),
+              positiveMod(dest.c - sourceRange[0].c, sourceColCount),
           };
           const sourceCell = sourceGrid.get(toSref(sourceRef));
           const normalizedDest = this.normalizeRefToAnchor(dest);
@@ -2540,9 +2112,9 @@ export class Sheet {
 
           const deltaRow = dest.r - sourceRef.r;
           const deltaCol = dest.c - sourceRef.c;
-          const nextCell = this.cloneCellForAutofill(sourceCell, deltaRow, deltaCol);
+          const nextCell = cloneCellForAutofill(sourceCell, deltaRow, deltaCol);
 
-          if (this.isEmptyCell(nextCell)) {
+          if (isEmptyCell(nextCell)) {
             await this.store.delete(normalizedDest);
           } else {
             await this.store.set(normalizedDest, nextCell);
@@ -2581,7 +2153,7 @@ export class Sheet {
   async hasContents(range: Range): Promise<boolean> {
     const grid = await this.store.getGrid(range);
     for (const cell of grid.values()) {
-      if (this.hasCellContent(cell)) {
+      if (hasCellContent(cell)) {
         return true;
       }
     }
@@ -2982,7 +2554,7 @@ export class Sheet {
 
     const rowsWithContent = new Set<number>();
     for (const [sref, cell] of grid) {
-      if (!this.hasCellContent(cell)) {
+      if (!hasCellContent(cell)) {
         continue;
       }
       rowsWithContent.add(parseRef(sref).r);
@@ -3045,7 +2617,7 @@ export class Sheet {
 
     this.store.beginBatch();
     try {
-      const normalized = this.normalizeFilterCondition(condition);
+      const normalized = normalizeFilterCondition(condition);
       if (!normalized) {
         this.filterColumns.delete(col);
       } else {
@@ -3105,7 +2677,7 @@ export class Sheet {
         continue;
       }
       const cell = await this.getCell({ r: row, c: col });
-      const value = this.normalizeFilterText(
+      const value = normalizeFilterText(
         (cell as { v?: unknown } | undefined)?.v,
       );
       distinct.add(value.trim());
@@ -3125,7 +2697,7 @@ export class Sheet {
         values,
         selected: new Set(
           (condition.values || []).map((value) =>
-            this.normalizeFilterText(value).trim(),
+            normalizeFilterText(value).trim(),
           ),
         ),
       };
@@ -3134,7 +2706,7 @@ export class Sheet {
     return {
       values,
       selected: new Set(
-        values.filter((value) => this.matchesFilterCondition(value, condition)),
+        values.filter((value) => matchesFilterCondition(value, condition)),
       ),
     };
   }
@@ -3149,7 +2721,7 @@ export class Sheet {
 
     const normalized = Array.from(
       new Set(
-        values.map((value) => this.normalizeFilterText(value).trim()),
+        values.map((value) => normalizeFilterText(value).trim()),
       ),
     ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 
@@ -3203,7 +2775,7 @@ export class Sheet {
     const rows: Array<{ row: number; text: string; lower: string; numeric: number | null }> = [];
     for (let row = dataStart; row <= dataEnd; row++) {
       const cell = await this.getCell({ r: row, c: col });
-      const text = this.normalizeFilterText(
+      const text = normalizeFilterText(
         (cell as { v?: unknown } | undefined)?.v,
       ).trim();
       const numeric = text.length > 0 && Number.isFinite(Number(text)) ? Number(text) : null;
@@ -3551,8 +3123,8 @@ export class Sheet {
     const cell = (await this.store.get(anchor)) || {};
     const merged = this.mergeStylePatch(cell.s, patch);
 
-    const newCell = this.compactCell(cell, merged);
-    if (this.isEmptyCell(newCell)) {
+    const newCell = compactCell(cell, merged);
+    if (isEmptyCell(newCell)) {
       await this.store.delete(anchor);
       return;
     }
@@ -3666,7 +3238,7 @@ export class Sheet {
     this.store.beginBatch();
     try {
       for (const { anchor, range } of targets) {
-        const patch = this.toBorderPatchForPreset(preset, selection, range);
+        const patch = toBorderPatchForPreset(preset, selection, range);
         await this.setStyle(anchor, patch);
       }
     } finally {
@@ -3710,56 +3282,7 @@ export class Sheet {
     return targets;
   }
 
-  private toBorderPatchForPreset(
-    preset: BorderPreset,
-    selection: Range,
-    target: Range,
-  ): Partial<CellStyle> {
-    const onTop = target[0].r === selection[0].r;
-    const onBottom = target[1].r === selection[1].r;
-    const onLeft = target[0].c === selection[0].c;
-    const onRight = target[1].c === selection[1].c;
 
-    switch (preset) {
-      case 'all':
-        return {
-          bt: true,
-          bl: true,
-          br: onRight,
-          bb: onBottom,
-        };
-      case 'outer':
-        return {
-          bt: onTop,
-          bl: onLeft,
-          br: onRight,
-          bb: onBottom,
-        };
-      case 'inner':
-        return {
-          bt: !onTop,
-          bl: !onLeft,
-          br: false,
-          bb: false,
-        };
-      case 'top':
-        return { bt: onTop };
-      case 'bottom':
-        return { bb: onBottom };
-      case 'left':
-        return { bl: onLeft };
-      case 'right':
-        return { br: onRight };
-      case 'clear':
-      default:
-        return {
-          bt: false,
-          bl: false,
-          br: false,
-          bb: false,
-        };
-    }
-  }
 
   /**
    * `isSelectionMerged` returns true when current cell selection matches one merged block.
