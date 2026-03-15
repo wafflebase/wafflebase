@@ -15,6 +15,11 @@ type HarnessStatus = "loading" | "ready" | "error";
 
 type CellSnapshot = Pick<Cell, "v" | "f">;
 
+type MobileEditState = {
+  cellRef: string;
+  value: string;
+} | null;
+
 type InteractionBridge = {
   isReady: () => boolean;
   getCell: (sref: string) => Promise<CellSnapshot | null>;
@@ -51,6 +56,9 @@ type InteractionBridge = {
   getCellCenterClientPoint: (sref: string) => { x: number; y: number };
   getScrollableViewportCenterClientPoint: () => { x: number; y: number };
   getScrollPosition: () => { left: number; top: number };
+  getMobileEditState: () => MobileEditState;
+  doubleTapCell: (sref: string) => void;
+  dispatchSynthesizedMouseDown: (sref: string) => void;
 };
 
 function createInteractionGrid(): Grid {
@@ -99,6 +107,52 @@ function attachBridge(
   spreadsheet: Spreadsheet,
   store: MemStore,
 ): InteractionBridge {
+  // --- Mobile edit panel simulation (mirrors sheet-view.tsx logic) ---
+  let mobileEditState: MobileEditState = null;
+
+  // Create a visible DOM element so tests can query panel presence.
+  const panelEl = document.createElement("div");
+  panelEl.setAttribute("data-testid", "mobile-edit-panel");
+  panelEl.style.display = "none";
+  document.body.appendChild(panelEl);
+
+  const showPanel = (cellRef: string, value: string) => {
+    mobileEditState = { cellRef, value };
+    panelEl.style.display = "block";
+    panelEl.setAttribute("data-cell-ref", cellRef);
+    panelEl.textContent = value;
+  };
+
+  const hidePanel = () => {
+    mobileEditState = null;
+    panelEl.style.display = "none";
+  };
+
+  // Track when the panel was last opened so selectionChange events
+  // caused by the same double-tap interaction can be suppressed.
+  let panelOpenedAt = 0;
+
+  // Wire mobileEditCallback — same as sheet-view.tsx:
+  // double-tap → selectStart → mobileEditCallback → show panel
+  spreadsheet.setMobileEditCallback((cellRef, value) => {
+    panelOpenedAt = Date.now();
+    showPanel(cellRef, value);
+  });
+
+  // Wire onSelectionChange — same as sheet-view.tsx:
+  // any selection change while panel is open → dismiss panel,
+  // UNLESS the panel was just opened (within 500ms) — this guards
+  // against synthesized mouse events that iOS browsers fire after
+  // touchend, which would immediately dismiss the panel.
+  spreadsheet.onSelectionChange(() => {
+    if (mobileEditState) {
+      if (Date.now() - panelOpenedAt < 500) {
+        return;
+      }
+      hidePanel();
+    }
+  });
+
   const bridge: InteractionBridge = {
     isReady: () => true,
     getCell: async (sref: string) => {
@@ -249,6 +303,31 @@ function attachBridge(
         top: scrollContainer?.scrollTop || 0,
       };
     },
+    getMobileEditState: () => mobileEditState,
+    doubleTapCell: (sref: string) => {
+      const point = spreadsheet.getCellRect(parseRef(sref));
+      const hostRect = container.getBoundingClientRect();
+      const x = hostRect.left + point.left + point.width / 2;
+      const y = hostRect.top + point.top + point.height / 2;
+      spreadsheet.handleMobileDoubleTap(x, y);
+    },
+    dispatchSynthesizedMouseDown: (sref: string) => {
+      const point = spreadsheet.getCellRect(parseRef(sref));
+      const hostRect = container.getBoundingClientRect();
+      const x = hostRect.left + point.left + point.width / 2;
+      const y = hostRect.top + point.top + point.height / 2;
+      // Dispatch on the scrollContainer (where the worksheet's mousedown
+      // listener lives), matching how iOS synthesized events actually land.
+      const scrollEl = getScrollContainer(container) || container;
+      scrollEl.dispatchEvent(
+        new MouseEvent("mousedown", {
+          clientX: x,
+          clientY: y,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
   };
 
   (window as unknown as Record<string, unknown>)[BRIDGE_KEY] = bridge;
@@ -260,6 +339,8 @@ function detachBridge(bridge: InteractionBridge): void {
   if (bridgeOwner[BRIDGE_KEY] === bridge) {
     delete bridgeOwner[BRIDGE_KEY];
   }
+  const panelEl = document.querySelector("[data-testid='mobile-edit-panel']");
+  panelEl?.remove();
 }
 
 export default function InteractionHarnessPage() {
