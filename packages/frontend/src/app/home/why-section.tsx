@@ -55,8 +55,12 @@ export function WhySection() {
               <th scope="row" className="px-5 py-3 text-left text-homepage-text font-normal">
                 {row.label}
               </th>
-              <td className="px-5 py-3 text-center">{row.wafflebase}</td>
-              <td className="px-5 py-3 text-center">{row.others}</td>
+              <td className="px-5 py-3">
+                <div className="flex items-center justify-center">{row.wafflebase}</div>
+              </td>
+              <td className="px-5 py-3">
+                <div className="flex items-center justify-center">{row.others}</div>
+              </td>
             </tr>
           ))}
         </tbody>

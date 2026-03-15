@@ -1,42 +1,48 @@
 import { Globe, Terminal, Server, FunctionSquare, BarChart3, Shield } from "lucide-react";
 import type { ReactNode } from "react";
 
-const heroFeatures: { icon: ReactNode; title: string; description: string }[] = [
+const heroFeatures: { icon: ReactNode; title: string; description: string; href: string }[] = [
   {
     icon: <Globe className="size-8 text-homepage-accent" />,
     title: "Real-Time Collaboration",
     description:
       "CRDT-powered concurrent editing — multiple users work on the same sheet without conflicts or data loss.",
+    href: "/docs/guide/collaboration",
   },
   {
     icon: <Terminal className="size-8 text-homepage-accent" />,
     title: "REST API & CLI",
     description:
       "Read and write cells programmatically. Automate reports, sync data pipelines, or build integrations.",
+    href: "/docs/developers/rest-api",
   },
   {
     icon: <Server className="size-8 text-homepage-accent" />,
     title: "Self-Hosted & Open Source",
     description:
       "Apache-2.0 licensed. Deploy on your infrastructure, keep full control of your data, customize freely.",
+    href: "/docs/developers/self-hosting",
   },
 ];
 
-const secondaryFeatures: { icon: ReactNode; title: string; description: string }[] = [
+const secondaryFeatures: { icon: ReactNode; title: string; description: string; href: string }[] = [
   {
     icon: <FunctionSquare className="size-5 text-homepage-accent" />,
     title: "Google Sheets-Compatible Formulas",
     description: "SUM, VLOOKUP, IF, and cross-sheet references",
+    href: "/docs/guide/formulas",
   },
   {
     icon: <BarChart3 className="size-5 text-homepage-accent" />,
     title: "Charts & Pivot Tables",
     description: "Built-in data visualization and aggregation",
+    href: "/docs/guide/charts",
   },
   {
     icon: <Shield className="size-5 text-homepage-accent" />,
     title: "Sharing & Permissions",
     description: "URL sharing with role-based access control",
+    href: "/docs/guide/collaboration",
   },
 ];
 
@@ -53,30 +59,32 @@ export function FeaturesSection() {
       {/* Hero features — large cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-[960px] mx-auto mb-8">
         {heroFeatures.map((feature) => (
-          <div
+          <a
             key={feature.title}
-            className="bg-homepage-bg border border-homepage-accent/30 rounded-xl p-8"
+            href={feature.href}
+            className="bg-homepage-bg border border-homepage-accent/30 rounded-xl p-8 transition-colors hover:border-homepage-accent/60"
           >
             <div className="mb-4">{feature.icon}</div>
             <h3 className="text-lg font-semibold text-homepage-text mb-2">{feature.title}</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">{feature.description}</p>
-          </div>
+          </a>
         ))}
       </div>
 
       {/* Secondary features — compact row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-[960px] mx-auto">
         {secondaryFeatures.map((feature) => (
-          <div
+          <a
             key={feature.title}
-            className="flex items-start gap-3 rounded-lg px-5 py-4"
+            href={feature.href}
+            className="flex items-start gap-3 rounded-lg px-5 py-4 transition-colors hover:bg-homepage-hero-end/50"
           >
             <div className="mt-0.5 shrink-0">{feature.icon}</div>
             <div>
               <h3 className="text-sm font-semibold text-homepage-text">{feature.title}</h3>
               <p className="text-xs text-muted-foreground mt-0.5">{feature.description}</p>
             </div>
-          </div>
+          </a>
         ))}
       </div>
     </section>

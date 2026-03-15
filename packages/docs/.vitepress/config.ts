@@ -17,7 +17,7 @@ export default defineConfig({
 
     nav: [
       { text: "Guide", link: "/guide/getting-started" },
-      { text: "API Reference", link: "/api/rest-api" },
+      { text: "Developers", link: "/developers/self-hosting" },
     ],
 
     sidebar: [
@@ -26,16 +26,18 @@ export default defineConfig({
         items: [
           { text: "Getting Started", link: "/guide/getting-started" },
           { text: "Build a Budget", link: "/guide/build-a-budget" },
-          { text: "Collaboration", link: "/guide/collaboration" },
+          { text: "Collaboration & Sharing", link: "/guide/collaboration" },
           { text: "Formulas", link: "/guide/formulas" },
+          { text: "Charts & Pivot Tables", link: "/guide/charts" },
           { text: "Keyboard Shortcuts", link: "/guide/keyboard-shortcuts" },
         ],
       },
       {
-        text: "API Reference",
+        text: "Developers",
         items: [
-          { text: "REST API", link: "/api/rest-api" },
-          { text: "CLI", link: "/api/cli" },
+          { text: "Self-Hosting", link: "/developers/self-hosting" },
+          { text: "REST API", link: "/developers/rest-api" },
+          { text: "CLI", link: "/developers/cli" },
         ],
       },
     ],
