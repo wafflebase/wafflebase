@@ -5,7 +5,6 @@ import { registerTabCommand } from './commands/tab.js';
 import { registerCellCommand } from './commands/cell.js';
 import { registerApiKeyCommand } from './commands/api-key.js';
 import { registerSchemaCommand } from './commands/schema.js';
-import { registerAuthCommand } from './commands/auth.js';
 import { registerLoginCommand } from './commands/login.js';
 import { registerLogoutCommand } from './commands/logout.js';
 import { registerStatusCommand } from './commands/status.js';
@@ -15,7 +14,6 @@ import { registerExportCommand } from './commands/export.js';
 
 const program = createProgram();
 
-registerAuthCommand(program);
 registerLoginCommand(program);
 registerLogoutCommand(program);
 registerStatusCommand(program);

@@ -18,16 +18,43 @@ export interface CommandSchema {
 
 const registry: CommandSchema[] = [
   {
-    name: 'auth.login',
-    description: 'Set up API key and server configuration',
+    name: 'login',
+    description: 'Authenticate via GitHub OAuth in the browser',
     safety: 'write',
     parameters: {
-      '--profile': { type: 'string', required: false, description: 'Profile name', default: 'default' },
-      '--server': { type: 'string', required: false, description: 'Server URL' },
-      '--api-key': { type: 'string', required: false, description: 'API key' },
-      '--workspace': { type: 'string', required: false, description: 'Workspace ID' },
+      '--server': { type: 'string', required: false, description: 'Server URL', default: 'http://localhost:3000' },
     },
-    response: { profile: 'string', path: 'string' },
+    response: { user: 'string', workspace: 'string' },
+  },
+  {
+    name: 'logout',
+    description: 'Clear session and log out',
+    safety: 'write',
+    parameters: {},
+    response: {},
+  },
+  {
+    name: 'status',
+    description: 'Show current auth state',
+    safety: 'read-only',
+    parameters: {},
+    response: { user: 'string', server: 'string', workspace: 'string', session: 'string' },
+  },
+  {
+    name: 'ctx.list',
+    description: 'List workspaces',
+    safety: 'read-only',
+    parameters: {},
+    response: { type: 'array', items: { id: 'string', name: 'string', active: 'boolean' } },
+  },
+  {
+    name: 'ctx.switch',
+    description: 'Switch active workspace',
+    safety: 'write',
+    parameters: {
+      'name-or-id': { type: 'string', required: true, description: 'Workspace name or ID' },
+    },
+    response: { workspace: 'string' },
   },
   {
     name: 'doc.list',
