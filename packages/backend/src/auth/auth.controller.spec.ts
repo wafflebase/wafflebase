@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { UserService } from 'src/user/user.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { JwtStrategy } from './jwt.strategy';
 
 function createMockResponse() {
   return {
@@ -113,5 +114,54 @@ describe('AuthController', () => {
       'wafflebase_refresh',
       expect.any(Object),
     );
+  });
+});
+
+describe('JwtStrategy', () => {
+  const mockConfigService = {
+    get: jest.fn((key: string) => {
+      if (key === 'JWT_SECRET') return 'test-secret';
+      return undefined;
+    }),
+  } as unknown as ConfigService;
+
+  it('extracts JWT from wafflebase_session cookie', () => {
+    const strategy = new JwtStrategy(mockConfigService);
+    const req = {
+      cookies: { wafflebase_session: 'cookie-token' },
+      headers: {},
+    } as unknown as Request;
+
+    // Access the internal _jwtFromRequest extractor
+    const extractor = (strategy as any)._jwtFromRequest;
+    const token = extractor(req);
+
+    expect(token).toBe('cookie-token');
+  });
+
+  it('extracts JWT from Authorization Bearer header', () => {
+    const strategy = new JwtStrategy(mockConfigService);
+    const req = {
+      cookies: {},
+      headers: { authorization: 'Bearer bearer-token' },
+    } as unknown as Request;
+
+    const extractor = (strategy as any)._jwtFromRequest;
+    const token = extractor(req);
+
+    expect(token).toBe('bearer-token');
+  });
+
+  it('prefers cookie over Authorization Bearer header when both present', () => {
+    const strategy = new JwtStrategy(mockConfigService);
+    const req = {
+      cookies: { wafflebase_session: 'cookie-token' },
+      headers: { authorization: 'Bearer bearer-token' },
+    } as unknown as Request;
+
+    const extractor = (strategy as any)._jwtFromRequest;
+    const token = extractor(req);
+
+    expect(token).toBe('cookie-token');
   });
 });
