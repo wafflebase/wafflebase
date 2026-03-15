@@ -24,6 +24,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [pivot-table.md](pivot-table.md)                       | Pivot table — materialized cells, calculation engine, side panel editor, collaboration             |
 | [rest-api-and-cli.md](rest-api-and-cli.md)             | REST API, API key auth, and CLI — external access, Yorkie service, Go CLI tool                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, screenshot pipeline, build & deployment                      |
+| [cli-oauth-login.md](cli-oauth-login.md)               | CLI OAuth login — browser-based GitHub auth, JWT session storage, workspace context switching      |
 
 ## Template
 

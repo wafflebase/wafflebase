@@ -7,21 +7,31 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 const reportDir = path.resolve(repoRoot, ".harness-reports");
 
+const DEFAULT_TEST_DATABASE_URL =
+  "postgresql://wafflebase:wafflebase@localhost:5432/wafflebase";
+const DEFAULT_ENCRYPTION_KEY =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 const LANES = [
-  { name: "sheet:build", cmd: "pnpm sheet build" },
-  { name: "verify:fast", cmd: "pnpm verify:fast" },
-  { name: "frontend:build", cmd: "pnpm frontend build" },
-  { name: "verify:frontend:chunks", cmd: "pnpm verify:frontend:chunks" },
-  { name: "backend:build", cmd: "pnpm backend build" },
-  { name: "cli:build", cmd: "pnpm cli build" },
-  { name: "verify:entropy", cmd: "pnpm verify:entropy" },
+  { name: "verify:browser", cmd: "node ./scripts/verify-browser-lanes.mjs" },
+  {
+    name: "verify:integration",
+    cmd: "pnpm --filter @wafflebase/backend exec prisma migrate deploy && pnpm backend test:e2e",
+    env: {
+      RUN_DB_INTEGRATION_TESTS: "true",
+      DATABASE_URL: process.env.DATABASE_URL ?? DEFAULT_TEST_DATABASE_URL,
+      DATASOURCE_ENCRYPTION_KEY:
+        process.env.DATASOURCE_ENCRYPTION_KEY ?? DEFAULT_ENCRYPTION_KEY,
+    },
+  },
 ];
 
-function runCommand(cmd, cwd) {
+function runCommand(cmd, cwd, extraEnv) {
   return new Promise((resolve) => {
     const chunks = [];
     const proc = spawn("sh", ["-c", cmd], {
       cwd,
+      env: { ...process.env, ...extraEnv },
       stdio: ["inherit", "pipe", "pipe"],
     });
 
@@ -36,7 +46,10 @@ function runCommand(cmd, cwd) {
     });
 
     proc.on("close", (exitCode) => {
-      resolve({ exitCode: exitCode ?? 1, output: Buffer.concat(chunks).toString() });
+      resolve({
+        exitCode: exitCode ?? 1,
+        output: Buffer.concat(chunks).toString(),
+      });
     });
   });
 }
@@ -51,7 +64,9 @@ function extractFailureSummary(output) {
       return line.trim().slice(0, 500);
     }
   }
-  return lines.length > 0 ? lines[lines.length - 1].trim().slice(0, 500) : null;
+  return lines.length > 0
+    ? lines[lines.length - 1].trim().slice(0, 500)
+    : null;
 }
 
 function laneFileName(lane) {
@@ -59,7 +74,10 @@ function laneFileName(lane) {
 }
 
 function writeLaneReport(report) {
-  const filePath = path.resolve(reportDir, `${laneFileName(report.lane)}.json`);
+  const filePath = path.resolve(
+    reportDir,
+    `${laneFileName(report.lane)}.json`,
+  );
   writeFileSync(filePath, JSON.stringify(report, null, 2) + "\n");
 }
 
@@ -79,7 +97,7 @@ function writeSummary(results, totalStart) {
     })),
   };
   writeFileSync(
-    path.resolve(reportDir, "summary.json"),
+    path.resolve(reportDir, "ci-summary.json"),
     JSON.stringify(summary, null, 2) + "\n",
   );
   return summary;
@@ -93,7 +111,7 @@ const results = [];
 const totalStart = Date.now();
 let failed = false;
 
-for (const { name, cmd } of LANES) {
+for (const { name, cmd, env: extraEnv } of LANES) {
   if (failed) {
     const skipReport = {
       lane: name,
@@ -110,7 +128,7 @@ for (const { name, cmd } of LANES) {
   const start = Date.now();
   console.log(`\n▸ ${name}`);
 
-  const { exitCode, output } = await runCommand(cmd, repoRoot);
+  const { exitCode, output } = await runCommand(cmd, repoRoot, extraEnv);
   const durationMs = Date.now() - start;
 
   if (exitCode === 0) {
@@ -139,7 +157,7 @@ for (const { name, cmd } of LANES) {
 
 const summary = writeSummary(results, totalStart);
 
-console.log("\n─── verify:self summary ───");
+console.log("\n─── verify:ci summary ───");
 for (const r of results) {
   const icon =
     r.status === "pass" ? "✓" : r.status === "fail" ? "✗" : "○";
@@ -150,7 +168,7 @@ for (const r of results) {
 console.log(
   `\n  ${summary.overall === "pass" ? "All lanes passed" : "FAILED"} in ${(summary.totalDurationMs / 1000).toFixed(1)}s`,
 );
-console.log(`  Report: ${reportDir}/summary.json\n`);
+console.log(`  Report: ${reportDir}/ci-summary.json\n`);
 
 if (failed) {
   process.exit(1);

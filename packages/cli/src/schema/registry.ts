@@ -18,6 +18,45 @@ export interface CommandSchema {
 
 const registry: CommandSchema[] = [
   {
+    name: 'login',
+    description: 'Authenticate via GitHub OAuth in the browser',
+    safety: 'write',
+    parameters: {
+      '--server': { type: 'string', required: false, description: 'Server URL', default: 'https://wafflebase-api.yorkie.dev' },
+    },
+    response: { user: 'string', workspace: 'string' },
+  },
+  {
+    name: 'logout',
+    description: 'Clear session and log out',
+    safety: 'write',
+    parameters: {},
+    response: {},
+  },
+  {
+    name: 'status',
+    description: 'Show current auth state',
+    safety: 'read-only',
+    parameters: {},
+    response: { user: 'string', server: 'string', workspace: 'string', session: 'string' },
+  },
+  {
+    name: 'ctx.list',
+    description: 'List workspaces',
+    safety: 'read-only',
+    parameters: {},
+    response: { type: 'array', items: { id: 'string', name: 'string', active: 'boolean' } },
+  },
+  {
+    name: 'ctx.switch',
+    description: 'Switch active workspace',
+    safety: 'write',
+    parameters: {
+      'name-or-id': { type: 'string', required: true, description: 'Workspace name or ID' },
+    },
+    response: { workspace: 'string' },
+  },
+  {
     name: 'doc.list',
     description: 'List documents in workspace',
     safety: 'read-only',
@@ -117,6 +156,32 @@ const registry: CommandSchema[] = [
       '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
     },
     response: { ref: 'string', deleted: 'boolean' },
+  },
+  {
+    name: 'import',
+    description: 'Import CSV/JSON into a tab',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      file: { type: 'string', required: true, description: 'File path or - for stdin' },
+      '--tab': { type: 'string', required: false, description: 'Target tab', default: 'tab-1' },
+      '--file-format': { type: 'string', required: false, description: 'File format (csv, json)' },
+'--start': { type: 'string', required: false, description: 'Top-left cell', default: 'A1' },
+    },
+    response: { imported: 'number' },
+  },
+  {
+    name: 'export',
+    description: 'Export tab data to CSV/JSON',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      file: { type: 'string', required: true, description: 'File path or - for stdout' },
+      '--tab': { type: 'string', required: false, description: 'Source tab', default: 'tab-1' },
+      '--range': { type: 'string', required: false, description: 'Cell range (e.g. A1:D100)' },
+      '--file-format': { type: 'string', required: false, description: 'File format (csv, json)' },
+    },
+    response: { type: 'string', description: 'Formatted cell data' },
   },
   {
     name: 'api-key.create',

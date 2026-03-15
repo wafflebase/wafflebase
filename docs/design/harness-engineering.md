@@ -119,17 +119,34 @@ systematically.
 - Introduce path-based selective execution ahead of baseline stability.
 - Build custom LLM-based linters before deterministic rules are exhausted.
 
-## Local Pre-Commit Hook
+## Local Git Hooks
 
-A git pre-commit hook runs `pnpm verify:fast` before every commit, providing
-a local defense layer in addition to CI.
+Git hooks provide local defense layers in addition to CI. All hooks live in
+`.githooks/` and are activated automatically via `core.hooksPath` (set by the
+`postinstall` script — no manual setup required).
+
+### Pre-Commit Hook
+
+Runs `pnpm verify:fast` before every commit.
 
 - **Scope:** architecture + lint + typecheck + unit tests (~11 s).
-- **Out of scope:** builds, visual regression, entropy — these remain CI-only
-  (`verify:self`).
-- **Activation:** `pnpm install` automatically sets `core.hooksPath` to
-  `.githooks/` via a `postinstall` script. No manual setup required.
+- **Out of scope:** builds, visual regression, entropy — these are caught by
+  the pre-push hook.
 - **Bypass:** `git commit --no-verify` skips the hook for emergencies.
+
+### Pre-Push Hook
+
+Runs `pnpm verify:self` before every push.
+
+- **Scope:** everything in `verify:fast` plus sheet/frontend/backend/cli
+  builds, frontend chunk budget gate, and entropy checks (dead code, doc
+  staleness, dependency freshness).
+- **Out of scope:** browser and integration tests — these require Docker
+  Chromium / PostgreSQL and are covered by `verify:ci` in CI.
+- **Purpose:** catches build failures, broken doc refs, and dead code before
+  they reach the remote — issues that are too slow for per-commit but should
+  not land on a shared branch.
+- **Bypass:** `git push --no-verify` skips the hook for emergencies.
 
 ## Claude Code Hooks
 
@@ -165,7 +182,7 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:frontend:interaction` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:browser:docker` | Browser visual+interaction via Docker (CI-consistent) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
-| `pnpm verify:self` | Runner: `verify:fast` + builds + chunk/visual/interaction + entropy + browser; generates `.harness-reports/` JSON |
+| `pnpm verify:self` | Runner: `verify:fast` + builds + chunk budgets + entropy; generates `.harness-reports/` JSON |
 
 ### Integration Lanes (require database)
 
@@ -176,11 +193,17 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:integration:docker` | One-command: postgres up + integration + stop |
 | `pnpm verify:integration:repeat` | Repeat-run stability check (default 3 runs) |
 
+### CI Lanes (require Docker Chromium + database)
+
+| Command | Purpose |
+|---|---|
+| `pnpm verify:ci` | Runner: browser visual/interaction + integration; generates CI summary report |
+
 ### Composite Lanes
 
 | Command | Purpose |
 |---|---|
-| `pnpm verify:full` | `verify:self` + `verify:integration` |
+| `pnpm verify:full` | `verify:self` + `verify:ci` |
 
 ### CI Contract
 

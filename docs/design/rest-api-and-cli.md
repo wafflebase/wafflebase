@@ -278,8 +278,13 @@ profiles:
 
 ```
 wafflebase
-├── auth
-│   └── login                   Interactive API key setup → writes config
+├── login                        Browser OAuth login → writes session
+├── logout                       Clear session
+├── status                       Show auth state
+│
+├── ctx
+│   ├── list                     List workspaces (* = active)
+│   └── switch <name|id>         Switch active workspace
 │
 ├── document (alias: doc)
 │   ├── list                    List documents in workspace
@@ -325,8 +330,8 @@ wafflebase
 #### 7.4 Usage Examples
 
 ```bash
-# Setup
-wafflebase auth login
+# Login
+wafflebase login
 
 # List documents (JSON by default)
 wafflebase doc list
@@ -377,7 +382,10 @@ packages/cli/
     bin.ts               Entry point (#!/usr/bin/env node)
     commands/
       root.ts            Root program, global flags, config loading
-      auth.ts            auth login
+      login.ts           login (browser OAuth)
+      logout.ts          logout
+      status.ts          status
+      ctx.ts             ctx list/switch
       document.ts        doc list/create/get/rename/delete
       tab.ts             tab list
       cell.ts            cell get/set/batch/delete

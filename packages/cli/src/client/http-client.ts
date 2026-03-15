@@ -1,4 +1,9 @@
 import type { CliConfig } from '../config/config.js';
+import {
+  loadSession,
+  saveSession,
+  decodeJwtExpiry,
+} from '../config/session.js';
 
 export interface ApiResponse<T = unknown> {
   ok: boolean;
@@ -18,15 +23,63 @@ export class HttpClient {
   constructor(private config: CliConfig) {}
 
   private get headers(): Record<string, string> {
-    return {
+    const h: Record<string, string> = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${this.config.apiKey}`,
     };
+
+    if (this.config.authMode === 'api-key' && this.config.apiKey) {
+      h['Authorization'] = `Bearer ${this.config.apiKey}`;
+    } else if (this.config.authMode === 'jwt' && this.config.accessToken) {
+      h['Authorization'] = `Bearer ${this.config.accessToken}`;
+    }
+
+    return h;
   }
 
   private get base(): string {
     const server = this.config.server.replace(/\/$/, '');
     return `${server}/api/v1/workspaces/${this.config.workspace}`;
+  }
+
+  /**
+   * Attempt to refresh the JWT session. Returns true on success.
+   */
+  private async refreshSession(): Promise<boolean> {
+    if (!this.config.refreshToken) return false;
+
+    const server = this.config.server.replace(/\/$/, '');
+    const res = await fetch(`${server}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: this.config.refreshToken }),
+    });
+
+    if (!res.ok) return false;
+
+    const data = (await res.json().catch(() => null)) as {
+      accessToken?: string;
+      refreshToken?: string;
+    } | null;
+
+    if (!data?.accessToken || !data?.refreshToken) return false;
+
+    // Update in-memory config
+    this.config.accessToken = data.accessToken;
+    this.config.refreshToken = data.refreshToken;
+
+    // Persist refreshed tokens to session file (if it exists).
+    // If the session file is missing the in-memory config is already
+    // updated, so the current process will keep working; the user can
+    // run `wafflebase login` to recreate the session file.
+    const session = loadSession();
+    if (session) {
+      session.accessToken = data.accessToken;
+      session.refreshToken = data.refreshToken;
+      session.expiresAt = decodeJwtExpiry(data.accessToken);
+      saveSession(session);
+    }
+
+    return true;
   }
 
   async request<T>(
@@ -40,6 +93,37 @@ export class HttpClient {
       headers: this.headers,
       body: body ? JSON.stringify(body) : undefined,
     });
+
+    // Auto-refresh on 401 for JWT auth (one attempt only)
+    if (
+      res.status === 401 &&
+      this.config.authMode === 'jwt' &&
+      this.config.refreshToken
+    ) {
+      const refreshed = await this.refreshSession();
+      if (refreshed) {
+        // Retry the original request with new token
+        const retryRes = await fetch(url, {
+          method,
+          headers: this.headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const retryData = (await retryRes.json().catch(() => null)) as T;
+        return { ok: retryRes.ok, status: retryRes.status, data: retryData };
+      }
+
+      // Refresh failed — return a clear error
+      return {
+        ok: false,
+        status: 401,
+        data: {
+          error: {
+            code: 'SESSION_EXPIRED',
+            message: 'Session expired. Run `wafflebase login`.',
+          },
+        } as T,
+      };
+    }
 
     const data = (await res.json().catch(() => null)) as T;
     return { ok: res.ok, status: res.status, data };

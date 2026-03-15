@@ -8,13 +8,68 @@ The Wafflebase CLI lets you manage documents and cells from the terminal.
 npm install -g @wafflebase/cli
 ```
 
+## Authentication
+
+### OAuth Login (recommended)
+
+Log in via GitHub OAuth in the browser:
+
+```bash
+wafflebase login
+```
+
+The CLI opens your browser for GitHub authentication and stores the JWT session in `~/.wafflebase/session.json`. Tokens are automatically refreshed when they expire.
+
+To log in to a different server:
+
+```bash
+wafflebase login --server https://api.example.com
+```
+
+### Check Status
+
+```bash
+wafflebase status
+```
+
+### Logout
+
+```bash
+wafflebase logout
+```
+
+### Workspace Context Switching
+
+If you have access to multiple workspaces:
+
+```bash
+# List workspaces (* = active)
+wafflebase ctx list
+
+# Switch active workspace
+wafflebase ctx switch "Team Workspace"
+wafflebase ctx switch e98ff707
+```
+
+### API Key Auth (CI/scripts)
+
+For non-interactive environments, use API keys:
+
+```bash
+wafflebase --api-key wfb_xxx document list
+# Or via environment variable:
+export WAFFLEBASE_API_KEY=wfb_xxx
+```
+
 ## Configuration
 
-The CLI resolves settings in this order: **flags > environment variables > config file**.
+The CLI resolves auth in this order: **flag/env API key > session JWT > config file API key**.
+
+Settings resolve as: **flags > environment variables > session > config file**.
 
 ### Config File
 
-Location: `~/.config/wafflebase/config.yaml`
+Location: `~/.wafflebase/config.yaml`
 
 ```yaml
 profiles:
@@ -42,7 +97,7 @@ export WAFFLEBASE_WORKSPACE=your-workspace-id
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--server <url>` | Server URL | `http://localhost:3000` |
+| `--server <url>` | Server URL | `https://wafflebase-api.yorkie.dev` |
 | `--api-key <key>` | API key | — |
 | `--workspace <id>` | Workspace ID | — |
 | `--profile <name>` | Config profile | `default` |
@@ -146,6 +201,69 @@ wafflebase schema document.list
 wafflebase schema cell.get
 ```
 
+### import
+
+Import CSV or JSON data into a spreadsheet tab.
+
+```bash
+# Import a CSV file
+wafflebase import <doc-id> data.csv
+
+# Import a JSON file
+wafflebase import <doc-id> data.json
+
+# Import from stdin
+cat data.csv | wafflebase import <doc-id> -
+
+# Import starting at a specific cell
+wafflebase import <doc-id> data.csv --start C5
+
+# Target a specific tab
+wafflebase import <doc-id> data.csv --tab tab-2
+
+# Preview without writing
+wafflebase import <doc-id> data.csv --dry-run
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--tab <tab-id>` | Target tab | `tab-1` |
+| `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
+| `--start <ref>` | Top-left cell for import | `A1` |
+
+JSON input accepts an array of arrays or an array of objects:
+
+```json
+[
+  { "Name": "Alice", "Score": 95 },
+  { "Name": "Bob", "Score": 87 }
+]
+```
+
+### export
+
+Export tab data to a CSV or JSON file.
+
+```bash
+# Export to CSV
+wafflebase export <doc-id> output.csv
+
+# Export to JSON
+wafflebase export <doc-id> output.json
+
+# Export a specific range
+wafflebase export <doc-id> output.csv --range A1:D100
+
+# Export to stdout (pipe-friendly)
+wafflebase export <doc-id> - --file-format csv | head -20
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--tab <tab-id>` | Source tab | `tab-1` |
+| `--range <range>` | Cell range to export | all data |
+| `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
+
 ## Output Formats
 
 ### JSON (default)
@@ -182,7 +300,20 @@ B2,500
 
 ## Examples
 
-### Script: Export to CSV
+### Import CSV, add formulas, export results
+
+```bash
+# Import raw data
+wafflebase import abc-123 sales.csv
+
+# Add a SUM formula
+wafflebase cell set abc-123 C1 "=SUM(B2:B100)" --formula
+
+# Export results
+wafflebase export abc-123 report.csv --range A1:C100
+```
+
+### Export to CSV (cell get)
 
 ```bash
 wafflebase --format csv cell get abc-123 A1:Z100 > report.csv
@@ -203,5 +334,10 @@ wafflebase cell batch abc-123 --data '{
 
 ```bash
 $ wafflebase --dry-run cell set abc-123 A1 "Hello"
-GET http://localhost:3000/api/v1/workspaces/.../cells/A1
+{
+  "dry_run": true,
+  "method": "PUT",
+  "url": "http://localhost:3000/api/v1/workspaces/.../cells/A1",
+  "body": { "value": "Hello" }
+}
 ```
