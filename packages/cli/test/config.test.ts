@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolveConfig, getConfigPath, migrateConfigIfNeeded } from '../src/config/config.js';
+import { resolveConfig, getConfigPath, migrateConfigIfNeeded, DEFAULT_SERVER } from '../src/config/config.js';
 
 describe('resolveConfig', () => {
   const origEnv = { ...process.env };
@@ -22,7 +22,7 @@ describe('resolveConfig', () => {
     // Point to non-existent config file
     process.env.WAFFLEBASE_CONFIG = '/tmp/nonexistent-wafflebase-config.yaml';
     const config = resolveConfig({});
-    expect(config.server).toBe('http://localhost:3000');
+    expect(config.server).toBe(DEFAULT_SERVER);
     expect(config.apiKey).toBe('');
     expect(config.workspace).toBe('');
   });

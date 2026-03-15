@@ -97,7 +97,7 @@ export WAFFLEBASE_WORKSPACE=your-workspace-id
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--server <url>` | Server URL | `http://localhost:3000` |
+| `--server <url>` | Server URL | `https://wafflebase-api.yorkie.dev` |
 | `--api-key <key>` | API key | — |
 | `--workspace <id>` | Workspace ID | — |
 | `--profile <name>` | Config profile | `default` |

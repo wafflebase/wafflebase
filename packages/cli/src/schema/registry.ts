@@ -22,7 +22,7 @@ const registry: CommandSchema[] = [
     description: 'Authenticate via GitHub OAuth in the browser',
     safety: 'write',
     parameters: {
-      '--server': { type: 'string', required: false, description: 'Server URL', default: 'http://localhost:3000' },
+      '--server': { type: 'string', required: false, description: 'Server URL', default: 'https://wafflebase-api.yorkie.dev' },
     },
     response: { user: 'string', workspace: 'string' },
   },

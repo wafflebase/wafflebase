@@ -7,12 +7,13 @@ import {
   decodeJwtExpiry,
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
+import { DEFAULT_SERVER } from '../config/config.js';
 
 export function registerLoginCommand(program: Command): void {
   program
     .command('login')
     .description('Log in via GitHub OAuth in the browser')
-    .option('--server <url>', 'Server URL', 'http://localhost:3000')
+    .option('--server <url>', 'Server URL', DEFAULT_SERVER)
     .action(async (opts: { server: string }) => {
       const server = opts.server.replace(/\/$/, '');
 
