@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { parse as parseYaml } from 'yaml';
 import { loadSession, isSessionExpired } from './session.js';
 
-export const DEFAULT_SERVER = 'https://wafflebase-api.yorkie.dev';
+export const DEFAULT_SERVER = 'https://api.wafflebase.io';
 
 export interface CliConfig {
   server: string;
