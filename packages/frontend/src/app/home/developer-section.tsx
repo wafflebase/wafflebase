@@ -106,13 +106,13 @@ function pushWord(word: string, tokens: Token[]) {
 }
 
 const TOKEN_CLASSES: Record<Token["type"], string> = {
-  comment: "text-stone-500 italic",
+  comment: "text-homepage-dark-muted italic",
   string: "text-green-400",
   flag: "text-sky-400",
-  cmd: "text-amber-300 font-semibold",
+  cmd: "text-homepage-dark-heading font-semibold",
   method: "text-violet-400 font-semibold",
-  prompt: "text-stone-500",
-  text: "text-amber-50",
+  prompt: "text-homepage-dark-muted",
+  text: "text-homepage-dark-text",
 };
 
 function highlightCode(code: string): ReactNode[] {
@@ -133,33 +133,33 @@ function highlightCode(code: string): ReactNode[] {
 
 export function DeveloperSection() {
   return (
-    <section id="developers" className="bg-stone-900 py-12 md:py-20 px-4 md:px-12">
-      <h2 className="text-center text-3xl font-bold text-amber-300 mb-2">
+    <section id="developers" className="bg-homepage-dark-bg py-12 md:py-20 px-4 md:px-12">
+      <h2 className="text-center text-3xl font-bold text-homepage-dark-heading mb-2">
         Built for Developers
       </h2>
-      <p className="text-center text-base text-amber-600 mb-12">
+      <p className="text-center text-base text-homepage-dark-subtext mb-12">
         Automate your spreadsheets with REST API and CLI
       </p>
-      <div className="max-w-[900px] mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-stone-800 rounded-xl p-6 overflow-x-auto">
-          <div className="text-xs text-stone-400 font-semibold uppercase tracking-wider mb-3">
+      <div className="max-w-[960px] mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="bg-homepage-dark-card rounded-xl p-6 overflow-x-auto hover:ring-1 hover:ring-homepage-dark-muted/30 transition-shadow">
+          <div className="text-xs text-homepage-dark-muted font-semibold uppercase tracking-wider mb-3">
             REST API
           </div>
           <pre className="text-sm font-mono leading-7 whitespace-pre">
             {highlightCode(restApiCode)}
           </pre>
-          <a href="/docs/api/rest-api" className="inline-block mt-4 text-sm text-amber-400 hover:text-amber-300 no-underline">
+          <a href="/docs/api/rest-api" className="inline-block mt-4 text-sm text-homepage-dark-link hover:text-homepage-dark-heading no-underline">
             View full API documentation →
           </a>
         </div>
-        <div className="bg-stone-800 rounded-xl p-6 overflow-x-auto">
-          <div className="text-xs text-stone-400 font-semibold uppercase tracking-wider mb-3">
+        <div className="bg-homepage-dark-card rounded-xl p-6 overflow-x-auto hover:ring-1 hover:ring-homepage-dark-muted/30 transition-shadow">
+          <div className="text-xs text-homepage-dark-muted font-semibold uppercase tracking-wider mb-3">
             CLI
           </div>
           <pre className="text-sm font-mono leading-7 whitespace-pre">
             {highlightCode(cliCode)}
           </pre>
-          <a href="/docs/api/cli" className="inline-block mt-4 text-sm text-amber-400 hover:text-amber-300 no-underline">
+          <a href="/docs/api/cli" className="inline-block mt-4 text-sm text-homepage-dark-link hover:text-homepage-dark-heading no-underline">
             View CLI documentation →
           </a>
         </div>

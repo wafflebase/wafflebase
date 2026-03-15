@@ -16,7 +16,7 @@ export function OpenSourceSection() {
         {badges.map((b) => (
           <span
             key={b}
-            className="bg-homepage-bg border border-homepage-accent/30 rounded-lg px-6 py-3 text-sm text-homepage-text font-semibold"
+            className="bg-homepage-bg border border-homepage-accent/30 rounded-lg px-6 py-3 text-sm text-homepage-text font-semibold hover:border-homepage-accent/60 transition-colors"
           >
             {b}
           </span>
@@ -26,7 +26,7 @@ export function OpenSourceSection() {
         href={GITHUB_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-2 bg-stone-900 dark:bg-amber-400 text-white dark:text-stone-900 px-8 py-3.5 rounded-lg text-base font-semibold no-underline"
+        className="inline-flex items-center gap-2 bg-homepage-cta-bg text-homepage-cta-text px-8 py-3.5 rounded-lg text-base font-semibold no-underline hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         ⭐ Star on GitHub
       </a>
