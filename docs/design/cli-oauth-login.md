@@ -33,7 +33,7 @@ switch between workspaces with `wafflebase ctx switch`.
 
 All CLI state moves to `~/.wafflebase/`:
 
-```
+```text
 ~/.wafflebase/
 ├── config.yaml        # Profile settings (server, API key, workspace)
 └── session.json       # OAuth session (JWT tokens + active workspace)
@@ -50,9 +50,9 @@ Session file schema:
 {
   "server": "http://localhost:3000",
   "user": {
-    "id": 48,
-    "username": "hackerwins",
-    "email": "susukang98@gmail.com",
+    "id": 1,
+    "username": "alice",
+    "email": "alice@example.com",
     "photo": "https://avatars.githubusercontent.com/u/..."
   },
   "accessToken": "eyJ...",
@@ -70,7 +70,7 @@ File permissions: `0600` (owner read/write only).
 
 ### 2. Login Flow
 
-```
+```text
 wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
@@ -165,7 +165,7 @@ This keeps web clients working unchanged while supporting CLI token refresh.
 
 #### Top-level auth commands
 
-```
+```bash
 wafflebase login                  # OAuth browser login
 wafflebase logout                 # Delete session.json
 wafflebase status                 # Show login state, user, active workspace
@@ -173,14 +173,14 @@ wafflebase status                 # Show login state, user, active workspace
 
 #### Context switching
 
-```
+```bash
 wafflebase ctx list               # List workspaces (* = active)
 wafflebase ctx switch <name|id>   # Change active workspace
 ```
 
 `ctx list` output:
 
-```
+```text
 * e98ff707  hackerwins's Workspace
   abc-1234  Team Workspace
 ```
@@ -199,14 +199,14 @@ active workspace name.
 API keys provide a session-independent way to authenticate. Two paths exist:
 
 **Path A: CLI (developers)**
-```
+```bash
 wafflebase login                     # OAuth → JWT session
 wafflebase api-key create "CI Key"   # create key using JWT
 # Use key in CI: WAFFLEBASE_API_KEY=wfb_xxx
 ```
 
 **Path B: Web UI (all users)**
-```
+```text
 1. Sign in at the web app (GitHub OAuth)
 2. Navigate to Workspace Settings (/w/:workspaceId/settings)
 3. API Keys section → Create → copy the one-time key

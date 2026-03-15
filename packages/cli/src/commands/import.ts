@@ -33,14 +33,12 @@ export function registerImportCommand(program: Command) {
     .description('Import CSV/JSON into a tab')
     .option('--tab <tab-id>', 'Target tab', 'tab-1')
     .option('--file-format <fmt>', 'File format (csv, json)')
-    .option('--no-header', 'First row is NOT a header (CSV)')
     .option('--start <ref>', 'Top-left cell to start import', 'A1')
     .action(async function (this: Command, docId: string, file: string) {
       const opts = getGlobalOpts(this);
       const localOpts = this.opts<{
         tab: string;
         fileFormat?: string;
-        header: boolean;
         start: string;
       }>();
 

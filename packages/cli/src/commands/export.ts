@@ -37,7 +37,10 @@ export function registerExportCommand(program: Command) {
 
       try {
         const res = await getClient(opts).getCells(docId, localOpts.tab, localOpts.range);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          const msg = (res.data as { error?: { message?: string } })?.error?.message;
+          throw new Error(msg ?? `HTTP ${res.status}`);
+        }
 
         const fmt = detectFormat(file, localOpts.fileFormat);
         const formatted = fmt === 'csv' ? formatCsv(res.data) : formatJson(res.data);

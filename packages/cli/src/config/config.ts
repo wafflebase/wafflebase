@@ -39,8 +39,8 @@ export function migrateConfigIfNeeded(
   try {
     mkdirSync(dirname(newPath), { recursive: true });
     copyFileSync(oldPath, newPath);
-    console.log(
-      `[wafflebase] Config migrated from ${oldPath} to ${newPath}`,
+    process.stderr.write(
+      `[wafflebase] Config migrated from ${oldPath} to ${newPath}\n`,
     );
   } catch {
     // Silent failure — migration is best-effort

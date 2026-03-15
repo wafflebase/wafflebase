@@ -93,12 +93,14 @@ export function registerLoginCommand(program: Command): void {
         headers: { Authorization: `Bearer ${tokens.accessToken}` },
       });
 
-      let workspaces: WorkspaceInfo[] = [];
-      if (wsRes.ok) {
-        workspaces = (await wsRes.json()) as WorkspaceInfo[];
-      } else {
-        console.warn(`Warning: failed to fetch workspaces (HTTP ${wsRes.status})`);
+      if (!wsRes.ok) {
+        console.error(
+          `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
+        );
+        process.exit(1);
       }
+
+      const workspaces = (await wsRes.json()) as WorkspaceInfo[];
 
       // 8. Select workspace
       let activeWorkspace = '';

@@ -229,7 +229,6 @@ wafflebase import <doc-id> data.csv --dry-run
 |--------|-------------|---------|
 | `--tab <tab-id>` | Target tab | `tab-1` |
 | `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
-| `--no-header` | First row is data, not a header | `false` |
 | `--start <ref>` | Top-left cell for import | `A1` |
 
 JSON input accepts an array of arrays or an array of objects:
