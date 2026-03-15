@@ -52,29 +52,29 @@ export function FeaturesSection() {
 
       {/* Hero features — large cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-[960px] mx-auto mb-8">
-        {heroFeatures.map((f) => (
+        {heroFeatures.map((feature) => (
           <div
-            key={f.title}
+            key={feature.title}
             className="bg-homepage-bg border border-homepage-accent/30 rounded-xl p-8"
           >
-            <div className="mb-4">{f.icon}</div>
-            <h3 className="text-lg font-semibold text-homepage-text mb-2">{f.title}</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">{f.description}</p>
+            <div className="mb-4">{feature.icon}</div>
+            <h3 className="text-lg font-semibold text-homepage-text mb-2">{feature.title}</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">{feature.description}</p>
           </div>
         ))}
       </div>
 
       {/* Secondary features — compact row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-[960px] mx-auto">
-        {secondaryFeatures.map((f) => (
+        {secondaryFeatures.map((feature) => (
           <div
-            key={f.title}
+            key={feature.title}
             className="flex items-start gap-3 rounded-lg px-5 py-4"
           >
-            <div className="mt-0.5 shrink-0">{f.icon}</div>
+            <div className="mt-0.5 shrink-0">{feature.icon}</div>
             <div>
-              <h3 className="text-sm font-semibold text-homepage-text">{f.title}</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">{f.description}</p>
+              <h3 className="text-sm font-semibold text-homepage-text">{feature.title}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{feature.description}</p>
             </div>
           </div>
         ))}

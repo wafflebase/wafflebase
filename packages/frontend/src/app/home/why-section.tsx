@@ -34,27 +34,33 @@ export function WhySection() {
         A spreadsheet that respects your data and your workflow
       </p>
 
-      <div className="max-w-[540px] mx-auto rounded-xl border border-homepage-accent/30 overflow-hidden">
-        {/* Header */}
-        <div className="grid grid-cols-3 text-sm font-semibold bg-homepage-hero-end">
-          <div className="px-5 py-3 text-homepage-text-secondary" />
-          <div className="px-5 py-3 text-center text-homepage-text">Wafflebase</div>
-          <div className="px-5 py-3 text-center text-muted-foreground">Others</div>
-        </div>
-        {/* Rows */}
-        {rows.map((row, i) => (
-          <div
-            key={row.label}
-            className={`grid grid-cols-3 text-sm ${
-              i % 2 === 0 ? "bg-homepage-bg" : "bg-homepage-hero-end/50"
-            }`}
-          >
-            <div className="px-5 py-3 text-homepage-text">{row.label}</div>
-            <div className="px-5 py-3 flex justify-center">{row.wafflebase}</div>
-            <div className="px-5 py-3 flex justify-center">{row.others}</div>
-          </div>
-        ))}
-      </div>
+      <table className="max-w-[540px] mx-auto w-full rounded-xl border border-homepage-accent/30 overflow-hidden border-separate border-spacing-0">
+        <thead>
+          <tr className="text-sm font-semibold bg-homepage-hero-end">
+            <th className="px-5 py-3 text-left text-homepage-text-secondary font-semibold" />
+            <th className="px-5 py-3 text-center text-homepage-text font-semibold">Wafflebase</th>
+            <th className="px-5 py-3 text-center text-muted-foreground font-semibold">
+              Google Sheets / Airtable
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr
+              key={row.label}
+              className={`text-sm ${
+                i % 2 === 0 ? "bg-homepage-bg" : "bg-homepage-hero-end/50"
+              }`}
+            >
+              <th scope="row" className="px-5 py-3 text-left text-homepage-text font-normal">
+                {row.label}
+              </th>
+              <td className="px-5 py-3 text-center">{row.wafflebase}</td>
+              <td className="px-5 py-3 text-center">{row.others}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }

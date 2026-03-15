@@ -48,6 +48,8 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
             onClick={() => setOpen(!open)}
             className="md:hidden p-1 text-homepage-text"
             aria-label="Toggle menu"
+            aria-expanded={open}
+            aria-controls="mobile-menu"
           >
             {open ? <X className="size-5" /> : <Menu className="size-5" />}
           </button>
@@ -56,7 +58,7 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
 
       {/* Mobile dropdown */}
       {open && (
-        <div className="md:hidden mt-4 pb-2 flex flex-col gap-3 border-t border-homepage-accent/20 pt-4">
+        <div id="mobile-menu" className="md:hidden mt-4 pb-2 flex flex-col gap-3 border-t border-homepage-accent/20 pt-4">
           <a
             href="#features"
             onClick={() => setOpen(false)}
@@ -66,6 +68,7 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
           </a>
           <a
             href="/docs"
+            onClick={() => setOpen(false)}
             className="text-sm text-homepage-text-secondary no-underline hover:text-homepage-text"
           >
             Docs
@@ -74,6 +77,7 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
             href="https://github.com/wafflebase/wafflebase"
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
             className="text-sm text-homepage-text-secondary no-underline hover:text-homepage-text"
           >
             GitHub
