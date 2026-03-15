@@ -13,7 +13,7 @@ export default defineConfig({
 
   themeConfig: {
     siteTitle: "Wafflebase",
-    siteTitleLink: "https://wafflebase.io",
+    logoLink: { link: "/", target: "_self" },
 
     nav: [
       { text: "Guide", link: "/guide/getting-started" },
