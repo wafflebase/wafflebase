@@ -8,36 +8,68 @@ The Wafflebase CLI lets you manage documents and cells from the terminal.
 npm install -g @wafflebase/cli
 ```
 
-## Quick Setup
+## Authentication
 
-Run `auth login` to configure the CLI interactively:
+### OAuth Login (recommended)
+
+Log in via GitHub OAuth in the browser:
 
 ```bash
-wafflebase auth login
+wafflebase login
 ```
 
-You will be prompted for the server URL, API key, and workspace ID. The values are saved to `~/.config/wafflebase/config.yaml`.
+The CLI opens your browser for GitHub authentication and stores the JWT session in `~/.wafflebase/session.json`. Tokens are automatically refreshed when they expire.
 
-To configure a named profile:
+To log in to a different server:
 
 ```bash
-wafflebase auth login --profile production
+wafflebase login --server https://api.example.com
 ```
 
-You can also pass values directly (useful for CI):
+### Check Status
 
 ```bash
-wafflebase auth login --server https://api.example.com \
-  --api-key wfb_xxx --workspace my-workspace-id
+wafflebase status
+```
+
+### Logout
+
+```bash
+wafflebase logout
+```
+
+### Workspace Context Switching
+
+If you have access to multiple workspaces:
+
+```bash
+# List workspaces (* = active)
+wafflebase ctx list
+
+# Switch active workspace
+wafflebase ctx switch "Team Workspace"
+wafflebase ctx switch e98ff707
+```
+
+### API Key Auth (CI/scripts)
+
+For non-interactive environments, use API keys:
+
+```bash
+wafflebase --api-key wfb_xxx document list
+# Or via environment variable:
+export WAFFLEBASE_API_KEY=wfb_xxx
 ```
 
 ## Configuration
 
-The CLI resolves settings in this order: **flags > environment variables > config file**.
+The CLI resolves auth in this order: **flag/env API key > session JWT > config file API key**.
+
+Settings resolve as: **flags > environment variables > session > config file**.
 
 ### Config File
 
-Location: `~/.config/wafflebase/config.yaml`
+Location: `~/.wafflebase/config.yaml`
 
 ```yaml
 profiles:
