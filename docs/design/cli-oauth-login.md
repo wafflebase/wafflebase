@@ -44,7 +44,7 @@ Migration: if `~/.wafflebase/config.yaml` does not exist but
 `~/.wafflebase/config.yaml` automatically and prints a notice. After migration,
 only `~/.wafflebase/` is consulted.
 
-`session.json` schema:
+Session file schema:
 
 ```json
 {
@@ -95,7 +95,7 @@ The local server binds to `127.0.0.1` only, accepts only `GET /callback`,
 and shuts down after a single request with a 30-second timeout. On timeout
 it prints: "Login timed out. Try again with `wafflebase login`."
 
-`expiresAt` in `session.json` is derived by decoding the JWT payload
+`expiresAt` in the session file is derived by decoding the JWT payload
 (base64) and reading the `exp` claim, converted to ISO 8601.
 
 ### 3. Backend Changes
@@ -185,7 +185,7 @@ wafflebase ctx switch <name|id>   # Change active workspace
   abc-1234  Team Workspace
 ```
 
-`ctx switch` updates `activeWorkspace` in `session.json` and prints the new
+`ctx switch` updates `activeWorkspace` in the session file and prints the new
 active workspace name.
 
 #### Removed
@@ -233,8 +233,8 @@ When the CLI needs to authenticate a request, it checks sources in this order:
 
 Workspace resolution:
 1. `--workspace` flag or `WAFFLEBASE_WORKSPACE` env.
-2. `session.json` → `activeWorkspace`.
-3. `config.yaml` profile → `workspace`.
+2. Session → `activeWorkspace`.
+3. Config profile → `workspace`.
 
 ### 7. Schema Registry Updates
 
@@ -255,7 +255,7 @@ The CLI wraps HTTP requests with automatic refresh:
 1. Make request with `Authorization: Bearer <accessToken>`.
 2. If 401 response and session exists:
    a. Call `POST /auth/refresh` with `{ refreshToken }` in body.
-   b. If success: update `session.json` with new tokens, retry original request.
+   b. If success: update the session file with new tokens, retry original request.
    c. If failure: print "Session expired. Run `wafflebase login`." and exit.
 3. At most one refresh attempt per request (no infinite loops).
 
@@ -265,7 +265,7 @@ The CLI wraps HTTP requests with automatic refresh:
   code (not JWT tokens) as a query parameter. The code is exchanged for tokens
   via a server-to-server POST. This avoids token leakage through browser
   history, Referer headers, or server logs.
-- **Token storage:** `session.json` is written with `0600` permissions.
+- **Token storage:** the session file is written with `0600` permissions.
   Tokens are stored in plaintext (same approach as `gh`, `supabase` CLIs).
 - **Local server:** binds to `127.0.0.1` only (not `0.0.0.0`), accepts only
   `GET /callback` (rejects other paths), accepts a single request, has a
