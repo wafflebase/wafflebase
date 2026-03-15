@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { parse as parseYaml } from 'yaml';
 
@@ -17,6 +17,43 @@ interface ProfileConfig {
 
 interface ConfigFile {
   profiles?: Record<string, ProfileConfig>;
+}
+
+/**
+ * Migrate config from old path (~/.config/wafflebase/config.yaml) to new path
+ * (~/.wafflebase/config.yaml) if needed.
+ */
+export function migrateConfigIfNeeded(
+  newPath: string,
+  oldPath: string = join(homedir(), '.config', 'wafflebase', 'config.yaml'),
+): void {
+  if (existsSync(newPath)) return;
+  if (!existsSync(oldPath)) return;
+
+  try {
+    mkdirSync(dirname(newPath), { recursive: true });
+    copyFileSync(oldPath, newPath);
+    console.log(
+      `[wafflebase] Config migrated from ${oldPath} to ${newPath}`,
+    );
+  } catch {
+    // Silent failure — migration is best-effort
+  }
+}
+
+/**
+ * Return the resolved config file path.
+ * WAFFLEBASE_CONFIG env var overrides everything; otherwise defaults to
+ * ~/.wafflebase/config.yaml (with migration from old ~/.config/wafflebase path).
+ */
+export function getConfigPath(): string {
+  if (process.env.WAFFLEBASE_CONFIG) {
+    return process.env.WAFFLEBASE_CONFIG;
+  }
+
+  const newPath = join(homedir(), '.wafflebase', 'config.yaml');
+  migrateConfigIfNeeded(newPath);
+  return newPath;
 }
 
 /**
@@ -47,13 +84,6 @@ export function resolveConfig(flags: {
       profile.workspace ??
       '',
   };
-}
-
-function getConfigPath(): string {
-  return (
-    process.env.WAFFLEBASE_CONFIG ??
-    join(homedir(), '.config', 'wafflebase', 'config.yaml')
-  );
 }
 
 function loadProfile(name: string): ProfileConfig {
