@@ -675,7 +675,6 @@ export const concurrencyCases: ConcurrencyCase[] = [
     userB: { kind: 'set-data', ref: 'A2', value: '99' },
     observe: { refs: ['A2', 'A3', 'A4'] },
     expect: {
-      // placeholder — will be corrected after first test run
       aThenB: {
         cells: {
           A2: { input: '99', display: '99' },

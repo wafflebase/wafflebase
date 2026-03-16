@@ -31,5 +31,5 @@
 | 10 | row delete at different indexes | gap coverage |
 | 11 | column delete vs column insert adjacent | gap coverage |
 
-Total: 24 → 35 concurrency cases.
+Total: 23 → 34 concurrency cases.
 All new cases are characterization cases (aThenB ≠ bThenA in serial execution).
