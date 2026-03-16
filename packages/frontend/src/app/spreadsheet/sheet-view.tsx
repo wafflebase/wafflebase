@@ -25,6 +25,7 @@ import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 import { YorkieStore } from "./yorkie-store";
+import { needsRecalc } from "./remote-change-utils";
 import { UserPresence } from "@/types/users";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -634,7 +635,7 @@ export function SheetView({
         }),
       );
 
-      const runCrossSheetRecalc = () => {
+      const runRemoteSync = (needsRecalc: boolean) => {
         if (cancelled || !sheet) return;
         if (recalcInFlight) {
           recalcPending = true;
@@ -646,22 +647,25 @@ export function SheetView({
           .reloadDimensions()
           .then(() => {
             if (cancelled || !sheet) return;
-            return sheet.recalculateCrossSheetFormulas();
+            if (needsRecalc) {
+              return sheet.recalculateCrossSheetFormulas();
+            }
+            sheet.render();
           })
           .finally(() => {
             recalcInFlight = false;
             if (recalcPending) {
               recalcPending = false;
-              queueMicrotask(runCrossSheetRecalc);
+              queueMicrotask(() => runRemoteSync(needsRecalc));
             }
           });
       };
 
-      const scheduleCrossSheetRecalc = () => {
+      const scheduleRemoteSync = (needsRecalc: boolean) => {
         if (cancelled || recalcFrame !== null) return;
         recalcFrame = requestAnimationFrame(() => {
           recalcFrame = null;
-          runCrossSheetRecalc();
+          runRemoteSync(needsRecalc);
         });
       };
 
@@ -758,31 +762,19 @@ export function SheetView({
 
       // Recalculate cross-sheet formulas on initial load (tab switch)
       // so that any changes made in other sheets are reflected immediately.
-      runCrossSheetRecalc();
+      runRemoteSync(true);
 
-      // Trigger cross-sheet recalc only when remote changes include cell
-      // data modifications. Non-cell changes (styles, dimensions, presence)
-      // don't affect formula values and can be skipped.
+      // Re-render on any remote change. Cell/merge/tab-name changes also
+      // trigger cross-sheet formula recalculation; all other changes
+      // (styles, dimensions, charts, filters, etc.) only reload state and
+      // re-render without the expensive recalc pass.
       unsubs.push(
         doc.subscribe((e) => {
           if (e.type !== "remote-change") return;
           const ops = (
             e as { value?: { operations?: Array<{ path?: string }> } }
           ).value?.operations;
-          if (!ops) {
-            scheduleCrossSheetRecalc();
-            return;
-          }
-          const hasCellChange = ops.some((op) => {
-            if (!op.path) return false;
-            return (
-              /^\$\.sheets\.[^.]+\.(cells|merges)/.test(op.path) ||
-              /^\$\.tabs\.[^.]+\.name/.test(op.path)
-            );
-          });
-          if (hasCellChange) {
-            scheduleCrossSheetRecalc();
-          }
+          scheduleRemoteSync(needsRecalc(ops));
         }),
       );
       unsubs.push(doc.subscribe("presence", scheduleOverlayRender));
