@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseRef } from "@wafflebase/sheet";
 import { setupCrossSheetEnv } from "../../helpers/cross-sheet-yorkie.ts";
+import { needsRecalc } from "../../../src/app/spreadsheet/remote-change-utils.ts";
 
 const shouldRun = Boolean(process.env.YORKIE_RPC_ADDR);
 
@@ -127,6 +128,108 @@ test("remote-change event includes cell path for data edits", { skip: !shouldRun
       true,
       `Expected cell path in: ${JSON.stringify(cellPaths)}`,
     );
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test("remote-change event for style edit does not need recalc", { skip: !shouldRun }, async () => {
+  const env = await setupCrossSheetEnv("style-event-path");
+  try {
+    const events: Array<{
+      type: string;
+      operations?: Array<{ path?: string }>;
+    }> = [];
+    env.subscribeA((e: unknown) => {
+      const evt = e as {
+        type: string;
+        value?: { operations?: Array<{ path?: string }> };
+      };
+      if (evt.type === "remote-change") {
+        events.push({
+          type: evt.type,
+          operations: evt.value?.operations,
+        });
+      }
+    });
+
+    // ClientB applies a range style (background color) to Sheet2
+    await env.storeB2.addRangeStyle({
+      startRef: parseRef("A1"),
+      endRef: parseRef("B3"),
+      style: { bgColor: "#ff0000" },
+    });
+    await env.sync();
+
+    // Verify remote-change events contain rangeStyles path, not cells
+    const allPaths = events.flatMap((e) =>
+      (e.operations ?? []).map((op) => op.path).filter(Boolean),
+    );
+    const hasStylePath = allPaths.some((p) =>
+      /^\$\.sheets\.[^.]+\.rangeStyles/.test(p!),
+    );
+    assert.equal(
+      hasStylePath,
+      true,
+      `Expected rangeStyles path in: ${JSON.stringify(allPaths)}`,
+    );
+
+    // The style-only operations should NOT require formula recalculation
+    for (const e of events) {
+      assert.equal(
+        needsRecalc(e.operations),
+        false,
+        `Style-only event should not need recalc: ${JSON.stringify(e.operations?.map((op) => op.path))}`,
+      );
+    }
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test("remote-change event for dimension edit does not need recalc", { skip: !shouldRun }, async () => {
+  const env = await setupCrossSheetEnv("dimension-event-path");
+  try {
+    const events: Array<{
+      type: string;
+      operations?: Array<{ path?: string }>;
+    }> = [];
+    env.subscribeA((e: unknown) => {
+      const evt = e as {
+        type: string;
+        value?: { operations?: Array<{ path?: string }> };
+      };
+      if (evt.type === "remote-change") {
+        events.push({
+          type: evt.type,
+          operations: evt.value?.operations,
+        });
+      }
+    });
+
+    // ClientB changes a column width in Sheet2
+    await env.storeB2.setDimensionSize("col", 2, 200);
+    await env.sync();
+
+    const allPaths = events.flatMap((e) =>
+      (e.operations ?? []).map((op) => op.path).filter(Boolean),
+    );
+    const hasDimPath = allPaths.some((p) =>
+      /^\$\.sheets\.[^.]+\.colWidths/.test(p!),
+    );
+    assert.equal(
+      hasDimPath,
+      true,
+      `Expected colWidths path in: ${JSON.stringify(allPaths)}`,
+    );
+
+    for (const e of events) {
+      assert.equal(
+        needsRecalc(e.operations),
+        false,
+        `Dimension-only event should not need recalc: ${JSON.stringify(e.operations?.map((op) => op.path))}`,
+      );
+    }
   } finally {
     await env.cleanup();
   }
