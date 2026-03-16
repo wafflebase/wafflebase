@@ -48,6 +48,12 @@ export async function applyConcurrencyOp(
     case 'set-column-width':
       sheet.setColumnWidth(op.index, op.width);
       return;
+    case 'move-rows':
+      await sheet.moveRows(op.src, op.count, op.dst);
+      return;
+    case 'move-columns':
+      await sheet.moveColumns(op.src, op.count, op.dst);
+      return;
     default: {
       const _exhaustive: never = op;
       throw new Error(`Unknown op kind: ${(_exhaustive as ConcurrencyOp).kind}`);

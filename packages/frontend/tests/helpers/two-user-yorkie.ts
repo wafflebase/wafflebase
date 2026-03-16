@@ -91,6 +91,12 @@ async function applyStoreOp(store: YorkieStore, op: ConcurrencyOp): Promise<void
     case "set-column-width":
       await store.setDimensionSize("column", op.index, op.width);
       return;
+    case "move-rows":
+      await store.moveCells("row", op.src, op.count, op.dst);
+      return;
+    case "move-columns":
+      await store.moveCells("column", op.src, op.count, op.dst);
+      return;
     default: {
       const _exhaustive: never = op;
       throw new Error(`Unknown op kind: ${(_exhaustive as ConcurrencyOp).kind}`);

@@ -4,6 +4,7 @@ import {
   CellStyle,
   ConditionalFormatRule,
   FilterCondition,
+  FormulaResolver,
   GridResolver,
   Range,
   Ref,
@@ -786,6 +787,19 @@ export class Spreadsheet {
   public setGridResolver(resolver: GridResolver): void {
     if (this.sheet) {
       this.sheet.setGridResolver(resolver);
+    }
+  }
+
+  /**
+   * `setFormulaResolver` sets the resolver for cross-sheet formula lookup.
+   * Used to build global dependency graph for cycle detection.
+   */
+  public setFormulaResolver(
+    resolver: FormulaResolver,
+    sheetName: string,
+  ): void {
+    if (this.sheet) {
+      this.sheet.setFormulaResolver(resolver, sheetName);
     }
   }
 

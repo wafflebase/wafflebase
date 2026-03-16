@@ -34,6 +34,17 @@ const characterizationCases = concurrencyCases.filter((testCase) =>
     "same-cell concurrent value edit",
     "same-cell formula vs value edit",
     "concurrent row height edits on same row",
+    "value edit vs row move forward (cell in moved range)",
+    "value edit vs row move backward (cell in moved range)",
+    "value edit vs column move forward",
+    "row move vs row insert at same index",
+    "row move vs row delete at source",
+    "row move vs row move (different rows)",
+    "column move vs column insert at same index",
+    "formula reference vs row move",
+    "column insert vs column insert at adjacent indexes",
+    "row delete vs row delete at different indexes",
+    "column delete vs column insert at adjacent indexes",
   ].includes(testCase.name),
 );
 
