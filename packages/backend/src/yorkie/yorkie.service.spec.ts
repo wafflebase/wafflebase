@@ -45,22 +45,8 @@ describe('YorkieService', () => {
     service = new YorkieService(createMockConfigService());
   });
 
-  describe('onModuleInit', () => {
-    it('activates the Yorkie client', async () => {
-      await service.onModuleInit();
-      expect(mockActivate).toHaveBeenCalled();
-    });
-  });
-
-  describe('onModuleDestroy', () => {
-    it('deactivates the Yorkie client', async () => {
-      await service.onModuleDestroy();
-      expect(mockDeactivate).toHaveBeenCalled();
-    });
-  });
-
   describe('withDocument', () => {
-    it('attaches, runs callback, syncs, and detaches', async () => {
+    it('creates a client, attaches, runs callback, syncs, detaches, and deactivates', async () => {
       const callback = jest.fn().mockReturnValue('result');
 
       const result = await service.withDocument('doc-1', callback);
@@ -73,9 +59,10 @@ describe('YorkieService', () => {
       expect(callback).toHaveBeenCalled();
       expect(mockSync).toHaveBeenCalled();
       expect(mockDetach).toHaveBeenCalled();
+      expect(mockDeactivate).toHaveBeenCalled();
     });
 
-    it('detaches even if callback throws', async () => {
+    it('deactivates even if callback throws', async () => {
       const error = new Error('callback failed');
       const callback = jest.fn().mockRejectedValue(error);
 
@@ -83,9 +70,10 @@ describe('YorkieService', () => {
         'callback failed',
       );
       expect(mockDetach).toHaveBeenCalled();
+      expect(mockDeactivate).toHaveBeenCalled();
     });
 
-    it('detaches even if sync throws', async () => {
+    it('deactivates even if sync throws', async () => {
       mockSync.mockRejectedValueOnce(new Error('sync failed'));
       const callback = jest.fn().mockReturnValue('ok');
 
@@ -93,6 +81,24 @@ describe('YorkieService', () => {
         'sync failed',
       );
       expect(mockDetach).toHaveBeenCalled();
+      expect(mockDeactivate).toHaveBeenCalled();
+    });
+
+    it('concurrent calls to the same document should not conflict', async () => {
+      // Simulate slow callbacks so both requests overlap
+      const slow = () =>
+        new Promise<string>((resolve) => setTimeout(() => resolve('a'), 50));
+      const fast = () => Promise.resolve('b');
+
+      const results = await Promise.all([
+        service.withDocument('doc-1', slow),
+        service.withDocument('doc-1', fast),
+      ]);
+
+      expect(results).toEqual(['a', 'b']);
+      // Each call should use its own client (activate called twice)
+      expect(mockActivate).toHaveBeenCalledTimes(2);
+      expect(mockDeactivate).toHaveBeenCalledTimes(2);
     });
   });
 });
