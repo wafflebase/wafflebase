@@ -1,7 +1,11 @@
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { resolveConfig, type CliConfig } from '../config/config.js';
 import { HttpClient } from '../client/http-client.js';
 import type { OutputFormat } from '../output/formatter.js';
+
+const require = createRequire(import.meta.url);
+const { version } = require('../../package.json') as { version: string };
 
 export interface GlobalOpts {
   server?: string;
@@ -38,7 +42,7 @@ export function createProgram(): Command {
   program
     .name('wafflebase')
     .description('CLI for Wafflebase spreadsheet API')
-    .version('0.1.0')
+    .version(version)
     .option('--server <url>', 'Server URL')
     .option('--api-key <key>', 'API key')
     .option('--workspace <id>', 'Workspace ID')
