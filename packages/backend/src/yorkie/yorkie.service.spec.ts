@@ -84,16 +84,48 @@ describe('YorkieService', () => {
       expect(mockDeactivate).toHaveBeenCalled();
     });
 
+    it('deactivates even if attach throws', async () => {
+      mockAttach.mockRejectedValueOnce(new Error('attach failed'));
+      const callback = jest.fn();
+
+      await expect(service.withDocument('doc-1', callback)).rejects.toThrow(
+        'attach failed',
+      );
+      expect(callback).not.toHaveBeenCalled();
+      expect(mockDeactivate).toHaveBeenCalled();
+    });
+
+    it('deactivates even if detach throws', async () => {
+      mockDetach.mockRejectedValueOnce(new Error('detach failed'));
+      const callback = jest.fn().mockReturnValue('ok');
+
+      await expect(service.withDocument('doc-1', callback)).rejects.toThrow(
+        'detach failed',
+      );
+      expect(mockDeactivate).toHaveBeenCalled();
+    });
+
     it('concurrent calls to the same document should not conflict', async () => {
-      // Simulate slow callbacks so both requests overlap
-      const slow = () =>
-        new Promise<string>((resolve) => setTimeout(() => resolve('a'), 50));
+      // Use a deferred barrier for deterministic overlap control
+      let releaseBarrier: () => void;
+      const barrier = new Promise<void>((resolve) => {
+        releaseBarrier = resolve;
+      });
+
+      const slow = async () => {
+        await barrier;
+        return 'a';
+      };
       const fast = () => Promise.resolve('b');
 
-      const results = await Promise.all([
+      const promise = Promise.all([
         service.withDocument('doc-1', slow),
         service.withDocument('doc-1', fast),
       ]);
+
+      // Release the barrier after both calls have started
+      releaseBarrier!();
+      const results = await promise;
 
       expect(results).toEqual(['a', 'b']);
       // Each call should use its own client (activate called twice)

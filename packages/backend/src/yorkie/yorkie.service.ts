@@ -23,18 +23,25 @@ export class YorkieService {
       rpcAddr: this.rpcAddr,
       apiKey: this.apiKey,
     });
-    await client.activate();
     const doc = new yorkie.Document<SpreadsheetDocument>(
       `sheet-${documentId}`,
     );
-    await client.attach(doc, { syncMode: SyncMode.Manual });
+    let attached = false;
     try {
+      await client.activate();
+      await client.attach(doc, { syncMode: SyncMode.Manual });
+      attached = true;
       const result = await callback(doc);
       await client.sync(doc);
       return result;
     } finally {
-      await client.detach(doc);
-      await client.deactivate();
+      try {
+        if (attached) {
+          await client.detach(doc);
+        }
+      } finally {
+        await client.deactivate();
+      }
     }
   }
 }
