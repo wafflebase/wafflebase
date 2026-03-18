@@ -2899,7 +2899,13 @@ export class Worksheet {
       }
     }
 
-    this.sheet!.selectStart(this.toRefFromMouse(e.offsetX, e.offsetY));
+    // Ctrl/Cmd+click adds a new selection range (multi-select)
+    const isMultiSelect = e.ctrlKey || e.metaKey;
+    if (isMultiSelect) {
+      this.sheet!.addSelection(this.toRefFromMouse(e.offsetX, e.offsetY));
+    } else {
+      this.sheet!.selectStart(this.toRefFromMouse(e.offsetX, e.offsetY));
+    }
     this.render();
 
     let lastClientX = e.clientX;
@@ -2909,7 +2915,11 @@ export class Worksheet {
 
     const updateSelection = () => {
       const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
-      this.sheet!.selectEnd(this.toRefFromMouse(x, y));
+      if (isMultiSelect) {
+        this.sheet!.addSelectionEnd(this.toRefFromMouse(x, y));
+      } else {
+        this.sheet!.selectEnd(this.toRefFromMouse(x, y));
+      }
     };
 
     const stopAutoScroll = () => {
@@ -4204,7 +4214,7 @@ export class Worksheet {
       this.scroll,
       this.sheet!.getActiveCell(),
       this.sheet!.getPresences(),
-      this.sheet!.getRange(),
+      this.sheet!.getRanges(),
       this.rowDim,
       this.colDim,
       this.resizeHover,
