@@ -3250,9 +3250,14 @@ export class Sheet {
       }
 
       // Default: append range patch and only touch already-populated cells.
-      const range = this.getRangeOrActiveCell();
-      await this.addRangeStylePatch(range, style);
-      await this.applyStylePatchToExistingCells(range, style);
+      // Apply to all ranges in multi-selection.
+      const targets = this.ranges.length > 0
+        ? this.ranges
+        : [this.getRangeOrActiveCell()];
+      for (const range of targets) {
+        await this.addRangeStylePatch(range, style);
+        await this.applyStylePatchToExistingCells(range, style);
+      }
     } finally {
       this.store.endBatch();
     }
@@ -3267,11 +3272,15 @@ export class Sheet {
       return false;
     }
 
-    const range = this.getRangeOrActiveCell();
+    const targets = this.ranges.length > 0
+      ? this.ranges
+      : [this.getRangeOrActiveCell()];
     this.store.beginBatch();
     try {
-      await this.addRangeStylePatch(range, DefaultResetStylePatch);
-      await this.clearCellStylesInRange(range);
+      for (const range of targets) {
+        await this.addRangeStylePatch(range, DefaultResetStylePatch);
+        await this.clearCellStylesInRange(range);
+      }
     } finally {
       this.store.endBatch();
     }
@@ -3565,15 +3574,67 @@ export class Sheet {
    * @param colDelta Delta to move the activeCell in the column direction.
    */
   moveInRange(rowDelta: number, colDelta: number): void {
-    const range = this.ranges.length > 0
-      ? this.ranges[this.ranges.length - 1]
-      : this.dimensionRange;
+    if (this.ranges.length <= 1) {
+      const range = this.ranges.length === 1
+        ? this.ranges[0]
+        : this.dimensionRange;
+      this.moveInSingleRange(range, rowDelta, colDelta);
+      return;
+    }
 
+    // Multi-range: find which range the active cell is in, then navigate
+    // within that range. When we overflow, move to the next/previous range.
+    let rangeIdx = this.ranges.findIndex((r) => inRange(this.activeCell, r));
+    if (rangeIdx === -1) rangeIdx = this.ranges.length - 1;
+
+    const range = this.ranges[rangeIdx];
+    const next = this.computeNextInRange(range, rowDelta, colDelta);
+
+    if (next.wrapped) {
+      // Overflowed: advance to next/previous range
+      const direction = (rowDelta + colDelta) > 0 ? 1 : -1;
+      const nextIdx = (rangeIdx + direction + this.ranges.length) % this.ranges.length;
+      const nextRange = this.ranges[nextIdx];
+      // Start at beginning (forward) or end (backward) of the next range
+      const target = direction > 0
+        ? { r: nextRange[0].r, c: nextRange[0].c }
+        : { r: nextRange[1].r, c: nextRange[1].c };
+      this.setActiveCell(this.normalizeRefToAnchor(target));
+    } else {
+      this.setActiveCell(this.normalizeRefToAnchor(next.ref));
+    }
+  }
+
+  /**
+   * `moveInSingleRange` moves the active cell within a single range,
+   * wrapping at boundaries.
+   */
+  private moveInSingleRange(
+    range: Range,
+    rowDelta: number,
+    colDelta: number,
+  ): void {
+    const next = this.computeNextInRange(range, rowDelta, colDelta);
+    this.setActiveCell(this.normalizeRefToAnchor(next.ref));
+  }
+
+  /**
+   * `computeNextInRange` computes the next cell position within a single range.
+   * Returns { ref, wrapped } where wrapped=true means we hit a boundary and
+   * wrapped around (used by multi-range to advance to the next range).
+   */
+  private computeNextInRange(
+    range: Range,
+    rowDelta: number,
+    colDelta: number,
+  ): { ref: Ref; wrapped: boolean } {
     let row = this.activeCell.r;
     let col = this.activeCell.c;
     const activeMerge = this.getMergeForRef(this.activeCell);
     const rows = range[1].r - range[0].r + 1;
     const cols = range[1].c - range[0].c + 1;
+    let wrapped = false;
+
     if (rowDelta !== 0) {
       const step =
         rowDelta > 0
@@ -3584,11 +3645,15 @@ export class Sheet {
             ? -1
             : 0;
       if (row + step > range[1].r) {
+        const nextCol = ((col + 1 - range[0].c + cols) % cols) + range[0].c;
+        if (nextCol <= col) wrapped = true;
         row = range[0].r;
-        col = ((col + 1 - range[0].c + cols) % cols) + range[0].c;
+        col = nextCol;
       } else if (row + step < range[0].r) {
+        const nextCol = ((col - 1 - range[0].c + cols) % cols) + range[0].c;
+        if (nextCol >= col) wrapped = true;
         row = range[1].r;
-        col = ((col - 1 - range[0].c + cols) % cols) + range[0].c;
+        col = nextCol;
       } else {
         row += step;
       }
@@ -3604,17 +3669,21 @@ export class Sheet {
             ? -1
             : 0;
       if (col + step > range[1].c) {
+        const nextRow = ((row + 1 - range[0].r + rows) % rows) + range[0].r;
+        if (nextRow <= row) wrapped = true;
         col = range[0].c;
-        row = ((row + 1 - range[0].r + rows) % rows) + range[0].r;
+        row = nextRow;
       } else if (col + step < range[0].c) {
+        const nextRow = ((row - 1 - range[0].r + rows) % rows) + range[0].r;
+        if (nextRow >= row) wrapped = true;
         col = range[1].c;
-        row = ((row - 1 - range[0].r + rows) % rows) + range[0].r;
+        row = nextRow;
       } else {
         col += step;
       }
     }
 
-    this.setActiveCell(this.normalizeRefToAnchor({ r: row, c: col }));
+    return { ref: { r: row, c: col }, wrapped };
   }
 
   /**
