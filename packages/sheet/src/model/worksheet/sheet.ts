@@ -1941,6 +1941,13 @@ export class Sheet {
     this.store.beginBatch();
     try {
       await this.setGrid(grid);
+
+      // Cut-paste: remove source styles BEFORE adding destination styles
+      // to avoid removing newly added patches that overlap the source range.
+      if (isCut && cutSourceRange) {
+        this.removeRangeStylesOverlapping(cutSourceRange);
+      }
+
       for (const patch of rangeStylePatches) {
         await this.addRangeStylePatch(patch.range, patch.style);
         await this.applyStylePatchToExistingCells(patch.range, patch.style);
@@ -1970,7 +1977,6 @@ export class Sheet {
             }
           }
         }
-        this.removeRangeStylesOverlapping(cutSourceRange);
         await this.store.setRangeStyles(this.rangeStyles);
         await this.redirectFormulasForCut(cutRefMap);
       }

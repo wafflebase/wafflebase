@@ -512,6 +512,39 @@ describe('Sheet.cut & paste', () => {
     expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
   });
 
+  it('should preserve styles when cut-paste destination overlaps source', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '2');
+
+    // Set background color on A1:B1
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.setRangeStyle({ bg: '#ff0000' });
+
+    // Cut A1:B1
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    const { text } = await sheet.cut();
+
+    // Paste at B1 (destination B1:C1 overlaps source A1:B1 at B1)
+    sheet.selectStart({ r: 1, c: 2 });
+    await sheet.paste({ text });
+
+    // Values should be moved
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('2');
+
+    // Styles should be on destination B1:C1
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({ bg: '#ff0000' });
+    expect(await sheet.getStyle({ r: 1, c: 3 })).toEqual({ bg: '#ff0000' });
+
+    // Source-only cell A1 should have no style
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toBeUndefined();
+  });
+
   it('should handle cut-paste with overlapping source and destination (shift down by 1)', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '1');
