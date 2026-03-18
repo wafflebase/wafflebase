@@ -506,6 +506,68 @@ export function translateRangeStylePatches(
 }
 
 /**
+ * Subtracts a range from a patch, returning 0–4 remaining rectangles.
+ *
+ * The subtraction carves out the intersection and keeps up to four strips:
+ *   - top:    rows above the hole
+ *   - bottom: rows below the hole
+ *   - left:   columns left of the hole (within overlapping rows)
+ *   - right:  columns right of the hole (within overlapping rows)
+ */
+export function subtractRange(
+  patch: RangeStylePatch,
+  hole: Range,
+): RangeStylePatch[] {
+  const p = normalizeRange(patch.range);
+  const h = normalizeRange(hole);
+
+  // No intersection — return the patch unchanged.
+  if (p[0].r > h[1].r || p[1].r < h[0].r || p[0].c > h[1].c || p[1].c < h[0].c) {
+    return [{ range: [{ ...p[0] }, { ...p[1] }], style: { ...patch.style } }];
+  }
+
+  const results: RangeStylePatch[] = [];
+
+  // Top strip
+  if (p[0].r < h[0].r) {
+    results.push({
+      range: [{ r: p[0].r, c: p[0].c }, { r: h[0].r - 1, c: p[1].c }],
+      style: { ...patch.style },
+    });
+  }
+
+  // Bottom strip
+  if (p[1].r > h[1].r) {
+    results.push({
+      range: [{ r: h[1].r + 1, c: p[0].c }, { r: p[1].r, c: p[1].c }],
+      style: { ...patch.style },
+    });
+  }
+
+  // Overlapping row band
+  const overlapTop = Math.max(p[0].r, h[0].r);
+  const overlapBottom = Math.min(p[1].r, h[1].r);
+
+  // Left strip (within overlapping rows)
+  if (p[0].c < h[0].c) {
+    results.push({
+      range: [{ r: overlapTop, c: p[0].c }, { r: overlapBottom, c: h[0].c - 1 }],
+      style: { ...patch.style },
+    });
+  }
+
+  // Right strip (within overlapping rows)
+  if (p[1].c > h[1].c) {
+    results.push({
+      range: [{ r: overlapTop, c: h[1].c + 1 }, { r: overlapBottom, c: p[1].c }],
+      style: { ...patch.style },
+    });
+  }
+
+  return results;
+}
+
+/**
  * Resolves the effective style at a cell by applying matching patches in order.
  */
 export function resolveRangeStyleAt(
