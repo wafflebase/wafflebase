@@ -492,4 +492,45 @@ describe('Sheet.cut & paste', () => {
     // Source still has value (copy, not cut)
     expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
   });
+
+  it('should overwrite existing cell when cut-pasting onto it', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 2, c: 1 }, '2');
+
+    // Cut A1
+    sheet.selectStart({ r: 1, c: 1 });
+    const { text } = await sheet.cut();
+
+    // Paste to A2 (which already has value '2')
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.paste({ text });
+
+    // A2 should have the cut value
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('1');
+    // A1 should be cleared
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+  });
+
+  it('should handle cut-paste with overlapping source and destination (shift down by 1)', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 2, c: 1 }, '2');
+    await sheet.setData({ r: 3, c: 1 }, '3');
+
+    // Cut A1:A2 (values 1,2)
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 1 });
+    const { text } = await sheet.cut();
+
+    // Paste to A2 (destination A2:A3 overlaps source A1:A2 at A2)
+    sheet.selectStart({ r: 2, c: 1 });
+    await sheet.paste({ text });
+
+    // A2 should have value 1 (from A1), A3 should have value 2 (from A2)
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('2');
+    // A1 should be cleared (was part of cut source, not part of destination)
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+  });
 });
