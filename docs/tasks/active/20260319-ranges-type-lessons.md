@@ -18,3 +18,13 @@
 - **Backward compatibility through last-range convention**: `getRange()` and
   `getRangeOrActiveCell()` operate on the last range in the array, so all
   existing callers work without changes.
+
+## Phase 3: Frontend UI Integration
+
+- **Overlay has two rendering paths**: The overlay renders selections via
+  `renderSelectionsSimple` (no-freeze) and `renderSelectionFrozen` (freeze).
+  Both needed updating to loop over `Ranges`. The frozen path nests a
+  range loop inside the quadrant loop.
+- **Formula bar backward compat**: Single-range display uses `toSrng()`,
+  multi-range uses `toSrngFromRanges()`. Avoids showing "A1:A1" for
+  collapsed ranges thanks to the serializer's single-cell shorthand.

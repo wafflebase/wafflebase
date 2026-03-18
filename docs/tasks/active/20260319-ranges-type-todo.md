@@ -2,7 +2,7 @@
 
 **Goal:** Introduce a `Ranges` type and utility functions to represent multiple disjoint rectangular regions, then incrementally integrate into the selection model and UI.
 
-**Status:** Phase 2 DONE
+**Status:** Phase 3 IN PROGRESS
 
 **Context:** The current `Range = [Ref, Ref]` can only represent a single rectangle. Multi-range support is needed for Ctrl+click multi-selection, formula engine, conditional formatting, and chart data ranges. This task is broken into three phases to allow incremental delivery.
 
@@ -63,9 +63,9 @@ Replace the single-range selection in Sheet with `Ranges` support.
 
 Wire multi-range selection into the frontend rendering and interaction layer.
 
-- [ ] Handle Ctrl+click / Cmd+click events in `sheet-view.tsx` to call `addSelection()`
-- [ ] Render multiple selection highlights on the Canvas
-- [ ] Update selection-dependent UI (formula bar range display, context menu)
+- [x] Handle Ctrl/Cmd+click in `worksheet.ts` to call `addSelection()` with drag support
+- [x] Render multiple selection highlights on the Canvas (overlay simple + frozen paths)
+- [x] Update formula bar to display multi-range labels (e.g. "A1:B2,C3")
 - [ ] Update copy/paste to operate on multiple ranges
 - [ ] Interaction tests for multi-selection
 
