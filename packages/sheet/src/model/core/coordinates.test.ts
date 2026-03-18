@@ -140,9 +140,18 @@ describe('Ranges utilities', () => {
       const result = parseRanges('A1:B2 , C3');
       expect(result).toEqual([r(1, 1, 2, 2), r(3, 3, 3, 3)]);
     });
+
+    it('should return empty array for empty string', () => {
+      expect(parseRanges('')).toEqual([]);
+      expect(parseRanges('  ')).toEqual([]);
+    });
   });
 
   describe('parseRanges and toSrngFromRanges roundtrip', () => {
+    it('should roundtrip empty ranges', () => {
+      expect(parseRanges(toSrngFromRanges([]))).toEqual([]);
+    });
+
     it('should roundtrip correctly', () => {
       const input = 'A1:B2,C3,D4:E5';
       const parsed = parseRanges(input);

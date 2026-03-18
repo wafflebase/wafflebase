@@ -425,7 +425,10 @@ export function toSrngFromRanges(ranges: Ranges): string {
  * `parseRanges` parses a comma-separated range string (e.g. "A1:A2,B1,B2:B3").
  */
 export function parseRanges(s: string): Ranges {
-  return s.split(',').map((part) => {
+  const input = s.trim();
+  if (input === '') return [];
+
+  return input.split(',').map((part) => {
     const trimmed = part.trim();
     if (trimmed.includes(':')) {
       return parseRange(trimmed);
