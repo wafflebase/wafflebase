@@ -172,3 +172,77 @@ describe('Sheet.SelectAll', async () => {
     ]);
   });
 });
+
+describe('Sheet.MultiSelection', () => {
+  it('should add a new selection range with addSelection', () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+
+    // Add a second selection
+    sheet.addSelection({ r: 5, c: 5 });
+
+    const ranges = sheet.getRanges();
+    expect(ranges).toHaveLength(2);
+    // First range: A1:B2
+    expect(ranges[0]).toEqual([{ r: 1, c: 1 }, { r: 2, c: 2 }]);
+    // Second range: collapsed at E5
+    expect(ranges[1]).toEqual([{ r: 5, c: 5 }, { r: 5, c: 5 }]);
+  });
+
+  it('should move activeCell to the start of the last added range', () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.addSelection({ r: 3, c: 4 });
+
+    expect(sheet.getActiveCell()).toEqual({ r: 3, c: 4 });
+  });
+
+  it('should extend the last range with addSelectionEnd', () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    sheet.addSelection({ r: 5, c: 5 });
+    sheet.addSelectionEnd({ r: 7, c: 7 });
+
+    const ranges = sheet.getRanges();
+    expect(ranges).toHaveLength(2);
+    expect(ranges[1]).toEqual([{ r: 5, c: 5 }, { r: 7, c: 7 }]);
+  });
+
+  it('should preserve existing selection when starting addSelection with no range', () => {
+    const sheet = new Sheet(new MemStore());
+    // Only activeCell, no range
+    sheet.selectStart({ r: 1, c: 1 });
+    expect(sheet.hasRange()).toBe(false);
+
+    sheet.addSelection({ r: 3, c: 3 });
+    const ranges = sheet.getRanges();
+    // Should have two ranges: the frozen activeCell and the new one
+    expect(ranges).toHaveLength(2);
+    expect(ranges[0]).toEqual([{ r: 1, c: 1 }, { r: 1, c: 1 }]);
+    expect(ranges[1]).toEqual([{ r: 3, c: 3 }, { r: 3, c: 3 }]);
+  });
+
+  it('should clear all ranges on selectStart', () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    sheet.addSelection({ r: 5, c: 5 });
+
+    // selectStart resets everything
+    sheet.selectStart({ r: 10, c: 10 });
+    expect(sheet.getRanges()).toHaveLength(0);
+    expect(sheet.hasRange()).toBe(false);
+  });
+
+  it('getRange returns the last range for backward compatibility', () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    sheet.addSelection({ r: 5, c: 5 });
+    sheet.addSelectionEnd({ r: 6, c: 6 });
+
+    expect(sheet.getRange()).toEqual([{ r: 5, c: 5 }, { r: 6, c: 6 }]);
+  });
+});

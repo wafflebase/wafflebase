@@ -2,7 +2,7 @@
 
 **Goal:** Introduce a `Ranges` type and utility functions to represent multiple disjoint rectangular regions, then incrementally integrate into the selection model and UI.
 
-**Status:** Phase 1 DONE
+**Status:** Phase 2 DONE
 
 **Context:** The current `Range = [Ref, Ref]` can only represent a single rectangle. Multi-range support is needed for Ctrl+click multi-selection, formula engine, conditional formatting, and chart data ranges. This task is broken into three phases to allow incremental delivery.
 
@@ -50,12 +50,14 @@ type Ranges = Range[];
 
 Replace the single-range selection in Sheet with `Ranges` support.
 
-- [ ] Replace `range?: Range` field with `ranges: Ranges` in `Sheet`
-- [ ] Add `addSelection(ref: Ref)` method for Ctrl+click (appends a new range)
-- [ ] Active cell follows the start of the last added range (Google Sheets behavior)
-- [ ] Update `getRange()` / `getRangeOrActiveCell()` for backward compatibility
-- [ ] Update selection-related methods (`selectRow`, `selectColumn`, etc.)
-- [ ] Unit tests for multi-selection behavior
+- [x] Replace `range?: Range` field with `ranges: Ranges` in `Sheet`
+- [x] Add `addSelection(ref: Ref)` and `addSelectionEnd(ref: Ref)` methods
+- [x] Active cell follows the start of the last added range (Google Sheets behavior)
+- [x] Update `getRange()` / `getRangeOrActiveCell()` for backward compatibility
+- [x] Add `getRanges()` method to Sheet and Spreadsheet
+- [x] Update selection-related methods (`selectRow`, `selectColumn`, etc.)
+- [x] Expose `addSelection()` / `addSelectionEnd()` in Spreadsheet view
+- [x] Unit tests for multi-selection behavior (6 tests)
 
 ## Phase 3: Frontend UI Integration
 

@@ -7,6 +7,7 @@ import {
   FormulaResolver,
   GridResolver,
   Range,
+  Ranges,
   Ref,
   SelectionType,
 } from '../model/core/types';
@@ -325,6 +326,13 @@ export class Spreadsheet {
   }
 
   /**
+   * `getSelectionRanges` returns all currently selected ranges.
+   */
+  public getSelectionRanges(): Ranges {
+    return this.sheet?.getRanges() ?? [];
+  }
+
+  /**
    * `getGridViewportRect` returns the grid viewport rectangle relative to the
    * worksheet container.
    */
@@ -378,6 +386,26 @@ export class Spreadsheet {
   public selectStart(ref: Ref): void {
     if (!this.sheet) return;
     this.sheet.selectStart(ref);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `addSelection` starts a new selection while preserving existing ones (Ctrl+click).
+   */
+  public addSelection(ref: Ref): void {
+    if (!this.sheet) return;
+    this.sheet.addSelection(ref);
+    this.worksheet.render();
+    this.notifySelectionChange();
+  }
+
+  /**
+   * `addSelectionEnd` extends the last range in multi-selection (Ctrl+Shift+drag).
+   */
+  public addSelectionEnd(ref: Ref): void {
+    if (!this.sheet) return;
+    this.sheet.addSelectionEnd(ref);
     this.worksheet.render();
     this.notifySelectionChange();
   }
