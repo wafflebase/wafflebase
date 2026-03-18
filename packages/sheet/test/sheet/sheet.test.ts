@@ -345,6 +345,44 @@ describe('Sheet.MultiSelection', () => {
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 1 });
   });
 
+  it('should cycle through 3+ ranges with Tab', () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.addSelection({ r: 2, c: 2 });
+    sheet.addSelection({ r: 3, c: 3 });
+
+    // Active cell at C3 (last added)
+    expect(sheet.getActiveCell()).toEqual({ r: 3, c: 3 });
+
+    // Tab: C3 is single-cell, wraps -> Range 1 start (A1)
+    sheet.moveInRange(0, 1);
+    expect(sheet.getActiveCell()).toEqual({ r: 1, c: 1 });
+
+    // Tab: A1 wraps -> Range 2 start (B2)
+    sheet.moveInRange(0, 1);
+    expect(sheet.getActiveCell()).toEqual({ r: 2, c: 2 });
+
+    // Tab: B2 wraps -> Range 3 start (C3)
+    sheet.moveInRange(0, 1);
+    expect(sheet.getActiveCell()).toEqual({ r: 3, c: 3 });
+  });
+
+  it('should not crash when active cell is outside all ranges', () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    sheet.addSelection({ r: 3, c: 1 });
+    sheet.addSelectionEnd({ r: 3, c: 2 });
+
+    // Move active cell outside all ranges
+    sheet.move('down');
+    // Should not throw
+    expect(() => sheet.moveInRange(0, 1)).not.toThrow();
+    expect(() => sheet.moveInRange(1, 0)).not.toThrow();
+    expect(() => sheet.moveInRange(0, -1)).not.toThrow();
+    expect(() => sheet.moveInRange(-1, 0)).not.toThrow();
+  });
+
   it('should apply style to all ranges in multi-selection', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, 'hello');
