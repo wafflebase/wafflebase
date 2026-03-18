@@ -1958,9 +1958,18 @@ export class Sheet {
         await calculate(this, dependantsMap, expanded);
       }
 
-      // Cut-paste: clear source cells, remove source styles, redirect references
+      // Cut-paste: clear source cells, remove source styles, redirect references.
+      // Only delete source cells that don't overlap with the pasted destination
+      // to avoid erasing values that were just written by setGrid above.
       if (isCut && cutSourceRange && cutRefMap) {
-        await this.store.deleteRange(cutSourceRange);
+        for (let r = cutSourceRange[0].r; r <= cutSourceRange[1].r; r++) {
+          for (let c = cutSourceRange[0].c; c <= cutSourceRange[1].c; c++) {
+            const sref = toSref({ r, c });
+            if (!grid.has(sref)) {
+              await this.store.delete({ r, c });
+            }
+          }
+        }
         this.removeRangeStylesOverlapping(cutSourceRange);
         await this.store.setRangeStyles(this.rangeStyles);
         await this.redirectFormulasForCut(cutRefMap);
