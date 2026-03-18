@@ -1,4 +1,4 @@
-import { ARef, Ref, Range, Reference, Sref, Srng, Grid } from './types';
+import { ARef, Ref, Range, Ranges, Reference, Sref, Srng, Grid } from './types';
 
 /**
  * `isIntersect` returns whether the given Ranges are intersected.
@@ -375,4 +375,111 @@ export function toASref(ref: ARef): Sref {
 export function parseRange(srng: Srng): Range {
   const [from, to] = srng.split(':');
   return [parseRef(from), parseRef(to)];
+}
+
+// ---------------------------------------------------------------------------
+// Ranges utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * `toRanges` creates a Ranges from the given Range arguments, normalizing each.
+ */
+export function toRanges(...ranges: Range[]): Ranges {
+  return ranges.map((r) => toRange(r[0], r[1]));
+}
+
+/**
+ * `inRanges` returns whether the given Ref is inside any of the Ranges.
+ */
+export function inRanges(ref: Ref, ranges: Ranges): boolean {
+  return ranges.some((r) => inRange(ref, r));
+}
+
+/**
+ * `isIntersectRanges` returns whether any range in `a` intersects any range in `b`.
+ */
+export function isIntersectRanges(a: Ranges, b: Ranges): boolean {
+  return a.some((ra) => b.some((rb) => isIntersect(ra, rb)));
+}
+
+/**
+ * `toRefsFromRanges` generates all Refs across every range in the given Ranges.
+ */
+export function* toRefsFromRanges(ranges: Ranges): Generator<Ref> {
+  for (const range of ranges) {
+    yield* toRefs(range);
+  }
+}
+
+/**
+ * `toSrngFromRanges` serializes a Ranges to a comma-separated string.
+ * Collapsed (single-cell) ranges are serialized as "A1" instead of "A1:A1".
+ */
+export function toSrngFromRanges(ranges: Ranges): string {
+  return ranges
+    .map((r) => (isCollapsedRange(r) ? toSref(r[0]) : toSrng(r)))
+    .join(',');
+}
+
+/**
+ * `parseRanges` parses a comma-separated range string (e.g. "A1:A2,B1,B2:B3").
+ */
+export function parseRanges(s: string): Ranges {
+  return s.split(',').map((part) => {
+    const trimmed = part.trim();
+    if (trimmed.includes(':')) {
+      return parseRange(trimmed);
+    }
+    const ref = parseRef(trimmed);
+    return [ref, { ...ref }];
+  });
+}
+
+/**
+ * `mergeOverlapping` merges overlapping or adjacent ranges into fewer ranges.
+ */
+export function mergeOverlapping(ranges: Ranges): Ranges {
+  if (ranges.length <= 1) return [...ranges];
+
+  const sorted = [...ranges].sort((a, b) =>
+    a[0].r !== b[0].r ? a[0].r - b[0].r : a[0].c - b[0].c,
+  );
+
+  const result: Ranges = [cloneRange(sorted[0])];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = result[result.length - 1];
+    const cur = sorted[i];
+    if (isIntersect(last, cur) || isAdjacent(last, cur)) {
+      result[result.length - 1] = mergeRanges(last, cur);
+    } else {
+      result.push(cloneRange(cur));
+    }
+  }
+  return result;
+}
+
+/**
+ * `removeRange` removes the target range from the list, returning ranges that
+ * do not exactly match the target.
+ */
+export function removeRange(ranges: Ranges, target: Range): Ranges {
+  return ranges.filter((r) => !isSameRange(r, target));
+}
+
+/**
+ * `isAdjacent` returns whether two ranges are adjacent (touching but not overlapping).
+ */
+function isAdjacent(a: Range, b: Range): boolean {
+  const [fromA, toA] = a;
+  const [fromB, toB] = b;
+
+  // Same column span and rows are adjacent
+  if (fromA.c === fromB.c && toA.c === toB.c) {
+    return toA.r + 1 === fromB.r || toB.r + 1 === fromA.r;
+  }
+  // Same row span and columns are adjacent
+  if (fromA.r === fromB.r && toA.r === toB.r) {
+    return toA.c + 1 === fromB.c || toB.c + 1 === fromA.c;
+  }
+  return false;
 }
