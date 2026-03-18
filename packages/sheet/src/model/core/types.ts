@@ -48,6 +48,11 @@ export type ARef = Ref & {
 export type Range = [Ref, Ref];
 
 /**
+ * Ranges type represents multiple disjoint ranges.
+ */
+export type Ranges = Range[];
+
+/**
  * TextAlign represents the horizontal text alignment of a cell.
  */
 export type TextAlign = 'left' | 'center' | 'right';

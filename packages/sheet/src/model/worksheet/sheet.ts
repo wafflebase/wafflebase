@@ -32,6 +32,7 @@ import {
   Ref,
   Sref,
   Range,
+  Ranges,
   Direction,
   SelectionType,
 } from '../core/types';
@@ -147,9 +148,10 @@ export class Sheet {
   private activeCell: Ref;
 
   /**
-   * `range` is the range of cells that are currently selected.
+   * `ranges` is the list of ranges that are currently selected.
+   * An empty array means no range is selected (only activeCell).
    */
-  private range?: [Ref, Ref];
+  private ranges: Ranges = [];
 
   /**
    * `selectionType` indicates whether whole rows/columns or individual cells are selected.
@@ -1236,12 +1238,14 @@ export class Sheet {
       moveRef(this.activeCell, axis, src, count, dst),
     );
 
-    // Remap range
-    if (this.range) {
-      this.range = this.expandRangeToMergedBoundaries([
-        moveRef(this.range[0], axis, src, count, dst),
-        moveRef(this.range[1], axis, src, count, dst),
-      ]);
+    // Remap ranges
+    if (this.ranges.length > 0) {
+      this.ranges = this.ranges.map((r) =>
+        this.expandRangeToMergedBoundaries([
+          moveRef(r[0], axis, src, count, dst),
+          moveRef(r[1], axis, src, count, dst),
+        ]),
+      );
     }
 
     if (options?.skipPostRecalculate) {
@@ -1544,7 +1548,7 @@ export class Sheet {
       return;
     }
 
-    this.range = undefined;
+    this.ranges = [];
     this.setActiveCell({ r: targetRow, c: this.activeCell.c });
   }
 
@@ -1572,7 +1576,7 @@ export class Sheet {
     }
 
     if (moved) {
-      this.range = undefined;
+      this.ranges = [];
       this.setActiveCell({ r, c });
     }
   }
@@ -2016,10 +2020,10 @@ export class Sheet {
     } else {
       this.selectionType = 'cell';
       this.activeCell = { r: minR, c: minC };
-      this.range = [
+      this.ranges = [[
         { r: minR, c: minC },
         { r: maxR, c: maxC },
-      ];
+      ]];
       this.store.updateActiveCell(this.activeCell);
     }
   }
@@ -2159,7 +2163,7 @@ export class Sheet {
     }
 
     this.selectionType = 'cell';
-    this.range = fillRange;
+    this.ranges = [fillRange];
     return true;
   }
 
@@ -2407,10 +2411,20 @@ export class Sheet {
   }
 
   /**
-   * `getRange` returns the range of cells that are currently selected.
+   * `getRange` returns the last range of cells that are currently selected.
+   * For backward compatibility, returns undefined when no range is selected.
    */
   getRange(): Range | undefined {
-    return this.range;
+    return this.ranges.length > 0
+      ? this.ranges[this.ranges.length - 1]
+      : undefined;
+  }
+
+  /**
+   * `getRanges` returns all selected ranges.
+   */
+  getRanges(): Ranges {
+    return this.ranges;
   }
 
   /**
@@ -2428,8 +2442,10 @@ export class Sheet {
    * selected. It returns the active cell as a range if the range is not set.
    */
   getRangeOrActiveCell(): Range {
-    if (this.range) {
-      return this.expandRangeToMergedBoundaries(this.range);
+    if (this.ranges.length > 0) {
+      return this.expandRangeToMergedBoundaries(
+        this.ranges[this.ranges.length - 1],
+      );
     }
     const merged = this.getMergeForRef(this.activeCell);
     return merged ? merged.range : [this.activeCell, this.activeCell];
@@ -2448,10 +2464,10 @@ export class Sheet {
   selectRow(row: number): void {
     this.selectionType = 'row';
     this.activeCell = { r: row, c: 1 };
-    this.range = [
+    this.ranges = [[
       { r: row, c: 1 },
       { r: row, c: this.dimension.columns },
-    ];
+    ]];
     this.store.updateActiveCell(this.activeCell);
   }
 
@@ -2461,10 +2477,10 @@ export class Sheet {
   selectColumn(col: number): void {
     this.selectionType = 'column';
     this.activeCell = { r: 1, c: col };
-    this.range = [
+    this.ranges = [[
       { r: 1, c: col },
       { r: this.dimension.rows, c: col },
-    ];
+    ]];
     this.store.updateActiveCell(this.activeCell);
   }
 
@@ -2475,10 +2491,10 @@ export class Sheet {
     this.selectionType = 'row';
     const minRow = Math.min(from, to);
     const maxRow = Math.max(from, to);
-    this.range = [
+    this.ranges = [[
       { r: minRow, c: 1 },
       { r: maxRow, c: this.dimension.columns },
-    ];
+    ]];
   }
 
   /**
@@ -2488,10 +2504,10 @@ export class Sheet {
     this.selectionType = 'column';
     const minCol = Math.min(from, to);
     const maxCol = Math.max(from, to);
-    this.range = [
+    this.ranges = [[
       { r: 1, c: minCol },
       { r: this.dimension.rows, c: maxCol },
-    ];
+    ]];
   }
 
   /**
@@ -2500,7 +2516,7 @@ export class Sheet {
   selectAllCells(): void {
     this.selectionType = 'all';
     this.activeCell = { r: 1, c: 1 };
-    this.range = cloneRange(this.dimensionRange);
+    this.ranges = [cloneRange(this.dimensionRange)];
     this.store.updateActiveCell(this.activeCell);
   }
 
@@ -2508,19 +2524,22 @@ export class Sheet {
    * `getSelectedIndices` returns the selected row/column range, or null for cell selections.
    */
   getSelectedIndices(): { axis: Axis; from: number; to: number } | null {
+    const lastRange = this.ranges.length > 0
+      ? this.ranges[this.ranges.length - 1]
+      : undefined;
     if (
       this.selectionType === 'cell' ||
       this.selectionType === 'all' ||
-      !this.range
+      !lastRange
     ) {
       return null;
     }
 
     if (this.selectionType === 'row') {
-      return { axis: 'row', from: this.range[0].r, to: this.range[1].r };
+      return { axis: 'row', from: lastRange[0].r, to: lastRange[1].r };
     }
 
-    return { axis: 'column', from: this.range[0].c, to: this.range[1].c };
+    return { axis: 'column', from: lastRange[0].c, to: lastRange[1].c };
   }
 
   /**
@@ -2541,7 +2560,7 @@ export class Sheet {
 
     // Keep the selection in sync with the active filter table range.
     this.selectionType = 'cell';
-    this.range = cloneRange(toRange(expandedRange[0], expandedRange[1]));
+    this.ranges = [cloneRange(toRange(expandedRange[0], expandedRange[1]))];
     return true;
   }
 
@@ -2878,7 +2897,53 @@ export class Sheet {
 
     this.selectionType = 'cell';
     this.setActiveCell(this.normalizeRefToAnchor(ref));
-    this.range = undefined;
+    this.ranges = [];
+  }
+
+  /**
+   * `addSelection` starts a new selection range while preserving existing ones.
+   * Used for Ctrl+click multi-selection. The active cell moves to the start
+   * of the newly added range (Google Sheets behavior).
+   */
+  addSelection(ref: Ref): void {
+    if (!inRange(ref, this.dimensionRange)) {
+      return;
+    }
+
+    // Freeze the current selection (activeCell as a range if no range exists)
+    if (this.ranges.length === 0) {
+      this.ranges = [[this.activeCell, this.activeCell]];
+    }
+
+    this.selectionType = 'cell';
+    const anchor = this.normalizeRefToAnchor(ref);
+    this.activeCell = anchor;
+    this.store.updateActiveCell(anchor);
+    // Append a new collapsed range for the new selection start
+    this.ranges.push([anchor, anchor]);
+  }
+
+  /**
+   * `addSelectionEnd` extends the last range in multi-selection.
+   * Used for Ctrl+Shift+drag.
+   */
+  addSelectionEnd(ref: Ref): void {
+    if (!inRange(ref, this.dimensionRange) || this.ranges.length === 0) {
+      return;
+    }
+
+    const target = this.normalizeRefToAnchor(ref);
+    const lastRange = this.ranges[this.ranges.length - 1];
+    // The anchor of the last range is its first ref (set by addSelection)
+    const anchor = lastRange[0];
+
+    if (isSameRef(anchor, target)) {
+      this.ranges[this.ranges.length - 1] = [anchor, anchor];
+      return;
+    }
+
+    this.ranges[this.ranges.length - 1] =
+      this.expandRangeToMergedBoundaries(toRange(anchor, target));
   }
 
   /**
@@ -2891,20 +2956,20 @@ export class Sheet {
 
     const target = this.normalizeRefToAnchor(ref);
     if (isSameRef(this.activeCell, target)) {
-      this.range = undefined;
+      this.ranges = [];
       return;
     }
 
-    this.range = this.expandRangeToMergedBoundaries(
+    this.ranges = [this.expandRangeToMergedBoundaries(
       toRange(this.activeCell, target),
-    );
+    )];
   }
 
   /**
    * `hasRange` checks if the sheet has a range selected.
    */
   hasRange(): boolean {
-    return !!this.range;
+    return this.ranges.length > 0;
   }
 
   /**
@@ -2928,11 +2993,11 @@ export class Sheet {
     }
 
     if (isSameRange(prev, curr)) {
-      this.range = cloneRange(this.dimensionRange);
+      this.ranges = [cloneRange(this.dimensionRange)];
       return;
     }
 
-    this.range = curr;
+    this.ranges = [curr];
   }
 
   /**
@@ -2986,7 +3051,7 @@ export class Sheet {
       return false;
     }
 
-    this.range = undefined;
+    this.ranges = [];
     this.setActiveCell(target);
     return true;
   }
@@ -3042,7 +3107,7 @@ export class Sheet {
       return false;
     }
 
-    this.range = undefined;
+    this.ranges = [];
     this.setActiveCell(target);
     return true;
   }
@@ -3111,7 +3176,7 @@ export class Sheet {
       return false;
     }
 
-    this.range = this.expandRangeToMergedBoundaries(range);
+    this.ranges = [this.expandRangeToMergedBoundaries(range)];
     return true;
   }
 
@@ -3193,9 +3258,14 @@ export class Sheet {
       }
 
       // Default: append range patch and only touch already-populated cells.
-      const range = this.getRangeOrActiveCell();
-      await this.addRangeStylePatch(range, style);
-      await this.applyStylePatchToExistingCells(range, style);
+      // Apply to all ranges in multi-selection.
+      const targets = this.ranges.length > 0
+        ? this.ranges
+        : [this.getRangeOrActiveCell()];
+      for (const range of targets) {
+        await this.addRangeStylePatch(range, style);
+        await this.applyStylePatchToExistingCells(range, style);
+      }
     } finally {
       this.store.endBatch();
     }
@@ -3210,11 +3280,15 @@ export class Sheet {
       return false;
     }
 
-    const range = this.getRangeOrActiveCell();
+    const targets = this.ranges.length > 0
+      ? this.ranges
+      : [this.getRangeOrActiveCell()];
     this.store.beginBatch();
     try {
-      await this.addRangeStylePatch(range, DefaultResetStylePatch);
-      await this.clearCellStylesInRange(range);
+      for (const range of targets) {
+        await this.addRangeStylePatch(range, DefaultResetStylePatch);
+        await this.clearCellStylesInRange(range);
+      }
     } finally {
       this.store.endBatch();
     }
@@ -3388,7 +3462,7 @@ export class Sheet {
 
     this.selectionType = 'cell';
     this.setActiveCell(anchor);
-    this.range = toMergeRange(anchor, span);
+    this.ranges = [toMergeRange(anchor, span)];
     return true;
   }
 
@@ -3425,7 +3499,7 @@ export class Sheet {
     }
 
     this.selectionType = 'cell';
-    this.range = undefined;
+    this.ranges = [];
     return true;
   }
 
@@ -3458,9 +3532,9 @@ export class Sheet {
         this.selectionType = 'cell';
         this.activeCell = start;
         if (start.r === end.r && start.c === end.c) {
-          this.range = undefined;
+          this.ranges = [];
         } else {
-          this.range = result.affectedRange;
+          this.ranges = [result.affectedRange];
         }
         this.store.updateActiveCell(this.activeCell);
       }
@@ -3490,9 +3564,9 @@ export class Sheet {
         this.selectionType = 'cell';
         this.activeCell = start;
         if (start.r === end.r && start.c === end.c) {
-          this.range = undefined;
+          this.ranges = [];
         } else {
-          this.range = result.affectedRange;
+          this.ranges = [result.affectedRange];
         }
         this.store.updateActiveCell(this.activeCell);
       }
@@ -3508,13 +3582,67 @@ export class Sheet {
    * @param colDelta Delta to move the activeCell in the column direction.
    */
   moveInRange(rowDelta: number, colDelta: number): void {
-    const range = this.range || this.dimensionRange;
+    if (this.ranges.length <= 1) {
+      const range = this.ranges.length === 1
+        ? this.ranges[0]
+        : this.dimensionRange;
+      this.moveInSingleRange(range, rowDelta, colDelta);
+      return;
+    }
 
+    // Multi-range: find which range the active cell is in, then navigate
+    // within that range. When we overflow, move to the next/previous range.
+    let rangeIdx = this.ranges.findIndex((r) => inRange(this.activeCell, r));
+    if (rangeIdx === -1) rangeIdx = this.ranges.length - 1;
+
+    const range = this.ranges[rangeIdx];
+    const next = this.computeNextInRange(range, rowDelta, colDelta);
+
+    if (next.wrapped) {
+      // Overflowed: advance to next/previous range
+      const direction = (rowDelta + colDelta) > 0 ? 1 : -1;
+      const nextIdx = (rangeIdx + direction + this.ranges.length) % this.ranges.length;
+      const nextRange = this.ranges[nextIdx];
+      // Start at beginning (forward) or end (backward) of the next range
+      const target = direction > 0
+        ? { r: nextRange[0].r, c: nextRange[0].c }
+        : { r: nextRange[1].r, c: nextRange[1].c };
+      this.setActiveCell(this.normalizeRefToAnchor(target));
+    } else {
+      this.setActiveCell(this.normalizeRefToAnchor(next.ref));
+    }
+  }
+
+  /**
+   * `moveInSingleRange` moves the active cell within a single range,
+   * wrapping at boundaries.
+   */
+  private moveInSingleRange(
+    range: Range,
+    rowDelta: number,
+    colDelta: number,
+  ): void {
+    const next = this.computeNextInRange(range, rowDelta, colDelta);
+    this.setActiveCell(this.normalizeRefToAnchor(next.ref));
+  }
+
+  /**
+   * `computeNextInRange` computes the next cell position within a single range.
+   * Returns { ref, wrapped } where wrapped=true means we hit a boundary and
+   * wrapped around (used by multi-range to advance to the next range).
+   */
+  private computeNextInRange(
+    range: Range,
+    rowDelta: number,
+    colDelta: number,
+  ): { ref: Ref; wrapped: boolean } {
     let row = this.activeCell.r;
     let col = this.activeCell.c;
     const activeMerge = this.getMergeForRef(this.activeCell);
     const rows = range[1].r - range[0].r + 1;
     const cols = range[1].c - range[0].c + 1;
+    let wrapped = false;
+
     if (rowDelta !== 0) {
       const step =
         rowDelta > 0
@@ -3525,11 +3653,15 @@ export class Sheet {
             ? -1
             : 0;
       if (row + step > range[1].r) {
+        const nextCol = ((col + 1 - range[0].c + cols) % cols) + range[0].c;
+        if (nextCol <= col) wrapped = true;
         row = range[0].r;
-        col = ((col + 1 - range[0].c + cols) % cols) + range[0].c;
+        col = nextCol;
       } else if (row + step < range[0].r) {
+        const nextCol = ((col - 1 - range[0].c + cols) % cols) + range[0].c;
+        if (nextCol >= col) wrapped = true;
         row = range[1].r;
-        col = ((col - 1 - range[0].c + cols) % cols) + range[0].c;
+        col = nextCol;
       } else {
         row += step;
       }
@@ -3545,17 +3677,21 @@ export class Sheet {
             ? -1
             : 0;
       if (col + step > range[1].c) {
+        const nextRow = ((row + 1 - range[0].r + rows) % rows) + range[0].r;
+        if (nextRow <= row) wrapped = true;
         col = range[0].c;
-        row = ((row + 1 - range[0].r + rows) % rows) + range[0].r;
+        row = nextRow;
       } else if (col + step < range[0].c) {
+        const nextRow = ((row - 1 - range[0].r + rows) % rows) + range[0].r;
+        if (nextRow >= row) wrapped = true;
         col = range[1].c;
-        row = ((row - 1 - range[0].r + rows) % rows) + range[0].r;
+        row = nextRow;
       } else {
         col += step;
       }
     }
 
-    this.setActiveCell(this.normalizeRefToAnchor({ r: row, c: col }));
+    return { ref: { r: row, c: col }, wrapped };
   }
 
   /**

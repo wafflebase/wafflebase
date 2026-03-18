@@ -1,4 +1,4 @@
-import { toSref, toSrng, toColumnLabel } from '../model/core/coordinates';
+import { toSref, toSrng, toColumnLabel, inRange } from '../model/core/coordinates';
 import { Sheet } from '../model/worksheet/sheet';
 import { extractTokens } from '../formula/formula';
 import { Theme, ThemeKey, getThemeColor, getFormulaRangeColor } from './theme';
@@ -111,8 +111,15 @@ export class FormulaBar {
       const toLabel = toColumnLabel(indices.to);
       label = `${fromLabel}:${toLabel}`;
     } else {
-      const range = this.sheet.getRange();
-      label = range ? toSrng(range) : toSref(ref);
+      const ranges = this.sheet.getRanges();
+      if (ranges.length > 0) {
+        // Show only the range containing the active cell
+        const activeRange = ranges.find((r) => inRange(ref, r))
+          ?? ranges[ranges.length - 1];
+        label = toSrng(activeRange);
+      } else {
+        label = toSref(ref);
+      }
     }
 
     this.cellLabel.textContent = label;

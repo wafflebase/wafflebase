@@ -1,4 +1,4 @@
-import { MergeSpan, Ref, Range, SelectionType } from '../model/core/types';
+import { MergeSpan, Ref, Range, Ranges, SelectionType } from '../model/core/types';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { parseRef, toSref, isSameRange } from '../model/core/coordinates';
 import { Theme, ThemeKey, getThemeColor, getPeerCursorColor, getFormulaRangeColor } from './theme';
@@ -55,7 +55,7 @@ export class Overlay {
       clientID: string;
       presence: { activeCell: string };
     }>,
-    range?: Range,
+    ranges?: Ranges,
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
     resizeHover?: { axis: 'row' | 'column'; index: number } | null,
@@ -96,8 +96,11 @@ export class Overlay {
 
     const hasFrozen = freeze.frozenRows > 0 || freeze.frozenCols > 0;
     const mergeData = this.buildMergeRenderData(merges);
+    const lastRange = ranges && ranges.length > 0
+      ? ranges[ranges.length - 1]
+      : undefined;
     const selectionRange = this.resolveAutofillSelectionRange(
-      range,
+      lastRange,
       activeCell,
       mergeData,
     );
@@ -119,7 +122,7 @@ export class Overlay {
         colDim,
         mergeData,
       );
-      this.renderSelectionSimple(ctx, port, scroll, range, selectionType, rowDim, colDim);
+      this.renderSelectionsSimple(ctx, port, scroll, ranges, selectionType, rowDim, colDim);
       this.renderPeerCursorsSimple(
         ctx,
         port,
@@ -140,7 +143,7 @@ export class Overlay {
       const quadrants = this.buildQuadrants(port, scroll, freeze, rowDim, colDim);
 
       // Render selection per quadrant
-      this.renderSelectionFrozen(ctx, port, scroll, range, selectionType, rowDim, colDim, freeze, quadrants);
+      this.renderSelectionFrozen(ctx, port, scroll, ranges, selectionType, rowDim, colDim, freeze, quadrants);
 
       // Render peer cursors per quadrant
       for (const { clientID, presence } of peerPresences) {
@@ -448,11 +451,11 @@ export class Overlay {
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
   }
 
-  private renderSelectionSimple(
+  private renderSelectionsSimple(
     ctx: CanvasRenderingContext2D,
     port: BoundingRect,
     scroll: { left: number; top: number },
-    range?: Range,
+    ranges?: Ranges,
     selectionType?: SelectionType,
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
@@ -460,7 +463,12 @@ export class Overlay {
     if (selectionType === 'all') {
       ctx.fillStyle = this.getThemeColor('selectionBGColor');
       ctx.fillRect(RowHeaderWidth, DefaultCellHeight, port.width - RowHeaderWidth, port.height - DefaultCellHeight);
-    } else if (range) {
+      return;
+    }
+
+    if (!ranges || ranges.length === 0) return;
+
+    for (const range of ranges) {
       if (selectionType === 'row') {
         const topRect = toBoundingRect(range[0], scroll, rowDim, colDim);
         const bottomRect = toBoundingRect(range[1], scroll, rowDim, colDim);
@@ -637,7 +645,7 @@ export class Overlay {
     ctx: CanvasRenderingContext2D,
     port: BoundingRect,
     _scroll: { left: number; top: number },
-    range: Range | undefined,
+    ranges: Ranges | undefined,
     selectionType: SelectionType | undefined,
     rowDim: DimensionIndex | undefined,
     colDim: DimensionIndex | undefined,
@@ -650,7 +658,7 @@ export class Overlay {
       return;
     }
 
-    if (!range) return;
+    if (!ranges || ranges.length === 0) return;
 
     for (const q of quadrants) {
       ctx.save();
@@ -660,36 +668,38 @@ export class Overlay {
 
       const qScroll = { left: q.scrollLeft, top: q.scrollTop };
 
-      if (selectionType === 'row') {
-        const topRect = toBoundingRect(range[0], qScroll, rowDim, colDim);
-        const bottomRect = toBoundingRect(range[1], qScroll, rowDim, colDim);
-        const y = topRect.top;
-        const height = bottomRect.top + bottomRect.height - topRect.top;
-        ctx.fillStyle = this.getThemeColor('selectionBGColor');
-        ctx.fillRect(RowHeaderWidth, y, port.width - RowHeaderWidth, height);
-        ctx.strokeStyle = this.getThemeColor('activeCellColor');
-        ctx.lineWidth = 1;
-        ctx.strokeRect(RowHeaderWidth, y, port.width - RowHeaderWidth, height);
-      } else if (selectionType === 'column') {
-        const leftRect = toBoundingRect(range[0], qScroll, rowDim, colDim);
-        const rightRect = toBoundingRect(range[1], qScroll, rowDim, colDim);
-        const x = leftRect.left;
-        const width = rightRect.left + rightRect.width - leftRect.left;
-        ctx.fillStyle = this.getThemeColor('selectionBGColor');
-        ctx.fillRect(x, DefaultCellHeight, width, port.height - DefaultCellHeight);
-        ctx.strokeStyle = this.getThemeColor('activeCellColor');
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x, DefaultCellHeight, width, port.height - DefaultCellHeight);
-      } else {
-        const rect = expandBoundingRect(
-          toBoundingRect(range[0], qScroll, rowDim, colDim),
-          toBoundingRect(range[1], qScroll, rowDim, colDim),
-        );
-        ctx.fillStyle = this.getThemeColor('selectionBGColor');
-        ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
-        ctx.strokeStyle = this.getThemeColor('activeCellColor');
-        ctx.lineWidth = 1;
-        ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+      for (const range of ranges) {
+        if (selectionType === 'row') {
+          const topRect = toBoundingRect(range[0], qScroll, rowDim, colDim);
+          const bottomRect = toBoundingRect(range[1], qScroll, rowDim, colDim);
+          const y = topRect.top;
+          const height = bottomRect.top + bottomRect.height - topRect.top;
+          ctx.fillStyle = this.getThemeColor('selectionBGColor');
+          ctx.fillRect(RowHeaderWidth, y, port.width - RowHeaderWidth, height);
+          ctx.strokeStyle = this.getThemeColor('activeCellColor');
+          ctx.lineWidth = 1;
+          ctx.strokeRect(RowHeaderWidth, y, port.width - RowHeaderWidth, height);
+        } else if (selectionType === 'column') {
+          const leftRect = toBoundingRect(range[0], qScroll, rowDim, colDim);
+          const rightRect = toBoundingRect(range[1], qScroll, rowDim, colDim);
+          const x = leftRect.left;
+          const width = rightRect.left + rightRect.width - leftRect.left;
+          ctx.fillStyle = this.getThemeColor('selectionBGColor');
+          ctx.fillRect(x, DefaultCellHeight, width, port.height - DefaultCellHeight);
+          ctx.strokeStyle = this.getThemeColor('activeCellColor');
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, DefaultCellHeight, width, port.height - DefaultCellHeight);
+        } else {
+          const rect = expandBoundingRect(
+            toBoundingRect(range[0], qScroll, rowDim, colDim),
+            toBoundingRect(range[1], qScroll, rowDim, colDim),
+          );
+          ctx.fillStyle = this.getThemeColor('selectionBGColor');
+          ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+          ctx.strokeStyle = this.getThemeColor('activeCellColor');
+          ctx.lineWidth = 1;
+          ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+        }
       }
 
       ctx.restore();
