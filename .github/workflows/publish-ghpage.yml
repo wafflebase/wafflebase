@@ -12,19 +12,19 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout 🛎️
+      - name: Checkout
         uses: actions/checkout@v4
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10.5.2
-      - name: Setup Node 🔧
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           cache: "pnpm"
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install and Build 🔧
+      - name: Install and Build
         run: |
           pnpm i
           pnpm frontend build
@@ -32,10 +32,65 @@ jobs:
           rm -rf packages/frontend/dist/docs
           cp -r packages/docs/.vitepress/dist packages/frontend/dist/docs
 
-      - name: Deploy 🚀
+      - name: Create asset manifest
+        run: |
+          mkdir -p packages/frontend/dist/.manifests
+          (cd packages/frontend/dist && find assets -type f | sort) \
+            > packages/frontend/dist/.manifests/$(date -u +%Y%m%dT%H%M%SZ).txt
+
+      - name: Deploy
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: packages/frontend/dist
           enable_jekyll: false
           cname: wafflebase.io
+          keep_files: true
+
+      - name: Cleanup old assets
+        run: |
+          git fetch origin gh-pages
+          git worktree add gh-pages-tmp origin/gh-pages
+
+          cd gh-pages-tmp
+
+          # Keep only the 5 most recent manifests
+          MANIFESTS=($(ls -1 .manifests/*.txt 2>/dev/null | sort -r))
+          KEEP_COUNT=5
+
+          if [ ${#MANIFESTS[@]} -le $KEEP_COUNT ]; then
+            echo "Only ${#MANIFESTS[@]} manifests found, nothing to clean up"
+            cd ..
+            git worktree remove gh-pages-tmp
+            exit 0
+          fi
+
+          # Collect assets to keep (union of recent manifests)
+          : > /tmp/keep-assets.txt
+          for f in "${MANIFESTS[@]:0:$KEEP_COUNT}"; do
+            cat "$f" >> /tmp/keep-assets.txt
+          done
+          sort -u /tmp/keep-assets.txt -o /tmp/keep-assets.txt
+
+          # Remove assets only referenced by old manifests
+          CHANGED=false
+          for f in "${MANIFESTS[@]:$KEEP_COUNT}"; do
+            while IFS= read -r asset; do
+              if ! grep -qxF "$asset" /tmp/keep-assets.txt && [ -f "$asset" ]; then
+                git rm -q "$asset"
+                CHANGED=true
+              fi
+            done < "$f"
+            git rm -q "$f"
+            CHANGED=true
+          done
+
+          if [ "$CHANGED" = true ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "Clean up assets older than 5 deployments"
+            git push origin gh-pages
+          fi
+
+          cd ..
+          git worktree remove gh-pages-tmp
