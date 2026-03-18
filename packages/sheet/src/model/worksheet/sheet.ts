@@ -74,6 +74,7 @@ import {
   resolveRangeStyleAt,
   shiftRangeStylePatches,
   stylesEqual,
+  subtractRange,
   translateRangeStylePatches,
 } from './range-styles';
 import {
@@ -96,7 +97,6 @@ import {
   hasCellContent,
   isEmptyCell,
   compactCell,
-  rangesIntersect,
   tryMergeRangeStylePatches,
   sameRangeStylePatchList,
   pruneRedundantDefaultStyleKeys,
@@ -1941,6 +1941,13 @@ export class Sheet {
     this.store.beginBatch();
     try {
       await this.setGrid(grid);
+
+      // Cut-paste: remove source styles BEFORE adding destination styles
+      // to avoid removing newly added patches that overlap the source range.
+      if (isCut && cutSourceRange) {
+        this.subtractRangeFromStyles(cutSourceRange);
+      }
+
       for (const patch of rangeStylePatches) {
         await this.addRangeStylePatch(patch.range, patch.style);
         await this.applyStylePatchToExistingCells(patch.range, patch.style);
@@ -1970,7 +1977,6 @@ export class Sheet {
             }
           }
         }
-        this.removeRangeStylesOverlapping(cutSourceRange);
         await this.store.setRangeStyles(this.rangeStyles);
         await this.redirectFormulasForCut(cutRefMap);
       }
@@ -2019,13 +2025,15 @@ export class Sheet {
   }
 
   /**
-   * `removeRangeStylesOverlapping` removes range style patches that overlap
-   * with the given range. Used to clear styles from cut source cells.
+   * `subtractRangeFromStyles` subtracts a range from all style patches,
+   * keeping the portions that fall outside the given range.
    */
-  private removeRangeStylesOverlapping(range: Range): void {
-    this.rangeStyles = this.rangeStyles.filter(
-      (patch) => !rangesIntersect(range, patch.range),
-    );
+  private subtractRangeFromStyles(range: Range): void {
+    const result: RangeStylePatch[] = [];
+    for (const patch of this.rangeStyles) {
+      result.push(...subtractRange(patch, range));
+    }
+    this.rangeStyles = result;
   }
 
   /**

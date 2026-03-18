@@ -512,6 +512,151 @@ describe('Sheet.cut & paste', () => {
     expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
   });
 
+  // Table-driven tests: cut-paste must preserve styles on non-cut cells
+  // that share the same range style patch as the cut source.
+  //
+  // Each case sets up a style patch on `styledRange`, cuts `cutRange`,
+  // pastes at `pasteStart`, then checks every cell in `expectations`.
+  const cutPasteStyleCases: Array<{
+    name: string;
+    styledRange: [[number, number], [number, number]];
+    cutRange: [[number, number], [number, number]];
+    pasteStart: [number, number];
+    expectations: Array<{
+      cell: [number, number];
+      hasStyle: boolean;
+      label: string;
+    }>;
+  }> = [
+    {
+      name: 'cut left part of horizontal range (A1 from A1:C1)',
+      styledRange: [[1, 1], [1, 3]],
+      cutRange: [[1, 1], [1, 1]],
+      pasteStart: [3, 1],
+      expectations: [
+        { cell: [1, 1], hasStyle: false, label: 'A1 (cut source)' },
+        { cell: [1, 2], hasStyle: true, label: 'B1 (untouched)' },
+        { cell: [1, 3], hasStyle: true, label: 'C1 (untouched)' },
+        { cell: [3, 1], hasStyle: true, label: 'A3 (paste dest)' },
+      ],
+    },
+    {
+      name: 'cut right part of horizontal range (C1 from A1:C1)',
+      styledRange: [[1, 1], [1, 3]],
+      cutRange: [[1, 3], [1, 3]],
+      pasteStart: [3, 1],
+      expectations: [
+        { cell: [1, 1], hasStyle: true, label: 'A1 (untouched)' },
+        { cell: [1, 2], hasStyle: true, label: 'B1 (untouched)' },
+        { cell: [1, 3], hasStyle: false, label: 'C1 (cut source)' },
+        { cell: [3, 1], hasStyle: true, label: 'A3 (paste dest)' },
+      ],
+    },
+    {
+      name: 'cut middle of horizontal range (B1 from A1:C1)',
+      styledRange: [[1, 1], [1, 3]],
+      cutRange: [[1, 2], [1, 2]],
+      pasteStart: [3, 1],
+      expectations: [
+        { cell: [1, 1], hasStyle: true, label: 'A1 (untouched)' },
+        { cell: [1, 2], hasStyle: false, label: 'B1 (cut source)' },
+        { cell: [1, 3], hasStyle: true, label: 'C1 (untouched)' },
+        { cell: [3, 1], hasStyle: true, label: 'A3 (paste dest)' },
+      ],
+    },
+    {
+      name: 'cut top part of vertical range (A1 from A1:A3)',
+      styledRange: [[1, 1], [3, 1]],
+      cutRange: [[1, 1], [1, 1]],
+      pasteStart: [1, 3],
+      expectations: [
+        { cell: [1, 1], hasStyle: false, label: 'A1 (cut source)' },
+        { cell: [2, 1], hasStyle: true, label: 'A2 (untouched)' },
+        { cell: [3, 1], hasStyle: true, label: 'A3 (untouched)' },
+        { cell: [1, 3], hasStyle: true, label: 'C1 (paste dest)' },
+      ],
+    },
+    {
+      name: 'cut top rows of 2D range (A1:B1 from A1:B3)',
+      styledRange: [[1, 1], [3, 2]],
+      cutRange: [[1, 1], [1, 2]],
+      pasteStart: [5, 1],
+      expectations: [
+        { cell: [1, 1], hasStyle: false, label: 'A1 (cut source)' },
+        { cell: [1, 2], hasStyle: false, label: 'B1 (cut source)' },
+        { cell: [2, 1], hasStyle: true, label: 'A2 (untouched)' },
+        { cell: [2, 2], hasStyle: true, label: 'B2 (untouched)' },
+        { cell: [3, 1], hasStyle: true, label: 'A3 (untouched)' },
+        { cell: [3, 2], hasStyle: true, label: 'B3 (untouched)' },
+        { cell: [5, 1], hasStyle: true, label: 'A5 (paste dest)' },
+        { cell: [5, 2], hasStyle: true, label: 'B5 (paste dest)' },
+      ],
+    },
+    {
+      name: 'cut overlapping destination (A1:B1 from A1:B1, paste at B1)',
+      styledRange: [[1, 1], [1, 2]],
+      cutRange: [[1, 1], [1, 2]],
+      pasteStart: [1, 2],
+      expectations: [
+        { cell: [1, 1], hasStyle: false, label: 'A1 (cut source only)' },
+        { cell: [1, 2], hasStyle: true, label: 'B1 (paste dest)' },
+        { cell: [1, 3], hasStyle: true, label: 'C1 (paste dest)' },
+      ],
+    },
+    {
+      name: 'cut exact range (no remainder expected)',
+      styledRange: [[1, 1], [1, 2]],
+      cutRange: [[1, 1], [1, 2]],
+      pasteStart: [3, 1],
+      expectations: [
+        { cell: [1, 1], hasStyle: false, label: 'A1 (cut source)' },
+        { cell: [1, 2], hasStyle: false, label: 'B1 (cut source)' },
+        { cell: [3, 1], hasStyle: true, label: 'A3 (paste dest)' },
+        { cell: [3, 2], hasStyle: true, label: 'B3 (paste dest)' },
+      ],
+    },
+  ];
+
+  for (const tc of cutPasteStyleCases) {
+    it(`cut-paste style: ${tc.name}`, async () => {
+      const sheet = new Sheet(new MemStore());
+
+      // Populate cells so internal paste path is taken
+      const sr = tc.cutRange;
+      for (let r = sr[0][0]; r <= sr[1][0]; r++) {
+        for (let c = sr[0][1]; c <= sr[1][1]; c++) {
+          await sheet.setData({ r, c }, `${r}${c}`);
+        }
+      }
+
+      // Apply style to the styled range
+      sheet.selectStart({ r: tc.styledRange[0][0], c: tc.styledRange[0][1] });
+      sheet.selectEnd({ r: tc.styledRange[1][0], c: tc.styledRange[1][1] });
+      await sheet.setRangeStyle({ bg: '#ff0000' });
+
+      // Cut
+      sheet.selectStart({ r: tc.cutRange[0][0], c: tc.cutRange[0][1] });
+      sheet.selectEnd({ r: tc.cutRange[1][0], c: tc.cutRange[1][1] });
+      const { text } = await sheet.cut();
+
+      // Paste
+      sheet.selectStart({ r: tc.pasteStart[0], c: tc.pasteStart[1] });
+      await sheet.paste({ text });
+
+      // Check expectations
+      for (const exp of tc.expectations) {
+        const style = await sheet.getStyle({ r: exp.cell[0], c: exp.cell[1] });
+        if (exp.hasStyle) {
+          expect(style, `${exp.label} should have style`).toEqual({
+            bg: '#ff0000',
+          });
+        } else {
+          expect(style, `${exp.label} should have no style`).toBeUndefined();
+        }
+      }
+    });
+  }
+
   it('should handle cut-paste with overlapping source and destination (shift down by 1)', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '1');
