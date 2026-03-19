@@ -70,7 +70,7 @@ packages/docs/
 "build:all": "pnpm frontend build && pnpm docs build && cp -r packages/docs/.vitepress/dist packages/frontend/dist/docs"
 ```
 
-**GitHub Actions (`publish-ghpage.yml`):**
+**GitHub Actions (`.github/workflows/publish-ghpage.yml`):**
 - Update build step to use `build:all` instead of `pnpm frontend build`
 
 ### Homepage Changes

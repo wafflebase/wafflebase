@@ -28,7 +28,7 @@ Add a public-facing homepage to Wafflebase that introduces the product to genera
 
 ### Visual Style
 
-Warm, brand-aligned color palette (amber/gold tones), defined as CSS custom properties in `index.css` and consumed via Tailwind utility classes:
+Warm, brand-aligned color palette (amber/gold tones), defined as CSS custom properties in `packages/frontend/src/index.css` and consumed via Tailwind utility classes:
 
 ```css
 /* Added to index.css alongside existing theme variables */
@@ -146,7 +146,7 @@ function HomeOrRedirect() {
 ```
 
 - Move `/` out of the `PrivateRoute` wrapper
-- Use `fetchMeOptional()` (already exists in `auth.ts`) to check auth without forcing redirect
+- Use `fetchMeOptional()` (already exists in `packages/frontend/src/api/auth.ts`) to check auth without forcing redirect
 - Authenticated → redirect to workspace (existing behavior)
 - Unauthenticated → render homepage
 - `/login` route remains unchanged
