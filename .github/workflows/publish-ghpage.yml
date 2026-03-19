@@ -89,7 +89,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git commit -m "Clean up assets older than 5 deployments"
-            git push origin gh-pages
+            git push origin HEAD:gh-pages
           fi
 
           cd ..
