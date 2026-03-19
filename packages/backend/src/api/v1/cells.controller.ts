@@ -51,25 +51,29 @@ export class ApiV1CellsController {
     @Query('range') range?: string,
   ) {
     await this.assertDocumentInWorkspace(documentId, workspaceId);
-    return this.yorkieService.withDocument(documentId, (doc) => {
-      const root = doc.getRoot();
-      const worksheet = root.sheets?.[tabId];
-      if (!worksheet) throw new NotFoundException('Tab not found');
+    return this.yorkieService.withDocument(
+      documentId,
+      (doc) => {
+        const root = doc.getRoot();
+        const worksheet = root.sheets?.[tabId];
+        if (!worksheet) throw new NotFoundException('Tab not found');
 
-      const cells = getWorksheetEntries(worksheet).map(([ref, cell]) => ({
-        ref,
-        value: cell?.v ?? null,
-        formula: cell?.f ?? null,
-        style: cell?.s ?? null,
-      }));
+        const cells = getWorksheetEntries(worksheet).map(([ref, cell]) => ({
+          ref,
+          value: cell?.v ?? null,
+          formula: cell?.f ?? null,
+          style: cell?.s ?? null,
+        }));
 
-      if (!range) return cells;
+        if (!range) return cells;
 
-      const refs = expandRange(range);
-      if (!refs) return cells;
-      const refSet = new Set(refs);
-      return cells.filter((c) => refSet.has(c.ref));
-    });
+        const refs = expandRange(range);
+        if (!refs) return cells;
+        const refSet = new Set(refs);
+        return cells.filter((c) => refSet.has(c.ref));
+      },
+      { syncMode: 'readonly' },
+    );
   }
 
   @Get(':sref')
@@ -80,19 +84,23 @@ export class ApiV1CellsController {
     @Param('sref') sref: string,
   ) {
     await this.assertDocumentInWorkspace(documentId, workspaceId);
-    return this.yorkieService.withDocument(documentId, (doc) => {
-      const root = doc.getRoot();
-      const worksheet = root.sheets?.[tabId];
-      if (!worksheet) throw new NotFoundException('Tab not found');
+    return this.yorkieService.withDocument(
+      documentId,
+      (doc) => {
+        const root = doc.getRoot();
+        const worksheet = root.sheets?.[tabId];
+        if (!worksheet) throw new NotFoundException('Tab not found');
 
-      const cell = getWorksheetCell(worksheet, parseRef(sref));
-      return {
-        ref: sref,
-        value: cell?.v ?? null,
-        formula: cell?.f ?? null,
-        style: cell?.s ?? null,
-      };
-    });
+        const cell = getWorksheetCell(worksheet, parseRef(sref));
+        return {
+          ref: sref,
+          value: cell?.v ?? null,
+          formula: cell?.f ?? null,
+          style: cell?.s ?? null,
+        };
+      },
+      { syncMode: 'readonly' },
+    );
   }
 
   @Put(':sref')
