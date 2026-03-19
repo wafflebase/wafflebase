@@ -41,5 +41,5 @@ so external programs can read/write spreadsheet data. Design doc: `docs/design/r
 
 - [x] `pnpm verify:fast` passes
 - [x] API key create → use → revoke flow works end-to-end (integration test)
-- [ ] Cell CRUD via REST API merges correctly with live Yorkie document — requires Yorkie server
+- [x] Cell CRUD via REST API merges correctly with live Yorkie document — requires Yorkie server
 - [x] Integration tests pass with `docker compose up -d`

@@ -15,13 +15,13 @@
 **Files:**
 - None (CLI command only)
 
-- [ ] **Step 1: Install WebKit**
+- [x] **Step 1: Install WebKit**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec playwright install webkit
 ```
 
-- [ ] **Step 2: Verify installation**
+- [x] **Step 2: Verify installation**
 
 ```bash
 pnpm --filter @wafflebase/frontend exec playwright install --dry-run webkit
@@ -36,7 +36,7 @@ Expected: WebKit is already installed.
 **Files:**
 - Create: `packages/frontend/scripts/verify-webkit-browser.mjs`
 
-- [ ] **Step 1: Create the test script**
+- [x] **Step 1: Create the test script**
 
 The script follows the same structure as `verify-interaction-browser.mjs` but uses:
 - `playwright.webkit` instead of `playwright.chromium`
@@ -262,7 +262,7 @@ try {
 }
 ```
 
-- [ ] **Step 2: Verify file was created**
+- [x] **Step 2: Verify file was created**
 
 ```bash
 ls -la packages/frontend/scripts/verify-webkit-browser.mjs
@@ -275,7 +275,7 @@ ls -la packages/frontend/scripts/verify-webkit-browser.mjs
 **Files:**
 - Modify: `packages/frontend/package.json`
 
-- [ ] **Step 1: Add test:webkit script**
+- [x] **Step 1: Add test:webkit script**
 
 Add to `"scripts"` in `packages/frontend/package.json`:
 
@@ -283,7 +283,7 @@ Add to `"scripts"` in `packages/frontend/package.json`:
 "test:webkit": "node ./scripts/verify-webkit-browser.mjs"
 ```
 
-- [ ] **Step 2: Verify script is runnable**
+- [x] **Step 2: Verify script is runnable**
 
 ```bash
 pnpm frontend test:webkit
@@ -291,7 +291,7 @@ pnpm frontend test:webkit
 
 Expected: All WebKit interaction scenarios pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/scripts/verify-webkit-browser.mjs packages/frontend/package.json
@@ -307,7 +307,7 @@ Separate from Chromium CI pipeline."
 
 ## Task 4: Run and fix
 
-- [ ] **Step 1: Run the tests and fix any issues**
+- [x] **Step 1: Run the tests and fix any issues**
 
 ```bash
 pnpm frontend test:webkit
@@ -318,7 +318,7 @@ If tests fail, debug and fix. Common issues:
 - The interaction harness uses `useIsMobile()` which checks viewport < 768px — iPhone 14 Pro viewport (393px) should trigger this correctly
 - Mobile gesture handler may need the container to have touch listeners attached
 
-- [ ] **Step 2: Verify existing tests still pass**
+- [x] **Step 2: Verify existing tests still pass**
 
 ```bash
 pnpm verify:fast

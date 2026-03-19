@@ -24,5 +24,5 @@
 ## Phase 4: UX Improvements
 - [x] Add delete confirmation dialog for documents
 - [x] Add error retry button on documents page
-- [ ] ~~Loading skeleton~~ (already implemented)
-- [ ] ~~Truncated text tooltips~~ (deferred — low impact)
+- [x] ~~Loading skeleton~~ (already implemented)
+- [x] ~~Truncated text tooltips~~ (deferred — low impact)

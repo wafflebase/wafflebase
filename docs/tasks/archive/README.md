@@ -6,19 +6,24 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 80
+Total archived tasks: 86
 
-## 2026/03 (43 tasks)
+## 2026/03 (49 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| concurrency move tests (2026-03-16) | [20260316-concurrency-move-tests-todo.md](./2026/03/20260316-concurrency-move-tests-todo.md) | [20260316-concurrency-move-tests-lessons.md](./2026/03/20260316-concurrency-move-tests-lessons.md) |
 | cli oauth login (2026-03-15) | [20260315-cli-oauth-login-todo.md](./2026/03/20260315-cli-oauth-login-todo.md) | - |
 | cross sheet cycle (2026-03-15) | [20260315-cross-sheet-cycle-todo.md](./2026/03/20260315-cross-sheet-cycle-todo.md) | - |
+| homepage improvements (2026-03-15) | [20260315-homepage-improvements-todo.md](./2026/03/20260315-homepage-improvements-todo.md) | - |
+| ui design improvements (2026-03-15) | [20260315-ui-design-improvements-todo.md](./2026/03/20260315-ui-design-improvements-todo.md) | - |
+| webkit mobile tests (2026-03-15) | [20260315-webkit-mobile-tests-todo.md](./2026/03/20260315-webkit-mobile-tests-todo.md) | - |
 | ci export failure (2026-03-14) | [20260314-ci-export-failure-todo.md](./2026/03/20260314-ci-export-failure-todo.md) | [20260314-ci-export-failure-lessons.md](./2026/03/20260314-ci-export-failure-lessons.md) |
 | collaboration design docs (2026-03-14) | [20260314-collaboration-design-docs-todo.md](./2026/03/20260314-collaboration-design-docs-todo.md) | [20260314-collaboration-design-docs-lessons.md](./2026/03/20260314-collaboration-design-docs-lessons.md) |
 | cross sheet calc (2026-03-14) | [20260314-cross-sheet-calc-todo.md](./2026/03/20260314-cross-sheet-calc-todo.md) | [20260314-cross-sheet-calc-lessons.md](./2026/03/20260314-cross-sheet-calc-lessons.md) |
 | cross sheet yorkie integration (2026-03-14) | [20260314-cross-sheet-yorkie-integration-todo.md](./2026/03/20260314-cross-sheet-yorkie-integration-todo.md) | - |
 | docs site (2026-03-14) | [20260314-docs-site-todo.md](./2026/03/20260314-docs-site-todo.md) | [20260314-docs-site-lessons.md](./2026/03/20260314-docs-site-lessons.md) |
+| homepage plan (2026-03-14) | [20260314-homepage-plan-todo.md](./2026/03/20260314-homepage-plan-todo.md) | - |
 | local hackerwins access (2026-03-14) | [20260314-local-hackerwins-access-todo.md](./2026/03/20260314-local-hackerwins-access-todo.md) | [20260314-local-hackerwins-access-lessons.md](./2026/03/20260314-local-hackerwins-access-lessons.md) |
 | local prod restore (2026-03-14) | [20260314-local-prod-restore-todo.md](./2026/03/20260314-local-prod-restore-todo.md) | [20260314-local-prod-restore-lessons.md](./2026/03/20260314-local-prod-restore-lessons.md) |
 | multiline tsv quoting (2026-03-14) | [20260314-multiline-tsv-quoting-todo.md](./2026/03/20260314-multiline-tsv-quoting-todo.md) | - |
@@ -30,6 +35,7 @@ Total archived tasks: 80
 | crdt structural concurrency retrospective (2026-03-13) | [20260313-crdt-structural-concurrency-retrospective-todo.md](./2026/03/20260313-crdt-structural-concurrency-retrospective-todo.md) | [20260313-crdt-structural-concurrency-retrospective-lessons.md](./2026/03/20260313-crdt-structural-concurrency-retrospective-lessons.md) |
 | crdt structural concurrency test architecture (2026-03-13) | [20260313-crdt-structural-concurrency-test-architecture-todo.md](./2026/03/20260313-crdt-structural-concurrency-test-architecture-todo.md) | [20260313-crdt-structural-concurrency-test-architecture-lessons.md](./2026/03/20260313-crdt-structural-concurrency-test-architecture-lessons.md) |
 | api key settings ui (2026-03-12) | [20260312-api-key-settings-ui-todo.md](./2026/03/20260312-api-key-settings-ui-todo.md) | - |
+| backend rest api (2026-03-12) | [20260312-backend-rest-api-todo.md](./2026/03/20260312-backend-rest-api-todo.md) | - |
 | cli (2026-03-12) | [20260312-cli-todo.md](./2026/03/20260312-cli-todo.md) | - |
 | sheet find (2026-03-12) | [20260312-sheet-find-todo.md](./2026/03/20260312-sheet-find-todo.md) | [20260312-sheet-find-lessons.md](./2026/03/20260312-sheet-find-lessons.md) |
 | docker browser tests (2026-03-11) | [20260311-docker-browser-tests-todo.md](./2026/03/20260311-docker-browser-tests-todo.md) | [20260311-docker-browser-tests-lessons.md](./2026/03/20260311-docker-browser-tests-lessons.md) |

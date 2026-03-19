@@ -522,7 +522,7 @@ git commit -m "Expand homepage footer with multi-column layout"
 
 After all tasks:
 
-- [ ] Run `pnpm verify:fast` — must pass
-- [ ] Check desktop viewport: all sections flow logically (Hero → Demo → Why → Features → Developer → OSS → Footer)
-- [ ] Check mobile viewport: hamburger menu works, sections stack properly, footer collapses to 2 columns
-- [ ] Check dark mode: all new sections respect theme variables
+- [x] Run `pnpm verify:fast` — must pass
+- [x] Check desktop viewport: all sections flow logically (Hero → Demo → Why → Features → Developer → OSS → Footer)
+- [x] Check mobile viewport: hamburger menu works, sections stack properly, footer collapses to 2 columns
+- [x] Check dark mode: all new sections respect theme variables

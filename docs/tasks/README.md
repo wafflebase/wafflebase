@@ -18,12 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| ui design improvements (2026-03-15) | [20260315-ui-design-improvements-todo.md](./active/20260315-ui-design-improvements-todo.md) | - |
-| backend rest api (2026-03-12) | [20260312-backend-rest-api-todo.md](./active/20260312-backend-rest-api-todo.md) | - |
+| ranges type (2026-03-19) | [20260319-ranges-type-todo.md](./active/20260319-ranges-type-todo.md) | [20260319-ranges-type-lessons.md](./active/20260319-ranges-type-lessons.md) |
 
 ## Archive
 
-- Archived task count: 80
+- Archived task count: 86
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: ui design improvements (2026-03-15)
+Latest active task: ranges type (2026-03-19)

@@ -42,9 +42,9 @@ detached.
 - **Integration/e2e tests** require `docker compose up -d` first.
 - **Frontend chunk-gate** defaults are in `harness.config.json`; override with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT`.
 
-## Design Specs
+## Design Docs
 
-Write design/feature specs to `docs/specs/` (e.g., `docs/specs/YYYY-MM-DD-<topic>-design.md`).
+Write design/feature docs to `docs/design/` (e.g., `docs/design/<topic>.md`).
 
 ## Task Workflow
 

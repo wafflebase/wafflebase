@@ -25,6 +25,8 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [rest-api-and-cli.md](rest-api-and-cli.md)             | REST API, API key auth, and CLI — external access, Yorkie service, Go CLI tool                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, screenshot pipeline, build & deployment                      |
 | [cli-oauth-login.md](cli-oauth-login.md)               | CLI OAuth login — browser-based GitHub auth, JWT session storage, workspace context switching      |
+| [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
+| [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
 
 ## Template
 
@@ -33,7 +35,7 @@ Design documents use YAML frontmatter and follow this structure:
 ```markdown
 ---
 title: feature-name
-target-version: 0.1.0
+target-version: 0.2.0
 ---
 
 # Feature Name
