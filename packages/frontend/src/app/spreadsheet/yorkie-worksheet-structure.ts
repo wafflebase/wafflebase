@@ -12,6 +12,9 @@ import {
   shiftFormula,
   shiftMergeMap,
   shiftRangeStylePatches,
+  safeWorksheetRecordEntries,
+  safeWorksheetRecordKeys,
+  safeWorksheetRecordValues,
   shiftSref,
   toSref,
   writeWorksheetCell,
@@ -31,7 +34,7 @@ type NormalizeCell = (cell: Cell) => Cell | null;
 
 function toIndexedMap<T>(record: Record<string, T>): Map<number, T> {
   return new Map(
-    Object.entries(record).map(([key, value]) => [Number(key), value]),
+    safeWorksheetRecordEntries(record).map(([key, value]) => [Number(key), value]),
   );
 }
 
@@ -39,7 +42,7 @@ function replaceIndexedRecord<T>(
   record: Record<string, T>,
   next: Map<number, T>,
 ): void {
-  for (const key of Object.keys(record)) {
+  for (const key of safeWorksheetRecordKeys(record)) {
     delete record[key];
   }
 
@@ -83,7 +86,7 @@ function shiftChartAnchors(
     return;
   }
 
-  for (const chart of Object.values(charts as Record<string, SheetChart>)) {
+  for (const chart of safeWorksheetRecordValues(charts as Record<string, SheetChart>)) {
     const shiftedAnchor = shiftSref(chart.anchor, axis, index, count);
     if (shiftedAnchor) {
       chart.anchor = shiftedAnchor;
@@ -112,7 +115,7 @@ function moveChartAnchors(
     return;
   }
 
-  for (const chart of Object.values(charts as Record<string, SheetChart>)) {
+  for (const chart of safeWorksheetRecordValues(charts as Record<string, SheetChart>)) {
     const nextAnchor = moveRef(
       parseRef(chart.anchor),
       axis,
@@ -171,7 +174,7 @@ export function applyYorkieWorksheetShift(options: {
   replaceMerges(
     ws,
     shiftMergeMap(
-      new Map(Object.entries(ws.merges || {}) as Array<[Sref, MergeSpan]>),
+      new Map(safeWorksheetRecordEntries(ws.merges) as Array<[Sref, MergeSpan]>),
       axis,
       index,
       count,
@@ -232,7 +235,7 @@ export function applyYorkieWorksheetMove(options: {
   replaceMerges(
     ws,
     moveMergeMap(
-      new Map(Object.entries(ws.merges || {}) as Array<[Sref, MergeSpan]>),
+      new Map(safeWorksheetRecordEntries(ws.merges) as Array<[Sref, MergeSpan]>),
       axis,
       srcIndex,
       count,

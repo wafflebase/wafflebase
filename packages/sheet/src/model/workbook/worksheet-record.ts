@@ -60,6 +60,20 @@ export function safeWorksheetRecordEntries<T>(
   }
 }
 
+export function safeWorksheetRecordValues<T>(obj?: Record<string, T>): T[] {
+  if (!obj) {
+    return [];
+  }
+  try {
+    return Object.values(obj);
+  } catch (error) {
+    if (isDuplicateOwnKeysError(error)) {
+      return Object.values(snapshotRecord(obj));
+    }
+    throw error;
+  }
+}
+
 export function createWorksheetAxisId(prefix: 'r' | 'c', index: number): string {
   return `${prefix}${index}`;
 }
