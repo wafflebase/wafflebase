@@ -126,6 +126,7 @@ import {
 import {
   safeWorksheetRecordKeys,
   safeWorksheetRecordEntries,
+  safeWorksheetRecordValues,
   createWorksheetAxisId,
   createWorksheetCellKey,
   parseWorksheetCellKey,
@@ -219,6 +220,7 @@ export {
   replaceWorksheetCells,
   safeWorksheetRecordKeys,
   safeWorksheetRecordEntries,
+  safeWorksheetRecordValues,
   createWorksheetAxisId,
   createWorksheetCellKey,
   parseWorksheetCellKey,

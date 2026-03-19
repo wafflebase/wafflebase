@@ -15,6 +15,7 @@ import {
   cloneRangeStylePatch,
   normalizeRangeStylePatch,
   writeWorksheetCell,
+  safeWorksheetRecordEntries,
 } from "@wafflebase/sheet";
 import type {
   Store,
@@ -591,7 +592,7 @@ export class YorkieStore implements Store {
     const obj = axis === "row" ? ws.rowHeights : ws.colWidths;
     const result = new Map<number, number>();
     if (obj) {
-      for (const [key, value] of Object.entries(obj)) {
+      for (const [key, value] of safeWorksheetRecordEntries(obj)) {
         result.set(Number(key), value);
       }
     }
@@ -635,7 +636,7 @@ export class YorkieStore implements Store {
     const ws = this.getSheet();
     const result = new Map<number, CellStyle>();
     if (ws.colStyles) {
-      for (const [key, value] of Object.entries(ws.colStyles)) {
+      for (const [key, value] of safeWorksheetRecordEntries(ws.colStyles)) {
         result.set(Number(key), value);
       }
     }
@@ -667,7 +668,7 @@ export class YorkieStore implements Store {
     const ws = this.getSheet();
     const result = new Map<number, CellStyle>();
     if (ws.rowStyles) {
-      for (const [key, value] of Object.entries(ws.rowStyles)) {
+      for (const [key, value] of safeWorksheetRecordEntries(ws.rowStyles)) {
         result.set(Number(key), value);
       }
     }
@@ -857,7 +858,7 @@ export class YorkieStore implements Store {
     const ws = this.getSheet();
     const result = new Map<Sref, MergeSpan>();
     if (!ws.merges) return result;
-    for (const [sref, span] of Object.entries(ws.merges)) {
+    for (const [sref, span] of safeWorksheetRecordEntries(ws.merges)) {
       result.set(sref, { ...span });
     }
     return result;
@@ -1060,7 +1061,7 @@ export class YorkieStore implements Store {
 
     const beforeCellKeys = new Set(this.worksheetKeys(this.getSheet()));
     const beforeMerges = new Map<Sref, MergeSpan>(
-      Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
+      safeWorksheetRecordEntries(this.getSheet().merges) as Array<[Sref, MergeSpan]>,
     );
     this.doc.history.undo();
     this.dirty = true;
@@ -1074,7 +1075,7 @@ export class YorkieStore implements Store {
 
     const beforeCellKeys = new Set(this.worksheetKeys(this.getSheet()));
     const beforeMerges = new Map<Sref, MergeSpan>(
-      Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
+      safeWorksheetRecordEntries(this.getSheet().merges) as Array<[Sref, MergeSpan]>,
     );
     this.doc.history.redo();
     this.dirty = true;
@@ -1092,7 +1093,7 @@ export class YorkieStore implements Store {
   ): Range | undefined {
     const afterKeys = new Set(this.worksheetKeys(this.getSheet()));
     const afterMerges = new Map<Sref, MergeSpan>(
-      Object.entries(this.getSheet().merges || {}) as Array<[Sref, MergeSpan]>,
+      safeWorksheetRecordEntries(this.getSheet().merges) as Array<[Sref, MergeSpan]>,
     );
 
     // Find all changed srefs (added, removed, or modified)
