@@ -29,20 +29,24 @@ export class ApiV1TabsController {
     });
     if (!doc) throw new NotFoundException('Document not found');
 
-    return this.yorkieService.withDocument(documentId, (doc) => {
-      const root = doc.getRoot();
-      const tabOrder = root.tabOrder ?? [];
-      const tabs = root.tabs ?? {};
+    return this.yorkieService.withDocument(
+      documentId,
+      (doc) => {
+        const root = doc.getRoot();
+        const tabOrder = root.tabOrder ?? [];
+        const tabs = root.tabs ?? {};
 
-      return tabOrder.map((tabId: string) => {
-        const tab = tabs[tabId];
-        return {
-          id: tabId,
-          name: tab?.name ?? tabId,
-          type: tab?.type ?? 'sheet',
-          kind: tab?.kind,
-        };
-      });
-    });
+        return tabOrder.map((tabId: string) => {
+          const tab = tabs[tabId];
+          return {
+            id: tabId,
+            name: tab?.name ?? tabId,
+            type: tab?.type ?? 'sheet',
+            kind: tab?.kind,
+          };
+        });
+      },
+      { syncMode: 'readonly' },
+    );
   }
 }

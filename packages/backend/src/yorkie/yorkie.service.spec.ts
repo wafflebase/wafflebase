@@ -95,13 +95,59 @@ describe('YorkieService', () => {
       expect(mockDeactivate).toHaveBeenCalled();
     });
 
-    it('deactivates even if detach throws', async () => {
+    it('succeeds even if detach throws (error is swallowed)', async () => {
       mockDetach.mockRejectedValueOnce(new Error('detach failed'));
       const callback = jest.fn().mockReturnValue('ok');
 
+      const result = await service.withDocument('doc-1', callback);
+
+      expect(result).toBe('ok');
+      expect(mockDetach).toHaveBeenCalled();
+      expect(mockDeactivate).toHaveBeenCalled();
+    });
+
+    // === Zombie client prevention tests ===
+
+    it('skips sync for read-only operations', async () => {
+      const callback = jest.fn().mockReturnValue('data');
+
+      const result = await service.withDocument('doc-1', callback, {
+        syncMode: 'readonly',
+      });
+
+      expect(result).toBe('data');
+      expect(mockAttach).toHaveBeenCalled();
+      expect(callback).toHaveBeenCalled();
+      expect(mockSync).not.toHaveBeenCalled();
+      expect(mockDetach).toHaveBeenCalled();
+      expect(mockDeactivate).toHaveBeenCalled();
+    });
+
+    it('swallows detach error to prevent zombie accumulation', async () => {
+      mockSync.mockRejectedValueOnce(new Error('sync failed'));
+      mockDetach.mockRejectedValueOnce(new Error('detach also failed'));
+      const callback = jest.fn().mockReturnValue('ok');
+
+      // Should throw the original sync error, not the detach error
       await expect(service.withDocument('doc-1', callback)).rejects.toThrow(
-        'detach failed',
+        'sync failed',
       );
+      // Detach was attempted despite sync failure
+      expect(mockDetach).toHaveBeenCalled();
+      // Deactivate still runs even when detach fails
+      expect(mockDeactivate).toHaveBeenCalled();
+    });
+
+    it('swallows detach error on callback failure to preserve original error', async () => {
+      mockDetach.mockRejectedValueOnce(new Error('detach failed'));
+      const callback = jest
+        .fn()
+        .mockRejectedValue(new Error('callback error'));
+
+      await expect(service.withDocument('doc-1', callback)).rejects.toThrow(
+        'callback error',
+      );
+      expect(mockDetach).toHaveBeenCalled();
       expect(mockDeactivate).toHaveBeenCalled();
     });
 

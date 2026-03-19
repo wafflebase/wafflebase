@@ -1,10 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import yorkie, { Document, SyncMode } from '@yorkie-js/sdk';
 import { SpreadsheetDocument } from './yorkie.types';
 
+export interface WithDocumentOptions {
+  syncMode?: 'readwrite' | 'readonly';
+}
+
 @Injectable()
 export class YorkieService {
+  private readonly logger = new Logger(YorkieService.name);
   private readonly rpcAddr: string;
   private readonly apiKey?: string;
 
@@ -18,6 +23,7 @@ export class YorkieService {
   async withDocument<T>(
     documentId: string,
     callback: (doc: Document<SpreadsheetDocument>) => T | Promise<T>,
+    options?: WithDocumentOptions,
   ): Promise<T> {
     const client = new yorkie.Client({
       rpcAddr: this.rpcAddr,
@@ -32,13 +38,17 @@ export class YorkieService {
       await client.attach(doc, { syncMode: SyncMode.Manual });
       attached = true;
       const result = await callback(doc);
-      await client.sync(doc);
+      if (options?.syncMode !== 'readonly') {
+        await client.sync(doc);
+      }
       return result;
     } finally {
       try {
         if (attached) {
           await client.detach(doc);
         }
+      } catch (e) {
+        this.logger.warn(`detach failed for ${documentId}: ${e}`);
       } finally {
         await client.deactivate();
       }
