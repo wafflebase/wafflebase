@@ -375,31 +375,33 @@ export function shiftConditionalFormatRules(
       continue;
     }
 
-    const shiftedRanges = normalized.ranges.map((range) => {
-      const shifted =
-        axis === 'row'
-          ? toRange(
-              {
-                r: shiftBoundary(range[0].r, index, count),
-                c: range[0].c,
-              },
-              {
-                r: shiftBoundary(range[1].r, index, count),
-                c: range[1].c,
-              },
-            )
-          : toRange(
-              {
-                r: range[0].r,
-                c: shiftBoundary(range[0].c, index, count),
-              },
-              {
-                r: range[1].r,
-                c: shiftBoundary(range[1].c, index, count),
-              },
-            );
-      return clampRange(shifted);
-    });
+    const shiftedRanges = normalized.ranges
+      .map((range) => {
+        const shifted =
+          axis === 'row'
+            ? toRange(
+                {
+                  r: shiftBoundary(range[0].r, index, count),
+                  c: range[0].c,
+                },
+                {
+                  r: shiftBoundary(range[1].r, index, count),
+                  c: range[1].c,
+                },
+              )
+            : toRange(
+                {
+                  r: range[0].r,
+                  c: shiftBoundary(range[0].c, index, count),
+                },
+                {
+                  r: range[1].r,
+                  c: shiftBoundary(range[1].c, index, count),
+                },
+              );
+        return clampRange(shifted);
+      })
+      .filter((r) => r[0].r <= r[1].r && r[0].c <= r[1].c);
 
     if (shiftedRanges.length === 0) {
       continue;
@@ -430,31 +432,33 @@ export function moveConditionalFormatRules(
       continue;
     }
 
-    const movedRanges = normalized.ranges.map((range) => {
-      const moved =
-        axis === 'row'
-          ? toRange(
-              {
-                r: remapIndex(range[0].r, src, count, dst),
-                c: range[0].c,
-              },
-              {
-                r: remapIndex(range[1].r, src, count, dst),
-                c: range[1].c,
-              },
-            )
-          : toRange(
-              {
-                r: range[0].r,
-                c: remapIndex(range[0].c, src, count, dst),
-              },
-              {
-                r: range[1].r,
-                c: remapIndex(range[1].c, src, count, dst),
-              },
-            );
-      return clampRange(moved);
-    });
+    const movedRanges = normalized.ranges
+      .map((range) => {
+        const moved =
+          axis === 'row'
+            ? toRange(
+                {
+                  r: remapIndex(range[0].r, src, count, dst),
+                  c: range[0].c,
+                },
+                {
+                  r: remapIndex(range[1].r, src, count, dst),
+                  c: range[1].c,
+                },
+              )
+            : toRange(
+                {
+                  r: range[0].r,
+                  c: remapIndex(range[0].c, src, count, dst),
+                },
+                {
+                  r: range[1].r,
+                  c: remapIndex(range[1].c, src, count, dst),
+                },
+              );
+        return clampRange(moved);
+      })
+      .filter((r) => r[0].r <= r[1].r && r[0].c <= r[1].c);
 
     if (movedRanges.length === 0) {
       continue;
