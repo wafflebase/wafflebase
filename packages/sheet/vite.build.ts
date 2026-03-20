@@ -14,8 +14,9 @@ export default defineConfig({
     },
     rollupOptions: {
       // Keep Node built-ins external so antlr4ts can use util.inspect.custom
-      // at runtime. The frontend imports sheet from source, not this bundle.
-      external: ['util'],
+      // and assert at runtime without browser-compat warnings.
+      // The frontend imports sheet from source, not this bundle.
+      external: ['assert', 'util'],
     },
   },
   plugins: [
