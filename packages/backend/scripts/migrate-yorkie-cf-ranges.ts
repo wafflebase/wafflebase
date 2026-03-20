@@ -8,6 +8,7 @@ type DbDocument = {
 
 type CliOptions = {
   documentIds: string[];
+  yorkieKeys: string[];
   processAll: boolean;
   limit?: number;
 };
@@ -22,9 +23,15 @@ type MigrationSummary = {
 function printUsage(): void {
   console.log(`Usage:
   pnpm --filter @wafflebase/backend migrate:yorkie:cf-ranges --document <id> [--document <id> ...]
+  pnpm --filter @wafflebase/backend migrate:yorkie:cf-ranges --yorkie-key <key> [--yorkie-key <key> ...]
   pnpm --filter @wafflebase/backend migrate:yorkie:cf-ranges --all [--limit <count>]
 
 Migrates conditional format rules from single 'range' field to 'ranges' array.
+
+Options:
+  --document <id>    Migrate by database document ID (prefixes with "sheet-")
+  --yorkie-key <key> Migrate by raw Yorkie document key (e.g. "sheet-xxx")
+  --all              Migrate all documents in the database
 
 Notes:
   - This command attaches Yorkie documents directly. It does not provide a side-effect-free dry-run.
@@ -34,6 +41,7 @@ Notes:
 function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     documentIds: [],
+    yorkieKeys: [],
     processAll: false,
   };
 
@@ -51,6 +59,16 @@ function parseArgs(argv: string[]): CliOptions {
         throw new Error('Missing value after --document');
       }
       options.documentIds.push(value);
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--yorkie-key') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error('Missing value after --yorkie-key');
+      }
+      options.yorkieKeys.push(value);
       index += 1;
       continue;
     }
@@ -73,12 +91,12 @@ function parseArgs(argv: string[]): CliOptions {
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  if (!options.processAll && options.documentIds.length === 0) {
-    throw new Error('Pass --document <id> or --all to select documents');
+  if (!options.processAll && options.documentIds.length === 0 && options.yorkieKeys.length === 0) {
+    throw new Error('Pass --document <id>, --yorkie-key <key>, or --all to select documents');
   }
 
-  if (options.processAll && options.documentIds.length > 0) {
-    throw new Error('Use either --document or --all, not both');
+  if (options.processAll && (options.documentIds.length > 0 || options.yorkieKeys.length > 0)) {
+    throw new Error('Use either --document/--yorkie-key or --all, not both');
   }
 
   return options;
@@ -116,18 +134,23 @@ function migrateConditionalFormatRanges(
   let changed = false;
   for (const worksheet of Object.values(sheets)) {
     const rules = worksheet.conditionalFormats as
-      | Array<Record<string, unknown>>
+      | { length: number; [index: number]: Record<string, unknown> }
       | undefined;
-    if (!rules || !Array.isArray(rules)) {
+    if (!rules || typeof rules.length !== 'number') {
       continue;
     }
 
-    for (const rule of rules) {
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      // Yorkie CRDT proxy: 'in' operator doesn't work, use direct access
       if (rule.ranges) {
         continue;
       }
-      if (rule.range) {
-        rule.ranges = [rule.range];
+      const range = rule.range;
+      if (range) {
+        // Unwrap CRDT proxy to plain JS, then wrap as ranges array
+        const plainRange = JSON.parse(JSON.stringify(range));
+        rule.ranges = [plainRange];
         delete rule.range;
         changed = true;
       }
@@ -137,13 +160,11 @@ function migrateConditionalFormatRanges(
   return changed;
 }
 
-async function migrateDocument(
+async function migrateDocumentByKey(
   client: Client,
-  documentId: string,
+  yorkieKey: string,
 ): Promise<{ changed: boolean }> {
-  const doc = new yorkie.Document<Record<string, unknown>>(
-    `sheet-${documentId}`,
-  );
+  const doc = new yorkie.Document<Record<string, unknown>>(yorkieKey);
   await client.attach(doc, { syncMode: SyncMode.Manual });
 
   try {
@@ -164,9 +185,30 @@ async function migrateDocument(
   }
 }
 
+async function processYorkieKey(
+  client: Client,
+  yorkieKey: string,
+  summary: MigrationSummary,
+): Promise<void> {
+  try {
+    const result = await migrateDocumentByKey(client, yorkieKey);
+    summary.processed += 1;
+    if (result.changed) {
+      summary.changed += 1;
+      console.log(`migrated ${yorkieKey}`);
+    } else {
+      summary.unchanged += 1;
+      console.log(`current ${yorkieKey}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    summary.failures.push(`${yorkieKey}: ${message}`);
+    console.error(`failed ${yorkieKey} ${message}`);
+  }
+}
+
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const prisma = new PrismaClient();
   const rpcAddr = process.env.YORKIE_RPC_ADDR ?? 'http://localhost:8080';
   const apiKey = process.env.YORKIE_API_KEY;
   const client = new yorkie.Client({ rpcAddr, apiKey });
@@ -180,45 +222,43 @@ async function main(): Promise<void> {
   await client.activate();
 
   try {
-    const documents = await loadDocuments(prisma, options);
+    // Collect all Yorkie keys to process
+    const yorkieKeys: string[] = [...options.yorkieKeys];
 
-    if (documents.length === 0) {
-      console.log('No documents matched the requested scope.');
+    if (options.processAll || options.documentIds.length > 0) {
+      const prisma = new PrismaClient();
+      try {
+        const documents = await loadDocuments(prisma, options);
+
+        if (documents.length === 0 && options.yorkieKeys.length === 0) {
+          console.log('No documents matched the requested scope.');
+          return;
+        }
+
+        const foundIds = new Set(documents.map((document) => document.id));
+        for (const requestedId of options.documentIds) {
+          if (!foundIds.has(requestedId)) {
+            console.warn(`Missing database document: ${requestedId}`);
+          }
+        }
+
+        for (const document of documents) {
+          yorkieKeys.push(`sheet-${document.id}`);
+        }
+      } finally {
+        await prisma.$disconnect();
+      }
+    }
+
+    if (yorkieKeys.length === 0) {
+      console.log('No documents to process.');
       return;
     }
 
-    const foundIds = new Set(documents.map((document) => document.id));
-    for (const requestedId of options.documentIds) {
-      if (!foundIds.has(requestedId)) {
-        console.warn(`Missing database document: ${requestedId}`);
-      }
-    }
+    console.log(`Processing ${yorkieKeys.length} document(s)...`);
 
-    console.log(`Processing ${documents.length} document(s)...`);
-
-    for (const document of documents) {
-      try {
-        const result = await migrateDocument(client, document.id);
-        summary.processed += 1;
-        if (result.changed) {
-          summary.changed += 1;
-          console.log(
-            `migrated ${document.id} ${JSON.stringify(document.title)}`,
-          );
-        } else {
-          summary.unchanged += 1;
-          console.log(
-            `current ${document.id} ${JSON.stringify(document.title)}`,
-          );
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
-        summary.failures.push(`${document.id}: ${message}`);
-        console.error(
-          `failed ${document.id} ${JSON.stringify(document.title)} ${message}`,
-        );
-      }
+    for (const yorkieKey of yorkieKeys) {
+      await processYorkieKey(client, yorkieKey, summary);
     }
 
     console.log('');
@@ -236,7 +276,6 @@ async function main(): Promise<void> {
     }
   } finally {
     await client.deactivate();
-    await prisma.$disconnect();
   }
 }
 
