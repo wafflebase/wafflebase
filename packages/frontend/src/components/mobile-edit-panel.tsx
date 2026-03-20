@@ -38,7 +38,7 @@ export function MobileEditPanel({
   useEffect(() => {
     const el = textareaRef.current;
     if (el) {
-      el.focus();
+      el.focus({ preventScroll: true });
       el.setSelectionRange(0, el.value.length);
       autoGrow();
     }
@@ -63,7 +63,7 @@ export function MobileEditPanel({
       className="fixed inset-x-0 z-50 border-t bg-background px-2 py-1.5 shadow-lg"
       style={{
         bottom: keyboardOffset,
-        paddingBottom: `max(env(safe-area-inset-bottom, 0px), 6px)`,
+        paddingBottom: keyboardOffset > 0 ? 6 : `max(env(safe-area-inset-bottom, 0px), 6px)`,
       }}
     >
       <div className="flex items-start gap-2">
