@@ -97,6 +97,7 @@ interface FormattingToolbarProps {
   onOpenConditionalFormat?: () => void;
   onTogglePaintFormat?: () => void;
   paintFormatActive?: boolean;
+  isPivotTab?: boolean;
 }
 
 /**
@@ -108,6 +109,7 @@ export function FormattingToolbar({
   onOpenConditionalFormat,
   onTogglePaintFormat,
   paintFormatActive = false,
+  isPivotTab = false,
 }: FormattingToolbarProps) {
   const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
@@ -613,7 +615,7 @@ export function FormattingToolbar({
               selectionMerged ? "bg-muted" : ""
             }`}
             onClick={handleToggleMerge}
-            disabled={!selectionMerged && !canMerge}
+            disabled={isPivotTab || (!selectionMerged && !canMerge)}
             aria-label={selectionMerged ? "Unmerge cells" : "Merge cells"}
           >
             <IconTableAlias size={16} />
