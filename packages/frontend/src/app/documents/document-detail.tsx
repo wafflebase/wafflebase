@@ -73,6 +73,16 @@ type PeerJumpTarget = {
 
 function DocumentLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
+
+  // Clean up stale pointer-events on body left by Radix Sheet from a
+  // previous route (e.g. Layout's mobile sidebar unmounting mid-animation).
+  useEffect(() => {
+    document.body.style.removeProperty("pointer-events");
+    return () => {
+      document.body.style.removeProperty("pointer-events");
+    };
+  }, []);
+
   const queryClient = useQueryClient();
   const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
