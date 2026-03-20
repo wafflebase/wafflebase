@@ -5,7 +5,7 @@ import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 /**
  * Renders the root app layout and providers.
@@ -78,6 +78,17 @@ export default function Layout() {
   ) {
     title = "Settings";
   }
+
+  // Clean up stale pointer-events style on body when Layout unmounts.
+  // Radix UI Sheet (mobile sidebar) sets pointer-events: none on <body>
+  // while open. If Layout unmounts during the Sheet close animation
+  // (e.g. navigating to /:id which is outside Layout), the cleanup
+  // callback never fires and clicks stay blocked permanently.
+  useEffect(() => {
+    return () => {
+      document.body.style.removeProperty("pointer-events");
+    };
+  }, []);
 
   const handleWorkspaceChange = (slug: string) => {
     navigate(`/w/${slug}`);
