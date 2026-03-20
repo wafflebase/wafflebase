@@ -3389,6 +3389,7 @@ export class Sheet {
    * `canMergeSelection` returns whether current selection can be merged.
    */
   canMergeSelection(): boolean {
+    if (this.pivotDefinition) return false;
     if (this.selectionType !== 'cell') return false;
     const selection = this.getRangeOrActiveCell();
     const isCollapsed =
@@ -3420,6 +3421,7 @@ export class Sheet {
    * `mergeSelection` merges the current cell selection.
    */
   async mergeSelection(): Promise<boolean> {
+    if (this.pivotDefinition) return false;
     if (!this.canMergeSelection()) return false;
 
     const range = this.getRangeOrActiveCell();
@@ -3470,6 +3472,7 @@ export class Sheet {
    * `unmergeSelection` removes merged blocks intersecting current selection.
    */
   async unmergeSelection(): Promise<boolean> {
+    if (this.pivotDefinition) return false;
     if (this.selectionType !== 'cell') return false;
 
     const selection = this.getRangeOrActiveCell();

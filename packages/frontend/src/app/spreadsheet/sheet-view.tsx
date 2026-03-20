@@ -879,6 +879,7 @@ export function SheetView({
       {!readOnly && (
         <FormattingToolbar
           spreadsheet={sheetRef.current}
+          isPivotTab={isPivotTab}
           onInsertChart={handleInsertChart}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {

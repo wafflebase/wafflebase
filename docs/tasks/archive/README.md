@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 86
+Total archived tasks: 87
 
-## 2026/03 (49 tasks)
+## 2026/03 (50 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pivot merge block (2026-03-20) | [20260320-pivot-merge-block-todo.md](./2026/03/20260320-pivot-merge-block-todo.md) | - |
 | concurrency move tests (2026-03-16) | [20260316-concurrency-move-tests-todo.md](./2026/03/20260316-concurrency-move-tests-todo.md) | [20260316-concurrency-move-tests-lessons.md](./2026/03/20260316-concurrency-move-tests-lessons.md) |
 | cli oauth login (2026-03-15) | [20260315-cli-oauth-login-todo.md](./2026/03/20260315-cli-oauth-login-todo.md) | - |
 | cross sheet cycle (2026-03-15) | [20260315-cross-sheet-cycle-todo.md](./2026/03/20260315-cross-sheet-cycle-todo.md) | - |

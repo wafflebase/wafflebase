@@ -105,6 +105,40 @@ describe('Pivot sheet protection', () => {
     expect(cell?.v).toBe('D');
   });
 
+  it('blocks mergeSelection on pivot sheets', async () => {
+    const store = new MemStore();
+    await store.setPivotDefinition(pivotDef);
+    const sheet = new Sheet(store);
+    await sheet.loadPivotDefinition();
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    const result = await sheet.mergeSelection();
+    expect(result).toBe(false);
+  });
+
+  it('blocks unmergeSelection on pivot sheets', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    await sheet.mergeSelection();
+
+    await store.setPivotDefinition(pivotDef);
+    await sheet.loadPivotDefinition();
+    const result = await sheet.unmergeSelection();
+    expect(result).toBe(false);
+  });
+
+  it('canMergeSelection returns false on pivot sheets', async () => {
+    const store = new MemStore();
+    await store.setPivotDefinition(pivotDef);
+    const sheet = new Sheet(store);
+    await sheet.loadPivotDefinition();
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    expect(sheet.canMergeSelection()).toBe(false);
+  });
+
   it('allows normal sheets to edit cells', async () => {
     const store = new MemStore();
     const sheet = new Sheet(store);
