@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
@@ -12,7 +12,14 @@ import {
   initialSpreadsheetDocument,
 } from "@/types/worksheet";
 import type { UserPresence as UserPresenceType } from "@/types/users";
+import { UserPresence } from "@/components/user-presence";
 import { IconDatabase, IconTable } from "@tabler/icons-react";
+
+type PeerJumpTarget = {
+  activeCell: NonNullable<UserPresenceType["activeCell"]>;
+  targetTabId?: UserPresenceType["activeTabId"];
+  requestId: number;
+};
 
 const DataSourceView = lazy(() =>
   import("@/app/spreadsheet/datasource-view").then((module) => ({
@@ -28,6 +35,8 @@ function SharedDocumentLayout({
   const readOnly = resolved.role === "viewer";
   const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [peerJumpTarget, setPeerJumpTarget] = useState<PeerJumpTarget | null>(null);
+  const jumpRequestSeq = useRef(0);
   const root = doc?.getRoot();
   const tabs: TabMeta[] = useMemo(
     () =>
@@ -37,6 +46,27 @@ function SharedDocumentLayout({
             .filter(Boolean)
         : [],
     [root]
+  );
+
+  const handleSelectPresenceCell = useCallback(
+    (
+      activeCell: NonNullable<UserPresenceType["activeCell"]>,
+      peerActiveTabId?: UserPresenceType["activeTabId"],
+    ) => {
+      if (!doc || !activeCell) return;
+
+      if (peerActiveTabId && peerActiveTabId !== activeTabId) {
+        setActiveTabId(peerActiveTabId);
+      }
+
+      jumpRequestSeq.current += 1;
+      setPeerJumpTarget({
+        activeCell,
+        targetTabId: peerActiveTabId,
+        requestId: jumpRequestSeq.current,
+      });
+    },
+    [doc, activeTabId],
   );
 
   useEffect(() => {
@@ -62,13 +92,16 @@ function SharedDocumentLayout({
 
   return (
     <div className="flex h-screen w-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
-        <h1 className="text-base font-medium">{resolved.title}</h1>
-        {readOnly && (
-          <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-            View only
-          </span>
-        )}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-base font-medium">{resolved.title}</h1>
+          {readOnly && (
+            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              View only
+            </span>
+          )}
+        </div>
+        <UserPresence onSelectActiveCell={handleSelectPresenceCell} />
       </header>
       <div className="flex flex-1 flex-col">
         <div className="flex flex-1 flex-col">
@@ -76,7 +109,7 @@ function SharedDocumentLayout({
             {activeTab?.type === "datasource" ? (
               <DataSourceView tabId={activeTabId} readOnly={readOnly} />
             ) : (
-              <SheetView tabId={activeTabId} readOnly={readOnly} />
+              <SheetView tabId={activeTabId} readOnly={readOnly} peerJumpTarget={peerJumpTarget} />
             )}
           </Suspense>
         </div>
