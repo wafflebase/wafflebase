@@ -30,7 +30,7 @@ export function DemoSection() {
           <div className="size-2.5 rounded-full bg-[#FEBC2E]" />
           <div className="size-2.5 rounded-full bg-[#28C840]" />
         </div>
-        <div className="w-full aspect-video relative">
+        <div className="w-full aspect-[4/3] md:aspect-video relative">
           {!loaded && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted gap-3">
               <div className="size-6 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />

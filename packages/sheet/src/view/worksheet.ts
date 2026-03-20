@@ -382,6 +382,15 @@ export class Worksheet {
     this.primeCellInputForSelection();
   }
 
+  /**
+   * `autoResizeActiveRow` auto-resizes the active cell's row to fit content.
+   * Used by external editors (e.g. mobile edit panel) after committing a value.
+   */
+  public async autoResizeActiveRow(): Promise<void> {
+    if (!this.sheet) return;
+    await this.autoResizeRow(this.sheet.getActiveCell().r);
+  }
+
   public cleanup() {
     if (this.pendingRenderFrame !== null) {
       cancelAnimationFrame(this.pendingRenderFrame);
@@ -4520,7 +4529,7 @@ export class Worksheet {
       layout.height,
       layout.maxWidth,
       layout.maxHeight,
-      !!this.mobileEditCallback,
+      !!this.mobileEditCallback || this.showMobileHandles,
     );
     this.cellInput.setCellPositionHint(undefined);
   }
