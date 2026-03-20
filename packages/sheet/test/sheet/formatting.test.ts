@@ -673,9 +673,11 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     await sheet.setConditionalFormats([
       {
         id: 'rule-1',
-        range: [
-          { r: 1, c: 1 },
-          { r: 10, c: 1 },
+        ranges: [
+          [
+            { r: 1, c: 1 },
+            { r: 10, c: 1 },
+          ],
         ],
         op: 'isNotEmpty',
         style: { bg: '#fff59d' },
@@ -685,9 +687,11 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     expect(sheet.getConditionalFormats()).toEqual([
       {
         id: 'rule-1',
-        range: [
-          { r: 1, c: 1 },
-          { r: 10, c: 1 },
+        ranges: [
+          [
+            { r: 1, c: 1 },
+            { r: 10, c: 1 },
+          ],
         ],
         op: 'isNotEmpty',
         style: { bg: '#fff59d' },
@@ -696,9 +700,11 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     expect(await store.getConditionalFormats()).toEqual([
       {
         id: 'rule-1',
-        range: [
-          { r: 1, c: 1 },
-          { r: 10, c: 1 },
+        ranges: [
+          [
+            { r: 1, c: 1 },
+            { r: 10, c: 1 },
+          ],
         ],
         op: 'isNotEmpty',
         style: { bg: '#fff59d' },
@@ -713,9 +719,11 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     await sheet.setConditionalFormats([
       {
         id: 'rule-1',
-        range: [
-          { r: 2, c: 1 },
-          { r: 4, c: 2 },
+        ranges: [
+          [
+            { r: 2, c: 1 },
+            { r: 4, c: 2 },
+          ],
         ],
         op: 'greaterThan',
         value: '10',
@@ -724,15 +732,19 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     ]);
 
     await sheet.insertRows(3, 2);
-    expect(sheet.getConditionalFormats()[0].range).toEqual([
-      { r: 2, c: 1 },
-      { r: 6, c: 2 },
+    expect(sheet.getConditionalFormats()[0].ranges).toEqual([
+      [
+        { r: 2, c: 1 },
+        { r: 6, c: 2 },
+      ],
     ]);
 
     await sheet.deleteRows(2, 1);
-    expect(sheet.getConditionalFormats()[0].range).toEqual([
-      { r: 2, c: 1 },
-      { r: 5, c: 2 },
+    expect(sheet.getConditionalFormats()[0].ranges).toEqual([
+      [
+        { r: 2, c: 1 },
+        { r: 5, c: 2 },
+      ],
     ]);
   });
 
@@ -743,9 +755,11 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     await sheet.setConditionalFormats([
       {
         id: 'rule-1',
-        range: [
-          { r: 1, c: 2 },
-          { r: 3, c: 4 },
+        ranges: [
+          [
+            { r: 1, c: 2 },
+            { r: 3, c: 4 },
+          ],
         ],
         op: 'textContains',
         value: 'todo',
@@ -754,9 +768,11 @@ describe('Sheet.ColumnRowSheetStyles', () => {
     ]);
 
     await sheet.moveColumns(2, 1, 6);
-    expect(sheet.getConditionalFormats()[0].range).toEqual([
-      { r: 1, c: 3 },
-      { r: 3, c: 5 },
+    expect(sheet.getConditionalFormats()[0].ranges).toEqual([
+      [
+        { r: 1, c: 3 },
+        { r: 3, c: 5 },
+      ],
     ]);
   });
 });

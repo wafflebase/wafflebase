@@ -44,7 +44,7 @@ test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", (
   worksheet.conditionalFormats = [
     {
       id: "cf-1",
-      range: [{ r: 2, c: 1 }, { r: 2, c: 1 }],
+      ranges: [[{ r: 2, c: 1 }, { r: 2, c: 1 }]],
       op: "greaterThan",
       value: "0",
       style: { bg: "#ff0000" },
@@ -87,7 +87,7 @@ test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", (
   assert.deepEqual(worksheet.conditionalFormats, [
     {
       id: "cf-1",
-      range: [{ r: 3, c: 1 }, { r: 3, c: 1 }],
+      ranges: [[{ r: 3, c: 1 }, { r: 3, c: 1 }]],
       op: "greaterThan",
       value: "0",
       style: { bg: "#ff0000" },
@@ -114,7 +114,7 @@ test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", ()
   worksheet.conditionalFormats = [
     {
       id: "cf-2",
-      range: [{ r: 1, c: 1 }, { r: 1, c: 1 }],
+      ranges: [[{ r: 1, c: 1 }, { r: 1, c: 1 }]],
       op: "greaterThan",
       value: "0",
       style: { bg: "#00ff00" },
@@ -158,7 +158,7 @@ test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", ()
   assert.deepEqual(worksheet.conditionalFormats, [
     {
       id: "cf-2",
-      range: [{ r: 2, c: 1 }, { r: 2, c: 1 }],
+      ranges: [[{ r: 2, c: 1 }, { r: 2, c: 1 }]],
       op: "greaterThan",
       value: "0",
       style: { bg: "#00ff00" },

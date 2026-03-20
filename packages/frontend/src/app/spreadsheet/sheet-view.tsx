@@ -396,9 +396,11 @@ export function SheetView({
     if (!sheet) return null;
     if (sheet.getSelectionType() !== "cell") return null;
 
-    const range = sheet.getSelectionRangeOrActiveCell();
-    if (!range) return null;
-    return `${toSref(range[0])}:${toSref(range[1])}`;
+    const ranges = sheet.getSelectionRanges();
+    if (ranges.length === 0) return null;
+    return ranges
+      .map((r) => `${toSref(r[0])}:${toSref(r[1])}`)
+      .join(", ");
   }, []);
 
   const handleGridPointerDown = useCallback(
