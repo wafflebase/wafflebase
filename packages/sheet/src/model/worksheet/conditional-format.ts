@@ -184,7 +184,7 @@ export function cloneConditionalFormatRule(
 ): ConditionalFormatRule {
   const cloned: ConditionalFormatRule = {
     id: rule.id,
-    range: cloneRange(rule.range),
+    ranges: rule.ranges.map((r) => cloneRange(r)),
     op: rule.op,
     style: { ...rule.style },
   };
@@ -220,9 +220,20 @@ export function normalizeConditionalFormatRule(
     return undefined;
   }
 
+  // Backward-compat: accept legacy single-range documents
+  const rawRanges: Range[] | undefined =
+    rule.ranges ??
+    ((rule as Record<string, unknown>).range
+      ? [(rule as Record<string, unknown>).range as Range]
+      : undefined);
+  if (!rawRanges || rawRanges.length === 0) {
+    return undefined;
+  }
+  const normalizedRanges = rawRanges.map((r) => normalizeRange(r));
+
   const normalized: ConditionalFormatRule = {
     id,
-    range: normalizeRange(rule.range),
+    ranges: normalizedRanges,
     op,
     style,
   };
@@ -336,7 +347,7 @@ export function resolveConditionalFormatStyleAt(
   let resolved: ConditionalFormatStyle | undefined;
 
   for (const rule of rules) {
-    if (!inRange(point, rule.range)) {
+    if (!rule.ranges.some((r) => inRange(point, r))) {
       continue;
     }
     if (!matchesConditionalFormatRule(value, rule)) {
@@ -364,32 +375,39 @@ export function shiftConditionalFormatRules(
       continue;
     }
 
-    const range = normalized.range;
-    const shifted = axis === 'row'
-      ? toRange(
-          {
-            r: shiftBoundary(range[0].r, index, count),
-            c: range[0].c,
-          },
-          {
-            r: shiftBoundary(range[1].r, index, count),
-            c: range[1].c,
-          },
-        )
-      : toRange(
-          {
-            r: range[0].r,
-            c: shiftBoundary(range[0].c, index, count),
-          },
-          {
-            r: range[1].r,
-            c: shiftBoundary(range[1].c, index, count),
-          },
-        );
+    const shiftedRanges = normalized.ranges.map((range) => {
+      const shifted =
+        axis === 'row'
+          ? toRange(
+              {
+                r: shiftBoundary(range[0].r, index, count),
+                c: range[0].c,
+              },
+              {
+                r: shiftBoundary(range[1].r, index, count),
+                c: range[1].c,
+              },
+            )
+          : toRange(
+              {
+                r: range[0].r,
+                c: shiftBoundary(range[0].c, index, count),
+              },
+              {
+                r: range[1].r,
+                c: shiftBoundary(range[1].c, index, count),
+              },
+            );
+      return clampRange(shifted);
+    });
+
+    if (shiftedRanges.length === 0) {
+      continue;
+    }
 
     next.push({
       ...cloneConditionalFormatRule(normalized),
-      range: clampRange(shifted),
+      ranges: shiftedRanges,
     });
   }
   return next;
@@ -412,20 +430,39 @@ export function moveConditionalFormatRules(
       continue;
     }
 
-    const range = normalized.range;
-    const moved = axis === 'row'
-      ? toRange(
-          { r: remapIndex(range[0].r, src, count, dst), c: range[0].c },
-          { r: remapIndex(range[1].r, src, count, dst), c: range[1].c },
-        )
-      : toRange(
-          { r: range[0].r, c: remapIndex(range[0].c, src, count, dst) },
-          { r: range[1].r, c: remapIndex(range[1].c, src, count, dst) },
-        );
+    const movedRanges = normalized.ranges.map((range) => {
+      const moved =
+        axis === 'row'
+          ? toRange(
+              {
+                r: remapIndex(range[0].r, src, count, dst),
+                c: range[0].c,
+              },
+              {
+                r: remapIndex(range[1].r, src, count, dst),
+                c: range[1].c,
+              },
+            )
+          : toRange(
+              {
+                r: range[0].r,
+                c: remapIndex(range[0].c, src, count, dst),
+              },
+              {
+                r: range[1].r,
+                c: remapIndex(range[1].c, src, count, dst),
+              },
+            );
+      return clampRange(moved);
+    });
+
+    if (movedRanges.length === 0) {
+      continue;
+    }
 
     next.push({
       ...cloneConditionalFormatRule(normalized),
-      range: clampRange(moved),
+      ranges: movedRanges,
     });
   }
   return next;

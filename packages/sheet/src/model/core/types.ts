@@ -130,7 +130,7 @@ export type ConditionalFormatStyle = Partial<
  */
 export type ConditionalFormatRule = {
   id: string;
-  range: Range;
+  ranges: Range[];
   op: ConditionalFormatOperator;
   value?: string;
   value2?: string;

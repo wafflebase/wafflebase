@@ -22,7 +22,8 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migrate": "prisma migrate dev --name init",
-    "migrate:yorkie:worksheet-shape": "tsx scripts/migrate-yorkie-worksheet-shape.ts"
+    "migrate:yorkie:worksheet-shape": "tsx scripts/migrate-yorkie-worksheet-shape.ts",
+    "migrate:yorkie:cf-ranges": "tsx scripts/migrate-yorkie-cf-ranges.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.0",
