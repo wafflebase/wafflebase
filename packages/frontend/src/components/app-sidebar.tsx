@@ -14,6 +14,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
@@ -54,6 +55,7 @@ export function AppSidebar({
   currentWorkspace?: Workspace;
   onWorkspaceChange?: (id: string) => void;
 }) {
+  const { setOpenMobile, isMobile } = useSidebar();
   const { data: me, isLoading } = useQuery({
     queryKey: ["me"],
     queryFn: fetchMe,
@@ -115,7 +117,10 @@ export function AppSidebar({
                   {workspaces.map((ws) => (
                     <DropdownMenuItem
                       key={ws.id}
-                      onClick={() => onWorkspaceChange?.(ws.slug)}
+                      onClick={() => {
+                        onWorkspaceChange?.(ws.slug);
+                        if (isMobile) setOpenMobile(false);
+                      }}
                       className={
                         ws.id === currentWorkspace?.id ? "bg-accent" : ""
                       }

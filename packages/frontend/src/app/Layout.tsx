@@ -80,13 +80,7 @@ export default function Layout() {
   }
 
   const handleWorkspaceChange = (slug: string) => {
-    if (location.pathname.endsWith("/datasources")) {
-      navigate(`/w/${slug}/datasources`);
-    } else if (location.pathname.endsWith("/settings")) {
-      navigate(`/w/${slug}/settings`);
-    } else {
-      navigate(`/w/${slug}`);
-    }
+    navigate(`/w/${slug}`);
   };
 
   return (
