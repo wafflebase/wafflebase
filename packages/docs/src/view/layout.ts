@@ -63,11 +63,11 @@ interface MeasuredSegment {
 export function computeLayout(
   blocks: Block[],
   ctx: CanvasRenderingContext2D,
-  canvasWidth: number,
+  contentWidth: number,
 ): DocumentLayout {
-  const availableWidth = canvasWidth - Theme.pagePaddingX * 2;
+  const availableWidth = contentWidth;
   const layoutBlocks: LayoutBlock[] = [];
-  let y = Theme.pagePaddingTop;
+  let y = 0;
 
   for (const block of blocks) {
     y += block.style.marginTop;
@@ -91,7 +91,7 @@ export function computeLayout(
 
     const layoutBlock_: LayoutBlock = {
       block,
-      x: Theme.pagePaddingX,
+      x: 0,
       y,
       width: availableWidth,
       height: blockHeight,

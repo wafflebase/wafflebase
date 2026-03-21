@@ -32,7 +32,7 @@ export class DocCanvas {
     const { width, height } = this.canvas;
 
     // Clear
-    this.ctx.fillStyle = Theme.backgroundColor;
+    this.ctx.fillStyle = Theme.pageBackground;
     this.ctx.fillRect(0, 0, width, height);
 
     this.ctx.save();
