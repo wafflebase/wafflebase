@@ -78,7 +78,7 @@ export class Cursor {
         y: pageY + pageLine.y, height: pageLine.line.height, visible: this.visible,
       };
     }
-    return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: 24, visible: this.visible };
+    return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: pageLine.line.height, visible: this.visible };
   }
 
   /**

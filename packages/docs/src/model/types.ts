@@ -176,7 +176,12 @@ export const DEFAULT_PAGE_SETUP: PageSetup = {
 };
 
 export function resolvePageSetup(setup: PageSetup | undefined): PageSetup {
-  return setup ?? DEFAULT_PAGE_SETUP;
+  const resolved = setup ?? DEFAULT_PAGE_SETUP;
+  return {
+    paperSize: { ...resolved.paperSize },
+    orientation: resolved.orientation,
+    margins: { ...resolved.margins },
+  };
 }
 
 export function getEffectiveDimensions(setup: PageSetup): { width: number; height: number } {
