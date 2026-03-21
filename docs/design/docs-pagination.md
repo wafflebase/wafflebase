@@ -39,7 +39,7 @@ minimal.
 
 ### PageSetup
 
-Added to `model/types.ts`:
+Added to `packages/docs/src/model/types.ts`:
 
 ```typescript
 interface PageSetup {
@@ -97,7 +97,7 @@ A helper `resolvePageSetup(doc: Document): PageSetup` returns
 
 ## Pagination Engine
 
-New file: `view/pagination.ts`
+New file: `packages/docs/src/view/pagination.ts`
 
 ### Output Types
 
@@ -184,7 +184,7 @@ contentWidth, contentHeight)`.
 totalHeight = pages.length * pageHeight + (pages.length + 1) * pageGap
 ```
 
-`DocCanvas.resize()` and `editor.ts` use this `totalHeight` to size the
+`DocCanvas.resize()` and `packages/docs/src/view/editor.ts` use this `totalHeight` to size the
 canvas element, replacing the previous `layout.totalHeight` calculation.
 The container's scroll range is set to `totalHeight` so the browser
 scrollbar reflects the full paginated document.
@@ -206,7 +206,7 @@ canvasBackground: '#f0f0f0',
 
 ## Coordinate Mapping
 
-The existing `positionToPixel` and `pixelToPosition` in `layout.ts` are
+The existing `positionToPixel` and `pixelToPosition` in `packages/docs/src/view/layout.ts` are
 replaced by new paginated versions. The original functions are removed (not
 wrapped) since all rendering is now page-based.
 
@@ -318,16 +318,16 @@ setPageSetup(setup: PageSetup): void;
 
 | File | Change |
 |------|--------|
-| `model/types.ts` | `PageSetup`, `PageMargins`, `PaperSize`, presets, `Document.pageSetup` |
-| `view/pagination.ts` | **New** — `paginateLayout()`, `PaginatedLayout`, `LayoutPage`, `PageLine` |
-| `view/layout.ts` | Signature: `canvasWidth` → `contentWidth`, remove `pagePaddingX` usage |
-| `view/doc-canvas.ts` | Page-based rendering with shadow, gap, background |
-| `view/editor.ts` | Wire paginate step, pass `pageSetup` through pipeline |
-| `view/theme.ts` | Remove `pagePaddingX/Top`, add page gap/shadow constants |
-| `view/selection.ts` | Convert selection rects to page coordinates |
-| `view/cursor.ts` | Minimal — `positionToPixel` returns page-aware coordinates |
-| `store/store.ts` | `getPageSetup()`, `setPageSetup()` |
-| `store/memory.ts` | Implement pageSetup in `MemDocStore` |
+| `packages/docs/src/model/types.ts` | `PageSetup`, `PageMargins`, `PaperSize`, presets, `Document.pageSetup` |
+| `packages/docs/src/view/pagination.ts` | **New** — `paginateLayout()`, `PaginatedLayout`, `LayoutPage`, `PageLine` |
+| `packages/docs/src/view/layout.ts` | Signature: `canvasWidth` → `contentWidth`, remove `pagePaddingX` usage |
+| `packages/docs/src/view/doc-canvas.ts` | Page-based rendering with shadow, gap, background |
+| `packages/docs/src/view/editor.ts` | Wire paginate step, pass `pageSetup` through pipeline |
+| `packages/docs/src/view/theme.ts` | Remove `pagePaddingX/Top`, add page gap/shadow constants |
+| `packages/docs/src/view/selection.ts` | Convert selection rects to page coordinates |
+| `packages/docs/src/view/cursor.ts` | Minimal — `positionToPixel` returns page-aware coordinates |
+| `packages/docs/src/store/store.ts` | `getPageSetup()`, `setPageSetup()` |
+| `packages/docs/src/store/memory.ts` | Implement pageSetup in `MemDocStore` |
 
 ## Risks and Mitigation
 
