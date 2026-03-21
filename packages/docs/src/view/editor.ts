@@ -67,6 +67,7 @@ export function initialize(
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
   let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
+  let needsScrollIntoView = false;
 
   // Compute layout helper
   const recomputeLayout = () => {
@@ -98,8 +99,25 @@ export function initialize(
     const canvasHeight = Math.max(height, totalHeight);
     docCanvas.resize(width, canvasHeight);
 
-    const scrollY = container.scrollTop;
     const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), width);
+
+    // Auto-scroll to keep cursor visible (only on keyboard/input-driven renders)
+    if (needsScrollIntoView && cursorPixel) {
+      needsScrollIntoView = false;
+      const viewportTop = container.scrollTop;
+      const viewportHeight = height;
+      const cursorTop = cursorPixel.y;
+      const cursorBottom = cursorPixel.y + cursorPixel.height;
+      const scrollMargin = 20;
+
+      if (cursorBottom > viewportTop + viewportHeight - scrollMargin) {
+        container.scrollTop = cursorBottom - viewportHeight + scrollMargin;
+      } else if (cursorTop < viewportTop + scrollMargin) {
+        container.scrollTop = Math.max(0, cursorTop - scrollMargin);
+      }
+    }
+
+    const scrollY = container.scrollTop;
     const selectionRects = selection.getSelectionRects(
       paginatedLayout,
       layout,
@@ -118,6 +136,7 @@ export function initialize(
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+      needsScrollIntoView = true;
       render();
     }
   };
@@ -128,8 +147,14 @@ export function initialize(
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+      needsScrollIntoView = true;
       render();
     }
+  };
+
+  const renderWithScroll = () => {
+    needsScrollIntoView = true;
+    render();
   };
 
   const textEditor = new TextEditor(
@@ -141,7 +166,7 @@ export function initialize(
     () => paginatedLayout,
     () => docCanvas.getContext(),
     () => container.getBoundingClientRect().width,
-    render,
+    renderWithScroll,
     () => docStore.snapshot(),
     undoFn,
     redoFn,
