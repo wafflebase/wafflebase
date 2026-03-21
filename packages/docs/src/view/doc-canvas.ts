@@ -74,8 +74,9 @@ export class DocCanvas {
       if (selectionRects) {
         this.ctx.fillStyle = Theme.selectionColor;
         for (const rect of selectionRects) {
-          if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
-            this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          const ry = rect.y - scrollY;
+          if (ry + rect.height > pageY && ry < pageY + page.height) {
+            this.ctx.fillRect(rect.x, ry, rect.width, rect.height);
           }
         }
       }
@@ -89,10 +90,11 @@ export class DocCanvas {
 
       // Draw cursor if on this page
       if (cursor?.visible) {
-        if (cursor.y >= pageY + margins.top &&
-            cursor.y < pageY + margins.top + contentHeight) {
+        const cy = cursor.y - scrollY;
+        if (cy >= pageY + margins.top &&
+            cy < pageY + margins.top + contentHeight) {
           this.ctx.fillStyle = Theme.cursorColor;
-          this.ctx.fillRect(cursor.x, cursor.y, Theme.cursorWidth, cursor.height);
+          this.ctx.fillRect(cursor.x, cy, Theme.cursorWidth, cursor.height);
         }
       }
 
