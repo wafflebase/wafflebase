@@ -73,12 +73,12 @@ export function computeLayout(
     y += block.style.marginTop;
 
     const lines = layoutBlock(block, ctx, availableWidth);
-    const lineHeight =
-      (block.style.lineHeight ?? 1.5) *
-      getBlockFontSize(block);
+    const lineHeightMultiplier = block.style.lineHeight ?? 1.5;
 
     let blockHeight = 0;
     for (const line of lines) {
+      const maxFontSize = getLineMaxFontSize(line, block);
+      const lineHeight = lineHeightMultiplier * maxFontSize;
       line.y = blockHeight;
       line.height = lineHeight;
       blockHeight += lineHeight;
@@ -138,6 +138,51 @@ function layoutBlock(
       });
       currentRuns = [];
       lineWidth = 0;
+    }
+
+    // Character-level fallback for segments wider than maxWidth
+    if (seg.width > maxWidth && seg.text.length > 1) {
+      ctx.font = buildFont(
+        seg.style.fontSize,
+        seg.style.fontFamily,
+        seg.style.bold,
+        seg.style.italic,
+      );
+      let charIdx = 0;
+      while (charIdx < seg.text.length) {
+        let endIdx = charIdx + 1;
+        let runWidth = ctx.measureText(seg.text.slice(charIdx, endIdx)).width;
+        while (endIdx < seg.text.length) {
+          const nextWidth = ctx.measureText(seg.text.slice(charIdx, endIdx + 1)).width;
+          if (lineWidth + nextWidth > maxWidth && endIdx > charIdx + 1) break;
+          runWidth = nextWidth;
+          endIdx++;
+        }
+        // If even a single char exceeds maxWidth and line is not empty, flush first
+        if (lineWidth + runWidth > maxWidth && currentRuns.length > 0) {
+          lines.push({ runs: currentRuns, y: 0, height: 0, width: lineWidth });
+          currentRuns = [];
+          lineWidth = 0;
+          continue; // Re-measure from charIdx on fresh line
+        }
+        currentRuns.push({
+          inline: block.inlines[seg.inlineIndex],
+          text: seg.text.slice(charIdx, endIdx),
+          x: lineWidth,
+          width: runWidth,
+          inlineIndex: seg.inlineIndex,
+          charStart: seg.charStart + charIdx,
+          charEnd: seg.charStart + endIdx,
+        });
+        lineWidth += runWidth;
+        charIdx = endIdx;
+        if (lineWidth >= maxWidth && charIdx < seg.text.length) {
+          lines.push({ runs: currentRuns, y: 0, height: 0, width: lineWidth });
+          currentRuns = [];
+          lineWidth = 0;
+        }
+      }
+      continue;
     }
 
     currentRuns.push({
@@ -250,9 +295,16 @@ function applyAlignment(
 }
 
 /**
- * Get the dominant font size for a block (from its first inline).
+ * Get the maximum font size across all runs in a line.
+ * Falls back to the block's first inline or the theme default.
  */
-function getBlockFontSize(block: Block): number {
+function getLineMaxFontSize(line: LayoutLine, block: Block): number {
+  let max = 0;
+  for (const run of line.runs) {
+    const size = run.inline.style.fontSize ?? Theme.defaultFontSize;
+    if (size > max) max = size;
+  }
+  if (max > 0) return max;
   if (block.inlines.length > 0 && block.inlines[0].style.fontSize) {
     return block.inlines[0].style.fontSize;
   }
@@ -367,6 +419,7 @@ export function pixelToPosition(
   }
 
   // Walk through runs to find the exact character
+  let charsBeforeRun = 0;
   for (const run of targetLine.runs) {
     if (localX >= run.x && localX <= run.x + run.width) {
       // Within this run — find exact character
@@ -390,9 +443,10 @@ export function pixelToPosition(
 
       return {
         blockId: targetBlock.block.id,
-        offset: charsBeforeLine + (run.charStart - (targetLine.runs[0]?.charStart ?? 0)) + bestOffset,
+        offset: charsBeforeLine + charsBeforeRun + bestOffset,
       };
     }
+    charsBeforeRun += run.text.length;
   }
 
   // Past the end of the line — position at end

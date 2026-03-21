@@ -370,6 +370,7 @@ const server = await createServer({
 
 let chromiumBrowser;
 let webkitBrowser;
+let ranAnyScenario = false;
 
 try {
   await server.listen();
@@ -384,6 +385,7 @@ try {
     });
     await runAllScenarios(chromiumCtx, "Chromium");
     await chromiumCtx.close();
+    ranAnyScenario = true;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     if (msg.includes("Executable doesn't exist")) {
@@ -403,6 +405,7 @@ try {
     });
     await runAllScenarios(webkitCtx, "WebKit (iPhone 14 Pro)");
     await webkitCtx.close();
+    ranAnyScenario = true;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     if (msg.includes("Executable doesn't exist")) {
@@ -410,6 +413,12 @@ try {
     } else {
       throw error;
     }
+  }
+
+  if (!ranAnyScenario) {
+    console.error("[verify:ime] No browsers available — cannot verify IME behavior.");
+    printInstallHelp();
+    process.exit(1);
   }
 
   console.log("[verify:ime] All IME browser tests passed.");

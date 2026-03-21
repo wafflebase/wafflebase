@@ -1,7 +1,37 @@
 import type { DocPosition, DocRange } from '../model/types.js';
 import { getBlockTextLength } from '../model/types.js';
-import type { DocumentLayout } from './layout.js';
+import type { DocumentLayout, LayoutBlock, LayoutLine } from './layout.js';
 import { positionToPixel } from './layout.js';
+
+function getLineRunBounds(
+  lb: LayoutBlock,
+  line: LayoutLine,
+): { startX: number; endX: number } {
+  if (line.runs.length === 0) return { startX: lb.x, endX: lb.x };
+  const first = line.runs[0];
+  const last = line.runs[line.runs.length - 1];
+  return { startX: lb.x + first.x, endX: lb.x + last.x + last.width };
+}
+
+function getLineEndX(lb: LayoutBlock, lineY: number): number {
+  for (const line of lb.lines) {
+    if (Math.abs(lb.y + line.y - lineY) < 1) {
+      const bounds = getLineRunBounds(lb, line);
+      return bounds.endX;
+    }
+  }
+  return lb.x + lb.width;
+}
+
+function getLineStartX(lb: LayoutBlock, lineY: number): number {
+  for (const line of lb.lines) {
+    if (Math.abs(lb.y + line.y - lineY) < 1) {
+      const bounds = getLineRunBounds(lb, line);
+      return bounds.startX;
+    }
+  }
+  return lb.x;
+}
 
 /**
  * Text selection state and highlight rectangle computation.
@@ -94,31 +124,34 @@ export class Selection {
           height: startPixel.height,
         });
       } else {
-        // Multi-line: first line from start to end
+        // Multi-line: use actual line run bounds for accurate highlights
+        const firstLineEnd = getLineEndX(lb, startPixel.y);
         rects.push({
           x: startPixel.x,
           y: startPixel.y,
-          width: lb.x + lb.width - startPixel.x,
+          width: firstLineEnd - startPixel.x,
           height: startPixel.height,
         });
 
         // Middle full lines
-        let y = startPixel.y + startPixel.height;
-        while (y < endPixel.y) {
+        for (const line of lb.lines) {
+          const lineY = lb.y + line.y;
+          if (lineY <= startPixel.y || lineY >= endPixel.y) continue;
+          const { startX, endX } = getLineRunBounds(lb, line);
           rects.push({
-            x: lb.x,
-            y,
-            width: lb.width,
-            height: startPixel.height,
+            x: startX,
+            y: lineY,
+            width: endX - startX,
+            height: line.height,
           });
-          y += startPixel.height;
         }
 
         // Last line from start to end position
+        const lastLineStart = getLineStartX(lb, endPixel.y);
         rects.push({
-          x: lb.x,
+          x: lastLineStart,
           y: endPixel.y,
-          width: endPixel.x - lb.x,
+          width: endPixel.x - lastLineStart,
           height: endPixel.height,
         });
       }

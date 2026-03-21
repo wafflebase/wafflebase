@@ -77,16 +77,18 @@ export function initialize(
   // Render helper
   const render = () => {
     const { width, height } = container.getBoundingClientRect();
-    docCanvas.resize(width, height);
     recomputeLayout();
+    const canvasHeight = Math.max(height, layout.totalHeight);
+    docCanvas.resize(width, canvasHeight);
 
+    const scrollY = container.scrollTop;
     const cursorPixel = cursor.getPixelPosition(layout, docCanvas.getContext());
     const selectionRects = selection.getSelectionRects(
       layout,
       docCanvas.getContext(),
     );
 
-    docCanvas.render(layout, 0, cursorPixel ?? undefined, selectionRects);
+    docCanvas.render(layout, scrollY, cursorPixel ?? undefined, selectionRects);
   };
 
   // Wire up text editor
@@ -130,7 +132,11 @@ export function initialize(
   // Initial render
   render();
 
-  // Resize observer
+  // Scroll and resize listeners
+  container.style.overflow = 'auto';
+  const handleScroll = () => render();
+  container.addEventListener('scroll', handleScroll);
+
   const resizeObserver = new ResizeObserver(() => render());
   resizeObserver.observe(container);
 
@@ -159,6 +165,7 @@ export function initialize(
     dispose: () => {
       cursor.dispose();
       textEditor.dispose();
+      container.removeEventListener('scroll', handleScroll);
       resizeObserver.disconnect();
       canvas.remove();
     },
