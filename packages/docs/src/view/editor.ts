@@ -125,7 +125,7 @@ export function initialize(
       width,
     );
 
-    docCanvas.render(paginatedLayout, scrollY, width, cursorPixel ?? undefined, selectionRects);
+    docCanvas.render(paginatedLayout, scrollY, width, height, cursorPixel ?? undefined, selectionRects);
   };
 
   // Wire up text editor

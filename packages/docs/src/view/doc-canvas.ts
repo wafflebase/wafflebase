@@ -29,6 +29,7 @@ export class DocCanvas {
     paginatedLayout: PaginatedLayout,
     scrollY: number,
     canvasWidth: number,
+    viewportHeight: number,
     cursor?: { x: number; y: number; height: number; visible: boolean },
     selectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
   ): void {
@@ -43,11 +44,17 @@ export class DocCanvas {
     const pageX = getPageXOffset(paginatedLayout, canvasWidth);
     const { margins } = paginatedLayout.pageSetup;
 
+    // All coordinates are absolute (canvas = full document height).
+    // The container's native scroll handles viewport positioning.
+    // scrollY + viewportHeight define the visible window for culling.
+    const visibleTop = scrollY;
+    const visibleBottom = scrollY + viewportHeight;
+
     for (const page of paginatedLayout.pages) {
-      const pageY = getPageYOffset(paginatedLayout, page.pageIndex) - scrollY;
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
 
       // Viewport culling
-      if (pageY + page.height < 0 || pageY > logicalHeight) continue;
+      if (pageY + page.height < visibleTop || pageY > visibleBottom) continue;
 
       // Draw shadow
       this.ctx.save();
@@ -74,9 +81,8 @@ export class DocCanvas {
       if (selectionRects) {
         this.ctx.fillStyle = Theme.selectionColor;
         for (const rect of selectionRects) {
-          const ry = rect.y - scrollY;
-          if (ry + rect.height > pageY && ry < pageY + page.height) {
-            this.ctx.fillRect(rect.x, ry, rect.width, rect.height);
+          if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+            this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
           }
         }
       }
@@ -90,11 +96,10 @@ export class DocCanvas {
 
       // Draw cursor if on this page
       if (cursor?.visible) {
-        const cy = cursor.y - scrollY;
-        if (cy >= pageY + margins.top &&
-            cy < pageY + margins.top + contentHeight) {
+        if (cursor.y >= pageY + margins.top &&
+            cursor.y < pageY + margins.top + contentHeight) {
           this.ctx.fillStyle = Theme.cursorColor;
-          this.ctx.fillRect(cursor.x, cy, Theme.cursorWidth, cursor.height);
+          this.ctx.fillRect(cursor.x, cursor.y, Theme.cursorWidth, cursor.height);
         }
       }
 
