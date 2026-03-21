@@ -38,6 +38,8 @@ interface CompositionState {
 export class TextEditor {
   private textarea: HTMLTextAreaElement;
   private isMouseDown = false;
+  private dragScrollRAF: number | null = null;
+  private lastMouseClientY = 0;
   private composition: CompositionState = {
     active: false,
     startPosition: { blockId: '', offset: 0 },
@@ -315,8 +317,25 @@ export class TextEditor {
   private handleMouseMove = (e: MouseEvent): void => {
     if (!this.isMouseDown || !this.selection.range) return;
 
-    const pos = this.getPositionFromMouse(e);
-    if (pos) {
+    this.lastMouseClientY = e.clientY;
+    this.updateDragSelection(e.clientX, e.clientY);
+    this.startDragScroll();
+  };
+
+  private handleMouseUp = (): void => {
+    this.isMouseDown = false;
+    this.stopDragScroll();
+  };
+
+  private updateDragSelection(clientX: number, clientY: number): void {
+    const rect = this.container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const scrollY = this.container.scrollTop;
+    const pos = paginatedPixelToPosition(
+      this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
+    );
+    if (pos && this.selection.range) {
       this.cursor.moveTo(pos);
       this.selection.setRange({
         anchor: this.selection.range.anchor,
@@ -324,11 +343,53 @@ export class TextEditor {
       });
       this.requestRender();
     }
-  };
+  }
 
-  private handleMouseUp = (): void => {
-    this.isMouseDown = false;
-  };
+  private startDragScroll(): void {
+    if (this.dragScrollRAF !== null) return;
+
+    const scrollStep = () => {
+      if (!this.isMouseDown) {
+        this.dragScrollRAF = null;
+        return;
+      }
+
+      const rect = this.container.getBoundingClientRect();
+      const relativeY = this.lastMouseClientY - rect.top;
+      const edgeZone = 40;
+      const maxSpeed = 20;
+
+      let scrollDelta = 0;
+      if (relativeY < edgeZone) {
+        // Near top edge — scroll up
+        const ratio = Math.max(0, (edgeZone - relativeY) / edgeZone);
+        scrollDelta = -Math.ceil(ratio * maxSpeed);
+      } else if (relativeY > rect.height - edgeZone) {
+        // Near bottom edge — scroll down
+        const ratio = Math.max(0, (relativeY - (rect.height - edgeZone)) / edgeZone);
+        scrollDelta = Math.ceil(ratio * maxSpeed);
+      }
+
+      if (scrollDelta !== 0) {
+        this.container.scrollTop += scrollDelta;
+        this.updateDragSelection(
+          this.container.getBoundingClientRect().left + 1,
+          this.lastMouseClientY,
+        );
+      }
+
+      this.dragScrollRAF = requestAnimationFrame(scrollStep);
+    };
+
+    this.dragScrollRAF = requestAnimationFrame(scrollStep);
+  }
+
+  private stopDragScroll(): void {
+    if (this.dragScrollRAF !== null) {
+      cancelAnimationFrame(this.dragScrollRAF);
+      this.dragScrollRAF = null;
+    }
+  }
 
   // --- Text operations ---
 
@@ -689,6 +750,7 @@ export class TextEditor {
     this.container.removeEventListener('mousedown', this.handleMouseDown);
     this.container.removeEventListener('mousemove', this.handleMouseMove);
     this.container.removeEventListener('mouseup', this.handleMouseUp);
+    this.stopDragScroll();
     this.textarea.remove();
   }
 }
