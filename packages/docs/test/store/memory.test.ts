@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemDocStore } from '../../src/store/memory.js';
-import { generateBlockId } from '../../src/model/types.js';
+import { generateBlockId, PAPER_SIZES, DEFAULT_PAGE_SETUP } from '../../src/model/types.js';
 
 describe('MemDocStore', () => {
   function makeBlock(text: string) {
@@ -101,6 +101,24 @@ describe('MemDocStore', () => {
 
       store.undo();
       expect(store.getDocument().blocks[0].inlines[0].text).toBe('Hello');
+    });
+  });
+
+  describe('pageSetup', () => {
+    it('getPageSetup returns DEFAULT_PAGE_SETUP when not set', () => {
+      const store = new MemDocStore();
+      expect(store.getPageSetup()).toEqual(DEFAULT_PAGE_SETUP);
+    });
+
+    it('setPageSetup updates and supports undo', () => {
+      const store = new MemDocStore();
+      store.snapshot();
+      const a4Setup = { ...DEFAULT_PAGE_SETUP, paperSize: PAPER_SIZES.A4 };
+      store.setPageSetup(a4Setup);
+      expect(store.getPageSetup().paperSize).toEqual(PAPER_SIZES.A4);
+
+      store.undo();
+      expect(store.getPageSetup()).toEqual(DEFAULT_PAGE_SETUP);
     });
   });
 
