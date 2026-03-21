@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { paginateLayout } from '../../src/view/pagination.js';
+import {
+  paginateLayout,
+  getPageYOffset,
+  getTotalHeight,
+  getPageXOffset,
+  findPageForPosition,
+  paginatedPixelToPosition,
+} from '../../src/view/pagination.js';
 import { DEFAULT_PAGE_SETUP, PAPER_SIZES } from '../../src/model/types.js';
 import type { DocumentLayout, LayoutBlock, LayoutLine } from '../../src/view/layout.js';
 
@@ -114,5 +121,69 @@ describe('paginateLayout', () => {
     const block2Line = result.pages[1].lines.find(pl => pl.blockIndex === 1);
     expect(block2Line).toBeDefined();
     expect(block2Line!.y).toBe(96 + 100 + 20); // margins.top + line9 + marginBottom
+  });
+});
+
+describe('getPageYOffset', () => {
+  it('computes correct Y offset for each page', () => {
+    const layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+    const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
+    expect(getPageYOffset(paginated, 0)).toBe(40); // pageGap
+  });
+});
+
+describe('getTotalHeight', () => {
+  it('accounts for all pages and gaps', () => {
+    const layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+    const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
+    expect(getTotalHeight(paginated)).toBe(1136); // 40 + 1056 + 40
+  });
+
+  it('multi-page height is correct', () => {
+    const lines = Array.from({ length: 9 }, () => mockLine(100));
+    const block = mockBlock('b1', lines, 0, 0);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 900 };
+    const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
+    expect(getTotalHeight(paginated)).toBe(2232); // 40 + 1056 + 40 + 1056 + 40
+  });
+});
+
+describe('findPageForPosition', () => {
+  it('finds position on first page', () => {
+    const block = mockBlock('b1', [mockLine(24)]);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24 };
+    const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
+    const found = findPageForPosition(paginated, 'b1', 0, layout);
+    expect(found).toBeDefined();
+    expect(found!.pageIndex).toBe(0);
+  });
+
+  it('returns undefined for unknown blockId', () => {
+    const layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+    const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
+    const found = findPageForPosition(paginated, 'unknown', 0, layout);
+    expect(found).toBeUndefined();
+  });
+});
+
+describe('paginatedPixelToPosition', () => {
+  it('maps click in page content area', () => {
+    const block = mockBlock('b1', [mockLine(24)]);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24 };
+    const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
+    // Click inside page 1 content area
+    // pageY = 40 (gap), content starts at 40 + 96 (margin) = 136
+    const result = paginatedPixelToPosition(paginated, layout, 400, 150, 816);
+    expect(result).toBeDefined();
+    expect(result!.blockId).toBe('b1');
+  });
+
+  it('maps click in page gap to nearest page', () => {
+    const block = mockBlock('b1', [mockLine(24)]);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24 };
+    const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
+    const result = paginatedPixelToPosition(paginated, layout, 400, 10, 816);
+    expect(result).toBeDefined();
+    expect(result!.blockId).toBe('b1');
   });
 });
