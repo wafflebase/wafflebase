@@ -21,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Theme } from "@wafflebase/sheets";
 import { useEffect } from "react";
 import { ChartVisualScenarios } from "./chart-scenarios";
+import { DocsVisualScenarios } from "./docs-scenarios";
 import { FormatVisualScenarios } from "./format-scenarios";
 import { SheetVisualScenarios } from "./sheet-scenarios";
 
@@ -172,6 +173,7 @@ export default function VisualHarnessPage() {
         <SheetVisualScenarios theme={theme} />
         <FormatVisualScenarios theme={theme} />
         <ChartVisualScenarios />
+        <DocsVisualScenarios />
       </div>
     </main>
   );
