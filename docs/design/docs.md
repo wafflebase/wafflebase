@@ -1,6 +1,6 @@
 ---
 title: docs
-target-version: 0.2.0
+target-version: 0.3.0
 ---
 
 # Canvas-Based Document Editor (Docs Package)
