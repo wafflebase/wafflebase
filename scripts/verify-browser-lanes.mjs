@@ -45,10 +45,6 @@ try {
     cwd: repoRoot,
     stdio: "inherit",
   });
-  execSync("pnpm --filter @wafflebase/docs build", {
-    cwd: repoRoot,
-    stdio: "inherit",
-  });
 } catch (error) {
   console.error(`${PREFIX} Library build failed.`);
   process.exit(error.status ?? 1);
