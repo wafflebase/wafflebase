@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ConditionalFormatOperator,
   ConditionalFormatRule,
+  Range,
   Spreadsheet,
   parseRef,
   toSref,
@@ -61,31 +62,42 @@ const OPERATOR_OPTIONS: Array<{
   label,
 }));
 
-function parseA1Range(input: string): ConditionalFormatRule["range"] | null {
-  const tokens = input
-    .toUpperCase()
-    .replace(/\$/g, "")
-    .split(":")
-    .map((token) => token.trim())
+function parseA1Ranges(input: string): Range[] | null {
+  const segments = input
+    .split(",")
+    .map((s) => s.trim())
     .filter(Boolean);
-  if (tokens.length !== 2) {
+  if (segments.length === 0) {
     return null;
   }
 
-  try {
-    const a = parseRef(tokens[0]);
-    const b = parseRef(tokens[1]);
-    return [
-      { r: Math.min(a.r, b.r), c: Math.min(a.c, b.c) },
-      { r: Math.max(a.r, b.r), c: Math.max(a.c, b.c) },
-    ];
-  } catch {
-    return null;
+  const ranges: Range[] = [];
+  for (const segment of segments) {
+    const tokens = segment
+      .toUpperCase()
+      .replace(/\$/g, "")
+      .split(":")
+      .map((token) => token.trim())
+      .filter(Boolean);
+    if (tokens.length !== 2) {
+      return null;
+    }
+    try {
+      const a = parseRef(tokens[0]);
+      const b = parseRef(tokens[1]);
+      ranges.push([
+        { r: Math.min(a.r, b.r), c: Math.min(a.c, b.c) },
+        { r: Math.max(a.r, b.r), c: Math.max(a.c, b.c) },
+      ]);
+    } catch {
+      return null;
+    }
   }
+  return ranges;
 }
 
-function formatA1Range(range: ConditionalFormatRule["range"]): string {
-  return `${toSref(range[0])}:${toSref(range[1])}`;
+function formatA1Ranges(ranges: Range[]): string {
+  return ranges.map((r) => `${toSref(r[0])}:${toSref(r[1])}`).join(", ");
 }
 
 function describeRule(rule: ConditionalFormatRule): string {
@@ -151,7 +163,7 @@ export function ConditionalFormatPanel({
   );
 
   useEffect(() => {
-    setRangeInput(selectedRule ? formatA1Range(selectedRule.range) : "");
+    setRangeInput(selectedRule ? formatA1Ranges(selectedRule.ranges) : "");
   }, [selectedRuleId, selectedRule]);
 
   const commitRules = useCallback(
@@ -211,15 +223,17 @@ export function ConditionalFormatPanel({
 
   const handleAddRule = () => {
     const selectionRange = getSelectionRange();
-    const parsedRange = selectionRange ? parseA1Range(selectionRange) : null;
-    const defaultRange = parsedRange || [
-      { r: 1, c: 1 },
-      { r: 1, c: 1 },
+    const parsedRanges = selectionRange ? parseA1Ranges(selectionRange) : null;
+    const defaultRanges = parsedRanges || [
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ] as Range,
     ];
 
     const nextRule: ConditionalFormatRule = {
       id: `cf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      range: defaultRange,
+      ranges: defaultRanges,
       op: "isNotEmpty",
       style: {
         bg: "#fff59d",
@@ -261,12 +275,12 @@ export function ConditionalFormatPanel({
       return;
     }
 
-    const parsed = parseA1Range(rangeInput);
+    const parsed = parseA1Ranges(rangeInput);
     if (!parsed) {
-      toast.error("Enter a valid A1 range like A1:D20.");
+      toast.error("Enter valid A1 ranges like A1:D20 or A1:B10, D1:E10.");
       return;
     }
-    updateRule(selectedRule.id, { range: parsed });
+    updateRule(selectedRule.id, { ranges: parsed });
   };
 
   const handleUseSelectionRange = () => {
@@ -279,11 +293,11 @@ export function ConditionalFormatPanel({
     if (!selectedRule) {
       return;
     }
-    const parsed = parseA1Range(selectionRange);
+    const parsed = parseA1Ranges(selectionRange);
     if (!parsed) {
       return;
     }
-    updateRule(selectedRule.id, { range: parsed });
+    updateRule(selectedRule.id, { ranges: parsed });
   };
 
   return (
@@ -353,7 +367,7 @@ export function ConditionalFormatPanel({
                         {describeRule(rule)}
                       </p>
                       <p className="truncate pt-1 text-xs text-muted-foreground">
-                        {formatA1Range(rule.range)}
+                        {formatA1Ranges(rule.ranges)}
                       </p>
                     </div>
                     <div className="shrink-0 space-y-1">
@@ -427,7 +441,7 @@ export function ConditionalFormatPanel({
                   id="cf-apply-range"
                   value={rangeInput}
                   onChange={(event) => setRangeInput(event.target.value)}
-                  placeholder="A1:D20"
+                  placeholder="A1:B10, D1:E10"
                 />
                 <Button type="button" variant="outline" size="sm" onClick={handleApplyRange}>
                   Apply

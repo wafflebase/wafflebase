@@ -228,6 +228,25 @@ function maxIndexFromRanges<T>(
   }, 0);
 }
 
+function maxIndexFromConditionalFormats(
+  values: ConditionalFormatRule[] | Record<string, unknown> | undefined,
+  axis: 'row' | 'column',
+): number {
+  const items = coerceIndexedArray<ConditionalFormatRule>(values);
+  if (!items || items.length === 0) {
+    return 0;
+  }
+
+  return items.reduce((max, rule) => {
+    const ranges: Range[] =
+      rule.ranges ?? ((rule as Record<string, unknown>).range ? [(rule as Record<string, unknown>).range as Range] : []);
+    return ranges.reduce(
+      (m, range) => Math.max(m, maxIndexFromRange(range, axis)),
+      max,
+    );
+  }, 0);
+}
+
 function maxIndexFromMerges(
   merges: Record<Sref, MergeSpan> | undefined,
   axis: 'row' | 'column',
@@ -393,11 +412,7 @@ function migrateLegacyWorksheet(legacy: LegacyWorksheet): Worksheet {
     maxIndexFromList(legacy.filter?.hiddenRows),
     maxIndexFromMerges(legacy.merges, 'row'),
     maxIndexFromRanges(legacy.rangeStyles, (patch) => patch.range, 'row'),
-    maxIndexFromRanges(
-      legacy.conditionalFormats,
-      (rule) => rule.range,
-      'row',
-    ),
+    maxIndexFromConditionalFormats(legacy.conditionalFormats, 'row'),
     maxIndexFromCharts(legacy.charts, 'row'),
   );
   const maxCol = Math.max(
@@ -409,11 +424,7 @@ function migrateLegacyWorksheet(legacy: LegacyWorksheet): Worksheet {
     legacy.filter?.endCol ?? 0,
     maxIndexFromMerges(legacy.merges, 'column'),
     maxIndexFromRanges(legacy.rangeStyles, (patch) => patch.range, 'column'),
-    maxIndexFromRanges(
-      legacy.conditionalFormats,
-      (rule) => rule.range,
-      'column',
-    ),
+    maxIndexFromConditionalFormats(legacy.conditionalFormats, 'column'),
     maxIndexFromCharts(legacy.charts, 'column'),
   );
 
