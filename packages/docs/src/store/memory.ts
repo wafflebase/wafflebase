@@ -31,7 +31,8 @@ export class MemDocStore implements DocStore {
   }
 
   getBlock(id: string): Block | undefined {
-    return this.doc.blocks.find((b) => b.id === id);
+    const block = this.doc.blocks.find((b) => b.id === id);
+    return block ? JSON.parse(JSON.stringify(block)) : undefined;
   }
 
   updateBlock(id: string, block: Block): void {

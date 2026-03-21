@@ -1,12 +1,12 @@
 # Canvas-Based Document Editor — Prototype
 
-**Goal:** Create `packages/docs` with a Canvas-based rich-text editor prototype supporting paragraph editing, inline formatting, cursor/selection, and undo/redo.
+**Goal:** Create `packages/document` with a Canvas-based rich-text editor prototype supporting paragraph editing, inline formatting, cursor/selection, and undo/redo.
 
-**Status:** COMPLETE
+**Status:** IN_PROGRESS
 
 **Design:** [docs/design/docs.md](../../design/docs.md)
 
-**Note:** Package is `@wafflebase/docs` (`packages/docs/`). VitePress docs site is `@wafflebase/docsation` (`packages/docsation/`).
+**Note:** Package is `@wafflebase/document` (`packages/document/`).
 
 ## Phase 1: Package Scaffolding & Data Model
 

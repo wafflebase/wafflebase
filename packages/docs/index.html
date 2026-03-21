@@ -21,12 +21,12 @@
     .toolbar select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; }
     .toolbar .separator { width: 1px; height: 24px; background: #ddd; }
     #editor-container {
-      width: 800px; margin: 24px auto; background: #fff;
+      width: min(800px, 100vw - 32px); margin: 24px auto; background: #fff;
       border: 1px solid #ddd; border-radius: 4px;
       height: calc(100vh - 300px); position: relative;
     }
     #event-log {
-      width: 800px; margin: 8px auto; background: #1e1e1e; color: #d4d4d4;
+      width: min(800px, 100vw - 32px); margin: 8px auto; background: #1e1e1e; color: #d4d4d4;
       border-radius: 4px; padding: 8px 12px; font-family: monospace;
       font-size: 12px; height: 200px; overflow-y: auto;
       line-height: 1.4;

@@ -7,7 +7,7 @@ target-version: 0.2.0
 
 ## Summary
 
-A new `packages/docs` package that provides a Canvas-based rich-text document
+A new `packages/document` package that provides a Canvas-based rich-text document
 editor, following the same architectural patterns as the existing `packages/sheets`.
 The initial prototype focuses on paragraph-level text editing with inline
 formatting, cursor/selection management, and undo/redo — all rendered on a
@@ -16,7 +16,7 @@ single HTML Canvas element.
 ### Goals
 
 - Provide a minimal but functional Canvas-based document editor as a new
-  monorepo package (`@wafflebase/docs`).
+  monorepo package (`@wafflebase/document`).
 - Support paragraph editing: text input/deletion, Enter to split blocks,
   Backspace to merge blocks.
 - Support inline text formatting: bold, italic, underline, font size, font
@@ -134,13 +134,13 @@ interface DocStore {
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| **Editor** | `packages/docs/src/view/editor.ts` | Top-level entry point. Creates model + view. Returns public API. |
-| **DocCanvas** | `packages/docs/src/view/doc-canvas.ts` | Renders blocks/inlines to Canvas. Applies text styles, draws backgrounds. |
-| **Layout** | `packages/docs/src/view/layout.ts` | Text measurement, word-wrap, line breaking. Builds a layout tree of positioned lines/runs. |
-| **Cursor** | `packages/docs/src/view/cursor.ts` | Cursor position tracking, blink animation, caret rendering. |
-| **Selection** | `packages/docs/src/view/selection.ts` | Multi-line text selection: range tracking and highlight rendering. |
-| **TextEditor** | `packages/docs/src/view/text-editor.ts` | Keyboard/mouse input handling. Dispatches to Doc model methods. |
-| **Theme** | `packages/docs/src/view/theme.ts` | Colors, default fonts, spacing constants. |
+| **Editor** | `packages/document/src/view/editor.ts` | Top-level entry point. Creates model + view. Returns public API. |
+| **DocCanvas** | `packages/document/src/view/doc-canvas.ts` | Renders blocks/inlines to Canvas. Applies text styles, draws backgrounds. |
+| **Layout** | `packages/document/src/view/layout.ts` | Text measurement, word-wrap, line breaking. Builds a layout tree of positioned lines/runs. |
+| **Cursor** | `packages/document/src/view/cursor.ts` | Cursor position tracking, blink animation, caret rendering. |
+| **Selection** | `packages/document/src/view/selection.ts` | Multi-line text selection: range tracking and highlight rendering. |
+| **TextEditor** | `packages/document/src/view/text-editor.ts` | Keyboard/mouse input handling. Dispatches to Doc model methods. |
+| **Theme** | `packages/document/src/view/theme.ts` | Colors, default fonts, spacing constants. |
 
 ### Rendering pipeline
 
@@ -209,8 +209,8 @@ interface LayoutBlock {
 ## Package Structure
 
 ```
-packages/docs/
-├── package.json            # @wafflebase/docs, same build pattern as sheets
+packages/document/
+├── package.json            # @wafflebase/document, same build pattern as sheets
 ├── tsconfig.json
 ├── vite.config.ts          # dev config
 ├── vite.build.ts           # library build (es + cjs)
