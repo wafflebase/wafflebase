@@ -139,7 +139,6 @@ interface DocStore {
 | **Cursor** | `packages/document/src/view/cursor.ts` | Cursor position tracking, blink animation, caret rendering. |
 | **Selection** | `packages/document/src/view/selection.ts` | Multi-line text selection: range tracking and highlight rendering. |
 | **TextEditor** | `packages/document/src/view/text-editor.ts` | Keyboard/mouse input handling. Dispatches to Doc model methods. |
-| **DocContainer** | `packages/document/src/view/doc-container.ts` | Scroll management and viewport calculation. |
 | **Theme** | `packages/document/src/view/theme.ts` | Colors, default fonts, spacing constants. |
 
 ### Rendering pipeline
