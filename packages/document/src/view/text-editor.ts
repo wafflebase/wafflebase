@@ -1,0 +1,597 @@
+import type { DocPosition, InlineStyle } from '../model/types.js';
+import { getBlockTextLength } from '../model/types.js';
+import { Doc } from '../model/document.js';
+import { Cursor } from './cursor.js';
+import { Selection } from './selection.js';
+import type { DocumentLayout } from './layout.js';
+import { pixelToPosition, positionToPixel } from './layout.js';
+import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
+
+/**
+ * Composition (IME) state tracker.
+ *
+ * During IME composition (e.g. Korean, Japanese, Chinese input),
+ * text goes through intermediate states before being committed.
+ * We track the composing text separately and only commit on compositionend.
+ */
+interface CompositionState {
+  /** Whether we are currently in a composition session */
+  active: boolean;
+  /** Cursor position where composition started */
+  startPosition: DocPosition;
+  /** Length of currently composed text inserted into the model */
+  currentLength: number;
+}
+
+/**
+ * Input handling for the document editor.
+ * Uses a hidden textarea for keyboard input capture.
+ *
+ * IME composition (Korean, Japanese, Chinese) is handled via
+ * compositionstart/compositionend events. During composition,
+ * the `input` event reads `textarea.value` to replace the preview
+ * text — this works reliably across desktop and mobile Safari,
+ * unlike compositionupdate which fires inconsistently on mobile.
+ */
+export class TextEditor {
+  private textarea: HTMLTextAreaElement;
+  private isMouseDown = false;
+  private composition: CompositionState = {
+    active: false,
+    startPosition: { blockId: '', offset: 0 },
+    currentLength: 0,
+  };
+  /**
+   * When true, all input events are ignored until the next microtask.
+   * Set after compositionend to prevent post-composition duplicate insertion.
+   * Unlike a simple boolean flag, the microtask-based approach catches ALL
+   * synchronous input events the browser fires after compositionend (some
+   * browsers fire more than one).
+   */
+  private ignoreInputUntilNextTick = false;
+
+  // Software Hangul assembler for browsers that don't fire composition events
+  // (e.g., Mobile Safari with hidden textarea sends raw jamo as insertText).
+  private hangulAssembler = new HangulAssembler();
+  private hangulStartPos: DocPosition = { blockId: '', offset: 0 };
+  private hangulComposingLength = 0;
+
+  constructor(
+    private container: HTMLElement,
+    private doc: Doc,
+    private cursor: Cursor,
+    private selection: Selection,
+    private getLayout: () => DocumentLayout,
+    private getCtx: () => CanvasRenderingContext2D,
+    private requestRender: () => void,
+  ) {
+    this.textarea = document.createElement('textarea');
+    // Keep textarea within the viewport (not off-screen) so iOS IME works
+    // correctly. font-size:16px prevents iOS auto-zoom on focus.
+    this.textarea.style.cssText =
+      'position:absolute;top:0;left:0;width:1px;height:1px;' +
+      'font-size:16px;opacity:0;border:0;padding:0;margin:0;' +
+      'resize:none;overflow:hidden;';
+    container.appendChild(this.textarea);
+
+    this.textarea.addEventListener('input', this.handleInput);
+    this.textarea.addEventListener('keydown', this.handleKeyDown);
+    this.textarea.addEventListener('compositionstart', this.handleCompositionStart);
+    this.textarea.addEventListener('compositionend', this.handleCompositionEnd);
+    container.addEventListener('mousedown', this.handleMouseDown);
+    container.addEventListener('mousemove', this.handleMouseMove);
+    container.addEventListener('mouseup', this.handleMouseUp);
+  }
+
+  focus(): void {
+    this.textarea.focus();
+  }
+
+  // --- IME Composition handlers ---
+
+  private handleCompositionStart = (): void => {
+    // Cancel any pending post-compositionend ignore — a new composition is
+    // starting (e.g. syllable boundary in Korean: compositionend → compositionstart).
+    this.ignoreInputUntilNextTick = false;
+    this.deleteSelection();
+    this.composition = {
+      active: true,
+      startPosition: { ...this.cursor.position },
+      currentLength: 0,
+    };
+  };
+
+  private handleCompositionEnd = (e: CompositionEvent): void => {
+    if (!this.composition.active) return;
+
+    // Use e.data (reliable across all browsers) as the source of truth for
+    // the final committed text, replacing whatever the input events put in
+    // the model during composition. This corrects any drift caused by
+    // browser-specific textarea.value quirks (e.g. accumulation on iOS).
+    const finalText = e.data || '';
+    const { startPosition, currentLength } = this.composition;
+
+    if (currentLength > 0) {
+      this.doc.deleteText(startPosition, currentLength);
+    }
+    if (finalText.length > 0) {
+      this.doc.insertText(startPosition, finalText);
+    }
+    this.cursor.moveTo({
+      blockId: startPosition.blockId,
+      offset: startPosition.offset + finalText.length,
+    });
+
+    this.composition.active = false;
+    this.composition.currentLength = 0;
+    this.requestRender();
+
+    // Ignore ALL input events fired synchronously after compositionend.
+    // A microtask runs after the current task completes, so every
+    // post-compositionend input event (some browsers fire >1) is skipped.
+    this.ignoreInputUntilNextTick = true;
+    queueMicrotask(() => {
+      this.ignoreInputUntilNextTick = false;
+      // Only clear textarea if no new composition started in the meantime
+      // (at a syllable boundary, compositionstart fires before this microtask).
+      if (!this.composition.active) {
+        this.textarea.value = '';
+      }
+    });
+  };
+
+  // --- Event handlers ---
+
+  private handleInput = (): void => {
+    // Ignore all input events fired synchronously after compositionend
+    if (this.ignoreInputUntilNextTick) return;
+
+    if (this.composition.active) {
+      // Browser IME path: read textarea.value which contains the current
+      // composing text as managed by the browser's native IME system.
+      const newText = this.textarea.value;
+      const { startPosition, currentLength } = this.composition;
+
+      if (currentLength > 0) {
+        this.doc.deleteText(startPosition, currentLength);
+      }
+      if (newText.length > 0) {
+        this.doc.insertText(startPosition, newText);
+      }
+
+      this.composition.currentLength = newText.length;
+      this.cursor.moveTo({
+        blockId: startPosition.blockId,
+        offset: startPosition.offset + newText.length,
+      });
+      this.requestRender();
+      return;
+    }
+
+    const data = this.textarea.value;
+    this.textarea.value = '';
+    if (!data) return;
+
+    // Software Hangul assembly: when the browser sends raw jamo without
+    // composition events (Mobile Safari), assemble them into syllables.
+    if (data.length === 1 && isJamo(data)) {
+      const result = this.hangulAssembler.feed(data);
+      this.applyHangulResult(result);
+      return;
+    }
+
+    // Non-jamo input: flush any pending Hangul composition first
+    this.flushHangul();
+
+    this.deleteSelection();
+    this.doc.insertText(this.cursor.position, data);
+    this.cursor.moveTo({
+      blockId: this.cursor.position.blockId,
+      offset: this.cursor.position.offset + data.length,
+    });
+    this.requestRender();
+  };
+
+  private handleKeyDown = (e: KeyboardEvent): void => {
+    // Don't intercept keys during IME composition
+    if (this.composition.active || e.isComposing) return;
+
+    const { key, ctrlKey, metaKey, shiftKey } = e;
+    const mod = ctrlKey || metaKey;
+
+    // Flush software Hangul composition before processing special keys
+    if (this.hangulAssembler.isComposing) {
+      if (key === 'Backspace' || key === 'Delete' || key === 'Enter' ||
+          key.startsWith('Arrow') || key === 'Home' || key === 'End' ||
+          key === 'Escape' || mod) {
+        this.flushHangul();
+      }
+    }
+
+    switch (key) {
+      case 'Backspace':
+        e.preventDefault();
+        this.handleBackspace();
+        break;
+      case 'Delete':
+        e.preventDefault();
+        this.handleDelete();
+        break;
+      case 'Enter':
+        e.preventDefault();
+        this.handleEnter();
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        this.handleArrow('left', shiftKey);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        this.handleArrow('right', shiftKey);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        this.handleArrow('up', shiftKey);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        this.handleArrow('down', shiftKey);
+        break;
+      case 'Home':
+        e.preventDefault();
+        this.handleHome(shiftKey);
+        break;
+      case 'End':
+        e.preventDefault();
+        this.handleEnd(shiftKey);
+        break;
+      case 'a':
+        if (mod) {
+          e.preventDefault();
+          this.selectAll();
+        }
+        break;
+      case 'b':
+        if (mod) {
+          e.preventDefault();
+          this.toggleStyle({ bold: true });
+        }
+        break;
+      case 'i':
+        if (mod) {
+          e.preventDefault();
+          this.toggleStyle({ italic: true });
+        }
+        break;
+      case 'u':
+        if (mod) {
+          e.preventDefault();
+          this.toggleStyle({ underline: true });
+        }
+        break;
+      case 'z':
+        if (mod) {
+          e.preventDefault();
+          // Undo/redo handled at editor level
+        }
+        break;
+    }
+  };
+
+  private handleMouseDown = (e: MouseEvent): void => {
+    if (e.target === this.textarea) return;
+    e.preventDefault();
+    this.flushHangul();
+    this.focus();
+    this.isMouseDown = true;
+
+    const pos = this.getPositionFromMouse(e);
+    if (pos) {
+      this.cursor.moveTo(pos);
+      this.selection.setRange({ anchor: pos, focus: pos });
+      this.requestRender();
+    }
+  };
+
+  private handleMouseMove = (e: MouseEvent): void => {
+    if (!this.isMouseDown || !this.selection.range) return;
+
+    const pos = this.getPositionFromMouse(e);
+    if (pos) {
+      this.cursor.moveTo(pos);
+      this.selection.setRange({
+        anchor: this.selection.range.anchor,
+        focus: pos,
+      });
+      this.requestRender();
+    }
+  };
+
+  private handleMouseUp = (): void => {
+    this.isMouseDown = false;
+  };
+
+  // --- Text operations ---
+
+  private handleBackspace(): void {
+    if (this.deleteSelection()) return;
+    const newPos = this.doc.deleteBackward(this.cursor.position);
+    this.cursor.moveTo(newPos);
+    this.requestRender();
+  }
+
+  private handleDelete(): void {
+    if (this.deleteSelection()) return;
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    const len = getBlockTextLength(block);
+    if (this.cursor.position.offset < len) {
+      this.doc.deleteText(this.cursor.position, 1);
+    } else {
+      // At end of block — merge with next
+      const idx = this.doc.getBlockIndex(this.cursor.position.blockId);
+      if (idx < this.doc.document.blocks.length - 1) {
+        const nextBlock = this.doc.document.blocks[idx + 1];
+        this.doc.mergeBlocks(this.cursor.position.blockId, nextBlock.id);
+      }
+    }
+    this.requestRender();
+  }
+
+  private handleEnter(): void {
+    this.deleteSelection();
+    const newBlockId = this.doc.splitBlock(
+      this.cursor.position.blockId,
+      this.cursor.position.offset,
+    );
+    this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+    this.selection.setRange(null);
+    this.requestRender();
+  }
+
+  private handleArrow(
+    direction: 'left' | 'right' | 'up' | 'down',
+    shiftKey: boolean,
+  ): void {
+    const pos = this.cursor.position;
+    let newPos: DocPosition;
+
+    switch (direction) {
+      case 'left':
+        newPos = this.moveLeft(pos);
+        break;
+      case 'right':
+        newPos = this.moveRight(pos);
+        break;
+      case 'up':
+        newPos = this.moveVertical(pos, -1);
+        break;
+      case 'down':
+        newPos = this.moveVertical(pos, 1);
+        break;
+    }
+
+    if (shiftKey) {
+      const anchor = this.selection.range?.anchor ?? pos;
+      this.selection.setRange({ anchor, focus: newPos });
+    } else {
+      this.selection.setRange(null);
+    }
+
+    this.cursor.moveTo(newPos);
+    this.requestRender();
+  }
+
+  private handleHome(shiftKey: boolean): void {
+    const newPos = { blockId: this.cursor.position.blockId, offset: 0 };
+    if (shiftKey) {
+      const anchor = this.selection.range?.anchor ?? this.cursor.position;
+      this.selection.setRange({ anchor, focus: newPos });
+    } else {
+      this.selection.setRange(null);
+    }
+    this.cursor.moveTo(newPos);
+    this.requestRender();
+  }
+
+  private handleEnd(shiftKey: boolean): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    const len = getBlockTextLength(block);
+    const newPos = { blockId: this.cursor.position.blockId, offset: len };
+    if (shiftKey) {
+      const anchor = this.selection.range?.anchor ?? this.cursor.position;
+      this.selection.setRange({ anchor, focus: newPos });
+    } else {
+      this.selection.setRange(null);
+    }
+    this.cursor.moveTo(newPos);
+    this.requestRender();
+  }
+
+  private selectAll(): void {
+    const blocks = this.doc.document.blocks;
+    if (blocks.length === 0) return;
+    const firstBlock = blocks[0];
+    const lastBlock = blocks[blocks.length - 1];
+    this.selection.setRange({
+      anchor: { blockId: firstBlock.id, offset: 0 },
+      focus: {
+        blockId: lastBlock.id,
+        offset: getBlockTextLength(lastBlock),
+      },
+    });
+    this.cursor.moveTo({
+      blockId: lastBlock.id,
+      offset: getBlockTextLength(lastBlock),
+    });
+    this.requestRender();
+  }
+
+  private toggleStyle(style: Partial<InlineStyle>): void {
+    if (!this.selection.hasSelection() || !this.selection.range) return;
+    this.doc.applyInlineStyle(this.selection.range, style);
+    this.requestRender();
+  }
+
+  // --- Helpers ---
+
+  /**
+   * Delete currently selected text. Returns true if there was a selection.
+   */
+  private deleteSelection(): boolean {
+    if (!this.selection.hasSelection()) return false;
+
+    const layout = this.getLayout();
+    const normalized = this.selection.getNormalizedRange(layout);
+    if (!normalized) return false;
+
+    const { start, end } = normalized;
+    const startBlockIdx = this.doc.getBlockIndex(start.blockId);
+    const endBlockIdx = this.doc.getBlockIndex(end.blockId);
+
+    if (startBlockIdx === endBlockIdx) {
+      // Same block
+      this.doc.deleteText(start, end.offset - start.offset);
+    } else {
+      // Multi-block: delete from start to end of first block
+      const firstBlock = this.doc.getBlock(start.blockId);
+      const firstLen = getBlockTextLength(firstBlock);
+      if (start.offset < firstLen) {
+        this.doc.deleteText(start, firstLen - start.offset);
+      }
+
+      // Delete from beginning to end position in last block
+      if (end.offset > 0) {
+        this.doc.deleteText({ blockId: end.blockId, offset: 0 }, end.offset);
+      }
+
+      // Remove middle blocks
+      for (let i = endBlockIdx - 1; i > startBlockIdx; i--) {
+        this.doc.document.blocks.splice(i, 1);
+      }
+
+      // Merge first and last blocks
+      const lastBlockId = this.doc.document.blocks[startBlockIdx + 1]?.id;
+      if (lastBlockId) {
+        this.doc.mergeBlocks(start.blockId, lastBlockId);
+      }
+    }
+
+    this.cursor.moveTo(start);
+    this.selection.setRange(null);
+    this.requestRender();
+    return true;
+  }
+
+  private moveLeft(pos: DocPosition): DocPosition {
+    if (pos.offset > 0) {
+      return { blockId: pos.blockId, offset: pos.offset - 1 };
+    }
+    // Move to end of previous block
+    const idx = this.doc.getBlockIndex(pos.blockId);
+    if (idx > 0) {
+      const prevBlock = this.doc.document.blocks[idx - 1];
+      return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+    }
+    return pos;
+  }
+
+  private moveRight(pos: DocPosition): DocPosition {
+    const block = this.doc.getBlock(pos.blockId);
+    const len = getBlockTextLength(block);
+    if (pos.offset < len) {
+      return { blockId: pos.blockId, offset: pos.offset + 1 };
+    }
+    // Move to start of next block
+    const idx = this.doc.getBlockIndex(pos.blockId);
+    if (idx < this.doc.document.blocks.length - 1) {
+      return { blockId: this.doc.document.blocks[idx + 1].id, offset: 0 };
+    }
+    return pos;
+  }
+
+  private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
+    const layout = this.getLayout();
+    const ctx = this.getCtx();
+    const pixel = this.getPixelFromPosition(pos);
+    if (!pixel) return pos;
+
+    const newY = pixel.y + pixel.height * direction + pixel.height / 2;
+    const result = pixelToPosition(layout, pixel.x, newY, ctx);
+    return result ?? pos;
+  }
+
+  private getPositionFromMouse(e: MouseEvent): DocPosition | undefined {
+    const rect = this.container.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const scrollY = this.container.scrollTop;
+    return pixelToPosition(this.getLayout(), x, y + scrollY, this.getCtx());
+  }
+
+  private getPixelFromPosition(pos: DocPosition) {
+    const layout = this.getLayout();
+    const ctx = this.getCtx();
+    return positionToPixel(layout, pos.blockId, pos.offset, ctx);
+  }
+
+  // --- Software Hangul assembly helpers ---
+
+  private applyHangulResult(result: HangulResult): void {
+    if (result.commit) {
+      if (this.hangulComposingLength > 0) {
+        this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
+        this.doc.insertText(this.hangulStartPos, result.commit);
+        this.hangulStartPos = {
+          blockId: this.hangulStartPos.blockId,
+          offset: this.hangulStartPos.offset + result.commit.length,
+        };
+      } else {
+        this.deleteSelection();
+        this.doc.insertText(this.cursor.position, result.commit);
+        this.hangulStartPos = {
+          blockId: this.cursor.position.blockId,
+          offset: this.cursor.position.offset + result.commit.length,
+        };
+      }
+      this.hangulComposingLength = 0;
+    }
+
+    if (result.composing) {
+      if (this.hangulComposingLength === 0 && !result.commit) {
+        this.hangulStartPos = { ...this.cursor.position };
+      }
+      if (this.hangulComposingLength > 0) {
+        this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
+      }
+      this.doc.insertText(this.hangulStartPos, result.composing);
+      this.hangulComposingLength = result.composing.length;
+    } else {
+      this.hangulComposingLength = 0;
+    }
+
+    this.cursor.moveTo({
+      blockId: this.hangulStartPos.blockId,
+      offset: this.hangulStartPos.offset + this.hangulComposingLength,
+    });
+    this.requestRender();
+  }
+
+  private flushHangul(): void {
+    if (!this.hangulAssembler.isComposing) return;
+    const result = this.hangulAssembler.flush();
+    if (result) {
+      this.applyHangulResult(result);
+    }
+  }
+
+  dispose(): void {
+    this.textarea.removeEventListener('input', this.handleInput);
+    this.textarea.removeEventListener('keydown', this.handleKeyDown);
+    this.textarea.removeEventListener('compositionstart', this.handleCompositionStart);
+    this.textarea.removeEventListener('compositionend', this.handleCompositionEnd);
+    this.container.removeEventListener('mousedown', this.handleMouseDown);
+    this.container.removeEventListener('mousemove', this.handleMouseMove);
+    this.container.removeEventListener('mouseup', this.handleMouseUp);
+    this.textarea.remove();
+  }
+}

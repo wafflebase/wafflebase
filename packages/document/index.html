@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wafflebase Document Editor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: sans-serif; background: #f5f5f5; }
+    .toolbar {
+      display: flex; gap: 8px; padding: 8px 16px;
+      background: #fff; border-bottom: 1px solid #ddd;
+      align-items: center;
+    }
+    .toolbar button {
+      padding: 4px 12px; border: 1px solid #ccc; border-radius: 4px;
+      background: #fff; cursor: pointer; font-size: 14px; min-width: 32px;
+    }
+    .toolbar button:hover { background: #f0f0f0; }
+    .toolbar button.active { background: #e0e0e0; font-weight: bold; }
+    .toolbar select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; }
+    .toolbar .separator { width: 1px; height: 24px; background: #ddd; }
+    #editor-container {
+      width: 800px; margin: 24px auto; background: #fff;
+      border: 1px solid #ddd; border-radius: 4px;
+      height: calc(100vh - 300px); position: relative;
+    }
+    #event-log {
+      width: 800px; margin: 8px auto; background: #1e1e1e; color: #d4d4d4;
+      border-radius: 4px; padding: 8px 12px; font-family: monospace;
+      font-size: 12px; height: 200px; overflow-y: auto;
+      line-height: 1.4;
+    }
+    #event-log .ev-comp { color: #4ec9b0; }
+    #event-log .ev-input { color: #dcdcaa; }
+    #event-log .ev-key { color: #9cdcfe; }
+    #event-log .ev-val { color: #ce9178; }
+    #event-log-toolbar {
+      width: 800px; margin: 4px auto; display: flex; gap: 8px; align-items: center;
+    }
+    #event-log-toolbar button {
+      padding: 2px 8px; font-size: 12px; border: 1px solid #ccc;
+      border-radius: 3px; background: #fff; cursor: pointer;
+    }
+    #event-log-toolbar span { font-size: 12px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="btn-bold" title="Bold (Ctrl+B)"><b>B</b></button>
+    <button id="btn-italic" title="Italic (Ctrl+I)"><i>I</i></button>
+    <button id="btn-underline" title="Underline (Ctrl+U)"><u>U</u></button>
+    <div class="separator"></div>
+    <select id="font-size" title="Font Size">
+      <option value="12">12</option>
+      <option value="14">14</option>
+      <option value="16" selected>16</option>
+      <option value="20">20</option>
+      <option value="24">24</option>
+      <option value="32">32</option>
+      <option value="48">48</option>
+    </select>
+    <div class="separator"></div>
+    <button id="btn-align-left" title="Align Left">L</button>
+    <button id="btn-align-center" title="Align Center">C</button>
+    <button id="btn-align-right" title="Align Right">R</button>
+    <div class="separator"></div>
+    <button id="btn-undo" title="Undo">Undo</button>
+    <button id="btn-redo" title="Redo">Redo</button>
+  </div>
+  <div id="editor-container"></div>
+  <div id="event-log-toolbar">
+    <span>Event Log</span>
+    <button id="btn-clear-log">Clear</button>
+    <button id="btn-copy-log">Copy</button>
+  </div>
+  <div id="event-log"></div>
+  <script type="module" src="./demo.ts"></script>
+</body>
+</html>

@@ -27,6 +27,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [cli-oauth-login.md](cli-oauth-login.md)               | CLI OAuth login — browser-based GitHub auth, JWT session storage, workspace context switching      |
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
+| [docs.md](docs.md)                                     | Docs package — Canvas-based document editor, data model, layout engine, rendering pipeline         |
 
 ## Template
 
