@@ -51,10 +51,10 @@ export type ConditionalFormatRule = {
 
 ### Affected Modules
 
-#### 1. `packages/sheet/src/model/core/types.ts`
+#### 1. `packages/sheets/src/model/core/types.ts`
 - Replace `range: Range` with `ranges: Range[]` in `ConditionalFormatRule`.
 
-#### 2. `packages/sheet/src/model/worksheet/conditional-format.ts`
+#### 2. `packages/sheets/src/model/worksheet/conditional-format.ts`
 - **`cloneConditionalFormatRule`**: Clone `ranges` array instead of single `range`.
 - **`normalizeConditionalFormatRule`**: Normalize each range in `ranges`. Reject
   rules with empty `ranges`.
@@ -81,14 +81,14 @@ export type ConditionalFormatRule = {
   field. No structural change needed — the field name changes in
   `cloneConditionalFormatRule` and `normalizeConditionalFormatRule` handle it.
 
-#### 5. `packages/sheet/src/store/memory.ts`
+#### 5. `packages/sheets/src/store/memory.ts`
 - Same as yorkie-store — follows from type change.
 
-#### 6. `packages/sheet/src/view/gridcanvas.ts`
+#### 6. `packages/sheets/src/view/gridcanvas.ts`
 - No direct changes needed. It calls `resolveConditionalFormatStyleAt` which
   handles the multi-range logic internally.
 
-#### 7. `packages/sheet/src/model/workbook/worksheet-document.ts`
+#### 7. `packages/sheets/src/model/workbook/worksheet-document.ts`
 - Update `Worksheet` type: `conditionalFormats` elements use `ranges` instead
   of `range`.
 
@@ -143,7 +143,7 @@ The fallback can be removed after all documents are migrated.
 ### Tests
 
 - **Unit tests**: Update all existing tests in
-  `packages/sheet/test/model/` to use `ranges`. Add new tests for
+  `packages/sheets/test/model/` to use `ranges`. Add new tests for
   multi-range matching, shift, and move.
 - **Migration test**: Test `range` to `ranges` conversion logic.
 
