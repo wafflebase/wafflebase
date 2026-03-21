@@ -6,11 +6,14 @@
   <title>Wafflebase Document Editor</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: sans-serif; background: #f5f5f5; }
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: sans-serif; background: #f5f5f5; display: flex; flex-direction: column; }
+
+    /* --- Toolbar --- */
     .toolbar {
       display: flex; gap: 8px; padding: 8px 16px;
       background: #fff; border-bottom: 1px solid #ddd;
-      align-items: center;
+      align-items: center; flex-shrink: 0;
     }
     .toolbar button {
       padding: 4px 12px; border: 1px solid #ccc; border-radius: 4px;
@@ -20,29 +23,40 @@
     .toolbar button.active { background: #e0e0e0; font-weight: bold; }
     .toolbar select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; }
     .toolbar .separator { width: 1px; height: 24px; background: #ddd; }
+
+    /* --- Editor (fills remaining space) --- */
     #editor-container {
-      width: min(800px, 100vw - 32px); margin: 24px auto; background: #fff;
-      border: 1px solid #ddd; border-radius: 4px;
-      height: calc(100vh - 300px); position: relative;
+      flex: 1; min-height: 0;
+      position: relative;
     }
+
+    /* --- Event Log Panel (bottom, collapsible) --- */
+    .log-panel { flex-shrink: 0; border-top: 1px solid #ddd; background: #1e1e1e; }
+    .log-panel.collapsed #event-log { display: none; }
+
+    .log-panel-header {
+      display: flex; gap: 8px; padding: 4px 12px;
+      align-items: center; background: #2d2d2d; cursor: pointer;
+      user-select: none;
+    }
+    .log-panel-header span { font-size: 12px; color: #999; font-family: monospace; }
+    .log-panel-header .log-title { color: #ccc; }
+    .log-panel-header button {
+      padding: 1px 8px; font-size: 11px; border: 1px solid #555;
+      border-radius: 3px; background: #3a3a3a; color: #ccc; cursor: pointer;
+    }
+    .log-panel-header button:hover { background: #4a4a4a; }
+    .log-panel-header .toggle-arrow { font-size: 10px; color: #888; margin-right: 4px; }
+
     #event-log {
-      width: min(800px, 100vw - 32px); margin: 8px auto; background: #1e1e1e; color: #d4d4d4;
-      border-radius: 4px; padding: 8px 12px; font-family: monospace;
-      font-size: 12px; height: 200px; overflow-y: auto;
-      line-height: 1.4;
+      padding: 8px 12px; font-family: monospace;
+      font-size: 12px; height: 180px; overflow-y: auto;
+      line-height: 1.4; color: #d4d4d4;
     }
     #event-log .ev-comp { color: #4ec9b0; }
     #event-log .ev-input { color: #dcdcaa; }
     #event-log .ev-key { color: #9cdcfe; }
     #event-log .ev-val { color: #ce9178; }
-    #event-log-toolbar {
-      width: 800px; margin: 4px auto; display: flex; gap: 8px; align-items: center;
-    }
-    #event-log-toolbar button {
-      padding: 2px 8px; font-size: 12px; border: 1px solid #ccc;
-      border-radius: 3px; background: #fff; cursor: pointer;
-    }
-    #event-log-toolbar span { font-size: 12px; color: #666; }
   </style>
 </head>
 <body>
@@ -69,12 +83,15 @@
     <button id="btn-redo" title="Redo">Redo</button>
   </div>
   <div id="editor-container"></div>
-  <div id="event-log-toolbar">
-    <span>Event Log</span>
-    <button id="btn-clear-log">Clear</button>
-    <button id="btn-copy-log">Copy</button>
+  <div class="log-panel" id="log-panel">
+    <div class="log-panel-header" id="log-panel-toggle">
+      <span class="toggle-arrow" id="toggle-arrow">&#9650;</span>
+      <span class="log-title">Event Log</span>
+      <button id="btn-clear-log">Clear</button>
+      <button id="btn-copy-log">Copy</button>
+    </div>
+    <div id="event-log"></div>
   </div>
-  <div id="event-log"></div>
   <script type="module" src="./demo.ts"></script>
 </body>
 </html>

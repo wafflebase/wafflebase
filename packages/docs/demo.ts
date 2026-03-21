@@ -115,6 +115,16 @@ textarea.addEventListener('keyup', (e) => {
     `key=${escVal(e.key)} code=${e.code} isComposing=${e.isComposing}`);
 });
 
+// Log panel toggle
+const logPanel = document.getElementById('log-panel')!;
+const toggleArrow = document.getElementById('toggle-arrow')!;
+document.getElementById('log-panel-toggle')!.addEventListener('click', (e) => {
+  // Don't toggle when clicking buttons inside the header
+  if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+  logPanel.classList.toggle('collapsed');
+  toggleArrow.innerHTML = logPanel.classList.contains('collapsed') ? '&#9660;' : '&#9650;';
+});
+
 document.getElementById('btn-clear-log')!.addEventListener('click', () => {
   logEl.innerHTML = '';
   eventSeq = 0;
