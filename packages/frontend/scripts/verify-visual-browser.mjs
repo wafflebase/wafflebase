@@ -55,6 +55,8 @@ const scenarioIds = [
   "chart-area",
   "chart-pie",
   "chart-scatter",
+  "docs-multi-page",
+  "docs-styled-text",
 ];
 
 const visualTargets = [
@@ -204,6 +206,11 @@ async function captureScreenshots(playwright) {
           "[data-testid='visual-harness-chart-section'][data-visual-chart-ready='true']",
         );
         await chartSection.waitFor({ state: "visible", timeout: 20000 });
+
+        const docsSection = page.locator(
+          "[data-testid='visual-harness-docs-section'][data-visual-docs-ready='true']",
+        );
+        await docsSection.waitFor({ state: "visible", timeout: 20000 });
 
         for (const target of visualTargets) {
           const locator = page.locator(target.locator).first();
