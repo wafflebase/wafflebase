@@ -545,10 +545,37 @@ export class TextEditor {
     const pixel = this.getPixelForPosition(pos);
     if (!pixel) return pos;
 
+    const paginatedLayout = this.getPaginatedLayout();
+    const layout = this.getLayout();
+    const canvasWidth = this.getCanvasWidth();
+
     const newY = pixel.y + pixel.height * direction + pixel.height / 2;
     const result = paginatedPixelToPosition(
-      this.getPaginatedLayout(), this.getLayout(), pixel.x, newY, this.getCanvasWidth(),
+      paginatedLayout, layout, pixel.x, newY, canvasWidth,
     );
+
+    // If cursor didn't move, we may be at a page boundary.
+    // Jump to the adjacent page's first/last line.
+    if (result && result.blockId === pos.blockId && result.offset === pos.offset) {
+      const pageInfo = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout);
+      if (pageInfo) {
+        const nextPageIndex = pageInfo.pageIndex + direction;
+        const nextPage = paginatedLayout.pages[nextPageIndex];
+        if (nextPage && nextPage.lines.length > 0) {
+          // Down → first line of next page, Up → last line of previous page
+          const targetLine = direction === 1
+            ? nextPage.lines[0]
+            : nextPage.lines[nextPage.lines.length - 1];
+          const pageTop = getPageYOffset(paginatedLayout, nextPageIndex);
+          const targetY = pageTop + targetLine.y + targetLine.line.height / 2;
+          const crossPageResult = paginatedPixelToPosition(
+            paginatedLayout, layout, pixel.x, targetY, canvasWidth,
+          );
+          return crossPageResult ?? pos;
+        }
+      }
+    }
+
     return result ?? pos;
   }
 
