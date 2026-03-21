@@ -32,6 +32,7 @@ export class DocCanvas {
     viewportHeight: number,
     cursor?: { x: number; y: number; height: number; visible: boolean },
     selectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
+    focused: boolean = true,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -79,7 +80,7 @@ export class DocCanvas {
 
       // Draw selection highlights for this page
       if (selectionRects) {
-        this.ctx.fillStyle = Theme.selectionColor;
+        this.ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
         for (const rect of selectionRects) {
           if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
             this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
@@ -94,8 +95,8 @@ export class DocCanvas {
         }
       }
 
-      // Draw cursor if on this page
-      if (cursor?.visible) {
+      // Draw cursor if on this page (only when focused)
+      if (focused && cursor?.visible) {
         if (cursor.y >= pageY + margins.top &&
             cursor.y < pageY + margins.top + contentHeight) {
           this.ctx.fillStyle = Theme.cursorColor;

@@ -14,6 +14,7 @@ export const Theme = {
 
   /** Selection */
   selectionColor: 'rgba(66, 133, 244, 0.3)',
+  selectionColorInactive: 'rgba(0, 0, 0, 0.1)',
 
   /** Page */
   pageGap: 40,

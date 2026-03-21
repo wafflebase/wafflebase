@@ -68,6 +68,7 @@ export function initialize(
   let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
   let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
   let needsScrollIntoView = false;
+  let focused = true;
 
   // Compute layout helper
   const recomputeLayout = () => {
@@ -127,7 +128,7 @@ export function initialize(
       canvasWidth,
     );
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects);
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused);
   };
 
   // Wire up text editor
@@ -191,6 +192,19 @@ export function initialize(
 
   const resizeObserver = new ResizeObserver(() => render());
   resizeObserver.observe(container);
+
+  // Focus/blur handling
+  const handleFocus = () => {
+    focused = true;
+    cursor.startBlink(render);
+    render();
+  };
+  const handleBlur = () => {
+    focused = false;
+    cursor.stopBlink();
+    render();
+  };
+  textEditor.onFocusChange(handleFocus, handleBlur);
 
   // Focus
   textEditor.focus();

@@ -59,6 +59,8 @@ export class TextEditor {
   private hangulAssembler = new HangulAssembler();
   private hangulStartPos: DocPosition = { blockId: '', offset: 0 };
   private hangulComposingLength = 0;
+  private handleFocus: (() => void) | null = null;
+  private handleBlur: (() => void) | null = null;
 
   constructor(
     private container: HTMLElement,
@@ -94,6 +96,16 @@ export class TextEditor {
 
   focus(): void {
     this.textarea.focus();
+  }
+
+  /**
+   * Register focus/blur callbacks on the hidden textarea.
+   */
+  onFocusChange(onFocus: () => void, onBlur: () => void): void {
+    this.handleFocus = onFocus;
+    this.handleBlur = onBlur;
+    this.textarea.addEventListener('focus', this.handleFocus);
+    this.textarea.addEventListener('blur', this.handleBlur);
   }
 
   // --- IME Composition handlers ---
@@ -747,6 +759,8 @@ export class TextEditor {
     this.textarea.removeEventListener('keydown', this.handleKeyDown);
     this.textarea.removeEventListener('compositionstart', this.handleCompositionStart);
     this.textarea.removeEventListener('compositionend', this.handleCompositionEnd);
+    if (this.handleFocus) this.textarea.removeEventListener('focus', this.handleFocus);
+    if (this.handleBlur) this.textarea.removeEventListener('blur', this.handleBlur);
     this.container.removeEventListener('mousedown', this.handleMouseDown);
     this.container.removeEventListener('mousemove', this.handleMouseMove);
     this.container.removeEventListener('mouseup', this.handleMouseUp);
