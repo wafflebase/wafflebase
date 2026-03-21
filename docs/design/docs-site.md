@@ -61,13 +61,13 @@ packages/documentation/
 
 **CI build:**
 1. `pnpm frontend build` → `packages/frontend/dist/`
-2. `pnpm vpdocs build` → `packages/documentation/.vitepress/dist/`
+2. `pnpm documentation build` → `packages/documentation/.vitepress/dist/`
 3. Copy docs build output into `packages/frontend/dist/docs/`
 
 **Root package.json scripts:**
 ```json
-"vpdocs": "pnpm --filter @wafflebase/documentation",
-"build:all": "pnpm frontend build && pnpm vpdocs build && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs"
+"documentation": "pnpm --filter @wafflebase/documentation",
+"build:all": "pnpm frontend build && pnpm documentation build && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs"
 ```
 
 **GitHub Actions (`.github/workflows/publish-ghpage.yml`):**

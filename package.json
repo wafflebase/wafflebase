@@ -4,7 +4,7 @@
   "private": true,
   "description": "Super Simple Spreadsheet",
   "scripts": {
-    "dev": "concurrently \"pnpm frontend dev\" \"pnpm backend start:dev\" \"pnpm vpdocs dev\"",
+    "dev": "concurrently \"pnpm frontend dev\" \"pnpm backend start:dev\" \"pnpm documentation dev\"",
     "build": "concurrently \"pnpm sheet build\" \"pnpm frontend build\" \"pnpm backend build\" \"pnpm cli build\"",
     "test": "concurrently \"pnpm sheet test\" \"pnpm frontend test\" \"pnpm backend test\" \"pnpm cli test\"",
     "verify:architecture": "pnpm frontend lint:arch && pnpm backend lint:arch",
@@ -29,8 +29,8 @@
     "sheet": "pnpm --filter @wafflebase/sheet",
     "cli": "pnpm --filter @wafflebase/cli",
     "document": "pnpm --filter @wafflebase/document",
-    "vpdocs": "pnpm --filter @wafflebase/documentation",
-    "build:all": "pnpm frontend build && pnpm vpdocs build && rm -rf packages/frontend/dist/docs && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs",
+    "documentation": "pnpm --filter @wafflebase/documentation",
+    "build:all": "pnpm frontend build && pnpm documentation build && rm -rf packages/frontend/dist/docs && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs",
     "postinstall": "git config core.hooksPath .githooks || true"
   },
   "keywords": [],
