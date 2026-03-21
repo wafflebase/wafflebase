@@ -93,13 +93,15 @@ export function initialize(
   const render = () => {
     syncToStore();
 
-    const { width, height } = container.getBoundingClientRect();
+    const { width: viewportWidth, height } = container.getBoundingClientRect();
     recomputeLayout();
+    const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
+    const canvasWidth = Math.max(viewportWidth, pageWidth);
     const totalHeight = getTotalHeight(paginatedLayout);
     const canvasHeight = Math.max(height, totalHeight);
-    docCanvas.resize(width, canvasHeight);
+    docCanvas.resize(canvasWidth, canvasHeight);
 
-    const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), width);
+    const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), canvasWidth);
 
     // Auto-scroll to keep cursor visible (only on keyboard/input-driven renders)
     if (needsScrollIntoView && cursorPixel) {
@@ -122,10 +124,10 @@ export function initialize(
       paginatedLayout,
       layout,
       docCanvas.getContext(),
-      width,
+      canvasWidth,
     );
 
-    docCanvas.render(paginatedLayout, scrollY, width, height, cursorPixel ?? undefined, selectionRects);
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects);
   };
 
   // Wire up text editor
@@ -165,7 +167,11 @@ export function initialize(
     () => layout,
     () => paginatedLayout,
     () => docCanvas.getContext(),
-    () => container.getBoundingClientRect().width,
+    () => {
+      const vw = container.getBoundingClientRect().width;
+      const pw = paginatedLayout.pages[0]?.width ?? 0;
+      return Math.max(vw, pw);
+    },
     renderWithScroll,
     () => docStore.snapshot(),
     undoFn,

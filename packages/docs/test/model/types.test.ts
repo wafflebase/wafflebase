@@ -16,12 +16,19 @@ describe('PageSetup', () => {
   });
 
   it('resolvePageSetup returns default when undefined', () => {
-    expect(resolvePageSetup(undefined)).toBe(DEFAULT_PAGE_SETUP);
+    expect(resolvePageSetup(undefined)).toEqual(DEFAULT_PAGE_SETUP);
   });
 
   it('resolvePageSetup returns provided setup', () => {
     const custom = { ...DEFAULT_PAGE_SETUP, paperSize: PAPER_SIZES.A4 };
-    expect(resolvePageSetup(custom)).toBe(custom);
+    expect(resolvePageSetup(custom)).toEqual(custom);
+  });
+
+  it('resolvePageSetup returns a defensive copy', () => {
+    const resolved = resolvePageSetup(undefined);
+    expect(resolved).not.toBe(DEFAULT_PAGE_SETUP);
+    expect(resolved.margins).not.toBe(DEFAULT_PAGE_SETUP.margins);
+    expect(resolved.paperSize).not.toBe(DEFAULT_PAGE_SETUP.paperSize);
   });
 
   it('getEffectiveDimensions returns paper size for portrait', () => {
