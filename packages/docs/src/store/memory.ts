@@ -1,4 +1,5 @@
-import type { Block, Document } from '../model/types.js';
+import type { Block, Document, PageSetup } from '../model/types.js';
+import { resolvePageSetup } from '../model/types.js';
 import type { DocStore } from './store.js';
 
 /**
@@ -58,6 +59,16 @@ export class MemDocStore implements DocStore {
     const index = this.doc.blocks.findIndex((b) => b.id === id);
     if (index === -1) throw new Error(`Block not found: ${id}`);
     this.doc.blocks.splice(index, 1);
+    this.redoStack = [];
+  }
+
+  getPageSetup(): PageSetup {
+    return resolvePageSetup(this.doc.pageSetup);
+  }
+
+  setPageSetup(setup: PageSetup): void {
+    this.pushUndo();
+    this.doc.pageSetup = JSON.parse(JSON.stringify(setup));
     this.redoStack = [];
   }
 

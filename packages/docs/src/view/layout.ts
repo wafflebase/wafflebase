@@ -63,11 +63,11 @@ interface MeasuredSegment {
 export function computeLayout(
   blocks: Block[],
   ctx: CanvasRenderingContext2D,
-  canvasWidth: number,
+  contentWidth: number,
 ): DocumentLayout {
-  const availableWidth = canvasWidth - Theme.pagePaddingX * 2;
+  const availableWidth = contentWidth;
   const layoutBlocks: LayoutBlock[] = [];
-  let y = Theme.pagePaddingTop;
+  let y = 0;
 
   for (const block of blocks) {
     y += block.style.marginTop;
@@ -91,7 +91,7 @@ export function computeLayout(
 
     const layoutBlock_: LayoutBlock = {
       block,
-      x: Theme.pagePaddingX,
+      x: 0,
       y,
       width: availableWidth,
       height: blockHeight,
@@ -311,151 +311,3 @@ function getLineMaxFontSize(line: LayoutLine, block: Block): number {
   return Theme.defaultFontSize;
 }
 
-// --- Coordinate mapping ---
-
-/**
- * Find the layout block for a given block ID.
- */
-export function findLayoutBlock(
-  layout: DocumentLayout,
-  blockId: string,
-): LayoutBlock | undefined {
-  return layout.blocks.find((lb) => lb.block.id === blockId);
-}
-
-/**
- * Convert a document position (blockId + offset) to pixel coordinates.
- */
-export function positionToPixel(
-  layout: DocumentLayout,
-  blockId: string,
-  offset: number,
-  ctx: CanvasRenderingContext2D,
-): { x: number; y: number; height: number } | undefined {
-  const lb = findLayoutBlock(layout, blockId);
-  if (!lb) return undefined;
-
-  // Walk through lines/runs to find the offset
-  let charCount = 0;
-  for (const line of lb.lines) {
-    for (const run of line.runs) {
-      const runLength = run.charEnd - run.charStart;
-      if (charCount + runLength >= offset && charCount <= offset) {
-        // The offset is within this run
-        const localOffset = offset - charCount;
-        const textBefore = run.text.slice(0, localOffset);
-        ctx.font = buildFont(
-          run.inline.style.fontSize,
-          run.inline.style.fontFamily,
-          run.inline.style.bold,
-          run.inline.style.italic,
-        );
-        const x = lb.x + run.x + ctx.measureText(textBefore).width;
-        return { x, y: lb.y + line.y, height: line.height };
-      }
-      charCount += runLength;
-    }
-  }
-
-  // Offset is past the end — position at end of last line
-  const lastLine = lb.lines[lb.lines.length - 1];
-  if (lastLine && lastLine.runs.length > 0) {
-    const lastRun = lastLine.runs[lastLine.runs.length - 1];
-    return {
-      x: lb.x + lastRun.x + lastRun.width,
-      y: lb.y + lastLine.y,
-      height: lastLine.height,
-    };
-  }
-
-  return { x: lb.x, y: lb.y, height: lb.lines[0]?.height ?? 24 };
-}
-
-/**
- * Convert pixel coordinates to a document position.
- */
-export function pixelToPosition(
-  layout: DocumentLayout,
-  px: number,
-  py: number,
-  ctx: CanvasRenderingContext2D,
-): { blockId: string; offset: number } | undefined {
-  if (layout.blocks.length === 0) return undefined;
-
-  // Find the block at this Y position
-  let targetBlock = layout.blocks[0];
-  for (const lb of layout.blocks) {
-    if (py >= lb.y) {
-      targetBlock = lb;
-    } else {
-      break;
-    }
-  }
-
-  // Find the line at this Y position within the block
-  let targetLine = targetBlock.lines[0];
-  for (const line of targetBlock.lines) {
-    if (py >= targetBlock.y + line.y) {
-      targetLine = line;
-    } else {
-      break;
-    }
-  }
-
-  if (!targetLine || targetLine.runs.length === 0) {
-    return { blockId: targetBlock.block.id, offset: 0 };
-  }
-
-  // Find character position within the line
-  const localX = px - targetBlock.x;
-
-  // Count characters before this line
-  let charsBeforeLine = 0;
-  for (const line of targetBlock.lines) {
-    if (line === targetLine) break;
-    for (const run of line.runs) {
-      charsBeforeLine += run.charEnd - run.charStart;
-    }
-  }
-
-  // Walk through runs to find the exact character
-  let charsBeforeRun = 0;
-  for (const run of targetLine.runs) {
-    if (localX >= run.x && localX <= run.x + run.width) {
-      // Within this run — find exact character
-      ctx.font = buildFont(
-        run.inline.style.fontSize,
-        run.inline.style.fontFamily,
-        run.inline.style.bold,
-        run.inline.style.italic,
-      );
-
-      let bestOffset = 0;
-      let bestDist = Infinity;
-      for (let i = 0; i <= run.text.length; i++) {
-        const w = ctx.measureText(run.text.slice(0, i)).width;
-        const dist = Math.abs(run.x + w - localX);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestOffset = i;
-        }
-      }
-
-      return {
-        blockId: targetBlock.block.id,
-        offset: charsBeforeLine + charsBeforeRun + bestOffset,
-      };
-    }
-    charsBeforeRun += run.text.length;
-  }
-
-  // Past the end of the line — position at end
-  const lineCharCount = targetLine.runs.reduce(
-    (sum, r) => sum + (r.charEnd - r.charStart),
-    0,
-  );
-  return {
-    blockId: targetBlock.block.id,
-    offset: charsBeforeLine + lineCharCount,
-  };
-}

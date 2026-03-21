@@ -1,5 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { InlineStyle, BlockStyle } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
@@ -7,6 +8,7 @@ import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout } from './layout.js';
+import { paginateLayout, getTotalHeight, type PaginatedLayout } from './pagination.js';
 
 /**
  * Public API returned by initialize().
@@ -64,14 +66,21 @@ export function initialize(
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+  let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
+  let needsScrollIntoView = false;
+  let focused = true;
 
   // Compute layout helper
   const recomputeLayout = () => {
+    const pageSetup = resolvePageSetup(doc.document.pageSetup);
+    const dims = getEffectiveDimensions(pageSetup);
+    const contentWidth = dims.width - pageSetup.margins.left - pageSetup.margins.right;
     layout = computeLayout(
       doc.document.blocks,
       docCanvas.getContext(),
-      canvas.width / (window.devicePixelRatio || 1),
+      contentWidth,
     );
+    paginatedLayout = paginateLayout(layout, pageSetup);
   };
 
   // Sync the live Doc back into the store (without pushing undo).
@@ -85,19 +94,41 @@ export function initialize(
   const render = () => {
     syncToStore();
 
-    const { width, height } = container.getBoundingClientRect();
+    const { width: viewportWidth, height } = container.getBoundingClientRect();
     recomputeLayout();
-    const canvasHeight = Math.max(height, layout.totalHeight);
-    docCanvas.resize(width, canvasHeight);
+    const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
+    const canvasWidth = Math.max(viewportWidth, pageWidth);
+    const totalHeight = getTotalHeight(paginatedLayout);
+    const canvasHeight = Math.max(height, totalHeight);
+    docCanvas.resize(canvasWidth, canvasHeight);
+
+    const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), canvasWidth);
+
+    // Auto-scroll to keep cursor visible (only on keyboard/input-driven renders)
+    if (needsScrollIntoView && cursorPixel) {
+      needsScrollIntoView = false;
+      const viewportTop = container.scrollTop;
+      const viewportHeight = height;
+      const cursorTop = cursorPixel.y;
+      const cursorBottom = cursorPixel.y + cursorPixel.height;
+      const scrollMargin = 20;
+
+      if (cursorBottom > viewportTop + viewportHeight - scrollMargin) {
+        container.scrollTop = cursorBottom - viewportHeight + scrollMargin;
+      } else if (cursorTop < viewportTop + scrollMargin) {
+        container.scrollTop = Math.max(0, cursorTop - scrollMargin);
+      }
+    }
 
     const scrollY = container.scrollTop;
-    const cursorPixel = cursor.getPixelPosition(layout, docCanvas.getContext());
     const selectionRects = selection.getSelectionRects(
+      paginatedLayout,
       layout,
       docCanvas.getContext(),
+      canvasWidth,
     );
 
-    docCanvas.render(layout, scrollY, cursorPixel ?? undefined, selectionRects);
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused);
   };
 
   // Wire up text editor
@@ -108,6 +139,7 @@ export function initialize(
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+      needsScrollIntoView = true;
       render();
     }
   };
@@ -118,8 +150,14 @@ export function initialize(
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+      needsScrollIntoView = true;
       render();
     }
+  };
+
+  const renderWithScroll = () => {
+    needsScrollIntoView = true;
+    render();
   };
 
   const textEditor = new TextEditor(
@@ -128,8 +166,14 @@ export function initialize(
     cursor,
     selection,
     () => layout,
+    () => paginatedLayout,
     () => docCanvas.getContext(),
-    render,
+    () => {
+      const vw = container.getBoundingClientRect().width;
+      const pw = paginatedLayout.pages[0]?.width ?? 0;
+      return Math.max(vw, pw);
+    },
+    renderWithScroll,
     () => docStore.snapshot(),
     undoFn,
     redoFn,
@@ -148,6 +192,19 @@ export function initialize(
 
   const resizeObserver = new ResizeObserver(() => render());
   resizeObserver.observe(container);
+
+  // Focus/blur handling
+  const handleFocus = () => {
+    focused = true;
+    cursor.startBlink(render);
+    render();
+  };
+  const handleBlur = () => {
+    focused = false;
+    cursor.stopBlink();
+    render();
+  };
+  textEditor.onFocusChange(handleFocus, handleBlur);
 
   // Focus
   textEditor.focus();

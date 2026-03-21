@@ -2,10 +2,6 @@
  * Visual constants for the document editor.
  */
 export const Theme = {
-  /** Page padding from canvas edges */
-  pagePaddingX: 72,
-  pagePaddingTop: 48,
-
   /** Default font */
   defaultFontSize: 16,
   defaultFontFamily: 'sans-serif',
@@ -18,9 +14,16 @@ export const Theme = {
 
   /** Selection */
   selectionColor: 'rgba(66, 133, 244, 0.3)',
+  selectionColorInactive: 'rgba(0, 0, 0, 0.1)',
 
-  /** Background */
-  backgroundColor: '#ffffff',
+  /** Page */
+  pageGap: 40,
+  pageShadowColor: 'rgba(0, 0, 0, 0.15)',
+  pageShadowBlur: 8,
+  pageShadowOffsetX: 0,
+  pageShadowOffsetY: 4,
+  pageBackground: '#ffffff',
+  canvasBackground: '#f0f0f0',
 } as const;
 
 /**

@@ -38,6 +38,18 @@ if (!isDocker && !isPlaywrightAvailable()) {
 
 console.log(`${PREFIX} Chromium found — running browser lanes.`);
 
+// Build library packages that frontend depends on
+console.log(`${PREFIX} Building library packages...`);
+try {
+  execSync("pnpm --filter @wafflebase/sheets build", {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
+} catch (error) {
+  console.error(`${PREFIX} Library build failed.`);
+  process.exit(error.status ?? 1);
+}
+
 try {
   execSync("pnpm verify:frontend:visual", {
     cwd: repoRoot,

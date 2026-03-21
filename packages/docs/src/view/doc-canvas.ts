@@ -1,9 +1,11 @@
-import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
+import type { PaginatedLayout } from './pagination.js';
+import { getPageYOffset, getPageXOffset } from './pagination.js';
+import type { LayoutRun } from './layout.js';
 import { Theme, buildFont } from './theme.js';
 
 /**
  * Canvas rendering engine for the document editor.
- * Paints blocks, styled text runs, cursor, and selection highlights.
+ * Paints paginated pages with shadows, styled text runs, cursor, and selection highlights.
  */
 export class DocCanvas {
   private canvas: HTMLCanvasElement;
@@ -21,53 +23,88 @@ export class DocCanvas {
   }
 
   /**
-   * Render the full document.
+   * Render the full paginated document.
    */
   render(
-    layout: DocumentLayout,
+    paginatedLayout: PaginatedLayout,
     scrollY: number,
+    canvasWidth: number,
+    viewportHeight: number,
     cursor?: { x: number; y: number; height: number; visible: boolean },
     selectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
+    focused: boolean = true,
   ): void {
-    const { width, height } = this.canvas;
+    const dpr = window.devicePixelRatio || 1;
+    const logicalWidth = this.canvas.width / dpr;
+    const logicalHeight = this.canvas.height / dpr;
 
-    // Clear
-    this.ctx.fillStyle = Theme.backgroundColor;
-    this.ctx.fillRect(0, 0, width, height);
+    // Clear with canvas background
+    this.ctx.fillStyle = Theme.canvasBackground;
+    this.ctx.fillRect(0, 0, logicalWidth, logicalHeight);
 
-    this.ctx.save();
-    this.ctx.translate(0, -scrollY);
+    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+    const { margins } = paginatedLayout.pageSetup;
 
-    // Draw selection highlights
-    if (selectionRects) {
-      this.ctx.fillStyle = Theme.selectionColor;
-      for (const rect of selectionRects) {
-        this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    // All coordinates are absolute (canvas = full document height).
+    // The container's native scroll handles viewport positioning.
+    // scrollY + viewportHeight define the visible window for culling.
+    const visibleTop = scrollY;
+    const visibleBottom = scrollY + viewportHeight;
+
+    for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+
+      // Viewport culling
+      if (pageY + page.height < visibleTop || pageY > visibleBottom) continue;
+
+      // Draw shadow
+      this.ctx.save();
+      this.ctx.shadowColor = Theme.pageShadowColor;
+      this.ctx.shadowBlur = Theme.pageShadowBlur;
+      this.ctx.shadowOffsetX = Theme.pageShadowOffsetX;
+      this.ctx.shadowOffsetY = Theme.pageShadowOffsetY;
+      this.ctx.fillStyle = Theme.pageBackground;
+      this.ctx.fillRect(pageX, pageY, page.width, page.height);
+      this.ctx.restore();
+
+      // Clip to content area
+      const contentX = pageX + margins.left;
+      const contentY = pageY + margins.top;
+      const contentWidth = page.width - margins.left - margins.right;
+      const contentHeight = page.height - margins.top - margins.bottom;
+
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.rect(contentX, contentY, contentWidth, contentHeight);
+      this.ctx.clip();
+
+      // Draw selection highlights for this page
+      if (selectionRects) {
+        this.ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
+        for (const rect of selectionRects) {
+          if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+            this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          }
+        }
       }
-    }
 
-    // Draw text
-    for (const lb of layout.blocks) {
-      this.renderBlock(lb);
-    }
-
-    // Draw cursor
-    if (cursor?.visible) {
-      this.ctx.fillStyle = Theme.cursorColor;
-      this.ctx.fillRect(cursor.x, cursor.y, Theme.cursorWidth, cursor.height);
-    }
-
-    this.ctx.restore();
-  }
-
-  /**
-   * Render a single layout block.
-   */
-  private renderBlock(lb: LayoutBlock): void {
-    for (const line of lb.lines) {
-      for (const run of line.runs) {
-        this.renderRun(run, lb.x, lb.y + line.y, line.height);
+      // Draw text
+      for (const pl of page.lines) {
+        for (const run of pl.line.runs) {
+          this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height);
+        }
       }
+
+      // Draw cursor if on this page (only when focused)
+      if (focused && cursor?.visible) {
+        if (cursor.y >= pageY + margins.top &&
+            cursor.y < pageY + margins.top + contentHeight) {
+          this.ctx.fillStyle = Theme.cursorColor;
+          this.ctx.fillRect(cursor.x, cursor.y, Theme.cursorWidth, cursor.height);
+        }
+      }
+
+      this.ctx.restore();
     }
   }
 
@@ -76,7 +113,7 @@ export class DocCanvas {
    */
   private renderRun(
     run: LayoutRun,
-    blockX: number,
+    lineX: number,
     lineY: number,
     lineHeight: number,
   ): void {
@@ -91,13 +128,11 @@ export class DocCanvas {
     this.ctx.textBaseline = 'alphabetic';
 
     const fontSize = style.fontSize ?? Theme.defaultFontSize;
-    // Baseline position: vertically center text in line
     const baselineY = lineY + (lineHeight + fontSize * 0.8) / 2;
-    const x = blockX + run.x;
+    const x = lineX + run.x;
 
     this.ctx.fillText(run.text, x, baselineY);
 
-    // Underline decoration
     if (style.underline) {
       const underlineY = baselineY + 2;
       this.ctx.beginPath();

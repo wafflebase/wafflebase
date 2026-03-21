@@ -4,7 +4,9 @@ import { Doc } from '../model/document.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
-import { pixelToPosition, positionToPixel } from './layout.js';
+import type { PaginatedLayout } from './pagination.js';
+import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
+import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 
 /**
@@ -36,6 +38,8 @@ interface CompositionState {
 export class TextEditor {
   private textarea: HTMLTextAreaElement;
   private isMouseDown = false;
+  private dragScrollRAF: number | null = null;
+  private lastMouseClientY = 0;
   private composition: CompositionState = {
     active: false,
     startPosition: { blockId: '', offset: 0 },
@@ -55,6 +59,8 @@ export class TextEditor {
   private hangulAssembler = new HangulAssembler();
   private hangulStartPos: DocPosition = { blockId: '', offset: 0 };
   private hangulComposingLength = 0;
+  private handleFocus: (() => void) | null = null;
+  private handleBlur: (() => void) | null = null;
 
   constructor(
     private container: HTMLElement,
@@ -62,7 +68,9 @@ export class TextEditor {
     private cursor: Cursor,
     private selection: Selection,
     private getLayout: () => DocumentLayout,
+    private getPaginatedLayout: () => PaginatedLayout,
     private getCtx: () => CanvasRenderingContext2D,
+    private getCanvasWidth: () => number,
     private requestRender: () => void,
     private saveSnapshot: () => void,
     private undoAction: () => void,
@@ -88,6 +96,16 @@ export class TextEditor {
 
   focus(): void {
     this.textarea.focus();
+  }
+
+  /**
+   * Register focus/blur callbacks on the hidden textarea.
+   */
+  onFocusChange(onFocus: () => void, onBlur: () => void): void {
+    this.handleFocus = onFocus;
+    this.handleBlur = onBlur;
+    this.textarea.addEventListener('focus', this.handleFocus);
+    this.textarea.addEventListener('blur', this.handleBlur);
   }
 
   // --- IME Composition handlers ---
@@ -311,8 +329,25 @@ export class TextEditor {
   private handleMouseMove = (e: MouseEvent): void => {
     if (!this.isMouseDown || !this.selection.range) return;
 
-    const pos = this.getPositionFromMouse(e);
-    if (pos) {
+    this.lastMouseClientY = e.clientY;
+    this.updateDragSelection(e.clientX, e.clientY);
+    this.startDragScroll();
+  };
+
+  private handleMouseUp = (): void => {
+    this.isMouseDown = false;
+    this.stopDragScroll();
+  };
+
+  private updateDragSelection(clientX: number, clientY: number): void {
+    const rect = this.container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const scrollY = this.container.scrollTop;
+    const pos = paginatedPixelToPosition(
+      this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
+    );
+    if (pos && this.selection.range) {
       this.cursor.moveTo(pos);
       this.selection.setRange({
         anchor: this.selection.range.anchor,
@@ -320,11 +355,53 @@ export class TextEditor {
       });
       this.requestRender();
     }
-  };
+  }
 
-  private handleMouseUp = (): void => {
-    this.isMouseDown = false;
-  };
+  private startDragScroll(): void {
+    if (this.dragScrollRAF !== null) return;
+
+    const scrollStep = () => {
+      if (!this.isMouseDown) {
+        this.dragScrollRAF = null;
+        return;
+      }
+
+      const rect = this.container.getBoundingClientRect();
+      const relativeY = this.lastMouseClientY - rect.top;
+      const edgeZone = 40;
+      const maxSpeed = 20;
+
+      let scrollDelta = 0;
+      if (relativeY < edgeZone) {
+        // Near top edge — scroll up
+        const ratio = Math.max(0, (edgeZone - relativeY) / edgeZone);
+        scrollDelta = -Math.ceil(ratio * maxSpeed);
+      } else if (relativeY > rect.height - edgeZone) {
+        // Near bottom edge — scroll down
+        const ratio = Math.max(0, (relativeY - (rect.height - edgeZone)) / edgeZone);
+        scrollDelta = Math.ceil(ratio * maxSpeed);
+      }
+
+      if (scrollDelta !== 0) {
+        this.container.scrollTop += scrollDelta;
+        this.updateDragSelection(
+          this.container.getBoundingClientRect().left + 1,
+          this.lastMouseClientY,
+        );
+      }
+
+      this.dragScrollRAF = requestAnimationFrame(scrollStep);
+    };
+
+    this.dragScrollRAF = requestAnimationFrame(scrollStep);
+  }
+
+  private stopDragScroll(): void {
+    if (this.dragScrollRAF !== null) {
+      cancelAnimationFrame(this.dragScrollRAF);
+      this.dragScrollRAF = null;
+    }
+  }
 
   // --- Text operations ---
 
@@ -538,13 +615,40 @@ export class TextEditor {
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
-    const layout = this.getLayout();
-    const ctx = this.getCtx();
-    const pixel = this.getPixelFromPosition(pos);
+    const pixel = this.getPixelForPosition(pos);
     if (!pixel) return pos;
 
+    const paginatedLayout = this.getPaginatedLayout();
+    const layout = this.getLayout();
+    const canvasWidth = this.getCanvasWidth();
+
     const newY = pixel.y + pixel.height * direction + pixel.height / 2;
-    const result = pixelToPosition(layout, pixel.x, newY, ctx);
+    const result = paginatedPixelToPosition(
+      paginatedLayout, layout, pixel.x, newY, canvasWidth,
+    );
+
+    // If cursor didn't move, we may be at a page boundary.
+    // Jump to the adjacent page's first/last line.
+    if (result && result.blockId === pos.blockId && result.offset === pos.offset) {
+      const pageInfo = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout);
+      if (pageInfo) {
+        const nextPageIndex = pageInfo.pageIndex + direction;
+        const nextPage = paginatedLayout.pages[nextPageIndex];
+        if (nextPage && nextPage.lines.length > 0) {
+          // Down → first line of next page, Up → last line of previous page
+          const targetLine = direction === 1
+            ? nextPage.lines[0]
+            : nextPage.lines[nextPage.lines.length - 1];
+          const pageTop = getPageYOffset(paginatedLayout, nextPageIndex);
+          const targetY = pageTop + targetLine.y + targetLine.line.height / 2;
+          const crossPageResult = paginatedPixelToPosition(
+            paginatedLayout, layout, pixel.x, targetY, canvasWidth,
+          );
+          return crossPageResult ?? pos;
+        }
+      }
+    }
+
     return result ?? pos;
   }
 
@@ -553,13 +657,49 @@ export class TextEditor {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const scrollY = this.container.scrollTop;
-    return pixelToPosition(this.getLayout(), x, y + scrollY, this.getCtx());
+    return paginatedPixelToPosition(
+      this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
+    );
   }
 
-  private getPixelFromPosition(pos: DocPosition) {
+  private getPixelForPosition(pos: DocPosition) {
+    const paginatedLayout = this.getPaginatedLayout();
     const layout = this.getLayout();
     const ctx = this.getCtx();
-    return positionToPixel(layout, pos.blockId, pos.offset, ctx);
+    const canvasWidth = this.getCanvasWidth();
+    const found = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout);
+    if (!found) return undefined;
+
+    const { pageIndex, pageLine } = found;
+    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+    const pageY = getPageYOffset(paginatedLayout, pageIndex);
+    const lb = layout.blocks[pageLine.blockIndex];
+
+    let charsBeforeLine = 0;
+    for (let li = 0; li < pageLine.lineIndex; li++) {
+      for (const r of lb.lines[li].runs) {
+        charsBeforeLine += r.charEnd - r.charStart;
+      }
+    }
+    const lineOffset = pos.offset - charsBeforeLine;
+
+    let charCount = 0;
+    for (const run of pageLine.line.runs) {
+      const runLength = run.charEnd - run.charStart;
+      if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
+        const localOff = lineOffset - charCount;
+        ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+        const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+        return { x, y: pageY + pageLine.y, height: pageLine.line.height };
+      }
+      charCount += runLength;
+    }
+
+    const lastRun = pageLine.line.runs[pageLine.line.runs.length - 1];
+    if (lastRun) {
+      return { x: pageX + pageLine.x + lastRun.x + lastRun.width, y: pageY + pageLine.y, height: pageLine.line.height };
+    }
+    return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: 24 };
   }
 
   // --- Software Hangul assembly helpers ---
@@ -619,9 +759,12 @@ export class TextEditor {
     this.textarea.removeEventListener('keydown', this.handleKeyDown);
     this.textarea.removeEventListener('compositionstart', this.handleCompositionStart);
     this.textarea.removeEventListener('compositionend', this.handleCompositionEnd);
+    if (this.handleFocus) this.textarea.removeEventListener('focus', this.handleFocus);
+    if (this.handleBlur) this.textarea.removeEventListener('blur', this.handleBlur);
     this.container.removeEventListener('mousedown', this.handleMouseDown);
     this.container.removeEventListener('mousemove', this.handleMouseMove);
     this.container.removeEventListener('mouseup', this.handleMouseUp);
+    this.stopDragScroll();
     this.textarea.remove();
   }
 }

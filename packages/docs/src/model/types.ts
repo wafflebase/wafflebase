@@ -10,6 +10,7 @@
  */
 export interface Document {
   blocks: Block[];
+  pageSetup?: PageSetup;
 }
 
 /**
@@ -139,4 +140,53 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.fontFamily === b.fontFamily &&
     a.color === b.color
   );
+}
+
+// --- Page Setup ---
+
+export interface PageMargins {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+export interface PaperSize {
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface PageSetup {
+  paperSize: PaperSize;
+  orientation: 'portrait' | 'landscape';
+  margins: PageMargins;
+}
+
+export const PAPER_SIZES = {
+  LETTER: { name: 'Letter', width: 816, height: 1056 } as PaperSize,
+  A4: { name: 'A4', width: 794, height: 1123 } as PaperSize,
+  LEGAL: { name: 'Legal', width: 816, height: 1344 } as PaperSize,
+} as const;
+
+export const DEFAULT_PAGE_SETUP: PageSetup = {
+  paperSize: PAPER_SIZES.LETTER,
+  orientation: 'portrait',
+  margins: { top: 96, bottom: 96, left: 96, right: 96 },
+};
+
+export function resolvePageSetup(setup: PageSetup | undefined): PageSetup {
+  const resolved = setup ?? DEFAULT_PAGE_SETUP;
+  return {
+    paperSize: { ...resolved.paperSize },
+    orientation: resolved.orientation,
+    margins: { ...resolved.margins },
+  };
+}
+
+export function getEffectiveDimensions(setup: PageSetup): { width: number; height: number } {
+  const { width, height } = setup.paperSize;
+  return setup.orientation === 'landscape'
+    ? { width: height, height: width }
+    : { width, height };
 }

@@ -1,37 +1,9 @@
 import type { DocPosition, DocRange } from '../model/types.js';
 import { getBlockTextLength } from '../model/types.js';
-import type { DocumentLayout, LayoutBlock, LayoutLine } from './layout.js';
-import { positionToPixel } from './layout.js';
-
-function getLineRunBounds(
-  lb: LayoutBlock,
-  line: LayoutLine,
-): { startX: number; endX: number } {
-  if (line.runs.length === 0) return { startX: lb.x, endX: lb.x };
-  const first = line.runs[0];
-  const last = line.runs[line.runs.length - 1];
-  return { startX: lb.x + first.x, endX: lb.x + last.x + last.width };
-}
-
-function getLineEndX(lb: LayoutBlock, lineY: number): number {
-  for (const line of lb.lines) {
-    if (Math.abs(lb.y + line.y - lineY) < 1) {
-      const bounds = getLineRunBounds(lb, line);
-      return bounds.endX;
-    }
-  }
-  return lb.x + lb.width;
-}
-
-function getLineStartX(lb: LayoutBlock, lineY: number): number {
-  for (const line of lb.lines) {
-    if (Math.abs(lb.y + line.y - lineY) < 1) {
-      const bounds = getLineRunBounds(lb, line);
-      return bounds.startX;
-    }
-  }
-  return lb.x;
-}
+import type { DocumentLayout, LayoutLine } from './layout.js';
+import type { PaginatedLayout } from './pagination.js';
+import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
+import { buildFont } from './theme.js';
 
 /**
  * Text selection state and highlight rectangle computation.
@@ -83,11 +55,13 @@ export class Selection {
   }
 
   /**
-   * Compute highlight rectangles for the selection.
+   * Compute highlight rectangles for the selection in page space.
    */
   getSelectionRects(
+    paginatedLayout: PaginatedLayout,
     layout: DocumentLayout,
     ctx: CanvasRenderingContext2D,
+    canvasWidth: number,
   ): Array<{ x: number; y: number; width: number; height: number }> {
     const normalized = this.getNormalizedRange(layout);
     if (!normalized) return [];
@@ -110,8 +84,12 @@ export class Selection {
 
       if (blockStart >= blockEnd) continue;
 
-      const startPixel = positionToPixel(layout, lb.block.id, blockStart, ctx);
-      const endPixel = positionToPixel(layout, lb.block.id, blockEnd, ctx);
+      const startPixel = this.positionToPagePixel(
+        paginatedLayout, layout, ctx, canvasWidth, lb.block.id, blockStart,
+      );
+      const endPixel = this.positionToPagePixel(
+        paginatedLayout, layout, ctx, canvasWidth, lb.block.id, blockEnd,
+      );
 
       if (!startPixel || !endPixel) continue;
 
@@ -124,8 +102,14 @@ export class Selection {
           height: startPixel.height,
         });
       } else {
-        // Multi-line: use actual line run bounds for accurate highlights
-        const firstLineEnd = getLineEndX(lb, startPixel.y);
+        // Multi-line: first line from start to end of line
+        const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+        const startFound = findPageForPosition(paginatedLayout, lb.block.id, blockStart, layout);
+        const endFound = findPageForPosition(paginatedLayout, lb.block.id, blockEnd, layout);
+        if (!startFound || !endFound) continue;
+
+        // First line: from start position to end of line
+        const firstLineEnd = this.getLineEndX(startFound.pageLine.line, pageX + startFound.pageLine.x);
         rects.push({
           x: startPixel.x,
           y: startPixel.y,
@@ -133,21 +117,26 @@ export class Selection {
           height: startPixel.height,
         });
 
-        // Middle full lines
-        for (const line of lb.lines) {
-          const lineY = lb.y + line.y;
-          if (lineY <= startPixel.y || lineY >= endPixel.y) continue;
-          const { startX, endX } = getLineRunBounds(lb, line);
-          rects.push({
-            x: startX,
-            y: lineY,
-            width: endX - startX,
-            height: line.height,
-          });
+        // Middle lines (full width)
+        for (const page of paginatedLayout.pages) {
+          const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+          for (const pl of page.lines) {
+            if (pl.blockIndex !== bi) continue;
+            const lineY = pageY + pl.y;
+            if (lineY <= startPixel.y || lineY >= endPixel.y) continue;
+            const lineStartX = this.getLineStartX(pl.line, pageX + pl.x);
+            const lineEndX = this.getLineEndX(pl.line, pageX + pl.x);
+            rects.push({
+              x: lineStartX,
+              y: lineY,
+              width: lineEndX - lineStartX,
+              height: pl.line.height,
+            });
+          }
         }
 
-        // Last line from start to end position
-        const lastLineStart = getLineStartX(lb, endPixel.y);
+        // Last line: from start of line to end position
+        const lastLineStart = this.getLineStartX(endFound.pageLine.line, pageX + endFound.pageLine.x);
         rects.push({
           x: lastLineStart,
           y: endPixel.y,
@@ -187,5 +176,69 @@ export class Selection {
     }
 
     return texts.join('\n');
+  }
+
+  // --- Private helpers ---
+
+  private positionToPagePixel(
+    paginatedLayout: PaginatedLayout,
+    layout: DocumentLayout,
+    ctx: CanvasRenderingContext2D,
+    canvasWidth: number,
+    blockId: string,
+    offset: number,
+  ): { x: number; y: number; height: number } | undefined {
+    const found = findPageForPosition(paginatedLayout, blockId, offset, layout);
+    if (!found) return undefined;
+
+    const { pageIndex, pageLine } = found;
+    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+    const pageY = getPageYOffset(paginatedLayout, pageIndex);
+    const lb = layout.blocks[pageLine.blockIndex];
+
+    let charsBeforeLine = 0;
+    for (let li = 0; li < pageLine.lineIndex; li++) {
+      for (const r of lb.lines[li].runs) {
+        charsBeforeLine += r.charEnd - r.charStart;
+      }
+    }
+    const lineOffset = offset - charsBeforeLine;
+
+    let charCount = 0;
+    for (const run of pageLine.line.runs) {
+      const runLength = run.charEnd - run.charStart;
+      if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
+        const localOff = lineOffset - charCount;
+        ctx.font = buildFont(
+          run.inline.style.fontSize, run.inline.style.fontFamily,
+          run.inline.style.bold, run.inline.style.italic,
+        );
+        const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+        return { x, y: pageY + pageLine.y, height: pageLine.line.height };
+      }
+      charCount += runLength;
+    }
+
+    // Fallback: end of line
+    const lastRun = pageLine.line.runs[pageLine.line.runs.length - 1];
+    if (lastRun) {
+      return {
+        x: pageX + pageLine.x + lastRun.x + lastRun.width,
+        y: pageY + pageLine.y, height: pageLine.line.height,
+      };
+    }
+    return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: 24 };
+  }
+
+  private getLineEndX(line: LayoutLine, lineBaseX: number): number {
+    if (line.runs.length === 0) return lineBaseX;
+    const last = line.runs[line.runs.length - 1];
+    return lineBaseX + last.x + last.width;
+  }
+
+  private getLineStartX(line: LayoutLine, lineBaseX: number): number {
+    if (line.runs.length === 0) return lineBaseX;
+    const first = line.runs[0];
+    return lineBaseX + first.x;
   }
 }
