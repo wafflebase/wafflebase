@@ -128,7 +128,7 @@ matching the version family used by the frontend (`@yorkie-js/react` 0.6.49).
 **Types**: `SpreadsheetDocument`, `Worksheet`, and `TabMeta` are duplicated
 from `packages/frontend/src/types/worksheet.ts` into a backend-local
 Yorkie types file. Cell-level types (`Cell`, `Sref`, `CellStyle`) are
-imported from `@wafflebase/sheet`.
+imported from `@wafflebase/sheets`.
 
 ### 5. REST API v1 Endpoints
 
@@ -223,7 +223,7 @@ Registered in the root application module: `ApiKeyModule`, `YorkieModule`, `ApiV
 
 A TypeScript CLI package (`@wafflebase/cli`) within the pnpm monorepo at
 `packages/cli/`. Living inside the monorepo lets the CLI import types
-directly from `@wafflebase/sheet`, share the existing lint/test/build
+directly from `@wafflebase/sheets`, share the existing lint/test/build
 toolchain, and avoid the type-duplication problem of a separate Go project.
 
 #### 7.1 Technology
@@ -244,7 +244,7 @@ primary consumers. Human users can switch to `--format table` for
 readability.
 
 **Why TypeScript over Go**:
-- Shares types with `@wafflebase/sheet` — no duplication of `Cell`,
+- Shares types with `@wafflebase/sheets` — no duplication of `Cell`,
   `Sref`, `CellStyle`, `SpreadsheetDocument`
 - Single toolchain — no separate Go compiler, linter, or CI pipeline
 - AI agent environments (Claude Code, Cursor) already have Node.js
@@ -396,7 +396,7 @@ packages/cli/
     client/
       http-client.ts     REST API v1 wrapper (built-in fetch)
       dry-run.ts         Dry-run request printer
-      types.ts           Request/response types (re-exports from @wafflebase/sheet)
+      types.ts           Request/response types (re-exports from @wafflebase/sheets)
     config/
       config.ts          Config file + env + flag resolution
     output/
@@ -425,7 +425,7 @@ packages/cli/
   "version": "0.1.0",
   "bin": { "wafflebase": "./dist/bin.js" },
   "dependencies": {
-    "@wafflebase/sheet": "workspace:*",
+    "@wafflebase/sheets": "workspace:*",
     "commander": "^13.0.0",
     "yaml": "^2.0.0"
   },
@@ -709,7 +709,7 @@ agent interface. This approach has key advantages:
 | Attach/detach per request adds latency | Acceptable for v1. A connection pool with LRU eviction can be added later if latency becomes a problem. |
 | Concurrent API writes and live user edits | Yorkie CRDT handles conflict-free merging by design. Document this for API consumers. |
 | API key leakage | Store only SHA-256 hashes. Show raw key once at creation. Support revocation and optional expiration. |
-| SpreadsheetDocument type duplication (backend) | Keep a backend-local copy. Long-term, move shared types to `@wafflebase/sheet`. CLI already imports directly. |
+| SpreadsheetDocument type duplication (backend) | Keep a backend-local copy. Long-term, move shared types to `@wafflebase/sheets`. CLI already imports directly. |
 | CLI requires Node.js runtime | Acceptable for v1 — target users (developers, CI, AI agents) have Node.js. Can produce standalone binary later via `bun build --compile`. |
 | CLI and API version drift | CLI includes `version` command; REST API is versioned (`/api/v1/`). CLI checks API compatibility on startup. |
 | Skill files become outdated | Keep skills next to the CLI source. CI can validate that skill tool references match real commands. |

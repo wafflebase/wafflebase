@@ -3,7 +3,7 @@
 Wafflebase is a web-based collaborative spreadsheet (Google Sheets alternative).
 Yorkie CRDTs for real-time collaboration, ANTLR4-based formula engine, Canvas rendering.
 
-See @docs/design/README.md for architecture, @packages/sheet/README.md,
+See @docs/design/README.md for architecture, @packages/sheets/README.md,
 @packages/frontend/README.md, @packages/backend/README.md for package details.
 
 ## Commands
@@ -16,8 +16,8 @@ pnpm verify:fast                    # Lint + unit tests (pre-commit gate)
 pnpm verify:self                    # verify:fast + all builds
 pnpm verify:full                    # verify:self + integration (DB required)
 pnpm verify:browser:docker          # Visual + interaction tests in Docker
-pnpm test                           # Sheet package tests only (Vitest)
-pnpm sheet build:formula            # IMPORTANT: regenerate ANTLR formula parser
+pnpm test                           # Sheets package tests only (Vitest)
+pnpm sheets build:formula           # IMPORTANT: regenerate ANTLR formula parser
 pnpm backend migrate                # Run Prisma database migrations
 ```
 

@@ -1,4 +1,4 @@
-import { MemStore, type Grid, type Theme } from "@wafflebase/sheet";
+import { MemStore, type Grid, type Theme } from "@wafflebase/sheets";
 import { useCallback, useMemo, useState } from "react";
 import type { Scenario, ScenarioSetup } from "./sheet-scenarios";
 import { ScenarioCard } from "./sheet-scenarios";

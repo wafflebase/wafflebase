@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseRef, toSref } from "@wafflebase/sheet";
+import { parseRef, toSref } from "@wafflebase/sheets";
 import { createSingleUserYorkie } from "../../helpers/single-user-yorkie.ts";
 
 const shouldRun = Boolean(process.env.YORKIE_RPC_ADDR);

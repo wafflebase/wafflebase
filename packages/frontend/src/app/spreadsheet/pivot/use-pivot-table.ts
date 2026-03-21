@@ -9,7 +9,7 @@ import type {
   Grid,
   Cell,
   Sref,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import {
   calculatePivot,
   getWorksheetCell,
@@ -19,7 +19,7 @@ import {
   parseRef,
   replaceWorksheetCells,
   toSref,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 
 type UsePivotTableProps = {

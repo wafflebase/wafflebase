@@ -35,12 +35,15 @@ real-time collaboration and scalable performance for handling large datasets.
 
 ```
 packages/
-  sheet/      — Core spreadsheet engine (data model, formulas, Canvas rendering)
-  frontend/   — React web app (pages, components, hooks)
-  backend/    — NestJS API server (auth, documents, data sources)
+  sheets/          — Core spreadsheet engine (data model, formulas, Canvas rendering)
+  docs/            — Canvas-based document editor (rich text, inline formatting)
+  frontend/        — React web app (pages, components, hooks)
+  backend/         — NestJS API server (auth, documents, data sources)
+  cli/             — Command-line interface for Wafflebase API
+  documentation/   — VitePress documentation site (wafflebase.io/docs)
 ```
 
-The frontend depends on `@wafflebase/sheet` as a workspace dependency.
+The frontend depends on `@wafflebase/sheets` as a workspace dependency.
 
 ## Getting Started
 

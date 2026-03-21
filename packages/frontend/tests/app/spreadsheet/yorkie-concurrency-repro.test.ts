@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { concurrencyCases } from "../../../../sheet/test/helpers/concurrency-case-table.ts";
+import { concurrencyCases } from "../../../../sheets/test/helpers/concurrency-case-table.ts";
 import { runConcurrentYorkieCase } from "../../helpers/two-user-yorkie.ts";
 
 const deferredCases = concurrencyCases.filter((testCase) =>

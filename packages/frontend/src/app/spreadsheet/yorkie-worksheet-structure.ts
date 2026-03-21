@@ -22,7 +22,7 @@ import {
   type Cell,
   type MergeSpan,
   type Sref,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import type { SheetChart, Worksheet } from "@/types/worksheet";
 import {
   deleteYorkieWorksheetAxis,

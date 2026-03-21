@@ -59,12 +59,12 @@ Notes:
 
 ### Adding a new function
 
-1. Implement in `packages/sheet/src/formula/functions.ts` — follow the
+1. Implement in `packages/sheets/src/formula/functions.ts` — follow the
    existing `(ctx, visit, grid?) → EvalNode` pattern.
 2. Register in `FunctionMap`.
-3. Add catalog entry in `packages/sheet/src/formula/function-catalog.ts`
+3. Add catalog entry in `packages/sheets/src/formula/function-catalog.ts`
    with name, category, description, and args.
-4. Add tests in `packages/sheet/test/formula/`.
+4. Add tests in `packages/sheets/test/formula/`.
 5. Run `pnpm verify:fast`.
 
 ### Known parser limitations
@@ -77,7 +77,7 @@ Notes:
 
 Only **not-yet-implemented** functions are listed below. All other Google
 Sheets functions in each category are implemented. See `FunctionMap` in
-`packages/sheet/src/formula/functions.ts` for the full list.
+`packages/sheets/src/formula/functions.ts` for the full list.
 
 ### Not implemented — higher-order array functions
 

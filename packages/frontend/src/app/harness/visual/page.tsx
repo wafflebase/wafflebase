@@ -18,7 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Theme } from "@wafflebase/sheet";
+import type { Theme } from "@wafflebase/sheets";
 import { useEffect } from "react";
 import { ChartVisualScenarios } from "./chart-scenarios";
 import { FormatVisualScenarios } from "./format-scenarios";

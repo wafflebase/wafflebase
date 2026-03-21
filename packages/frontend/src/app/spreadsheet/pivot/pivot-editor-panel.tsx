@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Document as YorkieDoc } from "yorkie-js-sdk";
-import type { AggregateFunction } from "@wafflebase/sheet";
+import type { AggregateFunction } from "@wafflebase/sheets";
 import {
   IconChevronDown,
   IconChevronRight,

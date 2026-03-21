@@ -9,14 +9,14 @@ target-version: 0.2.0
 
 The frontend is a React 19 single-page application built with Vite. It
 provides the user-facing spreadsheet interface by mounting the
-`@wafflebase/sheet` Canvas engine inside a React component and connecting it
+`@wafflebase/sheets` Canvas engine inside a React component and connecting it
 to a Yorkie CRDT document for real-time collaboration. It also handles
 authentication (GitHub OAuth via the backend), document management, and
 presence (showing other users' active cells).
 
 ### Goals
 
-- Provide a responsive spreadsheet UI backed by the `@wafflebase/sheet` engine.
+- Provide a responsive spreadsheet UI backed by the `@wafflebase/sheets` engine.
 - Enable real-time collaboration via Yorkie CRDT with live presence indicators.
 - Handle the full auth lifecycle (login, session verification, logout).
 - Support light, dark, and system-detected themes.
@@ -69,7 +69,7 @@ StrictMode
 ### Sheet Integration
 
 `SheetView` (`packages/frontend/src/app/spreadsheet/sheet-view.tsx`) is the bridge between
-React and the `@wafflebase/sheet` engine:
+React and the `@wafflebase/sheets` engine:
 
 1. On mount, it calls `initialize(containerDiv, { theme, store })` where
    `store` is a `YorkieStore` wrapping the current Yorkie document.
@@ -255,7 +255,7 @@ collaboration data model and structural concurrency rationale, see
 #### YorkieStore
 
 `YorkieStore` (`packages/frontend/src/app/spreadsheet/yorkie-store.ts`) implements the `Store`
-interface from `@wafflebase/sheet`. It accepts a `tabId` parameter and scopes
+interface from `@wafflebase/sheets`. It accepts a `tabId` parameter and scopes
 all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 `doc.update()` call that mutates the CRDT document:
 
@@ -296,7 +296,7 @@ without that field remain valid and are treated as having no patches.
 
 The current ownership split is:
 
-- `@wafflebase/sheet` owns generic worksheet document types, cell read/write
+- `@wafflebase/sheets` owns generic worksheet document types, cell read/write
   helpers, and pure remap helpers.
 - frontend Yorkie helpers own CRDT-specific axis mutation and post-structure
   orchestration.
@@ -311,7 +311,7 @@ buffered as deferred functions. See
 
 #### CellIndex (Dirty Flag + Lazy Rebuild)
 
-YorkieStore maintains a `CellIndex` (from `@wafflebase/sheet`) for efficient
+YorkieStore maintains a `CellIndex` (from `@wafflebase/sheets`) for efficient
 range queries and Ctrl+Arrow navigation. Because remote peers can modify the
 document at any time, YorkieStore uses a lazy rebuild strategy:
 
@@ -476,7 +476,7 @@ The `ThemeProvider` (`packages/frontend/src/components/theme-provider.tsx`) mana
   `dark`).
 - Listens to `matchMedia("prefers-color-scheme: dark")` for system mode.
 - The `useTheme()` hook exposes `{ theme, resolvedTheme, setTheme }`.
-- The resolved theme string is passed to `@wafflebase/sheet`'s `initialize()`
+- The resolved theme string is passed to `@wafflebase/sheets`'s `initialize()`
   so the Canvas renderer uses matching colors.
 
 Styling uses Tailwind CSS v4 with custom CSS variables in OKLch color space
@@ -487,7 +487,7 @@ Tailwind (shadcn/ui pattern).
 
 **React 19 StrictMode double-mount** — `SheetView` uses a `didMount` ref to
 prevent initializing the Canvas engine twice in development. This is necessary
-because `@wafflebase/sheet` manages its own DOM and event listeners outside of
+because `@wafflebase/sheets` manages its own DOM and event listeners outside of
 React's lifecycle.
 
 **Yorkie connection failures** — If the Yorkie server is unreachable, the

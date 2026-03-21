@@ -7,7 +7,7 @@
   "scripts": {
     "build": "nest build",
     "postinstall": "prisma generate",
-    "prestart:dev": "pnpm --filter @wafflebase/sheet build",
+    "prestart:dev": "pnpm --filter @wafflebase/sheets build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -34,7 +34,7 @@
     "@nestjs/platform-express": "^11.1.0",
     "@prisma/client": "6.6.0",
     "@types/passport-github2": "^1.2.9",
-    "@wafflebase/sheet": "workspace:^",
+    "@wafflebase/sheets": "workspace:^",
     "@yorkie-js/sdk": "0.7.1",
     "cookie-parser": "^1.4.7",
     "express-session": "^1.18.1",
@@ -95,7 +95,7 @@
     },
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/$1",
-      "^@wafflebase/sheet$": "<rootDir>/../../sheet/src/index.ts"
+      "^@wafflebase/sheets$": "<rootDir>/../../sheets/src/index.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

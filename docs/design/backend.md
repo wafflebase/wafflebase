@@ -22,7 +22,7 @@ ownership and user accounts.
 ### Non-Goals
 
 - Storing or processing spreadsheet cell data — that is handled entirely by
-  Yorkie and the `@wafflebase/sheet` engine in the browser.
+  Yorkie and the `@wafflebase/sheets` engine in the browser.
 - Real-time communication — Yorkie handles WebSocket-based sync.
 
 ## Proposal Details

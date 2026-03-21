@@ -29,7 +29,7 @@ through a dependency graph in topological order. It detects circular references
 
 ### Single-Sheet Recalculation
 
-Source: `packages/sheet/src/model/worksheet/calculator.ts`
+Source: `packages/sheets/src/model/worksheet/calculator.ts`
 
 **Algorithm:**
 

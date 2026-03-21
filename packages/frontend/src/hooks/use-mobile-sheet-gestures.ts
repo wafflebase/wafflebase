@@ -1,5 +1,5 @@
-import type { Spreadsheet } from "@wafflebase/sheet";
-import { inRange } from "@wafflebase/sheet";
+import type { Spreadsheet } from "@wafflebase/sheets";
+import { inRange } from "@wafflebase/sheets";
 import { useEffect, type RefObject } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 

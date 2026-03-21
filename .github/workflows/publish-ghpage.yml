@@ -28,9 +28,9 @@ jobs:
         run: |
           pnpm i
           pnpm frontend build
-          pnpm vpdocs build
+          pnpm documentation build
           rm -rf packages/frontend/dist/docs
-          cp -r packages/docs/.vitepress/dist packages/frontend/dist/docs
+          cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs
 
       - name: Create asset manifest
         run: |

@@ -1,4 +1,4 @@
-import { initialize, ReadOnlyStore, Spreadsheet } from "@wafflebase/sheet";
+import { initialize, ReadOnlyStore, Spreadsheet } from "@wafflebase/sheets";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useDocument } from "@yorkie-js/react";
 import { useTheme } from "@/components/theme-provider";

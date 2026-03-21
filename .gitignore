@@ -182,7 +182,7 @@ tags
 .claude/settings.local.json
 
 # VitePress cache
-packages/docs/.vitepress/cache
+packages/documentation/.vitepress/cache
 
 # Superpowers
 .superpowers/

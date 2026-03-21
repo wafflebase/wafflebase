@@ -125,8 +125,8 @@ getAdjacentHiddenColumns(from: number, to: number):
 - `packages/frontend/src/components/sheet-context-menu.tsx` — unified sheet menu
 - `packages/frontend/src/components/tab-bar.tsx` — tab context menu
 - `packages/frontend/src/hooks/use-mobile-sheet-gestures.ts` — mobile long-press
-- `packages/sheet/src/view/worksheet.ts` — canvas event handling
-- `packages/sheet/src/view/spreadsheet.ts` — facade API
+- `packages/sheets/src/view/worksheet.ts` — canvas event handling
+- `packages/sheets/src/view/spreadsheet.ts` — facade API
 
 ## Risks
 

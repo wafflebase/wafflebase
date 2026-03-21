@@ -7,7 +7,7 @@ export type {
   SheetKind,
   TabMeta,
   SpreadsheetDocument,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 
 export {
   DEFAULT_TAB_ID,
@@ -15,4 +15,4 @@ export {
   createWorksheet,
   createSpreadsheetDocument,
   initialSpreadsheetDocument,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";

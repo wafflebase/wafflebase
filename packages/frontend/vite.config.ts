@@ -59,19 +59,19 @@ function manualChunks(id: string): string | undefined {
 
   if (
     normalizedId.includes("node_modules/antlr4ts") ||
-    normalizedId.includes("/packages/sheet/antlr/")
+    normalizedId.includes("/packages/sheets/antlr/")
   ) {
     return "sheet-formula-parser";
   }
 
-  if (normalizedId.includes("/packages/sheet/src/formula/")) {
+  if (normalizedId.includes("/packages/sheets/src/formula/")) {
     return "sheet-formula-eval";
   }
 
   if (
-    normalizedId.includes("/packages/sheet/src/view/") ||
-    normalizedId.includes("/packages/sheet/src/model/") ||
-    normalizedId.includes("/packages/sheet/src/store/")
+    normalizedId.includes("/packages/sheets/src/view/") ||
+    normalizedId.includes("/packages/sheets/src/model/") ||
+    normalizedId.includes("/packages/sheets/src/store/")
   ) {
     return "sheet-core";
   }
@@ -111,7 +111,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "@wafflebase/sheet": path.resolve(__dirname, "../sheet/src/index.ts"),
+      "@wafflebase/sheets": path.resolve(__dirname, "../sheets/src/index.ts"),
       util: utilShimPath,
       assert: assertShimPath,
     },

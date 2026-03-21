@@ -102,7 +102,7 @@ echo "[docker-browser] Running browser tests (mode=$MODE)..."
 docker run --rm \
   -v "$REPO_ROOT:/workspace" \
   -v "${NM_VOLUME}-root:/workspace/node_modules" \
-  -v "${NM_VOLUME}-sheet:/workspace/packages/sheet/node_modules" \
+  -v "${NM_VOLUME}-sheet:/workspace/packages/sheets/node_modules" \
   -v "${NM_VOLUME}-frontend:/workspace/packages/frontend/node_modules" \
   -v "${NM_VOLUME}-backend:/workspace/packages/backend/node_modules" \
   $DOCKER_ENV \

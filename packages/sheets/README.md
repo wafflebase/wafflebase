@@ -1,4 +1,4 @@
-# @wafflebase/sheet
+# @wafflebase/sheets
 
 Core spreadsheet engine for Wafflebase. Provides the data model, formula evaluation, Canvas-based rendering, and a store abstraction for persistence.
 
@@ -61,7 +61,7 @@ shiftSref, shiftFormula, shiftDimensionMap
 ### Usage
 
 ```typescript
-import { initialize } from '@wafflebase/sheet';
+import { initialize } from '@wafflebase/sheets';
 
 const spreadsheet = await initialize(containerElement, {
   theme: 'light', // or 'dark'

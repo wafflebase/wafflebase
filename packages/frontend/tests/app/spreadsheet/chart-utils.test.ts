@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseRef, writeWorksheetCell } from "@wafflebase/sheet";
+import { parseRef, writeWorksheetCell } from "@wafflebase/sheets";
 import {
   getSeriesColor,
   COLOR_PALETTES,

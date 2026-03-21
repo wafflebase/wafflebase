@@ -1,4 +1,4 @@
-import { initialize, MemStore, type Grid, type Theme } from "@wafflebase/sheet";
+import { initialize, MemStore, type Grid, type Theme } from "@wafflebase/sheets";
 import { useEffect, useRef, useState } from "react";
 
 function useThemeFromSearchParams(): Theme {

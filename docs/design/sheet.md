@@ -7,7 +7,7 @@ target-version: 0.2.0
 
 ## Summary
 
-The `@wafflebase/sheet` package is the core spreadsheet engine. It owns the data
+The `@wafflebase/sheets` package is the core spreadsheet engine. It owns the data
 model, formula evaluation, Canvas-based rendering, and the store abstraction that
 decouples the engine from any specific persistence backend. The frontend package
 depends on it and provides a `YorkieStore` for real-time collaboration.
@@ -193,7 +193,7 @@ is a single undo step. See
 references. It maintains a `CellIndex` for efficient range queries and
 navigation (see below).
 
-**ReadOnlyStore** (`packages/sheet/src/store/readonly.ts`) is a read-only Store implementation
+**ReadOnlyStore** (`packages/sheets/src/store/readonly.ts`) is a read-only Store implementation
 for displaying external data (e.g., SQL query results). Data is loaded via
 `loadQueryResults(columns, rows)` which populates row 0 with bold column
 headers and subsequent rows with data. All write operations are no-ops.
@@ -244,7 +244,7 @@ The entire operation is wrapped in a batch transaction for single-step undo.
 
 #### CellIndex
 
-`CellIndex` (`packages/sheet/src/store/cell-index.ts`) is a spatial index that tracks which
+`CellIndex` (`packages/sheets/src/store/cell-index.ts`) is a spatial index that tracks which
 cells are populated using two `Map<number, Set<number>>`:
 
 - **`rowIndex`**: row → set of occupied columns
@@ -282,7 +282,7 @@ this checks ~50 row entries, not 1M.
 
 #### findEdgeWithIndex
 
-`findEdgeWithIndex` (`packages/sheet/src/store/find-edge.ts`) replaces the O(distance)
+`findEdgeWithIndex` (`packages/sheets/src/store/find-edge.ts`) replaces the O(distance)
 step-by-step `findEdge` algorithm with O(k) jumps using sorted occupied
 positions from the `CellIndex`.
 
@@ -492,7 +492,7 @@ top-level fields with `?? 0` fallback for backward compatibility.
 Cell coordinates are **1-based** (`A1` = `{r: 1, c: 1}`). Column labels use
 base-26 encoding: A=1, Z=26, AA=27, up to ZZZ=18278.
 
-Key functions in `packages/sheet/src/model/core/coordinates.ts`:
+Key functions in `packages/sheets/src/model/core/coordinates.ts`:
 
 - `parseRef("A1")` → `{r: 1, c: 1}`
 - `toSref({r: 1, c: 1})` → `"A1"`
@@ -536,7 +536,7 @@ canvas-rendered cells while respecting scroll remapping and freeze panes.
 implemented. See [formula.md](formula.md) for details.
 
 **Function discoverability UI** — The engine exposes a function browser dialog
-backed by `packages/sheet/src/formula/function-catalog.ts` with search by
+backed by `packages/sheets/src/formula/function-catalog.ts` with search by
 name/signature/description, grouped by Google Sheets-style categories.
 
 **Large grid performance** — The rendering pipeline only draws visible cells,

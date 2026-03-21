@@ -2,13 +2,36 @@
   "name": "@wafflebase/docs",
   "private": true,
   "version": "0.2.1",
+  "license": "Apache-2.0",
+  "description": "Canvas-based document editor for Wafflebase",
   "type": "module",
+  "main": "dist/wafflebase-document.cjs",
+  "module": "dist/wafflebase-document.es.js",
+  "types": "dist/wafflebase-document.es.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/wafflebase-document.es.d.ts",
+      "import": "./dist/wafflebase-document.es.js",
+      "require": "./dist/wafflebase-document.cjs",
+      "default": "./dist/wafflebase-document.es.js"
+    }
+  },
   "scripts": {
-    "dev": "vitepress dev --port 5174 --no-open",
-    "build": "vitepress build",
-    "preview": "vitepress preview"
+    "dev": "vite",
+    "test": "vitest --run",
+    "test:watch": "vitest --watch",
+    "build": "vite --config vite.build.ts build",
+    "typecheck": "tsc --noEmit",
+    "test:ime": "node scripts/verify-ime-browser.mjs",
+    "format": "prettier --write ."
   },
   "devDependencies": {
-    "vitepress": "^1.6.4"
+    "jsdom": "^28.0.0",
+    "playwright": "^1.58.2",
+    "prettier": "^3.3.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1",
+    "vite-plugin-dts": "^4.5.3",
+    "vitest": "^3.1.1"
   }
 }

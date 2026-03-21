@@ -16,7 +16,7 @@ This document covers:
 
 - the canonical Yorkie worksheet shape
 - why the old coordinate-key model failed under concurrent structure edits
-- the ownership split between `@wafflebase/sheet` and the Yorkie adapter
+- the ownership split between `@wafflebase/sheets` and the Yorkie adapter
 - the two-layer concurrency test strategy
 - the known residual gaps
 
@@ -24,7 +24,7 @@ This document covers:
 
 - Preserve logical cell identity through concurrent row/column insert and move
   operations.
-- Keep the shared `@wafflebase/sheet` package collaboration-agnostic where
+- Keep the shared `@wafflebase/sheets` package collaboration-agnostic where
   possible.
 - Make structural concurrency behavior executable through deterministic tests.
 - Keep frontend and backend on a single worksheet/document schema.
@@ -125,7 +125,7 @@ the same stable key and survive merges cleanly.
 
 | Layer | Responsibilities |
 | --- | --- |
-| `@wafflebase/sheet` | `Store` interface, `Sheet` engine, formula helpers, pure remap helpers, canonical worksheet/document types, worksheet cell read/write helpers |
+| `@wafflebase/sheets` | `Store` interface, `Sheet` engine, formula helpers, pure remap helpers, canonical worksheet/document types, worksheet cell read/write helpers |
 | `packages/frontend/src/app/spreadsheet/yorkie-store.ts` | `Store` implementation for one tab, Yorkie `doc.update()` boundary, batch buffering, index invalidation, presence updates |
 | `packages/frontend/src/app/spreadsheet/yorkie-worksheet-axis.ts` | Yorkie-local row/column order mutations (`insert`, `delete`, `move`) |
 | `packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts` | Yorkie-local post-axis structure rewrites: formulas, indexed metadata, range styles, conditional formats, merges, chart anchors |
@@ -178,9 +178,9 @@ Concurrency coverage is split into two layers.
 
 Files:
 
-- `packages/sheet/test/helpers/concurrency-case-table.ts`
-- `packages/sheet/test/helpers/concurrency-driver.ts`
-- `packages/sheet/test/sheet/concurrency-matrix.test.ts`
+- `packages/sheets/test/helpers/concurrency-case-table.ts`
+- `packages/sheets/test/helpers/concurrency-driver.ts`
+- `packages/sheets/test/sheet/concurrency-matrix.test.ts`
 
 Purpose:
 
@@ -307,7 +307,7 @@ See [batch-transactions.md](batch-transactions.md) for the current rationale.
 ## Risks and Mitigation
 
 **Schema drift across packages** — Mitigated by sharing worksheet/document
-types and factories from `@wafflebase/sheet`.
+types and factories from `@wafflebase/sheets`.
 
 **Store boundary leakage** — Mitigated by keeping generic worksheet helpers in
 the shared package and Yorkie-specific axis/structure orchestration in local

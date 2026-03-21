@@ -8,7 +8,7 @@ target-version: 0.2.0
 ## Summary
 
 The formula engine parses and evaluates spreadsheet formulas in the
-`@wafflebase/sheet` package. It uses an ANTLR-generated parser for formula
+`@wafflebase/sheets` package. It uses an ANTLR-generated parser for formula
 syntax and a visitor-based evaluator for computing results. Cross-sheet
 references allow formulas in one sheet to read values from another sheet
 through pluggable resolvers.
@@ -30,7 +30,7 @@ through pluggable resolvers.
 
 ### ANTLR Grammar
 
-The grammar (`packages/sheet/antlr/Formula.g4`) defines the formula syntax:
+The grammar (`packages/sheets/antlr/Formula.g4`) defines the formula syntax:
 
 ```antlr
 grammar Formula;
@@ -81,7 +81,7 @@ containing spaces or special characters are quoted: `'My Sheet'!A1`.
 
 ### Evaluation Pipeline
 
-Source: `packages/sheet/src/formula/formula.ts`
+Source: `packages/sheets/src/formula/formula.ts`
 
 ```
 Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Evaluator (visitor) → EvalNode → String result
@@ -121,7 +121,7 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
 
 ### Arguments System
 
-Source: `packages/sheet/src/formula/arguments.ts`
+Source: `packages/sheets/src/formula/arguments.ts`
 
 The `Arguments<T>` helper class provides type coercion for function arguments:
 
@@ -145,7 +145,7 @@ Key methods:
 
 ### Built-in Functions
 
-Source: `packages/sheet/src/formula/functions.ts`
+Source: `packages/sheets/src/formula/functions.ts`
 
 Functions are registered in `FunctionMap`. Each function receives a
 `FunctionContext` (ANTLR node), a `visit` callback, and an optional `Grid`.
@@ -170,7 +170,7 @@ aliases)** across 10 categories:
 New functions follow the same pattern: accept `(ctx, visit, grid?)`, return
 an `EvalNode`.
 
-Autocomplete metadata is maintained separately in `packages/sheet/src/formula/function-catalog.ts`
+Autocomplete metadata is maintained separately in `packages/sheets/src/formula/function-catalog.ts`
 (`FunctionCatalog` array) with name, Google Sheets category, description, and
 argument info.
 
@@ -207,7 +207,7 @@ optional `SheetName!` or `'Quoted Name'!` prefixes.
 
 #### Coordinate Helpers
 
-Source: `packages/sheet/src/model/core/coordinates.ts`
+Source: `packages/sheets/src/model/core/coordinates.ts`
 
 | Function                  | Description                                                                                                 |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------- |
@@ -272,7 +272,7 @@ Sheet1: =SUM(Sheet2!A1:A3)
 
 Cross-sheet references are **not shifted or moved** when rows/columns are
 inserted, deleted, or moved. The `shiftFormula` and `moveFormula` functions
-in `packages/sheet/src/model/worksheet/shifting.ts` detect cross-sheet refs
+in `packages/sheets/src/model/worksheet/shifting.ts` detect cross-sheet refs
 (via the `!` character) and preserve them as-is. This matches Excel/Google
 Sheets behavior where cross-sheet references are only adjusted when the
 referenced sheet itself changes structure.

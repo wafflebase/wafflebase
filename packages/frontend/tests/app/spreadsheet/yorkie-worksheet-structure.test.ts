@@ -5,7 +5,7 @@ import {
   parseRef,
   writeWorksheetCell,
   type Cell,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import { createWorksheet } from "../../../src/types/worksheet.ts";
 import {
   applyYorkieWorksheetMove,
