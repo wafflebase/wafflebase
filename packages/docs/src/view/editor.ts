@@ -90,6 +90,27 @@ export function initialize(
   };
 
   // Wire up text editor
+  const undoFn = () => {
+    if (docStore.canUndo()) {
+      docStore.undo();
+      doc.document = docStore.getDocument();
+      if (doc.document.blocks.length > 0) {
+        cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
+      }
+      render();
+    }
+  };
+  const redoFn = () => {
+    if (docStore.canRedo()) {
+      docStore.redo();
+      doc.document = docStore.getDocument();
+      if (doc.document.blocks.length > 0) {
+        cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
+      }
+      render();
+    }
+  };
+
   const textEditor = new TextEditor(
     container,
     doc,
@@ -98,6 +119,9 @@ export function initialize(
     () => layout,
     () => docCanvas.getContext(),
     render,
+    () => docStore.snapshot(),
+    undoFn,
+    redoFn,
   );
 
   // Start cursor blink
@@ -119,34 +143,18 @@ export function initialize(
     getStore: () => docStore,
     applyStyle: (style: Partial<InlineStyle>) => {
       if (selection.hasSelection() && selection.range) {
+        docStore.snapshot();
         doc.applyInlineStyle(selection.range, style);
         render();
       }
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
+      docStore.snapshot();
       doc.applyBlockStyle(cursor.position.blockId, style);
       render();
     },
-    undo: () => {
-      if (docStore.canUndo()) {
-        docStore.undo();
-        doc.document = docStore.getDocument();
-        if (doc.document.blocks.length > 0) {
-          cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
-        }
-        render();
-      }
-    },
-    redo: () => {
-      if (docStore.canRedo()) {
-        docStore.redo();
-        doc.document = docStore.getDocument();
-        if (doc.document.blocks.length > 0) {
-          cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
-        }
-        render();
-      }
-    },
+    undo: undoFn,
+    redo: redoFn,
     focus: () => textEditor.focus(),
     dispose: () => {
       cursor.dispose();

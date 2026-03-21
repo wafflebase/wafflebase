@@ -34,7 +34,8 @@ single HTML Canvas element.
 - Real-time collaboration (Yorkie integration) — deferred to a future phase.
 - Tables, lists, images, headers/footers, pagination — deferred.
 - Frontend integration (React component, routing) — deferred.
-- IME composition handling — deferred (basic `beforeinput` only).
+- Full IME composition handling — Korean IME (desktop + Mobile Safari
+  workaround) is supported; other CJK languages deferred.
 - Copy/paste with rich formatting — deferred.
 - Performance optimization for very large documents — deferred.
 
@@ -209,7 +210,7 @@ interface LayoutBlock {
 
 ```
 packages/docs/
-├── package.json            # @wafflebase/docs, same build pattern as sheet
+├── package.json            # @wafflebase/docs, same build pattern as sheets
 ├── tsconfig.json
 ├── vite.config.ts          # dev config
 ├── vite.build.ts           # library build (es + cjs)
@@ -244,5 +245,5 @@ packages/docs/
 | Canvas text measurement varies across browsers/OS | Inconsistent line breaks | Use a single canonical font stack; add tolerance in layout |
 | Cursor positioning accuracy with proportional fonts | Misaligned caret | Per-character measurement caching in layout pass |
 | Word-wrap performance on large paragraphs | Slow re-layout on every keystroke | Incremental layout: only re-measure the changed block |
-| IME input complexity (CJK languages) | Broken input for non-Latin | Defer full IME to phase 2; use hidden textarea for basic support |
+| IME input complexity (CJK languages) | Broken input for non-Latin | Korean IME supported with Mobile Safari workaround; other CJK deferred |
 | Hidden textarea synchronization with Canvas | Input focus issues | Follow sheet package's proven CellInput pattern |

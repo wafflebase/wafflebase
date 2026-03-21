@@ -22,9 +22,15 @@ let eventSeq = 0;
 
 function logEvent(type: string, cls: string, detail: string) {
   const line = document.createElement('div');
-  line.innerHTML =
-    `<span style="color:#666">${String(++eventSeq).padStart(3, ' ')}</span> ` +
-    `<span class="${cls}">${type.padEnd(20)}</span> ${detail}`;
+  const seqSpan = document.createElement('span');
+  seqSpan.style.color = '#666';
+  seqSpan.textContent = String(++eventSeq).padStart(3, ' ') + ' ';
+  const typeSpan = document.createElement('span');
+  typeSpan.className = cls;
+  typeSpan.textContent = type.padEnd(20) + ' ';
+  const detailSpan = document.createElement('span');
+  detailSpan.textContent = detail;
+  line.append(seqSpan, typeSpan, detailSpan);
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
 }
@@ -68,13 +74,15 @@ document.getElementById('btn-clear-log')!.addEventListener('click', () => {
   eventSeq = 0;
 });
 
-document.getElementById('btn-copy-log')!.addEventListener('click', () => {
-  const text = logEl.innerText;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = document.getElementById('btn-copy-log')!;
+document.getElementById('btn-copy-log')!.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-copy-log')!;
+  try {
+    await navigator.clipboard.writeText(logEl.innerText);
     btn.textContent = 'Copied!';
-    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-  });
+  } catch {
+    btn.textContent = 'Copy failed';
+  }
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
 });
 
 // Also log the doc text after each render

@@ -68,7 +68,7 @@ describe('HangulAssembler', () => {
     expect(assemble(['ㄷ', 'ㅏ', 'ㄹ', 'ㄱ', 'ㅇ', 'ㅣ'])).toBe('닭이');
   });
 
-  it('splits simple tail when vowel follows: "한아" → ㅎㅏㄴㅏ', () => {
+  it('splits simple tail when vowel follows: "하나" → ㅎㅏㄴㅏ', () => {
     // ㅎ+ㅏ+ㄴ = 한 (with ㄴ tail), then ㅏ → split: commit 하, composing 나
     expect(assemble(['ㅎ', 'ㅏ', 'ㄴ', 'ㅏ'])).toBe('하나');
   });

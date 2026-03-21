@@ -60,13 +60,17 @@ export class Doc {
    */
   deleteText(pos: DocPosition, length: number): void {
     const block = this.getBlock(pos.blockId);
-    let remaining = length;
+    const blockLen = getBlockTextLength(block);
+    let remaining = Math.min(length, blockLen - pos.offset);
+    if (remaining <= 0) return;
+
     let offset = pos.offset;
 
     while (remaining > 0) {
       const { inlineIndex, charOffset } = this.resolveOffset(block, offset);
       const inline = block.inlines[inlineIndex];
       const available = inline.text.length - charOffset;
+      if (available <= 0) break;
       const toDelete = Math.min(remaining, available);
 
       inline.text =

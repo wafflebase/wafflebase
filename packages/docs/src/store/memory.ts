@@ -76,6 +76,11 @@ export class MemDocStore implements DocStore {
     return this.redoStack.length > 0;
   }
 
+  snapshot(): void {
+    this.pushUndo();
+    this.redoStack = [];
+  }
+
   private pushUndo(): void {
     this.undoStack.push(cloneDocument(this.doc));
   }

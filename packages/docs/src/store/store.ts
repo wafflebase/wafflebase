@@ -14,6 +14,8 @@ export interface DocStore {
   updateBlock(id: string, block: Block): void;
   insertBlock(index: number, block: Block): void;
   deleteBlock(id: string): void;
+  /** Save current state to the undo stack before a group of mutations. */
+  snapshot(): void;
   undo(): void;
   redo(): void;
   canUndo(): boolean;

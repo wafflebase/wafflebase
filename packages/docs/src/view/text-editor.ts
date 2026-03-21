@@ -64,6 +64,9 @@ export class TextEditor {
     private getLayout: () => DocumentLayout,
     private getCtx: () => CanvasRenderingContext2D,
     private requestRender: () => void,
+    private saveSnapshot: () => void,
+    private undoAction: () => void,
+    private redoAction: () => void,
   ) {
     this.textarea = document.createElement('textarea');
     // Keep textarea within the viewport (not off-screen) so iOS IME works
@@ -93,6 +96,7 @@ export class TextEditor {
     // Cancel any pending post-compositionend ignore — a new composition is
     // starting (e.g. syllable boundary in Korean: compositionend → compositionstart).
     this.ignoreInputUntilNextTick = false;
+    this.saveSnapshot();
     this.deleteSelection();
     this.composition = {
       active: true,
@@ -183,6 +187,7 @@ export class TextEditor {
     // Non-jamo input: flush any pending Hangul composition first
     this.flushHangul();
 
+    this.saveSnapshot();
     this.deleteSelection();
     this.doc.insertText(this.cursor.position, data);
     this.cursor.moveTo({
@@ -272,7 +277,17 @@ export class TextEditor {
       case 'z':
         if (mod) {
           e.preventDefault();
-          // Undo/redo handled at editor level
+          if (shiftKey) {
+            this.redoAction();
+          } else {
+            this.undoAction();
+          }
+        }
+        break;
+      case 'y':
+        if (mod) {
+          e.preventDefault();
+          this.redoAction();
         }
         break;
     }
@@ -314,6 +329,7 @@ export class TextEditor {
   // --- Text operations ---
 
   private handleBackspace(): void {
+    this.saveSnapshot();
     if (this.deleteSelection()) return;
     const newPos = this.doc.deleteBackward(this.cursor.position);
     this.cursor.moveTo(newPos);
@@ -321,6 +337,7 @@ export class TextEditor {
   }
 
   private handleDelete(): void {
+    this.saveSnapshot();
     if (this.deleteSelection()) return;
     const block = this.doc.getBlock(this.cursor.position.blockId);
     const len = getBlockTextLength(block);
@@ -338,6 +355,7 @@ export class TextEditor {
   }
 
   private handleEnter(): void {
+    this.saveSnapshot();
     this.deleteSelection();
     const newBlockId = this.doc.splitBlock(
       this.cursor.position.blockId,
@@ -353,31 +371,41 @@ export class TextEditor {
     shiftKey: boolean,
   ): void {
     const pos = this.cursor.position;
-    let newPos: DocPosition;
-
-    switch (direction) {
-      case 'left':
-        newPos = this.moveLeft(pos);
-        break;
-      case 'right':
-        newPos = this.moveRight(pos);
-        break;
-      case 'up':
-        newPos = this.moveVertical(pos, -1);
-        break;
-      case 'down':
-        newPos = this.moveVertical(pos, 1);
-        break;
-    }
 
     if (shiftKey) {
+      let newPos: DocPosition;
+      switch (direction) {
+        case 'left': newPos = this.moveLeft(pos); break;
+        case 'right': newPos = this.moveRight(pos); break;
+        case 'up': newPos = this.moveVertical(pos, -1); break;
+        case 'down': newPos = this.moveVertical(pos, 1); break;
+      }
       const anchor = this.selection.range?.anchor ?? pos;
       this.selection.setRange({ anchor, focus: newPos });
-    } else {
+      this.cursor.moveTo(newPos);
+    } else if (this.selection.hasSelection() && this.selection.range) {
+      // Collapse selection to the appropriate boundary
+      const layout = this.getLayout();
+      const normalized = this.selection.getNormalizedRange(layout);
+      if (normalized) {
+        const collapsePos = (direction === 'left' || direction === 'up')
+          ? normalized.start
+          : normalized.end;
+        this.cursor.moveTo(collapsePos);
+      }
       this.selection.setRange(null);
+    } else {
+      let newPos: DocPosition;
+      switch (direction) {
+        case 'left': newPos = this.moveLeft(pos); break;
+        case 'right': newPos = this.moveRight(pos); break;
+        case 'up': newPos = this.moveVertical(pos, -1); break;
+        case 'down': newPos = this.moveVertical(pos, 1); break;
+      }
+      this.selection.setRange(null);
+      this.cursor.moveTo(newPos);
     }
 
-    this.cursor.moveTo(newPos);
     this.requestRender();
   }
 
@@ -558,6 +586,8 @@ export class TextEditor {
 
     if (result.composing) {
       if (this.hangulComposingLength === 0 && !result.commit) {
+        this.saveSnapshot();
+        this.deleteSelection();
         this.hangulStartPos = { ...this.cursor.position };
       }
       if (this.hangulComposingLength > 0) {
