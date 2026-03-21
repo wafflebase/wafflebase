@@ -56,11 +56,18 @@ export function initialize(
 
   const doc = new Doc(storeDoc);
 
-  // Create canvas
+  // Create canvas (viewport-sized) and a spacer div for scroll height
   const canvas = document.createElement('canvas');
   canvas.style.display = 'block';
+  canvas.style.position = 'sticky';
+  canvas.style.top = '0';
   container.style.position = 'relative';
   container.appendChild(canvas);
+
+  const spacer = document.createElement('div');
+  spacer.style.width = '1px';
+  spacer.style.pointerEvents = 'none';
+  container.appendChild(spacer);
 
   const docCanvas = new DocCanvas(canvas);
   const cursor = new Cursor(doc.document.blocks[0].id);
@@ -99,8 +106,12 @@ export function initialize(
     const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
     const canvasWidth = Math.max(viewportWidth, pageWidth);
     const totalHeight = getTotalHeight(paginatedLayout);
-    const canvasHeight = Math.max(height, totalHeight);
-    docCanvas.resize(canvasWidth, canvasHeight);
+
+    // Canvas stays viewport-sized; spacer provides scroll height
+    docCanvas.resize(canvasWidth, height);
+    spacer.style.height = `${totalHeight}px`;
+    // Pull spacer up behind the sticky canvas so it only contributes scroll
+    spacer.style.marginTop = `${-height}px`;
 
     const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), canvasWidth);
 
