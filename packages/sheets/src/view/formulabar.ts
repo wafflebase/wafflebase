@@ -132,7 +132,7 @@ export class FormulaBar {
   }
 
   public getValue(): string {
-    return this.formulaInput.innerText;
+    return this.formulaInput.innerText.replace(/\u00a0/g, ' ');
   }
 
   public setValue(value: string) {

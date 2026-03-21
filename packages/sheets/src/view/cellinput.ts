@@ -196,7 +196,7 @@ export class CellInput {
   }
 
   public getValue(): string {
-    return this.input.innerText;
+    return this.input.innerText.replace(/\u00a0/g, ' ');
   }
 
   public setValue(value: string): void {
