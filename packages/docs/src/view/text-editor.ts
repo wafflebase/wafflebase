@@ -4,7 +4,9 @@ import { Doc } from '../model/document.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
-import { pixelToPosition, positionToPixel } from './layout.js';
+import type { PaginatedLayout } from './pagination.js';
+import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
+import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 
 /**
@@ -62,7 +64,9 @@ export class TextEditor {
     private cursor: Cursor,
     private selection: Selection,
     private getLayout: () => DocumentLayout,
+    private getPaginatedLayout: () => PaginatedLayout,
     private getCtx: () => CanvasRenderingContext2D,
+    private getCanvasWidth: () => number,
     private requestRender: () => void,
     private saveSnapshot: () => void,
     private undoAction: () => void,
@@ -538,13 +542,13 @@ export class TextEditor {
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
-    const layout = this.getLayout();
-    const ctx = this.getCtx();
-    const pixel = this.getPixelFromPosition(pos);
+    const pixel = this.getPixelForPosition(pos);
     if (!pixel) return pos;
 
     const newY = pixel.y + pixel.height * direction + pixel.height / 2;
-    const result = pixelToPosition(layout, pixel.x, newY, ctx);
+    const result = paginatedPixelToPosition(
+      this.getPaginatedLayout(), this.getLayout(), pixel.x, newY, this.getCanvasWidth(),
+    );
     return result ?? pos;
   }
 
@@ -553,13 +557,49 @@ export class TextEditor {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const scrollY = this.container.scrollTop;
-    return pixelToPosition(this.getLayout(), x, y + scrollY, this.getCtx());
+    return paginatedPixelToPosition(
+      this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
+    );
   }
 
-  private getPixelFromPosition(pos: DocPosition) {
+  private getPixelForPosition(pos: DocPosition) {
+    const paginatedLayout = this.getPaginatedLayout();
     const layout = this.getLayout();
     const ctx = this.getCtx();
-    return positionToPixel(layout, pos.blockId, pos.offset, ctx);
+    const canvasWidth = this.getCanvasWidth();
+    const found = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout);
+    if (!found) return undefined;
+
+    const { pageIndex, pageLine } = found;
+    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+    const pageY = getPageYOffset(paginatedLayout, pageIndex);
+    const lb = layout.blocks[pageLine.blockIndex];
+
+    let charsBeforeLine = 0;
+    for (let li = 0; li < pageLine.lineIndex; li++) {
+      for (const r of lb.lines[li].runs) {
+        charsBeforeLine += r.charEnd - r.charStart;
+      }
+    }
+    const lineOffset = pos.offset - charsBeforeLine;
+
+    let charCount = 0;
+    for (const run of pageLine.line.runs) {
+      const runLength = run.charEnd - run.charStart;
+      if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
+        const localOff = lineOffset - charCount;
+        ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+        const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+        return { x, y: pageY + pageLine.y, height: pageLine.line.height };
+      }
+      charCount += runLength;
+    }
+
+    const lastRun = pageLine.line.runs[pageLine.line.runs.length - 1];
+    if (lastRun) {
+      return { x: pageX + pageLine.x + lastRun.x + lastRun.width, y: pageY + pageLine.y, height: pageLine.line.height };
+    }
+    return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: 24 };
   }
 
   // --- Software Hangul assembly helpers ---

@@ -1,5 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { InlineStyle, BlockStyle } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
@@ -7,6 +8,7 @@ import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout } from './layout.js';
+import { paginateLayout, getTotalHeight, type PaginatedLayout } from './pagination.js';
 
 /**
  * Public API returned by initialize().
@@ -64,14 +66,19 @@ export function initialize(
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+  let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
 
   // Compute layout helper
   const recomputeLayout = () => {
+    const pageSetup = resolvePageSetup(doc.document.pageSetup);
+    const dims = getEffectiveDimensions(pageSetup);
+    const contentWidth = dims.width - pageSetup.margins.left - pageSetup.margins.right;
     layout = computeLayout(
       doc.document.blocks,
       docCanvas.getContext(),
-      canvas.width / (window.devicePixelRatio || 1),
+      contentWidth,
     );
+    paginatedLayout = paginateLayout(layout, pageSetup);
   };
 
   // Sync the live Doc back into the store (without pushing undo).
@@ -87,17 +94,20 @@ export function initialize(
 
     const { width, height } = container.getBoundingClientRect();
     recomputeLayout();
-    const canvasHeight = Math.max(height, layout.totalHeight);
+    const totalHeight = getTotalHeight(paginatedLayout);
+    const canvasHeight = Math.max(height, totalHeight);
     docCanvas.resize(width, canvasHeight);
 
     const scrollY = container.scrollTop;
-    const cursorPixel = cursor.getPixelPosition(layout, docCanvas.getContext());
+    const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), width);
     const selectionRects = selection.getSelectionRects(
+      paginatedLayout,
       layout,
       docCanvas.getContext(),
+      width,
     );
 
-    docCanvas.render(layout, scrollY, cursorPixel ?? undefined, selectionRects);
+    docCanvas.render(paginatedLayout, scrollY, width, cursorPixel ?? undefined, selectionRects);
   };
 
   // Wire up text editor
@@ -128,7 +138,9 @@ export function initialize(
     cursor,
     selection,
     () => layout,
+    () => paginatedLayout,
     () => docCanvas.getContext(),
+    () => container.getBoundingClientRect().width,
     render,
     () => docStore.snapshot(),
     undoFn,
