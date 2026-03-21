@@ -8,8 +8,16 @@ import type { Block, Document } from '../model/types.js';
  * implement this for real-time collaboration.
  */
 export interface DocStore {
+  /** Return a deep clone of the current document. */
   getDocument(): Document;
+  /** Replace the document, pushing the previous state onto the undo stack. */
   setDocument(doc: Document): void;
+  /**
+   * Replace the internal document WITHOUT pushing to the undo stack.
+   * Used by the editor to sync back after direct Doc mutations that
+   * were already preceded by a snapshot() call.
+   */
+  replaceDocument(doc: Document): void;
   getBlock(id: string): Block | undefined;
   updateBlock(id: string, block: Block): void;
   insertBlock(index: number, block: Block): void;

@@ -74,8 +74,17 @@ export function initialize(
     );
   };
 
+  // Sync the live Doc back into the store (without pushing undo).
+  // This keeps the store's internal state in sync with direct Doc mutations
+  // that were already preceded by a snapshot() call.
+  const syncToStore = () => {
+    docStore.replaceDocument(doc.document);
+  };
+
   // Render helper
   const render = () => {
+    syncToStore();
+
     const { width, height } = container.getBoundingClientRect();
     recomputeLayout();
     const canvasHeight = Math.max(height, layout.totalHeight);

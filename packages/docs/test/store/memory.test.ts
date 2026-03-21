@@ -64,6 +64,46 @@ describe('MemDocStore', () => {
     });
   });
 
+  describe('defensive cloning', () => {
+    it('getDocument returns a deep clone', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      const doc = store.getDocument();
+      doc.blocks[0].inlines[0].text = 'Mutated';
+      expect(store.getDocument().blocks[0].inlines[0].text).toBe('Hello');
+    });
+
+    it('getBlock returns a deep clone', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      const got = store.getBlock(block.id)!;
+      got.inlines[0].text = 'Mutated';
+      expect(store.getBlock(block.id)!.inlines[0].text).toBe('Hello');
+    });
+
+    it('replaceDocument syncs without pushing undo', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      expect(store.canUndo()).toBe(false);
+
+      store.replaceDocument({ blocks: [makeBlock('Replaced')] });
+      expect(store.getDocument().blocks[0].inlines[0].text).toBe('Replaced');
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('snapshot + replaceDocument enables correct undo', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+
+      store.snapshot();
+      store.replaceDocument({ blocks: [makeBlock('Edited')] });
+      expect(store.getDocument().blocks[0].inlines[0].text).toBe('Edited');
+
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines[0].text).toBe('Hello');
+    });
+  });
+
   describe('undo/redo', () => {
     it('should undo a setDocument', () => {
       const block = makeBlock('Hello');

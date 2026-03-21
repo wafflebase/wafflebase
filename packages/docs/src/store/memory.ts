@@ -21,13 +21,17 @@ export class MemDocStore implements DocStore {
   }
 
   getDocument(): Document {
-    return this.doc;
+    return cloneDocument(this.doc);
   }
 
   setDocument(doc: Document): void {
     this.pushUndo();
     this.doc = cloneDocument(doc);
     this.redoStack = [];
+  }
+
+  replaceDocument(doc: Document): void {
+    this.doc = cloneDocument(doc);
   }
 
   getBlock(id: string): Block | undefined {
