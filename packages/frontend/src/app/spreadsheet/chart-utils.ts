@@ -1,4 +1,4 @@
-import { getWorksheetCell, parseRef, toSref } from "@wafflebase/sheet";
+import { getWorksheetCell, parseRef, toSref } from "@wafflebase/sheets";
 import type { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
 export { COLOR_PALETTES, getSeriesColor } from "./chart-colors";
 import { getSeriesColor } from "./chart-colors";

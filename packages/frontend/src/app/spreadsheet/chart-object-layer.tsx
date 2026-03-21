@@ -3,7 +3,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import { parseRef, Spreadsheet } from "@wafflebase/sheet";
+import { parseRef, Spreadsheet } from "@wafflebase/sheets";
 import {
   DropdownMenu,
   DropdownMenuContent,

@@ -19,14 +19,14 @@ const SHEET_ROOT = pathResolve(
   fileURLToPath(new URL(".", import.meta.url)),
   "..",
   "..",
-  "sheet",
+  "sheets",
 );
 
 const SHEET_DIST = pathResolve(
   fileURLToPath(new URL(".", import.meta.url)),
   "..",
   "..",
-  "sheet",
+  "sheets",
   "dist",
   "wafflebase-sheet.es.js",
 );
@@ -35,15 +35,15 @@ const SHEET_SRC_INDEX = pathResolve(
   fileURLToPath(new URL(".", import.meta.url)),
   "..",
   "..",
-  "sheet",
+  "sheets",
   "src",
   "index.ts",
 );
 
 export async function resolve(specifier, context, nextResolve) {
-  // Map @wafflebase/sheet → built ES module in sheet dist.
+  // Map @wafflebase/sheets → built ES module in sheet dist.
   // If the dist file is missing, fall back to the workspace source.
-  if (specifier === "@wafflebase/sheet") {
+  if (specifier === "@wafflebase/sheets") {
     if (existsSync(SHEET_DIST)) {
       return nextResolve(pathToFileURL(SHEET_DIST).href, context);
     }
@@ -103,7 +103,7 @@ export async function resolve(specifier, context, nextResolve) {
  * runner.
  */
 export async function load(url, context, nextLoad) {
-  // Provide a minimal stub when @wafflebase/sheet dist is unavailable.
+  // Provide a minimal stub when @wafflebase/sheets dist is unavailable.
   if (url === "virtual:wafflebase-sheet") {
     return {
       format: "module",

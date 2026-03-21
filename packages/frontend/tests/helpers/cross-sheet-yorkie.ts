@@ -1,6 +1,6 @@
 import yorkie from "@yorkie-js/sdk";
-import type { Grid, Cell, Sref, GridResolver } from "@wafflebase/sheet";
-import { parseRef, getWorksheetCell } from "@wafflebase/sheet";
+import type { Grid, Cell, Sref, GridResolver } from "@wafflebase/sheets";
+import { parseRef, getWorksheetCell } from "@wafflebase/sheets";
 import { Sheet } from "../../../sheet/src/model/worksheet/sheet.ts";
 import { MemStore } from "../../../sheet/src/store/memory.ts";
 import { YorkieStore } from "@/app/spreadsheet/yorkie-store";

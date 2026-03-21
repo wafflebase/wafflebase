@@ -1,16 +1,16 @@
 # Canvas-Based Document Editor — Prototype
 
-**Goal:** Create `packages/document` with a Canvas-based rich-text editor prototype supporting paragraph editing, inline formatting, cursor/selection, and undo/redo.
+**Goal:** Create `packages/docs` with a Canvas-based rich-text editor prototype supporting paragraph editing, inline formatting, cursor/selection, and undo/redo.
 
 **Status:** COMPLETE
 
 **Design:** [docs/design/docs.md](../../design/docs.md)
 
-**Note:** Package is `@wafflebase/document` (`packages/document/`). VitePress docs site is `@wafflebase/documentation` (`packages/documentation/`).
+**Note:** Package is `@wafflebase/docs` (`packages/docs/`). VitePress docs site is `@wafflebase/docsation` (`packages/docsation/`).
 
 ## Phase 1: Package Scaffolding & Data Model
 
-- [x] 1.1 Create `packages/document/` with `package.json`, `tsconfig.json`, `vite.config.ts`, `vite.build.ts`
+- [x] 1.1 Create `packages/docs/` with `package.json`, `tsconfig.json`, `vite.config.ts`, `vite.build.ts`
 - [x] 1.2 Define data types in `src/model/types.ts` (Document, Block, Inline, styles, positions)
 - [x] 1.3 Implement `Doc` class in `src/model/document.ts` (insertText, deleteText, splitBlock, mergeBlocks, applyInlineStyle, applyBlockStyle)
 - [x] 1.4 Write unit tests for `Doc` class (`test/model/document.test.ts`) — 18 tests passing

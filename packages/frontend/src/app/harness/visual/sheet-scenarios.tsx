@@ -4,7 +4,7 @@ import {
   Spreadsheet,
   type Grid,
   type Theme,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import {
   IconCheck,
   IconClipboard,

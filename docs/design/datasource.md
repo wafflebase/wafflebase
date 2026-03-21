@@ -159,7 +159,7 @@ The `packages/backend/src/datasource/sql-validator.ts` module ensures only read 
 
 ### 3. ReadOnlyStore (Sheet Engine)
 
-`packages/sheet/src/store/readonly.ts` implements the `Store` interface for displaying query results:
+`packages/sheets/src/store/readonly.ts` implements the `Store` interface for displaying query results:
 
 - `loadQueryResults(columns, rows)` populates the grid:
   - Row 1: column headers with bold styling

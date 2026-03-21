@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import type { Spreadsheet } from "@wafflebase/sheet";
-import { toColumnLabel, inRange } from "@wafflebase/sheet";
+import type { Spreadsheet } from "@wafflebase/sheets";
+import { toColumnLabel, inRange } from "@wafflebase/sheets";
 import {
   ContextMenu,
   ContextMenuContent,

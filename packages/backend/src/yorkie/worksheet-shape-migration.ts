@@ -17,7 +17,7 @@ import {
   type TabMeta,
   type Worksheet,
   type WorksheetFilterState,
-} from '@wafflebase/sheet';
+} from '@wafflebase/sheets';
 import type { SheetChart } from './yorkie.types';
 
 type LegacyWorksheet = {

@@ -159,7 +159,7 @@ Hook scripts live in `scripts/hooks/`.
 
 | Hook | Event | Purpose |
 |---|---|---|
-| `scripts/hooks/guard-generated-files.sh` | PreToolUse(Edit\|Write) | Blocks editing ANTLR-generated files in `packages/sheet/antlr/` (`.g4` allowed) |
+| `scripts/hooks/guard-generated-files.sh` | PreToolUse(Edit\|Write) | Blocks editing ANTLR-generated files in `packages/sheets/antlr/` (`.g4` allowed) |
 | `scripts/hooks/check-arch-boundary.sh` | PostToolUse(Write) | Runs arch lint after new files in frontend/backend (informational) |
 
 ### Adding New Hooks

@@ -5,7 +5,7 @@ import {
   parseRef,
   writeWorksheetCell,
   type TabMeta,
-} from '@wafflebase/sheet';
+} from '@wafflebase/sheets';
 import { migrateYorkieWorksheetShape } from './worksheet-shape-migration';
 
 describe('migrateYorkieWorksheetShape', () => {

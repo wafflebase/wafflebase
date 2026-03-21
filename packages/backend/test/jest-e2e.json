@@ -8,7 +8,7 @@
   },
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/src/$1",
-    "^@wafflebase/sheet$": "<rootDir>/../sheet/src/index.ts"
+    "^@wafflebase/sheets$": "<rootDir>/../sheets/src/index.ts"
   },
   "maxWorkers": 1
 }

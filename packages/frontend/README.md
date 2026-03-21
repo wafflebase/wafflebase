@@ -13,7 +13,7 @@ React 19 single-page application for Wafflebase. Provides the spreadsheet UI, re
 | Server state | TanStack React Query 5 |
 | Tables | TanStack React Table 8 |
 | Real-time | Yorkie CRDT (`@yorkie-js/react` 0.6.28) |
-| Spreadsheet | `@wafflebase/sheet` (workspace dependency) |
+| Spreadsheet | `@wafflebase/sheets` (workspace dependency) |
 
 ## Getting Started
 
@@ -93,7 +93,7 @@ src/
 │   │   ├── document-list.tsx # Table with sorting, filtering, CRUD
 │   │   └── document-detail.tsx  # Spreadsheet view wrapper
 │   ├── spreadsheet/
-│   │   ├── sheet-view.tsx    # Mounts @wafflebase/sheet on Canvas
+│   │   ├── sheet-view.tsx    # Mounts @wafflebase/sheets on Canvas
 │   │   └── yorkie-store.ts   # Store implementation backed by Yorkie CRDT
 │   └── settings/page.tsx     # Settings page
 ├── api/
@@ -130,7 +130,7 @@ src/
 
 ### Real-time Collaboration
 
-The `YorkieStore` class implements the `Store` interface from `@wafflebase/sheet`, persisting all cell data, row heights, and column widths to a Yorkie CRDT document. Changes sync automatically across all connected clients.
+The `YorkieStore` class implements the `Store` interface from `@wafflebase/sheets`, persisting all cell data, row heights, and column widths to a Yorkie CRDT document. Changes sync automatically across all connected clients.
 
 ### Presence
 
@@ -138,7 +138,7 @@ User cursors are tracked via Yorkie's presence system. `SheetView` subscribes to
 
 ### Theme Support
 
-Light, dark, and system themes are supported via a custom `ThemeProvider` that applies a class to the `<html>` element. The resolved theme is passed to the `@wafflebase/sheet` engine for Canvas rendering.
+Light, dark, and system themes are supported via a custom `ThemeProvider` that applies a class to the `<html>` element. The resolved theme is passed to the `@wafflebase/sheets` engine for Canvas rendering.
 
 ### Authentication
 

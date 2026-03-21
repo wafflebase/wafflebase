@@ -6,8 +6,8 @@ import type {
   NumberFormat,
   VerticalAlign,
   LocaleFormatPreview,
-} from "@wafflebase/sheet";
-import { buildLocaleFormatPreview } from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
+import { buildLocaleFormatPreview } from "@wafflebase/sheets";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
 import {

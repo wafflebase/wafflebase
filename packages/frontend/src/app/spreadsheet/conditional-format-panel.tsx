@@ -5,7 +5,7 @@ import {
   Spreadsheet,
   parseRef,
   toSref,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import { toast } from "sonner";
 import {
   IconBold,

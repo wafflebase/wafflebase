@@ -40,7 +40,7 @@ packages/
   backend/    — NestJS API server (auth, documents, data sources)
 ```
 
-The frontend depends on `@wafflebase/sheet` as a workspace dependency.
+The frontend depends on `@wafflebase/sheets` as a workspace dependency.
 
 ## Getting Started
 

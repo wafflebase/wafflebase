@@ -6,7 +6,7 @@ import {
   type Cell,
   type Grid,
   type Spreadsheet,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import { useEffect, useRef, useState } from "react";
 
 const BRIDGE_KEY = "__WB_INTERACTION__";

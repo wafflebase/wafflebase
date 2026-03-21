@@ -20,7 +20,7 @@ import {
   parseRef,
   updateWorksheetCell,
   writeWorksheetCell,
-} from '@wafflebase/sheet';
+} from '@wafflebase/sheets';
 
 @Controller(
   'api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId/cells',

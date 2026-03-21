@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseRef } from "@wafflebase/sheet";
+import { parseRef } from "@wafflebase/sheets";
 import { setupCrossSheetEnv } from "../../helpers/cross-sheet-yorkie.ts";
 import { needsRecalc } from "../../../src/app/spreadsheet/remote-change-utils.ts";
 

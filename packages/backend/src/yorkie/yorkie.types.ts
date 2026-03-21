@@ -7,4 +7,4 @@ export type {
   SheetKind,
   TabMeta,
   SpreadsheetDocument,
-} from '@wafflebase/sheet';
+} from '@wafflebase/sheets';

@@ -1,11 +1,11 @@
 import yorkie from "@yorkie-js/sdk";
-import { parseRef } from "@wafflebase/sheet";
+import { parseRef } from "@wafflebase/sheets";
 import { YorkieStore } from "@/app/spreadsheet/yorkie-store";
 import type {
   ConcurrencyCase,
   ConcurrencyOp,
   ConcurrencySnapshot,
-} from "../../../sheet/test/helpers/concurrency-case-table.ts";
+} from "../../../sheets/test/helpers/concurrency-case-table.ts";
 import { initialSpreadsheetDocument } from "@/types/worksheet";
 
 type YorkieClient = {

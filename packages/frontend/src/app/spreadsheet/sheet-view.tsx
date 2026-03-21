@@ -9,7 +9,7 @@ import {
   getWorksheetCell,
   parseRef,
   toSref,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import {
   type PointerEvent as ReactPointerEvent,
   lazy,

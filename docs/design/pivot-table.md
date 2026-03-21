@@ -49,7 +49,7 @@ The pivot table system spans three layers:
 │  PivotEditorPanel  ─── usePivotTable hook        │
 │  Field drag-and-drop, refresh button             │
 ├──────────────────────────────────────────────────┤
-│              Sheet Engine (packages/sheet)        │
+│              Sheet Engine (packages/sheets)        │
 │  PivotCalculator  ─── PivotMaterializer          │
 │  Data parsing, grouping, aggregation, cell output │
 ├──────────────────────────────────────────────────┤
@@ -159,7 +159,7 @@ when deleting one.
 
 ### 3. Pivot Calculation Engine
 
-Location: `packages/sheet/src/model/pivot/`
+Location: `packages/sheets/src/model/pivot/`
 
 #### Pipeline
 
@@ -404,7 +404,7 @@ the source range, and passes it to the calculator.
 
 ### 10. Testing Strategy
 
-- **Unit tests** (packages/sheet):
+- **Unit tests** (packages/sheets):
   - `parseSourceData()` — header extraction, empty row trimming
   - `buildGroups()` — single and multi-level grouping, sort order
   - `aggregate()` — each aggregation function, type coercion, edge cases

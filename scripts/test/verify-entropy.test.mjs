@@ -12,10 +12,10 @@ describe("extractFileRefs", () => {
   });
 
   it("extracts markdown link targets with file extensions", () => {
-    const content = "Check [the doc](packages/sheet/README.md) here.";
+    const content = "Check [the doc](packages/sheets/README.md) here.";
     const refs = extractFileRefs(content, "test.md");
     assert.deepStrictEqual(refs, [
-      { path: "packages/sheet/README.md", source: "test.md" },
+      { path: "packages/sheets/README.md", source: "test.md" },
     ]);
   });
 

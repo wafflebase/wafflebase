@@ -4,7 +4,7 @@
     "scripts/**"
   ],
   "workspaces": {
-    "packages/sheet": {
+    "packages/sheets": {
       "entry": ["src/index.ts", "test/**/*.test.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"],
       "ignoreBinaries": ["scripts/fix-antlr-ts.sh"]

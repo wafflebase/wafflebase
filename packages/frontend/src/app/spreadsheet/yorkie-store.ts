@@ -16,7 +16,7 @@ import {
   normalizeRangeStylePatch,
   writeWorksheetCell,
   safeWorksheetRecordEntries,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import type {
   Store,
   Grid,
@@ -33,7 +33,7 @@ import type {
   Axis,
   ConditionalFormatRule,
   RangeStylePatch,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import type { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import type { UserPresence } from "@/types/users";
 import {

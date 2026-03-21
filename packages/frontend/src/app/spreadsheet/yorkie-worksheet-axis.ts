@@ -3,7 +3,7 @@ import {
   createWorksheetAxisId,
   parseWorksheetCellKey,
   type Axis,
-} from "@wafflebase/sheet";
+} from "@wafflebase/sheets";
 import type { Worksheet } from "@/types/worksheet";
 
 function ensureAxisLength(

@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import yorkie, { Client, Document, SyncMode } from '@yorkie-js/sdk';
-import type { SpreadsheetDocument, Worksheet } from '@wafflebase/sheet';
+import type { SpreadsheetDocument, Worksheet } from '@wafflebase/sheets';
 import {
   migrateYorkieWorksheetShape,
   type WorksheetShapeMigrationKind,

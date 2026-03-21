@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconChevronUp, IconChevronDown, IconX } from "@tabler/icons-react";
-import type { Spreadsheet } from "@wafflebase/sheet";
+import type { Spreadsheet } from "@wafflebase/sheets";
 
 interface FindBarProps {
   spreadsheet: Spreadsheet | undefined;

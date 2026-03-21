@@ -19,16 +19,16 @@ FILE_PATH=$(echo "$INPUT" | node -e "
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 REL_PATH="${FILE_PATH#"$REPO_ROOT"/}"
 
-# Check if file is under packages/sheet/antlr/ but NOT a .g4 file
+# Check if file is under packages/sheets/antlr/ but NOT a .g4 file
 case "$REL_PATH" in
-  packages/sheet/antlr/*)
+  packages/sheets/antlr/*)
     case "$REL_PATH" in
       *.g4) exit 0 ;;  # Grammar source — editing is allowed
     esac
     echo "BLOCKED: $REL_PATH is an ANTLR-generated file. Do not edit directly." >&2
     echo "" >&2
     echo "To modify the formula grammar:" >&2
-    echo "  1. Edit packages/sheet/antlr/Formula.g4" >&2
+    echo "  1. Edit packages/sheets/antlr/Formula.g4" >&2
     echo "  2. Run: pnpm sheet build:formula" >&2
     echo "  3. Commit the regenerated files" >&2
     exit 2
