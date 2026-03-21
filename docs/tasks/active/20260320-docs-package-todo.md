@@ -6,7 +6,7 @@
 
 **Design:** [docs/design/docs.md](../../design/docs.md)
 
-**Note:** Package is `@wafflebase/document` (`packages/document/`) since `@wafflebase/docs` was already taken by VitePress docs site.
+**Note:** Package is `@wafflebase/document` (`packages/document/`). VitePress docs site is `@wafflebase/documentation` (`packages/documentation/`).
 
 ## Phase 1: Package Scaffolding & Data Model
 

@@ -215,12 +215,6 @@ importers:
         specifier: ^3.1.0
         version: 3.1.1(@types/node@25.4.0)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.7.1)
 
-  packages/docs:
-    devDependencies:
-      vitepress:
-        specifier: ^1.6.4
-        version: 1.6.4(@algolia/client-search@5.49.2)(@types/node@25.4.0)(lightningcss@1.29.2)(postcss@8.5.8)(search-insights@2.17.3)(terser@5.39.0)(typescript@5.9.3)
-
   packages/document:
     devDependencies:
       jsdom:
@@ -244,6 +238,12 @@ importers:
       vitest:
         specifier: ^3.1.1
         version: 3.1.1(@types/node@25.4.0)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.7.1)
+
+  packages/documentation:
+    devDependencies:
+      vitepress:
+        specifier: ^1.6.4
+        version: 1.6.4(@algolia/client-search@5.49.2)(@types/node@25.4.0)(lightningcss@1.29.2)(postcss@8.5.8)(search-insights@2.17.3)(terser@5.39.0)(typescript@5.9.3)
 
   packages/frontend:
     dependencies:
@@ -6120,10 +6120,6 @@ packages:
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
-
-  postcss@8.5.3:
-    resolution: {integrity: sha512-dle9A3yYxlBSrt8Fu+IpjGT8SY8hN0mlaA6GY8t0P5PjIOZemULz/E2Bnm/2dcUOena75OTNkHI76uZBNUUq3A==}
-    engines: {node: ^10 || ^12 || >=14}
 
   postcss@8.5.8:
     resolution: {integrity: sha512-OW/rX8O/jXnm82Ey1k44pObPtdblfiuWnrd8X7GJ7emImCOstunGbXUpp7HdBrFQX6rJzn3sPT397Wp5aCwCHg==}
@@ -13298,12 +13294,6 @@ snapshots:
 
   possible-typed-array-names@1.1.0: {}
 
-  postcss@8.5.3:
-    dependencies:
-      nanoid: 3.3.11
-      picocolors: 1.1.1
-      source-map-js: 1.2.1
-
   postcss@8.5.8:
     dependencies:
       nanoid: 3.3.11
@@ -14319,7 +14309,7 @@ snapshots:
   vite@5.4.21(@types/node@25.4.0)(lightningcss@1.29.2)(terser@5.39.0):
     dependencies:
       esbuild: 0.21.5
-      postcss: 8.5.3
+      postcss: 8.5.8
       rollup: 4.59.0
     optionalDependencies:
       '@types/node': 25.4.0
@@ -14372,7 +14362,7 @@ snapshots:
       '@types/markdown-it': 14.1.2
       '@vitejs/plugin-vue': 5.2.4(vite@5.4.21(@types/node@25.4.0)(lightningcss@1.29.2)(terser@5.39.0))(vue@3.5.30(typescript@5.9.3))
       '@vue/devtools-api': 7.7.9
-      '@vue/shared': 3.5.13
+      '@vue/shared': 3.5.30
       '@vueuse/core': 12.8.2(typescript@5.9.3)
       '@vueuse/integrations': 12.8.2(focus-trap@7.8.0)(typescript@5.9.3)
       focus-trap: 7.8.0

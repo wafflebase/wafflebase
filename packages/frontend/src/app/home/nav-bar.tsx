@@ -27,7 +27,7 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
             href="/docs"
             className="hidden md:inline text-sm text-homepage-text-secondary no-underline hover:text-homepage-text"
           >
-            Docs
+            Documentation
           </a>
           <a
             href="https://github.com/wafflebase/wafflebase"
@@ -71,7 +71,7 @@ export function NavBar({ workspacePath }: { workspacePath: string | null }) {
             onClick={() => setOpen(false)}
             className="text-sm text-homepage-text-secondary no-underline hover:text-homepage-text"
           >
-            Docs
+            Documentation
           </a>
           <a
             href="https://github.com/wafflebase/wafflebase"

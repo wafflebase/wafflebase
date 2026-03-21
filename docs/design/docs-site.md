@@ -7,7 +7,7 @@ target-version: 0.1.0
 
 ## Summary
 
-Add a VitePress-based documentation site as `packages/docs` to provide user guides
+Add a VitePress-based documentation site as `packages/documentation` to provide user guides
 (spreadsheet editing, formulas, collaboration) and developer references (REST API, CLI).
 Served at `wafflebase.io/docs` as a subpath of the existing GitHub Pages deployment.
 
@@ -29,8 +29,8 @@ Served at `wafflebase.io/docs` as a subpath of the existing GitHub Pages deploym
 ### Package Structure
 
 ```
-packages/docs/
-├── package.json              # @wafflebase/docs
+packages/documentation/
+├── package.json              # @wafflebase/documentation
 ├── .vitepress/
 │   ├── config.ts             # base: '/docs/', sidebar, nav
 │   └── theme/
@@ -61,13 +61,13 @@ packages/docs/
 
 **CI build:**
 1. `pnpm frontend build` → `packages/frontend/dist/`
-2. `pnpm docs build` → `packages/docs/.vitepress/dist/`
+2. `pnpm vpdocs build` → `packages/documentation/.vitepress/dist/`
 3. Copy docs build output into `packages/frontend/dist/docs/`
 
 **Root package.json scripts:**
 ```json
-"docs": "pnpm --filter @wafflebase/docs",
-"build:all": "pnpm frontend build && pnpm docs build && cp -r packages/docs/.vitepress/dist packages/frontend/dist/docs"
+"vpdocs": "pnpm --filter @wafflebase/documentation",
+"build:all": "pnpm frontend build && pnpm vpdocs build && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs"
 ```
 
 **GitHub Actions (`.github/workflows/publish-ghpage.yml`):**

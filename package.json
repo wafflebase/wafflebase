@@ -29,8 +29,8 @@
     "sheet": "pnpm --filter @wafflebase/sheet",
     "cli": "pnpm --filter @wafflebase/cli",
     "document": "pnpm --filter @wafflebase/document",
-    "vpdocs": "pnpm --filter @wafflebase/docs",
-    "build:all": "pnpm frontend build && pnpm vpdocs build && rm -rf packages/frontend/dist/docs && cp -r packages/docs/.vitepress/dist packages/frontend/dist/docs",
+    "vpdocs": "pnpm --filter @wafflebase/documentation",
+    "build:all": "pnpm frontend build && pnpm vpdocs build && rm -rf packages/frontend/dist/docs && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs",
     "postinstall": "git config core.hooksPath .githooks || true"
   },
   "keywords": [],
