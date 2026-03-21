@@ -133,14 +133,14 @@ interface DocStore {
 
 | Component | File | Responsibility |
 |-----------|------|----------------|
-| **Editor** | `editor.ts` | Top-level entry point. Creates model + view. Returns public API. |
-| **DocCanvas** | `doc-canvas.ts` | Renders blocks/inlines to Canvas. Applies text styles, draws backgrounds. |
-| **Layout** | `layout.ts` | Text measurement, word-wrap, line breaking. Builds a layout tree of positioned lines/runs. |
-| **Cursor** | `cursor.ts` | Cursor position tracking, blink animation, caret rendering. |
-| **Selection** | `selection.ts` | Multi-line text selection: range tracking and highlight rendering. |
-| **TextEditor** | `text-editor.ts` | Keyboard/mouse input handling. Dispatches to Doc model methods. |
-| **DocContainer** | `doc-container.ts` | Scroll management and viewport calculation. |
-| **Theme** | `theme.ts` | Colors, default fonts, spacing constants. |
+| **Editor** | `packages/document/src/view/editor.ts` | Top-level entry point. Creates model + view. Returns public API. |
+| **DocCanvas** | `packages/document/src/view/doc-canvas.ts` | Renders blocks/inlines to Canvas. Applies text styles, draws backgrounds. |
+| **Layout** | `packages/document/src/view/layout.ts` | Text measurement, word-wrap, line breaking. Builds a layout tree of positioned lines/runs. |
+| **Cursor** | `packages/document/src/view/cursor.ts` | Cursor position tracking, blink animation, caret rendering. |
+| **Selection** | `packages/document/src/view/selection.ts` | Multi-line text selection: range tracking and highlight rendering. |
+| **TextEditor** | `packages/document/src/view/text-editor.ts` | Keyboard/mouse input handling. Dispatches to Doc model methods. |
+| **DocContainer** | `packages/document/src/view/doc-container.ts` | Scroll management and viewport calculation. |
+| **Theme** | `packages/document/src/view/theme.ts` | Colors, default fonts, spacing constants. |
 
 ### Rendering pipeline
 
