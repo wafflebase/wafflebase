@@ -29,7 +29,7 @@ case "$REL_PATH" in
     echo "" >&2
     echo "To modify the formula grammar:" >&2
     echo "  1. Edit packages/sheets/antlr/Formula.g4" >&2
-    echo "  2. Run: pnpm sheet build:formula" >&2
+    echo "  2. Run: pnpm sheets build:formula" >&2
     echo "  3. Commit the regenerated files" >&2
     exit 2
     ;;

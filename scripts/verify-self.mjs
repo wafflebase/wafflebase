@@ -8,7 +8,7 @@ const repoRoot = path.resolve(scriptDir, "..");
 const reportDir = path.resolve(repoRoot, ".harness-reports");
 
 const LANES = [
-  { name: "sheet:build", cmd: "pnpm sheet build" },
+  { name: "sheets:build", cmd: "pnpm sheets build" },
   { name: "verify:fast", cmd: "pnpm verify:fast" },
   { name: "frontend:build", cmd: "pnpm frontend build" },
   { name: "verify:frontend:chunks", cmd: "pnpm verify:frontend:chunks" },
