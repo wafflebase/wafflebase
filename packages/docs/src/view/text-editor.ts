@@ -698,7 +698,7 @@ export class TextEditor {
   }
 
   private handleHome(shiftKey: boolean): void {
-    const newPos = { blockId: this.cursor.position.blockId, offset: 0 };
+    const newPos = this.getVisualLineStart(this.cursor.position);
     if (shiftKey) {
       const anchor = this.selection.range?.anchor ?? this.cursor.position;
       this.selection.setRange({ anchor, focus: newPos });
@@ -710,9 +710,7 @@ export class TextEditor {
   }
 
   private handleEnd(shiftKey: boolean): void {
-    const block = this.doc.getBlock(this.cursor.position.blockId);
-    const len = getBlockTextLength(block);
-    const newPos = { blockId: this.cursor.position.blockId, offset: len };
+    const newPos = this.getVisualLineEnd(this.cursor.position);
     if (shiftKey) {
       const anchor = this.selection.range?.anchor ?? this.cursor.position;
       this.selection.setRange({ anchor, focus: newPos });
@@ -756,7 +754,14 @@ export class TextEditor {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
     const pos = this.cursor.position;
-    if (pos.offset > 0) {
+    const lineStart = this.getVisualLineStart(pos);
+    if (lineStart.offset < pos.offset) {
+      const count = pos.offset - lineStart.offset;
+      this.doc.deleteText(lineStart, count);
+      this.cursor.moveTo(lineStart);
+      this.markDirty(pos.blockId);
+    } else if (pos.offset > 0) {
+      // Cursor is at visual line start but not block start — delete to block start
       this.doc.deleteText({ blockId: pos.blockId, offset: 0 }, pos.offset);
       this.cursor.moveTo({ blockId: pos.blockId, offset: 0 });
       this.markDirty(pos.blockId);
@@ -936,6 +941,44 @@ export class TextEditor {
       return { blockId: this.doc.document.blocks[idx + 1].id, offset: 0 };
     }
     return pos;
+  }
+
+  /**
+   * Find the visual line containing the given position and return
+   * the character offset range [start, end] within the block.
+   */
+  private getVisualLineRange(pos: DocPosition): [number, number] {
+    const layout = this.getLayout();
+    const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
+    if (!lb) return [0, 0];
+
+    let charsBefore = 0;
+    for (const line of lb.lines) {
+      let lineChars = 0;
+      for (const run of line.runs) {
+        lineChars += run.charEnd - run.charStart;
+      }
+      const lineStart = charsBefore;
+      const lineEnd = charsBefore + lineChars;
+      if (pos.offset >= lineStart && pos.offset <= lineEnd) {
+        return [lineStart, lineEnd];
+      }
+      charsBefore = lineEnd;
+    }
+
+    // Fallback: last line
+    const total = getBlockTextLength(lb.block);
+    return [charsBefore, total];
+  }
+
+  private getVisualLineStart(pos: DocPosition): DocPosition {
+    const [start] = this.getVisualLineRange(pos);
+    return { blockId: pos.blockId, offset: start };
+  }
+
+  private getVisualLineEnd(pos: DocPosition): DocPosition {
+    const [, end] = this.getVisualLineRange(pos);
+    return { blockId: pos.blockId, offset: end };
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
