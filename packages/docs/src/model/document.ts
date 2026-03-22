@@ -40,7 +40,7 @@ export class Doc {
   /**
    * Refresh cached document from store.
    */
-  private refresh(): void {
+  refresh(): void {
     this._document = this.store.getDocument();
   }
 
