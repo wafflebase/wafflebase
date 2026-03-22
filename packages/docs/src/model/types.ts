@@ -41,6 +41,8 @@ export interface BlockStyle {
   lineHeight: number;
   marginTop: number;
   marginBottom: number;
+  textIndent: number;
+  marginLeft: number;
 }
 
 /**
@@ -82,6 +84,8 @@ export const DEFAULT_BLOCK_STYLE: BlockStyle = {
   lineHeight: 1.5,
   marginTop: 0,
   marginBottom: 8,
+  textIndent: 0,
+  marginLeft: 0,
 };
 
 /**
