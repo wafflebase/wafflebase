@@ -224,7 +224,9 @@ export class Ruler {
     if (blockStyle !== null) {
       const firstLineX = contentLeft + blockStyle.textIndent;
       const leftIndentX = contentLeft + blockStyle.marginLeft;
-      this.drawDownTriangle(ctx, firstLineX, RULER_SIZE - 1);
+      // ▽ text-indent at top half of ruler
+      this.drawDownTriangle(ctx, firstLineX, 6);
+      // △ margin-left at bottom half of ruler
       this.drawUpTriangle(ctx, leftIndentX, RULER_SIZE - 1);
     }
   }
@@ -302,7 +304,7 @@ export class Ruler {
     const pageY = getPageYOffset(paginatedLayout, focusedPage.pageIndex);
     const margins = paginatedLayout.pageSetup.margins;
 
-    // Map to viewport-relative coordinates
+    // Map to viewport-relative coordinates (matches doc canvas coordinate system)
     const pageTopInViewport = pageY - scrollY;
     const contentTop = pageTopInViewport + margins.top;
     const contentBottom = pageTopInViewport + focusedPage.height - margins.bottom;

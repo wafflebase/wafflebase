@@ -290,6 +290,7 @@ export function initialize(
       const pw = paginatedLayout.pages[0]?.width ?? 0;
       return Math.max(vw, pw);
     },
+    () => canvas.getBoundingClientRect().top - container.getBoundingClientRect().top,
     renderWithScroll,
     () => docStore.snapshot(),
     undoFn,

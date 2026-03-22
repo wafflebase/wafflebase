@@ -71,6 +71,7 @@ export class TextEditor {
     private getPaginatedLayout: () => PaginatedLayout,
     private getCtx: () => CanvasRenderingContext2D,
     private getCanvasWidth: () => number,
+    private getCanvasOffsetTop: () => number,
     private requestRender: () => void,
     private saveSnapshot: () => void,
     private undoAction: () => void,
@@ -348,7 +349,7 @@ export class TextEditor {
   private updateDragSelection(clientX: number, clientY: number): void {
     const rect = this.container.getBoundingClientRect();
     const x = clientX - rect.left;
-    const y = clientY - rect.top;
+    const y = clientY - rect.top - this.getCanvasOffsetTop();
     const scrollY = this.container.scrollTop;
     const pos = paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
@@ -688,7 +689,7 @@ export class TextEditor {
   private getPositionFromMouse(e: MouseEvent): DocPosition | undefined {
     const rect = this.container.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const y = e.clientY - rect.top - this.getCanvasOffsetTop();
     const scrollY = this.container.scrollTop;
     return paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
