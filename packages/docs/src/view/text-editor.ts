@@ -81,8 +81,10 @@ export class TextEditor {
     this.textarea = document.createElement('textarea');
     // Keep textarea within the viewport (not off-screen) so iOS IME works
     // correctly. font-size:16px prevents iOS auto-zoom on focus.
+    // Use position:fixed so the browser never scrolls the container
+    // to bring the textarea into view when text is entered.
     this.textarea.style.cssText =
-      'position:absolute;top:0;left:0;width:1px;height:1px;' +
+      'position:fixed;top:0;left:0;width:1px;height:1px;' +
       'font-size:16px;opacity:0;border:0;padding:0;margin:0;' +
       'resize:none;overflow:hidden;';
     container.appendChild(this.textarea);
@@ -780,6 +782,16 @@ export class TextEditor {
     if (result) {
       this.applyHangulResult(result);
     }
+  }
+
+  /**
+   * Move the hidden textarea to the cursor's screen position so the
+   * browser doesn't scroll the container to bring the textarea into view.
+   * The textarea uses position:fixed, so coordinates are viewport-relative.
+   */
+  updateTextareaPosition(screenX: number, screenY: number): void {
+    this.textarea.style.top = `${screenY}px`;
+    this.textarea.style.left = `${screenX}px`;
   }
 
   dispose(): void {

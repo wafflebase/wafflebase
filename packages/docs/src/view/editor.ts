@@ -149,6 +149,16 @@ export function initialize(
     }
 
     const scrollY = container.scrollTop;
+
+    // Keep the hidden textarea at the cursor's screen position so the
+    // browser doesn't scroll the container to bring it into view.
+    if (cursorPixel) {
+      const containerRect = container.getBoundingClientRect();
+      const screenX = containerRect.left + cursorPixel.x;
+      const screenY = containerRect.top + (cursorPixel.y - scrollY);
+      textEditor.updateTextareaPosition(screenX, screenY);
+    }
+
     const selectionRects = selection.getSelectionRects(
       paginatedLayout,
       layout,
