@@ -147,6 +147,16 @@ export class DocCanvas {
       this.ctx.lineTo(x + run.width, underlineY);
       this.ctx.stroke();
     }
+
+    if (style.strikethrough) {
+      const strikeY = Math.round(lineY + lineHeight / 2);
+      this.ctx.beginPath();
+      this.ctx.strokeStyle = style.color ?? Theme.defaultColor;
+      this.ctx.lineWidth = 1;
+      this.ctx.moveTo(x, strikeY);
+      this.ctx.lineTo(x + run.width, strikeY);
+      this.ctx.stroke();
+    }
   }
 
   /**
