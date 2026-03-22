@@ -75,6 +75,7 @@ export class TextEditor {
     private saveSnapshot: () => void,
     private undoAction: () => void,
     private redoAction: () => void,
+    private markDirty: (blockId: string) => void,
   ) {
     this.textarea = document.createElement('textarea');
     // Keep textarea within the viewport (not off-screen) so iOS IME works
@@ -212,6 +213,7 @@ export class TextEditor {
       blockId: this.cursor.position.blockId,
       offset: this.cursor.position.offset + data.length,
     });
+    this.markDirty(this.cursor.position.blockId);
     this.requestRender();
   };
 
@@ -420,6 +422,7 @@ export class TextEditor {
     const len = getBlockTextLength(block);
     if (this.cursor.position.offset < len) {
       this.doc.deleteText(this.cursor.position, 1);
+      this.markDirty(this.cursor.position.blockId);
     } else {
       // At end of block — merge with next
       const idx = this.doc.getBlockIndex(this.cursor.position.blockId);
@@ -534,6 +537,7 @@ export class TextEditor {
   private toggleStyle(style: Partial<InlineStyle>): void {
     if (!this.selection.hasSelection() || !this.selection.range) return;
     this.doc.applyInlineStyle(this.selection.range, style);
+    this.markDirty(this.cursor.position.blockId);
     this.requestRender();
   }
 
@@ -743,6 +747,7 @@ export class TextEditor {
       blockId: this.hangulStartPos.blockId,
       offset: this.hangulStartPos.offset + this.hangulComposingLength,
     });
+    this.markDirty(this.hangulStartPos.blockId);
     this.requestRender();
   }
 

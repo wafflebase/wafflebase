@@ -7,7 +7,7 @@ import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, type DocumentLayout } from './layout.js';
+import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
 import { paginateLayout, getTotalHeight, type PaginatedLayout } from './pagination.js';
 
 /**
@@ -74,6 +74,8 @@ export function initialize(
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
   let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
+  let layoutCache: LayoutCache | undefined;
+  let dirtyBlockIds: Set<string> | undefined;
   let needsScrollIntoView = false;
   let focused = true;
 
@@ -82,12 +84,24 @@ export function initialize(
     const pageSetup = resolvePageSetup(doc.document.pageSetup);
     const dims = getEffectiveDimensions(pageSetup);
     const contentWidth = dims.width - pageSetup.margins.left - pageSetup.margins.right;
-    layout = computeLayout(
+    const result = computeLayout(
       doc.document.blocks,
       docCanvas.getContext(),
       contentWidth,
+      dirtyBlockIds,
+      layoutCache,
     );
+    layout = result.layout;
+    layoutCache = result.cache;
+    dirtyBlockIds = undefined;
     paginatedLayout = paginateLayout(layout, pageSetup);
+  };
+
+  const markDirty = (blockId: string) => {
+    if (dirtyBlockIds === undefined) {
+      dirtyBlockIds = new Set();
+    }
+    dirtyBlockIds.add(blockId);
   };
 
   // Sync the live Doc back into the store (without pushing undo).
@@ -156,6 +170,7 @@ export function initialize(
     if (docStore.canUndo()) {
       docStore.undo();
       doc.document = docStore.getDocument();
+      layoutCache = undefined;
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
@@ -167,6 +182,7 @@ export function initialize(
     if (docStore.canRedo()) {
       docStore.redo();
       doc.document = docStore.getDocument();
+      layoutCache = undefined;
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
@@ -197,6 +213,7 @@ export function initialize(
     () => docStore.snapshot(),
     undoFn,
     redoFn,
+    markDirty,
   );
 
   // Start cursor blink
