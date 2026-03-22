@@ -132,7 +132,8 @@ export class Ruler {
 
     this.resizeH(canvasWidth);
     this.renderHorizontal(pageX, page.width, margins, cursorBlockStyle);
-    // vertical ruler will be added in Task 5
+    this.resizeV(viewportHeight);
+    this.renderVertical(scrollY, viewportHeight, paginatedLayout);
   }
 
   private renderHorizontal(
@@ -244,9 +245,105 @@ export class Ruler {
     this.hCtx.scale(dpr, dpr);
   }
 
-  // Stub methods for later tasks
-  renderVertical(): void {}
-  resizeV(): void {}
+  private findFocusedPage(
+    scrollY: number,
+    viewportHeight: number,
+    paginatedLayout: PaginatedLayout,
+  ): LayoutPage {
+    const center = scrollY + viewportHeight / 2;
+    let closest = paginatedLayout.pages[0];
+    let minDist = Infinity;
+    for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+      const pageMid = pageY + page.height / 2;
+      const dist = Math.abs(pageMid - center);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = page;
+      }
+    }
+    return closest;
+  }
+
+  private renderVertical(
+    scrollY: number,
+    viewportHeight: number,
+    paginatedLayout: PaginatedLayout,
+  ): void {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const h = this.vCanvas.height / dpr;
+
+    this.vCtx.save();
+    this.vCtx.fillStyle = MARGIN_BG;
+    this.vCtx.fillRect(0, 0, RULER_SIZE, h);
+
+    if (paginatedLayout.pages.length === 0) {
+      this.vCtx.restore();
+      return;
+    }
+
+    const focusedPage = this.findFocusedPage(scrollY, viewportHeight, paginatedLayout);
+    const pageY = getPageYOffset(paginatedLayout, focusedPage.pageIndex);
+    const margins = paginatedLayout.pageSetup.margins;
+
+    // Map to viewport-relative coordinates
+    const pageTopInViewport = pageY - scrollY;
+    const contentTop = pageTopInViewport + margins.top;
+    const contentBottom = pageTopInViewport + focusedPage.height - margins.bottom;
+
+    // Cache for vertical hit testing
+    this.cachedVContentTop = contentTop;
+    this.cachedVContentBottom = contentBottom;
+
+    // Content area
+    this.vCtx.fillStyle = CONTENT_BG;
+    this.vCtx.fillRect(0, contentTop, RULER_SIZE, contentBottom - contentTop);
+
+    // Tick marks
+    const { majorStepPx, subdivisions, minorStepPx } = this.grid;
+    const startPx = pageTopInViewport;
+    const endPx = pageTopInViewport + focusedPage.height;
+
+    this.vCtx.strokeStyle = TICK_COLOR;
+    this.vCtx.fillStyle = TICK_COLOR;
+    this.vCtx.font = LABEL_FONT;
+    this.vCtx.textAlign = 'center';
+    this.vCtx.textBaseline = 'middle';
+    this.vCtx.lineWidth = 1;
+
+    for (let px = startPx; px <= endPx; px += minorStepPx) {
+      const relPx = px - startPx;
+      const tickIndex = Math.round(relPx / minorStepPx);
+      const isMajor = tickIndex % subdivisions === 0;
+      const isHalf = tickIndex % (subdivisions / 2) === 0;
+      const tickW = isMajor ? TICK_MAJOR : isHalf ? TICK_HALF : TICK_MINOR;
+      const y = Math.round(px) + 0.5;
+
+      this.vCtx.beginPath();
+      this.vCtx.moveTo(RULER_SIZE, y);
+      this.vCtx.lineTo(RULER_SIZE - tickW, y);
+      this.vCtx.stroke();
+
+      if (isMajor && tickIndex > 0) {
+        this.vCtx.save();
+        this.vCtx.translate(6, y);
+        this.vCtx.rotate(-Math.PI / 2);
+        this.vCtx.fillText(String(tickIndex / subdivisions), 0, 0);
+        this.vCtx.restore();
+      }
+    }
+
+    this.vCtx.restore();
+  }
+
+  private resizeV(height: number): void {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    this.vCanvas.width = RULER_SIZE * dpr;
+    this.vCanvas.height = height * dpr;
+    this.vCanvas.style.width = `${RULER_SIZE}px`;
+    this.vCanvas.style.height = `${height}px`;
+    this.vCtx.scale(dpr, dpr);
+  }
 
   onMarginChange(cb: (margins: PageMargins) => void): void {
     this.marginChangeCb = cb;
