@@ -53,6 +53,7 @@ export interface InlineStyle {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  strikethrough?: boolean;
   fontSize?: number;
   fontFamily?: string;
   color?: string;
@@ -148,6 +149,7 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.bold === b.bold &&
     a.italic === b.italic &&
     a.underline === b.underline &&
+    a.strikethrough === b.strikethrough &&
     a.fontSize === b.fontSize &&
     a.fontFamily === b.fontFamily &&
     a.color === b.color

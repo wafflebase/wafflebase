@@ -1,5 +1,5 @@
 import type { DocPosition, InlineStyle } from '../model/types.js';
-import { getBlockTextLength } from '../model/types.js';
+import { getBlockText, getBlockTextLength } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
@@ -8,6 +8,7 @@ import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
+import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
 
 /**
  * Composition (IME) state tracker.
@@ -40,6 +41,12 @@ export class TextEditor {
   private isMouseDown = false;
   private dragScrollRAF: number | null = null;
   private lastMouseClientY = 0;
+  private clickCount = 0;
+  private lastClickTime = 0;
+  private lastClickX = 0;
+  private lastClickY = 0;
+  private static readonly DOUBLE_CLICK_MS = 500;
+  private static readonly DOUBLE_CLICK_DIST = 5;
   private composition: CompositionState = {
     active: false,
     startPosition: { blockId: '', offset: 0 },
@@ -94,6 +101,9 @@ export class TextEditor {
     this.textarea.addEventListener('keydown', this.handleKeyDown);
     this.textarea.addEventListener('compositionstart', this.handleCompositionStart);
     this.textarea.addEventListener('compositionend', this.handleCompositionEnd);
+    this.textarea.addEventListener('copy', this.handleCopy);
+    this.textarea.addEventListener('cut', this.handleCut);
+    this.textarea.addEventListener('paste', this.handlePaste);
     container.addEventListener('mousedown', this.handleMouseDown);
     container.addEventListener('mousemove', this.handleMouseMove);
     container.addEventListener('mouseup', this.handleMouseUp);
@@ -226,8 +236,12 @@ export class TextEditor {
     // Don't intercept keys during IME composition
     if (this.composition.active || e.isComposing) return;
 
-    const { key, ctrlKey, metaKey, shiftKey } = e;
-    const mod = ctrlKey || metaKey;
+    const { ctrlKey, metaKey, shiftKey, altKey } = e;
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+    const mod = isMac ? metaKey : ctrlKey;
+    // Word-level modifier: Option on Mac, Ctrl on Windows/Linux
+    const wordMod = isMac ? altKey : ctrlKey;
 
     // Flush software Hangul composition before processing special keys
     if (this.hangulAssembler.isComposing) {
@@ -241,11 +255,21 @@ export class TextEditor {
     switch (key) {
       case 'Backspace':
         e.preventDefault();
-        this.handleBackspace();
+        if (mod) {
+          this.handleLineBackspace();
+        } else if (wordMod) {
+          this.handleWordBackspace();
+        } else {
+          this.handleBackspace();
+        }
         break;
       case 'Delete':
         e.preventDefault();
-        this.handleDelete();
+        if (wordMod) {
+          this.handleWordDelete();
+        } else {
+          this.handleDelete();
+        }
         break;
       case 'Enter':
         e.preventDefault();
@@ -253,27 +277,55 @@ export class TextEditor {
         break;
       case 'ArrowLeft':
         e.preventDefault();
-        this.handleArrow('left', shiftKey);
+        if (mod) {
+          // Cmd+Left: jump to line start (Mac behavior)
+          this.handleHome(shiftKey);
+        } else {
+          this.handleArrow('left', shiftKey, wordMod);
+        }
         break;
       case 'ArrowRight':
         e.preventDefault();
-        this.handleArrow('right', shiftKey);
+        if (mod) {
+          // Cmd+Right: jump to line end (Mac behavior)
+          this.handleEnd(shiftKey);
+        } else {
+          this.handleArrow('right', shiftKey, wordMod);
+        }
         break;
       case 'ArrowUp':
         e.preventDefault();
-        this.handleArrow('up', shiftKey);
+        if (mod) {
+          // Cmd+Up: jump to document start
+          this.handleDocStart(shiftKey);
+        } else {
+          this.handleArrow('up', shiftKey, wordMod);
+        }
         break;
       case 'ArrowDown':
         e.preventDefault();
-        this.handleArrow('down', shiftKey);
+        if (mod) {
+          // Cmd+Down: jump to document end
+          this.handleDocEnd(shiftKey);
+        } else {
+          this.handleArrow('down', shiftKey, wordMod);
+        }
         break;
       case 'Home':
         e.preventDefault();
-        this.handleHome(shiftKey);
+        if (mod) {
+          this.handleDocStart(shiftKey);
+        } else {
+          this.handleHome(shiftKey);
+        }
         break;
       case 'End':
         e.preventDefault();
-        this.handleEnd(shiftKey);
+        if (mod) {
+          this.handleDocEnd(shiftKey);
+        } else {
+          this.handleEnd(shiftKey);
+        }
         break;
       case 'a':
         if (mod) {
@@ -299,6 +351,18 @@ export class TextEditor {
           this.toggleStyle({ underline: true });
         }
         break;
+      case 'x':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.toggleStyle({ strikethrough: true });
+        }
+        break;
+      case '\\':
+        if (mod) {
+          e.preventDefault();
+          this.clearFormatting();
+        }
+        break;
       case 'z':
         if (mod) {
           e.preventDefault();
@@ -318,6 +382,56 @@ export class TextEditor {
     }
   };
 
+  private handleCopy = (e: ClipboardEvent): void => {
+    if (!this.selection.hasSelection()) return;
+    e.preventDefault();
+    const text = this.selection.getSelectedText(this.getLayout());
+    e.clipboardData?.setData('text/plain', text);
+  };
+
+  private handleCut = (e: ClipboardEvent): void => {
+    if (!this.selection.hasSelection()) return;
+    e.preventDefault();
+    const text = this.selection.getSelectedText(this.getLayout());
+    e.clipboardData?.setData('text/plain', text);
+    this.saveSnapshot();
+    this.deleteSelection();
+    this.requestRender();
+  };
+
+  private handlePaste = (e: ClipboardEvent): void => {
+    e.preventDefault();
+    const text = e.clipboardData?.getData('text/plain');
+    if (!text) return;
+
+    this.saveSnapshot();
+    this.deleteSelection();
+
+    // Split pasted text by newlines into separate blocks
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) {
+        // Create a new block for each line after the first
+        this.invalidateLayout();
+        const newBlockId = this.doc.splitBlock(
+          this.cursor.position.blockId,
+          this.cursor.position.offset,
+        );
+        this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+      }
+      if (lines[i].length > 0) {
+        this.doc.insertText(this.cursor.position, lines[i]);
+        this.cursor.moveTo({
+          blockId: this.cursor.position.blockId,
+          offset: this.cursor.position.offset + lines[i].length,
+        });
+        this.markDirty(this.cursor.position.blockId);
+      }
+    }
+    this.selection.setRange(null);
+    this.requestRender();
+  };
+
   private handleMouseDown = (e: MouseEvent): void => {
     if (e.target === this.textarea) return;
     e.preventDefault();
@@ -325,12 +439,52 @@ export class TextEditor {
     this.focus();
     this.isMouseDown = true;
 
+    // Track click count for double/triple click
+    const now = Date.now();
+    const dx = e.clientX - this.lastClickX;
+    const dy = e.clientY - this.lastClickY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (now - this.lastClickTime < TextEditor.DOUBLE_CLICK_MS &&
+        dist < TextEditor.DOUBLE_CLICK_DIST) {
+      this.clickCount++;
+    } else {
+      this.clickCount = 1;
+    }
+    this.lastClickTime = now;
+    this.lastClickX = e.clientX;
+    this.lastClickY = e.clientY;
+
     const pos = this.getPositionFromMouse(e);
-    if (pos) {
+    if (!pos) return;
+
+    if (this.clickCount === 3) {
+      // Triple-click: select entire paragraph
+      const block = this.doc.getBlock(pos.blockId);
+      const len = getBlockTextLength(block);
+      const start: DocPosition = { blockId: pos.blockId, offset: 0 };
+      const end: DocPosition = { blockId: pos.blockId, offset: len };
+      this.selection.setRange({ anchor: start, focus: end });
+      this.cursor.moveTo(end);
+    } else if (this.clickCount === 2) {
+      // Double-click: select word
+      const block = this.doc.getBlock(pos.blockId);
+      const text = getBlockText(block);
+      const [start, end] = getWordRange(text, pos.offset);
+      const anchor: DocPosition = { blockId: pos.blockId, offset: start };
+      const focus: DocPosition = { blockId: pos.blockId, offset: end };
+      this.selection.setRange({ anchor, focus });
+      this.cursor.moveTo(focus);
+    } else if (e.shiftKey) {
+      // Shift+click: extend selection
+      const anchor = this.selection.range?.anchor ?? this.cursor.position;
+      this.selection.setRange({ anchor, focus: pos });
+      this.cursor.moveTo(pos);
+    } else {
+      // Single click
       this.cursor.moveTo(pos);
       this.selection.setRange({ anchor: pos, focus: pos });
-      this.requestRender();
     }
+    this.requestRender();
   };
 
   private handleMouseMove = (e: MouseEvent): void => {
@@ -448,6 +602,50 @@ export class TextEditor {
     this.requestRender();
   }
 
+  private handleWordBackspace(): void {
+    this.saveSnapshot();
+    if (this.deleteSelection()) return;
+    const pos = this.cursor.position;
+    if (pos.offset > 0) {
+      const text = getBlockText(this.doc.getBlock(pos.blockId));
+      const boundary = findPrevWordBoundary(text, pos.offset);
+      const count = pos.offset - boundary;
+      this.doc.deleteText({ blockId: pos.blockId, offset: boundary }, count);
+      this.cursor.moveTo({ blockId: pos.blockId, offset: boundary });
+      this.markDirty(pos.blockId);
+    } else {
+      // At start of block — merge with previous (same as normal backspace)
+      if (this.doc.getBlockIndex(pos.blockId) === 0) return;
+      this.invalidateLayout();
+      const newPos = this.doc.deleteBackward(pos);
+      this.cursor.moveTo(newPos);
+    }
+    this.requestRender();
+  }
+
+  private handleWordDelete(): void {
+    this.saveSnapshot();
+    if (this.deleteSelection()) return;
+    const pos = this.cursor.position;
+    const block = this.doc.getBlock(pos.blockId);
+    const len = getBlockTextLength(block);
+    if (pos.offset < len) {
+      const text = getBlockText(block);
+      const boundary = findNextWordBoundary(text, pos.offset);
+      const count = boundary - pos.offset;
+      this.doc.deleteText(pos, count);
+      this.markDirty(pos.blockId);
+    } else {
+      // At end of block — merge with next (same as normal delete)
+      const idx = this.doc.getBlockIndex(pos.blockId);
+      if (idx < this.doc.document.blocks.length - 1) {
+        this.invalidateLayout();
+        this.doc.mergeBlocks(pos.blockId, this.doc.document.blocks[idx + 1].id);
+      }
+    }
+    this.requestRender();
+  }
+
   private handleEnter(): void {
     this.saveSnapshot();
     this.deleteSelection();
@@ -464,17 +662,21 @@ export class TextEditor {
   private handleArrow(
     direction: 'left' | 'right' | 'up' | 'down',
     shiftKey: boolean,
+    wordMod = false,
   ): void {
     const pos = this.cursor.position;
 
-    if (shiftKey) {
-      let newPos: DocPosition;
+    const move = (p: DocPosition): DocPosition => {
       switch (direction) {
-        case 'left': newPos = this.moveLeft(pos); break;
-        case 'right': newPos = this.moveRight(pos); break;
-        case 'up': newPos = this.moveVertical(pos, -1); break;
-        case 'down': newPos = this.moveVertical(pos, 1); break;
+        case 'left': return wordMod ? this.moveWordLeft(p) : this.moveLeft(p);
+        case 'right': return wordMod ? this.moveWordRight(p) : this.moveRight(p);
+        case 'up': return this.moveVertical(p, -1);
+        case 'down': return this.moveVertical(p, 1);
       }
+    };
+
+    if (shiftKey) {
+      const newPos = move(pos);
       const anchor = this.selection.range?.anchor ?? pos;
       this.selection.setRange({ anchor, focus: newPos });
       this.cursor.moveTo(newPos);
@@ -490,13 +692,7 @@ export class TextEditor {
       }
       this.selection.setRange(null);
     } else {
-      let newPos: DocPosition;
-      switch (direction) {
-        case 'left': newPos = this.moveLeft(pos); break;
-        case 'right': newPos = this.moveRight(pos); break;
-        case 'up': newPos = this.moveVertical(pos, -1); break;
-        case 'down': newPos = this.moveVertical(pos, 1); break;
-      }
+      const newPos = move(pos);
       this.selection.setRange(null);
       this.cursor.moveTo(newPos);
     }
@@ -505,7 +701,7 @@ export class TextEditor {
   }
 
   private handleHome(shiftKey: boolean): void {
-    const newPos = { blockId: this.cursor.position.blockId, offset: 0 };
+    const newPos = this.getVisualLineStart(this.cursor.position);
     if (shiftKey) {
       const anchor = this.selection.range?.anchor ?? this.cursor.position;
       this.selection.setRange({ anchor, focus: newPos });
@@ -517,9 +713,7 @@ export class TextEditor {
   }
 
   private handleEnd(shiftKey: boolean): void {
-    const block = this.doc.getBlock(this.cursor.position.blockId);
-    const len = getBlockTextLength(block);
-    const newPos = { blockId: this.cursor.position.blockId, offset: len };
+    const newPos = this.getVisualLineEnd(this.cursor.position);
     if (shiftKey) {
       const anchor = this.selection.range?.anchor ?? this.cursor.position;
       this.selection.setRange({ anchor, focus: newPos });
@@ -527,6 +721,59 @@ export class TextEditor {
       this.selection.setRange(null);
     }
     this.cursor.moveTo(newPos);
+    this.requestRender();
+  }
+
+  private handleDocStart(shiftKey: boolean): void {
+    const blocks = this.doc.document.blocks;
+    if (blocks.length === 0) return;
+    const newPos: DocPosition = { blockId: blocks[0].id, offset: 0 };
+    if (shiftKey) {
+      const anchor = this.selection.range?.anchor ?? this.cursor.position;
+      this.selection.setRange({ anchor, focus: newPos });
+    } else {
+      this.selection.setRange(null);
+    }
+    this.cursor.moveTo(newPos);
+    this.requestRender();
+  }
+
+  private handleDocEnd(shiftKey: boolean): void {
+    const blocks = this.doc.document.blocks;
+    if (blocks.length === 0) return;
+    const lastBlock = blocks[blocks.length - 1];
+    const newPos: DocPosition = { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+    if (shiftKey) {
+      const anchor = this.selection.range?.anchor ?? this.cursor.position;
+      this.selection.setRange({ anchor, focus: newPos });
+    } else {
+      this.selection.setRange(null);
+    }
+    this.cursor.moveTo(newPos);
+    this.requestRender();
+  }
+
+  private handleLineBackspace(): void {
+    this.saveSnapshot();
+    if (this.deleteSelection()) return;
+    const pos = this.cursor.position;
+    const lineStart = this.getVisualLineStart(pos);
+    if (lineStart.offset < pos.offset) {
+      const count = pos.offset - lineStart.offset;
+      this.doc.deleteText(lineStart, count);
+      this.cursor.moveTo(lineStart);
+      this.markDirty(pos.blockId);
+    } else if (pos.offset > 0) {
+      // Cursor is at visual line start but not block start — delete to block start
+      this.doc.deleteText({ blockId: pos.blockId, offset: 0 }, pos.offset);
+      this.cursor.moveTo({ blockId: pos.blockId, offset: 0 });
+      this.markDirty(pos.blockId);
+    } else {
+      if (this.doc.getBlockIndex(pos.blockId) === 0) return;
+      this.invalidateLayout();
+      const newPos = this.doc.deleteBackward(pos);
+      this.cursor.moveTo(newPos);
+    }
     this.requestRender();
   }
 
@@ -546,6 +793,30 @@ export class TextEditor {
       blockId: lastBlock.id,
       offset: getBlockTextLength(lastBlock),
     });
+    this.requestRender();
+  }
+
+  private clearFormatting(): void {
+    if (!this.selection.hasSelection() || !this.selection.range) return;
+    this.saveSnapshot();
+    const range = this.selection.range;
+    this.doc.applyInlineStyle(range, {
+      bold: undefined,
+      italic: undefined,
+      underline: undefined,
+      strikethrough: undefined,
+    });
+    const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
+    const endIdx = this.doc.getBlockIndex(range.focus.blockId);
+    if (startIdx < 0 || endIdx < 0) {
+      this.requestRender();
+      return;
+    }
+    const lo = Math.min(startIdx, endIdx);
+    const hi = Math.max(startIdx, endIdx);
+    for (let i = lo; i <= hi; i++) {
+      this.markDirty(this.doc.document.blocks[i].id);
+    }
     this.requestRender();
   }
 
@@ -646,6 +917,76 @@ export class TextEditor {
       return { blockId: this.doc.document.blocks[idx + 1].id, offset: 0 };
     }
     return pos;
+  }
+
+  private moveWordLeft(pos: DocPosition): DocPosition {
+    if (pos.offset > 0) {
+      const text = getBlockText(this.doc.getBlock(pos.blockId));
+      return { blockId: pos.blockId, offset: findPrevWordBoundary(text, pos.offset) };
+    }
+    // At start of block — move to end of previous block
+    const idx = this.doc.getBlockIndex(pos.blockId);
+    if (idx > 0) {
+      const prevBlock = this.doc.document.blocks[idx - 1];
+      return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+    }
+    return pos;
+  }
+
+  private moveWordRight(pos: DocPosition): DocPosition {
+    const block = this.doc.getBlock(pos.blockId);
+    const len = getBlockTextLength(block);
+    if (pos.offset < len) {
+      const text = getBlockText(block);
+      return { blockId: pos.blockId, offset: findNextWordBoundary(text, pos.offset) };
+    }
+    // At end of block — move to start of next block
+    const idx = this.doc.getBlockIndex(pos.blockId);
+    if (idx < this.doc.document.blocks.length - 1) {
+      return { blockId: this.doc.document.blocks[idx + 1].id, offset: 0 };
+    }
+    return pos;
+  }
+
+  /**
+   * Find the visual line containing the given position and return
+   * the character offset range [start, end] within the block.
+   */
+  private getVisualLineRange(pos: DocPosition): [number, number] {
+    const layout = this.getLayout();
+    const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
+    if (!lb) return [0, 0];
+
+    let charsBefore = 0;
+    for (let i = 0; i < lb.lines.length; i++) {
+      const line = lb.lines[i];
+      let lineChars = 0;
+      for (const run of line.runs) {
+        lineChars += run.charEnd - run.charStart;
+      }
+      const lineStart = charsBefore;
+      const lineEnd = charsBefore + lineChars;
+      const isLastLine = i === lb.lines.length - 1;
+      if (pos.offset >= lineStart
+          && (pos.offset < lineEnd || (isLastLine && pos.offset <= lineEnd))) {
+        return [lineStart, lineEnd];
+      }
+      charsBefore = lineEnd;
+    }
+
+    // Fallback: last line
+    const total = getBlockTextLength(lb.block);
+    return [charsBefore, total];
+  }
+
+  private getVisualLineStart(pos: DocPosition): DocPosition {
+    const [start] = this.getVisualLineRange(pos);
+    return { blockId: pos.blockId, offset: start };
+  }
+
+  private getVisualLineEnd(pos: DocPosition): DocPosition {
+    const [, end] = this.getVisualLineRange(pos);
+    return { blockId: pos.blockId, offset: end };
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
@@ -804,6 +1145,9 @@ export class TextEditor {
     this.textarea.removeEventListener('keydown', this.handleKeyDown);
     this.textarea.removeEventListener('compositionstart', this.handleCompositionStart);
     this.textarea.removeEventListener('compositionend', this.handleCompositionEnd);
+    this.textarea.removeEventListener('copy', this.handleCopy);
+    this.textarea.removeEventListener('cut', this.handleCut);
+    this.textarea.removeEventListener('paste', this.handlePaste);
     if (this.handleFocus) this.textarea.removeEventListener('focus', this.handleFocus);
     if (this.handleBlur) this.textarea.removeEventListener('blur', this.handleBlur);
     this.container.removeEventListener('mousedown', this.handleMouseDown);
