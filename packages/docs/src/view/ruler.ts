@@ -77,22 +77,27 @@ export class Ruler {
   constructor(container: HTMLElement, docCanvas: HTMLCanvasElement) {
     const doc = typeof document !== 'undefined' ? document : null;
 
-    // Create corner element
+    // Corner element: collapses into hRuler's space via negative margin
     this.corner = (doc?.createElement('div') ?? { style: {} }) as HTMLDivElement;
     if (doc) {
-      this.corner.style.cssText = `position:sticky;top:0;left:0;width:${RULER_SIZE}px;height:${RULER_SIZE}px;z-index:3;background:${MARGIN_BG};flex-shrink:0;`;
+      this.corner.style.cssText =
+        `position:sticky;top:0;left:0;width:${RULER_SIZE}px;height:${RULER_SIZE}px;`
+        + `z-index:3;background:${MARGIN_BG};margin-bottom:${-RULER_SIZE}px;`;
     }
 
-    // Create horizontal ruler canvas
+    // Horizontal ruler: takes 20px in flow so doc canvas is pushed below it
     this.hCanvas = (doc?.createElement('canvas') ?? { style: {}, getContext: () => null }) as HTMLCanvasElement;
     if (doc) {
-      this.hCanvas.style.cssText = `display:block;position:sticky;top:0;z-index:2;height:${RULER_SIZE}px;`;
+      this.hCanvas.style.cssText =
+        `display:block;position:sticky;top:0;z-index:2;height:${RULER_SIZE}px;`;
     }
 
-    // Create vertical ruler canvas
+    // Vertical ruler: absolutely positioned, manually updated in render()
     this.vCanvas = (doc?.createElement('canvas') ?? { style: {}, getContext: () => null }) as HTMLCanvasElement;
     if (doc) {
-      this.vCanvas.style.cssText = `display:block;position:sticky;left:0;z-index:1;width:${RULER_SIZE}px;`;
+      this.vCanvas.style.cssText =
+        `display:block;position:absolute;left:0;top:${RULER_SIZE}px;z-index:1;`
+        + `width:${RULER_SIZE}px;`;
     }
 
     this.hCtx = (this.hCanvas.getContext?.('2d') ?? {}) as CanvasRenderingContext2D;
@@ -105,7 +110,7 @@ export class Ruler {
       container.insertBefore(this.vCanvas, docCanvas);
     }
 
-    // Shift doc canvas down
+    // Doc canvas sticks below the horizontal ruler
     docCanvas.style.top = `${RULER_SIZE}px`;
 
     // Detect unit from locale
@@ -123,10 +128,11 @@ export class Ruler {
     canvasWidth: number,
     viewportHeight: number,
     cursorBlockStyle: BlockStyle | null,
+    cursorPageIndex: number = 0,
   ): void {
     if (paginatedLayout.pages.length === 0) return;
 
-    const page = paginatedLayout.pages[0];
+    const page = paginatedLayout.pages[cursorPageIndex] ?? paginatedLayout.pages[0];
     const pageX = getPageXOffset(paginatedLayout, canvasWidth);
     const margins = paginatedLayout.pageSetup.margins;
 
@@ -138,8 +144,11 @@ export class Ruler {
 
     this.resizeH(canvasWidth);
     this.renderHorizontal(pageX, page.width, margins, cursorBlockStyle);
+
+    // Position vCanvas to simulate sticky behavior (absolute + manual top)
+    this.vCanvas.style.top = `${scrollY + RULER_SIZE}px`;
     this.resizeV(viewportHeight);
-    this.renderVertical(scrollY, viewportHeight, paginatedLayout);
+    this.renderVertical(scrollY, viewportHeight, paginatedLayout, cursorPageIndex);
   }
 
   private renderHorizontal(
@@ -275,6 +284,7 @@ export class Ruler {
     scrollY: number,
     viewportHeight: number,
     paginatedLayout: PaginatedLayout,
+    cursorPageIndex: number = 0,
   ): void {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     const h = this.vCanvas.height / dpr;
@@ -288,7 +298,7 @@ export class Ruler {
       return;
     }
 
-    const focusedPage = this.findFocusedPage(scrollY, viewportHeight, paginatedLayout);
+    const focusedPage = paginatedLayout.pages[cursorPageIndex] ?? paginatedLayout.pages[0];
     const pageY = getPageYOffset(paginatedLayout, focusedPage.pageIndex);
     const margins = paginatedLayout.pageSetup.margins;
 

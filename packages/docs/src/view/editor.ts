@@ -8,8 +8,8 @@ import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
-import { paginateLayout, getTotalHeight, type PaginatedLayout } from './pagination.js';
-import { Ruler } from './ruler.js';
+import { paginateLayout, getTotalHeight, findPageForPosition, type PaginatedLayout } from './pagination.js';
+import { Ruler, RULER_SIZE } from './ruler.js';
 
 /**
  * Public API returned by initialize().
@@ -130,8 +130,9 @@ export function initialize(
     // Canvas stays viewport-sized; spacer provides scroll height
     docCanvas.resize(canvasWidth, height);
     spacer.style.height = `${totalHeight}px`;
-    // Pull spacer up behind the sticky canvas so it only contributes scroll
-    spacer.style.marginTop = `${-height}px`;
+    // Pull spacer up behind the sticky canvas so it only contributes scroll.
+    // Account for the horizontal ruler height (RULER_SIZE) in the flow.
+    spacer.style.marginTop = `${-height - RULER_SIZE}px`;
 
     const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), canvasWidth);
 
@@ -193,9 +194,12 @@ export function initialize(
       ctx.restore();
     }
 
-    // Render rulers
+    // Render rulers — target the page where the cursor is
     const cursorBlock = doc.document.blocks.find(
       (b) => b.id === cursor.position.blockId,
+    );
+    const cursorPageInfo = findPageForPosition(
+      paginatedLayout, cursor.position.blockId, cursor.position.offset, layout,
     );
     ruler.render(
       paginatedLayout,
@@ -203,6 +207,7 @@ export function initialize(
       canvasWidth,
       height,
       cursorBlock?.style ?? null,
+      cursorPageInfo?.pageIndex ?? 0,
     );
   };
 
