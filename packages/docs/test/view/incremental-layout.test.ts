@@ -61,4 +61,36 @@ describe('incremental layout', () => {
     const second = computeLayout(blocks, mockCtx(), 400, new Set(), first.cache);
     expect(second.layout.blocks[0].lines).not.toBe(first.layout.blocks[0].lines);
   });
+
+  it('applies marginLeft to all lines', () => {
+    const block = makeBlock('Hello World');
+    block.style.marginLeft = 40;
+    const result = computeLayout([block], mockCtx(), 500);
+    for (const line of result.layout.blocks[0].lines) {
+      for (const run of line.runs) {
+        expect(run.x).toBeGreaterThanOrEqual(40);
+      }
+    }
+  });
+
+  it('applies textIndent only to first line', () => {
+    const block = makeBlock('Hello World this is a longer text that should wrap');
+    block.style.textIndent = 30;
+    const result = computeLayout([block], mockCtx(), 200);
+    const lines = result.layout.blocks[0].lines;
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0].runs[0].x).toBe(30);
+    expect(lines[1].runs[0].x).toBe(0);
+  });
+
+  it('applies both textIndent and marginLeft together', () => {
+    const block = makeBlock('Hello World this is a longer text that should wrap');
+    block.style.textIndent = 20;
+    block.style.marginLeft = 40;
+    const result = computeLayout([block], mockCtx(), 200);
+    const lines = result.layout.blocks[0].lines;
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0].runs[0].x).toBe(60);
+    expect(lines[1].runs[0].x).toBe(40);
+  });
 });

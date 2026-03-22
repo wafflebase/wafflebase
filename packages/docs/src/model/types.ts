@@ -41,6 +41,8 @@ export interface BlockStyle {
   lineHeight: number;
   marginTop: number;
   marginBottom: number;
+  textIndent: number;
+  marginLeft: number;
 }
 
 /**
@@ -82,14 +84,16 @@ export const DEFAULT_BLOCK_STYLE: BlockStyle = {
   lineHeight: 1.5,
   marginTop: 0,
   marginBottom: 8,
+  textIndent: 0,
+  marginLeft: 0,
 };
 
 /**
  * Default inline style.
  */
 export const DEFAULT_INLINE_STYLE: InlineStyle = {
-  fontSize: 16,
-  fontFamily: 'sans-serif',
+  fontSize: 11,
+  fontFamily: 'Arial',
   color: '#000000',
 };
 
@@ -100,6 +104,14 @@ let counter = 0;
  */
 export function generateBlockId(): string {
   return `block-${Date.now()}-${counter++}`;
+}
+
+/**
+ * Normalize a block style by filling missing fields with defaults.
+ * Guards against older persisted documents that lack newly added fields.
+ */
+export function normalizeBlockStyle(style: Partial<BlockStyle>): BlockStyle {
+  return { ...DEFAULT_BLOCK_STYLE, ...style };
 }
 
 /**

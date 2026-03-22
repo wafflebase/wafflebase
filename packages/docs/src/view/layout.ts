@@ -1,5 +1,5 @@
 import type { Block, Inline, InlineStyle } from '../model/types.js';
-import { Theme, buildFont } from './theme.js';
+import { Theme, buildFont, ptToPx } from './theme.js';
 
 const measureCache = new Map<string, number>();
 
@@ -122,15 +122,16 @@ export function computeLayout(
 
       let blockY = 0;
       for (const line of lines) {
-        const maxFontSize = getLineMaxFontSize(line, block);
+        const maxFontSize = getLineMaxFontSizePx(line, block);
         const lineHeight = lineHeightMultiplier * maxFontSize;
         line.y = blockY;
         line.height = lineHeight;
         blockY += lineHeight;
       }
 
+      const alignWidth = availableWidth - block.style.marginLeft;
       for (const line of lines) {
-        applyAlignment(line, availableWidth, block.style.alignment);
+        applyAlignment(line, alignWidth, block.style.alignment);
       }
     }
 
@@ -171,27 +172,40 @@ function layoutBlock(
     return [{ runs: [], y: 0, height: 0, width: 0 }];
   }
 
+  const marginLeft = block.style.marginLeft ?? 0;
+  const textIndent = block.style.textIndent ?? 0;
+
   // Word-wrap into lines
   const lines: LayoutLine[] = [];
   let currentRuns: LayoutRun[] = [];
   let lineWidth = 0;
+  let isFirstLine = true;
+  let lineStartX = marginLeft + textIndent;
+  let effectiveWidth = maxWidth - marginLeft - textIndent;
+
+  const flushLine = () => {
+    lines.push({
+      runs: currentRuns,
+      y: 0,
+      height: 0,
+      width: lineWidth,
+    });
+    currentRuns = [];
+    lineWidth = 0;
+    isFirstLine = false;
+    lineStartX = marginLeft;
+    effectiveWidth = maxWidth - marginLeft;
+  };
 
   for (const seg of segments) {
-    // If adding this segment exceeds max width and line is not empty,
+    // If adding this segment exceeds effective width and line is not empty,
     // wrap to next line
-    if (lineWidth + seg.width > maxWidth && currentRuns.length > 0) {
-      lines.push({
-        runs: currentRuns,
-        y: 0,
-        height: 0,
-        width: lineWidth,
-      });
-      currentRuns = [];
-      lineWidth = 0;
+    if (lineWidth + seg.width > effectiveWidth && currentRuns.length > 0) {
+      flushLine();
     }
 
-    // Character-level fallback for segments wider than maxWidth
-    if (seg.width > maxWidth && seg.text.length > 1) {
+    // Character-level fallback for segments wider than effectiveWidth
+    if (seg.width > effectiveWidth && seg.text.length > 1) {
       ctx.font = buildFont(
         seg.style.fontSize,
         seg.style.fontFamily,
@@ -204,21 +218,19 @@ function layoutBlock(
         let runWidth = ctx.measureText(seg.text.slice(charIdx, endIdx)).width;
         while (endIdx < seg.text.length) {
           const nextWidth = ctx.measureText(seg.text.slice(charIdx, endIdx + 1)).width;
-          if (lineWidth + nextWidth > maxWidth && endIdx > charIdx + 1) break;
+          if (lineWidth + nextWidth > effectiveWidth && endIdx > charIdx + 1) break;
           runWidth = nextWidth;
           endIdx++;
         }
-        // If even a single char exceeds maxWidth and line is not empty, flush first
-        if (lineWidth + runWidth > maxWidth && currentRuns.length > 0) {
-          lines.push({ runs: currentRuns, y: 0, height: 0, width: lineWidth });
-          currentRuns = [];
-          lineWidth = 0;
+        // If even a single char exceeds effectiveWidth and line is not empty, flush first
+        if (lineWidth + runWidth > effectiveWidth && currentRuns.length > 0) {
+          flushLine();
           continue; // Re-measure from charIdx on fresh line
         }
         currentRuns.push({
           inline: block.inlines[seg.inlineIndex],
           text: seg.text.slice(charIdx, endIdx),
-          x: lineWidth,
+          x: lineStartX + lineWidth,
           width: runWidth,
           inlineIndex: seg.inlineIndex,
           charStart: seg.charStart + charIdx,
@@ -226,10 +238,8 @@ function layoutBlock(
         });
         lineWidth += runWidth;
         charIdx = endIdx;
-        if (lineWidth >= maxWidth && charIdx < seg.text.length) {
-          lines.push({ runs: currentRuns, y: 0, height: 0, width: lineWidth });
-          currentRuns = [];
-          lineWidth = 0;
+        if (lineWidth >= effectiveWidth && charIdx < seg.text.length) {
+          flushLine();
         }
       }
       continue;
@@ -238,7 +248,7 @@ function layoutBlock(
     currentRuns.push({
       inline: block.inlines[seg.inlineIndex],
       text: seg.text,
-      x: lineWidth,
+      x: lineStartX + lineWidth,
       width: seg.width,
       inlineIndex: seg.inlineIndex,
       charStart: seg.charStart,
@@ -348,16 +358,16 @@ function applyAlignment(
  * Get the maximum font size across all runs in a line.
  * Falls back to the block's first inline or the theme default.
  */
-function getLineMaxFontSize(line: LayoutLine, block: Block): number {
+function getLineMaxFontSizePx(line: LayoutLine, block: Block): number {
   let max = 0;
   for (const run of line.runs) {
-    const size = run.inline.style.fontSize ?? Theme.defaultFontSize;
+    const size = ptToPx(run.inline.style.fontSize ?? Theme.defaultFontSize);
     if (size > max) max = size;
   }
   if (max > 0) return max;
   if (block.inlines.length > 0 && block.inlines[0].style.fontSize) {
-    return block.inlines[0].style.fontSize;
+    return ptToPx(block.inlines[0].style.fontSize);
   }
-  return Theme.defaultFontSize;
+  return ptToPx(Theme.defaultFontSize);
 }
 

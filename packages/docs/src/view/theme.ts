@@ -3,8 +3,8 @@
  */
 export const Theme = {
   /** Default font */
-  defaultFontSize: 16,
-  defaultFontFamily: 'sans-serif',
+  defaultFontSize: 11,
+  defaultFontFamily: 'Arial',
   defaultColor: '#000000',
 
   /** Cursor */
@@ -27,7 +27,15 @@ export const Theme = {
 } as const;
 
 /**
+ * Convert a font size in points to pixels (1pt = 96/72 px).
+ */
+export function ptToPx(pt: number): number {
+  return pt * (96 / 72);
+}
+
+/**
  * Build a CSS font string from inline style properties.
+ * Font sizes are stored in pt; the CSS string uses px for Canvas compatibility.
  */
 export function buildFont(
   fontSize?: number,
@@ -37,7 +45,7 @@ export function buildFont(
 ): string {
   const style = italic ? 'italic ' : '';
   const weight = bold ? 'bold ' : '';
-  const size = fontSize ?? Theme.defaultFontSize;
+  const size = ptToPx(fontSize ?? Theme.defaultFontSize);
   const family = fontFamily ?? Theme.defaultFontFamily;
   return `${style}${weight}${size}px ${family}`;
 }

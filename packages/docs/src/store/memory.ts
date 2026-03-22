@@ -1,12 +1,16 @@
 import type { Block, Document, PageSetup } from '../model/types.js';
-import { resolvePageSetup } from '../model/types.js';
+import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
 
 /**
  * Deep clone a document for snapshot-based undo/redo.
  */
 function cloneDocument(doc: Document): Document {
-  return JSON.parse(JSON.stringify(doc));
+  const cloned: Document = JSON.parse(JSON.stringify(doc));
+  for (const block of cloned.blocks) {
+    block.style = normalizeBlockStyle(block.style);
+  }
+  return cloned;
 }
 
 /**

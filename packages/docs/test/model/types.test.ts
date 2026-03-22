@@ -1,10 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
+  DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
   PAPER_SIZES,
   resolvePageSetup,
   getEffectiveDimensions,
 } from '../../src/model/types.js';
+
+describe('BlockStyle', () => {
+  it('DEFAULT_BLOCK_STYLE includes textIndent and marginLeft at 0', () => {
+    expect(DEFAULT_BLOCK_STYLE.textIndent).toBe(0);
+    expect(DEFAULT_BLOCK_STYLE.marginLeft).toBe(0);
+  });
+});
 
 describe('PageSetup', () => {
   it('DEFAULT_PAGE_SETUP uses Letter, portrait, 1-inch margins', () => {
