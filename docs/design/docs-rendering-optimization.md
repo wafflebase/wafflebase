@@ -55,12 +55,12 @@ container (overflow: auto)
 └── spacer (height = totalDocumentHeight, margin-top = -viewportHeight)
 ```
 
-`doc-canvas.ts` wraps the paint loop in `ctx.translate(0, -scrollY)` so all
+DocCanvas wraps the paint loop in `ctx.translate(0, -scrollY)` so all
 page coordinates remain absolute while only the visible portion is drawn.
 
 ### 2. Scroll-Only Repaint
 
-Split the render path into two functions in `editor.ts`:
+Split the render path into two functions in the editor module:
 
 ```typescript
 // Full render: layout + pagination + paint (input, resize, undo/redo)
@@ -89,7 +89,7 @@ recomputation.
 
 ### 4. measureText Cache
 
-Add a module-level cache in `layout.ts`:
+Add a module-level cache in the layout module:
 
 ```typescript
 const measureCache = new Map<string, number>();
