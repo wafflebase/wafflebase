@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectUnit, getGridConfig, snapToGrid } from '../../src/view/ruler.js';
+import { detectUnit, getGridConfig, snapToGrid, Ruler } from '../../src/view/ruler.js';
 
 describe('ruler units', () => {
   it('detectUnit returns inch for en-US', () => {
@@ -42,5 +42,23 @@ describe('ruler units', () => {
   it('snapToGrid snaps to nearest minor step for cm', () => {
     const grid = getGridConfig('cm');
     expect(snapToGrid(4, grid.minorStepPx)).toBeCloseTo(grid.minorStepPx, 1);
+  });
+});
+
+describe('Ruler', () => {
+  it('creates and disposes without errors', () => {
+    const container = {
+      insertBefore: () => {},
+      firstChild: null,
+      appendChild: () => {},
+      style: {},
+    } as unknown as HTMLElement;
+    const docCanvas = {
+      style: { top: '0' },
+    } as unknown as HTMLCanvasElement;
+    const ruler = new Ruler(container, docCanvas);
+    expect(ruler).toBeDefined();
+    expect(docCanvas.style.top).toBe('20px');
+    ruler.dispose();
   });
 });
