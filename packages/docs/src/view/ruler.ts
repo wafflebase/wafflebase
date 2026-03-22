@@ -14,9 +14,7 @@ const INCH_LOCALES = ['en-US', 'en-GB', 'my'];
 
 export function detectUnit(locale: string | undefined): RulerUnit {
   if (!locale) return 'inch';
-  if (INCH_LOCALES.some((l) => locale.startsWith(l.split('-')[0]) && locale === l)) {
-    return 'inch';
-  }
+  if (INCH_LOCALES.includes(locale)) return 'inch';
   if (locale.startsWith('en')) return 'inch';
   return 'cm';
 }
@@ -209,13 +207,7 @@ export class Ruler {
 
       // Draw label at major ticks
       if (i % subdivisions === 0 && i > 0) {
-        const labelValue = this.unit === 'inch'
-          ? i / subdivisions
-          : Math.round(i * minorStepPx / (this.grid.majorStepPx / subdivisions) / subdivisions * 10) / 10;
-        const labelText = this.unit === 'inch'
-          ? String(i / subdivisions)
-          : String(Math.round(i * minorStepPx * subdivisions / majorStepPx));
-        ctx.fillText(labelText, x, 1);
+        ctx.fillText(String(i / subdivisions), x, 1);
       }
     }
     ctx.stroke();
@@ -498,6 +490,12 @@ export class Ruler {
       margins.right = Math.max(0, margins.right);
       margins.top = Math.max(0, margins.top);
       margins.bottom = Math.max(0, margins.bottom);
+
+      // Ensure content area remains positive
+      const minContent = 20;
+      if (margins.left + margins.right > this.cachedPageWidth - minContent) return;
+      if (margins.top + margins.bottom > this.cachedPageHeight - minContent) return;
+
       this.marginChangeCb?.(margins);
     } else if (this.dragging === 'text-indent') {
       const newIndent = Math.max(0, (this.cachedBlockStyle?.textIndent ?? 0) + delta);

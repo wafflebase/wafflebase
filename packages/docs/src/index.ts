@@ -23,6 +23,7 @@ export {
   inlineStylesEqual,
   resolvePageSetup,
   getEffectiveDimensions,
+  normalizeBlockStyle,
 } from './model/types.js';
 export { Doc } from './model/document.js';
 

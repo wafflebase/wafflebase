@@ -227,7 +227,7 @@ export function initialize(
   ruler.onMarginChange((margins) => {
     docStore.snapshot();
     const setup = resolvePageSetup(doc.document.pageSetup);
-    setup.margins = margins;
+    setup.margins = { ...margins };
     docStore.setPageSetup(setup);
     doc.document.pageSetup = setup;
     layoutCache = undefined;
