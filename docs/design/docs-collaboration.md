@@ -76,7 +76,10 @@ element types alongside `<block>`.
 
 The `Doc` class currently takes a `Document` object and mutates it directly.
 It is refactored to take a `DocStore` and delegate all mutations through store
-methods.
+methods. `Doc` maintains a cached `Document` reference from `store.getDocument()`
+for reads (e.g., `TextEditor` accessing `doc.document.blocks` for cursor
+movement, word boundary detection). The cache is refreshed after mutations
+and on remote changes.
 
 **Before:**
 
@@ -95,12 +98,27 @@ class Doc {
 
 ```typescript
 class Doc {
-  constructor(private store: DocStore) {}
+  private _document: Document;
+
+  constructor(private store: DocStore) {
+    this._document = store.getDocument();
+  }
+
+  /** Cached document for reads. Refreshed after mutations. */
+  get document(): Document {
+    return this._document;
+  }
+
+  /** Refresh cached document from store (called after mutations and remote changes). */
+  refresh(): void {
+    this._document = this.store.getDocument();
+  }
 
   insertText(pos, text) {
     const block = this.store.getBlock(pos.blockId);
     // ... compute updated block (same logic)
     this.store.updateBlock(pos.blockId, updatedBlock);
+    this.refresh();
   }
 
   splitBlock(blockId, offset) {
@@ -108,6 +126,7 @@ class Doc {
     // ... compute before/after inlines
     this.store.updateBlock(blockId, beforeBlock);
     this.store.insertBlock(blockIndex + 1, afterBlock);
+    this.refresh();
   }
 
   mergeBlocks(blockId, nextBlockId) {
@@ -116,36 +135,59 @@ class Doc {
     // ... merge inlines
     this.store.updateBlock(blockId, mergedBlock);
     this.store.deleteBlock(nextBlockId);
+    this.refresh();
   }
 }
 ```
+
+This preserves the existing read pattern (`doc.document.blocks[i]`) used
+throughout `TextEditor` while routing all writes through `DocStore`.
 
 Affected mutation methods:
 - `insertText()`, `deleteText()`, `deleteBackward()`
 - `splitBlock()`, `mergeBlocks()`
 - `applyInlineStyle()`, `applyBlockStyle()`
+- `deleteRange()` (multi-block selection deletion)
 
 ### YorkieDocStore Implementation
 
 Implements `DocStore` with `yorkie.Tree` as the backing store.
 
+The Yorkie document root has a mixed schema:
+
+```typescript
+type YorkieDocsDocument = {
+  content: yorkie.Tree;    // Document content (blocks/inlines/text)
+  pageSetup?: PageSetup;   // Document-level metadata (JSON field)
+};
+```
+
 #### Reading
 
 - **`getDocument()`** — Traverses the tree root, converting element/text nodes
   to `Block[]` and constructing a `Document`. Results are cached with a dirty
-  flag; unchanged trees return the cached copy.
-- **`getBlock(id)`** — Searches the tree for a `<block>` element with
-  matching `id` attribute, converts to `Block`.
+  flag; unchanged trees return the cached copy. Both local and remote changes
+  set `dirty = true` to invalidate the cache.
+- **`getBlock(id)`** — Uses a `Map<string, TreeNode>` index of block IDs to
+  tree nodes for O(1) lookup. The index is rebuilt when the cache is dirty.
+  Converts the found tree node to a `Block`.
 
 #### Writing
 
-All write methods execute inside `doc.update((root) => { ... })`:
+All write methods execute inside `doc.update((root) => { ... })` and set
+`dirty = true` after mutation:
 
 - **`updateBlock(id, block)`** — Finds the `<block>` element by `id`,
   replaces its children (inline nodes) and updates attributes.
 - **`insertBlock(index, block)`** — Inserts a new `<block>` element with
   inline children at the given index position in the tree.
 - **`deleteBlock(id)`** — Removes the `<block>` element from the tree.
+- **`setDocument(doc)`** — Replaces the entire tree content. Used for
+  initial document setup.
+- **`replaceDocument(doc)`** — No-op on `YorkieDocStore`. The current
+  `editor.ts` pattern of calling `replaceDocument()` after `Doc` mutations
+  (via `syncToStore()`) is unnecessary when `Doc` already writes through
+  the store. The `syncToStore()` call is removed from the editor.
 
 #### Remote Change Detection
 
@@ -164,10 +206,18 @@ The `onRemoteChange` callback triggers editor re-render. Since
 
 #### PageSetup
 
-Stored as a separate JSON field on the Yorkie document (not in the tree),
-since it is document-level metadata unrelated to text structure.
+Stored as a JSON field (`pageSetup`) on the Yorkie document root, separate
+from the `content` tree. See the root schema above.
 
 #### Undo/Redo (Phase 1 — Local Snapshots)
+
+The undo contract: **only explicit `snapshot()` calls create undo entries.**
+Individual `updateBlock()`/`insertBlock()`/`deleteBlock()` do NOT push to the
+undo stack. This applies to both `MemDocStore` and `YorkieDocStore`.
+
+Note: The current `MemDocStore` pushes undo on every mutation method. This
+will be fixed to match the `snapshot()`-only contract so that both stores
+behave identically.
 
 - **`snapshot()`** — Calls `getDocument()` to deep-clone the current state
   and pushes it onto a local undo stack.
@@ -175,8 +225,11 @@ since it is document-level metadata unrelated to text structure.
   stack, and replaces the entire tree content with the snapshot.
 - **`redo()`** — Reverse of undo.
 
-Phase 2 (future): migrate to `doc.history.undo()/redo()` for server-aware
-undo that respects other users' changes.
+**Limitation**: In Phase 1, undo restores a full document snapshot. During
+concurrent editing, this can overwrite other users' changes. This is
+acceptable as a known limitation; undo is scoped to single-user scenarios
+until Phase 2 migrates to `doc.history.undo()/redo()` for operation-level
+undo that respects concurrent edits.
 
 ### Data Flow
 
@@ -211,6 +264,10 @@ Other client edits
 - **`initialize(container, store)`** — `store` parameter becomes required;
   caller provides either `MemDocStore` or `YorkieDocStore`.
 - **`Doc`** — Created with the store: `new Doc(store)`.
+- **`syncToStore()` removed** — No longer needed since `Doc` writes through
+  the store directly. `replaceDocument()` calls are removed from the editor.
+- **Remote change handler** — On `onRemoteChange`, call `doc.refresh()` to
+  update the cached document, then re-render.
 - **Unchanged**: `TextEditor`, `Layout`, `Pagination`, `DocCanvas`, `Cursor`,
   `Selection` — the rendering and input pipeline is unaffected.
 
@@ -228,11 +285,19 @@ editor initialization.
 The `Doc` class works identically with either store implementation since it
 only calls `DocStore` interface methods.
 
+### Concurrent Block Operations
+
+Block IDs must be globally unique (nanoid with sufficient entropy). When two
+users simultaneously split the same block or one splits while another deletes,
+Yorkie's Tree CRDT resolves conflicts automatically. The resulting block order
+is determined by Yorkie's merge semantics.
+
 ## Risks and Mitigation
 
 | Risk | Mitigation |
 |------|------------|
 | `getDocument()` tree traversal cost on large docs | Dirty-flag cache; only re-traverse on actual changes. Incremental layout (dirty block tracking) already minimizes downstream cost. |
-| Local snapshot undo across concurrent edits may produce inconsistent state | Acceptable for phase 1; phase 2 migrates to Yorkie history. |
+| `getBlock(id)` O(n) scan per call on hot path | `Map<string, TreeNode>` index rebuilt on dirty; O(1) lookup. |
+| Local snapshot undo overwrites concurrent users' changes | Known Phase 1 limitation; undo restricted to single-user until Phase 2 migrates to Yorkie operation-level history. |
 | `yorkie.Tree` API constraints (edit by path vs index) | Prototype key operations early to validate API fit. |
 | Doc refactoring breaks existing tests | MemDocStore preserves identical behavior; tests update constructor only. |
