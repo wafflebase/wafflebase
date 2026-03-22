@@ -33,10 +33,6 @@ export class Doc {
     return this._document;
   }
 
-  set document(doc: Document) {
-    this._document = doc;
-  }
-
   /**
    * Refresh cached document from store.
    */
