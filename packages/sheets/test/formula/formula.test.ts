@@ -189,6 +189,30 @@ describe('Formula', () => {
     expect(evaluate('=SUM(true,false,true)')).toBe('2');
   });
 
+  it('should handle reversed ranges (e.g. F6:A1)', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' });
+    grid.set('A2', { v: '2' });
+    grid.set('A3', { v: '3' });
+    grid.set('B1', { v: '4' });
+    grid.set('B2', { v: '5' });
+    grid.set('B3', { v: '6' });
+    grid.set('C1', { v: '7' });
+    grid.set('C2', { v: '8' });
+    grid.set('C3', { v: '9' });
+
+    expect(evaluate('=SUM(A1:C3)', grid)).toBe('45');
+    expect(evaluate('=SUM(A3:C1)', grid)).toBe('45');
+    expect(evaluate('=SUM(C1:A3)', grid)).toBe('45');
+    expect(evaluate('=SUM(C3:A1)', grid)).toBe('45');
+    expect(evaluate('=SUM(A3:A1)', grid)).toBe('6');
+    expect(evaluate('=SUM(B$3:B$1)', grid)).toBe('15');
+    expect(evaluate('=SUM($C$3:$A$1)', grid)).toBe('45');
+
+    expect(evaluate('=COUNT(C3:A1)', grid)).toBe('9');
+    expect(evaluate('=AVERAGE(C3:A1)', grid)).toBe('5');
+  });
+
   it('should correctly evaluate ABS function', () => {
     expect(evaluate('=ABS(-5)')).toBe('5');
     expect(evaluate('=ABS(5)')).toBe('5');

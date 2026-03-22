@@ -107,10 +107,14 @@ export function getReferenceMatrixFromExpression(
       prefix = `${sheetName}!`;
     }
 
-    const [from, to] = parseRange(localRange);
+    const [a, b] = parseRange(localRange);
+    const minR = Math.min(a.r, b.r);
+    const maxR = Math.max(a.r, b.r);
+    const minC = Math.min(a.c, b.c);
+    const maxC = Math.max(a.c, b.c);
     const refs: string[] = [];
-    for (let row = from.r; row <= to.r; row++) {
-      for (let col = from.c; col <= to.c; col++) {
+    for (let row = minR; row <= maxR; row++) {
+      for (let col = minC; col <= maxC; col++) {
         refs.push(`${prefix}${toSref({ r: row, c: col })}`);
       }
     }
@@ -119,8 +123,8 @@ export function getReferenceMatrixFromExpression(
       t: 'matrix',
       v: {
         refs,
-        rowCount: to.r - from.r + 1,
-        colCount: to.c - from.c + 1,
+        rowCount: maxR - minR + 1,
+        colCount: maxC - minC + 1,
       },
     };
   } catch {
