@@ -1,6 +1,6 @@
 # Docs Pagination Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add word-processor-style pagination to the Canvas-based document editor with configurable page setup (paper size, orientation, margins) and Google-Docs-style page rendering.
 
@@ -39,7 +39,7 @@
 - Modify: `packages/docs/src/model/types.ts`
 - Create: `packages/docs/test/model/types.test.ts`
 
-- [ ] **Step 1: Write tests for PageSetup helpers**
+- [x] **Step 1: Write tests for PageSetup helpers**
 
 ```typescript
 // test/model/types.test.ts
@@ -90,12 +90,12 @@ describe('PageSetup', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/model/types.test.ts`
 Expected: FAIL — `resolvePageSetup`, `PAPER_SIZES`, etc. not found
 
-- [ ] **Step 3: Implement PageSetup types and helpers in types.ts**
+- [x] **Step 3: Implement PageSetup types and helpers in types.ts**
 
 Add to `packages/docs/src/model/types.ts`:
 
@@ -154,12 +154,12 @@ export interface Document {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/model/types.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/model/types.ts packages/docs/test/model/types.test.ts
@@ -173,7 +173,7 @@ git commit -m "Add PageSetup data model with paper sizes and helpers"
 **Files:**
 - Modify: `packages/docs/src/view/theme.ts`
 
-- [ ] **Step 1: Update Theme — remove pagePadding, add page constants**
+- [x] **Step 1: Update Theme — remove pagePadding, add page constants**
 
 In `packages/docs/src/view/theme.ts`, replace `pagePaddingX`, `pagePaddingTop`, and `backgroundColor` with new page-related constants:
 
@@ -203,7 +203,7 @@ export const Theme = {
 } as const;
 ```
 
-- [ ] **Step 2: Fix compilation — update Theme references in layout.ts**
+- [x] **Step 2: Fix compilation — update Theme references in layout.ts**
 
 In `packages/docs/src/view/layout.ts`:
 - Remove `Theme.pagePaddingX` and `Theme.pagePaddingTop` references
@@ -237,22 +237,22 @@ export function computeLayout(
 }
 ```
 
-- [ ] **Step 3: Fix compilation — update backgroundColor reference in doc-canvas.ts**
+- [x] **Step 3: Fix compilation — update backgroundColor reference in doc-canvas.ts**
 
 In `packages/docs/src/view/doc-canvas.ts`:
 - `Theme.backgroundColor` → `Theme.pageBackground` (temporary; will be fully rewritten in Task 5)
 
-- [ ] **Step 4: Verify build compiles**
+- [x] **Step 4: Verify build compiles**
 
 Run: `cd packages/docs && npx tsc --noEmit`
 Expected: No errors
 
-- [ ] **Step 5: Run existing tests to check nothing is broken**
+- [x] **Step 5: Run existing tests to check nothing is broken**
 
 Run: `cd packages/docs && npx vitest run`
 Expected: All existing tests pass (model and hangul tests don't use layout/theme)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/theme.ts packages/docs/src/view/layout.ts packages/docs/src/view/doc-canvas.ts
@@ -268,7 +268,7 @@ git commit -m "Update Theme constants for pagination and reset layout origin"
 - Modify: `packages/docs/src/store/memory.ts`
 - Modify: `packages/docs/test/store/memory.test.ts`
 
-- [ ] **Step 1: Write test for pageSetup in MemDocStore**
+- [x] **Step 1: Write test for pageSetup in MemDocStore**
 
 Add to `packages/docs/test/store/memory.test.ts`:
 
@@ -294,12 +294,12 @@ describe('pageSetup', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && npx vitest run test/store/memory.test.ts`
 Expected: FAIL — `getPageSetup` not a function
 
-- [ ] **Step 3: Add getPageSetup/setPageSetup to DocStore interface**
+- [x] **Step 3: Add getPageSetup/setPageSetup to DocStore interface**
 
 In `packages/docs/src/store/store.ts`, add:
 
@@ -313,7 +313,7 @@ export interface DocStore {
 }
 ```
 
-- [ ] **Step 4: Implement in MemDocStore**
+- [x] **Step 4: Implement in MemDocStore**
 
 In `packages/docs/src/store/memory.ts`, add:
 
@@ -332,12 +332,12 @@ setPageSetup(setup: PageSetup): void {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/store/memory.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/store/store.ts packages/docs/src/store/memory.ts packages/docs/test/store/memory.test.ts
@@ -352,7 +352,7 @@ git commit -m "Add PageSetup support to DocStore interface and MemDocStore"
 - Create: `packages/docs/src/view/pagination.ts`
 - Create: `packages/docs/test/view/pagination.test.ts`
 
-- [ ] **Step 1: Write tests for paginateLayout**
+- [x] **Step 1: Write tests for paginateLayout**
 
 ```typescript
 // test/view/pagination.test.ts
@@ -488,12 +488,12 @@ describe('paginateLayout', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/view/pagination.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement paginateLayout**
+- [x] **Step 3: Implement paginateLayout**
 
 Create `packages/docs/src/view/pagination.ts`:
 
@@ -599,12 +599,12 @@ export function paginateLayout(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/view/pagination.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/pagination.ts packages/docs/test/view/pagination.test.ts
@@ -619,7 +619,7 @@ git commit -m "Implement pagination engine with line-level page splitting"
 - Modify: `packages/docs/src/view/pagination.ts`
 - Modify: `packages/docs/test/view/pagination.test.ts`
 
-- [ ] **Step 1: Write tests for coordinate mapping**
+- [x] **Step 1: Write tests for coordinate mapping**
 
 Append to `test/view/pagination.test.ts`:
 
@@ -702,12 +702,12 @@ describe('paginatedPixelToPosition', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/view/pagination.test.ts`
 Expected: FAIL — functions not found
 
-- [ ] **Step 3: Implement helper functions**
+- [x] **Step 3: Implement helper functions**
 
 Add to `packages/docs/src/view/pagination.ts`:
 
@@ -884,12 +884,12 @@ export function paginatedPixelToPosition(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/view/pagination.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/pagination.ts packages/docs/test/view/pagination.test.ts
@@ -910,7 +910,7 @@ state compiles. Committing them separately would leave a broken build.
 - Modify: `packages/docs/src/view/selection.ts`
 - Modify: `packages/docs/src/view/text-editor.ts`
 
-- [ ] **Step 1: Rewrite DocCanvas.render for paginated layout**
+- [x] **Step 1: Rewrite DocCanvas.render for paginated layout**
 
 Replace the `render` method in `packages/docs/src/view/doc-canvas.ts`. The new
 version accepts `PaginatedLayout` instead of `DocumentLayout`, iterates over
@@ -930,7 +930,7 @@ render(
 See Task 6 code block in spec for the full `DocCanvas` class (page shadow,
 viewport culling, content-area clipping, per-page text/cursor/selection rendering).
 
-- [ ] **Step 2: Update editor.ts to use paginated pipeline**
+- [x] **Step 2: Update editor.ts to use paginated pipeline**
 
 Key changes to `packages/docs/src/view/editor.ts`:
 - Import `paginateLayout`, `PaginatedLayout`, `getTotalHeight`, `getPageXOffset`, `getPageYOffset`, `findPageForPosition`
@@ -977,7 +977,7 @@ const render = () => {
 
 Pass `() => paginatedLayout` and `() => canvasWidth` to `TextEditor` constructor (update its constructor to accept these).
 
-- [ ] **Step 2: Update cursor.ts to use paginated coordinates**
+- [x] **Step 2: Update cursor.ts to use paginated coordinates**
 
 In `packages/docs/src/view/cursor.ts`, update `getPixelPosition`:
 
@@ -1049,7 +1049,7 @@ getPixelPosition(
 
 Remove import of `positionToPixel` from layout.js.
 
-- [ ] **Step 3: Update selection.ts to transform rects to page coordinates**
+- [x] **Step 3: Update selection.ts to transform rects to page coordinates**
 
 In `packages/docs/src/view/selection.ts`, rewrite `getSelectionRects` to compute
 rects **directly in page space** using `PaginatedLayout`. This avoids a fragile
@@ -1134,7 +1134,7 @@ chars before the line and uses `ctx.measureText` to find the x position of
 a given offset within the line's runs. This reuses the same run-walking
 logic as cursor positioning.
 
-- [ ] **Step 4: Update text-editor.ts coordinate mapping calls**
+- [x] **Step 4: Update text-editor.ts coordinate mapping calls**
 
 In `packages/docs/src/view/text-editor.ts`:
 
@@ -1184,17 +1184,17 @@ const textEditor = new TextEditor(
 );
 ```
 
-- [ ] **Step 5: Verify build compiles**
+- [x] **Step 5: Verify build compiles**
 
 Run: `cd packages/docs && npx tsc --noEmit`
 Expected: No errors
 
-- [ ] **Step 6: Run all tests**
+- [x] **Step 6: Run all tests**
 
 Run: `cd packages/docs && npx vitest run`
 Expected: All tests pass
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/view/doc-canvas.ts packages/docs/src/view/editor.ts packages/docs/src/view/cursor.ts packages/docs/src/view/selection.ts packages/docs/src/view/text-editor.ts
@@ -1209,7 +1209,7 @@ git commit -m "Wire pagination into editor pipeline with page-aware coordinates"
 - Modify: `packages/docs/src/index.ts`
 - Modify: `packages/docs/src/view/layout.ts`
 
-- [ ] **Step 1: Update index.ts exports**
+- [x] **Step 1: Update index.ts exports**
 
 Add pagination types and functions; remove old `positionToPixel`/`pixelToPosition`:
 
@@ -1239,16 +1239,16 @@ export type {
 // positionToPixel, pixelToPosition (now in pagination.ts or removed)
 ```
 
-- [ ] **Step 2: Remove dead code from layout.ts**
+- [x] **Step 2: Remove dead code from layout.ts**
 
 Remove `positionToPixel`, `pixelToPosition`, and `findLayoutBlock` from `packages/docs/src/view/layout.ts` since they are replaced by paginated versions. Keep only `computeLayout` and the layout types.
 
-- [ ] **Step 3: Run full verification**
+- [x] **Step 3: Run full verification**
 
 Run: `cd packages/docs && npx vitest run && npx tsc --noEmit`
 Expected: All tests pass, no type errors
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/src/index.ts packages/docs/src/view/layout.ts
@@ -1262,11 +1262,11 @@ git commit -m "Update public exports for pagination and remove dead coordinate m
 **Files:**
 - Modify: `packages/docs/demo.ts`
 
-- [ ] **Step 1: Update demo to show multi-page document**
+- [x] **Step 1: Update demo to show multi-page document**
 
 Update `packages/docs/demo.ts` to create a document with enough content to span multiple pages, so pagination is visually verifiable.
 
-- [ ] **Step 2: Manual visual verification**
+- [x] **Step 2: Manual visual verification**
 
 Run: `cd packages/docs && npx vite`
 Open browser → verify:
@@ -1278,12 +1278,12 @@ Open browser → verify:
 - Selection highlights work across page boundaries
 - Scrolling works smoothly
 
-- [ ] **Step 3: Run full project verification**
+- [x] **Step 3: Run full project verification**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/demo.ts

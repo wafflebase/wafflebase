@@ -18,16 +18,16 @@ Implement word-processor-level keyboard and mouse actions for the Canvas-based d
 - [x] 9. Cmd+Left/Right to jump to line start/end (Mac)
 - [x] 10. Select to document start/end (Cmd/Ctrl+Shift+Home/End)
 - [x] 11. Cmd+Backspace to delete to line start
-- [ ] 12. Alt+Up/Down to jump to paragraph start/end
-- [ ] 13. Page Up / Page Down
-- [ ] 14. Shift+Enter for soft line break
+- [x] 12. Alt+Up/Down to jump to paragraph start/end
+- [x] 13. Page Up / Page Down
+- [x] 14. Shift+Enter for soft line break
 
 ## Lower Priority
 
 - [x] 15. Strikethrough toggle (Cmd/Ctrl+Shift+X)
 - [x] 16. Clear formatting (Cmd/Ctrl+\)
-- [ ] 17. Ctrl+K to delete to line end (Mac)
+- [x] 17. Ctrl+K to delete to line end (Mac)
 
 ## Future
 
-- [ ] 18. Undo/redo selection restore (save cursor + selection in snapshot)
+- [x] 18. Undo/redo selection restore (save cursor + selection in snapshot)

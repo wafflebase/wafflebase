@@ -50,7 +50,7 @@
 
 - [x] 7.1 Add `document` alias to root `package.json`
 - [x] 7.2 Run `pnpm verify:fast` — all tests pass (32 document + full suite)
-- [ ] 7.3 Manual smoke test: text input, formatting, cursor, selection, undo/redo, scroll
+- [x] 7.3 Manual smoke test: text input, formatting, cursor, selection, undo/redo, scroll
 - [x] 7.4 Update `docs/design/README.md` with link to docs.md
 
 ## Lessons

@@ -6,15 +6,20 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 89
+Total archived tasks: 94
 
-## 2026/03 (52 tasks)
+## 2026/03 (57 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs keyboard mouse (2026-03-22) | [20260322-docs-keyboard-mouse-todo.md](./2026/03/20260322-docs-keyboard-mouse-todo.md) | [20260322-docs-keyboard-mouse-lessons.md](./2026/03/20260322-docs-keyboard-mouse-lessons.md) |
 | docs rendering optimization (2026-03-22) | [20260322-docs-rendering-optimization-todo.md](./2026/03/20260322-docs-rendering-optimization-todo.md) | - |
+| docs ruler (2026-03-22) | [20260322-docs-ruler-todo.md](./2026/03/20260322-docs-ruler-todo.md) | - |
+| docs pagination (2026-03-21) | [20260321-docs-pagination-todo.md](./2026/03/20260321-docs-pagination-todo.md) | - |
 | pr58 review (2026-03-21) | [20260321-pr58-review-todo.md](./2026/03/20260321-pr58-review-todo.md) | - |
+| docs package (2026-03-20) | [20260320-docs-package-todo.md](./2026/03/20260320-docs-package-todo.md) | [20260320-docs-package-lessons.md](./2026/03/20260320-docs-package-lessons.md) |
 | pivot merge block (2026-03-20) | [20260320-pivot-merge-block-todo.md](./2026/03/20260320-pivot-merge-block-todo.md) | - |
+| ranges type (2026-03-19) | [20260319-ranges-type-todo.md](./2026/03/20260319-ranges-type-todo.md) | [20260319-ranges-type-lessons.md](./2026/03/20260319-ranges-type-lessons.md) |
 | concurrency move tests (2026-03-16) | [20260316-concurrency-move-tests-todo.md](./2026/03/20260316-concurrency-move-tests-todo.md) | [20260316-concurrency-move-tests-lessons.md](./2026/03/20260316-concurrency-move-tests-lessons.md) |
 | cli oauth login (2026-03-15) | [20260315-cli-oauth-login-todo.md](./2026/03/20260315-cli-oauth-login-todo.md) | - |
 | cross sheet cycle (2026-03-15) | [20260315-cross-sheet-cycle-todo.md](./2026/03/20260315-cross-sheet-cycle-todo.md) | - |

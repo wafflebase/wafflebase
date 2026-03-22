@@ -1,6 +1,6 @@
 # Document Ruler Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add horizontal and vertical rulers with margin drag and indent handles to the document editor.
 
@@ -17,7 +17,7 @@
 - Modify: `packages/docs/src/model/types.ts:80-85` (DEFAULT_BLOCK_STYLE)
 - Modify: `packages/docs/test/model/types.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `packages/docs/test/model/types.test.ts`:
 
@@ -28,12 +28,12 @@ it('DEFAULT_BLOCK_STYLE includes textIndent and marginLeft at 0', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: FAIL — `textIndent` property does not exist
 
-- [ ] **Step 3: Add fields to BlockStyle and DEFAULT_BLOCK_STYLE**
+- [x] **Step 3: Add fields to BlockStyle and DEFAULT_BLOCK_STYLE**
 
 In `packages/docs/src/model/types.ts`, add to `BlockStyle`:
 
@@ -61,16 +61,16 @@ export const DEFAULT_BLOCK_STYLE: BlockStyle = {
 };
 ```
 
-- [ ] **Step 4: Fix any compilation errors**
+- [x] **Step 4: Fix any compilation errors**
 
 `createEmptyBlock()` spreads `DEFAULT_BLOCK_STYLE` so it will include the new fields automatically. Check that no existing code breaks by searching for `BlockStyle` usages.
 
-- [ ] **Step 5: Run tests to verify pass**
+- [x] **Step 5: Run tests to verify pass**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: All tests PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/model/types.ts packages/docs/test/model/types.test.ts
@@ -85,7 +85,7 @@ git commit -m "Add textIndent and marginLeft to BlockStyle"
 - Modify: `packages/docs/src/view/layout.ts:96-156` (computeLayout) and `packages/docs/src/view/layout.ts:161-261` (layoutBlock)
 - Modify: `packages/docs/test/view/incremental-layout.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add to `packages/docs/test/view/incremental-layout.test.ts`:
 
@@ -126,12 +126,12 @@ it('applies both textIndent and marginLeft together', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: FAIL — runs start at x=0
 
-- [ ] **Step 3: Implement indent/margin in layoutBlock and computeLayout**
+- [x] **Step 3: Implement indent/margin in layoutBlock and computeLayout**
 
 In `layoutBlock()`, accept indent params and reduce available width:
 
@@ -162,12 +162,12 @@ function layoutBlock(
 In `computeLayout()`, after `applyAlignment()`, shift runs by `marginLeft`:
 - Alignment should be computed against `baseWidth` (contentWidth - marginLeft)
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/layout.ts packages/docs/test/view/incremental-layout.test.ts
@@ -182,7 +182,7 @@ git commit -m "Apply textIndent and marginLeft in layout engine"
 - Create: `packages/docs/src/view/ruler.ts`
 - Create: `packages/docs/test/view/ruler.test.ts`
 
-- [ ] **Step 1: Write failing tests for unit helpers**
+- [x] **Step 1: Write failing tests for unit helpers**
 
 Create `packages/docs/test/view/ruler.test.ts`:
 
@@ -235,12 +235,12 @@ describe('ruler units', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement unit helpers**
+- [x] **Step 3: Implement unit helpers**
 
 Create `packages/docs/src/view/ruler.ts` with the unit detection and grid config:
 
@@ -273,12 +273,12 @@ export function getGridConfig(unit: RulerUnit): GridConfig {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/ruler.ts packages/docs/test/view/ruler.test.ts
@@ -292,7 +292,7 @@ git commit -m "Add ruler unit detection and grid config helpers"
 **Files:**
 - Modify: `packages/docs/src/view/ruler.ts`
 
-- [ ] **Step 1: Write failing test for Ruler class construction**
+- [x] **Step 1: Write failing test for Ruler class construction**
 
 Add to `packages/docs/test/view/ruler.test.ts`:
 
@@ -346,12 +346,12 @@ describe('Ruler', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: FAIL — Ruler class not exported
 
-- [ ] **Step 3: Implement Ruler class with DOM setup and horizontal rendering**
+- [x] **Step 3: Implement Ruler class with DOM setup and horizontal rendering**
 
 Add to `packages/docs/src/view/ruler.ts`:
 
@@ -441,7 +441,7 @@ export class Ruler {
 }
 ```
 
-- [ ] **Step 4: Implement `renderHorizontal()` method**
+- [x] **Step 4: Implement `renderHorizontal()` method**
 
 Draws margin background, content area, tick marks, labels, and indent handles:
 
@@ -511,12 +511,12 @@ private renderHorizontal(
 }
 ```
 
-- [ ] **Step 5: Run tests to verify pass**
+- [x] **Step 5: Run tests to verify pass**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: All tests PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/ruler.ts packages/docs/test/view/ruler.test.ts
@@ -530,7 +530,7 @@ git commit -m "Implement Ruler class with horizontal rendering"
 **Files:**
 - Modify: `packages/docs/src/view/ruler.ts`
 
-- [ ] **Step 1: Implement `renderVertical()` method**
+- [x] **Step 1: Implement `renderVertical()` method**
 
 Same pattern as horizontal but rotated. Renders for the focused page:
 
@@ -608,7 +608,7 @@ private renderVertical(
 }
 ```
 
-- [ ] **Step 2: Implement `findFocusedPage()` helper**
+- [x] **Step 2: Implement `findFocusedPage()` helper**
 
 ```typescript
 private findFocusedPage(
@@ -632,7 +632,7 @@ private findFocusedPage(
 }
 ```
 
-- [ ] **Step 3: Implement the public `render()` method**
+- [x] **Step 3: Implement the public `render()` method**
 
 ```typescript
 render(
@@ -664,7 +664,7 @@ render(
 }
 ```
 
-- [ ] **Step 4: Implement resize helpers**
+- [x] **Step 4: Implement resize helpers**
 
 ```typescript
 private resizeH(width: number): void {
@@ -686,12 +686,12 @@ private resizeV(height: number): void {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify pass**
+- [x] **Step 5: Run tests to verify pass**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: All tests PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/ruler.ts
@@ -705,7 +705,7 @@ git commit -m "Add vertical ruler rendering and public render method"
 **Files:**
 - Modify: `packages/docs/src/view/ruler.ts`
 
-- [ ] **Step 1: Implement hit detection helpers**
+- [x] **Step 1: Implement hit detection helpers**
 
 ```typescript
 private getHitTarget(
@@ -735,7 +735,7 @@ private getHitTarget(
 }
 ```
 
-- [ ] **Step 2: Implement mouse event handlers**
+- [x] **Step 2: Implement mouse event handlers**
 
 ```typescript
 private addMouseHandlers(): void {
@@ -814,7 +814,7 @@ private bindEvent(target: EventTarget, event: string, handler: EventListener): v
 }
 ```
 
-- [ ] **Step 3: Implement snap and apply helpers**
+- [x] **Step 3: Implement snap and apply helpers**
 
 ```typescript
 // In Ruler class, calls the exported helper:
@@ -857,7 +857,7 @@ private applyDrag(): void {
 }
 ```
 
-- [ ] **Step 4: Implement callback registration and dispose**
+- [x] **Step 4: Implement callback registration and dispose**
 
 ```typescript
 onMarginChange(cb: (margins: PageMargins) => void): void {
@@ -879,7 +879,7 @@ dispose(): void {
 }
 ```
 
-- [ ] **Step 5: Add drag guideline callback**
+- [x] **Step 5: Add drag guideline callback**
 
 The Ruler needs to notify the editor to draw a dashed guideline on the main canvas during drag. Add a callback and call it during mousemove when dragging:
 
@@ -908,7 +908,7 @@ In `onMouseUp`, clear the guideline:
 this.dragGuidelineCb?.(null);
 ```
 
-- [ ] **Step 6: Add triangle drawing helpers**
+- [x] **Step 6: Add triangle drawing helpers**
 
 ```typescript
 private drawDownTriangle(
@@ -936,12 +936,12 @@ private drawUpTriangle(
 }
 ```
 
-- [ ] **Step 6: Run tests to verify pass**
+- [x] **Step 6: Run tests to verify pass**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: All tests PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/view/ruler.ts
@@ -956,7 +956,7 @@ git commit -m "Add margin drag and indent handle interactions"
 - Modify: `packages/docs/src/view/editor.ts`
 - Modify: `packages/docs/src/index.ts`
 
-- [ ] **Step 1: Import Ruler and create instance in `initialize()`**
+- [x] **Step 1: Import Ruler and create instance in `initialize()`**
 
 In `editor.ts`, after creating the doc canvas:
 
@@ -984,7 +984,7 @@ ruler.onIndentChange((style) => {
 });
 ```
 
-- [ ] **Step 2: Wire drag guideline rendering**
+- [x] **Step 2: Wire drag guideline rendering**
 
 Add a guideline state variable and wire the callback:
 
@@ -1022,7 +1022,7 @@ if (dragGuideline) {
 }
 ```
 
-- [ ] **Step 3: Call `ruler.render()` in `paint()`**
+- [x] **Step 3: Call `ruler.render()` in `paint()`**
 
 In the `paint()` function, after `docCanvas.render(...)`:
 
@@ -1039,7 +1039,7 @@ ruler.render(
 );
 ```
 
-- [ ] **Step 4: Clean up ruler in dispose**
+- [x] **Step 4: Clean up ruler in dispose**
 
 In the returned `dispose()`:
 
@@ -1054,7 +1054,7 @@ dispose: () => {
 },
 ```
 
-- [ ] **Step 5: Export Ruler from index.ts**
+- [x] **Step 5: Export Ruler from index.ts**
 
 Add to `packages/docs/src/index.ts`:
 
@@ -1062,17 +1062,17 @@ Add to `packages/docs/src/index.ts`:
 export { Ruler } from './view/ruler.js';
 ```
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 
 Run: `pnpm --filter docs test -- --run`
 Expected: All tests PASS
 
-- [ ] **Step 7: Run verify:fast**
+- [x] **Step 7: Run verify:fast**
 
 Run: `pnpm verify:fast`
 Expected: All checks PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/docs/src/view/editor.ts packages/docs/src/view/ruler.ts packages/docs/src/index.ts
@@ -1083,7 +1083,7 @@ git commit -m "Wire Ruler into document editor with margin and indent callbacks"
 
 ### Task 8: Manual verification and polish
 
-- [ ] **Step 1: Start dev server and verify visually**
+- [x] **Step 1: Start dev server and verify visually**
 
 Run: `pnpm dev`
 
@@ -1094,30 +1094,30 @@ Verify:
 - Tick marks align with the page edges
 - Numbers are displayed at major ticks
 
-- [ ] **Step 2: Test margin drag**
+- [x] **Step 2: Test margin drag**
 
 - Hover over margin boundaries — cursor should change to resize
 - Drag left margin boundary — page content area should resize
 - Drag right margin boundary — same behavior
 - Text should re-wrap after margin change
 
-- [ ] **Step 3: Test indent handles**
+- [x] **Step 3: Test indent handles**
 
 - Place cursor in a paragraph
 - Drag first-line indent handle (▽) — first line should indent
 - Drag left indent handle (△) — all lines should indent
 - Type text to verify wrapping respects indentation
 
-- [ ] **Step 4: Test locale detection**
+- [x] **Step 4: Test locale detection**
 
 - Open browser DevTools, override `navigator.language` or check that
   the correct unit is displayed for your locale
 
-- [ ] **Step 5: Fix any visual issues found**
+- [x] **Step 5: Fix any visual issues found**
 
 Address spacing, alignment, or interaction bugs discovered during testing.
 
-- [ ] **Step 6: Final commit**
+- [x] **Step 6: Final commit**
 
 ```bash
 git add -u

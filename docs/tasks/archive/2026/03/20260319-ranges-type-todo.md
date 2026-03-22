@@ -66,8 +66,8 @@ Wire multi-range selection into the frontend rendering and interaction layer.
 - [x] Handle Ctrl/Cmd+click in `worksheet.ts` to call `addSelection()` with drag support
 - [x] Render multiple selection highlights on the Canvas (overlay simple + frozen paths)
 - [x] Update formula bar to display multi-range labels (e.g. "A1:B2,C3")
-- [ ] Update copy/paste to operate on multiple ranges
-- [ ] Interaction tests for multi-selection
+- [x] Update copy/paste to operate on multiple ranges
+- [x] Interaction tests for multi-selection
 
 ## Future Phases (out of scope)
 
