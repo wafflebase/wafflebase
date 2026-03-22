@@ -10,6 +10,7 @@ import { Theme } from './theme.js';
  */
 export class Cursor {
   position: DocPosition;
+  lineAffinity: 'forward' | 'backward' = 'backward';
   private visible = true;
   private blinkTimer: ReturnType<typeof setInterval> | null = null;
   private onBlink: (() => void) | null = null;
@@ -20,9 +21,13 @@ export class Cursor {
 
   /**
    * Move cursor to a new position and reset blink.
+   * @param affinity — 'forward' renders at the start of the next visual line
+   *   at a wrap boundary; 'backward' (default) renders at the end of the
+   *   current visual line.
    */
-  moveTo(pos: DocPosition): void {
+  moveTo(pos: DocPosition, affinity: 'forward' | 'backward' = 'backward'): void {
     this.position = pos;
+    this.lineAffinity = affinity;
     this.resetBlink();
   }
 
@@ -36,7 +41,7 @@ export class Cursor {
     canvasWidth: number,
   ): { x: number; y: number; height: number; visible: boolean } | undefined {
     const found = findPageForPosition(
-      paginatedLayout, this.position.blockId, this.position.offset, layout,
+      paginatedLayout, this.position.blockId, this.position.offset, layout, this.lineAffinity,
     );
     if (!found) return undefined;
 

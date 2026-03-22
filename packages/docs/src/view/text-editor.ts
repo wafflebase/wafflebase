@@ -224,11 +224,12 @@ export class TextEditor {
     this.deleteSelection();
     const blockId = this.cursor.position.blockId;
     this.doc.insertText(this.cursor.position, data);
-    this.cursor.moveTo({
+    const newPos = {
       blockId: this.cursor.position.blockId,
       offset: this.cursor.position.offset + data.length,
-    });
+    };
     this.markDirty(blockId);
+    this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
     this.requestRender();
   };
 
@@ -454,8 +455,11 @@ export class TextEditor {
     this.lastClickX = e.clientX;
     this.lastClickY = e.clientY;
 
-    const pos = this.getPositionFromMouse(e);
-    if (!pos) return;
+    const result = this.getPositionFromMouse(e);
+    if (!result) return;
+
+    const pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+    const { lineAffinity } = result;
 
     if (this.clickCount === 3) {
       // Triple-click: select entire paragraph
@@ -478,10 +482,10 @@ export class TextEditor {
       // Shift+click: extend selection
       const anchor = this.selection.range?.anchor ?? this.cursor.position;
       this.selection.setRange({ anchor, focus: pos });
-      this.cursor.moveTo(pos);
+      this.cursor.moveTo(pos, lineAffinity);
     } else {
       // Single click
-      this.cursor.moveTo(pos);
+      this.cursor.moveTo(pos, lineAffinity);
       this.selection.setRange({ anchor: pos, focus: pos });
     }
     this.requestRender();
@@ -505,11 +509,12 @@ export class TextEditor {
     const x = clientX - rect.left;
     const y = clientY - rect.top - this.getCanvasOffsetTop();
     const scrollY = this.container.scrollTop;
-    const pos = paginatedPixelToPosition(
+    const result = paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );
-    if (pos && this.selection.range) {
-      this.cursor.moveTo(pos);
+    if (result && this.selection.range) {
+      const pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+      this.cursor.moveTo(pos, result.lineAffinity);
       this.selection.setRange({
         anchor: this.selection.range.anchor,
         focus: pos,
@@ -675,11 +680,17 @@ export class TextEditor {
       }
     };
 
+    // For left/right, affinity is known statically. For up/down,
+    // moveVertical sets cursor.lineAffinity from paginatedPixelToPosition,
+    // so we must not overwrite it.
+    const isVertical = direction === 'up' || direction === 'down';
+    const hAffinity = direction === 'right' ? 'forward' as const : 'backward' as const;
+
     if (shiftKey) {
       const newPos = move(pos);
       const anchor = this.selection.range?.anchor ?? pos;
       this.selection.setRange({ anchor, focus: newPos });
-      this.cursor.moveTo(newPos);
+      this.cursor.moveTo(newPos, isVertical ? this.cursor.lineAffinity : hAffinity);
     } else if (this.selection.hasSelection() && this.selection.range) {
       // Collapse selection to the appropriate boundary
       const layout = this.getLayout();
@@ -694,7 +705,7 @@ export class TextEditor {
     } else {
       const newPos = move(pos);
       this.selection.setRange(null);
-      this.cursor.moveTo(newPos);
+      this.cursor.moveTo(newPos, isVertical ? this.cursor.lineAffinity : hAffinity);
     }
 
     this.requestRender();
@@ -708,7 +719,7 @@ export class TextEditor {
     } else {
       this.selection.setRange(null);
     }
-    this.cursor.moveTo(newPos);
+    this.cursor.moveTo(newPos, 'forward');
     this.requestRender();
   }
 
@@ -985,12 +996,45 @@ export class TextEditor {
   }
 
   private getVisualLineEnd(pos: DocPosition): DocPosition {
-    const [, end] = this.getVisualLineRange(pos);
-    return { blockId: pos.blockId, offset: end };
+    const [lineStart, lineEnd] = this.getVisualLineRange(pos);
+    const block = this.doc.getBlock(pos.blockId);
+    const totalLen = getBlockTextLength(block);
+
+    // For wrapped lines (not the last line), exclude trailing spaces
+    if (lineEnd < totalLen) {
+      const text = getBlockText(block);
+      let end = lineEnd;
+      while (end > lineStart && text[end - 1] === ' ') end--;
+      return { blockId: pos.blockId, offset: end };
+    }
+
+    return { blockId: pos.blockId, offset: lineEnd };
+  }
+
+  /**
+   * Determine cursor affinity for a position after text insertion.
+   * Returns 'forward' when the offset coincides with the start of a
+   * non-first visual line (i.e., a line-wrap boundary).
+   */
+  private getWrapAffinity(pos: DocPosition): 'forward' | 'backward' {
+    const layout = this.getLayout();
+    const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
+    if (!lb || lb.lines.length <= 1) return 'backward';
+
+    let charsBefore = 0;
+    for (let i = 0; i < lb.lines.length; i++) {
+      if (i > 0 && charsBefore === pos.offset) return 'forward';
+      let lineChars = 0;
+      for (const run of lb.lines[i].runs) {
+        lineChars += run.charEnd - run.charStart;
+      }
+      charsBefore += lineChars;
+    }
+    return 'backward';
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
-    const pixel = this.getPixelForPosition(pos);
+    const pixel = this.getPixelForPosition(pos, this.cursor.lineAffinity);
     if (!pixel) return pos;
 
     const paginatedLayout = this.getPaginatedLayout();
@@ -1019,15 +1063,23 @@ export class TextEditor {
           const crossPageResult = paginatedPixelToPosition(
             paginatedLayout, layout, pixel.x, targetY, canvasWidth,
           );
-          return crossPageResult ?? pos;
+          if (crossPageResult) {
+            this.cursor.lineAffinity = crossPageResult.lineAffinity;
+            return crossPageResult;
+          }
+          return pos;
         }
       }
     }
 
-    return result ?? pos;
+    if (result) {
+      this.cursor.lineAffinity = result.lineAffinity;
+      return result;
+    }
+    return pos;
   }
 
-  private getPositionFromMouse(e: MouseEvent): DocPosition | undefined {
+  private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
     const rect = this.container.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top - this.getCanvasOffsetTop();
@@ -1037,12 +1089,12 @@ export class TextEditor {
     );
   }
 
-  private getPixelForPosition(pos: DocPosition) {
+  private getPixelForPosition(pos: DocPosition, lineAffinity: 'forward' | 'backward' = 'backward') {
     const paginatedLayout = this.getPaginatedLayout();
     const layout = this.getLayout();
     const ctx = this.getCtx();
     const canvasWidth = this.getCanvasWidth();
-    const found = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout);
+    const found = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout, lineAffinity);
     if (!found) return undefined;
 
     const { pageIndex, pageLine } = found;

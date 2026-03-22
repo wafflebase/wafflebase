@@ -137,6 +137,7 @@ export function findPageForPosition(
   blockId: string,
   offset: number,
   layout: DocumentLayout,
+  lineAffinity: 'forward' | 'backward' = 'backward',
 ): { pageIndex: number; pageLine: PageLine } | undefined {
   const blockIndex = layout.blocks.findIndex(
     (lb) => lb.block.id === blockId,
@@ -152,6 +153,16 @@ export function findPageForPosition(
       0,
     );
     if (charCount + lineChars >= offset) {
+      // At a line boundary, 'forward' affinity means the cursor
+      // belongs to the next visual line (e.g., after moveRight).
+      if (lineAffinity === 'forward'
+          && charCount + lineChars === offset
+          && li < lb.lines.length - 1) {
+        // Skip this line — the next iteration will pick it up
+        charCount += lineChars;
+        targetLineIndex = li;
+        continue;
+      }
       targetLineIndex = li;
       break;
     }
@@ -179,7 +190,7 @@ export function paginatedPixelToPosition(
   px: number,
   py: number,
   canvasWidth: number,
-): { blockId: string; offset: number } | undefined {
+): { blockId: string; offset: number; lineAffinity: 'forward' | 'backward' } | undefined {
   if (paginatedLayout.pages.length === 0) return undefined;
 
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
@@ -199,7 +210,7 @@ export function paginatedPixelToPosition(
 
   if (targetPage.lines.length === 0) {
     if (layout.blocks.length === 0) return undefined;
-    return { blockId: layout.blocks[0].block.id, offset: 0 };
+    return { blockId: layout.blocks[0].block.id, offset: 0, lineAffinity: 'backward' };
   }
 
   const pageTop = getPageYOffset(paginatedLayout, targetPage.pageIndex);
@@ -220,7 +231,7 @@ export function paginatedPixelToPosition(
   const line = targetPL.line;
 
   if (line.runs.length === 0) {
-    return { blockId: lb.block.id, offset: 0 };
+    return { blockId: lb.block.id, offset: 0, lineAffinity: 'backward' };
   }
 
   // Count chars before this line in the block
@@ -231,6 +242,23 @@ export function paginatedPixelToPosition(
     }
   }
 
+  // Affinity is determined by which visual line was clicked:
+  // if the resolved offset equals the boundary between two lines,
+  // 'forward' keeps the cursor on the clicked (later) line.
+  const affinityForOffset = (offset: number): 'forward' | 'backward' =>
+    targetPL.lineIndex > 0 && offset === charsBeforeLine ? 'forward' : 'backward';
+
+  // Before start of line (clicked in left margin)
+  const firstRun = line.runs[0];
+  if (localX < firstRun.x) {
+    const offset = charsBeforeLine;
+    return {
+      blockId: lb.block.id,
+      offset,
+      lineAffinity: affinityForOffset(offset),
+    };
+  }
+
   // Find character within the line
   let charsBeforeRun = 0;
   for (const run of line.runs) {
@@ -239,9 +267,11 @@ export function paginatedPixelToPosition(
       const localRunX = localX - run.x;
       const charOffset = Math.round(localRunX / charWidth);
       const clampedOffset = Math.min(Math.max(0, charOffset), run.text.length);
+      const offset = charsBeforeLine + charsBeforeRun + clampedOffset;
       return {
         blockId: lb.block.id,
-        offset: charsBeforeLine + charsBeforeRun + clampedOffset,
+        offset,
+        lineAffinity: affinityForOffset(offset),
       };
     }
     charsBeforeRun += run.text.length;
@@ -252,8 +282,23 @@ export function paginatedPixelToPosition(
     (sum, r) => sum + (r.charEnd - r.charStart),
     0,
   );
+  let endOffset = charsBeforeLine + lineCharCount;
+
+  // For wrapped lines (non-last), exclude trailing spaces
+  const isLastLineInBlock = targetPL.lineIndex === lb.lines.length - 1;
+  if (!isLastLineInBlock && line.runs.length > 0) {
+    const lastRun = line.runs[line.runs.length - 1];
+    let trim = 0;
+    for (let i = lastRun.text.length - 1; i >= 0; i--) {
+      if (lastRun.text[i] === ' ') trim++;
+      else break;
+    }
+    endOffset -= trim;
+  }
+
   return {
     blockId: lb.block.id,
-    offset: charsBeforeLine + lineCharCount,
+    offset: endOffset,
+    lineAffinity: 'backward',
   };
 }
