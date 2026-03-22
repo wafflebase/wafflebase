@@ -9,6 +9,7 @@ import { Selection } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
 import { paginateLayout, getTotalHeight, type PaginatedLayout } from './pagination.js';
+import { Ruler } from './ruler.js';
 
 /**
  * Public API returned by initialize().
@@ -70,6 +71,7 @@ export function initialize(
   container.appendChild(spacer);
 
   const docCanvas = new DocCanvas(canvas);
+  const ruler = new Ruler(container, canvas);
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
@@ -78,6 +80,7 @@ export function initialize(
   let dirtyBlockIds: Set<string> | undefined;
   let needsScrollIntoView = false;
   let focused = true;
+  let dragGuideline: { x?: number; y?: number } | null = null;
 
   // Compute layout helper
   const recomputeLayout = () => {
@@ -167,6 +170,40 @@ export function initialize(
     );
 
     docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused);
+
+    // Draw drag guideline if active
+    if (dragGuideline) {
+      const ctx = docCanvas.getContext();
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = '#4285F4';
+      ctx.lineWidth = 1;
+      if (dragGuideline.x != null) {
+        ctx.beginPath();
+        ctx.moveTo(dragGuideline.x, 0);
+        ctx.lineTo(dragGuideline.x, height);
+        ctx.stroke();
+      }
+      if (dragGuideline.y != null) {
+        ctx.beginPath();
+        ctx.moveTo(0, dragGuideline.y);
+        ctx.lineTo(canvasWidth, dragGuideline.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Render rulers
+    const cursorBlock = doc.document.blocks.find(
+      (b) => b.id === cursor.position.blockId,
+    );
+    ruler.render(
+      paginatedLayout,
+      scrollY,
+      canvasWidth,
+      height,
+      cursorBlock?.style ?? null,
+    );
   };
 
   // Render helper — full layout recomputation + paint
@@ -180,6 +217,29 @@ export function initialize(
   const renderPaintOnly = () => {
     paint();
   };
+
+  // Wire ruler callbacks
+  ruler.onMarginChange((margins) => {
+    docStore.snapshot();
+    const setup = resolvePageSetup(doc.document.pageSetup);
+    setup.margins = margins;
+    docStore.setPageSetup(setup);
+    doc.document.pageSetup = setup;
+    layoutCache = undefined;
+    render();
+  });
+
+  ruler.onIndentChange((style) => {
+    docStore.snapshot();
+    doc.applyBlockStyle(cursor.position.blockId, style);
+    markDirty(cursor.position.blockId);
+    render();
+  });
+
+  ruler.onDragGuideline((pos) => {
+    dragGuideline = pos;
+    renderPaintOnly();
+  });
 
   // Wire up text editor
   const undoFn = () => {
@@ -297,6 +357,7 @@ export function initialize(
     redo: redoFn,
     focus: () => textEditor.focus(),
     dispose: () => {
+      ruler.dispose();
       cursor.dispose();
       textEditor.dispose();
       container.removeEventListener('scroll', handleScroll);
