@@ -1,6 +1,27 @@
 import type { Block, Inline, InlineStyle } from '../model/types.js';
 import { Theme, buildFont } from './theme.js';
 
+const measureCache = new Map<string, number>();
+
+export function cachedMeasureText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  font: string,
+): number {
+  const key = `${font}\t${text}`;
+  let width = measureCache.get(key);
+  if (width === undefined) {
+    ctx.font = font;
+    width = ctx.measureText(text).width;
+    measureCache.set(key, width);
+  }
+  return width;
+}
+
+export function clearMeasureCache(): void {
+  measureCache.clear();
+}
+
 /**
  * A measured run of text within a line.
  */
@@ -221,7 +242,7 @@ function measureSegments(
 
   for (let i = 0; i < block.inlines.length; i++) {
     const inline = block.inlines[i];
-    ctx.font = buildFont(
+    const font = buildFont(
       inline.style.fontSize,
       inline.style.fontFamily,
       inline.style.bold,
@@ -233,11 +254,11 @@ function measureSegments(
     let charPos = 0;
 
     for (const word of words) {
-      const metrics = ctx.measureText(word);
+      const width = cachedMeasureText(ctx, word, font);
       segments.push({
         text: word,
         style: inline.style,
-        width: metrics.width,
+        width,
         inlineIndex: i,
         charStart: charPos,
         charEnd: charPos + word.length,
