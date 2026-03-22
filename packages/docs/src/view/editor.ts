@@ -170,7 +170,7 @@ export function initialize(
       canvasWidth,
     );
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused);
+    docCanvas.render(paginatedLayout, layout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused);
 
     // Draw drag guideline if active
     if (dragGuideline) {

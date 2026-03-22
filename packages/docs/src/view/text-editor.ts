@@ -1136,6 +1136,42 @@ export class TextEditor {
     const pageY = getPageYOffset(paginatedLayout, pageIndex);
     const lb = layout.blocks[pageLine.blockIndex];
 
+    // If cursor is in trailing whitespace of a wrapped line, render at next line start
+    const isWrappedLine = lb && pageLine.lineIndex < lb.lines.length - 1;
+    if (isWrappedLine) {
+      const text = getBlockText(this.doc.getBlock(pos.blockId));
+      let lineEndOffset = 0;
+      for (let li = 0; li <= pageLine.lineIndex; li++) {
+        for (const r of lb.lines[li].runs) {
+          lineEndOffset += r.charEnd - r.charStart;
+        }
+      }
+      // Find where non-space content ends on this line
+      let lineStartOffset = lineEndOffset;
+      for (const r of pageLine.line.runs) {
+        lineStartOffset -= r.charEnd - r.charStart;
+      }
+      let lastNonSpace = lineEndOffset;
+      while (lastNonSpace > lineStartOffset && text[lastNonSpace - 1] === ' ') {
+        lastNonSpace--;
+      }
+      if (pos.offset >= lastNonSpace && pos.offset < lineEndOffset) {
+        // Render cursor at the start of the next line
+        const nextLine = lb.lines[pageLine.lineIndex + 1];
+        if (nextLine) {
+          // Find the page line for the next visual line
+          for (const page of paginatedLayout.pages) {
+            for (const pl of page.lines) {
+              if (pl.blockIndex === pageLine.blockIndex && pl.lineIndex === pageLine.lineIndex + 1) {
+                const nextPageY = getPageYOffset(paginatedLayout, page.pageIndex);
+                return { x: pageX + pl.x, y: nextPageY + pl.y, height: pl.line.height };
+              }
+            }
+          }
+        }
+      }
+    }
+
     let charsBeforeLine = 0;
     for (let li = 0; li < pageLine.lineIndex; li++) {
       for (const r of lb.lines[li].runs) {
@@ -1150,7 +1186,9 @@ export class TextEditor {
       if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
         const localOff = lineOffset - charCount;
         ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
-        const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+        // Trim trailing spaces for visual width on wrapped lines
+        const measureText = isWrappedLine ? run.text.slice(0, localOff).trimEnd() : run.text.slice(0, localOff);
+        const x = pageX + pageLine.x + run.x + ctx.measureText(measureText).width;
         return { x, y: pageY + pageLine.y, height: pageLine.line.height };
       }
       charCount += runLength;
