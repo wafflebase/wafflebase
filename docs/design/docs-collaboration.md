@@ -185,7 +185,7 @@ All write methods execute inside `doc.update((root) => { ... })` and set
 - **`setDocument(doc)`** — Replaces the entire tree content. Used for
   initial document setup.
 - **`replaceDocument(doc)`** — No-op on `YorkieDocStore`. The current
-  `editor.ts` pattern of calling `replaceDocument()` after `Doc` mutations
+  `packages/docs/src/view/editor.ts` pattern of calling `replaceDocument()` after `Doc` mutations
   (via `syncToStore()`) is unnecessary when `Doc` already writes through
   the store. The `syncToStore()` call is removed from the editor.
 
