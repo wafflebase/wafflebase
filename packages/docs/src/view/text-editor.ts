@@ -555,6 +555,10 @@ export class TextEditor {
     // Mark all blocks in the selection range as dirty
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
+    if (startIdx < 0 || endIdx < 0) {
+      this.requestRender();
+      return;
+    }
     const lo = Math.min(startIdx, endIdx);
     const hi = Math.max(startIdx, endIdx);
     for (let i = lo; i <= hi; i++) {
