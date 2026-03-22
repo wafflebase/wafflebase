@@ -194,11 +194,11 @@ recomputed (backward-compatible behavior).
 
 | File | Change |
 |------|--------|
-| `view/editor.ts` | Split render/renderPaintOnly, dirty tracking, layout cache, invalidateLayout |
-| `view/doc-canvas.ts` | (already done) viewport canvas + scrollY translation |
-| `view/layout.ts` | measureText cache, incremental layout with cache parameter |
-| `view/text-editor.ts` | markDirty for text/style ops, invalidateLayout for structural ops |
-| `view/cursor.ts` | No change (receives renderPaintOnly callback) |
+| editor.ts | Split render/renderPaintOnly, dirty tracking, layout cache, invalidateLayout |
+| doc-canvas.ts | (already done) viewport canvas + scrollY translation |
+| layout.ts | measureText cache, incremental layout with cache parameter |
+| text-editor.ts | markDirty for text/style ops, invalidateLayout for structural ops |
+| cursor.ts | No change (receives renderPaintOnly callback) |
 
 ## Risks and Mitigation
 
