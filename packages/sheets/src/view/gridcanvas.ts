@@ -482,11 +482,14 @@ export class GridCanvas {
       return resolved;
     };
 
+    // Extend the overflow detection range to the left so that text from
+    // off-screen cells that overflows into the visible area is still drawn.
+    const overflowColStart = Math.max(1, colStart - 20);
     const overflowData = this.buildTextOverflowRenderData(
       ctx,
       rowStart,
       rowEnd,
-      colStart,
+      overflowColStart,
       colEnd,
       grid,
       colDim,
@@ -568,6 +571,32 @@ export class GridCanvas {
         mergeSpan,
         overflowEndCol,
       );
+    }
+
+    // Pass 3b: Render text from off-screen overflow anchors whose text
+    // spills into the visible viewport. These cells are outside the normal
+    // renderRefs range, so they need an extra draw pass.
+    if (overflowData) {
+      for (const [sref, endCol] of overflowData.anchorToEndCol) {
+        const ref = parseRef(sref);
+        if (ref.c < colStart && endCol >= colStart) {
+          const cell = grid?.get(sref);
+          const effectiveStyle = resolveCellStyle(ref.r, ref.c, cell);
+          this.renderCellContent(
+            ctx,
+            ref,
+            cell,
+            scroll,
+            rowDim,
+            colDim,
+            effectiveStyle,
+            grid,
+            colEnd,
+            undefined,
+            endCol,
+          );
+        }
+      }
     }
 
     // Pass 4: Render filter dropdown buttons inside filter header row cells.
