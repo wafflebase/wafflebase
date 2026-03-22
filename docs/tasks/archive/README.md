@@ -6,12 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 87
+Total archived tasks: 89
 
-## 2026/03 (50 tasks)
+## 2026/03 (52 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs rendering optimization (2026-03-22) | [20260322-docs-rendering-optimization-todo.md](./2026/03/20260322-docs-rendering-optimization-todo.md) | - |
+| pr58 review (2026-03-21) | [20260321-pr58-review-todo.md](./2026/03/20260321-pr58-review-todo.md) | - |
 | pivot merge block (2026-03-20) | [20260320-pivot-merge-block-todo.md](./2026/03/20260320-pivot-merge-block-todo.md) | - |
 | concurrency move tests (2026-03-16) | [20260316-concurrency-move-tests-todo.md](./2026/03/20260316-concurrency-move-tests-todo.md) | [20260316-concurrency-move-tests-lessons.md](./2026/03/20260316-concurrency-move-tests-lessons.md) |
 | cli oauth login (2026-03-15) | [20260315-cli-oauth-login-todo.md](./2026/03/20260315-cli-oauth-login-todo.md) | - |

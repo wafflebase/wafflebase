@@ -1,6 +1,6 @@
 # Docs Rendering Optimization Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Optimize the docs editor rendering pipeline so that scroll, cursor blink, and single-character typing do not recompute the layout of the entire document.
 
@@ -19,7 +19,7 @@
 
 Extract the paint portion of `render()` into a separate `paint()` function. `render()` calls `recomputeLayout()` then `paint()`. A new `renderPaintOnly()` calls only `paint()`.
 
-- [ ] **Step 1: Extract paint() from render()**
+- [x] **Step 1: Extract paint() from render()**
 
 In `editor.ts`, refactor `render()`:
 
@@ -78,14 +78,14 @@ const renderPaintOnly = () => {
 };
 ```
 
-- [ ] **Step 2: Wire scroll to renderPaintOnly**
+- [x] **Step 2: Wire scroll to renderPaintOnly**
 
 Change `handleScroll`:
 ```typescript
 const handleScroll = () => renderPaintOnly();
 ```
 
-- [ ] **Step 3: Wire cursor blink to renderPaintOnly**
+- [x] **Step 3: Wire cursor blink to renderPaintOnly**
 
 Change both `cursor.startBlink` calls:
 ```typescript
@@ -93,7 +93,7 @@ cursor.startBlink(renderPaintOnly);
 ```
 (Lines 194 and 210 in the current file.)
 
-- [ ] **Step 4: Verify in browser**
+- [x] **Step 4: Verify in browser**
 
 Run: `pnpm --filter @wafflebase/docs exec vite --port 5174`
 
@@ -103,7 +103,7 @@ Open http://localhost:5174. Verify:
 - Typing still works (full render path)
 - Click to move cursor works
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run: `pnpm verify:fast`
 
@@ -126,7 +126,7 @@ most frequent source of unnecessary full-layout recalculation."
 
 Add a module-level Map cache keyed by `font\ttext` to avoid redundant `ctx.measureText()` calls.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 Create `packages/docs/test/view/measure-cache.test.ts`:
 
@@ -175,13 +175,13 @@ describe('cachedMeasureText', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/docs exec vitest --run test/view/measure-cache.test.ts`
 
 Expected: FAIL — `cachedMeasureText` and `clearMeasureCache` not exported.
 
-- [ ] **Step 3: Implement cachedMeasureText**
+- [x] **Step 3: Implement cachedMeasureText**
 
 In `layout.ts`, add near the top (after imports):
 
@@ -208,7 +208,7 @@ export function clearMeasureCache(): void {
 }
 ```
 
-- [ ] **Step 4: Wire measureSegments to use the cache**
+- [x] **Step 4: Wire measureSegments to use the cache**
 
 In `measureSegments()` (line ~224-236), replace the direct `ctx.measureText` call:
 
@@ -238,13 +238,13 @@ const width = cachedMeasureText(ctx, word, font);
 
 Use `width` directly instead of `metrics.width`.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `pnpm --filter @wafflebase/docs exec vitest --run test/view/measure-cache.test.ts`
 
 Expected: PASS
 
-- [ ] **Step 6: Run full verify and commit**
+- [x] **Step 6: Run full verify and commit**
 
 Run: `pnpm verify:fast`
 
@@ -268,7 +268,7 @@ subsequent layout passes."
 
 Add a `LayoutCache` that stores per-block layout results. When `dirtyBlockIds` is provided, only those blocks are recomputed; others reuse cached results. Y offsets are always recalculated.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 Create `packages/docs/test/view/incremental-layout.test.ts`:
 
@@ -360,13 +360,13 @@ describe('incremental layout', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/docs exec vitest --run test/view/incremental-layout.test.ts`
 
 Expected: FAIL — `LayoutCache` type not exported, `computeLayout` signature mismatch.
 
-- [ ] **Step 3: Update computeLayout signature and implement caching**
+- [x] **Step 3: Update computeLayout signature and implement caching**
 
 In `layout.ts`:
 
@@ -451,13 +451,13 @@ Implementation (replaces current body). Note: `layoutBlock(block, ctx, maxWidth)
 
 Note: `getLineMaxFontSize` is an existing private function in `layout.ts`. It must remain accessible within the function.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `pnpm --filter @wafflebase/docs exec vitest --run test/view/incremental-layout.test.ts`
 
 Expected: PASS
 
-- [ ] **Step 5: Update editor.ts to use the new signature**
+- [x] **Step 5: Update editor.ts to use the new signature**
 
 In `editor.ts`, update `recomputeLayout` and add dirty tracking:
 
@@ -485,7 +485,7 @@ const recomputeLayout = () => {
 
 Add `import type { LayoutCache } from './layout.js'` at top.
 
-- [ ] **Step 6: Add markDirty helper and wire to TextEditor**
+- [x] **Step 6: Add markDirty helper and wire to TextEditor**
 
 In `editor.ts`, add a `markDirty` function and pass it to TextEditor:
 
@@ -523,7 +523,7 @@ const undoFn = () => {
 ```
 Same for `redoFn`.
 
-- [ ] **Step 7: Verify in browser**
+- [x] **Step 7: Verify in browser**
 
 Run dev server, open the demo. Verify:
 - Normal typing works correctly
@@ -532,7 +532,7 @@ Run dev server, open the demo. Verify:
 - Undo/redo works
 - Scrolling renders correctly
 
-- [ ] **Step 8: Run full verify and commit**
+- [x] **Step 8: Run full verify and commit**
 
 Run: `pnpm verify:fast`
 
@@ -554,7 +554,7 @@ Structural operations and undo/redo force full recompute."
 **Files:**
 - Modify: `packages/docs/src/view/editor.ts`
 
-- [ ] **Step 1: Add dirty marking to applyStyle**
+- [x] **Step 1: Add dirty marking to applyStyle**
 
 In the `applyStyle` method of the returned API. For multi-block selections, mark all blocks in the range as dirty (not just endpoints):
 ```typescript
@@ -576,7 +576,7 @@ applyStyle: (style: Partial<InlineStyle>) => {
 },
 ```
 
-- [ ] **Step 2: Add dirty marking to applyBlockStyle**
+- [x] **Step 2: Add dirty marking to applyBlockStyle**
 
 ```typescript
 applyBlockStyle: (style: Partial<BlockStyle>) => {
@@ -587,7 +587,7 @@ applyBlockStyle: (style: Partial<BlockStyle>) => {
 },
 ```
 
-- [ ] **Step 3: Verify in browser and commit**
+- [x] **Step 3: Verify in browser and commit**
 
 Open demo, select text, apply bold/italic/alignment. Verify rendering updates correctly.
 
