@@ -256,7 +256,7 @@ export class TextEditor {
     switch (key) {
       case 'Backspace':
         e.preventDefault();
-        if (mod) {
+        if (isMac && metaKey) {
           this.handleLineBackspace();
         } else if (wordMod) {
           this.handleWordBackspace();
@@ -278,8 +278,7 @@ export class TextEditor {
         break;
       case 'ArrowLeft':
         e.preventDefault();
-        if (mod) {
-          // Cmd+Left: jump to line start (Mac behavior)
+        if (isMac && metaKey) {
           this.handleHome(shiftKey);
         } else {
           this.handleArrow('left', shiftKey, wordMod);
@@ -287,8 +286,7 @@ export class TextEditor {
         break;
       case 'ArrowRight':
         e.preventDefault();
-        if (mod) {
-          // Cmd+Right: jump to line end (Mac behavior)
+        if (isMac && metaKey) {
           this.handleEnd(shiftKey);
         } else {
           this.handleArrow('right', shiftKey, wordMod);
@@ -296,8 +294,7 @@ export class TextEditor {
         break;
       case 'ArrowUp':
         e.preventDefault();
-        if (mod) {
-          // Cmd+Up: jump to document start
+        if (isMac && metaKey) {
           this.handleDocStart(shiftKey);
         } else {
           this.handleArrow('up', shiftKey, wordMod);
@@ -305,8 +302,7 @@ export class TextEditor {
         break;
       case 'ArrowDown':
         e.preventDefault();
-        if (mod) {
-          // Cmd+Down: jump to document end
+        if (isMac && metaKey) {
           this.handleDocEnd(shiftKey);
         } else {
           this.handleArrow('down', shiftKey, wordMod);
@@ -422,11 +418,12 @@ export class TextEditor {
       }
       if (lines[i].length > 0) {
         this.doc.insertText(this.cursor.position, lines[i]);
-        this.cursor.moveTo({
+        const newPos = {
           blockId: this.cursor.position.blockId,
           offset: this.cursor.position.offset + lines[i].length,
-        });
-        this.markDirty(this.cursor.position.blockId);
+        };
+        this.markDirty(newPos.blockId);
+        this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
       }
     }
     this.selection.setRange(null);
