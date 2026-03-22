@@ -1,6 +1,6 @@
 import type { PaginatedLayout } from './pagination.js';
 import { getPageYOffset, getPageXOffset } from './pagination.js';
-import type { DocumentLayout, LayoutRun } from './layout.js';
+import type { LayoutRun } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 
 /**
@@ -27,7 +27,6 @@ export class DocCanvas {
    */
   render(
     paginatedLayout: PaginatedLayout,
-    layout: DocumentLayout,
     scrollY: number,
     canvasWidth: number,
     viewportHeight: number,
@@ -93,15 +92,8 @@ export class DocCanvas {
 
       // Draw text
       for (const pl of page.lines) {
-        const lb = layout.blocks[pl.blockIndex];
-        const isWrappedLine = lb && pl.lineIndex < lb.lines.length - 1;
-        const runs = pl.line.runs;
-        for (let ri = 0; ri < runs.length; ri++) {
-          const isLastRunOnLine = ri === runs.length - 1;
-          this.renderRun(
-            runs[ri], pageX + pl.x, pageY + pl.y, pl.line.height,
-            isWrappedLine && isLastRunOnLine,
-          );
+        for (const run of pl.line.runs) {
+          this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height);
         }
       }
 
@@ -129,7 +121,6 @@ export class DocCanvas {
     lineX: number,
     lineY: number,
     lineHeight: number,
-    trimTrailingSpaces = false,
   ): void {
     const style = run.inline.style;
     this.ctx.font = buildFont(
@@ -145,9 +136,7 @@ export class DocCanvas {
     const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
     const x = Math.round(lineX + run.x);
 
-    // Trim trailing spaces on wrapped lines so they are not visible
-    const text = trimTrailingSpaces ? run.text.trimEnd() : run.text;
-    this.ctx.fillText(text, x, baselineY);
+    this.ctx.fillText(run.text, x, baselineY);
 
     if (style.underline) {
       const underlineY = baselineY + 2;

@@ -889,12 +889,7 @@ export class TextEditor {
 
   private moveLeft(pos: DocPosition): DocPosition {
     if (pos.offset > 0) {
-      const newOffset = pos.offset - 1;
-      // Skip trailing spaces at visual line wrap points (going backwards).
-      // If we land on a trailing space at the end of a wrapped line,
-      // jump to the last non-space character on that line.
-      const skipOffset = this.skipLineWrapSpacesBackward(pos.blockId, newOffset);
-      return { blockId: pos.blockId, offset: skipOffset };
+      return { blockId: pos.blockId, offset: pos.offset - 1 };
     }
     // Move to end of previous block
     const idx = this.doc.getBlockIndex(pos.blockId);
@@ -909,12 +904,7 @@ export class TextEditor {
     const block = this.doc.getBlock(pos.blockId);
     const len = getBlockTextLength(block);
     if (pos.offset < len) {
-      const newOffset = pos.offset + 1;
-      // Skip trailing spaces at visual line wrap points.
-      // If the new position lands on trailing whitespace at the end of a
-      // wrapped line (not the last line), jump to the next line start.
-      const skipOffset = this.skipLineWrapSpaces(pos.blockId, newOffset);
-      return { blockId: pos.blockId, offset: skipOffset };
+      return { blockId: pos.blockId, offset: pos.offset + 1 };
     }
     // Move to start of next block
     const idx = this.doc.getBlockIndex(pos.blockId);
@@ -954,76 +944,6 @@ export class TextEditor {
   }
 
   /**
-   * If offset is at trailing whitespace of a wrapped line (not the last
-   * line of the block), skip past the whitespace to the next line start.
-   * This matches Google Docs behavior where trailing spaces at wrap
-   * points are visually hidden and the cursor jumps to the next line.
-   */
-  private skipLineWrapSpaces(blockId: string, offset: number): number {
-    const layout = this.getLayout();
-    const lb = layout.blocks.find((b) => b.block.id === blockId);
-    if (!lb || lb.lines.length <= 1) return offset;
-
-    const text = getBlockText(this.doc.getBlock(blockId));
-    let charsBefore = 0;
-    for (let li = 0; li < lb.lines.length - 1; li++) {
-      let lineChars = 0;
-      for (const run of lb.lines[li].runs) {
-        lineChars += run.charEnd - run.charStart;
-      }
-      const lineEnd = charsBefore + lineChars;
-
-      // Check if offset is in the trailing space zone at the end of this line
-      if (offset >= charsBefore && offset < lineEnd && text[offset] === ' ') {
-        // Find where the non-space content ends on this line
-        let lastNonSpace = lineEnd;
-        while (lastNonSpace > charsBefore && text[lastNonSpace - 1] === ' ') {
-          lastNonSpace--;
-        }
-        if (offset >= lastNonSpace) {
-          // Jump to next line start (which is lineEnd)
-          return lineEnd;
-        }
-      }
-      charsBefore = lineEnd;
-    }
-    return offset;
-  }
-
-  /**
-   * When moving left lands on a trailing space at a line wrap point,
-   * skip back to the last non-space character on that line.
-   */
-  private skipLineWrapSpacesBackward(blockId: string, offset: number): number {
-    const layout = this.getLayout();
-    const lb = layout.blocks.find((b) => b.block.id === blockId);
-    if (!lb || lb.lines.length <= 1) return offset;
-
-    const text = getBlockText(this.doc.getBlock(blockId));
-    let charsBefore = 0;
-    for (let li = 0; li < lb.lines.length - 1; li++) {
-      let lineChars = 0;
-      for (const run of lb.lines[li].runs) {
-        lineChars += run.charEnd - run.charStart;
-      }
-      const lineEnd = charsBefore + lineChars;
-
-      if (offset >= charsBefore && offset < lineEnd && text[offset] === ' ') {
-        let lastNonSpace = lineEnd;
-        while (lastNonSpace > charsBefore && text[lastNonSpace - 1] === ' ') {
-          lastNonSpace--;
-        }
-        if (offset >= lastNonSpace) {
-          // Jump to the last non-space character
-          return lastNonSpace > charsBefore ? lastNonSpace - 1 : charsBefore;
-        }
-      }
-      charsBefore = lineEnd;
-    }
-    return offset;
-  }
-
-  /**
    * Find the visual line containing the given position and return
    * the character offset range [start, end] within the block.
    */
@@ -1057,22 +977,8 @@ export class TextEditor {
   }
 
   private getVisualLineEnd(pos: DocPosition): DocPosition {
-    const layout = this.getLayout();
-    const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
-    const [lineStart, lineEnd] = this.getVisualLineRange(pos);
-
-    // For wrapped lines (not the last line), exclude trailing spaces
-    if (lb && lb.lines.length > 1) {
-      const text = getBlockText(this.doc.getBlock(pos.blockId));
-      const totalLen = getBlockTextLength(this.doc.getBlock(pos.blockId));
-      if (lineEnd < totalLen) {
-        let end = lineEnd;
-        while (end > lineStart && text[end - 1] === ' ') end--;
-        return { blockId: pos.blockId, offset: end };
-      }
-    }
-
-    return { blockId: pos.blockId, offset: lineEnd };
+    const [, end] = this.getVisualLineRange(pos);
+    return { blockId: pos.blockId, offset: end };
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
@@ -1136,42 +1042,6 @@ export class TextEditor {
     const pageY = getPageYOffset(paginatedLayout, pageIndex);
     const lb = layout.blocks[pageLine.blockIndex];
 
-    // If cursor is in trailing whitespace of a wrapped line, render at next line start
-    const isWrappedLine = lb && pageLine.lineIndex < lb.lines.length - 1;
-    if (isWrappedLine) {
-      const text = getBlockText(this.doc.getBlock(pos.blockId));
-      let lineEndOffset = 0;
-      for (let li = 0; li <= pageLine.lineIndex; li++) {
-        for (const r of lb.lines[li].runs) {
-          lineEndOffset += r.charEnd - r.charStart;
-        }
-      }
-      // Find where non-space content ends on this line
-      let lineStartOffset = lineEndOffset;
-      for (const r of pageLine.line.runs) {
-        lineStartOffset -= r.charEnd - r.charStart;
-      }
-      let lastNonSpace = lineEndOffset;
-      while (lastNonSpace > lineStartOffset && text[lastNonSpace - 1] === ' ') {
-        lastNonSpace--;
-      }
-      if (pos.offset >= lastNonSpace && pos.offset < lineEndOffset) {
-        // Render cursor at the start of the next line
-        const nextLine = lb.lines[pageLine.lineIndex + 1];
-        if (nextLine) {
-          // Find the page line for the next visual line
-          for (const page of paginatedLayout.pages) {
-            for (const pl of page.lines) {
-              if (pl.blockIndex === pageLine.blockIndex && pl.lineIndex === pageLine.lineIndex + 1) {
-                const nextPageY = getPageYOffset(paginatedLayout, page.pageIndex);
-                return { x: pageX + pl.x, y: nextPageY + pl.y, height: pl.line.height };
-              }
-            }
-          }
-        }
-      }
-    }
-
     let charsBeforeLine = 0;
     for (let li = 0; li < pageLine.lineIndex; li++) {
       for (const r of lb.lines[li].runs) {
@@ -1186,9 +1056,7 @@ export class TextEditor {
       if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
         const localOff = lineOffset - charCount;
         ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
-        // Trim trailing spaces for visual width on wrapped lines
-        const measureText = isWrappedLine ? run.text.slice(0, localOff).trimEnd() : run.text.slice(0, localOff);
-        const x = pageX + pageLine.x + run.x + ctx.measureText(measureText).width;
+        const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
         return { x, y: pageY + pageLine.y, height: pageLine.line.height };
       }
       charCount += runLength;
