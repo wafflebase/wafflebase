@@ -22,6 +22,7 @@ export interface DocStore {
   updateBlock(id: string, block: Block): void;
   insertBlock(index: number, block: Block): void;
   deleteBlock(id: string): void;
+  deleteBlockByIndex(index: number): void;
   getPageSetup(): PageSetup;
   setPageSetup(setup: PageSetup): void;
   /** Save current state to the undo stack before a group of mutations. */

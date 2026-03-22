@@ -11,28 +11,49 @@ import {
   inlineStylesEqual,
   generateBlockId,
 } from './types.js';
+import { MemDocStore } from '../store/memory.js';
+import type { DocStore } from '../store/store.js';
 
 /**
  * Document manipulation logic.
  *
- * Operates directly on a Document object. All mutations return void
- * and modify the document in place.
+ * Delegates all mutations through a DocStore. Maintains a cached
+ * Document for reads, refreshed after each mutation.
  */
 export class Doc {
-  constructor(public document: Document) {}
+  private store: DocStore;
+  private _document: Document;
+
+  constructor(store: DocStore) {
+    this.store = store;
+    this._document = this.store.getDocument();
+  }
+
+  get document(): Document {
+    return this._document;
+  }
+
+  /**
+   * Refresh cached document from store.
+   */
+  refresh(): void {
+    this._document = this.store.getDocument();
+  }
 
   /**
    * Create a new Doc with a single empty paragraph.
    */
   static create(): Doc {
-    return new Doc({ blocks: [createEmptyBlock()] });
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [createEmptyBlock()] });
+    return new Doc(store);
   }
 
   /**
    * Find a block by ID. Throws if not found.
    */
   getBlock(blockId: string): Block {
-    const block = this.document.blocks.find((b) => b.id === blockId);
+    const block = this._document.blocks.find((b) => b.id === blockId);
     if (!block) throw new Error(`Block not found: ${blockId}`);
     return block;
   }
@@ -41,7 +62,7 @@ export class Doc {
    * Find block index by ID. Returns -1 if not found.
    */
   getBlockIndex(blockId: string): number {
-    return this.document.blocks.findIndex((b) => b.id === blockId);
+    return this._document.blocks.findIndex((b) => b.id === blockId);
   }
 
   /**
@@ -53,6 +74,8 @@ export class Doc {
     const inline = block.inlines[inlineIndex];
     inline.text =
       inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
+    this.store.updateBlock(pos.blockId, block);
+    this.refresh();
   }
 
   /**
@@ -86,6 +109,8 @@ export class Doc {
     }
 
     this.normalizeInlines(block);
+    this.store.updateBlock(pos.blockId, block);
+    this.refresh();
   }
 
   /**
@@ -104,9 +129,9 @@ export class Doc {
     const blockIndex = this.getBlockIndex(pos.blockId);
     if (blockIndex <= 0) return pos;
 
-    const prevBlock = this.document.blocks[blockIndex - 1];
+    const prevBlock = this._document.blocks[blockIndex - 1];
     const prevLength = getBlockTextLength(prevBlock);
-    const currentBlock = this.document.blocks[blockIndex];
+    const currentBlock = this._document.blocks[blockIndex];
 
     this.mergeBlocks(prevBlock.id, currentBlock.id);
     return { blockId: prevBlock.id, offset: prevLength };
@@ -118,7 +143,7 @@ export class Doc {
    */
   splitBlock(blockId: string, offset: number): string {
     const blockIndex = this.getBlockIndex(blockId);
-    const block = this.document.blocks[blockIndex];
+    const block = this._document.blocks[blockIndex];
     const blockText = getBlockText(block);
 
     // Build inlines for the first block (before split)
@@ -147,7 +172,9 @@ export class Doc {
       style: { ...block.style },
     };
 
-    this.document.blocks.splice(blockIndex + 1, 0, newBlock);
+    this.store.updateBlock(blockId, block);
+    this.store.insertBlock(blockIndex + 1, newBlock);
+    this.refresh();
     return newBlock.id;
   }
 
@@ -157,12 +184,13 @@ export class Doc {
   mergeBlocks(blockId: string, nextBlockId: string): void {
     const block = this.getBlock(blockId);
     const nextBlock = this.getBlock(nextBlockId);
-    const nextIndex = this.getBlockIndex(nextBlockId);
 
     block.inlines = [...block.inlines, ...nextBlock.inlines];
     this.normalizeInlines(block);
 
-    this.document.blocks.splice(nextIndex, 1);
+    this.store.updateBlock(blockId, block);
+    this.store.deleteBlock(nextBlockId);
+    this.refresh();
   }
 
   /**
@@ -183,14 +211,17 @@ export class Doc {
     const toBlockIdx = this.getBlockIndex(to.blockId);
 
     for (let i = fromBlockIdx; i <= toBlockIdx; i++) {
-      const block = this.document.blocks[i];
+      const block = this._document.blocks[i];
       const blockLen = getBlockTextLength(block);
       const start = i === fromBlockIdx ? from.offset : 0;
       const end = i === toBlockIdx ? to.offset : blockLen;
 
       if (start >= end) continue;
       this.applyStyleToBlock(block, start, end, style);
+      this.store.updateBlock(block.id, block);
     }
+
+    this.refresh();
   }
 
   /**
@@ -199,6 +230,24 @@ export class Doc {
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
     const block = this.getBlock(blockId);
     block.style = { ...block.style, ...style };
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Delete a block by ID.
+   */
+  deleteBlock(blockId: string): void {
+    this.store.deleteBlock(blockId);
+    this.refresh();
+  }
+
+  /**
+   * Delete a block by index.
+   */
+  deleteBlockByIndex(index: number): void {
+    this.store.deleteBlockByIndex(index);
+    this.refresh();
   }
 
   // --- Private helpers ---

@@ -48,14 +48,12 @@ export function initialize(
   const docStore = store ?? new MemDocStore();
 
   // Ensure the store has at least one block
-  let storeDoc = docStore.getDocument();
-  if (storeDoc.blocks.length === 0) {
-    const doc = Doc.create();
-    docStore.setDocument(doc.document);
-    storeDoc = docStore.getDocument();
+  if (docStore.getDocument().blocks.length === 0) {
+    const tempDoc = Doc.create();
+    docStore.setDocument(tempDoc.document);
   }
 
-  const doc = new Doc(storeDoc);
+  const doc = new Doc(docStore);
 
   // Create canvas (viewport-sized) and a spacer div for scroll height
   const canvas = document.createElement('canvas');
@@ -111,13 +109,6 @@ export function initialize(
   const invalidateLayout = () => {
     layoutCache = undefined;
     dirtyBlockIds = undefined;
-  };
-
-  // Sync the live Doc back into the store (without pushing undo).
-  // This keeps the store's internal state in sync with direct Doc mutations
-  // that were already preceded by a snapshot() call.
-  const syncToStore = () => {
-    docStore.replaceDocument(doc.document);
   };
 
   // Paint helper — repaints using cached layout (no recomputation)
@@ -213,7 +204,6 @@ export function initialize(
 
   // Render helper — full layout recomputation + paint
   const render = () => {
-    syncToStore();
     recomputeLayout();
     paint();
   };
@@ -229,7 +219,7 @@ export function initialize(
     const setup = resolvePageSetup(doc.document.pageSetup);
     setup.margins = { ...margins };
     docStore.setPageSetup(setup);
-    doc.document.pageSetup = setup;
+    doc.refresh();
     layoutCache = undefined;
     render();
   });
@@ -250,7 +240,7 @@ export function initialize(
   const undoFn = () => {
     if (docStore.canUndo()) {
       docStore.undo();
-      doc.document = docStore.getDocument();
+      doc.refresh();
       layoutCache = undefined;
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
@@ -262,7 +252,7 @@ export function initialize(
   const redoFn = () => {
     if (docStore.canRedo()) {
       docStore.redo();
-      doc.document = docStore.getDocument();
+      doc.refresh();
       layoutCache = undefined;
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });

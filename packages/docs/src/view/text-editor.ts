@@ -888,7 +888,7 @@ export class TextEditor {
 
       // Remove middle blocks
       for (let i = endBlockIdx - 1; i > startBlockIdx; i--) {
-        this.doc.document.blocks.splice(i, 1);
+        this.doc.deleteBlockByIndex(i);
       }
 
       // Merge first and last blocks
