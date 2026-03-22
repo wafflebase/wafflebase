@@ -104,6 +104,12 @@ export function initialize(
     dirtyBlockIds.add(blockId);
   };
 
+  // Force full layout recompute on next render (for structural operations)
+  const invalidateLayout = () => {
+    layoutCache = undefined;
+    dirtyBlockIds = undefined;
+  };
+
   // Sync the live Doc back into the store (without pushing undo).
   // This keeps the store's internal state in sync with direct Doc mutations
   // that were already preceded by a snapshot() call.
@@ -214,6 +220,7 @@ export function initialize(
     undoFn,
     redoFn,
     markDirty,
+    invalidateLayout,
   );
 
   // Start cursor blink
@@ -253,13 +260,23 @@ export function initialize(
     applyStyle: (style: Partial<InlineStyle>) => {
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
-        doc.applyInlineStyle(selection.range, style);
+        const range = selection.range;
+        doc.applyInlineStyle(range, style);
+        // Mark all blocks in the selection range as dirty
+        const startIdx = doc.getBlockIndex(range.anchor.blockId);
+        const endIdx = doc.getBlockIndex(range.focus.blockId);
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        for (let i = lo; i <= hi; i++) {
+          markDirty(doc.document.blocks[i].id);
+        }
         render();
       }
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
       doc.applyBlockStyle(cursor.position.blockId, style);
+      markDirty(cursor.position.blockId);
       render();
     },
     undo: undoFn,

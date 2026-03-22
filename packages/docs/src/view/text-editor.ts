@@ -76,6 +76,7 @@ export class TextEditor {
     private undoAction: () => void,
     private redoAction: () => void,
     private markDirty: (blockId: string) => void,
+    private invalidateLayout: () => void,
   ) {
     this.textarea = document.createElement('textarea');
     // Keep textarea within the viewport (not off-screen) so iOS IME works
@@ -208,12 +209,13 @@ export class TextEditor {
 
     this.saveSnapshot();
     this.deleteSelection();
+    const blockId = this.cursor.position.blockId;
     this.doc.insertText(this.cursor.position, data);
     this.cursor.moveTo({
       blockId: this.cursor.position.blockId,
       offset: this.cursor.position.offset + data.length,
     });
-    this.markDirty(this.cursor.position.blockId);
+    this.markDirty(blockId);
     this.requestRender();
   };
 
@@ -410,7 +412,15 @@ export class TextEditor {
   private handleBackspace(): void {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
+    const blockId = this.cursor.position.blockId;
+    const isInBlock = this.cursor.position.offset > 0;
+    if (!isInBlock) {
+      this.invalidateLayout();
+    }
     const newPos = this.doc.deleteBackward(this.cursor.position);
+    if (isInBlock) {
+      this.markDirty(blockId);
+    }
     this.cursor.moveTo(newPos);
     this.requestRender();
   }
@@ -424,10 +434,11 @@ export class TextEditor {
       this.doc.deleteText(this.cursor.position, 1);
       this.markDirty(this.cursor.position.blockId);
     } else {
-      // At end of block — merge with next
+      // At end of block — merge with next (structural change)
       const idx = this.doc.getBlockIndex(this.cursor.position.blockId);
       if (idx < this.doc.document.blocks.length - 1) {
         const nextBlock = this.doc.document.blocks[idx + 1];
+        this.invalidateLayout();
         this.doc.mergeBlocks(this.cursor.position.blockId, nextBlock.id);
       }
     }
@@ -437,6 +448,7 @@ export class TextEditor {
   private handleEnter(): void {
     this.saveSnapshot();
     this.deleteSelection();
+    this.invalidateLayout();
     const newBlockId = this.doc.splitBlock(
       this.cursor.position.blockId,
       this.cursor.position.offset,
@@ -536,8 +548,16 @@ export class TextEditor {
 
   private toggleStyle(style: Partial<InlineStyle>): void {
     if (!this.selection.hasSelection() || !this.selection.range) return;
-    this.doc.applyInlineStyle(this.selection.range, style);
-    this.markDirty(this.cursor.position.blockId);
+    const range = this.selection.range;
+    this.doc.applyInlineStyle(range, style);
+    // Mark all blocks in the selection range as dirty
+    const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
+    const endIdx = this.doc.getBlockIndex(range.focus.blockId);
+    const lo = Math.min(startIdx, endIdx);
+    const hi = Math.max(startIdx, endIdx);
+    for (let i = lo; i <= hi; i++) {
+      this.markDirty(this.doc.document.blocks[i].id);
+    }
     this.requestRender();
   }
 
@@ -558,10 +578,13 @@ export class TextEditor {
     const endBlockIdx = this.doc.getBlockIndex(end.blockId);
 
     if (startBlockIdx === endBlockIdx) {
-      // Same block
+      // Same block — mark dirty for incremental layout
       this.doc.deleteText(start, end.offset - start.offset);
+      this.markDirty(start.blockId);
     } else {
-      // Multi-block: delete from start to end of first block
+      // Multi-block structural change — force full layout recompute
+      this.invalidateLayout();
+      // Delete from start to end of first block
       const firstBlock = this.doc.getBlock(start.blockId);
       const firstLen = getBlockTextLength(firstBlock);
       if (start.offset < firstLen) {
