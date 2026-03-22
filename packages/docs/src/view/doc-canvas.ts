@@ -1,7 +1,7 @@
 import type { PaginatedLayout } from './pagination.js';
 import { getPageYOffset, getPageXOffset } from './pagination.js';
 import type { LayoutRun } from './layout.js';
-import { Theme, buildFont } from './theme.js';
+import { Theme, buildFont, ptToPx } from './theme.js';
 
 /**
  * Canvas rendering engine for the document editor.
@@ -132,9 +132,9 @@ export class DocCanvas {
     this.ctx.fillStyle = style.color ?? Theme.defaultColor;
     this.ctx.textBaseline = 'alphabetic';
 
-    const fontSize = style.fontSize ?? Theme.defaultFontSize;
-    const baselineY = lineY + (lineHeight + fontSize * 0.8) / 2;
-    const x = lineX + run.x;
+    const fontSizePx = ptToPx(style.fontSize ?? Theme.defaultFontSize);
+    const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
+    const x = Math.round(lineX + run.x);
 
     this.ctx.fillText(run.text, x, baselineY);
 
