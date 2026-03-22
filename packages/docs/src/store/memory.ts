@@ -30,9 +30,7 @@ export class MemDocStore implements DocStore {
   }
 
   setDocument(doc: Document): void {
-    this.pushUndo();
     this.doc = cloneDocument(doc);
-    this.redoStack = [];
   }
 
   replaceDocument(doc: Document): void {
@@ -45,25 +43,19 @@ export class MemDocStore implements DocStore {
   }
 
   updateBlock(id: string, block: Block): void {
-    this.pushUndo();
     const index = this.doc.blocks.findIndex((b) => b.id === id);
     if (index === -1) throw new Error(`Block not found: ${id}`);
     this.doc.blocks[index] = JSON.parse(JSON.stringify(block));
-    this.redoStack = [];
   }
 
   insertBlock(index: number, block: Block): void {
-    this.pushUndo();
     this.doc.blocks.splice(index, 0, JSON.parse(JSON.stringify(block)));
-    this.redoStack = [];
   }
 
   deleteBlock(id: string): void {
-    this.pushUndo();
     const index = this.doc.blocks.findIndex((b) => b.id === id);
     if (index === -1) throw new Error(`Block not found: ${id}`);
     this.doc.blocks.splice(index, 1);
-    this.redoStack = [];
   }
 
   getPageSetup(): PageSetup {
@@ -71,9 +63,7 @@ export class MemDocStore implements DocStore {
   }
 
   setPageSetup(setup: PageSetup): void {
-    this.pushUndo();
     this.doc.pageSetup = JSON.parse(JSON.stringify(setup));
-    this.redoStack = [];
   }
 
   undo(): void {

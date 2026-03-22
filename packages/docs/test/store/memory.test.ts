@@ -126,6 +126,7 @@ describe('MemDocStore', () => {
     it('should undo a setDocument', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
       store.setDocument({ blocks: [] });
       expect(store.getDocument().blocks).toHaveLength(0);
 
@@ -137,19 +138,22 @@ describe('MemDocStore', () => {
     it('should redo after undo', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
       store.setDocument({ blocks: [] });
       store.undo();
       store.redo();
       expect(store.getDocument().blocks).toHaveLength(0);
     });
 
-    it('should clear redo stack on new mutation', () => {
+    it('should clear redo stack on new snapshot', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
       store.setDocument({ blocks: [] });
       store.undo();
       expect(store.canRedo()).toBe(true);
 
+      store.snapshot();
       const newBlock = makeBlock('New');
       store.insertBlock(0, newBlock);
       expect(store.canRedo()).toBe(false);
@@ -160,6 +164,7 @@ describe('MemDocStore', () => {
       expect(store.canUndo()).toBe(false);
       expect(store.canRedo()).toBe(false);
 
+      store.snapshot();
       store.setDocument({ blocks: [makeBlock('A')] });
       expect(store.canUndo()).toBe(true);
       expect(store.canRedo()).toBe(false);
@@ -171,6 +176,7 @@ describe('MemDocStore', () => {
 
     it('should undo insertBlock', () => {
       const store = new MemDocStore();
+      store.snapshot();
       store.insertBlock(0, makeBlock('Hello'));
       expect(store.getDocument().blocks).toHaveLength(1);
 
@@ -181,6 +187,7 @@ describe('MemDocStore', () => {
     it('should undo deleteBlock', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
       store.deleteBlock(block.id);
       expect(store.getDocument().blocks).toHaveLength(0);
 
@@ -191,11 +198,19 @@ describe('MemDocStore', () => {
     it('should undo updateBlock', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
       store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });
       expect(store.getBlock(block.id)?.inlines[0].text).toBe('World');
 
       store.undo();
       expect(store.getBlock(block.id)?.inlines[0].text).toBe('Hello');
+    });
+
+    it('mutation without snapshot is not undoable', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });
+      expect(store.canUndo()).toBe(false);
     });
   });
 });
