@@ -194,16 +194,17 @@ recomputed (backward-compatible behavior).
 
 | File | Change |
 |------|--------|
-| `view/editor.ts` | Split render/renderPaintOnly, dirty tracking, layout cache |
+| `view/editor.ts` | Split render/renderPaintOnly, dirty tracking, layout cache, invalidateLayout |
 | `view/doc-canvas.ts` | (already done) viewport canvas + scrollY translation |
 | `view/layout.ts` | measureText cache, incremental layout with cache parameter |
+| `view/text-editor.ts` | markDirty for text/style ops, invalidateLayout for structural ops |
 | `view/cursor.ts` | No change (receives renderPaintOnly callback) |
 
 ## Risks and Mitigation
 
 | Risk | Mitigation |
 |------|-----------|
-| Stale layout cache after structural edits | Force full recompute on splitBlock/mergeBlocks/undo/redo |
+| Stale layout cache after structural edits | invalidateLayout() clears cache on splitBlock/mergeBlocks/multi-block delete; undo/redo also clears cache |
 | measureText cache unbounded growth | For typical documents, cache stays small (unique word+font combos). Monitor and add LRU eviction if needed. |
 | Y-offset drift after incremental layout | Always recompute all Y offsets cumulatively — only block-internal layout is cached |
 | Race between dirty tracking and render | dirtyBlockIds is reset synchronously inside recomputeLayout |
