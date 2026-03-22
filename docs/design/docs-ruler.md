@@ -154,14 +154,14 @@ class Ruler {
 
 **Modified files:**
 
-- `editor.ts` — create Ruler, wire callbacks, call `ruler.render()` in paint
-- `model/types.ts` — add `textIndent`, `marginLeft` to BlockStyle
-- `view/layout.ts` — apply indent/marginLeft to line wrapping
-- `index.ts` — export Ruler
+- `packages/docs/src/view/editor.ts` — create Ruler, wire callbacks, call `ruler.render()` in paint
+- `packages/docs/src/model/types.ts` — add `textIndent`, `marginLeft` to BlockStyle
+- `packages/docs/src/view/layout.ts` — apply indent/marginLeft to line wrapping
+- `packages/docs/src/index.ts` — export Ruler
 
 ### Render Integration
 
-The `paint()` function in `editor.ts` calls `ruler.render()` after
+The `paint()` function in the editor calls `ruler.render()` after
 `docCanvas.render()`, passing the current paginated layout, scroll offset,
 and the cursor block's style (for indent handle positions).
 
