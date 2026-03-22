@@ -52,8 +52,10 @@ export class Ruler {
   private unit: RulerUnit;
   private grid: GridConfig;
 
-  // Drag state (stubs for now)
-  private dragging: string | null = null;
+  // Drag state
+  private dragging: 'left-margin' | 'right-margin' | 'top-margin' | 'bottom-margin' | 'text-indent' | 'margin-left' | null = null;
+  private dragStartPx = 0;
+  private dragCurrentPx = 0;
 
   // Callbacks
   private marginChangeCb?: (margins: PageMargins) => void;
@@ -109,6 +111,10 @@ export class Ruler {
     // Detect unit from locale
     this.unit = detectUnit(typeof navigator !== 'undefined' ? navigator?.language : undefined);
     this.grid = getGridConfig(this.unit);
+
+    if (typeof document !== 'undefined') {
+      this.addMouseHandlers();
+    }
   }
 
   render(
@@ -343,6 +349,151 @@ export class Ruler {
     this.vCanvas.style.width = `${RULER_SIZE}px`;
     this.vCanvas.style.height = `${height}px`;
     this.vCtx.scale(dpr, dpr);
+  }
+
+  private getHitTarget(x: number, y: number, source: 'h' | 'v'): typeof this.dragging {
+    if (source === 'h') {
+      const leftMarginX = this.cachedPageX + this.cachedMargins.left;
+      const rightMarginX = this.cachedPageX + this.cachedPageWidth - this.cachedMargins.right;
+
+      // Check indent handles first (higher priority)
+      if (this.cachedBlockStyle) {
+        const indentX = leftMarginX + (this.cachedBlockStyle.textIndent ?? 0);
+        const marginLeftX = leftMarginX + (this.cachedBlockStyle.marginLeft ?? 0);
+        if (Math.abs(x - indentX) < HIT_ZONE && y < RULER_SIZE / 2) return 'text-indent';
+        if (Math.abs(x - marginLeftX) < HIT_ZONE && y >= RULER_SIZE / 2) return 'margin-left';
+      }
+
+      if (Math.abs(x - leftMarginX) < HIT_ZONE) return 'left-margin';
+      if (Math.abs(x - rightMarginX) < HIT_ZONE) return 'right-margin';
+    } else {
+      const contentTop = this.cachedVContentTop;
+      const contentBottom = this.cachedVContentBottom;
+      if (Math.abs(y - contentTop) < HIT_ZONE) return 'top-margin';
+      if (Math.abs(y - contentBottom) < HIT_ZONE) return 'bottom-margin';
+    }
+    return null;
+  }
+
+  private addMouseHandlers(): void {
+    const onHMouseDown = (e: MouseEvent) => {
+      const rect = this.hCanvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const target = this.getHitTarget(x, y, 'h');
+      if (target) {
+        this.dragging = target;
+        this.dragStartPx = x;
+        this.dragCurrentPx = x;
+        e.preventDefault();
+      }
+    };
+
+    const onVMouseDown = (e: MouseEvent) => {
+      const rect = this.vCanvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const target = this.getHitTarget(x, y, 'v');
+      if (target) {
+        this.dragging = target;
+        this.dragStartPx = y;
+        this.dragCurrentPx = y;
+        e.preventDefault();
+      }
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!this.dragging) {
+        // Update cursor on hover for horizontal ruler
+        const hRect = this.hCanvas.getBoundingClientRect();
+        const hx = e.clientX - hRect.left;
+        const hy = e.clientY - hRect.top;
+        if (hx >= 0 && hx <= hRect.width && hy >= 0 && hy <= hRect.height) {
+          const target = this.getHitTarget(hx, hy, 'h');
+          this.hCanvas.style.cursor = target
+            ? (target.includes('margin') ? 'col-resize' : 'pointer')
+            : 'default';
+        }
+        return;
+      }
+      // During drag, track position
+      if (this.dragging === 'top-margin' || this.dragging === 'bottom-margin') {
+        const rect = this.vCanvas.getBoundingClientRect();
+        this.dragCurrentPx = e.clientY - rect.top;
+      } else {
+        const rect = this.hCanvas.getBoundingClientRect();
+        this.dragCurrentPx = e.clientX - rect.left;
+      }
+      // Notify guideline callback
+      if (
+        this.dragging === 'left-margin' ||
+        this.dragging === 'right-margin' ||
+        this.dragging === 'text-indent' ||
+        this.dragging === 'margin-left'
+      ) {
+        this.dragGuidelineCb?.({ x: this.dragCurrentPx });
+      } else if (this.dragging === 'top-margin' || this.dragging === 'bottom-margin') {
+        this.dragGuidelineCb?.({ y: this.dragCurrentPx });
+      }
+    };
+
+    const onVMouseMove = (e: MouseEvent) => {
+      if (this.dragging) return;
+      const rect = this.vCanvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const target = this.getHitTarget(x, y, 'v');
+      this.vCanvas.style.cursor = target ? 'row-resize' : 'default';
+    };
+
+    const onMouseUp = () => {
+      if (!this.dragging) return;
+      this.applyDrag();
+      this.dragging = null;
+      this.dragGuidelineCb?.(null);
+    };
+
+    this.bindEvent(this.hCanvas, 'mousedown', onHMouseDown as EventListener);
+    this.bindEvent(this.vCanvas, 'mousedown', onVMouseDown as EventListener);
+    this.bindEvent(this.vCanvas, 'mousemove', onVMouseMove as EventListener);
+    this.bindEvent(document, 'mousemove', onMouseMove as EventListener);
+    this.bindEvent(document, 'mouseup', onMouseUp as EventListener);
+  }
+
+  private bindEvent(target: EventTarget, event: string, handler: EventListener): void {
+    target.addEventListener(event, handler);
+    this.boundHandlers.push([target, event, handler]);
+  }
+
+  private applyDrag(): void {
+    const delta = snapToGrid(this.dragCurrentPx - this.dragStartPx, this.grid.minorStepPx);
+    if (Math.abs(delta) < 1) return;
+
+    if (
+      this.dragging === 'left-margin' ||
+      this.dragging === 'right-margin' ||
+      this.dragging === 'top-margin' ||
+      this.dragging === 'bottom-margin'
+    ) {
+      const margins = { ...this.cachedMargins };
+      switch (this.dragging) {
+        case 'left-margin': margins.left += delta; break;
+        case 'right-margin': margins.right -= delta; break;
+        case 'top-margin': margins.top += delta; break;
+        case 'bottom-margin': margins.bottom -= delta; break;
+      }
+      margins.left = Math.max(0, margins.left);
+      margins.right = Math.max(0, margins.right);
+      margins.top = Math.max(0, margins.top);
+      margins.bottom = Math.max(0, margins.bottom);
+      this.marginChangeCb?.(margins);
+    } else if (this.dragging === 'text-indent') {
+      const newIndent = Math.max(0, (this.cachedBlockStyle?.textIndent ?? 0) + delta);
+      this.indentChangeCb?.({ textIndent: snapToGrid(newIndent, this.grid.minorStepPx) });
+    } else if (this.dragging === 'margin-left') {
+      const newML = Math.max(0, (this.cachedBlockStyle?.marginLeft ?? 0) + delta);
+      this.indentChangeCb?.({ marginLeft: snapToGrid(newML, this.grid.minorStepPx) });
+    }
   }
 
   onMarginChange(cb: (margins: PageMargins) => void): void {
