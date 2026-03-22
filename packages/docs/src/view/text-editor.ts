@@ -1050,7 +1050,7 @@ export class TextEditor {
     // If cursor didn't move, we may be at a page boundary.
     // Jump to the adjacent page's first/last line.
     if (result && result.blockId === pos.blockId && result.offset === pos.offset) {
-      const pageInfo = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout);
+      const pageInfo = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout, this.cursor.lineAffinity);
       if (pageInfo) {
         const nextPageIndex = pageInfo.pageIndex + direction;
         const nextPage = paginatedLayout.pages[nextPageIndex];
