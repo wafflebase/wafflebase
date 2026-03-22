@@ -97,12 +97,9 @@ export function initialize(
     docStore.replaceDocument(doc.document);
   };
 
-  // Render helper
-  const render = () => {
-    syncToStore();
-
+  // Paint helper — repaints using cached layout (no recomputation)
+  const paint = () => {
     const { width: viewportWidth, height } = container.getBoundingClientRect();
-    recomputeLayout();
     const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
     const canvasWidth = Math.max(viewportWidth, pageWidth);
     const totalHeight = getTotalHeight(paginatedLayout);
@@ -140,6 +137,18 @@ export function initialize(
     );
 
     docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused);
+  };
+
+  // Render helper — full layout recomputation + paint
+  const render = () => {
+    syncToStore();
+    recomputeLayout();
+    paint();
+  };
+
+  // Paint-only render — skips layout recomputation
+  const renderPaintOnly = () => {
+    paint();
   };
 
   // Wire up text editor
@@ -191,14 +200,14 @@ export function initialize(
   );
 
   // Start cursor blink
-  cursor.startBlink(render);
+  cursor.startBlink(renderPaintOnly);
 
   // Initial render
   render();
 
   // Scroll and resize listeners
   container.style.overflow = 'auto';
-  const handleScroll = () => render();
+  const handleScroll = () => renderPaintOnly();
   container.addEventListener('scroll', handleScroll);
 
   const resizeObserver = new ResizeObserver(() => render());
@@ -207,7 +216,7 @@ export function initialize(
   // Focus/blur handling
   const handleFocus = () => {
     focused = true;
-    cursor.startBlink(render);
+    cursor.startBlink(renderPaintOnly);
     render();
   };
   const handleBlur = () => {
