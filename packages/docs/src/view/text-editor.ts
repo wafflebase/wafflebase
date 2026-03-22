@@ -154,10 +154,12 @@ export class TextEditor {
     if (finalText.length > 0) {
       this.doc.insertText(startPosition, finalText);
     }
-    this.cursor.moveTo({
+    const endPos = {
       blockId: startPosition.blockId,
       offset: startPosition.offset + finalText.length,
-    });
+    };
+    this.markDirty(startPosition.blockId);
+    this.cursor.moveTo(endPos, this.getWrapAffinity(endPos));
 
     this.composition.active = false;
     this.composition.currentLength = 0;
@@ -197,10 +199,12 @@ export class TextEditor {
       }
 
       this.composition.currentLength = newText.length;
-      this.cursor.moveTo({
+      const compPos = {
         blockId: startPosition.blockId,
         offset: startPosition.offset + newText.length,
-      });
+      };
+      this.markDirty(startPosition.blockId);
+      this.cursor.moveTo(compPos, this.getWrapAffinity(compPos));
       this.requestRender();
       return;
     }
@@ -1163,11 +1167,12 @@ export class TextEditor {
       this.hangulComposingLength = 0;
     }
 
-    this.cursor.moveTo({
+    const hangulPos = {
       blockId: this.hangulStartPos.blockId,
       offset: this.hangulStartPos.offset + this.hangulComposingLength,
-    });
+    };
     this.markDirty(this.hangulStartPos.blockId);
+    this.cursor.moveTo(hangulPos, this.getWrapAffinity(hangulPos));
     this.requestRender();
   }
 
