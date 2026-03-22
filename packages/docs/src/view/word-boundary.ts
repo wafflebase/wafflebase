@@ -36,7 +36,7 @@ function categorize(ch: string): CharCategory {
   if (/\s/.test(ch)) return CharCategory.Whitespace;
   const code = ch.codePointAt(0)!;
   if (isCJK(code)) return CharCategory.CJK;
-  if (/\w/.test(ch)) return CharCategory.Word;
+  if (/[\p{L}\p{M}\p{N}]/u.test(ch)) return CharCategory.Word;
   return CharCategory.Punctuation;
 }
 

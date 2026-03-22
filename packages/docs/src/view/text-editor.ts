@@ -236,10 +236,12 @@ export class TextEditor {
     // Don't intercept keys during IME composition
     if (this.composition.active || e.isComposing) return;
 
-    const { key, ctrlKey, metaKey, shiftKey, altKey } = e;
-    const mod = ctrlKey || metaKey;
+    const { ctrlKey, metaKey, shiftKey, altKey } = e;
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+    const mod = isMac ? metaKey : ctrlKey;
     // Word-level modifier: Option on Mac, Ctrl on Windows/Linux
-    const wordMod = altKey;
+    const wordMod = isMac ? altKey : ctrlKey;
 
     // Flush software Hangul composition before processing special keys
     if (this.hangulAssembler.isComposing) {
@@ -613,6 +615,7 @@ export class TextEditor {
       this.markDirty(pos.blockId);
     } else {
       // At start of block — merge with previous (same as normal backspace)
+      if (this.doc.getBlockIndex(pos.blockId) === 0) return;
       this.invalidateLayout();
       const newPos = this.doc.deleteBackward(pos);
       this.cursor.moveTo(newPos);
@@ -766,6 +769,7 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: pos.blockId, offset: 0 });
       this.markDirty(pos.blockId);
     } else {
+      if (this.doc.getBlockIndex(pos.blockId) === 0) return;
       this.invalidateLayout();
       const newPos = this.doc.deleteBackward(pos);
       this.cursor.moveTo(newPos);
@@ -794,6 +798,7 @@ export class TextEditor {
 
   private clearFormatting(): void {
     if (!this.selection.hasSelection() || !this.selection.range) return;
+    this.saveSnapshot();
     const range = this.selection.range;
     this.doc.applyInlineStyle(range, {
       bold: undefined,
@@ -953,14 +958,17 @@ export class TextEditor {
     if (!lb) return [0, 0];
 
     let charsBefore = 0;
-    for (const line of lb.lines) {
+    for (let i = 0; i < lb.lines.length; i++) {
+      const line = lb.lines[i];
       let lineChars = 0;
       for (const run of line.runs) {
         lineChars += run.charEnd - run.charStart;
       }
       const lineStart = charsBefore;
       const lineEnd = charsBefore + lineChars;
-      if (pos.offset >= lineStart && pos.offset <= lineEnd) {
+      const isLastLine = i === lb.lines.length - 1;
+      if (pos.offset >= lineStart
+          && (pos.offset < lineEnd || (isLastLine && pos.offset <= lineEnd))) {
         return [lineStart, lineEnd];
       }
       charsBefore = lineEnd;

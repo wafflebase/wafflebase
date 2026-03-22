@@ -103,4 +103,12 @@ describe('getWordRange', () => {
   it('handles empty text', () => {
     expect(getWordRange('', 0)).toEqual([0, 0]);
   });
+
+  it('treats accented letters as word characters', () => {
+    expect(getWordRange('café latte', 2)).toEqual([0, 4]);
+  });
+
+  it('treats Cyrillic as word characters', () => {
+    expect(getWordRange('Привет мир', 3)).toEqual([0, 6]);
+  });
 });
