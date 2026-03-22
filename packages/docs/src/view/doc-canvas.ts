@@ -45,11 +45,13 @@ export class DocCanvas {
     const pageX = getPageXOffset(paginatedLayout, canvasWidth);
     const { margins } = paginatedLayout.pageSetup;
 
-    // All coordinates are absolute (canvas = full document height).
-    // The container's native scroll handles viewport positioning.
-    // scrollY + viewportHeight define the visible window for culling.
+    // Canvas is viewport-sized. Translate by -scrollY so that absolute
+    // document coordinates map into the visible canvas area.
     const visibleTop = scrollY;
     const visibleBottom = scrollY + viewportHeight;
+
+    this.ctx.save();
+    this.ctx.translate(0, -scrollY);
 
     for (const page of paginatedLayout.pages) {
       const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
@@ -106,6 +108,9 @@ export class DocCanvas {
 
       this.ctx.restore();
     }
+
+    // Restore the scrollY translation
+    this.ctx.restore();
   }
 
   /**

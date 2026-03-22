@@ -7,7 +7,7 @@ import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, type DocumentLayout } from './layout.js';
+import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
 import { paginateLayout, getTotalHeight, type PaginatedLayout } from './pagination.js';
 
 /**
@@ -56,17 +56,26 @@ export function initialize(
 
   const doc = new Doc(storeDoc);
 
-  // Create canvas
+  // Create canvas (viewport-sized) and a spacer div for scroll height
   const canvas = document.createElement('canvas');
   canvas.style.display = 'block';
+  canvas.style.position = 'sticky';
+  canvas.style.top = '0';
   container.style.position = 'relative';
   container.appendChild(canvas);
+
+  const spacer = document.createElement('div');
+  spacer.style.width = '1px';
+  spacer.style.pointerEvents = 'none';
+  container.appendChild(spacer);
 
   const docCanvas = new DocCanvas(canvas);
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
   let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
+  let layoutCache: LayoutCache | undefined;
+  let dirtyBlockIds: Set<string> | undefined;
   let needsScrollIntoView = false;
   let focused = true;
 
@@ -75,12 +84,30 @@ export function initialize(
     const pageSetup = resolvePageSetup(doc.document.pageSetup);
     const dims = getEffectiveDimensions(pageSetup);
     const contentWidth = dims.width - pageSetup.margins.left - pageSetup.margins.right;
-    layout = computeLayout(
+    const result = computeLayout(
       doc.document.blocks,
       docCanvas.getContext(),
       contentWidth,
+      dirtyBlockIds,
+      layoutCache,
     );
+    layout = result.layout;
+    layoutCache = result.cache;
+    dirtyBlockIds = undefined;
     paginatedLayout = paginateLayout(layout, pageSetup);
+  };
+
+  const markDirty = (blockId: string) => {
+    if (dirtyBlockIds === undefined) {
+      dirtyBlockIds = new Set();
+    }
+    dirtyBlockIds.add(blockId);
+  };
+
+  // Force full layout recompute on next render (for structural operations)
+  const invalidateLayout = () => {
+    layoutCache = undefined;
+    dirtyBlockIds = undefined;
   };
 
   // Sync the live Doc back into the store (without pushing undo).
@@ -90,17 +117,18 @@ export function initialize(
     docStore.replaceDocument(doc.document);
   };
 
-  // Render helper
-  const render = () => {
-    syncToStore();
-
+  // Paint helper — repaints using cached layout (no recomputation)
+  const paint = () => {
     const { width: viewportWidth, height } = container.getBoundingClientRect();
-    recomputeLayout();
     const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
     const canvasWidth = Math.max(viewportWidth, pageWidth);
     const totalHeight = getTotalHeight(paginatedLayout);
-    const canvasHeight = Math.max(height, totalHeight);
-    docCanvas.resize(canvasWidth, canvasHeight);
+
+    // Canvas stays viewport-sized; spacer provides scroll height
+    docCanvas.resize(canvasWidth, height);
+    spacer.style.height = `${totalHeight}px`;
+    // Pull spacer up behind the sticky canvas so it only contributes scroll
+    spacer.style.marginTop = `${-height}px`;
 
     const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), canvasWidth);
 
@@ -121,6 +149,16 @@ export function initialize(
     }
 
     const scrollY = container.scrollTop;
+
+    // Keep the hidden textarea at the cursor's screen position so the
+    // browser doesn't scroll the container to bring it into view.
+    if (cursorPixel) {
+      const containerRect = container.getBoundingClientRect();
+      const screenX = containerRect.left + cursorPixel.x;
+      const screenY = containerRect.top + (cursorPixel.y - scrollY);
+      textEditor.updateTextareaPosition(screenX, screenY);
+    }
+
     const selectionRects = selection.getSelectionRects(
       paginatedLayout,
       layout,
@@ -131,11 +169,24 @@ export function initialize(
     docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused);
   };
 
+  // Render helper — full layout recomputation + paint
+  const render = () => {
+    syncToStore();
+    recomputeLayout();
+    paint();
+  };
+
+  // Paint-only render — skips layout recomputation
+  const renderPaintOnly = () => {
+    paint();
+  };
+
   // Wire up text editor
   const undoFn = () => {
     if (docStore.canUndo()) {
       docStore.undo();
       doc.document = docStore.getDocument();
+      layoutCache = undefined;
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
@@ -147,6 +198,7 @@ export function initialize(
     if (docStore.canRedo()) {
       docStore.redo();
       doc.document = docStore.getDocument();
+      layoutCache = undefined;
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
@@ -177,17 +229,19 @@ export function initialize(
     () => docStore.snapshot(),
     undoFn,
     redoFn,
+    markDirty,
+    invalidateLayout,
   );
 
   // Start cursor blink
-  cursor.startBlink(render);
+  cursor.startBlink(renderPaintOnly);
 
   // Initial render
   render();
 
   // Scroll and resize listeners
   container.style.overflow = 'auto';
-  const handleScroll = () => render();
+  const handleScroll = () => renderPaintOnly();
   container.addEventListener('scroll', handleScroll);
 
   const resizeObserver = new ResizeObserver(() => render());
@@ -196,7 +250,7 @@ export function initialize(
   // Focus/blur handling
   const handleFocus = () => {
     focused = true;
-    cursor.startBlink(render);
+    cursor.startBlink(renderPaintOnly);
     render();
   };
   const handleBlur = () => {
@@ -216,13 +270,27 @@ export function initialize(
     applyStyle: (style: Partial<InlineStyle>) => {
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
-        doc.applyInlineStyle(selection.range, style);
+        const range = selection.range;
+        doc.applyInlineStyle(range, style);
+        // Mark all blocks in the selection range as dirty
+        const startIdx = doc.getBlockIndex(range.anchor.blockId);
+        const endIdx = doc.getBlockIndex(range.focus.blockId);
+        if (startIdx < 0 || endIdx < 0) {
+          render();
+          return;
+        }
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        for (let i = lo; i <= hi; i++) {
+          markDirty(doc.document.blocks[i].id);
+        }
         render();
       }
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
       doc.applyBlockStyle(cursor.position.blockId, style);
+      markDirty(cursor.position.blockId);
       render();
     },
     undo: undoFn,

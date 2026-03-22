@@ -75,12 +75,16 @@ export class TextEditor {
     private saveSnapshot: () => void,
     private undoAction: () => void,
     private redoAction: () => void,
+    private markDirty: (blockId: string) => void,
+    private invalidateLayout: () => void,
   ) {
     this.textarea = document.createElement('textarea');
     // Keep textarea within the viewport (not off-screen) so iOS IME works
     // correctly. font-size:16px prevents iOS auto-zoom on focus.
+    // Use position:fixed so the browser never scrolls the container
+    // to bring the textarea into view when text is entered.
     this.textarea.style.cssText =
-      'position:absolute;top:0;left:0;width:1px;height:1px;' +
+      'position:fixed;top:0;left:0;width:1px;height:1px;' +
       'font-size:16px;opacity:0;border:0;padding:0;margin:0;' +
       'resize:none;overflow:hidden;';
     container.appendChild(this.textarea);
@@ -207,11 +211,13 @@ export class TextEditor {
 
     this.saveSnapshot();
     this.deleteSelection();
+    const blockId = this.cursor.position.blockId;
     this.doc.insertText(this.cursor.position, data);
     this.cursor.moveTo({
       blockId: this.cursor.position.blockId,
       offset: this.cursor.position.offset + data.length,
     });
+    this.markDirty(blockId);
     this.requestRender();
   };
 
@@ -408,7 +414,15 @@ export class TextEditor {
   private handleBackspace(): void {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
+    const blockId = this.cursor.position.blockId;
+    const isInBlock = this.cursor.position.offset > 0;
+    if (!isInBlock) {
+      this.invalidateLayout();
+    }
     const newPos = this.doc.deleteBackward(this.cursor.position);
+    if (isInBlock) {
+      this.markDirty(blockId);
+    }
     this.cursor.moveTo(newPos);
     this.requestRender();
   }
@@ -420,11 +434,13 @@ export class TextEditor {
     const len = getBlockTextLength(block);
     if (this.cursor.position.offset < len) {
       this.doc.deleteText(this.cursor.position, 1);
+      this.markDirty(this.cursor.position.blockId);
     } else {
-      // At end of block — merge with next
+      // At end of block — merge with next (structural change)
       const idx = this.doc.getBlockIndex(this.cursor.position.blockId);
       if (idx < this.doc.document.blocks.length - 1) {
         const nextBlock = this.doc.document.blocks[idx + 1];
+        this.invalidateLayout();
         this.doc.mergeBlocks(this.cursor.position.blockId, nextBlock.id);
       }
     }
@@ -434,6 +450,7 @@ export class TextEditor {
   private handleEnter(): void {
     this.saveSnapshot();
     this.deleteSelection();
+    this.invalidateLayout();
     const newBlockId = this.doc.splitBlock(
       this.cursor.position.blockId,
       this.cursor.position.offset,
@@ -533,7 +550,20 @@ export class TextEditor {
 
   private toggleStyle(style: Partial<InlineStyle>): void {
     if (!this.selection.hasSelection() || !this.selection.range) return;
-    this.doc.applyInlineStyle(this.selection.range, style);
+    const range = this.selection.range;
+    this.doc.applyInlineStyle(range, style);
+    // Mark all blocks in the selection range as dirty
+    const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
+    const endIdx = this.doc.getBlockIndex(range.focus.blockId);
+    if (startIdx < 0 || endIdx < 0) {
+      this.requestRender();
+      return;
+    }
+    const lo = Math.min(startIdx, endIdx);
+    const hi = Math.max(startIdx, endIdx);
+    for (let i = lo; i <= hi; i++) {
+      this.markDirty(this.doc.document.blocks[i].id);
+    }
     this.requestRender();
   }
 
@@ -554,10 +584,13 @@ export class TextEditor {
     const endBlockIdx = this.doc.getBlockIndex(end.blockId);
 
     if (startBlockIdx === endBlockIdx) {
-      // Same block
+      // Same block — mark dirty for incremental layout
       this.doc.deleteText(start, end.offset - start.offset);
+      this.markDirty(start.blockId);
     } else {
-      // Multi-block: delete from start to end of first block
+      // Multi-block structural change — force full layout recompute
+      this.invalidateLayout();
+      // Delete from start to end of first block
       const firstBlock = this.doc.getBlock(start.blockId);
       const firstLen = getBlockTextLength(firstBlock);
       if (start.offset < firstLen) {
@@ -743,6 +776,7 @@ export class TextEditor {
       blockId: this.hangulStartPos.blockId,
       offset: this.hangulStartPos.offset + this.hangulComposingLength,
     });
+    this.markDirty(this.hangulStartPos.blockId);
     this.requestRender();
   }
 
@@ -752,6 +786,16 @@ export class TextEditor {
     if (result) {
       this.applyHangulResult(result);
     }
+  }
+
+  /**
+   * Move the hidden textarea to the cursor's screen position so the
+   * browser doesn't scroll the container to bring the textarea into view.
+   * The textarea uses position:fixed, so coordinates are viewport-relative.
+   */
+  updateTextareaPosition(screenX: number, screenY: number): void {
+    this.textarea.style.top = `${screenY}px`;
+    this.textarea.style.left = `${screenX}px`;
   }
 
   dispose(): void {

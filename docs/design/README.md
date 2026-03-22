@@ -28,6 +28,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
 | [docs.md](docs.md)                                     | Docs package — Canvas-based document editor, data model, layout engine, rendering pipeline         |
 | [docs-pagination.md](docs-pagination.md)               | Docs pagination — page setup, line-level page splitting, paginated rendering pipeline              |
+| [docs-rendering-optimization.md](docs-rendering-optimization.md) | Docs rendering optimization — scroll repaint, measureText cache, incremental layout  |
 
 ## Template
 

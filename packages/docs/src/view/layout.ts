@@ -1,6 +1,27 @@
 import type { Block, Inline, InlineStyle } from '../model/types.js';
 import { Theme, buildFont } from './theme.js';
 
+const measureCache = new Map<string, number>();
+
+export function cachedMeasureText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  font: string,
+): number {
+  const key = `${font}\t${text}`;
+  let width = measureCache.get(key);
+  if (width === undefined) {
+    ctx.font = font;
+    width = ctx.measureText(text).width;
+    measureCache.set(key, width);
+  }
+  return width;
+}
+
+export function clearMeasureCache(): void {
+  measureCache.clear();
+}
+
 /**
  * A measured run of text within a line.
  */
@@ -45,6 +66,14 @@ export interface DocumentLayout {
 }
 
 /**
+ * Cache of per-block layout results for incremental recomputation.
+ */
+export interface LayoutCache {
+  blocks: Map<string, LayoutBlock>;
+  contentWidth: number;
+}
+
+/**
  * A segment of text with uniform style, ready for measurement.
  * Tracks which inline it came from and character offsets.
  */
@@ -59,37 +88,54 @@ interface MeasuredSegment {
 
 /**
  * Compute the full document layout.
+ *
+ * When `dirtyBlockIds` and `cache` are provided, only blocks whose IDs
+ * appear in the dirty set are re-laid-out; cached line/run data is reused
+ * for the rest. Y offsets are always recalculated for every block.
  */
 export function computeLayout(
   blocks: Block[],
   ctx: CanvasRenderingContext2D,
   contentWidth: number,
-): DocumentLayout {
+  dirtyBlockIds?: Set<string>,
+  cache?: LayoutCache,
+): { layout: DocumentLayout; cache: LayoutCache } {
   const availableWidth = contentWidth;
+  const canUseCache = cache != null
+    && dirtyBlockIds != null
+    && cache.contentWidth === contentWidth;
+
+  const newCacheBlocks = new Map<string, LayoutBlock>();
   const layoutBlocks: LayoutBlock[] = [];
   let y = 0;
 
   for (const block of blocks) {
     y += block.style.marginTop;
 
-    const lines = layoutBlock(block, ctx, availableWidth);
-    const lineHeightMultiplier = block.style.lineHeight ?? 1.5;
+    let lines: LayoutLine[];
 
-    let blockHeight = 0;
-    for (const line of lines) {
-      const maxFontSize = getLineMaxFontSize(line, block);
-      const lineHeight = lineHeightMultiplier * maxFontSize;
-      line.y = blockHeight;
-      line.height = lineHeight;
-      blockHeight += lineHeight;
+    if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
+      lines = cache!.blocks.get(block.id)!.lines;
+    } else {
+      lines = layoutBlock(block, ctx, availableWidth);
+      const lineHeightMultiplier = block.style.lineHeight ?? 1.5;
+
+      let blockY = 0;
+      for (const line of lines) {
+        const maxFontSize = getLineMaxFontSize(line, block);
+        const lineHeight = lineHeightMultiplier * maxFontSize;
+        line.y = blockY;
+        line.height = lineHeight;
+        blockY += lineHeight;
+      }
+
+      for (const line of lines) {
+        applyAlignment(line, availableWidth, block.style.alignment);
+      }
     }
 
-    // Apply alignment
-    for (const line of lines) {
-      applyAlignment(line, availableWidth, block.style.alignment);
-    }
-
-    const layoutBlock_: LayoutBlock = {
+    const blockHeight = lines.reduce((sum, l) => sum + l.height, 0);
+    const lb: LayoutBlock = {
       block,
       x: 0,
       y,
@@ -98,11 +144,15 @@ export function computeLayout(
       lines,
     };
 
-    layoutBlocks.push(layoutBlock_);
+    layoutBlocks.push(lb);
+    newCacheBlocks.set(block.id, lb);
     y += blockHeight + block.style.marginBottom;
   }
 
-  return { blocks: layoutBlocks, totalHeight: y };
+  return {
+    layout: { blocks: layoutBlocks, totalHeight: y },
+    cache: { blocks: newCacheBlocks, contentWidth },
+  };
 }
 
 /**
@@ -221,7 +271,7 @@ function measureSegments(
 
   for (let i = 0; i < block.inlines.length; i++) {
     const inline = block.inlines[i];
-    ctx.font = buildFont(
+    const font = buildFont(
       inline.style.fontSize,
       inline.style.fontFamily,
       inline.style.bold,
@@ -233,11 +283,11 @@ function measureSegments(
     let charPos = 0;
 
     for (const word of words) {
-      const metrics = ctx.measureText(word);
+      const width = cachedMeasureText(ctx, word, font);
       segments.push({
         text: word,
         style: inline.style,
-        width: metrics.width,
+        width,
         inlineIndex: i,
         charStart: charPos,
         charEnd: charPos + word.length,
