@@ -30,10 +30,14 @@ export function rangeOf(grid: Grid): Range {
  * `toRefs` generates Refs from the given Range.
  */
 export function* toRefs(range: Range): Generator<Ref> {
-  const [from, to] = range;
+  const [a, b] = range;
+  const minR = Math.min(a.r, b.r);
+  const maxR = Math.max(a.r, b.r);
+  const minC = Math.min(a.c, b.c);
+  const maxC = Math.max(a.c, b.c);
 
-  for (let row = from.r; row <= to.r; row++) {
-    for (let col = from.c; col <= to.c; col++) {
+  for (let row = minR; row <= maxR; row++) {
+    for (let col = minC; col <= maxC; col++) {
       yield { r: row, c: col };
     }
   }
