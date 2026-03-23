@@ -1,5 +1,7 @@
 import type { Document as YorkieDocument } from '@yorkie-js/react';
-import type { ElementNode, TreeNode } from '@yorkie-js/sdk';
+import yorkie, { type ElementNode, type TreeNode } from '@yorkie-js/sdk';
+
+const { Tree } = yorkie;
 import type {
   DocStore,
   Document,
@@ -217,7 +219,7 @@ export class YorkieDocStore implements DocStore {
     }
     const root = this.doc.getRoot();
     const tree = root.content;
-    if (!tree) {
+    if (!tree || typeof tree.getRootTreeNode !== 'function') {
       this.cachedDoc = { blocks: [] };
       this.dirty = false;
       return { blocks: [] };
@@ -254,18 +256,19 @@ export class YorkieDocStore implements DocStore {
 
   setDocument(doc: Document): void {
     this.writeFullDocument(doc);
-    this.dirty = true;
-    this.cachedDoc = null;
+    // Cache the document we just wrote so the next getDocument() returns it
+    // even if the Yorkie Tree read doesn't reflect changes immediately
+    // (e.g., stale documents whose content field was a plain object).
+    this.cachedDoc = cloneDocument(doc);
+    this.dirty = false;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  replaceDocument(_doc: Document): void {
-    // No-op: Yorkie writes go through the store's mutation methods directly.
-    // The editor calls snapshot() before mutations, then replaceDocument()
-    // afterwards. Since our mutations already write to the Yorkie tree,
-    // we just invalidate the cache.
-    this.dirty = true;
-    this.cachedDoc = null;
+  replaceDocument(doc: Document): void {
+    // The editor calls replaceDocument() after mutations with the updated
+    // document state. Cache it so getDocument() returns consistent data
+    // even if the Yorkie Tree read fails (e.g., stale documents).
+    this.cachedDoc = cloneDocument(doc);
+    this.dirty = false;
   }
 
   updateBlock(id: string, block: Block): void {
@@ -277,22 +280,26 @@ export class YorkieDocStore implements DocStore {
 
     this.doc.update((root) => {
       const tree = root.content;
-      // Delete existing block and insert the updated one at the same position.
-      // Path [index] points to the index-th child of the root <doc>.
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath([index], [index + 1], buildBlockNode(block));
     });
-    this.dirty = true;
-    this.cachedDoc = null;
+    // Update cache in-place instead of clearing
+    currentDoc.blocks[index] = block;
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
   }
 
   insertBlock(index: number, block: Block): void {
     this.doc.update((root) => {
       const tree = root.content;
-      // Insert at [index] — inserts before the existing element at that index.
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath([index], [index], buildBlockNode(block));
     });
-    this.dirty = true;
-    this.cachedDoc = null;
+    // Update cache in-place
+    const currentDoc = this.getDocument();
+    currentDoc.blocks.splice(index, 0, block);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
   }
 
   deleteBlock(id: string): void {
@@ -307,10 +314,14 @@ export class YorkieDocStore implements DocStore {
   deleteBlockByIndex(index: number): void {
     this.doc.update((root) => {
       const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath([index], [index + 1]);
     });
-    this.dirty = true;
-    this.cachedDoc = null;
+    // Update cache in-place
+    const currentDoc = this.getDocument();
+    currentDoc.blocks.splice(index, 1);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
   }
 
   setPageSetup(setup: PageSetup): void {
@@ -374,6 +385,25 @@ export class YorkieDocStore implements DocStore {
   private writeFullDocument(document: Document): void {
     this.doc.update((root) => {
       const tree = root.content;
+
+      // If tree isn't a Tree CRDT yet, create one with the document content.
+      if (!tree || typeof tree.getRootTreeNode !== 'function') {
+        const blockNodes = document.blocks.map(buildBlockNode);
+        root.content = new Tree({
+          type: 'doc',
+          children: blockNodes.length > 0 ? blockNodes : [],
+        });
+
+        if (document.pageSetup) {
+          root.pageSetup = {
+            paperSize: { ...document.pageSetup.paperSize },
+            orientation: document.pageSetup.orientation,
+            margins: { ...document.pageSetup.margins },
+          };
+        }
+        return;
+      }
+
       const treeRoot = tree.getRootTreeNode() as ElementNode;
       const blockCount = (treeRoot.children ?? []).filter(
         (c) => c.type === 'block',

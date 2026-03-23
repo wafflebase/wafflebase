@@ -1,42 +1,144 @@
 import { DocumentProvider } from "@yorkie-js/react";
-import { Navigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchMe } from "@/api/auth";
+import { fetchDocument, renameDocument } from "@/api/documents";
 import { Loader } from "@/components/loader";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { SiteHeader } from "@/components/site-header";
+import { ShareDialog } from "@/components/share-dialog";
+import { UserPresence } from "@/components/user-presence";
+import { usePresenceUpdater } from "@/hooks/use-presence-updater";
+import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import type { YorkieDocsRoot } from "@/types/docs-document";
-import { DocsView } from "./docs-view";
+import { DocsView, type EditorAPI } from "./docs-view";
+import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 
 /**
  * Initial Yorkie document root for a new docs document.
- * Creates a Tree with a single empty paragraph block.
+ * Note: Tree CRDT must be created via `new yorkie.Tree()` inside
+ * doc.update(), so we only provide an empty root here. DocsView
+ * initializes the Tree when it detects `content` is missing.
  */
-function initialDocsRoot(): YorkieDocsRoot {
-  return {
-    content: {
-      type: "doc",
-      children: [
-        {
-          type: "block",
-          attributes: {
-            id: `block-${Date.now()}-0`,
-            type: "paragraph",
-            alignment: "left",
-            lineHeight: "1.5",
-            marginTop: "0",
-            marginBottom: "8",
-            textIndent: "0",
-            marginLeft: "0",
+function initialDocsRoot(): Partial<YorkieDocsRoot> {
+  return {};
+}
+
+/**
+ * DocsLayout provides the sidebar + header chrome around the docs editor,
+ * matching the same layout structure as the spreadsheet's DocumentLayout.
+ */
+function DocsLayout({ documentId }: { documentId: string }) {
+  usePresenceUpdater();
+  const [editor, setEditor] = useState<EditorAPI | null>(null);
+
+  // Clean up stale pointer-events on body left by Radix Sheet from a
+  // previous route (e.g. Layout's mobile sidebar unmounting mid-animation).
+  useEffect(() => {
+    document.body.style.removeProperty("pointer-events");
+    return () => {
+      document.body.style.removeProperty("pointer-events");
+    };
+  }, []);
+
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const { data: documentData } = useQuery({
+    queryKey: ["document", documentId],
+    queryFn: () => fetchDocument(documentId),
+  });
+
+  const { data: workspaces = [] } = useQuery<Workspace[]>({
+    queryKey: ["workspaces"],
+    queryFn: fetchWorkspaces,
+  });
+
+  const currentWorkspace = workspaces.find(
+    (w) => w.id === documentData?.workspaceId,
+  );
+  const workspaceSlug = currentWorkspace?.slug;
+
+  const items = useMemo(() => {
+    if (workspaceSlug) {
+      return {
+        main: [
+          {
+            title: "Documents",
+            url: `/w/${workspaceSlug}`,
+            icon: IconFolder,
           },
-          children: [
-            {
-              type: "inline",
-              children: [{ type: "text", value: "" }],
-            },
-          ],
-        },
+          {
+            title: "Data Sources",
+            url: `/w/${workspaceSlug}/datasources`,
+            icon: IconDatabase,
+          },
+          {
+            title: "Settings",
+            url: `/w/${workspaceSlug}/settings`,
+            icon: IconSettings,
+          },
+        ],
+        secondary: [],
+      };
+    }
+
+    return {
+      main: [
+        { title: "Documents", url: "/documents", icon: IconFolder },
+        { title: "Data Sources", url: "/datasources", icon: IconDatabase },
+        { title: "Settings", url: "/settings", icon: IconSettings },
       ],
-    } as any, // eslint-disable-line @typescript-eslint/no-explicit-any -- Yorkie converts the plain object to a Tree
-  };
+      secondary: [],
+    };
+  }, [workspaceSlug]);
+
+  const handleWorkspaceChange = useCallback(
+    (slug: string) => {
+      navigate(`/w/${slug}`);
+    },
+    [navigate],
+  );
+
+  const handleRenameDocument = useCallback(
+    async (newTitle: string) => {
+      await renameDocument(documentId, newTitle);
+      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    [documentId, queryClient],
+  );
+
+  return (
+    <SidebarProvider>
+      <AppSidebar
+        variant="inset"
+        items={items}
+        workspaces={workspaces}
+        currentWorkspace={currentWorkspace}
+        onWorkspaceChange={handleWorkspaceChange}
+      />
+      <SidebarInset>
+        <SiteHeader
+          title={documentData?.title ?? "Loading..."}
+          editable
+          onRename={handleRenameDocument}
+        >
+          <div className="flex items-center gap-2">
+            <ShareDialog documentId={documentId} />
+            <UserPresence />
+          </div>
+        </SiteHeader>
+        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+          <DocsFormattingToolbar editor={editor} />
+          <DocsView onEditorReady={setEditor} />
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  );
 }
 
 /**
@@ -70,17 +172,17 @@ export function DocsDetail() {
   }
 
   return (
-    <DocumentProvider<YorkieDocsRoot>
-      docKey={`docs-${id}`}
+    <DocumentProvider
+      docKey={`doc-${id}`}
       initialRoot={initialDocsRoot()}
       initialPresence={{
-        username: currentUser.username,
+        username: encodeURIComponent(currentUser.username),
         email: currentUser.email,
         photo: currentUser.photo || "",
       }}
       enableDevtools={import.meta.env.DEV}
     >
-      <DocsView />
+      <DocsLayout documentId={id!} />
     </DocumentProvider>
   );
 }

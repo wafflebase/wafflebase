@@ -53,7 +53,8 @@ export type {
   LayoutPage,
   PaginatedLayout,
 } from './view/pagination.js';
-export { Theme, buildFont, ptToPx } from './view/theme.js';
+export { Theme, buildFont, ptToPx, setThemeMode, getTheme } from './view/theme.js';
+export type { ThemeMode, DocTheme } from './view/theme.js';
 export { DocCanvas } from './view/doc-canvas.js';
 export { Cursor } from './view/cursor.js';
 export { Selection } from './view/selection.js';

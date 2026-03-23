@@ -76,7 +76,7 @@ function App() {
                   </Route>
                   <Route path="/invite/:token" element={<InviteAccept />} />
                   <Route path="/d/:id" element={<DocsDetail />} />
-                  <Route path="/:id" element={<DocumentDetail />} />
+                  <Route path="/s/:id" element={<DocumentDetail />} />
                 </Route>
               </Routes>
             </Suspense>

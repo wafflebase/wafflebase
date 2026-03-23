@@ -30,7 +30,7 @@ export class DocumentController {
   async createInWorkspace(
     @Param('workspaceId') workspaceIdOrSlug: string,
     @Req() req: AuthenticatedRequest,
-    @Body() body: { title: string },
+    @Body() body: { title: string; type?: string },
   ): Promise<DocumentModel> {
     const userId = Number(req.user.id);
     const workspaceId =
@@ -38,6 +38,7 @@ export class DocumentController {
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.documentService.createDocument({
       title: body.title,
+      type: body.type === 'doc' ? 'doc' : 'sheet',
       author: { connect: { id: userId } },
       workspace: { connect: { id: workspaceId } },
     });
@@ -92,12 +93,13 @@ export class DocumentController {
   @Post('documents')
   async createDocument(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { title: string; workspaceId: string },
+    @Body() body: { title: string; type?: string; workspaceId: string },
   ): Promise<DocumentModel> {
     const userId = Number(req.user.id);
     await this.workspaceService.assertMember(body.workspaceId, userId);
     return this.documentService.createDocument({
       title: body.title,
+      type: body.type === 'doc' ? 'doc' : 'sheet',
       author: { connect: { id: userId } },
       workspace: { connect: { id: body.workspaceId } },
     });

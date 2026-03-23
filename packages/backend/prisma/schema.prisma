@@ -32,6 +32,7 @@ model DataSource {
 model Document {
   id        String   @default(uuid()) @id
   title     String
+  type      String   @default("sheet")
   authorID  Int?
   author    User?    @relation(fields: [authorID], references: [id])
   createdAt DateTime @default(now())

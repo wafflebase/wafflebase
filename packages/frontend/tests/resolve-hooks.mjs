@@ -95,19 +95,33 @@ export async function resolve(specifier, context, nextResolve) {
   }
 
   // Handle extensionless relative imports within frontend src/ — add .ts/.tsx
+  // Also remap .js → .ts for TypeScript source files in workspace packages
   if (
     (specifier.startsWith("./") || specifier.startsWith("../")) &&
-    context.parentURL &&
-    (
-      fileURLToPath(context.parentURL).startsWith(FRONTEND_SRC) ||
-      fileURLToPath(context.parentURL).startsWith(SHEET_ROOT)
-    )
+    context.parentURL
   ) {
-    const parentDir = dirname(fileURLToPath(context.parentURL));
-    for (const ext of [".ts", ".tsx"]) {
-      const candidate = pathResolve(parentDir, specifier + ext);
-      if (existsSync(candidate)) {
-        return nextResolve(pathToFileURL(candidate).href, context);
+    const parentPath = fileURLToPath(context.parentURL);
+    const inResolvedPkg =
+      parentPath.startsWith(FRONTEND_SRC) ||
+      parentPath.startsWith(SHEET_ROOT) ||
+      parentPath.startsWith(DOCS_ROOT);
+
+    if (inResolvedPkg) {
+      const parentDir = dirname(parentPath);
+
+      // Remap .js imports to .ts (TypeScript sources use .js extensions for ESM)
+      if (specifier.endsWith(".js")) {
+        const tsCandidate = pathResolve(parentDir, specifier.replace(/\.js$/, ".ts"));
+        if (existsSync(tsCandidate)) {
+          return nextResolve(pathToFileURL(tsCandidate).href, context);
+        }
+      }
+
+      for (const ext of [".ts", ".tsx"]) {
+        const candidate = pathResolve(parentDir, specifier + ext);
+        if (existsSync(candidate)) {
+          return nextResolve(pathToFileURL(candidate).href, context);
+        }
       }
     }
   }

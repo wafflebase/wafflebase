@@ -21,6 +21,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Sheet,
   Trash2,
 } from "lucide-react";
 
@@ -57,7 +58,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { Document } from "@/types/documents";
+import type { Document, DocumentType } from "@/types/documents";
 import {
   createDocument,
   deleteDocument,
@@ -69,6 +70,10 @@ import {
   fetchWorkspaces,
   type Workspace,
 } from "@/api/workspaces";
+
+function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
+  return doc.type === "doc" ? `/d/${doc.id}` : `/s/${doc.id}`;
+}
 
 /**
  * Renders the DocumentList component.
@@ -91,9 +96,19 @@ export function DocumentList({
     {
       accessorKey: "title",
       header: "Title",
-      cell: ({ row }) => (
-        <div className="capitalize">{row.getValue("title")}</div>
-      ),
+      cell: ({ row }) => {
+        const docType = row.original.type;
+        return (
+          <div className="flex items-center gap-2">
+            {docType === "doc" ? (
+              <FileText className="h-4 w-4 shrink-0 text-blue-500" />
+            ) : (
+              <Sheet className="h-4 w-4 shrink-0 text-green-600" />
+            )}
+            <span className="capitalize">{row.getValue("title")}</span>
+          </div>
+        );
+      },
     },
     {
       accessorKey: "createdAt",
@@ -187,11 +202,11 @@ export function DocumentList({
   });
 
   const createDocumentMutation = useMutation({
-    mutationFn: async (data: { title: string }) =>
+    mutationFn: async (data: { title: string; type?: DocumentType }) =>
       workspaceId
         ? await createWorkspaceDocument(workspaceId, data)
         : await createDocument(data),
-    onSuccess: (doc) => navigate(`/${doc.id}`),
+    onSuccess: (doc) => navigate(getDocumentPath(doc)),
   });
 
   const deleteDocumentMutation = useMutation({
@@ -277,15 +292,35 @@ export function DocumentList({
           }
           className="max-w-sm"
         />
-        <Button
-          onClick={() => {
-            createDocumentMutation.mutate({ title: "New Document" });
-          }}
-          className="flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          New Document
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button className="flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              New
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() =>
+                createDocumentMutation.mutate({ title: "New Sheet" })
+              }
+            >
+              <Sheet className="mr-2 h-4 w-4 text-green-600" />
+              New Sheet
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                createDocumentMutation.mutate({
+                  title: "New Document",
+                  type: "doc",
+                })
+              }
+            >
+              <FileText className="mr-2 h-4 w-4 text-blue-500" />
+              New Document
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <div className="rounded-md border">
         <Table>
@@ -318,7 +353,7 @@ export function DocumentList({
                     if ((e.target as HTMLElement).closest("input, button")) {
                       return;
                     }
-                    navigate(`/${row.getValue("id")}`);
+                    navigate(getDocumentPath(row.original));
                   }}
                 >
                   {row.getVisibleCells().map((cell) => (
@@ -340,15 +375,37 @@ export function DocumentList({
                   <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                     <FileText className="h-10 w-10 stroke-1" />
                     <p className="text-sm font-medium">No documents yet</p>
-                    <Button
-                      size="sm"
-                      onClick={() =>
-                        createDocumentMutation.mutate({ title: "New Document" })
-                      }
-                    >
-                      <Plus className="w-4 h-4 mr-1" />
-                      New Document
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="sm">
+                          <Plus className="w-4 h-4 mr-1" />
+                          New
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            createDocumentMutation.mutate({
+                              title: "New Sheet",
+                            })
+                          }
+                        >
+                          <Sheet className="mr-2 h-4 w-4 text-green-600" />
+                          New Sheet
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            createDocumentMutation.mutate({
+                              title: "New Document",
+                              type: "doc",
+                            })
+                          }
+                        >
+                          <FileText className="mr-2 h-4 w-4 text-blue-500" />
+                          New Document
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </TableCell>
               </TableRow>
