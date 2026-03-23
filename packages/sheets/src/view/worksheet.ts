@@ -2480,10 +2480,14 @@ export class Worksheet {
       const presences = this.sheet!.getPresences();
       for (const { clientID, presence } of presences) {
         if (!presence.activeCell) continue;
-        const ref = parseRef(presence.activeCell);
-        if (ref.r === mouseRow && ref.c === mouseCol) {
-          newHoveredPeer = clientID;
-          break;
+        try {
+          const ref = parseRef(presence.activeCell);
+          if (ref.r === mouseRow && ref.c === mouseCol) {
+            newHoveredPeer = clientID;
+            break;
+          }
+        } catch {
+          // Skip peers with invalid activeCell references
         }
       }
     }
