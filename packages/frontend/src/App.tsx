@@ -21,6 +21,7 @@ const InteractionHarnessPage = lazy(
   () => import("@/app/harness/interaction/page"),
 );
 const DocsHarnessPage = lazy(() => import("@/app/harness/docs/page"));
+const DocsDetail = lazy(() => import("@/app/docs/docs-detail"));
 const Layout = lazy(() => import("./app/Layout"));
 
 const WorkspaceDocuments = lazy(
@@ -74,6 +75,7 @@ function App() {
                     <Route path="/settings" element={<Settings />} />
                   </Route>
                   <Route path="/invite/:token" element={<InviteAccept />} />
+                  <Route path="/docs/:id" element={<DocsDetail />} />
                   <Route path="/:id" element={<DocumentDetail />} />
                 </Route>
               </Routes>

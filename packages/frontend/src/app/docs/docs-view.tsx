@@ -30,7 +30,10 @@ export function DocsView() {
     const editor: EditorAPI = initialize(container, store);
 
     // Re-render the editor whenever a remote peer modifies the document.
+    // refresh() updates the Doc's cached document from the store, then
+    // render() repaints the canvas with the latest content.
     store.onRemoteChange = () => {
+      editor.getDoc().refresh();
       editor.render();
     };
 
