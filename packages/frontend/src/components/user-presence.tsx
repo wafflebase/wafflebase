@@ -83,7 +83,7 @@ export function UserPresence({
             disabled={!canJump}
           >
             <Avatar
-              className="h-8 w-8 border-2"
+              className="h-8 w-8 border-2 bg-background"
               style={{
                 borderColor: user.isCurrentUser
                   ? undefined
