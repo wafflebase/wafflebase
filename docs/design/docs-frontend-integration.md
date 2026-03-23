@@ -36,10 +36,10 @@ The docs editor already works at the route level:
 
 | Component | File | Status |
 |-----------|------|--------|
-| `DocsDetail` | `frontend/src/app/docs/docs-detail.tsx` | Done |
-| `DocsView` | `frontend/src/app/docs/docs-view.tsx` | Done |
-| `YorkieDocStore` | `frontend/src/app/docs/yorkie-doc-store.ts` | Done |
-| Route `/d/:id` | `frontend/src/App.tsx` | Done |
+| `DocsDetail` | `packages/frontend/src/app/docs/docs-detail.tsx` | Done |
+| `DocsView` | `packages/frontend/src/app/docs/docs-view.tsx` | Done |
+| `YorkieDocStore` | `packages/frontend/src/app/docs/yorkie-doc-store.ts` | Done |
+| Route `/d/:id` | `packages/frontend/src/App.tsx` | Done |
 
 **What's missing:** There is no way to create a docs document from the UI. The
 Document model has no `type` field, so the list page cannot distinguish sheets
@@ -55,7 +55,7 @@ Add a `type` column to the `Document` model in Prisma:
 model Document {
   id          String   @default(uuid()) @id
   title       String
-  type        String   @default("sheet")   // "sheet" | "docs"
+  type        String   @default("sheet")   // "sheet" | "doc"
   authorID    Int?
   author      User?    @relation(fields: [authorID], references: [id])
   createdAt   DateTime @default(now())
@@ -79,7 +79,7 @@ Both document creation endpoints accept an optional `type` parameter:
 // POST /api/v1/workspaces/:wid/documents
 {
   title: string;
-  type?: "sheet" | "docs";  // default: "sheet"
+  type?: "sheet" | "doc";  // default: "sheet"
 }
 ```
 
@@ -97,7 +97,7 @@ Update the `Document` type:
 
 ```typescript
 // types/documents.ts
-export type DocumentType = "sheet" | "docs";
+export type DocumentType = "sheet" | "doc";
 
 export type Document = {
   id: number;
@@ -161,7 +161,7 @@ Currently, row click navigates to `/${doc.id}` (sheets editor). Change to:
 
 ```typescript
 function getDocumentPath(doc: Document): string {
-  return doc.type === "docs" ? `/d/${doc.id}` : `/${doc.id}`;
+  return doc.type === "doc" ? `/d/${doc.id}` : `/s/${doc.id}`;
 }
 ```
 
@@ -175,24 +175,24 @@ Apply this in:
 ```mermaid
 flowchart TD
   LIST["Document List"]
-  LIST -->|"type=sheet"| SHEET["/:id → DocumentDetail (SheetView)"]
-  LIST -->|"type=docs"| DOCS["/d/:id → DocsDetail (DocsView)"]
+  LIST -->|"type=sheet"| SHEET["/s/:id → DocumentDetail (SheetView)"]
+  LIST -->|"type=doc"| DOCS["/d/:id → DocsDetail (DocsView)"]
   SHEET -->|"Yorkie key: sheet-{id}"| YS["YorkieStore"]
-  DOCS -->|"Yorkie key: docs-{id}"| YDS["YorkieDocStore"]
+  DOCS -->|"Yorkie key: doc-{id}"| YDS["YorkieDocStore"]
 ```
 
 ### 6. File Map
 
 | File | Action | Description |
 |------|--------|-------------|
-| `backend/prisma/schema.prisma` | Modify | Add `type` field to Document |
-| `backend/src/document/document.service.ts` | Modify | Pass `type` to Prisma create |
-| `backend/src/document/document.controller.ts` | Modify | Accept `type` in create DTO |
-| `backend/src/api/v1/documents.controller.ts` | Modify | Accept `type` in v1 create |
-| `frontend/src/types/documents.ts` | Modify | Add `type` field |
-| `frontend/src/api/documents.ts` | Modify | Pass `type` to create |
-| `frontend/src/api/workspaces.ts` | Modify | Pass `type` to workspace create |
-| `frontend/src/app/documents/document-list.tsx` | Modify | Dropdown menu, type column, routing |
+| `packages/backend/prisma/schema.prisma` | Modify | Add `type` field to Document |
+| `packages/backend/src/document/document.service.ts` | Modify | Pass `type` to Prisma create |
+| `packages/backend/src/document/document.controller.ts` | Modify | Accept `type` in create DTO |
+| `packages/backend/src/api/v1/documents.controller.ts` | Modify | Accept `type` in v1 create |
+| `packages/frontend/src/types/documents.ts` | Modify | Add `type` field |
+| `packages/frontend/src/api/documents.ts` | Modify | Pass `type` to create |
+| `packages/frontend/src/api/workspaces.ts` | Modify | Pass `type` to workspace create |
+| `packages/frontend/src/app/documents/document-list.tsx` | Modify | Dropdown menu, type column, routing |
 
 ## Implementation Order
 
@@ -218,7 +218,7 @@ Phase 3: Verification
 so all existing rows get the correct default. No data backfill script needed.
 
 **Yorkie document key collision** — Sheets use `sheet-{id}` and docs use
-`docs-{id}` as Yorkie document keys, so there is no collision even if the same
+`doc-{id}` as Yorkie document keys, so there is no collision even if the same
 UUID is reused.
 
 **Yorkie SDK Tree re-export issue** — `@yorkie-js/react` currently bundles
