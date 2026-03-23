@@ -139,7 +139,7 @@ export class ReadOnlyStore implements Store {
 
   getPresences(): Array<{
     clientID: string;
-    presence: { activeCell: string };
+    presence: { activeCell: string; username?: string };
   }> {
     return [];
   }

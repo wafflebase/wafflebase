@@ -296,7 +296,7 @@ export class MemStore implements Store {
    */
   getPresences(): Array<{
     clientID: string;
-    presence: { activeCell: string };
+    presence: { activeCell: string; username?: string };
   }> {
     return [];
   }
