@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 94
+Total archived tasks: 95
 
-## 2026/03 (57 tasks)
+## 2026/03 (58 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs collaboration (2026-03-22) | [20260322-docs-collaboration-todo.md](./2026/03/20260322-docs-collaboration-todo.md) | - |
 | docs keyboard mouse (2026-03-22) | [20260322-docs-keyboard-mouse-todo.md](./2026/03/20260322-docs-keyboard-mouse-todo.md) | [20260322-docs-keyboard-mouse-lessons.md](./2026/03/20260322-docs-keyboard-mouse-lessons.md) |
 | docs rendering optimization (2026-03-22) | [20260322-docs-rendering-optimization-todo.md](./2026/03/20260322-docs-rendering-optimization-todo.md) | - |
 | docs ruler (2026-03-22) | [20260322-docs-ruler-todo.md](./2026/03/20260322-docs-ruler-todo.md) | - |
