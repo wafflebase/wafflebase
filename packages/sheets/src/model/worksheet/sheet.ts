@@ -2029,6 +2029,113 @@ export class Sheet {
   }
 
   /**
+   * `moveRangeTo` moves a rectangular cell range to a new position.
+   * Unlike copy-paste, drag-move preserves formula text as-is (Google Sheets
+   * behavior). For example, `=SUM(A10:I10)` stays `=SUM(A10:I10)` after move.
+   * Other cells that referenced the moved cells are redirected to the new
+   * positions.
+   */
+  async moveRangeTo(sourceRange: Range, destStart: Ref): Promise<void> {
+    if (this.pivotDefinition) return;
+    this.invalidateCrossSheetCache();
+
+    const srcMinR = Math.min(sourceRange[0].r, sourceRange[1].r);
+    const srcMinC = Math.min(sourceRange[0].c, sourceRange[1].c);
+    const srcMaxR = Math.max(sourceRange[0].r, sourceRange[1].r);
+    const srcMaxC = Math.max(sourceRange[0].c, sourceRange[1].c);
+    const normalizedSource: Range = [
+      { r: srcMinR, c: srcMinC },
+      { r: srcMaxR, c: srcMaxC },
+    ];
+
+    const deltaRow = destStart.r - srcMinR;
+    const deltaCol = destStart.c - srcMinC;
+
+    // No-op if destination is same as source
+    if (deltaRow === 0 && deltaCol === 0) return;
+
+    const grid = await this.fetchGrid(normalizedSource);
+
+    // Build destination grid preserving formula text as-is (no relocation).
+    // Only cell positions change; formula references within the cell stay intact.
+    const movedGrid: Grid = new Map();
+    for (const [sref, cell] of grid) {
+      const ref = parseRef(sref);
+      const newRef = { r: ref.r + deltaRow, c: ref.c + deltaCol };
+      const newSref = toSref(newRef);
+      movedGrid.set(newSref, { ...cell });
+    }
+
+    const cutRefMap = buildCutRefMap(normalizedSource, deltaRow, deltaCol);
+    const sourceStyles = clipRangeStylePatches(this.rangeStyles, normalizedSource);
+
+    this.store.beginBatch();
+    try {
+      // Write moved cells to destination
+      await this.setGrid(movedGrid);
+
+      // Remove source range styles before adding destination styles
+      this.subtractRangeFromStyles(normalizedSource);
+
+      // Add translated style patches at destination
+      const translatedStyles = translateRangeStylePatches(
+        sourceStyles,
+        deltaRow,
+        deltaCol,
+      );
+      for (const patch of translatedStyles) {
+        await this.addRangeStylePatch(patch.range, patch.style);
+        await this.applyStylePatchToExistingCells(patch.range, patch.style);
+      }
+
+      // Recalculate formulas for all changed cells
+      const changedSrefs = new Set<Sref>();
+      for (const [sref] of movedGrid) {
+        changedSrefs.add(sref);
+      }
+
+      // Clear source cells that don't overlap with destination
+      for (let r = srcMinR; r <= srcMaxR; r++) {
+        for (let c = srcMinC; c <= srcMaxC; c++) {
+          const sref = toSref({ r, c });
+          if (!movedGrid.has(sref)) {
+            await this.store.delete({ r, c });
+            changedSrefs.add(sref);
+          }
+        }
+      }
+
+      await this.store.setRangeStyles(this.rangeStyles);
+
+      // Redirect formula references that pointed to moved cells
+      await this.redirectFormulasForCut(cutRefMap);
+
+      // Recalculate dependants
+      if (changedSrefs.size > 0) {
+        const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+        const dependantsMap = await this.store.buildDependantsMap(expanded);
+        await calculate(this, dependantsMap, expanded);
+      }
+
+      if (this.filterRange) {
+        await this.recomputeFilterHiddenRows();
+      }
+    } finally {
+      this.store.endBatch();
+    }
+
+    // Select the destination range
+    const destEnd: Ref = {
+      r: destStart.r + (srcMaxR - srcMinR),
+      c: destStart.c + (srcMaxC - srcMinC),
+    };
+    this.selectionType = 'cell';
+    this.activeCell = destStart;
+    this.ranges = [[destStart, destEnd]];
+    this.store.updateActiveCell(this.activeCell);
+  }
+
+  /**
    * `subtractRangeFromStyles` subtracts a range from all style patches,
    * keeping the portions that fall outside the given range.
    */

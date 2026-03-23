@@ -99,6 +99,15 @@ all cell, selection, and navigation operations.
   recalculated from all changed destination refs. With freeze panes, the handle
   is hidden (and non-interactive) when the selection is in the unfrozen
   scrollable quadrant but the handle position would fall under frozen panes.
+- **Cell drag-move** — hovering near the edges of a selected cell or range
+  (excluding the bottom-right autofill handle corner) shows a `move` cursor.
+  Dragging from the edge moves the entire selection to the drop position.
+  Unlike copy-paste, formula text is preserved as-is (e.g. `=SUM(A10:I10)`
+  stays `=SUM(A10:I10)` after the move), matching Google Sheets behavior.
+  Other cells that referenced the moved cells are redirected to the new
+  positions. Range styles are translated to the destination and the source
+  area is cleared. The overlay renders a dashed preview rectangle at the
+  prospective drop location during the drag.
 - **Filtering** — `createFilterFromSelection`, `setColumnFilter`, and
   `clearFilter` persist filter metadata and compute hidden row indices.
   If the selection is header-only (single row), filter creation auto-expands
@@ -437,7 +446,8 @@ draws:
   - Live width/height tooltip during drag (includes multi-selection count)
   - `requestAnimationFrame`-coalesced worksheet rendering so scroll/resize
     bursts collapse to one frame and stale async grid fetch results are dropped
-- Move drop indicator (bold blue line at drop position during drag-to-move)
+- Move drop indicator (bold blue line at drop position during row/column drag-to-move)
+- Cell drag-move (dashed rectangle with translucent fill at drop target)
 
 ### DimensionIndex
 
