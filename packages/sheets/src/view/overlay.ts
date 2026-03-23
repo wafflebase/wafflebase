@@ -15,6 +15,91 @@ import {
 } from './layout';
 
 /**
+ * Draws a peer username label tag above (or below) the given cell rect.
+ *
+ * The tag is a rounded rectangle filled with `peerColor`, with text color
+ * chosen automatically for contrast (white on dark, black on light).
+ * When the tag would overflow the top of the viewport it flips below
+ * the cell. When it would overflow the right edge it shifts left.
+ * Long usernames are truncated with a single ellipsis character (…).
+ *
+ * @param ctx        - 2-D canvas context to draw into.
+ * @param username   - Display name for the peer.
+ * @param peerColor  - Hex/CSS color string for the tag background.
+ * @param cellRect   - Bounding rect of the peer's active cell.
+ * @param port       - Viewport bounding rect (used for edge clamping).
+ * @param stackIndex - 0-based index for stacking multiple tags on the same cell.
+ */
+
+/**
+ * Returns black or white text color based on background luminance.
+ */
+function getLabelTextColor(bgColor: string): string {
+  const hex = bgColor.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16) / 255;
+  const g = parseInt(hex.substring(2, 4), 16) / 255;
+  const b = parseInt(hex.substring(4, 6), 16) / 255;
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luminance > 0.6 ? '#000000' : '#FFFFFF';
+}
+export function drawPeerLabel(
+  ctx: CanvasRenderingContext2D,
+  username: string,
+  peerColor: string,
+  cellRect: BoundingRect,
+  port: BoundingRect,
+  stackIndex: number,
+): void {
+  const fontSize = 11;
+  const paddingX = 4;
+  const paddingY = 2;
+  const maxWidth = 120;
+  const radius = 2;
+
+  ctx.font = `${fontSize}px sans-serif`;
+  let displayName = username;
+  let textWidth = ctx.measureText(displayName).width;
+
+  if (textWidth > maxWidth) {
+    while (textWidth > maxWidth && displayName.length > 1) {
+      displayName = displayName.slice(0, -1);
+      textWidth = ctx.measureText(displayName + '…').width;
+    }
+    displayName += '…';
+    textWidth = ctx.measureText(displayName).width;
+  }
+
+  const tagWidth = textWidth + paddingX * 2;
+  const tagHeight = fontSize + paddingY * 2;
+
+  let x = cellRect.left;
+  let y = cellRect.top - tagHeight - stackIndex * (tagHeight + 1);
+
+  if (y < 0) {
+    y = cellRect.top + cellRect.height + stackIndex * (tagHeight + 1);
+  }
+  if (x + tagWidth > port.width) {
+    x = port.width - tagWidth;
+  }
+
+  ctx.fillStyle = peerColor;
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + tagWidth - radius, y);
+  ctx.arcTo(x + tagWidth, y, x + tagWidth, y + radius, radius);
+  ctx.lineTo(x + tagWidth, y + tagHeight);
+  ctx.lineTo(x, y + tagHeight);
+  ctx.lineTo(x, y + radius);
+  ctx.arcTo(x, y, x + radius, y, radius);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = getLabelTextColor(peerColor);
+  ctx.textBaseline = 'top';
+  ctx.fillText(displayName, x + paddingX, y + paddingY);
+}
+
+/**
  * Quadrant clip region definition.
  */
 type QuadrantClip = {
@@ -53,7 +138,7 @@ export class Overlay {
     activeCell: Ref,
     peerPresences: Array<{
       clientID: string;
-      presence: { activeCell: string };
+      presence: { activeCell: string; username?: string };
     }>,
     ranges?: Ranges,
     rowDim?: DimensionIndex,
@@ -75,6 +160,7 @@ export class Overlay {
     showMobileHandles: boolean = false,
     searchResults?: Ref[],
     searchCurrentIndex?: number,
+    visiblePeerLabels?: Set<string>,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -131,6 +217,7 @@ export class Overlay {
         rowDim,
         colDim,
         mergeData,
+        visiblePeerLabels,
       );
       this.renderFilterRangeSimple(ctx, filterRange, scroll, rowDim, colDim);
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
@@ -169,6 +256,9 @@ export class Overlay {
             ctx.strokeStyle = peerColor;
             ctx.lineWidth = 2;
             ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+            if (visiblePeerLabels?.has(clientID) && presence.username) {
+              drawPeerLabel(ctx, presence.username, peerColor, rect, port, 0);
+            }
           }
 
           ctx.restore();
@@ -506,7 +596,7 @@ export class Overlay {
   private renderPeerCursorsSimple(
     ctx: CanvasRenderingContext2D,
     port: BoundingRect,
-    peerPresences: Array<{ clientID: string; presence: { activeCell: string } }>,
+    peerPresences: Array<{ clientID: string; presence: { activeCell: string; username?: string } }>,
     scroll: { left: number; top: number },
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
@@ -514,7 +604,11 @@ export class Overlay {
       anchors: Map<string, MergeSpan>;
       coverToAnchor: Map<string, string>;
     },
+    visiblePeerLabels?: Set<string>,
   ): void {
+    // Map from cell sref -> peers that need labels drawn there (for stacking).
+    const cellPeers = new Map<string, Array<{ clientID: string; username: string; rect: BoundingRect }>>();
+
     for (const { clientID, presence } of peerPresences) {
       if (!presence.activeCell) continue;
 
@@ -533,6 +627,24 @@ export class Overlay {
         ctx.strokeStyle = peerColor;
         ctx.lineWidth = 2;
         ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+
+        if (visiblePeerLabels?.has(clientID) && presence.username) {
+          const key = presence.activeCell;
+          if (!cellPeers.has(key)) {
+            cellPeers.set(key, []);
+          }
+          cellPeers.get(key)!.push({ clientID, username: presence.username, rect });
+        }
+      }
+    }
+
+    // Draw labels grouped by cell, stacked in stable clientID order.
+    for (const peers of cellPeers.values()) {
+      peers.sort((a, b) => a.clientID.localeCompare(b.clientID));
+      for (let i = 0; i < peers.length; i++) {
+        const { clientID, username, rect } = peers[i];
+        const peerColor = getPeerCursorColor(this.theme, clientID);
+        drawPeerLabel(ctx, username, peerColor, rect, port, i);
       }
     }
   }

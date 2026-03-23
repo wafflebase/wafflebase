@@ -73,7 +73,7 @@ export interface Store {
   /**
    * `getPresences` method gets the user presences.
    */
-  getPresences(): Array<{ clientID: string; presence: { activeCell: string } }>;
+  getPresences(): Array<{ clientID: string; presence: { activeCell: string; username?: string } }>;
 
   /**
    * `shiftCells` method shifts cells along the given axis.

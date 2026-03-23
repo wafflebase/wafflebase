@@ -1,5 +1,5 @@
 import { Range, Ref, Direction, FilterCondition } from '../model/core/types';
-import { toColumnLabel, toSref, inRange } from '../model/core/coordinates';
+import { toColumnLabel, toSref, inRange, parseRef } from '../model/core/coordinates';
 import {
   extractFormulaRanges,
   isReferenceInsertPosition,
@@ -175,6 +175,10 @@ export class Worksheet {
   private renderInFlight = false;
   private renderQueued = false;
   private renderVersion = 0;
+
+  private peerLabelTimers: Map<string, number> = new Map();
+  private prevPeerActiveCells: Map<string, string> = new Map();
+  private hoveredPeerClientID: string | null = null;
 
   constructor(
     container: HTMLDivElement,
@@ -396,6 +400,13 @@ export class Worksheet {
       cancelAnimationFrame(this.pendingRenderFrame);
       this.pendingRenderFrame = null;
     }
+
+    for (const timerId of this.peerLabelTimers.values()) {
+      clearTimeout(timerId);
+    }
+    this.peerLabelTimers.clear();
+    this.prevPeerActiveCells.clear();
+    this.hoveredPeerClientID = null;
 
     this.cancelActiveInteractions();
     this.removeAllEventListeners();
@@ -2458,16 +2469,49 @@ export class Worksheet {
       }
     }
 
-    if (changed) {
+    // Peer cursor hover detection
+    const hoverY = e.offsetY;
+    const hoverX = e.offsetX;
+    let newHoveredPeer: string | null = null;
+
+    if (hoverX > RowHeaderWidth && hoverY > DefaultCellHeight) {
+      const mouseRow = this.toRowFromMouse(hoverY);
+      const mouseCol = this.toColFromMouse(hoverX);
+      const presences = this.sheet!.getPresences();
+      for (const { clientID, presence } of presences) {
+        if (!presence.activeCell) continue;
+        try {
+          const ref = parseRef(presence.activeCell);
+          if (ref.r === mouseRow && ref.c === mouseCol) {
+            newHoveredPeer = clientID;
+            break;
+          }
+        } catch {
+          // Skip peers with invalid activeCell references
+        }
+      }
+    }
+
+    const peerHoverChanged = newHoveredPeer !== this.hoveredPeerClientID;
+    if (peerHoverChanged) {
+      this.hoveredPeerClientID = newHoveredPeer;
+    }
+
+    if (changed || peerHoverChanged) {
       this.renderOverlay();
     }
   }
 
   private handleScrollContainerMouseLeave(): void {
+    const hadPeerHover = this.hoveredPeerClientID !== null;
+    if (hadPeerHover) {
+      this.hoveredPeerClientID = null;
+    }
     const scrollContainer = this.gridContainer.getScrollContainer();
     scrollContainer.style.cursor = '';
 
     const changed =
+      hadPeerHover ||
       this.filterButtonHoverCol !== null ||
       this.resizeHover !== null ||
       this.freezeHandleHover !== null ||
@@ -4214,10 +4258,63 @@ export class Worksheet {
     this.onRenderCallback?.();
   }
 
+  private updatePeerLabelVisibility(): void {
+    const presences = this.sheet!.getPresences();
+    const currentPeerIDs = new Set<string>();
+
+    for (const { clientID, presence } of presences) {
+      if (!presence.activeCell) continue;
+      currentPeerIDs.add(clientID);
+
+      const prev = this.prevPeerActiveCells.get(clientID);
+      if (prev !== presence.activeCell) {
+        this.prevPeerActiveCells.set(clientID, presence.activeCell);
+
+        const existingTimer = this.peerLabelTimers.get(clientID);
+        if (existingTimer != null) {
+          clearTimeout(existingTimer);
+        }
+
+        const timerId = window.setTimeout(() => {
+          this.peerLabelTimers.delete(clientID);
+          this.renderOverlay();
+        }, 4000);
+        this.peerLabelTimers.set(clientID, timerId);
+      }
+    }
+
+    // Clean up disconnected peers
+    for (const id of this.prevPeerActiveCells.keys()) {
+      if (!currentPeerIDs.has(id)) {
+        this.prevPeerActiveCells.delete(id);
+        const timer = this.peerLabelTimers.get(id);
+        if (timer != null) {
+          clearTimeout(timer);
+          this.peerLabelTimers.delete(id);
+        }
+      }
+    }
+  }
+
+  private getVisiblePeerLabels(): Set<string> {
+    const visible = new Set<string>();
+
+    for (const clientID of this.peerLabelTimers.keys()) {
+      visible.add(clientID);
+    }
+
+    if (this.hoveredPeerClientID) {
+      visible.add(this.hoveredPeerClientID);
+    }
+
+    return visible;
+  }
+
   /**
    * `renderOverlay` renders the overlay on top of the sheet.
    */
   public renderOverlay() {
+    this.updatePeerLabelVisibility();
     this.overlay.render(
       this.viewport,
       this.scroll,
@@ -4245,6 +4342,7 @@ export class Worksheet {
       this.showMobileHandles,
       this._searchResults.length > 0 ? this._searchResults : undefined,
       this._searchCurrentIndex >= 0 ? this._searchCurrentIndex : undefined,
+      this.getVisiblePeerLabels(),
     );
   }
 

@@ -2432,7 +2432,7 @@ export class Sheet {
    */
   getPresences(): Array<{
     clientID: string;
-    presence: { activeCell: string };
+    presence: { activeCell: string; username?: string };
   }> {
     return this.store.getPresences();
   }
