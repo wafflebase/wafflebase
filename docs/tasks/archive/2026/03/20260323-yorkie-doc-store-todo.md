@@ -30,7 +30,7 @@
 **Files:**
 - Create: `packages/frontend/src/types/docs-document.ts`
 
-- [ ] **Step 1: Create the type file**
+- [x] **Step 1: Create the type file**
 
 ```typescript
 import type { Tree } from '@yorkie-js/sdk';
@@ -51,7 +51,7 @@ export type YorkieDocsRoot = {
 };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/frontend/src/types/docs-document.ts
@@ -79,7 +79,7 @@ The core implementation. `YorkieDocStore` implements `DocStore` by reading from 
 **Files:**
 - Create: `packages/frontend/src/app/docs/yorkie-doc-store.ts`
 
-- [ ] **Step 1: Create YorkieDocStore with constructor and tree-to-document conversion**
+- [x] **Step 1: Create YorkieDocStore with constructor and tree-to-document conversion**
 
 ```typescript
 import type { Document as YorkieDocument } from '@yorkie-js/react';
@@ -401,12 +401,12 @@ export class YorkieDocStore implements DocStore {
 }
 ```
 
-- [ ] **Step 2: Run lint check**
+- [x] **Step 2: Run lint check**
 
 Run: `pnpm frontend lint`
 Expected: No errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/yorkie-doc-store.ts
@@ -427,7 +427,7 @@ Test the store against a real Yorkie document in-memory (no server needed). York
 **Files:**
 - Create: `packages/frontend/src/app/docs/yorkie-doc-store.test.ts`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 The tests use `yorkie.Document` in-memory without connecting to a server. Create the document, set up the initial tree, then exercise `YorkieDocStore` methods.
 
@@ -609,12 +609,12 @@ describe('YorkieDocStore', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `pnpm frontend test`
 Expected: All tests pass. If the Yorkie SDK in-memory document doesn't work in the Node test runner, adjust the test setup (the tests don't need a server — `yorkie.Document` works locally).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/yorkie-doc-store.test.ts
@@ -637,7 +637,7 @@ Follow the same pattern as the spreadsheet's `DocumentDetail` + `SheetView`:
 - Create: `packages/frontend/src/app/docs/docs-view.tsx`
 - Create: `packages/frontend/src/app/docs/docs-detail.tsx`
 
-- [ ] **Step 1: Create DocsView component**
+- [x] **Step 1: Create DocsView component**
 
 ```tsx
 import { useEffect, useRef, useState } from 'react';
@@ -703,7 +703,7 @@ export function DocsView() {
 }
 ```
 
-- [ ] **Step 2: Create DocsDetail page**
+- [x] **Step 2: Create DocsDetail page**
 
 ```tsx
 import { useParams } from 'react-router-dom';
@@ -762,12 +762,12 @@ export default function DocsDetail() {
 }
 ```
 
-- [ ] **Step 3: Run lint**
+- [x] **Step 3: Run lint**
 
 Run: `pnpm frontend lint`
 Expected: No errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/docs-view.tsx packages/frontend/src/app/docs/docs-detail.tsx
@@ -785,7 +785,7 @@ initialize(), and wires remote changes for re-render."
 **Files:**
 - Modify: `packages/frontend/src/App.tsx`
 
-- [ ] **Step 1: Add lazy import and route**
+- [x] **Step 1: Add lazy import and route**
 
 Add the lazy import near the existing ones:
 
@@ -799,12 +799,12 @@ Add the route inside the `<PrivateRoute>` section, before `/:id`:
 <Route path="/docs/:id" element={<DocsDetail />} />
 ```
 
-- [ ] **Step 2: Run lint**
+- [x] **Step 2: Run lint**
 
 Run: `pnpm frontend lint`
 Expected: No errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/App.tsx
@@ -817,12 +817,12 @@ Lazy-loads DocsDetail page for collaborative document editing."
 
 ### Task 6: Verify full integration
 
-- [ ] **Step 1: Run verify:fast**
+- [x] **Step 1: Run verify:fast**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass, no lint errors.
 
-- [ ] **Step 2: Manual smoke test**
+- [x] **Step 2: Manual smoke test**
 
 With `docker compose up -d` and `pnpm dev` running:
 1. Open `http://localhost:5173/docs/test-doc-1` in two browser tabs
@@ -831,7 +831,7 @@ With `docker compose up -d` and `pnpm dev` running:
 4. Test Enter (split block), Backspace (merge), bold/italic styling
 5. Test undo/redo
 
-- [ ] **Step 3: Commit any fixes**
+- [x] **Step 3: Commit any fixes**
 
 If any adjustments are needed after manual testing, commit them.
 
