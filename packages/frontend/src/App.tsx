@@ -75,7 +75,7 @@ function App() {
                     <Route path="/settings" element={<Settings />} />
                   </Route>
                   <Route path="/invite/:token" element={<InviteAccept />} />
-                  <Route path="/docs/:id" element={<DocsDetail />} />
+                  <Route path="/d/:id" element={<DocsDetail />} />
                   <Route path="/:id" element={<DocumentDetail />} />
                 </Route>
               </Routes>
