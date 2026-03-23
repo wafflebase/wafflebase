@@ -161,6 +161,7 @@ export class Overlay {
     searchResults?: Ref[],
     searchCurrentIndex?: number,
     visiblePeerLabels?: Set<string>,
+    cellDragMovePreview?: Range,
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -446,6 +447,11 @@ export class Overlay {
     // Render drag-move drop indicator (same for freeze/no-freeze)
     if (dragMove && colDim && rowDim) {
       this.renderDragMoveIndicator(ctx, port, scroll, dragMove, rowDim, colDim, freeze);
+    }
+
+    // Render cell drag-move preview rectangle
+    if (cellDragMovePreview) {
+      this.renderCellDragMovePreview(ctx, cellDragMovePreview, scroll, rowDim, colDim, freeze);
     }
 
     // Render freeze drag preview line
@@ -1007,6 +1013,29 @@ export class Overlay {
     ctx.setLineDash([4, 2]);
     ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
     ctx.setLineDash([]);
+  }
+
+  private renderCellDragMovePreview(
+    ctx: CanvasRenderingContext2D,
+    previewRange: Range,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+    freeze: FreezeState = NoFreeze,
+  ): void {
+    const rect = this.toRangeRect(previewRange, scroll, rowDim, colDim, freeze);
+    if (!rect) return;
+    ctx.strokeStyle = this.getThemeColor('dropIndicatorColor');
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
+    ctx.setLineDash([]);
+
+    // Semi-transparent fill to indicate drop target
+    ctx.fillStyle = this.getThemeColor('dropIndicatorColor');
+    ctx.globalAlpha = 0.08;
+    ctx.fillRect(rect.left, rect.top, rect.width, rect.height);
+    ctx.globalAlpha = 1;
   }
 
   private renderAutofillHandle(
