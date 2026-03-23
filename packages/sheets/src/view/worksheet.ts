@@ -2481,12 +2481,12 @@ export class Worksheet {
       }
     }
 
-    if (newHoveredPeer !== this.hoveredPeerClientID) {
+    const peerHoverChanged = newHoveredPeer !== this.hoveredPeerClientID;
+    if (peerHoverChanged) {
       this.hoveredPeerClientID = newHoveredPeer;
-      this.renderOverlay();
     }
 
-    if (changed) {
+    if (changed || peerHoverChanged) {
       this.renderOverlay();
     }
   }
