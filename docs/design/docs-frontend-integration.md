@@ -30,20 +30,17 @@ document list UI to support both document types.
   content).
 - Docs-specific search, filtering, or sorting in the document list.
 
-## Current State
+## Architecture Overview
 
-The docs editor already works at the route level:
+The docs editor is mounted alongside the spreadsheet editor, sharing the same
+document list and authentication infrastructure:
 
-| Component | File | Status |
-|-----------|------|--------|
-| `DocsDetail` | `packages/frontend/src/app/docs/docs-detail.tsx` | Done |
-| `DocsView` | `packages/frontend/src/app/docs/docs-view.tsx` | Done |
-| `YorkieDocStore` | `packages/frontend/src/app/docs/yorkie-doc-store.ts` | Done |
-| Route `/d/:id` | `packages/frontend/src/App.tsx` | Done |
-
-**What's missing:** There is no way to create a docs document from the UI. The
-Document model has no `type` field, so the list page cannot distinguish sheets
-from docs or route to the correct editor.
+| Component | File | Role |
+|-----------|------|------|
+| `DocsDetail` | `packages/frontend/src/app/docs/docs-detail.tsx` | Yorkie DocumentProvider + page chrome |
+| `DocsView` | `packages/frontend/src/app/docs/docs-view.tsx` | Canvas editor lifecycle and presence |
+| `YorkieDocStore` | `packages/frontend/src/app/docs/yorkie-doc-store.ts` | DocStore backed by Yorkie Tree CRDT |
+| Route `/d/:id` | `packages/frontend/src/App.tsx` | Routing entry point |
 
 ## Proposal Details
 
@@ -133,7 +130,7 @@ export async function createWorkspaceDocument(
 Replace the single "New Document" button with a dropdown that offers two
 choices:
 
-```
+```text
 [+ New ▾]
   ├── New Sheet
   └── New Document
@@ -193,24 +190,6 @@ flowchart TD
 | `packages/frontend/src/api/documents.ts` | Modify | Pass `type` to create |
 | `packages/frontend/src/api/workspaces.ts` | Modify | Pass `type` to workspace create |
 | `packages/frontend/src/app/documents/document-list.tsx` | Modify | Dropdown menu, type column, routing |
-
-## Implementation Order
-
-```
-Phase 1: Backend (type field)
-  1. Prisma schema + migration
-  2. Document service + controller updates
-  3. Backend tests
-
-Phase 2: Frontend (type support)
-  4. Document type definition update
-  5. API layer update
-  6. Document list UI (dropdown, type column, routing)
-
-Phase 3: Verification
-  7. pnpm verify:fast
-  8. Manual smoke test (create sheet, create docs, list, open each)
-```
 
 ## Risks and Mitigation
 

@@ -132,6 +132,9 @@ export class Ruler {
   ): void {
     if (paginatedLayout.pages.length === 0) return;
 
+    // Update corner background for theme changes
+    this.corner.style.background = marginBg();
+
     const page = paginatedLayout.pages[cursorPageIndex] ?? paginatedLayout.pages[0];
     const pageX = getPageXOffset(paginatedLayout, canvasWidth);
     const margins = paginatedLayout.pageSetup.margins;
