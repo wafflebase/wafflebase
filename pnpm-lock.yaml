@@ -310,6 +310,9 @@ importers:
       '@tanstack/react-table':
         specifier: ^8.21.2
         version: 8.21.2(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      '@wafflebase/docs':
+        specifier: workspace:*
+        version: link:../docs
       '@wafflebase/sheets':
         specifier: workspace:*
         version: link:../sheets

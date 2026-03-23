@@ -40,6 +40,16 @@ const SHEET_SRC_INDEX = pathResolve(
   "index.ts",
 );
 
+const DOCS_ROOT = pathResolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "..",
+  "..",
+  "docs",
+);
+
+const DOCS_DIST = pathResolve(DOCS_ROOT, "dist", "wafflebase-document.es.js");
+const DOCS_SRC_INDEX = pathResolve(DOCS_ROOT, "src", "index.ts");
+
 export async function resolve(specifier, context, nextResolve) {
   // Map @wafflebase/sheets → built ES module in sheet dist.
   // If the dist file is missing, fall back to the workspace source.
@@ -51,6 +61,16 @@ export async function resolve(specifier, context, nextResolve) {
       return nextResolve(pathToFileURL(SHEET_SRC_INDEX).href, context);
     }
     return { url: "virtual:wafflebase-sheet", shortCircuit: true };
+  }
+
+  // Map @wafflebase/docs → built ES module or source fallback.
+  if (specifier === "@wafflebase/docs") {
+    if (existsSync(DOCS_DIST)) {
+      return nextResolve(pathToFileURL(DOCS_DIST).href, context);
+    }
+    if (existsSync(DOCS_SRC_INDEX)) {
+      return nextResolve(pathToFileURL(DOCS_SRC_INDEX).href, context);
+    }
   }
 
   // Map @/ alias → packages/frontend/src/
