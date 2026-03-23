@@ -2492,13 +2492,15 @@ export class Worksheet {
   }
 
   private handleScrollContainerMouseLeave(): void {
-    if (this.hoveredPeerClientID) {
+    const hadPeerHover = this.hoveredPeerClientID !== null;
+    if (hadPeerHover) {
       this.hoveredPeerClientID = null;
     }
     const scrollContainer = this.gridContainer.getScrollContainer();
     scrollContainer.style.cursor = '';
 
     const changed =
+      hadPeerHover ||
       this.filterButtonHoverCol !== null ||
       this.resizeHover !== null ||
       this.freezeHandleHover !== null ||
