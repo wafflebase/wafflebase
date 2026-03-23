@@ -29,6 +29,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [docs.md](docs.md)                                     | Docs package — Canvas-based document editor, data model, layout engine, rendering pipeline         |
 | [docs-pagination.md](docs-pagination.md)               | Docs pagination — page setup, line-level page splitting, paginated rendering pipeline              |
 | [docs-rendering-optimization.md](docs-rendering-optimization.md) | Docs rendering optimization — scroll repaint, measureText cache, incremental layout  |
+| [peer-cursor-labels.md](peer-cursor-labels.md)         | Peer cursor name labels — transient username tags on collaborative cursors                        |
 
 ## Template
 

@@ -13,6 +13,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { UserPresence as UserPresenceType } from "@/types/users";
+import { getPeerCursorColor } from "@wafflebase/sheets";
+import { useTheme } from "@/components/theme-provider";
 
 interface UserPresenceProps {
   className?: string;
@@ -31,6 +33,7 @@ export function UserPresence({
 }: UserPresenceProps) {
   const { doc } = useDocument<Record<string, unknown>, UserPresenceType>();
   const presences = usePresences<UserPresenceType>();
+  const { resolvedTheme } = useTheme();
   const otherClientIDs = new Set(
     doc?.getOthersPresences().map((presence) => presence.clientID) || [],
   );
@@ -79,7 +82,14 @@ export function UserPresence({
             }}
             disabled={!canJump}
           >
-            <Avatar className="h-8 w-8 border-2 border-background">
+            <Avatar
+              className="h-8 w-8 border-2 bg-background"
+              style={{
+                borderColor: user.isCurrentUser
+                  ? undefined
+                  : getPeerCursorColor(resolvedTheme, user.clientID),
+              }}
+            >
               {user.photo && <AvatarImage src={user.photo} alt={user.username} />}
               <AvatarFallback className="text-xs">
                 {user.username.slice(0, 2).toUpperCase() || "??"}
@@ -132,7 +142,14 @@ export function UserPresence({
                           onSelectActiveCell(user.activeCell, user.activeTabId);
                         }}
                       >
-                        <Avatar className="h-6 w-6">
+                        <Avatar
+                          className="h-6 w-6 border-2"
+                          style={{
+                            borderColor: user.isCurrentUser
+                              ? undefined
+                              : getPeerCursorColor(resolvedTheme, user.clientID),
+                          }}
+                        >
                           {user.photo && (
                             <AvatarImage src={user.photo} alt={user.username} />
                           )}

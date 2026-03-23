@@ -101,6 +101,7 @@ import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
 import { ReadOnlyStore } from './store/readonly';
 import { initialize, Spreadsheet, type LayoutRect, type Theme } from './view/spreadsheet';
+import { getPeerCursorColor } from './view/theme';
 import {
   buildLocaleFormatPreview,
   resolveCurrencyForLocale,
@@ -233,6 +234,7 @@ export {
   createWorksheet,
   createSpreadsheetDocument,
   initialSpreadsheetDocument,
+  getPeerCursorColor,
 };
 
 export type {
