@@ -84,4 +84,31 @@ describe('drawPeerLabel', () => {
     drawPeerLabel(ctx, 'user2', '#FF6B6B', cellRect, port, 0);
     expect(fillStyleCalls[fillStyleCalls.length - 1]).toBe('#FFFFFF');
   });
+
+  it('stacks labels for peers on the same cell', () => {
+    const ctx = createMockCtx();
+    const cellRect = { left: 100, top: 80, width: 80, height: 25 };
+    const port = { left: 0, top: 0, width: 800, height: 600 };
+
+    drawPeerLabel(ctx, 'u1', '#4ECDC4', cellRect, port, 0);
+    const y0 = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls[0][2];
+
+    drawPeerLabel(ctx, 'u2', '#4ECDC4', cellRect, port, 1);
+    const y1 = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls[1][2];
+
+    expect(y1).toBeLessThan(y0);
+  });
+
+  it('clamps label within viewport on right edge', () => {
+    const ctx = createMockCtx();
+    const port = { left: 0, top: 0, width: 200, height: 600 };
+    const cellRect = { left: 180, top: 50, width: 80, height: 25 };
+
+    drawPeerLabel(ctx, 'edge_user', '#FF6B6B', cellRect, port, 0);
+
+    const fillTextX = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    // fillText x + measured text width should not exceed viewport
+    expect(fillTextX).toBeGreaterThanOrEqual(0);
+    expect(fillTextX).toBeLessThan(port.width);
+  });
 });

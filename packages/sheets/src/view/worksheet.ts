@@ -401,6 +401,13 @@ export class Worksheet {
       this.pendingRenderFrame = null;
     }
 
+    for (const timerId of this.peerLabelTimers.values()) {
+      clearTimeout(timerId);
+    }
+    this.peerLabelTimers.clear();
+    this.prevPeerActiveCells.clear();
+    this.hoveredPeerClientID = null;
+
     this.cancelActiveInteractions();
     this.removeAllEventListeners();
     this.forceEndNativeSelectionBlock();
