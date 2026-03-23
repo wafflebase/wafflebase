@@ -24,8 +24,8 @@ document list UI to support both document types.
 
 ### Non-Goals
 
-- Docs editor feature parity with sheets (toolbar, presence cursors, sharing) —
-  deferred to follow-up work.
+- Full docs editor feature parity with sheets — basic toolbar, presence, and
+  sharing are included; read-only mode for shared viewer links is deferred.
 - Mixed document types (a single document containing both sheets and docs
   content).
 - Docs-specific search, filtering, or sorting in the document list.

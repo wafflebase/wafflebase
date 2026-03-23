@@ -315,6 +315,11 @@ export class YorkieDocStore implements DocStore {
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      const treeRoot = tree.getRootTreeNode();
+      const childCount = treeRoot.children?.length ?? 0;
+      if (index < 0 || index >= childCount) {
+        throw new Error(`Block index out of bounds: ${index}`);
+      }
       tree.editByPath([index], [index + 1]);
     });
     // Update cache in-place

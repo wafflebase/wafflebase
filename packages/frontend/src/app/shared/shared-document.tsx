@@ -141,6 +141,7 @@ function SharedDocumentLayout({
 }
 
 function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
+  // TODO: pass readOnly to DocsView once the docs editor supports read-only mode
   const readOnly = resolved.role === "viewer";
 
   return (

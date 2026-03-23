@@ -53,7 +53,7 @@ function ensureTree(doc: ReturnType<typeof useDocument<YorkieDocsRoot>>["doc"]):
 }
 
 interface DocsViewProps {
-  onEditorReady?: (editor: EditorAPI) => void;
+  onEditorReady?: (editor: EditorAPI | null) => void;
 }
 
 /**
@@ -100,7 +100,7 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
     return () => {
       editor.dispose();
       editorRef.current = null;
-      onEditorReady?.(null as unknown as EditorAPI);
+      onEditorReady?.(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- theme changes are handled by the separate useEffect below; onEditorReady is stable
   }, [didMount, doc]);

@@ -52,8 +52,5 @@
     "concurrently": "^9.2.1",
     "knip": "^5.85.0",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "@yorkie-js/react": "0.7.3-alpha"
   }
 }

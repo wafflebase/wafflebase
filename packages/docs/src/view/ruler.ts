@@ -1,4 +1,4 @@
-import type { PaginatedLayout, LayoutPage } from './pagination.js';
+import type { PaginatedLayout } from './pagination.js';
 import { getPageXOffset, getPageYOffset } from './pagination.js';
 import type { BlockStyle, PageMargins } from '../model/types.js';
 import { Theme } from './theme.js';
@@ -148,7 +148,7 @@ export class Ruler {
     // Position vCanvas to simulate sticky behavior (absolute + manual top)
     this.vCanvas.style.top = `${scrollY + RULER_SIZE}px`;
     this.resizeV(viewportHeight);
-    this.renderVertical(scrollY, viewportHeight, paginatedLayout, cursorPageIndex);
+    this.renderVertical(scrollY, paginatedLayout, cursorPageIndex);
   }
 
   private renderHorizontal(
@@ -178,8 +178,7 @@ export class Ruler {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
-    const { majorStepPx, subdivisions, minorStepPx } = this.grid;
-    const halfStep = majorStepPx / 2;
+    const { subdivisions, minorStepPx } = this.grid;
 
     // Calculate the first tick index from page start
     const pageLeft = pageX;
@@ -256,29 +255,8 @@ export class Ruler {
     this.hCtx.scale(dpr, dpr);
   }
 
-  private findFocusedPage(
-    scrollY: number,
-    viewportHeight: number,
-    paginatedLayout: PaginatedLayout,
-  ): LayoutPage {
-    const center = scrollY + viewportHeight / 2;
-    let closest = paginatedLayout.pages[0];
-    let minDist = Infinity;
-    for (const page of paginatedLayout.pages) {
-      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-      const pageMid = pageY + page.height / 2;
-      const dist = Math.abs(pageMid - center);
-      if (dist < minDist) {
-        minDist = dist;
-        closest = page;
-      }
-    }
-    return closest;
-  }
-
   private renderVertical(
     scrollY: number,
-    viewportHeight: number,
     paginatedLayout: PaginatedLayout,
     cursorPageIndex: number = 0,
   ): void {
@@ -312,7 +290,7 @@ export class Ruler {
     this.vCtx.fillRect(0, contentTop, RULER_SIZE, contentBottom - contentTop);
 
     // Tick marks
-    const { majorStepPx, subdivisions, minorStepPx } = this.grid;
+    const { subdivisions, minorStepPx } = this.grid;
     const startPx = pageTopInViewport;
     const endPx = pageTopInViewport + focusedPage.height;
 

@@ -71,6 +71,7 @@ export async function resolve(specifier, context, nextResolve) {
     if (existsSync(DOCS_SRC_INDEX)) {
       return nextResolve(pathToFileURL(DOCS_SRC_INDEX).href, context);
     }
+    return { url: "virtual:wafflebase-docs", shortCircuit: true };
   }
 
   // Map @/ alias → packages/frontend/src/
@@ -156,6 +157,26 @@ export async function load(url, context, nextLoad) {
         "  while (n > 0) { s = String.fromCharCode(((n - 1) % 26) + 65) + s; n = Math.floor((n - 1) / 26); }",
         "  return s + r;",
         "}",
+      ].join("\n"),
+    };
+  }
+  // Provide a minimal stub when @wafflebase/docs dist is unavailable.
+  if (url === "virtual:wafflebase-docs") {
+    return {
+      format: "module",
+      shortCircuit: true,
+      source: [
+        "export const DEFAULT_BLOCK_STYLE = { alignment: 'left', lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 };",
+        "export const DEFAULT_INLINE_STYLE = {};",
+        "export function generateBlockId() { return 'block-' + Date.now() + '-' + Math.random().toString(36).slice(2); }",
+        "export function createEmptyBlock() { return { id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }; }",
+        "export function resolvePageSetup(s) { return s || { paperSize: { name: 'Letter', width: 816, height: 1056 }, orientation: 'portrait', margins: { top: 96, bottom: 96, left: 96, right: 96 } }; }",
+        "export function normalizeBlockStyle(s) { return { ...DEFAULT_BLOCK_STYLE, ...s }; }",
+        "export function getBlockText() { return ''; }",
+        "export function getBlockTextLength() { return 0; }",
+        "export function inlineStylesEqual() { return true; }",
+        "export function getEffectiveDimensions() { return { width: 624, height: 864 }; }",
+        "export const PAPER_SIZES = {};",
       ].join("\n"),
     };
   }
