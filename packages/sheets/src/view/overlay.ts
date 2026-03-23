@@ -17,8 +17,9 @@ import {
 /**
  * Draws a peer username label tag above (or below) the given cell rect.
  *
- * The tag is a rounded rectangle filled with `peerColor`, with white text
- * inside. When the tag would overflow the top of the viewport it flips below
+ * The tag is a rounded rectangle filled with `peerColor`, with text color
+ * chosen automatically for contrast (white on dark, black on light).
+ * When the tag would overflow the top of the viewport it flips below
  * the cell. When it would overflow the right edge it shifts left.
  * Long usernames are truncated with a single ellipsis character (…).
  *
@@ -29,6 +30,18 @@ import {
  * @param port       - Viewport bounding rect (used for edge clamping).
  * @param stackIndex - 0-based index for stacking multiple tags on the same cell.
  */
+
+/**
+ * Returns black or white text color based on background luminance.
+ */
+function getLabelTextColor(bgColor: string): string {
+  const hex = bgColor.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16) / 255;
+  const g = parseInt(hex.substring(2, 4), 16) / 255;
+  const b = parseInt(hex.substring(4, 6), 16) / 255;
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luminance > 0.6 ? '#000000' : '#FFFFFF';
+}
 export function drawPeerLabel(
   ctx: CanvasRenderingContext2D,
   username: string,
@@ -81,7 +94,7 @@ export function drawPeerLabel(
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = '#FFFFFF';
+  ctx.fillStyle = getLabelTextColor(peerColor);
   ctx.textBaseline = 'top';
   ctx.fillText(displayName, x + paddingX, y + paddingY);
 }

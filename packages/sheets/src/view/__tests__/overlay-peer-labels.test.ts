@@ -50,4 +50,38 @@ describe('drawPeerLabel', () => {
     expect(displayedText).toContain('…');
     expect(displayedText.length).toBeLessThan('a_very_long_username_here'.length);
   });
+
+  it('uses dark text on light backgrounds', () => {
+    const ctx = createMockCtx();
+    const cellRect = { left: 100, top: 50, width: 80, height: 25 };
+    const port = { left: 0, top: 0, width: 800, height: 600 };
+
+    // Light yellow background — should get dark text
+    drawPeerLabel(ctx, 'user1', '#FFEAA7', cellRect, port, 0);
+    // fillStyle is set twice: first for background, then for text
+    // We check the last assignment before fillText
+    const fillStyleCalls: string[] = [];
+    Object.defineProperty(ctx, 'fillStyle', {
+      set(v: string) { fillStyleCalls.push(v); },
+      get() { return fillStyleCalls[fillStyleCalls.length - 1] ?? ''; },
+    });
+    drawPeerLabel(ctx, 'user1', '#FFEAA7', cellRect, port, 0);
+    // Last fillStyle before fillText should be black
+    expect(fillStyleCalls[fillStyleCalls.length - 1]).toBe('#000000');
+  });
+
+  it('uses white text on dark backgrounds', () => {
+    const ctx = createMockCtx();
+    const cellRect = { left: 100, top: 50, width: 80, height: 25 };
+    const port = { left: 0, top: 0, width: 800, height: 600 };
+
+    const fillStyleCalls: string[] = [];
+    Object.defineProperty(ctx, 'fillStyle', {
+      set(v: string) { fillStyleCalls.push(v); },
+      get() { return fillStyleCalls[fillStyleCalls.length - 1] ?? ''; },
+    });
+    // Dark red background — should get white text
+    drawPeerLabel(ctx, 'user2', '#FF6B6B', cellRect, port, 0);
+    expect(fillStyleCalls[fillStyleCalls.length - 1]).toBe('#FFFFFF');
+  });
 });
