@@ -12,3 +12,10 @@ export type UserPresence = {
   activeCell?: Sref;
   activeTabId?: string;
 } & User;
+
+export type DocsPresence = {
+  activeCursorPos?: {
+    blockId: string;
+    offset: number;
+  };
+} & User;
