@@ -4,16 +4,28 @@ VitePress-based documentation site for Wafflebase. Serves user guides and develo
 
 ## Content
 
-### Guide (User-facing)
+### Guide (Common)
 
 | Page | Description |
 |------|-------------|
-| [Getting Started](guide/getting-started.md) | Sign in, create a document, enter data, resize columns, add tabs |
-| [Build a Budget](guide/build-a-budget.md) | Learn formulas, formatting, and layout |
+| [Getting Started](guide/getting-started.md) | Sign in, create sheets or documents, first steps |
 | [Collaboration](guide/collaboration.md) | Share documents, real-time editing, permissions |
-| [Formulas](guide/formulas.md) | Formula syntax, function reference, examples |
-| [Charts](guide/charts.md) | Chart types, creation, editing, pivot tables |
-| [Keyboard Shortcuts](guide/keyboard-shortcuts.md) | Complete shortcut reference for desktop and mobile |
+
+### Sheets
+
+| Page | Description |
+|------|-------------|
+| [Build a Budget](sheets/build-a-budget.md) | Learn formulas, formatting, and layout |
+| [Formulas](sheets/formulas.md) | Formula syntax, function reference, examples |
+| [Charts](sheets/charts.md) | Chart types, creation, editing, pivot tables |
+| [Keyboard Shortcuts](sheets/keyboard-shortcuts.md) | Spreadsheet shortcut reference |
+
+### Docs
+
+| Page | Description |
+|------|-------------|
+| [Writing a Document](docs-editor/writing-a-document.md) | Text editing, formatting, page layout |
+| [Keyboard Shortcuts](docs-editor/keyboard-shortcuts.md) | Document editor shortcut reference |
 
 ### Developers
 
@@ -38,7 +50,7 @@ Site configuration is in `.vitepress/config.ts`:
 
 - **Base path**: `/docs/` (deployed as subpath of the main site)
 - **Search**: Local search provider (no external service)
-- **Navigation**: Dual sidebar — Guide and Developers sections
+- **Navigation**: Four sidebar sections — Guide, Sheets, Docs, and Developers
 - **Theme**: Default VitePress theme with custom CSS overrides
 
 ## Tech Stack

@@ -63,7 +63,7 @@ export function DemoSection() {
         </div>
       </div>
       <p className="text-sm text-muted-foreground mt-4 italic">
-        Try it live — this is a real Wafflebase spreadsheet
+        Try it live — this is a real Wafflebase sheet
       </p>
     </section>
   );

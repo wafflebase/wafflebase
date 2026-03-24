@@ -1,18 +1,21 @@
 # Getting Started
 
-This guide walks you through creating your first spreadsheet in Wafflebase and entering some data.
+This guide walks you through creating your first sheet or document in Wafflebase.
 
 ## Sign In
 
 Go to [wafflebase.io](https://wafflebase.io) and click **Get Started**. Sign in with your GitHub account.
 
-## Create a Document
+## Create a Sheet or Document
 
-After signing in, you'll see your workspace. Click **New Document** to create a blank spreadsheet.
+After signing in, you'll see your workspace. Click the **New** dropdown button to choose what to create:
 
-## Enter Some Data
+- **New Sheet** — A spreadsheet for structured data, formulas, and charts
+- **New Document** — A word-processor-style editor for writing and formatting text
 
-Let's build a simple contact list. Click on cell **A1** and type the following data, pressing `Tab` to move right and `Enter` to move to the next row:
+## Try a Sheet
+
+Select **New Sheet** to create a blank spreadsheet. Let's build a simple contact list. Click on cell **A1** and type the following data, pressing `Tab` to move right and `Enter` to move to the next row:
 
 |   | A | B | C |
 |---|---|---|---|
@@ -29,19 +32,31 @@ Your spreadsheet should look like this:
 
 ![Contact list spreadsheet](/images/getting-started-contact-list.png)
 
-## Resize Columns
+### Resize Columns
 
 If the email column looks cramped, hover over the border between column headers **B** and **C**, then drag it to the right to widen column B.
 
-## Add a Tab
+### Add a Tab
 
 Your document starts with one tab called **Sheet1**. Click the **+** button next to the tab bar at the bottom to add a new tab. Double-click the tab name to rename it.
 
+## Try a Document
+
+Select **New Document** to open a blank page. Start typing — the editor works like a word processor. Use the toolbar to apply formatting such as **bold**, *italic*, and text alignment.
+
+For a full walkthrough, see the [Writing a Document](/docs-editor/writing-a-document) guide.
+
 ## What's Next
 
-Now that you have a document with some data, try these guides:
+**Sheets:**
+- [Build a Budget Spreadsheet](/sheets/build-a-budget) — Learn formulas, formatting, and layout
+- [Formulas](/sheets/formulas) — Full list of supported functions
+- [Charts & Pivot Tables](/sheets/charts) — Visualize your data
+- [Keyboard Shortcuts](/sheets/keyboard-shortcuts) — Speed up your workflow
 
-- [Build a Budget Spreadsheet](./build-a-budget) — Learn formulas, formatting, and layout
-- [Collaboration & Sharing](./collaboration) — Share documents and edit together in real time
-- [Charts & Pivot Tables](./charts) — Visualize your data with charts and pivot tables
-- [Keyboard Shortcuts](./keyboard-shortcuts) — Speed up your workflow
+**Docs:**
+- [Writing a Document](/docs-editor/writing-a-document) — Text editing, formatting, and page layout
+- [Keyboard Shortcuts](/docs-editor/keyboard-shortcuts) — Document editor shortcuts
+
+**Common:**
+- [Collaboration & Sharing](/guide/collaboration) — Share and edit together in real time

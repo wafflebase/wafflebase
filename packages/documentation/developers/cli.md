@@ -110,14 +110,17 @@ export WAFFLEBASE_WORKSPACE=your-workspace-id
 
 ### document (alias: doc)
 
-Manage spreadsheet documents.
+Manage documents.
 
 ```bash
 # List all documents
 wafflebase document list
 
-# Create a new document
+# Create a new sheet (default)
 wafflebase document create "Q1 Report"
+
+# Create a new document
+wafflebase document create "Meeting Notes" --type doc
 
 # Get document metadata
 wafflebase document get <doc-id>
@@ -128,6 +131,14 @@ wafflebase document rename <doc-id> "New Title"
 # Delete a document
 wafflebase document delete <doc-id>
 ```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--type <type>` | Document type: `sheet` or `doc` | `sheet` |
+
+::: info
+The `tab` and `cell` commands below apply to sheet documents only.
+:::
 
 ### tab
 
