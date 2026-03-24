@@ -6,13 +6,17 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 97
+Total archived tasks: 101
 
-## 2026/03 (60 tasks)
+## 2026/03 (64 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs documentation update (2026-03-24) | [20260324-docs-documentation-update-todo.md](./2026/03/20260324-docs-documentation-update-todo.md) | - |
+| docs remote cursor (2026-03-24) | [20260324-docs-remote-cursor-todo.md](./2026/03/20260324-docs-remote-cursor-todo.md) | - |
+| pr72 review fixes (2026-03-24) | [20260324-pr72-review-fixes-todo.md](./2026/03/20260324-pr72-review-fixes-todo.md) | - |
 | docs frontend integration (2026-03-23) | [20260323-docs-frontend-integration-todo.md](./2026/03/20260323-docs-frontend-integration-todo.md) | [20260323-docs-frontend-integration-lessons.md](./2026/03/20260323-docs-frontend-integration-lessons.md) |
+| peer cursor labels (2026-03-23) | [20260323-peer-cursor-labels-todo.md](./2026/03/20260323-peer-cursor-labels-todo.md) | - |
 | yorkie doc store (2026-03-23) | [20260323-yorkie-doc-store-todo.md](./2026/03/20260323-yorkie-doc-store-todo.md) | - |
 | docs collaboration (2026-03-22) | [20260322-docs-collaboration-todo.md](./2026/03/20260322-docs-collaboration-todo.md) | - |
 | docs keyboard mouse (2026-03-22) | [20260322-docs-keyboard-mouse-todo.md](./2026/03/20260322-docs-keyboard-mouse-todo.md) | [20260322-docs-keyboard-mouse-lessons.md](./2026/03/20260322-docs-keyboard-mouse-lessons.md) |

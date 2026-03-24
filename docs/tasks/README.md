@@ -18,12 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| peer cursor labels (2026-03-23) | [20260323-peer-cursor-labels-todo.md](./active/20260323-peer-cursor-labels-todo.md) | - |
 | cf multi range (2026-03-21) | [20260321-cf-multi-range-todo.md](./active/20260321-cf-multi-range-todo.md) | [20260321-cf-multi-range-lessons.md](./active/20260321-cf-multi-range-lessons.md) |
 
 ## Archive
 
-- Archived task count: 97
+- Archived task count: 100
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: peer cursor labels (2026-03-23)
+Latest active task: cf multi range (2026-03-21)
