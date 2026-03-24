@@ -99,7 +99,7 @@ class YorkieDocStore implements DocStore {
 Peer cursor data flows from Yorkie presence to the Canvas renderer through
 the frontend integration layer:
 
-```
+```text
 Yorkie others-changed event
   → DocsView subscribes directly to the Yorkie document
   → Updates label visibility state (timers, hover)
@@ -166,7 +166,7 @@ pattern. Only rendered when `peerCursor.labelVisible` is `true`.
 | ------------- | ---------------------------------------------- |
 | Position      | Top of caret, offset upward                    |
 | Background    | Peer cursor color (opaque)                     |
-| Text color    | White (`#FFFFFF`) — consistent with Sheets     |
+| Text color    | Dynamic — black or white via `getLabelTextColor()` based on background luminance |
 | Font          | 11 px sans-serif                               |
 | Padding       | 4 px horizontal, 2 px vertical                 |
 | Content       | `username`, truncated with ellipsis at 120 px  |

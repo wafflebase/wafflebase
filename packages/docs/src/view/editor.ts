@@ -227,19 +227,26 @@ export function initialize(
       height: p.pixel.height,
     }));
 
-    // Compute stacking indices for peers at the same position
+    // Compute stacking indices for peers at the same position.
+    // Sort by clientKey + clientID for deterministic label ordering.
     const stackCounts = new Map<string, number>();
-    const resolvedPeers = peerPixels.map((p) => {
-      const count = stackCounts.get(p.clientKey) ?? 0;
-      stackCounts.set(p.clientKey, count + 1);
-      return {
-        pixel: p.pixel,
-        color: p.color,
-        username: p.username,
-        labelVisible: p.labelVisible,
-        stackIndex: count,
-      };
-    });
+    const resolvedPeers = [...peerPixels]
+      .sort(
+        (a, b) =>
+          a.clientKey.localeCompare(b.clientKey) ||
+          a.clientID.localeCompare(b.clientID),
+      )
+      .map((p) => {
+        const count = stackCounts.get(p.clientKey) ?? 0;
+        stackCounts.set(p.clientKey, count + 1);
+        return {
+          pixel: p.pixel,
+          color: p.color,
+          username: p.username,
+          labelVisible: p.labelVisible,
+          stackIndex: count,
+        };
+      });
 
     docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers);
 

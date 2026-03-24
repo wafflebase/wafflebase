@@ -203,11 +203,15 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
         lastCursorUpdate.current = now;
         store.updateCursorPos(pos);
       } else {
+        const remaining = Math.max(
+          0,
+          CURSOR_UPDATE_THROTTLE - (now - lastCursorUpdate.current),
+        );
         cursorTrailingTimer.current = window.setTimeout(() => {
           lastCursorUpdate.current = Date.now();
           store.updateCursorPos(pos);
           cursorTrailingTimer.current = undefined;
-        }, CURSOR_UPDATE_THROTTLE);
+        }, remaining);
       }
     });
 
@@ -239,7 +243,15 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
       }
     };
 
+    const handleMouseLeave = () => {
+      const ed = editorRef.current;
+      if (!ed || hoveredPeerClientID.current == null) return;
+      hoveredPeerClientID.current = null;
+      ed.setPeerCursors(buildPeerCursors());
+    };
+
     container.addEventListener("mousemove", handleMouseMove);
+    container.addEventListener("mouseleave", handleMouseLeave);
 
     // Capture refs in local variables so the cleanup closure is stable.
     const labelTimers = peerLabelTimers.current;
@@ -260,6 +272,7 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
       }
 
       container.removeEventListener("mousemove", handleMouseMove);
+      container.removeEventListener("mouseleave", handleMouseLeave);
       unsubPresence();
       editor.dispose();
       editorRef.current = null;

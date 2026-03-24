@@ -14,8 +14,11 @@ export type UserPresence = {
 } & User;
 
 export type DocsPresence = {
+  username: string;
+  email: string;
+  photo: string;
   activeCursorPos?: {
     blockId: string;
     offset: number;
   };
-} & User;
+};
