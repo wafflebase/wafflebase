@@ -5,7 +5,7 @@ import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
-import { Selection } from './selection.js';
+import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, type PaginatedLayout } from './pagination.js';
@@ -38,7 +38,7 @@ export interface EditorAPI {
   /** Update peer cursor data and re-render */
   setPeerCursors(cursors: PeerCursor[]): void;
   /** Register a callback for cursor position changes */
-  onCursorMove(cb: (pos: { blockId: string; offset: number }) => void): void;
+  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
   /** Focus the editor */
@@ -97,7 +97,7 @@ export function initialize(
   let focused = true;
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
-  let cursorMoveCallback: ((pos: { blockId: string; offset: number }) => void) | null = null;
+  let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
 
   // Compute layout helper
@@ -248,7 +248,27 @@ export function initialize(
         };
       });
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers);
+    // Compute peer selection highlight rectangles
+    const peerSelections: Array<{
+      color: string;
+      rects: Array<{ x: number; y: number; width: number; height: number }>;
+    }> = [];
+    for (const peer of peerCursors) {
+      if (peer.selection) {
+        const rects = computeSelectionRects(
+          peer.selection,
+          paginatedLayout,
+          layout,
+          docCanvas.getContext(),
+          canvasWidth,
+        );
+        if (rects.length > 0) {
+          peerSelections.push({ color: peer.color, rects });
+        }
+      }
+    }
+
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections);
 
     // Draw drag guideline if active
     if (dragGuideline) {
@@ -352,7 +372,10 @@ export function initialize(
   const renderWithScroll = () => {
     needsScrollIntoView = true;
     render();
-    cursorMoveCallback?.(cursor.position);
+    const selRange = selection.hasSelection() && selection.range
+      ? { anchor: selection.range.anchor, focus: selection.range.focus }
+      : null;
+    cursorMoveCallback?.(cursor.position, selRange);
   };
 
   const textEditor = new TextEditor(

@@ -441,9 +441,18 @@ export class YorkieDocStore implements DocStore {
    * Update this client's cursor position in Yorkie presence.
    * Called from DocsView when the local cursor moves.
    */
-  updateCursorPos(pos: { blockId: string; offset: number } | null): void {
+  updateCursorPos(
+    pos: { blockId: string; offset: number } | null,
+    selection?: {
+      anchor: { blockId: string; offset: number };
+      focus: { blockId: string; offset: number };
+    } | null,
+  ): void {
     this.doc.update((_, p) => {
-      p.set({ activeCursorPos: pos ?? undefined });
+      p.set({
+        activeCursorPos: pos ?? undefined,
+        activeSelection: selection ?? undefined,
+      });
     });
   }
 

@@ -5,6 +5,16 @@ import { Theme, buildFont, ptToPx } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 
 /**
+ * Convert a peer cursor color (hex) to a translucent selection fill.
+ */
+function peerColorToSelectionColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, 0.2)`;
+}
+
+/**
  * Canvas rendering engine for the document editor.
  * Paints paginated pages with shadows, styled text runs, cursor, and selection highlights.
  */
@@ -40,6 +50,10 @@ export class DocCanvas {
       username: string;
       labelVisible: boolean;
       stackIndex: number;
+    }>,
+    peerSelections?: Array<{
+      color: string;
+      rects: Array<{ x: number; y: number; width: number; height: number }>;
     }>,
   ): void {
     const dpr = window.devicePixelRatio || 1;
@@ -88,7 +102,19 @@ export class DocCanvas {
       this.ctx.rect(contentX, contentY, contentWidth, contentHeight);
       this.ctx.clip();
 
-      // Draw selection highlights for this page
+      // Draw peer selection highlights for this page (behind local selection)
+      if (peerSelections) {
+        for (const ps of peerSelections) {
+          this.ctx.fillStyle = peerColorToSelectionColor(ps.color);
+          for (const rect of ps.rects) {
+            if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+              this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            }
+          }
+        }
+      }
+
+      // Draw local selection highlights for this page
       if (selectionRects) {
         this.ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
         for (const rect of selectionRects) {
