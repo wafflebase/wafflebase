@@ -78,11 +78,6 @@ export function initialize(
   canvas.style.position = 'sticky';
   canvas.style.top = '0';
   canvas.style.cursor = 'text';
-  // The canvas sits after the horizontal ruler (RULER_SIZE px) in the flow,
-  // so its flow bottom extends RULER_SIZE px past the container.  A negative
-  // bottom margin compensates, preventing a tiny spurious scrollbar when the
-  // document fits on one page.
-  canvas.style.marginBottom = `${-RULER_SIZE}px`;
   container.style.position = 'relative';
   container.appendChild(canvas);
 
@@ -152,8 +147,11 @@ export function initialize(
     const canvasWidth = Math.max(viewportWidth, pageWidth);
     const totalHeight = getTotalHeight(paginatedLayout);
 
-    // Canvas stays viewport-sized; spacer provides scroll height
-    docCanvas.resize(canvasWidth, height);
+    // Size the canvas to the visible area below the ruler so its element
+    // extent (ruler offset + canvas height) equals the container height,
+    // preventing a spurious scrollbar when the document fits on screen.
+    const canvasHeight = height - RULER_SIZE;
+    docCanvas.resize(canvasWidth, canvasHeight);
     spacer.style.height = `${totalHeight}px`;
     // Pull spacer up behind the sticky canvas so it only contributes scroll.
     // Account for the horizontal ruler height (RULER_SIZE) in the flow.
@@ -165,7 +163,7 @@ export function initialize(
     if (needsScrollIntoView && cursorPixel) {
       needsScrollIntoView = false;
       const viewportTop = container.scrollTop;
-      const viewportHeight = height;
+      const viewportHeight = canvasHeight;
       const cursorTop = cursorPixel.y;
       const cursorBottom = cursorPixel.y + cursorPixel.height;
       const scrollMargin = 20;
@@ -274,7 +272,7 @@ export function initialize(
       }
     }
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections);
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections);
 
     // Draw drag guideline if active
     if (dragGuideline) {
@@ -286,7 +284,7 @@ export function initialize(
       if (dragGuideline.x != null) {
         ctx.beginPath();
         ctx.moveTo(dragGuideline.x, 0);
-        ctx.lineTo(dragGuideline.x, height);
+        ctx.lineTo(dragGuideline.x, canvasHeight);
         ctx.stroke();
       }
       if (dragGuideline.y != null) {
@@ -309,7 +307,7 @@ export function initialize(
       paginatedLayout,
       scrollY,
       canvasWidth,
-      height,
+      canvasHeight,
       cursorBlock?.style ?? null,
       cursorPageInfo?.pageIndex ?? 0,
     );
