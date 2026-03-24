@@ -8,7 +8,7 @@ describe('MemDocStore', () => {
       id: generateBlockId(),
       type: 'paragraph' as const,
       inlines: [{ text, style: {} }],
-      style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8 },
+      style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
     };
   }
 

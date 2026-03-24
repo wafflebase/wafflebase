@@ -57,5 +57,12 @@ export { Theme, buildFont, ptToPx, setThemeMode, getTheme } from './view/theme.j
 export type { ThemeMode, DocTheme } from './view/theme.js';
 export { DocCanvas } from './view/doc-canvas.js';
 export { Cursor } from './view/cursor.js';
+export {
+  type PeerCursor,
+  type PositionPixel,
+  resolvePositionPixel,
+  drawPeerCaret,
+  drawPeerLabel,
+} from './view/peer-cursor.js';
 export { Selection } from './view/selection.js';
 export { Ruler, RULER_SIZE } from './view/ruler.js';

@@ -17,6 +17,7 @@ import {
   DEFAULT_BLOCK_STYLE,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
+import type { DocsPresence } from '@/types/users';
 
 // ---------------------------------------------------------------------------
 // Helpers: attribute serialization
@@ -434,5 +435,25 @@ export class YorkieDocStore implements DocStore {
         };
       }
     });
+  }
+
+  /**
+   * Update this client's cursor position in Yorkie presence.
+   * Called from DocsView when the local cursor moves.
+   */
+  updateCursorPos(pos: { blockId: string; offset: number } | null): void {
+    this.doc.update((_, p) => {
+      p.set({ activeCursorPos: pos ?? undefined });
+    });
+  }
+
+  /**
+   * Get other peers' presences (cursor positions + user info).
+   */
+  getPresences(): Array<{
+    clientID: string;
+    presence: DocsPresence;
+  }> {
+    return this.doc.getOthersPresences();
   }
 }

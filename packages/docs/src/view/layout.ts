@@ -179,7 +179,6 @@ function layoutBlock(
   const lines: LayoutLine[] = [];
   let currentRuns: LayoutRun[] = [];
   let lineWidth = 0;
-  let isFirstLine = true;
   let lineStartX = marginLeft + textIndent;
   let effectiveWidth = maxWidth - marginLeft - textIndent;
 
@@ -192,7 +191,6 @@ function layoutBlock(
     });
     currentRuns = [];
     lineWidth = 0;
-    isFirstLine = false;
     lineStartX = marginLeft;
     effectiveWidth = maxWidth - marginLeft;
   };
