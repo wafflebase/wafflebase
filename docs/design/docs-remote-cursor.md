@@ -1,6 +1,6 @@
 ---
 title: docs-remote-cursor
-target-version: 0.3.0
+target-version: 0.3.1
 ---
 
 # Docs Remote Cursor
