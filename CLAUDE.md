@@ -1,10 +1,14 @@
 # CLAUDE.md — Wafflebase
 
-Wafflebase is a web-based collaborative spreadsheet (Google Sheets alternative).
+Wafflebase is a web-based collaborative spreadsheet and word processor.
 Yorkie CRDTs for real-time collaboration, ANTLR4-based formula engine, Canvas rendering.
 
+- **Sheets** — Spreadsheet engine (data model, ANTLR4 formulas, Canvas grid rendering)
+- **Docs** — Word processor engine (rich text, Canvas rendering, pagination)
+
 See @docs/design/README.md for architecture, @packages/sheets/README.md,
-@packages/frontend/README.md, @packages/backend/README.md for package details.
+@packages/docs/README.md, @packages/frontend/README.md, @packages/backend/README.md
+for package details.
 
 ## Commands
 
@@ -38,7 +42,7 @@ detached.
 ## Pitfalls
 
 - **ANTLR generated files** have `@ts-nocheck` — do NOT hand-edit or add type fixes. Regenerate with `pnpm sheet build:formula` and commit the output.
-- **Store abstraction** — all spreadsheet behavior must go through the `Store` interface. Do not bypass with ad-hoc persistence.
+- **Store abstraction** — all spreadsheet behavior must go through the `Store` interface, all document behavior through `DocStore`. Do not bypass with ad-hoc persistence.
 - **Integration/e2e tests** require `docker compose up -d` first.
 - **Frontend chunk-gate** defaults are in `harness.config.json`; override with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT`.
 
