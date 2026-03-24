@@ -5,7 +5,8 @@
  * - Words are sequences of alphanumeric/underscore characters
  * - Punctuation forms its own boundary group
  * - Whitespace is skipped
- * - CJK characters are each treated as individual words
+ * - CJK ideographs (Chinese, Japanese) are each treated as individual words
+ * - Hangul (Korean) syllables are grouped as words (space-delimited)
  */
 
 /**
@@ -25,7 +26,6 @@ function isCJK(code: number): boolean {
   return (
     (code >= 0x4e00 && code <= 0x9fff) ||   // CJK Unified Ideographs
     (code >= 0x3400 && code <= 0x4dbf) ||   // CJK Extension A
-    (code >= 0xac00 && code <= 0xd7af) ||   // Hangul Syllables
     (code >= 0x3040 && code <= 0x309f) ||   // Hiragana
     (code >= 0x30a0 && code <= 0x30ff) ||   // Katakana
     (code >= 0xff00 && code <= 0xffef)      // Fullwidth Forms
