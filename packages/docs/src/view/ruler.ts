@@ -1,5 +1,5 @@
 import type { PaginatedLayout } from './pagination.js';
-import { getPageXOffset, getPageYOffset } from './pagination.js';
+import { getPageXOffset, getPageYOffset, getTotalHeight } from './pagination.js';
 import type { BlockStyle, PageMargins } from '../model/types.js';
 import { Theme } from './theme.js';
 
@@ -148,9 +148,15 @@ export class Ruler {
     this.resizeH(canvasWidth);
     this.renderHorizontal(pageX, page.width, margins, cursorBlockStyle);
 
-    // Position vCanvas to simulate sticky behavior (absolute + manual top)
-    this.vCanvas.style.top = `${scrollY + RULER_SIZE}px`;
-    this.resizeV(viewportHeight);
+    // Position vCanvas to simulate sticky behavior (absolute + manual top).
+    // Clamp height so the absolute element doesn't extend past the document
+    // content — otherwise it grows scrollHeight, creating a feedback loop
+    // where each scroll event adds RULER_SIZE px of extra scroll range.
+    const vTop = scrollY + RULER_SIZE;
+    const totalHeight = getTotalHeight(paginatedLayout);
+    const vHeight = Math.max(0, Math.min(viewportHeight, totalHeight - vTop));
+    this.vCanvas.style.top = `${vTop}px`;
+    this.resizeV(vHeight);
     this.renderVertical(scrollY, paginatedLayout, cursorPageIndex);
   }
 
