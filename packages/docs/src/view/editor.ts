@@ -78,6 +78,11 @@ export function initialize(
   canvas.style.position = 'sticky';
   canvas.style.top = '0';
   canvas.style.cursor = 'text';
+  // The canvas sits after the horizontal ruler (RULER_SIZE px) in the flow,
+  // so its flow bottom extends RULER_SIZE px past the container.  A negative
+  // bottom margin compensates, preventing a tiny spurious scrollbar when the
+  // document fits on one page.
+  canvas.style.marginBottom = `${-RULER_SIZE}px`;
   container.style.position = 'relative';
   container.appendChild(canvas);
 
@@ -404,11 +409,14 @@ export function initialize(
   // Start cursor blink
   cursor.startBlink(renderPaintOnly);
 
+  // Enable scroll BEFORE the initial render so the container stays
+  // flex-constrained instead of growing to match content height.
+  container.style.overflow = 'auto';
+
   // Initial render
   render();
 
   // Scroll and resize listeners
-  container.style.overflow = 'auto';
   const handleScroll = () => renderPaintOnly();
   container.addEventListener('scroll', handleScroll);
 
