@@ -8,8 +8,8 @@ const columns = [
     links: [
       { label: "Features", href: "#features" },
       { label: "Documentation", href: "/docs" },
-      { label: "REST API", href: "/docs/api/rest-api" },
-      { label: "CLI", href: "/docs/api/cli" },
+      { label: "REST API", href: "/docs/developers/rest-api" },
+      { label: "CLI", href: "/docs/developers/cli" },
     ],
   },
   {

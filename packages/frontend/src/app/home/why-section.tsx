@@ -18,9 +18,14 @@ const rows: { label: string; wafflebase: ReactNode; others: ReactNode }[] = [
     others: <Check className="size-4 text-green-500" />,
   },
   {
-    label: "Free & open source (Apache-2.0)",
+    label: "Sheets & Docs in one app",
     wafflebase: <Check className="size-4 text-green-500" />,
-    others: <X className="size-4 text-muted-foreground" />,
+    others: <Check className="size-4 text-green-500" />,
+  },
+  {
+    label: "Free & open source",
+    wafflebase: <Check className="size-4 text-green-500" />,
+    others: <span className="text-xs text-muted-foreground">Limited</span>,
   },
 ];
 
@@ -31,7 +36,7 @@ export function WhySection() {
         Why Wafflebase?
       </h2>
       <p className="text-center text-base text-homepage-text-secondary mb-10 max-w-lg mx-auto">
-        A spreadsheet that respects your data and your workflow
+        A workspace that respects your data and your workflow
       </p>
 
       <table className="max-w-[540px] mx-auto w-full rounded-xl border border-homepage-accent/30 overflow-hidden border-separate border-spacing-0">
@@ -40,7 +45,7 @@ export function WhySection() {
             <th className="px-5 py-3 text-left text-homepage-text-secondary font-semibold" />
             <th className="px-5 py-3 text-center text-homepage-text font-semibold">Wafflebase</th>
             <th className="px-5 py-3 text-center text-muted-foreground font-semibold">
-              Google Sheets / Airtable
+              Google Workspace
             </th>
           </tr>
         </thead>

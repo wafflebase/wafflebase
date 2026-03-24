@@ -1,4 +1,4 @@
-import { Globe, Terminal, Server, FunctionSquare, BarChart3, Shield } from "lucide-react";
+import { Globe, Terminal, Server, FunctionSquare, BarChart3, Shield, FileText } from "lucide-react";
 import type { ReactNode } from "react";
 
 const heroFeatures: { icon: ReactNode; title: string; description: string; href: string }[] = [
@@ -6,7 +6,7 @@ const heroFeatures: { icon: ReactNode; title: string; description: string; href:
     icon: <Globe className="size-8 text-homepage-accent" />,
     title: "Real-Time Collaboration",
     description:
-      "CRDT-powered concurrent editing — multiple users work on the same sheet without conflicts or data loss.",
+      "CRDT-powered concurrent editing — multiple users work on the same sheet or document without conflicts or data loss.",
     href: "/docs/guide/collaboration",
   },
   {
@@ -30,13 +30,19 @@ const secondaryFeatures: { icon: ReactNode; title: string; description: string; 
     icon: <FunctionSquare className="size-5 text-homepage-accent" />,
     title: "Google Sheets-Compatible Formulas",
     description: "SUM, VLOOKUP, IF, and cross-sheet references",
-    href: "/docs/guide/formulas",
+    href: "/docs/sheets/formulas",
   },
   {
     icon: <BarChart3 className="size-5 text-homepage-accent" />,
     title: "Charts & Pivot Tables",
     description: "Built-in data visualization and aggregation",
-    href: "/docs/guide/charts",
+    href: "/docs/sheets/charts",
+  },
+  {
+    icon: <FileText className="size-5 text-homepage-accent" />,
+    title: "Document Editor",
+    description: "Write and format documents with a clean, page-based editor",
+    href: "/docs/docs-editor/writing-a-document",
   },
   {
     icon: <Shield className="size-5 text-homepage-accent" />,
@@ -72,7 +78,7 @@ export function FeaturesSection() {
       </div>
 
       {/* Secondary features — compact row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-[960px] mx-auto">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-[960px] mx-auto">
         {secondaryFeatures.map((feature) => (
           <a
             key={feature.title}
