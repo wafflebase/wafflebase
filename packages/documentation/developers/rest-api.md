@@ -1,6 +1,6 @@
 # REST API
 
-The Wafflebase REST API lets you read and write spreadsheet data programmatically. All endpoints are under `/api/v1/`.
+The Wafflebase REST API lets you read and write spreadsheet and document data programmatically. All endpoints are under `/api/v1/`.
 
 ## Authentication
 
@@ -43,6 +43,8 @@ curl -H "Authorization: Bearer wfb_..." \
   https://api.wafflebase.io/api/v1/workspaces/:wid/documents
 ```
 
+Each document in the response includes a `type` field (`"sheet"` or `"doc"`).
+
 ### Create Document
 
 ```bash
@@ -50,12 +52,25 @@ POST /api/v1/workspaces/:wid/documents
 ```
 
 ```bash
+# Create a sheet (default)
 curl -X POST \
   -H "Authorization: Bearer wfb_..." \
   -H "Content-Type: application/json" \
   -d '{"title": "Q1 Report"}' \
   https://api.wafflebase.io/api/v1/workspaces/:wid/documents
+
+# Create a document
+curl -X POST \
+  -H "Authorization: Bearer wfb_..." \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Meeting Notes", "type": "doc"}' \
+  https://api.wafflebase.io/api/v1/workspaces/:wid/documents
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | Yes | Document title |
+| `type` | string | No | `"sheet"` (default) or `"doc"` |
 
 ### Get Document
 
@@ -82,6 +97,10 @@ curl -X PATCH \
 ```bash
 DELETE /api/v1/workspaces/:wid/documents/:did
 ```
+
+::: info
+The Tabs and Cells endpoints below apply to **sheet** documents only. Document (`"doc"`) content is not currently available through the REST API.
+:::
 
 ## Tabs
 
