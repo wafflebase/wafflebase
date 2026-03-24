@@ -1,16 +1,18 @@
 # Wafflebase
 
-Wafflebase is a web-based collaborative spreadsheet application. It bridges
-the gap between traditional spreadsheets and database tools, offering
+Wafflebase is a web-based collaborative spreadsheet and word processor. It
+bridges the gap between traditional spreadsheets and database tools, offering
 real-time collaboration and scalable performance for handling large datasets.
 
-> **Status:** Early development. Core spreadsheet features work, but the
-> project is not yet production-ready. We are actively working on DataSource
-> integration and advanced analysis features.
+> **Status:** Early development. Core spreadsheet and document editing features
+> work, but the project is not yet production-ready. We are actively working on
+> DataSource integration and advanced analysis features.
 
 **Demo:** https://wafflebase.io/shared/bed3dbe8-bdce-46ef-a76e-65fd67178cde
 
 ## Features
+
+### Sheets
 
 - **High-performance rendering** — Canvas-based virtualized grid that handles
   large row/column counts smoothly.
@@ -18,17 +20,32 @@ real-time collaboration and scalable performance for handling large datasets.
   and more.
 - **Cell formatting** — Font, color, alignment, freeze panes.
 - **Undo/Redo & Copy/Paste** — Google Sheets-compatible clipboard handling.
-- **Real-time collaboration** — Multi-user editing powered by
-  [Yorkie](https://yorkie.dev) CRDT.
 - **Data Source integration** *(coming soon)* — Connect directly to
   PostgreSQL/MySQL to query live data.
+
+### Docs
+
+- **Canvas-based word processor** — Rich text editing with inline formatting
+  (bold, italic, underline, font size, color).
+- **Pagination** — Word-processor-style pages with configurable paper size
+  and margins.
+- **Block editing** — Paragraph-level operations with alignment and line
+  height controls.
+
+### Shared
+
+- **Real-time collaboration** — Multi-user editing powered by
+  [Yorkie](https://yorkie.dev) CRDT.
+- **Peer cursor labels** — See collaborators' cursors with name tags in
+  real time.
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Frontend | React 19, Vite, TailwindCSS, Radix UI |
-| Spreadsheet engine | Canvas rendering, ANTLR4 formula parser, Yorkie CRDT |
+| Sheets engine | Canvas rendering, ANTLR4 formula parser, Yorkie CRDT |
+| Docs engine | Canvas rendering, custom layout & pagination |
 | Backend | NestJS, Prisma, PostgreSQL, GitHub OAuth + JWT |
 
 ## Project Structure
@@ -43,7 +60,8 @@ packages/
   documentation/   — VitePress documentation site (wafflebase.io/docs)
 ```
 
-The frontend depends on `@wafflebase/sheets` as a workspace dependency.
+The frontend depends on `@wafflebase/sheets` and `@wafflebase/docs` as
+workspace dependencies.
 
 ## Getting Started
 
