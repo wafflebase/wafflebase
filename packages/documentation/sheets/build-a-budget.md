@@ -119,4 +119,4 @@ Shows what percentage of your total budget you've used.
 ## What's Next
 
 - [Formulas Reference](./formulas) — Full list of supported functions
-- [Collaboration & Sharing](./collaboration) — Share this budget with others
+- [Collaboration & Sharing](/guide/collaboration) — Share this budget with others
