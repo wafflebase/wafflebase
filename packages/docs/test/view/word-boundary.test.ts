@@ -32,14 +32,23 @@ describe('findNextWordBoundary', () => {
     expect(findNextWordBoundary('foo.bar', 4)).toBe(7);
   });
 
-  it('handles CJK characters individually', () => {
-    expect(findNextWordBoundary('한글테스트', 0)).toBe(1);
-    expect(findNextWordBoundary('한글테스트', 1)).toBe(2);
+  it('skips Hangul word as a unit', () => {
+    expect(findNextWordBoundary('안녕하세요 반갑습니다', 0)).toBe(6);
+    expect(findNextWordBoundary('안녕하세요 반갑습니다', 6)).toBe(11);
   });
 
-  it('handles mixed CJK and latin', () => {
-    expect(findNextWordBoundary('hello한글', 0)).toBe(5);
-    expect(findNextWordBoundary('hello한글', 5)).toBe(6);
+  it('handles mixed Hangul and latin without space as one word', () => {
+    expect(findNextWordBoundary('hello안녕', 0)).toBe(7);
+  });
+
+  it('handles mixed Hangul and latin with space', () => {
+    expect(findNextWordBoundary('hello 안녕', 0)).toBe(6);
+    expect(findNextWordBoundary('hello 안녕', 6)).toBe(8);
+  });
+
+  it('handles CJK ideographs individually', () => {
+    expect(findNextWordBoundary('漢字テスト', 0)).toBe(1);
+    expect(findNextWordBoundary('漢字テスト', 1)).toBe(2);
   });
 
   it('handles multiple spaces', () => {
@@ -70,9 +79,14 @@ describe('findPrevWordBoundary', () => {
     expect(findPrevWordBoundary('foo.bar', 3)).toBe(0);
   });
 
-  it('handles CJK characters individually', () => {
-    expect(findPrevWordBoundary('한글테스트', 5)).toBe(4);
-    expect(findPrevWordBoundary('한글테스트', 2)).toBe(1);
+  it('skips Hangul word as a unit', () => {
+    expect(findPrevWordBoundary('안녕하세요 반갑습니다', 11)).toBe(6);
+    expect(findPrevWordBoundary('안녕하세요 반갑습니다', 6)).toBe(0);
+  });
+
+  it('handles CJK ideographs individually', () => {
+    expect(findPrevWordBoundary('漢字テスト', 5)).toBe(4);
+    expect(findPrevWordBoundary('漢字テスト', 2)).toBe(1);
   });
 
   it('handles multiple spaces', () => {
@@ -95,9 +109,15 @@ describe('getWordRange', () => {
     expect(getWordRange('a...b', 2)).toEqual([1, 4]);
   });
 
-  it('selects single CJK character', () => {
-    expect(getWordRange('한글', 0)).toEqual([0, 1]);
-    expect(getWordRange('한글', 1)).toEqual([1, 2]);
+  it('selects Hangul word', () => {
+    expect(getWordRange('안녕 세계', 0)).toEqual([0, 2]);
+    expect(getWordRange('안녕 세계', 1)).toEqual([0, 2]);
+    expect(getWordRange('안녕 세계', 3)).toEqual([3, 5]);
+  });
+
+  it('selects single CJK ideograph', () => {
+    expect(getWordRange('漢字', 0)).toEqual([0, 1]);
+    expect(getWordRange('漢字', 1)).toEqual([1, 2]);
   });
 
   it('handles empty text', () => {

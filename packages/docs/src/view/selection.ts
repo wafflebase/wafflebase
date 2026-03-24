@@ -5,22 +5,207 @@ import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import { buildFont } from './theme.js';
 
+// --- Free helpers (used by both Selection class and computeSelectionRects) ---
+
+function normalizeRange(
+  range: DocRange,
+  layout: DocumentLayout,
+): { start: DocPosition; end: DocPosition } | null {
+  const anchorIdx = layout.blocks.findIndex(
+    (lb) => lb.block.id === range.anchor.blockId,
+  );
+  const focusIdx = layout.blocks.findIndex(
+    (lb) => lb.block.id === range.focus.blockId,
+  );
+  if (anchorIdx === -1 || focusIdx === -1) return null;
+
+  if (
+    anchorIdx < focusIdx ||
+    (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
+  ) {
+    return { start: range.anchor, end: range.focus };
+  }
+  return { start: range.focus, end: range.anchor };
+}
+
+function positionToPagePixel(
+  paginatedLayout: PaginatedLayout,
+  layout: DocumentLayout,
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+  blockId: string,
+  offset: number,
+): { x: number; y: number; height: number } | undefined {
+  const found = findPageForPosition(paginatedLayout, blockId, offset, layout);
+  if (!found) return undefined;
+
+  const { pageIndex, pageLine } = found;
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const pageY = getPageYOffset(paginatedLayout, pageIndex);
+  const lb = layout.blocks[pageLine.blockIndex];
+
+  let charsBeforeLine = 0;
+  for (let li = 0; li < pageLine.lineIndex; li++) {
+    for (const r of lb.lines[li].runs) {
+      charsBeforeLine += r.charEnd - r.charStart;
+    }
+  }
+  const lineOffset = offset - charsBeforeLine;
+
+  let charCount = 0;
+  for (const run of pageLine.line.runs) {
+    const runLength = run.charEnd - run.charStart;
+    if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
+      const localOff = lineOffset - charCount;
+      ctx.font = buildFont(
+        run.inline.style.fontSize, run.inline.style.fontFamily,
+        run.inline.style.bold, run.inline.style.italic,
+      );
+      const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+      return { x, y: pageY + pageLine.y, height: pageLine.line.height };
+    }
+    charCount += runLength;
+  }
+
+  const lastRun = pageLine.line.runs[pageLine.line.runs.length - 1];
+  if (lastRun) {
+    return {
+      x: pageX + pageLine.x + lastRun.x + lastRun.width,
+      y: pageY + pageLine.y, height: pageLine.line.height,
+    };
+  }
+  return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: 24 };
+}
+
+function getLineEndX(line: LayoutLine, lineBaseX: number): number {
+  if (line.runs.length === 0) return lineBaseX;
+  const last = line.runs[line.runs.length - 1];
+  return lineBaseX + last.x + last.width;
+}
+
+function getLineStartX(line: LayoutLine, lineBaseX: number): number {
+  if (line.runs.length === 0) return lineBaseX;
+  const first = line.runs[0];
+  return lineBaseX + first.x;
+}
+
+function buildRects(
+  start: DocPosition,
+  end: DocPosition,
+  paginatedLayout: PaginatedLayout,
+  layout: DocumentLayout,
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+  const startBlockIdx = layout.blocks.findIndex(
+    (lb) => lb.block.id === start.blockId,
+  );
+  const endBlockIdx = layout.blocks.findIndex(
+    (lb) => lb.block.id === end.blockId,
+  );
+  if (startBlockIdx === -1 || endBlockIdx === -1) return [];
+
+  for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
+    const lb = layout.blocks[bi];
+    const blockStart = bi === startBlockIdx ? start.offset : 0;
+    const blockEnd =
+      bi === endBlockIdx ? end.offset : getBlockTextLength(lb.block);
+
+    if (blockStart >= blockEnd) continue;
+
+    const startPixel = positionToPagePixel(
+      paginatedLayout, layout, ctx, canvasWidth, lb.block.id, blockStart,
+    );
+    const endPixel = positionToPagePixel(
+      paginatedLayout, layout, ctx, canvasWidth, lb.block.id, blockEnd,
+    );
+
+    if (!startPixel || !endPixel) continue;
+
+    if (startPixel.y === endPixel.y) {
+      rects.push({
+        x: startPixel.x,
+        y: startPixel.y,
+        width: endPixel.x - startPixel.x,
+        height: startPixel.height,
+      });
+    } else {
+      const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+      const startFound = findPageForPosition(paginatedLayout, lb.block.id, blockStart, layout);
+      const endFound = findPageForPosition(paginatedLayout, lb.block.id, blockEnd, layout);
+      if (!startFound || !endFound) continue;
+
+      const firstLineEnd = getLineEndX(startFound.pageLine.line, pageX + startFound.pageLine.x);
+      rects.push({
+        x: startPixel.x,
+        y: startPixel.y,
+        width: firstLineEnd - startPixel.x,
+        height: startPixel.height,
+      });
+
+      for (const page of paginatedLayout.pages) {
+        const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+        for (const pl of page.lines) {
+          if (pl.blockIndex !== bi) continue;
+          const lineY = pageY + pl.y;
+          if (lineY <= startPixel.y || lineY >= endPixel.y) continue;
+          const lineStartX = getLineStartX(pl.line, pageX + pl.x);
+          const lineEndX = getLineEndX(pl.line, pageX + pl.x);
+          rects.push({
+            x: lineStartX,
+            y: lineY,
+            width: lineEndX - lineStartX,
+            height: pl.line.height,
+          });
+        }
+      }
+
+      const lastLineStart = getLineStartX(endFound.pageLine.line, pageX + endFound.pageLine.x);
+      rects.push({
+        x: lastLineStart,
+        y: endPixel.y,
+        width: endPixel.x - lastLineStart,
+        height: endPixel.height,
+      });
+    }
+  }
+
+  return rects;
+}
+
+// --- Exported free function for peer selection rendering ---
+
+/**
+ * Compute highlight rectangles for an arbitrary DocRange.
+ * Used for rendering remote peer selections.
+ */
+export function computeSelectionRects(
+  range: DocRange,
+  paginatedLayout: PaginatedLayout,
+  layout: DocumentLayout,
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const normalized = normalizeRange(range, layout);
+  if (!normalized) return [];
+  if (normalized.start.blockId === normalized.end.blockId && normalized.start.offset === normalized.end.offset) return [];
+  return buildRects(normalized.start, normalized.end, paginatedLayout, layout, ctx, canvasWidth);
+}
+
+// --- Selection class (local selection state) ---
+
 /**
  * Text selection state and highlight rectangle computation.
  */
 export class Selection {
   range: DocRange | null = null;
 
-  /**
-   * Set the selection range.
-   */
   setRange(range: DocRange | null): void {
     this.range = range;
   }
 
-  /**
-   * Check if there is an active selection.
-   */
   hasSelection(): boolean {
     if (!this.range) return false;
     return (
@@ -29,133 +214,23 @@ export class Selection {
     );
   }
 
-  /**
-   * Get the normalized range (start before end).
-   */
   getNormalizedRange(
     layout: DocumentLayout,
   ): { start: DocPosition; end: DocPosition } | null {
     if (!this.range || !this.hasSelection()) return null;
-
-    const anchorIdx = layout.blocks.findIndex(
-      (lb) => lb.block.id === this.range!.anchor.blockId,
-    );
-    const focusIdx = layout.blocks.findIndex(
-      (lb) => lb.block.id === this.range!.focus.blockId,
-    );
-
-    if (
-      anchorIdx < focusIdx ||
-      (anchorIdx === focusIdx &&
-        this.range.anchor.offset <= this.range.focus.offset)
-    ) {
-      return { start: this.range.anchor, end: this.range.focus };
-    }
-    return { start: this.range.focus, end: this.range.anchor };
+    return normalizeRange(this.range, layout);
   }
 
-  /**
-   * Compute highlight rectangles for the selection in page space.
-   */
   getSelectionRects(
     paginatedLayout: PaginatedLayout,
     layout: DocumentLayout,
     ctx: CanvasRenderingContext2D,
     canvasWidth: number,
   ): Array<{ x: number; y: number; width: number; height: number }> {
-    const normalized = this.getNormalizedRange(layout);
-    if (!normalized) return [];
-
-    const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
-    const { start, end } = normalized;
-
-    const startBlockIdx = layout.blocks.findIndex(
-      (lb) => lb.block.id === start.blockId,
-    );
-    const endBlockIdx = layout.blocks.findIndex(
-      (lb) => lb.block.id === end.blockId,
-    );
-
-    // Selection references a block that no longer exists in the layout
-    // (e.g. deleted by a remote peer). Nothing to highlight.
-    if (startBlockIdx === -1 || endBlockIdx === -1) return [];
-
-    for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
-      const lb = layout.blocks[bi];
-      const blockStart = bi === startBlockIdx ? start.offset : 0;
-      const blockEnd =
-        bi === endBlockIdx ? end.offset : getBlockTextLength(lb.block);
-
-      if (blockStart >= blockEnd) continue;
-
-      const startPixel = this.positionToPagePixel(
-        paginatedLayout, layout, ctx, canvasWidth, lb.block.id, blockStart,
-      );
-      const endPixel = this.positionToPagePixel(
-        paginatedLayout, layout, ctx, canvasWidth, lb.block.id, blockEnd,
-      );
-
-      if (!startPixel || !endPixel) continue;
-
-      if (startPixel.y === endPixel.y) {
-        // Same line
-        rects.push({
-          x: startPixel.x,
-          y: startPixel.y,
-          width: endPixel.x - startPixel.x,
-          height: startPixel.height,
-        });
-      } else {
-        // Multi-line: first line from start to end of line
-        const pageX = getPageXOffset(paginatedLayout, canvasWidth);
-        const startFound = findPageForPosition(paginatedLayout, lb.block.id, blockStart, layout);
-        const endFound = findPageForPosition(paginatedLayout, lb.block.id, blockEnd, layout);
-        if (!startFound || !endFound) continue;
-
-        // First line: from start position to end of line
-        const firstLineEnd = this.getLineEndX(startFound.pageLine.line, pageX + startFound.pageLine.x);
-        rects.push({
-          x: startPixel.x,
-          y: startPixel.y,
-          width: firstLineEnd - startPixel.x,
-          height: startPixel.height,
-        });
-
-        // Middle lines (full width)
-        for (const page of paginatedLayout.pages) {
-          const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-          for (const pl of page.lines) {
-            if (pl.blockIndex !== bi) continue;
-            const lineY = pageY + pl.y;
-            if (lineY <= startPixel.y || lineY >= endPixel.y) continue;
-            const lineStartX = this.getLineStartX(pl.line, pageX + pl.x);
-            const lineEndX = this.getLineEndX(pl.line, pageX + pl.x);
-            rects.push({
-              x: lineStartX,
-              y: lineY,
-              width: lineEndX - lineStartX,
-              height: pl.line.height,
-            });
-          }
-        }
-
-        // Last line: from start of line to end position
-        const lastLineStart = this.getLineStartX(endFound.pageLine.line, pageX + endFound.pageLine.x);
-        rects.push({
-          x: lastLineStart,
-          y: endPixel.y,
-          width: endPixel.x - lastLineStart,
-          height: endPixel.height,
-        });
-      }
-    }
-
-    return rects;
+    if (!this.range || !this.hasSelection()) return [];
+    return computeSelectionRects(this.range, paginatedLayout, layout, ctx, canvasWidth);
   }
 
-  /**
-   * Get the selected text.
-   */
   getSelectedText(layout: DocumentLayout): string {
     const normalized = this.getNormalizedRange(layout);
     if (!normalized) return '';
@@ -182,69 +257,5 @@ export class Selection {
     }
 
     return texts.join('\n');
-  }
-
-  // --- Private helpers ---
-
-  private positionToPagePixel(
-    paginatedLayout: PaginatedLayout,
-    layout: DocumentLayout,
-    ctx: CanvasRenderingContext2D,
-    canvasWidth: number,
-    blockId: string,
-    offset: number,
-  ): { x: number; y: number; height: number } | undefined {
-    const found = findPageForPosition(paginatedLayout, blockId, offset, layout);
-    if (!found) return undefined;
-
-    const { pageIndex, pageLine } = found;
-    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
-    const pageY = getPageYOffset(paginatedLayout, pageIndex);
-    const lb = layout.blocks[pageLine.blockIndex];
-
-    let charsBeforeLine = 0;
-    for (let li = 0; li < pageLine.lineIndex; li++) {
-      for (const r of lb.lines[li].runs) {
-        charsBeforeLine += r.charEnd - r.charStart;
-      }
-    }
-    const lineOffset = offset - charsBeforeLine;
-
-    let charCount = 0;
-    for (const run of pageLine.line.runs) {
-      const runLength = run.charEnd - run.charStart;
-      if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
-        const localOff = lineOffset - charCount;
-        ctx.font = buildFont(
-          run.inline.style.fontSize, run.inline.style.fontFamily,
-          run.inline.style.bold, run.inline.style.italic,
-        );
-        const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
-        return { x, y: pageY + pageLine.y, height: pageLine.line.height };
-      }
-      charCount += runLength;
-    }
-
-    // Fallback: end of line
-    const lastRun = pageLine.line.runs[pageLine.line.runs.length - 1];
-    if (lastRun) {
-      return {
-        x: pageX + pageLine.x + lastRun.x + lastRun.width,
-        y: pageY + pageLine.y, height: pageLine.line.height,
-      };
-    }
-    return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: 24 };
-  }
-
-  private getLineEndX(line: LayoutLine, lineBaseX: number): number {
-    if (line.runs.length === 0) return lineBaseX;
-    const last = line.runs[line.runs.length - 1];
-    return lineBaseX + last.x + last.width;
-  }
-
-  private getLineStartX(line: LayoutLine, lineBaseX: number): number {
-    if (line.runs.length === 0) return lineBaseX;
-    const first = line.runs[0];
-    return lineBaseX + first.x;
   }
 }

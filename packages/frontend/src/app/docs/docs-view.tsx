@@ -114,6 +114,7 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
             username = p.presence.username;
           }
         }
+        const sel = p.presence.activeSelection;
         return {
           clientID: p.clientID,
           position: p.presence.activeCursorPos!,
@@ -122,6 +123,7 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
           labelVisible:
             visiblePeerLabels.current.has(p.clientID) ||
             hoveredPeerClientID.current === p.clientID,
+          selection: sel ? { anchor: sel.anchor, focus: sel.focus } : undefined,
         };
       });
   }, []);
@@ -196,12 +198,12 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
       handlePresenceChange();
     });
 
-    editor.onCursorMove((pos) => {
+    editor.onCursorMove((pos, sel) => {
       const now = Date.now();
       if (cursorTrailingTimer.current) clearTimeout(cursorTrailingTimer.current);
       if (now - lastCursorUpdate.current >= CURSOR_UPDATE_THROTTLE) {
         lastCursorUpdate.current = now;
-        store.updateCursorPos(pos);
+        store.updateCursorPos(pos, sel);
       } else {
         const remaining = Math.max(
           0,
@@ -209,7 +211,7 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
         );
         cursorTrailingTimer.current = window.setTimeout(() => {
           lastCursorUpdate.current = Date.now();
-          store.updateCursorPos(pos);
+          store.updateCursorPos(pos, sel);
           cursorTrailingTimer.current = undefined;
         }, remaining);
       }

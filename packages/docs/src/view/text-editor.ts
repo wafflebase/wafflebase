@@ -9,6 +9,7 @@ import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageX
 import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
+import { findVisualLine } from './visual-line.js';
 
 /**
  * Composition (IME) state tracker.
@@ -969,26 +970,11 @@ export class TextEditor {
     const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
     if (!lb) return [0, 0];
 
-    let charsBefore = 0;
-    for (let i = 0; i < lb.lines.length; i++) {
-      const line = lb.lines[i];
-      let lineChars = 0;
-      for (const run of line.runs) {
-        lineChars += run.charEnd - run.charStart;
-      }
-      const lineStart = charsBefore;
-      const lineEnd = charsBefore + lineChars;
-      const isLastLine = i === lb.lines.length - 1;
-      if (pos.offset >= lineStart
-          && (pos.offset < lineEnd || (isLastLine && pos.offset <= lineEnd))) {
-        return [lineStart, lineEnd];
-      }
-      charsBefore = lineEnd;
-    }
+    const info = findVisualLine(lb, pos);
+    if (info) return [info.lineStart, info.lineEnd];
 
-    // Fallback: last line
     const total = getBlockTextLength(lb.block);
-    return [charsBefore, total];
+    return [0, total];
   }
 
   private getVisualLineStart(pos: DocPosition): DocPosition {
@@ -1073,7 +1059,26 @@ export class TextEditor {
       }
     }
 
+    // If the result is on the same visual line (first line up or last line down),
+    // jump to line start (up) or line end (down).
     if (result) {
+      const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
+      if (lb) {
+        const info = findVisualLine(lb, pos);
+        if (info) {
+          const sameBlock = result.blockId === pos.blockId;
+          const isFirstLine = info.lineIndex === 0;
+          const isLastLine = info.lineIndex === info.totalLines - 1;
+          if (direction === -1 && sameBlock && isFirstLine && layout.blocks[0]?.block.id === pos.blockId) {
+            this.cursor.lineAffinity = 'forward';
+            return { blockId: pos.blockId, offset: info.lineStart };
+          }
+          if (direction === 1 && sameBlock && isLastLine && layout.blocks[layout.blocks.length - 1]?.block.id === pos.blockId) {
+            this.cursor.lineAffinity = 'backward';
+            return { blockId: pos.blockId, offset: info.lineEnd };
+          }
+        }
+      }
       this.cursor.lineAffinity = result.lineAffinity;
       return result;
     }

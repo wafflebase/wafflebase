@@ -21,4 +21,8 @@ export type DocsPresence = {
     blockId: string;
     offset: number;
   };
+  activeSelection?: {
+    anchor: { blockId: string; offset: number };
+    focus: { blockId: string; offset: number };
+  };
 };

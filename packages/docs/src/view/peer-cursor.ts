@@ -1,4 +1,4 @@
-import type { DocPosition } from '../model/types.js';
+import type { DocPosition, DocRange } from '../model/types.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
@@ -13,6 +13,7 @@ export interface PeerCursor {
   color: string;
   username: string;
   labelVisible: boolean;
+  selection?: DocRange;
 }
 
 /**
