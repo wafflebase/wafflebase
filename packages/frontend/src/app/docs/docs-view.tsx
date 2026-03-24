@@ -86,6 +86,11 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
   const visiblePeerLabels = useRef<Set<string>>(new Set());
   const hoveredPeerClientID = useRef<string | null>(null);
   const lastCursorUpdate = useRef<number>(0);
+  const cursorTrailingTimer = useRef<number | undefined>(undefined);
+  const themeRef = useRef(resolvedTheme);
+
+  // Keep theme ref in sync so callbacks always see the latest value.
+  themeRef.current = resolvedTheme;
 
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
@@ -96,22 +101,30 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
     const store = storeRef.current;
     if (!store) return [];
 
-    const theme = (resolvedTheme === "dark" ? "dark" : "light") as "light" | "dark";
+    const theme = (themeRef.current === "dark" ? "dark" : "light") as "light" | "dark";
     const presences = store.getPresences();
     return presences
       .filter((p) => p.presence.activeCursorPos)
-      .map((p) => ({
-        clientID: p.clientID,
-        position: p.presence.activeCursorPos!,
-        color: getPeerCursorColor(theme, p.clientID),
-        username: p.presence.username
-          ? decodeURIComponent(p.presence.username)
-          : "Anonymous",
-        labelVisible:
-          visiblePeerLabels.current.has(p.clientID) ||
-          hoveredPeerClientID.current === p.clientID,
-      }));
-  }, [resolvedTheme]);
+      .map((p) => {
+        let username = "Anonymous";
+        if (p.presence.username) {
+          try {
+            username = decodeURIComponent(p.presence.username);
+          } catch {
+            username = p.presence.username;
+          }
+        }
+        return {
+          clientID: p.clientID,
+          position: p.presence.activeCursorPos!,
+          color: getPeerCursorColor(theme, p.clientID),
+          username,
+          labelVisible:
+            visiblePeerLabels.current.has(p.clientID) ||
+            hoveredPeerClientID.current === p.clientID,
+        };
+      });
+  }, []);
 
   const handlePresenceChange = useCallback(() => {
     const store = storeRef.current;
@@ -139,7 +152,7 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
         const timer = window.setTimeout(() => {
           visiblePeerLabels.current.delete(clientID);
           peerLabelTimers.current.delete(clientID);
-          editor.setPeerCursors(buildPeerCursors());
+          editorRef.current?.setPeerCursors(buildPeerCursors());
         }, LABEL_VISIBLE_DURATION);
 
         peerLabelTimers.current.set(clientID, timer);
@@ -185,9 +198,17 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
 
     editor.onCursorMove((pos) => {
       const now = Date.now();
-      if (now - lastCursorUpdate.current < CURSOR_UPDATE_THROTTLE) return;
-      lastCursorUpdate.current = now;
-      store.updateCursorPos(pos);
+      if (cursorTrailingTimer.current) clearTimeout(cursorTrailingTimer.current);
+      if (now - lastCursorUpdate.current >= CURSOR_UPDATE_THROTTLE) {
+        lastCursorUpdate.current = now;
+        store.updateCursorPos(pos);
+      } else {
+        cursorTrailingTimer.current = window.setTimeout(() => {
+          lastCursorUpdate.current = Date.now();
+          store.updateCursorPos(pos);
+          cursorTrailingTimer.current = undefined;
+        }, CURSOR_UPDATE_THROTTLE);
+      }
     });
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -233,6 +254,10 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
       prevPos.clear();
       visibleLabels.clear();
       hoveredPeerClientID.current = null;
+      if (cursorTrailingTimer.current) {
+        clearTimeout(cursorTrailingTimer.current);
+        cursorTrailingTimer.current = undefined;
+      }
 
       container.removeEventListener("mousemove", handleMouseMove);
       unsubPresence();
