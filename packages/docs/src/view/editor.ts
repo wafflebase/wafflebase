@@ -77,6 +77,7 @@ export function initialize(
   canvas.style.display = 'block';
   canvas.style.position = 'sticky';
   canvas.style.top = '0';
+  canvas.style.cursor = 'text';
   container.style.position = 'relative';
   container.appendChild(canvas);
 
