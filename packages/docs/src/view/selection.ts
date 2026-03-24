@@ -76,6 +76,10 @@ export class Selection {
       (lb) => lb.block.id === end.blockId,
     );
 
+    // Selection references a block that no longer exists in the layout
+    // (e.g. deleted by a remote peer). Nothing to highlight.
+    if (startBlockIdx === -1 || endBlockIdx === -1) return [];
+
     for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
       const lb = layout.blocks[bi];
       const blockStart = bi === startBlockIdx ? start.offset : 0;
@@ -165,6 +169,8 @@ export class Selection {
     const endBlockIdx = layout.blocks.findIndex(
       (lb) => lb.block.id === end.blockId,
     );
+
+    if (startBlockIdx === -1 || endBlockIdx === -1) return '';
 
     for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
       const lb = layout.blocks[bi];
