@@ -179,6 +179,7 @@ export function DocsDetail() {
         username: encodeURIComponent(currentUser.username),
         email: currentUser.email,
         photo: currentUser.photo || "",
+        activeCursorPos: undefined,
       }}
       enableDevtools={import.meta.env.DEV}
     >

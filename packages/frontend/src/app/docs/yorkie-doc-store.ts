@@ -435,4 +435,27 @@ export class YorkieDocStore implements DocStore {
       }
     });
   }
+
+  /**
+   * Update this client's cursor position in Yorkie presence.
+   * Called from DocsView when the local cursor moves.
+   */
+  updateCursorPos(pos: { blockId: string; offset: number } | null): void {
+    this.doc.update((_, p) => {
+      p.set({ activeCursorPos: pos ?? undefined });
+    });
+  }
+
+  /**
+   * Get other peers' presences (cursor positions + user info).
+   */
+  getPresences(): Array<{
+    clientID: string;
+    presence: {
+      activeCursorPos?: { blockId: string; offset: number };
+      username?: string;
+    };
+  }> {
+    return this.doc.getOthersPresences();
+  }
 }
