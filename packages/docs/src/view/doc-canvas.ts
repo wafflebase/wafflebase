@@ -2,6 +2,7 @@ import type { PaginatedLayout } from './pagination.js';
 import { getPageYOffset, getPageXOffset } from './pagination.js';
 import type { LayoutRun } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
+import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 
 /**
  * Canvas rendering engine for the document editor.
@@ -33,6 +34,13 @@ export class DocCanvas {
     cursor?: { x: number; y: number; height: number; visible: boolean },
     selectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
     focused: boolean = true,
+    peerCursors?: Array<{
+      pixel: { x: number; y: number; height: number };
+      color: string;
+      username: string;
+      labelVisible: boolean;
+      stackIndex: number;
+    }>,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -107,6 +115,35 @@ export class DocCanvas {
       }
 
       this.ctx.restore();
+
+      // Draw peer cursors on this page (after clip restore so labels aren't clipped)
+      if (peerCursors) {
+        const pageTop = pageY + margins.top;
+        const pageBottom = pageY + margins.top + contentHeight;
+        for (const peer of peerCursors) {
+          if (peer.pixel.y >= pageTop && peer.pixel.y < pageBottom) {
+            // Clip only the caret to content area
+            this.ctx.save();
+            this.ctx.beginPath();
+            this.ctx.rect(contentX, contentY, contentWidth, contentHeight);
+            this.ctx.clip();
+            drawPeerCaret(this.ctx, peer.pixel, peer.color);
+            this.ctx.restore();
+
+            // Draw label unclipped
+            if (peer.labelVisible) {
+              drawPeerLabel(
+                this.ctx,
+                peer.pixel,
+                peer.username,
+                peer.color,
+                pageTop,
+                canvasWidth,
+              );
+            }
+          }
+        }
+      }
     }
 
     // Restore the scrollY translation

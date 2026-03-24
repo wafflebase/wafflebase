@@ -11,6 +11,7 @@ import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.j
 import { paginateLayout, getTotalHeight, findPageForPosition, type PaginatedLayout } from './pagination.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
 import { setThemeMode, type ThemeMode } from './theme.js';
+import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 
 /**
  * Public API returned by initialize().
@@ -34,6 +35,12 @@ export interface EditorAPI {
   redo(): void;
   /** Switch the editor theme and re-render */
   setTheme(mode: ThemeMode): void;
+  /** Update peer cursor data and re-render */
+  setPeerCursors(cursors: PeerCursor[]): void;
+  /** Register a callback for cursor position changes */
+  onCursorMove(cb: (pos: { blockId: string; offset: number }) => void): void;
+  /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
+  getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -89,6 +96,9 @@ export function initialize(
   let needsScrollIntoView = false;
   let focused = true;
   let dragGuideline: { x?: number; y?: number } | null = null;
+  let peerCursors: PeerCursor[] = [];
+  let cursorMoveCallback: ((pos: { blockId: string; offset: number }) => void) | null = null;
+  let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
 
   // Compute layout helper
   const recomputeLayout = () => {
@@ -179,7 +189,59 @@ export function initialize(
       canvasWidth,
     );
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused);
+    // Compute peer cursor pixel positions with stacking
+    const peerPixels: Array<{
+      clientID: string;
+      pixel: { x: number; y: number; height: number };
+      color: string;
+      username: string;
+      labelVisible: boolean;
+      clientKey: string;
+    }> = [];
+    for (const peer of peerCursors) {
+      const pixel = resolvePositionPixel(
+        peer.position,
+        'backward',
+        paginatedLayout,
+        layout,
+        docCanvas.getContext(),
+        canvasWidth,
+      );
+      if (pixel) {
+        peerPixels.push({
+          clientID: peer.clientID,
+          pixel,
+          color: peer.color,
+          username: peer.username,
+          labelVisible: peer.labelVisible,
+          clientKey: `${Math.round(pixel.x)},${Math.round(pixel.y)}`,
+        });
+      }
+    }
+
+    // Store resolved pixels for hover hit-testing
+    lastPeerPixels = peerPixels.map((p) => ({
+      clientID: p.clientID,
+      x: p.pixel.x,
+      y: p.pixel.y,
+      height: p.pixel.height,
+    }));
+
+    // Compute stacking indices for peers at the same position
+    const stackCounts = new Map<string, number>();
+    const resolvedPeers = peerPixels.map((p) => {
+      const count = stackCounts.get(p.clientKey) ?? 0;
+      stackCounts.set(p.clientKey, count + 1);
+      return {
+        pixel: p.pixel,
+        color: p.color,
+        username: p.username,
+        labelVisible: p.labelVisible,
+        stackIndex: count,
+      };
+    });
+
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, height, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers);
 
     // Draw drag guideline if active
     if (dragGuideline) {
@@ -283,6 +345,7 @@ export function initialize(
   const renderWithScroll = () => {
     needsScrollIntoView = true;
     render();
+    cursorMoveCallback?.(cursor.position);
   };
 
   const textEditor = new TextEditor(
@@ -417,8 +480,19 @@ export function initialize(
       layoutCache = undefined;
       render();
     },
+    setPeerCursors: (cursors: PeerCursor[]) => {
+      peerCursors = cursors;
+      renderPaintOnly();
+    },
+    onCursorMove: (cb) => {
+      cursorMoveCallback = cb;
+    },
+    getPeerCursorPixels: () => lastPeerPixels,
     focus: () => textEditor.focus(),
     dispose: () => {
+      peerCursors = [];
+      cursorMoveCallback = null;
+      lastPeerPixels = [];
       ruler.dispose();
       cursor.dispose();
       textEditor.dispose();
