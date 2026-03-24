@@ -10,6 +10,7 @@ import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, type PaginatedLayout } from './pagination.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
+import { setThemeMode, type ThemeMode } from './theme.js';
 
 /**
  * Public API returned by initialize().
@@ -21,6 +22,8 @@ export interface EditorAPI {
   getDoc(): Doc;
   /** Get the store */
   getStore(): DocStore;
+  /** Get the inline style at the current cursor/selection anchor */
+  getSelectionStyle(): Partial<InlineStyle>;
   /** Apply inline style to current selection */
   applyStyle(style: Partial<InlineStyle>): void;
   /** Apply block style to the block containing the cursor */
@@ -29,6 +32,8 @@ export interface EditorAPI {
   undo(): void;
   /** Redo */
   redo(): void;
+  /** Switch the editor theme and re-render */
+  setTheme(mode: ThemeMode): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -44,7 +49,12 @@ export interface EditorAPI {
 export function initialize(
   container: HTMLElement,
   store?: DocStore,
+  theme?: ThemeMode,
 ): EditorAPI {
+  if (theme) {
+    setThemeMode(theme);
+  }
+
   const docStore = store ?? new MemDocStore();
 
   // Ensure the store has at least one block
@@ -113,7 +123,15 @@ export function initialize(
 
   // Paint helper — repaints using cached layout (no recomputation)
   const paint = () => {
-    const { width: viewportWidth, height } = container.getBoundingClientRect();
+    // Read width from the parent element whose size is determined by CSS
+    // flex layout, not by the editor's own content.  The container itself
+    // has overflow:auto so its getBoundingClientRect().width can be stale
+    // when the viewport shrinks (e.g. sidebar opening).
+    // Height is read from the container directly since it is the scroll
+    // viewport and its height accurately reflects the available space.
+    const measureEl = container.parentElement ?? container;
+    const viewportWidth = measureEl.getBoundingClientRect().width;
+    const height = container.getBoundingClientRect().height;
     const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
     const canvasWidth = Math.max(viewportWidth, pageWidth);
     const totalHeight = getTotalHeight(paginatedLayout);
@@ -303,6 +321,17 @@ export function initialize(
   const resizeObserver = new ResizeObserver(() => render());
   resizeObserver.observe(container);
 
+  // Re-render after any CSS transition completes on an ancestor (e.g.
+  // sidebar open/close).  ResizeObserver may fire mid-transition but not
+  // at the final size, leaving the canvas at a stale width.
+  const handleTransitionEnd = (e: TransitionEvent) => {
+    if (e.propertyName === 'width' || e.propertyName === 'transform') {
+      render();
+    }
+  };
+  // Attach to the document so we catch transitions anywhere in the tree.
+  document.addEventListener('transitionend', handleTransitionEnd);
+
   // Focus/blur handling
   const handleFocus = () => {
     focused = true;
@@ -323,6 +352,23 @@ export function initialize(
     render,
     getDoc: () => doc,
     getStore: () => docStore,
+    getSelectionStyle: (): Partial<InlineStyle> => {
+      const block = doc.document.blocks.find(
+        (b) => b.id === cursor.position.blockId,
+      );
+      if (!block) return {};
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (cursor.position.offset <= inlineEnd) {
+          return { ...inline.style };
+        }
+        pos = inlineEnd;
+      }
+      // Fallback: return style of last inline
+      const last = block.inlines[block.inlines.length - 1];
+      return last ? { ...last.style } : {};
+    },
     applyStyle: (style: Partial<InlineStyle>) => {
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
@@ -345,18 +391,39 @@ export function initialize(
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
-      doc.applyBlockStyle(cursor.position.blockId, style);
-      markDirty(cursor.position.blockId);
+      if (selection.hasSelection() && selection.range) {
+        const range = selection.range;
+        const startIdx = doc.getBlockIndex(range.anchor.blockId);
+        const endIdx = doc.getBlockIndex(range.focus.blockId);
+        if (startIdx >= 0 && endIdx >= 0) {
+          const lo = Math.min(startIdx, endIdx);
+          const hi = Math.max(startIdx, endIdx);
+          for (let i = lo; i <= hi; i++) {
+            const block = doc.document.blocks[i];
+            doc.applyBlockStyle(block.id, style);
+            markDirty(block.id);
+          }
+        }
+      } else {
+        doc.applyBlockStyle(cursor.position.blockId, style);
+        markDirty(cursor.position.blockId);
+      }
       render();
     },
     undo: undoFn,
     redo: redoFn,
+    setTheme: (mode: ThemeMode) => {
+      setThemeMode(mode);
+      layoutCache = undefined;
+      render();
+    },
     focus: () => textEditor.focus(),
     dispose: () => {
       ruler.dispose();
       cursor.dispose();
       textEditor.dispose();
       container.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('transitionend', handleTransitionEnd);
       resizeObserver.disconnect();
       canvas.remove();
     },

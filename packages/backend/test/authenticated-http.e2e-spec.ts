@@ -146,6 +146,7 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
       documentId: doc.id,
       role: 'viewer',
       title: 'Shared roadmap',
+      type: 'sheet',
     });
   });
 

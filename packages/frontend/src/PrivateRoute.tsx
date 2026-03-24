@@ -23,7 +23,7 @@ export const PrivateRoute = (): ReactElement => {
     <YorkieProvider
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_API_KEY}
-      metadata={{ userID: me.username || "anonymous-user" }}
+      metadata={{ userID: encodeURIComponent(me.username || "anonymous-user") }}
     >
       <Outlet />
     </YorkieProvider>

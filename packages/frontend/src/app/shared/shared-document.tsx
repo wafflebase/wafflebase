@@ -11,8 +11,10 @@ import {
   TabMeta,
   initialSpreadsheetDocument,
 } from "@/types/worksheet";
+import type { YorkieDocsRoot } from "@/types/docs-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
+import { DocsView } from "@/app/docs/docs-view";
 import { IconDatabase, IconTable } from "@tabler/icons-react";
 
 type PeerJumpTarget = {
@@ -138,6 +140,30 @@ function SharedDocumentLayout({
   );
 }
 
+function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
+  // TODO: pass readOnly to DocsView once the docs editor supports read-only mode
+  const readOnly = resolved.role === "viewer";
+
+  return (
+    <div className="flex h-screen w-full flex-col">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-base font-medium">{resolved.title}</h1>
+          {readOnly && (
+            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              View only
+            </span>
+          )}
+        </div>
+        <UserPresence />
+      </header>
+      <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+        <DocsView />
+      </div>
+    </div>
+  );
+}
+
 function SharedDocumentInner({
   resolved,
 }: {
@@ -155,20 +181,36 @@ function SharedDocumentInner({
     photo: currentUser?.photo || "",
   };
 
+  const isDocs = resolved.type === "doc";
+  const docKey = isDocs
+    ? `doc-${resolved.documentId}`
+    : `sheet-${resolved.documentId}`;
+
   return (
     <YorkieProvider
       rpcAddr={import.meta.env.VITE_YORKIE_RPC_ADDR}
       apiKey={import.meta.env.VITE_YORKIE_API_KEY}
       metadata={{ userID: presence.username }}
     >
-      <DocumentProvider
-        docKey={`sheet-${resolved.documentId}`}
-        initialRoot={initialSpreadsheetDocument()}
-        initialPresence={presence}
-        enableDevtools={import.meta.env.DEV}
-      >
-        <SharedDocumentLayout resolved={resolved} />
-      </DocumentProvider>
+      {isDocs ? (
+        <DocumentProvider<YorkieDocsRoot>
+          docKey={docKey}
+          initialRoot={{}}
+          initialPresence={presence}
+          enableDevtools={import.meta.env.DEV}
+        >
+          <SharedDocsLayout resolved={resolved} />
+        </DocumentProvider>
+      ) : (
+        <DocumentProvider
+          docKey={docKey}
+          initialRoot={initialSpreadsheetDocument()}
+          initialPresence={presence}
+          enableDevtools={import.meta.env.DEV}
+        >
+          <SharedDocumentLayout resolved={resolved} />
+        </DocumentProvider>
+      )}
     </YorkieProvider>
   );
 }

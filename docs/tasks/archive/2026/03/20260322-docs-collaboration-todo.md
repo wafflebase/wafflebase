@@ -34,7 +34,7 @@ The current `MemDocStore` pushes undo on every `updateBlock()`, `insertBlock()`,
 - Modify: `packages/docs/src/store/memory.ts`
 - Modify: `packages/docs/test/store/memory.test.ts`
 
-- [ ] **Step 1: Update MemDocStore — remove pushUndo from mutation methods**
+- [x] **Step 1: Update MemDocStore — remove pushUndo from mutation methods**
 
 In `packages/docs/src/store/memory.ts`, remove `this.pushUndo()` calls from `updateBlock()`, `insertBlock()`, `deleteBlock()`, `setPageSetup()`. Keep `pushUndo()` only in `snapshot()` and `setDocument()` (which is a full replacement and should preserve undo).
 
@@ -71,7 +71,7 @@ Note: `redoStack = []` clearing is kept in `snapshot()` (line 101) which is the
 only place redo state should be invalidated. Individual mutations do not clear
 redo — the caller decides when to snapshot.
 
-- [ ] **Step 2: Update MemDocStore tests for snapshot-only undo**
+- [x] **Step 2: Update MemDocStore tests for snapshot-only undo**
 
 7 of 8 existing undo/redo tests rely on per-mutation undo and will break:
 - "should undo a setDocument"
@@ -104,12 +104,12 @@ it('mutation without snapshot is not undoable', () => {
 });
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `pnpm --filter @wafflebase/docs test`
 Expected: All tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/src/store/memory.ts packages/docs/test/store/memory.test.ts
@@ -129,14 +129,14 @@ undo entries. Mutation methods no longer auto-push to undo stack."
 - Modify: `packages/docs/src/store/store.ts`
 - Modify: `packages/docs/src/store/memory.ts`
 
-- [ ] **Step 1: Add deleteBlockByIndex to DocStore interface**
+- [x] **Step 1: Add deleteBlockByIndex to DocStore interface**
 
 ```typescript
 // In store.ts, add to DocStore interface:
 deleteBlockByIndex(index: number): void;
 ```
 
-- [ ] **Step 2: Implement in MemDocStore**
+- [x] **Step 2: Implement in MemDocStore**
 
 ```typescript
 deleteBlockByIndex(index: number): void {
@@ -147,7 +147,7 @@ deleteBlockByIndex(index: number): void {
 }
 ```
 
-- [ ] **Step 3: Add tests for deleteBlockByIndex**
+- [x] **Step 3: Add tests for deleteBlockByIndex**
 
 In `packages/docs/test/store/memory.test.ts`:
 
@@ -168,12 +168,12 @@ it('should throw for out-of-bounds index', () => {
 });
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `pnpm --filter @wafflebase/docs test`
 Expected: All tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/store/store.ts packages/docs/src/store/memory.ts
@@ -193,7 +193,7 @@ The core refactoring: `Doc` takes a `DocStore` instead of a `Document`, delegate
 - Modify: `packages/docs/src/model/document.ts`
 - Modify: `packages/docs/test/model/document.test.ts`
 
-- [ ] **Step 1: Update Doc constructor and add cached document pattern**
+- [x] **Step 1: Update Doc constructor and add cached document pattern**
 
 ```typescript
 export class Doc {
@@ -225,7 +225,7 @@ export class Doc {
   }
 ```
 
-- [ ] **Step 2: Refactor getBlock and getBlockIndex to use cached document**
+- [x] **Step 2: Refactor getBlock and getBlockIndex to use cached document**
 
 These read methods use the cached `_document` — no store call needed:
 
@@ -241,7 +241,7 @@ getBlockIndex(blockId: string): number {
 }
 ```
 
-- [ ] **Step 3: Refactor mutation methods to delegate through store**
+- [x] **Step 3: Refactor mutation methods to delegate through store**
 
 Each mutation method: compute the result, call store methods, then refresh cache.
 
@@ -353,7 +353,7 @@ deleteBlockByIndex(index: number): void {
 }
 ```
 
-- [ ] **Step 4: Update tests to create Doc with MemDocStore**
+- [x] **Step 4: Update tests to create Doc with MemDocStore**
 
 ```typescript
 // Before:
@@ -372,12 +372,12 @@ const doc = new Doc(store);
 
 Update all tests in `packages/docs/test/model/document.test.ts` to use the new constructor pattern.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `pnpm --filter @wafflebase/docs test`
 Expected: All tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts packages/docs/test/model/document.test.ts
@@ -398,7 +398,7 @@ The `deleteSelection()` method in `TextEditor` directly splices `doc.document.bl
 **Files:**
 - Modify: `packages/docs/src/view/text-editor.ts`
 
-- [ ] **Step 1: Replace direct splice with doc.deleteBlockByIndex()**
+- [x] **Step 1: Replace direct splice with doc.deleteBlockByIndex()**
 
 In `deleteSelection()` at line ~891, replace:
 ```typescript
@@ -418,12 +418,12 @@ const lastBlockId = this.doc.document.blocks[startBlockIdx + 1]?.id;
 ```
 with the same pattern but read from `doc.document` (which is now the cached version, refreshed by `deleteBlockByIndex`).
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `pnpm --filter @wafflebase/docs test`
 Expected: All tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts
@@ -442,7 +442,7 @@ The `syncToStore()` pattern (`docStore.replaceDocument(doc.document)`) is no lon
 **Files:**
 - Modify: `packages/docs/src/view/editor.ts`
 
-- [ ] **Step 1: Update Doc creation and remove syncToStore**
+- [x] **Step 1: Update Doc creation and remove syncToStore**
 
 ```typescript
 // Change Doc creation (line ~58):
@@ -457,7 +457,7 @@ Remove the `syncToStore` function entirely (lines ~119-121).
 
 Remove `syncToStore()` call from `render()` (line ~216).
 
-- [ ] **Step 2: Update undo/redo to use doc.refresh()**
+- [x] **Step 2: Update undo/redo to use doc.refresh()**
 
 In `undoFn` and `redoFn`, replace `doc.document = docStore.getDocument()` with `doc.refresh()`:
 
@@ -476,7 +476,7 @@ const undoFn = () => {
 };
 ```
 
-- [ ] **Step 3: Update initial document setup**
+- [x] **Step 3: Update initial document setup**
 
 The initialization that ensures at least one block:
 
@@ -499,7 +499,7 @@ if (initDoc.blocks.length === 0) {
 const doc = new Doc(docStore);
 ```
 
-- [ ] **Step 4: Update ruler onMarginChange handler**
+- [x] **Step 4: Update ruler onMarginChange handler**
 
 Remove direct `doc.document.pageSetup = setup` since the store is now the source of truth:
 
@@ -515,12 +515,12 @@ ruler.onMarginChange((margins) => {
 });
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/editor.ts
@@ -535,12 +535,12 @@ of direct document assignment."
 
 ### Task 6: Verify full integration
 
-- [ ] **Step 1: Run full verification**
+- [x] **Step 1: Run full verification**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass, no lint errors.
 
-- [ ] **Step 2: Manual smoke test (optional)**
+- [x] **Step 2: Manual smoke test (optional)** (skipped — verify:fast passed)
 
 If dev environment is running (`pnpm dev`), open the docs editor and verify:
 - Text input works
@@ -549,7 +549,7 @@ If dev environment is running (`pnpm dev`), open the docs editor and verify:
 - Undo/redo works
 - Multi-block selection delete works
 
-- [ ] **Step 3: Commit any remaining fixes**
+- [x] **Step 3: Commit any remaining fixes**
 
 If any fixes are needed, commit them.
 

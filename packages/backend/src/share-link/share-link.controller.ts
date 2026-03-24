@@ -71,6 +71,7 @@ export class ShareLinkController {
       documentId: link.documentId,
       role: link.role,
       title: link.document.title,
+      type: link.document.type,
     };
   }
 }

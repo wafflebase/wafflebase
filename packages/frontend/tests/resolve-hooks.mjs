@@ -40,6 +40,16 @@ const SHEET_SRC_INDEX = pathResolve(
   "index.ts",
 );
 
+const DOCS_ROOT = pathResolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "..",
+  "..",
+  "docs",
+);
+
+const DOCS_DIST = pathResolve(DOCS_ROOT, "dist", "wafflebase-document.es.js");
+const DOCS_SRC_INDEX = pathResolve(DOCS_ROOT, "src", "index.ts");
+
 export async function resolve(specifier, context, nextResolve) {
   // Map @wafflebase/sheets → built ES module in sheet dist.
   // If the dist file is missing, fall back to the workspace source.
@@ -51,6 +61,17 @@ export async function resolve(specifier, context, nextResolve) {
       return nextResolve(pathToFileURL(SHEET_SRC_INDEX).href, context);
     }
     return { url: "virtual:wafflebase-sheet", shortCircuit: true };
+  }
+
+  // Map @wafflebase/docs → built ES module or source fallback.
+  if (specifier === "@wafflebase/docs") {
+    if (existsSync(DOCS_DIST)) {
+      return nextResolve(pathToFileURL(DOCS_DIST).href, context);
+    }
+    if (existsSync(DOCS_SRC_INDEX)) {
+      return nextResolve(pathToFileURL(DOCS_SRC_INDEX).href, context);
+    }
+    return { url: "virtual:wafflebase-docs", shortCircuit: true };
   }
 
   // Map @/ alias → packages/frontend/src/
@@ -75,19 +96,33 @@ export async function resolve(specifier, context, nextResolve) {
   }
 
   // Handle extensionless relative imports within frontend src/ — add .ts/.tsx
+  // Also remap .js → .ts for TypeScript source files in workspace packages
   if (
     (specifier.startsWith("./") || specifier.startsWith("../")) &&
-    context.parentURL &&
-    (
-      fileURLToPath(context.parentURL).startsWith(FRONTEND_SRC) ||
-      fileURLToPath(context.parentURL).startsWith(SHEET_ROOT)
-    )
+    context.parentURL
   ) {
-    const parentDir = dirname(fileURLToPath(context.parentURL));
-    for (const ext of [".ts", ".tsx"]) {
-      const candidate = pathResolve(parentDir, specifier + ext);
-      if (existsSync(candidate)) {
-        return nextResolve(pathToFileURL(candidate).href, context);
+    const parentPath = fileURLToPath(context.parentURL);
+    const inResolvedPkg =
+      parentPath.startsWith(FRONTEND_SRC) ||
+      parentPath.startsWith(SHEET_ROOT) ||
+      parentPath.startsWith(DOCS_ROOT);
+
+    if (inResolvedPkg) {
+      const parentDir = dirname(parentPath);
+
+      // Remap .js imports to .ts (TypeScript sources use .js extensions for ESM)
+      if (specifier.endsWith(".js")) {
+        const tsCandidate = pathResolve(parentDir, specifier.replace(/\.js$/, ".ts"));
+        if (existsSync(tsCandidate)) {
+          return nextResolve(pathToFileURL(tsCandidate).href, context);
+        }
+      }
+
+      for (const ext of [".ts", ".tsx"]) {
+        const candidate = pathResolve(parentDir, specifier + ext);
+        if (existsSync(candidate)) {
+          return nextResolve(pathToFileURL(candidate).href, context);
+        }
       }
     }
   }
@@ -122,6 +157,47 @@ export async function load(url, context, nextLoad) {
         "  while (n > 0) { s = String.fromCharCode(((n - 1) % 26) + 65) + s; n = Math.floor((n - 1) / 26); }",
         "  return s + r;",
         "}",
+      ].join("\n"),
+    };
+  }
+  // Provide a minimal stub when @wafflebase/docs dist is unavailable.
+  if (url === "virtual:wafflebase-docs") {
+    return {
+      format: "module",
+      shortCircuit: true,
+      source: [
+        "export const DEFAULT_BLOCK_STYLE = { alignment: 'left', lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 };",
+        "export const DEFAULT_INLINE_STYLE = {};",
+        "export function generateBlockId() { return 'block-' + Date.now() + '-' + Math.random().toString(36).slice(2); }",
+        "export function createEmptyBlock() { return { id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }; }",
+        "export function resolvePageSetup(s) { return s || { paperSize: { name: 'Letter', width: 816, height: 1056 }, orientation: 'portrait', margins: { top: 96, bottom: 96, left: 96, right: 96 } }; }",
+        "export function normalizeBlockStyle(s) { return { ...DEFAULT_BLOCK_STYLE, ...s }; }",
+        "export function getBlockText() { return ''; }",
+        "export function getBlockTextLength() { return 0; }",
+        "export function inlineStylesEqual() { return true; }",
+        "export function getEffectiveDimensions() { return { width: 624, height: 864 }; }",
+        "export const PAPER_SIZES = {};",
+        "export const DEFAULT_PAGE_SETUP = { paperSize: { name: 'Letter', width: 816, height: 1056 }, orientation: 'portrait', margins: { top: 96, bottom: 96, left: 96, right: 96 } };",
+        "export class Doc { constructor() { this.document = { blocks: [], pageSetup: null }; } }",
+        "export class MemDocStore { constructor() {} getDocument() { return { blocks: [], pageSetup: null }; } setDocument() {} pushUndo() {} undo() { return null; } redo() { return null; } subscribe() { return () => {}; } }",
+        "export function initialize() { return { render() {}, getDoc() { return new Doc(); }, getStore() { return new MemDocStore(); }, getSelectionStyle() { return {}; }, applyStyle() {}, applyBlockStyle() {}, undo() {}, redo() {}, setTheme() {}, focus() {}, dispose() {} }; }",
+        "export function computeLayout() { return { blocks: [], totalHeight: 0 }; }",
+        "export function paginateLayout() { return { pages: [] }; }",
+        "export function getPageYOffset() { return 0; }",
+        "export function getTotalHeight() { return 0; }",
+        "export function getPageXOffset() { return 0; }",
+        "export function findPageForPosition() { return 0; }",
+        "export function paginatedPixelToPosition() { return null; }",
+        "export const Theme = { bg: '#fff', text: '#000' };",
+        "export function buildFont() { return '12pt serif'; }",
+        "export function ptToPx(pt) { return pt * 4 / 3; }",
+        "export function setThemeMode() {}",
+        "export function getTheme() { return Theme; }",
+        "export class DocCanvas { constructor() {} mount() {} resize() {} clear() {} }",
+        "export class Cursor { constructor() {} render() {} }",
+        "export class Selection { constructor() {} render() {} }",
+        "export class Ruler { constructor() {} render() {} dispose() {} }",
+        "export const RULER_SIZE = 20;",
       ].join("\n"),
     };
   }

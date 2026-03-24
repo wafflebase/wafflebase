@@ -1,6 +1,7 @@
-import type { PaginatedLayout, LayoutPage } from './pagination.js';
+import type { PaginatedLayout } from './pagination.js';
 import { getPageXOffset, getPageYOffset } from './pagination.js';
 import type { BlockStyle, PageMargins } from '../model/types.js';
+import { Theme } from './theme.js';
 
 export type RulerUnit = 'inch' | 'cm';
 
@@ -35,9 +36,10 @@ export const RULER_SIZE = 20;
 const TICK_MAJOR = 10;
 const TICK_HALF = 7;
 const TICK_MINOR = 4;
-const MARGIN_BG = '#e8e8e8';
-const CONTENT_BG = '#ffffff';
-const TICK_COLOR = '#666666';
+// Colors are read from the active theme at render time.
+const marginBg = () => Theme.rulerMarginBackground;
+const contentBg = () => Theme.rulerContentBackground;
+const tickColor = () => Theme.rulerTickColor;
 const LABEL_FONT = '9px Arial';
 const HIT_ZONE = 4;
 
@@ -80,7 +82,7 @@ export class Ruler {
     if (doc) {
       this.corner.style.cssText =
         `position:sticky;top:0;left:0;width:${RULER_SIZE}px;height:${RULER_SIZE}px;`
-        + `z-index:3;background:${MARGIN_BG};margin-bottom:${-RULER_SIZE}px;`;
+        + `z-index:3;background:${marginBg()};margin-bottom:${-RULER_SIZE}px;`;
     }
 
     // Horizontal ruler: takes 20px in flow so doc canvas is pushed below it
@@ -130,6 +132,9 @@ export class Ruler {
   ): void {
     if (paginatedLayout.pages.length === 0) return;
 
+    // Update corner background for theme changes
+    this.corner.style.background = marginBg();
+
     const page = paginatedLayout.pages[cursorPageIndex] ?? paginatedLayout.pages[0];
     const pageX = getPageXOffset(paginatedLayout, canvasWidth);
     const margins = paginatedLayout.pageSetup.margins;
@@ -146,7 +151,7 @@ export class Ruler {
     // Position vCanvas to simulate sticky behavior (absolute + manual top)
     this.vCanvas.style.top = `${scrollY + RULER_SIZE}px`;
     this.resizeV(viewportHeight);
-    this.renderVertical(scrollY, viewportHeight, paginatedLayout, cursorPageIndex);
+    this.renderVertical(scrollY, paginatedLayout, cursorPageIndex);
   }
 
   private renderHorizontal(
@@ -159,25 +164,24 @@ export class Ruler {
     const totalWidth = this.hCanvas.width / (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 
     // 1. Fill entire ruler with margin background
-    ctx.fillStyle = MARGIN_BG;
+    ctx.fillStyle = marginBg();
     ctx.fillRect(0, 0, totalWidth, RULER_SIZE);
 
     // 2. Fill content area with white background
     const contentLeft = pageX + margins.left;
     const contentRight = pageX + pageWidth - margins.right;
-    ctx.fillStyle = CONTENT_BG;
+    ctx.fillStyle = contentBg();
     ctx.fillRect(contentLeft, 0, contentRight - contentLeft, RULER_SIZE);
 
     // 3. Draw tick marks from page left to page right
-    ctx.strokeStyle = TICK_COLOR;
+    ctx.strokeStyle = tickColor();
     ctx.lineWidth = 1;
-    ctx.fillStyle = TICK_COLOR;
+    ctx.fillStyle = tickColor();
     ctx.font = LABEL_FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
-    const { majorStepPx, subdivisions, minorStepPx } = this.grid;
-    const halfStep = majorStepPx / 2;
+    const { subdivisions, minorStepPx } = this.grid;
 
     // Calculate the first tick index from page start
     const pageLeft = pageX;
@@ -225,7 +229,7 @@ export class Ruler {
 
   private drawDownTriangle(ctx: CanvasRenderingContext2D, x: number, baseY: number): void {
     const size = 5;
-    ctx.fillStyle = TICK_COLOR;
+    ctx.fillStyle = tickColor();
     ctx.beginPath();
     ctx.moveTo(x - size / 2, baseY - size);
     ctx.lineTo(x + size / 2, baseY - size);
@@ -236,7 +240,7 @@ export class Ruler {
 
   private drawUpTriangle(ctx: CanvasRenderingContext2D, x: number, baseY: number): void {
     const size = 5;
-    ctx.fillStyle = TICK_COLOR;
+    ctx.fillStyle = tickColor();
     ctx.beginPath();
     ctx.moveTo(x - size / 2, baseY);
     ctx.lineTo(x + size / 2, baseY);
@@ -254,29 +258,8 @@ export class Ruler {
     this.hCtx.scale(dpr, dpr);
   }
 
-  private findFocusedPage(
-    scrollY: number,
-    viewportHeight: number,
-    paginatedLayout: PaginatedLayout,
-  ): LayoutPage {
-    const center = scrollY + viewportHeight / 2;
-    let closest = paginatedLayout.pages[0];
-    let minDist = Infinity;
-    for (const page of paginatedLayout.pages) {
-      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-      const pageMid = pageY + page.height / 2;
-      const dist = Math.abs(pageMid - center);
-      if (dist < minDist) {
-        minDist = dist;
-        closest = page;
-      }
-    }
-    return closest;
-  }
-
   private renderVertical(
     scrollY: number,
-    viewportHeight: number,
     paginatedLayout: PaginatedLayout,
     cursorPageIndex: number = 0,
   ): void {
@@ -284,7 +267,7 @@ export class Ruler {
     const h = this.vCanvas.height / dpr;
 
     this.vCtx.save();
-    this.vCtx.fillStyle = MARGIN_BG;
+    this.vCtx.fillStyle = marginBg();
     this.vCtx.fillRect(0, 0, RULER_SIZE, h);
 
     if (paginatedLayout.pages.length === 0) {
@@ -306,16 +289,16 @@ export class Ruler {
     this.cachedVContentBottom = contentBottom;
 
     // Content area
-    this.vCtx.fillStyle = CONTENT_BG;
+    this.vCtx.fillStyle = contentBg();
     this.vCtx.fillRect(0, contentTop, RULER_SIZE, contentBottom - contentTop);
 
     // Tick marks
-    const { majorStepPx, subdivisions, minorStepPx } = this.grid;
+    const { subdivisions, minorStepPx } = this.grid;
     const startPx = pageTopInViewport;
     const endPx = pageTopInViewport + focusedPage.height;
 
-    this.vCtx.strokeStyle = TICK_COLOR;
-    this.vCtx.fillStyle = TICK_COLOR;
+    this.vCtx.strokeStyle = tickColor();
+    this.vCtx.fillStyle = tickColor();
     this.vCtx.font = LABEL_FONT;
     this.vCtx.textAlign = 'center';
     this.vCtx.textBaseline = 'middle';

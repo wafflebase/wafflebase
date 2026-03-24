@@ -31,10 +31,11 @@ export class ApiV1DocumentsController {
   async create(
     @Param('workspaceId') workspaceId: string,
     @Req() req: AuthenticatedRequest,
-    @Body() body: { title: string },
+    @Body() body: { title: string; type?: string },
   ) {
     return this.documentService.createDocument({
       title: body.title,
+      type: body.type === 'doc' ? 'doc' : 'sheet',
       workspace: { connect: { id: workspaceId } },
       author: { connect: { id: Number(req.user.id) } },
     });
