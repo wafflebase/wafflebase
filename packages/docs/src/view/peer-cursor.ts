@@ -132,6 +132,7 @@ export function drawPeerLabel(
   color: string,
   pageTopY: number,
   canvasWidth: number,
+  stackIndex: number = 0,
 ): void {
   const fontSize = 11;
   const paddingX = 4;
@@ -156,11 +157,11 @@ export function drawPeerLabel(
   const tagHeight = fontSize + paddingY * 2;
 
   let x = pixel.x;
-  let y = pixel.y - tagHeight;
+  let y = pixel.y - tagHeight - stackIndex * (tagHeight + 1);
 
   // Flip label below caret if it would overflow the top of the page
   if (y < pageTopY) {
-    y = pixel.y + pixel.height;
+    y = pixel.y + pixel.height + stackIndex * (tagHeight + 1);
   }
 
   // Clamp x if label overflows canvas right edge

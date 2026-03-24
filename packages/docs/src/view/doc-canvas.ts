@@ -139,6 +139,7 @@ export class DocCanvas {
                 peer.color,
                 pageTop,
                 canvasWidth,
+                peer.stackIndex,
               );
             }
           }

@@ -17,6 +17,7 @@ import {
   DEFAULT_BLOCK_STYLE,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
+import type { DocsPresence } from '@/types/users';
 
 // ---------------------------------------------------------------------------
 // Helpers: attribute serialization
@@ -451,10 +452,7 @@ export class YorkieDocStore implements DocStore {
    */
   getPresences(): Array<{
     clientID: string;
-    presence: {
-      activeCursorPos?: { blockId: string; offset: number };
-      username?: string;
-    };
+    presence: DocsPresence;
   }> {
     return this.doc.getOthersPresences();
   }
