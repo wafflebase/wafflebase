@@ -1060,7 +1060,17 @@ export class TextEditor {
   private toggleStyle(style: Partial<InlineStyle>): void {
     if (!this.selection.hasSelection() || !this.selection.range) return;
     const range = this.selection.range;
-    this.doc.applyInlineStyle(range, style);
+    // Read current style at cursor to toggle (flip boolean properties)
+    const current = this.getStyleAtCursor();
+    const resolved: Partial<InlineStyle> = {};
+    for (const key of Object.keys(style) as (keyof InlineStyle)[]) {
+      if (typeof style[key] === 'boolean') {
+        (resolved as Record<string, unknown>)[key] = !current[key];
+      } else {
+        (resolved as Record<string, unknown>)[key] = style[key];
+      }
+    }
+    this.doc.applyInlineStyle(range, resolved);
     // Mark all blocks in the selection range as dirty
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
@@ -1074,6 +1084,23 @@ export class TextEditor {
       this.markDirty(this.doc.document.blocks[i].id);
     }
     this.requestRender();
+  }
+
+  private getStyleAtCursor(): Partial<InlineStyle> {
+    const block = this.doc.document.blocks.find(
+      (b) => b.id === this.cursor.position.blockId,
+    );
+    if (!block) return {};
+    let pos = 0;
+    for (const inline of block.inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (this.cursor.position.offset <= inlineEnd) {
+        return { ...inline.style };
+      }
+      pos = inlineEnd;
+    }
+    const last = block.inlines[block.inlines.length - 1];
+    return last ? { ...last.style } : {};
   }
 
   // --- Helpers ---
