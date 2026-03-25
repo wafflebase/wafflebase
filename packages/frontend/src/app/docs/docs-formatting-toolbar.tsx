@@ -95,6 +95,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
   const handleBlockType = useCallback(
     (type: BlockType, opts?: { headingLevel?: HeadingLevel }) => {
       editor?.setBlockType(type, opts);
+      editor?.focus();
     },
     [editor],
   );
@@ -102,6 +103,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
   const handleAlign = useCallback(
     (alignment: "left" | "center" | "right") => {
       editor?.applyBlockStyle({ alignment });
+      editor?.focus();
     },
     [editor],
   );
@@ -109,6 +111,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
   const handleTextColor = useCallback(
     (color: string) => {
       editor?.applyStyle({ color });
+      editor?.focus();
     },
     [editor],
   );
@@ -314,7 +317,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => editor?.toggleList("unordered")}
+            onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
             aria-label="Bulleted list"
           >
             <IconList size={16} />
@@ -327,7 +330,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => editor?.toggleList("ordered")}
+            onClick={() => { editor?.toggleList("ordered"); editor?.focus(); }}
             aria-label="Numbered list"
           >
             <IconListNumbers size={16} />
