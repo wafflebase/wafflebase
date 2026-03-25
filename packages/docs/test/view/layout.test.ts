@@ -38,3 +38,24 @@ describe('heading layout', () => {
     expect(layout.blocks[0].height).toBeGreaterThan(layout.blocks[1].height);
   });
 });
+
+describe('list-item layout', () => {
+  it('should offset text by list indent', () => {
+    const block = createBlock('list-item', { listKind: 'unordered', listLevel: 0 });
+    block.inlines = [{ text: 'Item', style: {} }];
+    const { layout } = computeLayout([block], mockCtx(), 600);
+    const firstRun = layout.blocks[0].lines[0].runs[0];
+    expect(firstRun.x).toBeGreaterThanOrEqual(36); // LIST_INDENT_PX
+  });
+
+  it('should increase indent for nested list levels', () => {
+    const l0 = createBlock('list-item', { listKind: 'unordered', listLevel: 0 });
+    l0.inlines = [{ text: 'Level 0', style: {} }];
+    const l1 = createBlock('list-item', { listKind: 'unordered', listLevel: 1 });
+    l1.inlines = [{ text: 'Level 1', style: {} }];
+    const { layout } = computeLayout([l0, l1], mockCtx(), 600);
+    const x0 = layout.blocks[0].lines[0].runs[0].x;
+    const x1 = layout.blocks[1].lines[0].runs[0].x;
+    expect(x1).toBeGreaterThan(x0);
+  });
+});

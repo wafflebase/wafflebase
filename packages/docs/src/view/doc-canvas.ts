@@ -1,5 +1,8 @@
+import type { Block } from '../model/types.js';
+import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { PaginatedLayout } from './pagination.js';
 import { getPageYOffset, getPageXOffset } from './pagination.js';
+import type { DocumentLayout } from './layout.js';
 import type { LayoutRun } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
@@ -55,6 +58,7 @@ export class DocCanvas {
       color: string;
       rects: Array<{ x: number; y: number; width: number; height: number }>;
     }>,
+    layout?: DocumentLayout,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -128,6 +132,19 @@ export class DocCanvas {
       for (const pl of page.lines) {
         for (const run of pl.line.runs) {
           this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height);
+        }
+
+        // Render list markers on the first line of each list-item block
+        if (pl.lineIndex === 0 && layout) {
+          const block = layout.blocks[pl.blockIndex]?.block;
+          if (block?.type === 'list-item') {
+            const level = block.listLevel ?? 0;
+            const markerX = pageX + margins.left + LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
+            const marker = block.listKind === 'unordered'
+              ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
+              : '1.'; // Placeholder — real numbering comes in Task 10
+            this.renderListMarker(block, pageX + pl.x, pageY + pl.y, pl.line.height, markerX, marker);
+          }
         }
       }
 
@@ -221,6 +238,25 @@ export class DocCanvas {
       this.ctx.lineTo(x + run.width, strikeY);
       this.ctx.stroke();
     }
+  }
+
+  /**
+   * Render a list marker (bullet or number) for a list-item block.
+   */
+  private renderListMarker(
+    block: Block,
+    lineX: number,
+    lineY: number,
+    lineHeight: number,
+    markerX: number,
+    markerText: string,
+  ): void {
+    const fontSize = block.inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
+    const fontSizePx = ptToPx(fontSize);
+    const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
+    this.ctx.font = buildFont(fontSize, block.inlines[0]?.style.fontFamily, false, false);
+    this.ctx.fillStyle = block.inlines[0]?.style.color ?? Theme.defaultColor;
+    this.ctx.fillText(markerText, markerX, baselineY);
   }
 
   /**

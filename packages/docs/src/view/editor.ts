@@ -272,7 +272,7 @@ export function initialize(
       }
     }
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections);
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout);
 
     // Draw drag guideline if active
     if (dragGuideline) {

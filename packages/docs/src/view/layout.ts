@@ -1,5 +1,6 @@
 import {
   getHeadingDefaults,
+  LIST_INDENT_PX,
   type Block,
   type HeadingLevel,
   type Inline,
@@ -133,26 +134,39 @@ export function computeLayout(
   for (const block of blocks) {
     y += block.style.marginTop;
 
+    // Apply list indent for list items
+    let effectiveBlock = block;
+    if (block.type === 'list-item') {
+      const listIndent = LIST_INDENT_PX * ((block.listLevel ?? 0) + 1);
+      effectiveBlock = {
+        ...block,
+        style: {
+          ...block.style,
+          marginLeft: (block.style.marginLeft ?? 0) + listIndent,
+        },
+      };
+    }
+
     let lines: LayoutLine[];
 
     if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
       lines = cache!.blocks.get(block.id)!.lines;
     } else {
-      lines = layoutBlock(block, ctx, availableWidth);
-      const lineHeightMultiplier = block.style.lineHeight ?? 1.5;
+      lines = layoutBlock(effectiveBlock, ctx, availableWidth);
+      const lineHeightMultiplier = effectiveBlock.style.lineHeight ?? 1.5;
 
       let blockY = 0;
       for (const line of lines) {
-        const maxFontSize = getLineMaxFontSizePx(line, block);
+        const maxFontSize = getLineMaxFontSizePx(line, effectiveBlock);
         const lineHeight = lineHeightMultiplier * maxFontSize;
         line.y = blockY;
         line.height = lineHeight;
         blockY += lineHeight;
       }
 
-      const alignWidth = availableWidth - block.style.marginLeft;
+      const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
       for (const line of lines) {
-        applyAlignment(line, alignWidth, block.style.alignment);
+        applyAlignment(line, alignWidth, effectiveBlock.style.alignment);
       }
     }
 
