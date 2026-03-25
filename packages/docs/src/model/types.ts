@@ -49,7 +49,7 @@ export interface Inline {
  * Block-level (paragraph) formatting.
  */
 export interface BlockStyle {
-  alignment: 'left' | 'center' | 'right';
+  alignment: 'left' | 'center' | 'right' | 'justify';
   lineHeight: number;
   marginTop: number;
   marginBottom: number;

@@ -21,6 +21,7 @@ import {
   IconAlignLeft,
   IconAlignCenter,
   IconAlignRight,
+  IconAlignJustified,
   IconTypography,
   IconHighlight,
   IconDropletOff,
@@ -39,15 +40,16 @@ interface StyleOption {
   type: BlockType;
   headingLevel?: HeadingLevel;
   className: string;
+  shortcut?: string;
 }
 
 const STYLE_OPTIONS: StyleOption[] = [
-  { label: "Normal text", type: "paragraph", className: "text-[13px]" },
+  { label: "Normal text", type: "paragraph", className: "text-[13px]", shortcut: "⌥0" },
   { label: "Title", type: "title", className: "text-[22px] leading-tight" },
   { label: "Subtitle", type: "subtitle", className: "text-[13px] text-muted-foreground" },
-  { label: "Heading 1", type: "heading", headingLevel: 1, className: "text-[18px] font-bold" },
-  { label: "Heading 2", type: "heading", headingLevel: 2, className: "text-[16px] font-bold" },
-  { label: "Heading 3", type: "heading", headingLevel: 3, className: "text-[14px] font-bold" },
+  { label: "Heading 1", type: "heading", headingLevel: 1, className: "text-[18px] font-bold", shortcut: "⌥1" },
+  { label: "Heading 2", type: "heading", headingLevel: 2, className: "text-[16px] font-bold", shortcut: "⌥2" },
+  { label: "Heading 3", type: "heading", headingLevel: 3, className: "text-[14px] font-bold", shortcut: "⌥3" },
 ];
 
 function getBlockLabel(type: BlockType, headingLevel?: HeadingLevel): string {
@@ -97,7 +99,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
   );
 
   const handleAlign = useCallback(
-    (alignment: "left" | "center" | "right") => {
+    (alignment: "left" | "center" | "right" | "justify") => {
       editor?.applyBlockStyle({ alignment });
       editor?.focus();
     },
@@ -174,14 +176,17 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </TooltipTrigger>
           <TooltipContent>Styles</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent className="w-[180px]">
+        <DropdownMenuContent className="w-[210px]">
           {STYLE_OPTIONS.map((opt) => (
             <DropdownMenuItem
               key={opt.label}
-              className="py-1"
+              className="flex items-center justify-between py-1"
               onClick={() => handleBlockType(opt.type, opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined)}
             >
               <span className={opt.className}>{opt.label}</span>
+              {opt.shortcut && (
+                <span className="ml-4 text-[11px] text-muted-foreground">{modKey}+{opt.shortcut}</span>
+              )}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -320,18 +325,22 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </TooltipTrigger>
           <TooltipContent>Text alignment</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => handleAlign("left")}>
-            <IconAlignLeft size={16} className="mr-2" />
-            Left
+        <DropdownMenuContent className="w-[200px]">
+          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
+            <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
+            <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleAlign("center")}>
-            <IconAlignCenter size={16} className="mr-2" />
-            Center
+          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
+            <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
+            <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleAlign("right")}>
-            <IconAlignRight size={16} className="mr-2" />
-            Right
+          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
+            <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
+            <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
+            <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
+            <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

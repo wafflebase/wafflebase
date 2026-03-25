@@ -177,8 +177,8 @@ export function computeLayout(
       }
 
       const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
-      for (const line of lines) {
-        applyAlignment(line, alignWidth, effectiveBlock.style.alignment);
+      for (let li = 0; li < lines.length; li++) {
+        applyAlignment(lines[li], alignWidth, effectiveBlock.style.alignment, li === lines.length - 1);
       }
     }
 
@@ -388,8 +388,23 @@ function applyAlignment(
   line: LayoutLine,
   maxWidth: number,
   alignment: string,
+  isLastLine: boolean,
 ): void {
   if (alignment === 'left' || line.runs.length === 0) return;
+
+  if (alignment === 'justify') {
+    // Don't justify the last line of a block
+    if (isLastLine || line.runs.length <= 1) return;
+    const extraSpace = maxWidth - line.width;
+    if (extraSpace <= 0) return;
+    const gaps = line.runs.length - 1;
+    const perGap = extraSpace / gaps;
+    for (let i = 1; i < line.runs.length; i++) {
+      line.runs[i].x += perGap * i;
+    }
+    line.width = maxWidth;
+    return;
+  }
 
   const offset =
     alignment === 'center'

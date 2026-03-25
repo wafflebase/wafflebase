@@ -415,6 +415,30 @@ export class TextEditor {
           this.toggleList('unordered');
         }
         break;
+      case 'l':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.handleAlign('left');
+        }
+        break;
+      case 'e':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.handleAlign('center');
+        }
+        break;
+      case 'r':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.handleAlign('right');
+        }
+        break;
+      case 'j':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.handleAlign('justify');
+        }
+        break;
       case '[':
         if (mod) {
           e.preventDefault();
@@ -758,6 +782,14 @@ export class TextEditor {
       listKind: block.listKind,
       listLevel: newLevel,
     });
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private handleAlign(alignment: 'left' | 'center' | 'right' | 'justify'): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    this.saveSnapshot();
+    this.doc.applyBlockStyle(block.id, { alignment });
     this.invalidateLayout();
     this.requestRender();
   }
