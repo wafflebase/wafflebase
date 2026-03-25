@@ -346,7 +346,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
             <IconList size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Bulleted list</TooltipContent>
+        <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -359,7 +359,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
             <IconListNumbers size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Numbered list</TooltipContent>
+        <TooltipContent>Numbered list ({modKey}+⇧7)</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -372,7 +372,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
             <IconIndentDecrease size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Decrease indent</TooltipContent>
+        <TooltipContent>Decrease indent ({modKey}+[)</TooltipContent>
       </Tooltip>
 
       <Tooltip>
@@ -385,7 +385,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
             <IconIndentIncrease size={16} />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Increase indent</TooltipContent>
+        <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
       </Tooltip>
     </div>
   );

@@ -403,6 +403,30 @@ export class TextEditor {
           this.requestRender();
         }
         break;
+      case '7':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.toggleList('ordered');
+        }
+        break;
+      case '8':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.toggleList('unordered');
+        }
+        break;
+      case '[':
+        if (mod) {
+          e.preventDefault();
+          this.handleOutdent();
+        }
+        break;
+      case ']':
+        if (mod) {
+          e.preventDefault();
+          this.handleIndent();
+        }
+        break;
       case '1': case '2': case '3': case '4': case '5': case '6':
         if (mod && altKey) {
           e.preventDefault();
@@ -734,6 +758,62 @@ export class TextEditor {
       listKind: block.listKind,
       listLevel: newLevel,
     });
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private toggleList(kind: 'ordered' | 'unordered'): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    this.saveSnapshot();
+    if (block.type === 'list-item' && block.listKind === kind) {
+      this.doc.setBlockType(block.id, 'paragraph');
+    } else {
+      this.doc.setBlockType(block.id, 'list-item', {
+        listKind: kind,
+        listLevel: block.listLevel ?? 0,
+      });
+    }
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private handleIndent(): void {
+    const INDENT_STEP = 36;
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    this.saveSnapshot();
+    if (block.type === 'list-item') {
+      this.doc.setBlockType(block.id, 'list-item', {
+        listKind: block.listKind,
+        listLevel: (block.listLevel ?? 0) + 1,
+      });
+    } else {
+      this.doc.applyBlockStyle(block.id, {
+        marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+      });
+    }
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private handleOutdent(): void {
+    const INDENT_STEP = 36;
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    if (block.type === 'list-item') {
+      const currentLevel = block.listLevel ?? 0;
+      if (currentLevel <= 0) return;
+      this.saveSnapshot();
+      this.doc.setBlockType(block.id, 'list-item', {
+        listKind: block.listKind,
+        listLevel: currentLevel - 1,
+      });
+    } else {
+      const current = block.style.marginLeft ?? 0;
+      if (current <= 0) return;
+      this.saveSnapshot();
+      this.doc.applyBlockStyle(block.id, {
+        marginLeft: Math.max(0, current - INDENT_STEP),
+      });
+    }
     this.invalidateLayout();
     this.requestRender();
   }
