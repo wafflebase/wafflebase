@@ -2,18 +2,23 @@
 
 Design doc: [docs-wordprocessor-roadmap.md](../../design/docs-wordprocessor-roadmap.md)
 
-## Phase 1: Block Type Extensions
+## Phase 1: Block Type Extensions ✅
 
-- [ ] 1.1 Heading (H1–H6) — data model, layout, rendering, toolbar
-- [ ] 1.2 List (Ordered/Unordered) — data model, marker rendering, Tab level control
-- [ ] 1.3 Horizontal Rule — data model, rendering, `---` auto-convert
-- [ ] 1.4 Layout engine block-type branching
-- [ ] 1.5 Yorkie serialization / deserialization + backward compatibility
+- [x] 1.1 Heading (H1–H6) — data model, layout, rendering, toolbar dropdown
+- [x] 1.2 List (Ordered/Unordered) — data model, marker rendering, Tab level control
+- [x] 1.3 Horizontal Rule — data model, rendering, `---` auto-convert
+- [x] 1.4 Title / Subtitle — data model, style defaults, dropdown
+- [x] 1.5 Layout engine block-type branching + justify alignment
+- [x] 1.6 Yorkie serialization / deserialization + backward compatibility
+- [x] 1.7 Toolbar grouping (Undo/Redo | Styles | Font Styles | Block Styles)
+- [x] 1.8 Highlight color (backgroundColor) — pulled forward from Phase 2
+- [x] 1.9 Keyboard shortcuts — align (⌘⇧L/E/R/J), indent (⌘]/[), lists (⌘⇧7/8), headings (⌘⌥0-6)
+- [x] 1.10 Shortcut hints in toolbar tooltips and dropdown items
 
 ## Phase 2: Inline Extensions & Clipboard
 
 - [ ] 2.1 Hyperlink — href, popover, Ctrl+K, URL auto-detect
-- [ ] 2.2 Background Color (Highlight) — text background rendering, color picker
+- [x] 2.2 Background Color (Highlight) — *completed in Phase 1*
 - [ ] 2.3 Superscript / Subscript — font scaling, baseline offset
 - [ ] 2.4 Clipboard — internal formatted copy/paste, external HTML parsing, format painting
 - [ ] 2.5 Find & Replace — search bar, match highlight, replace

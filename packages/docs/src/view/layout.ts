@@ -1,4 +1,13 @@
-import type { Block, Inline, InlineStyle } from '../model/types.js';
+import {
+  getHeadingDefaults,
+  TITLE_DEFAULTS,
+  SUBTITLE_DEFAULTS,
+  LIST_INDENT_PX,
+  type Block,
+  type HeadingLevel,
+  type Inline,
+  type InlineStyle,
+} from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 
 const measureCache = new Map<string, number>();
@@ -20,6 +29,28 @@ export function cachedMeasureText(
 
 export function clearMeasureCache(): void {
   measureCache.clear();
+}
+
+/**
+ * For heading blocks, return inlines with heading default styles merged in.
+ * Heading defaults act as a base layer; explicit inline styles override them.
+ */
+export function resolveBlockInlines(block: Block): Inline[] {
+  let defaults: Partial<InlineStyle> | undefined;
+  if (block.type === 'heading' && block.headingLevel) {
+    defaults = getHeadingDefaults(block.headingLevel as HeadingLevel);
+  } else if (block.type === 'title') {
+    defaults = TITLE_DEFAULTS;
+  } else if (block.type === 'subtitle') {
+    defaults = SUBTITLE_DEFAULTS;
+  }
+  if (defaults) {
+    return block.inlines.map((inline) => ({
+      text: inline.text,
+      style: { ...defaults, ...inline.style },
+    }));
+  }
+  return block.inlines;
 }
 
 /**
@@ -112,26 +143,42 @@ export function computeLayout(
   for (const block of blocks) {
     y += block.style.marginTop;
 
+    // Apply list indent for list items
+    let effectiveBlock = block;
+    if (block.type === 'list-item') {
+      const listIndent = LIST_INDENT_PX * ((block.listLevel ?? 0) + 1);
+      effectiveBlock = {
+        ...block,
+        style: {
+          ...block.style,
+          marginLeft: (block.style.marginLeft ?? 0) + listIndent,
+        },
+      };
+    }
+
     let lines: LayoutLine[];
 
-    if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
+    if (block.type === 'horizontal-rule') {
+      const HR_HEIGHT = 20;
+      lines = [{ runs: [], y: 0, height: HR_HEIGHT, width: availableWidth }];
+    } else if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
       lines = cache!.blocks.get(block.id)!.lines;
     } else {
-      lines = layoutBlock(block, ctx, availableWidth);
-      const lineHeightMultiplier = block.style.lineHeight ?? 1.5;
+      lines = layoutBlock(effectiveBlock, ctx, availableWidth);
+      const lineHeightMultiplier = effectiveBlock.style.lineHeight ?? 1.5;
 
       let blockY = 0;
       for (const line of lines) {
-        const maxFontSize = getLineMaxFontSizePx(line, block);
+        const maxFontSize = getLineMaxFontSizePx(line, effectiveBlock);
         const lineHeight = lineHeightMultiplier * maxFontSize;
         line.y = blockY;
         line.height = lineHeight;
         blockY += lineHeight;
       }
 
-      const alignWidth = availableWidth - block.style.marginLeft;
-      for (const line of lines) {
-        applyAlignment(line, alignWidth, block.style.alignment);
+      const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
+      for (let li = 0; li < lines.length; li++) {
+        applyAlignment(lines[li], alignWidth, effectiveBlock.style.alignment, li === lines.length - 1);
       }
     }
 
@@ -164,8 +211,10 @@ function layoutBlock(
   ctx: CanvasRenderingContext2D,
   maxWidth: number,
 ): LayoutLine[] {
+  // Resolve heading defaults into inlines before measurement
+  const inlines = resolveBlockInlines(block);
   // Measure all segments (word-level)
-  const segments = measureSegments(block, ctx);
+  const segments = measureSegments(inlines, ctx);
 
   if (segments.length === 0) {
     // Empty block — one empty line
@@ -226,7 +275,7 @@ function layoutBlock(
           continue; // Re-measure from charIdx on fresh line
         }
         currentRuns.push({
-          inline: block.inlines[seg.inlineIndex],
+          inline: inlines[seg.inlineIndex],
           text: seg.text.slice(charIdx, endIdx),
           x: lineStartX + lineWidth,
           width: runWidth,
@@ -244,7 +293,7 @@ function layoutBlock(
     }
 
     currentRuns.push({
-      inline: block.inlines[seg.inlineIndex],
+      inline: inlines[seg.inlineIndex],
       text: seg.text,
       x: lineStartX + lineWidth,
       width: seg.width,
@@ -272,13 +321,13 @@ function layoutBlock(
  * Break inlines into word-level segments and measure each.
  */
 function measureSegments(
-  block: Block,
+  inlines: Inline[],
   ctx: CanvasRenderingContext2D,
 ): MeasuredSegment[] {
   const segments: MeasuredSegment[] = [];
 
-  for (let i = 0; i < block.inlines.length; i++) {
-    const inline = block.inlines[i];
+  for (let i = 0; i < inlines.length; i++) {
+    const inline = inlines[i];
     const font = buildFont(
       inline.style.fontSize,
       inline.style.fontFamily,
@@ -339,8 +388,23 @@ function applyAlignment(
   line: LayoutLine,
   maxWidth: number,
   alignment: string,
+  isLastLine: boolean,
 ): void {
   if (alignment === 'left' || line.runs.length === 0) return;
+
+  if (alignment === 'justify') {
+    // Don't justify the last line of a block
+    if (isLastLine || line.runs.length <= 1) return;
+    const extraSpace = maxWidth - line.width;
+    if (extraSpace <= 0) return;
+    const gaps = line.runs.length - 1;
+    const perGap = extraSpace / gaps;
+    for (let i = 1; i < line.runs.length; i++) {
+      line.runs[i].x += perGap * i;
+    }
+    line.width = maxWidth;
+    return;
+  }
 
   const offset =
     alignment === 'center'
@@ -367,5 +431,54 @@ function getLineMaxFontSizePx(line: LayoutLine, block: Block): number {
     return ptToPx(block.inlines[0].style.fontSize);
   }
   return ptToPx(Theme.defaultFontSize);
+}
+
+/**
+ * Compute display numbers for ordered list items.
+ * Returns a map of blockId → display number string.
+ * Consecutive ordered list-items at the same level share a counter.
+ */
+export function computeListCounters(blocks: Block[]): Map<string, string> {
+  const counters = new Map<string, string>();
+  const levelCounters: number[] = [];
+
+  for (const block of blocks) {
+    if (block.type !== 'list-item' || block.listKind !== 'ordered') {
+      levelCounters.length = 0; // Reset on non-list block
+      continue;
+    }
+    const level = block.listLevel ?? 0;
+    // Trim counters above this level
+    levelCounters.length = Math.max(levelCounters.length, level + 1);
+    if (levelCounters[level] === undefined) levelCounters[level] = 0;
+    levelCounters[level]++;
+    // Reset deeper levels
+    for (let i = level + 1; i < levelCounters.length; i++) {
+      levelCounters[i] = 0;
+    }
+    counters.set(block.id, formatOrderedMarker(levelCounters[level], level));
+  }
+  return counters;
+}
+
+function formatOrderedMarker(num: number, level: number): string {
+  const format = level % 3;
+  if (format === 0) return `${num}.`;
+  if (format === 1) return `${String.fromCharCode(96 + ((num - 1) % 26) + 1)}.`;
+  // lower-roman for level 2, 5, 8...
+  return `${toRoman(num)}.`;
+}
+
+function toRoman(num: number): string {
+  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const syms = ['m', 'cm', 'd', 'cd', 'c', 'xc', 'l', 'xl', 'x', 'ix', 'v', 'iv', 'i'];
+  let result = '';
+  for (let i = 0; i < vals.length; i++) {
+    while (num >= vals[i]) {
+      result += syms[i];
+      num -= vals[i];
+    }
+  }
+  return result;
 }
 

@@ -2,6 +2,8 @@
 export type {
   Document,
   Block,
+  BlockType,
+  HeadingLevel,
   Inline,
   BlockStyle,
   InlineStyle,
@@ -16,10 +18,17 @@ export {
   DEFAULT_INLINE_STYLE,
   DEFAULT_PAGE_SETUP,
   PAPER_SIZES,
+  LIST_INDENT_PX,
+  UNORDERED_MARKERS,
+  ORDERED_FORMATS,
+  createBlock,
   createEmptyBlock,
   generateBlockId,
   getBlockText,
   getBlockTextLength,
+  getHeadingDefaults,
+  TITLE_DEFAULTS,
+  SUBTITLE_DEFAULTS,
   inlineStylesEqual,
   resolvePageSetup,
   getEffectiveDimensions,
@@ -33,7 +42,7 @@ export { MemDocStore } from './store/memory.js';
 
 // View
 export { initialize, type EditorAPI } from './view/editor.js';
-export { computeLayout } from './view/layout.js';
+export { computeLayout, computeListCounters } from './view/layout.js';
 export type {
   DocumentLayout,
   LayoutBlock,

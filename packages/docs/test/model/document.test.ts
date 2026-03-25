@@ -233,6 +233,133 @@ describe('Doc', () => {
     });
   });
 
+  describe('setBlockType', () => {
+    it('should change a paragraph to heading', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'heading', { headingLevel: 2 });
+      expect(doc.document.blocks[0].type).toBe('heading');
+      expect(doc.document.blocks[0].headingLevel).toBe(2);
+    });
+
+    it('should change a heading back to paragraph', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'heading', { headingLevel: 1 });
+      doc.setBlockType(blockId, 'paragraph');
+      expect(doc.document.blocks[0].type).toBe('paragraph');
+      expect(doc.document.blocks[0].headingLevel).toBeUndefined();
+    });
+
+    it('should set list-item with kind and level', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'list-item', {
+        listKind: 'ordered',
+        listLevel: 1,
+      });
+      const block = doc.document.blocks[0];
+      expect(block.type).toBe('list-item');
+      expect(block.listKind).toBe('ordered');
+      expect(block.listLevel).toBe(1);
+    });
+
+    it('should clear old type fields when changing type', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'list-item', {
+        listKind: 'ordered',
+        listLevel: 2,
+      });
+      doc.setBlockType(blockId, 'heading', { headingLevel: 3 });
+      const block = doc.document.blocks[0];
+      expect(block.headingLevel).toBe(3);
+      expect(block.listKind).toBeUndefined();
+      expect(block.listLevel).toBeUndefined();
+    });
+  });
+
+  describe('splitBlock — type-aware', () => {
+    it('should create paragraph when splitting a heading', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'heading', { headingLevel: 1 });
+      doc.insertText({ blockId, offset: 0 }, 'Title');
+      doc.splitBlock(blockId, 5);
+      expect(doc.document.blocks[0].type).toBe('heading');
+      expect(doc.document.blocks[1].type).toBe('paragraph');
+    });
+
+    it('should inherit list type when splitting list-item with content', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'list-item', {
+        listKind: 'unordered',
+        listLevel: 1,
+      });
+      doc.insertText({ blockId, offset: 0 }, 'Item');
+      doc.splitBlock(blockId, 4);
+      expect(doc.document.blocks[1].type).toBe('list-item');
+      expect(doc.document.blocks[1].listKind).toBe('unordered');
+      expect(doc.document.blocks[1].listLevel).toBe(1);
+    });
+
+    it('should convert empty list-item to paragraph (exit list)', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'list-item', {
+        listKind: 'unordered',
+        listLevel: 0,
+      });
+      const returnedId = doc.splitBlock(blockId, 0);
+      expect(returnedId).toBe(blockId);
+      expect(doc.document.blocks[0].type).toBe('paragraph');
+      expect(doc.document.blocks).toHaveLength(1);
+    });
+
+    it('should create paragraph after horizontal-rule', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'horizontal-rule');
+      const newId = doc.splitBlock(blockId, 0);
+      expect(newId).not.toBe(blockId);
+      expect(doc.document.blocks[1].type).toBe('paragraph');
+    });
+
+    it('should delete HR when backspacing from paragraph after it', () => {
+      const doc = Doc.create();
+      const firstId = doc.document.blocks[0].id;
+      doc.setBlockType(firstId, 'horizontal-rule');
+      // Split to create paragraph after HR
+      const paraId = doc.splitBlock(firstId, 0);
+      doc.insertText({ blockId: paraId, offset: 0 }, 'Hello');
+      expect(doc.document.blocks).toHaveLength(2);
+      // Backspace at start of paragraph should delete the HR
+      doc.deleteBackward({ blockId: paraId, offset: 0 });
+      expect(doc.document.blocks).toHaveLength(1);
+      expect(doc.document.blocks[0].type).toBe('paragraph');
+      expect(doc.document.blocks[0].inlines[0].text).toBe('Hello');
+    });
+
+    it('should clear inlines when converting to horizontal-rule', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'text');
+      doc.setBlockType(blockId, 'horizontal-rule');
+      expect(doc.document.blocks[0].inlines).toHaveLength(0);
+    });
+
+    it('should restore empty inline when converting HR back to paragraph', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'horizontal-rule');
+      expect(doc.document.blocks[0].inlines).toHaveLength(0);
+      doc.setBlockType(blockId, 'paragraph');
+      expect(doc.document.blocks[0].inlines).toHaveLength(1);
+      expect(doc.document.blocks[0].inlines[0].text).toBe('');
+    });
+  });
+
   describe('applyBlockStyle', () => {
     it('should change paragraph alignment', () => {
       const doc = Doc.create();

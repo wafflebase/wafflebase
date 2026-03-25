@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { EditorAPI } from "@wafflebase/docs";
+import type { BlockType, EditorAPI, HeadingLevel } from "@wafflebase/docs";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -13,21 +13,51 @@ import {
   DropdownMenuTrigger,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { TEXT_COLORS } from "@/components/formatting-colors";
+import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import {
   IconBold,
   IconItalic,
   IconUnderline,
-  IconStrikethrough,
   IconAlignLeft,
   IconAlignCenter,
   IconAlignRight,
+  IconAlignJustified,
   IconTypography,
+  IconHighlight,
   IconDropletOff,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconChevronDown,
+  IconList,
+  IconListNumbers,
+  IconIndentDecrease,
+  IconIndentIncrease,
 } from "@tabler/icons-react";
+
+/** Style option for the block-type dropdown (Google Docs style). */
+interface StyleOption {
+  label: string;
+  type: BlockType;
+  headingLevel?: HeadingLevel;
+  className: string;
+  shortcut?: string;
+}
+
+const STYLE_OPTIONS: StyleOption[] = [
+  { label: "Normal text", type: "paragraph", className: "text-[13px]", shortcut: "⌥0" },
+  { label: "Title", type: "title", className: "text-[22px] leading-tight" },
+  { label: "Subtitle", type: "subtitle", className: "text-[13px] text-muted-foreground" },
+  { label: "Heading 1", type: "heading", headingLevel: 1, className: "text-[18px] font-bold", shortcut: "⌥1" },
+  { label: "Heading 2", type: "heading", headingLevel: 2, className: "text-[16px] font-bold", shortcut: "⌥2" },
+  { label: "Heading 3", type: "heading", headingLevel: 3, className: "text-[14px] font-bold", shortcut: "⌥3" },
+];
+
+function getBlockLabel(type: BlockType, headingLevel?: HeadingLevel): string {
+  if (type === "title") return "Title";
+  if (type === "subtitle") return "Subtitle";
+  if (type === "heading" && headingLevel) return `Heading ${headingLevel}`;
+  return "Normal text";
+}
 
 const isMac =
   typeof navigator !== "undefined" &&
@@ -60,15 +90,18 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
     editor.applyStyle({ underline: !current.underline });
   }, [editor]);
 
-  const toggleStrikethrough = useCallback(() => {
-    if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ strikethrough: !current.strikethrough });
-  }, [editor]);
+  const handleBlockType = useCallback(
+    (type: BlockType, opts?: { headingLevel?: HeadingLevel }) => {
+      editor?.setBlockType(type, opts);
+      editor?.focus();
+    },
+    [editor],
+  );
 
   const handleAlign = useCallback(
-    (alignment: "left" | "center" | "right") => {
+    (alignment: "left" | "center" | "right" | "justify") => {
       editor?.applyBlockStyle({ alignment });
+      editor?.focus();
     },
     [editor],
   );
@@ -76,13 +109,22 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
   const handleTextColor = useCallback(
     (color: string) => {
       editor?.applyStyle({ color });
+      editor?.focus();
+    },
+    [editor],
+  );
+
+  const handleHighlightColor = useCallback(
+    (backgroundColor: string) => {
+      editor?.applyStyle({ backgroundColor });
+      editor?.focus();
     },
     [editor],
   );
 
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap">
-      {/* Undo / Redo */}
+      {/* ── Undo / Redo ── */}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -113,7 +155,46 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Text Style Toggles */}
+      {/* ── Styles ── */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted"
+                aria-label="Text style"
+              >
+                <span className="truncate">
+                  {editor ? getBlockLabel(
+                    editor.getBlockType().type,
+                    editor.getBlockType().headingLevel,
+                  ) : "Normal text"}
+                </span>
+                <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Styles</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent className="w-[210px]">
+          {STYLE_OPTIONS.map((opt) => (
+            <DropdownMenuItem
+              key={opt.label}
+              className="flex items-center justify-between py-1"
+              onClick={() => handleBlockType(opt.type, opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined)}
+            >
+              <span className={opt.className}>{opt.label}</span>
+              {opt.shortcut && (
+                <span className="ml-4 text-[11px] text-muted-foreground">{modKey}+{opt.shortcut}</span>
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Separator orientation="vertical" className="mx-1 h-6" />
+
+      {/* ── Font Styles ── */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Toggle
@@ -156,21 +237,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipContent>Underline ({modKey}+U)</TooltipContent>
       </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            onPressedChange={toggleStrikethrough}
-            className="h-7 w-7 cursor-pointer"
-            aria-label="Strikethrough"
-          >
-            <IconStrikethrough size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Strikethrough</TooltipContent>
-      </Tooltip>
-
-      {/* Text Color */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -206,9 +272,44 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                aria-label="Highlight color"
+              >
+                <IconHighlight size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Highlight color</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent className="w-auto p-2">
+          <button
+            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+            onClick={() => handleHighlightColor("")}
+          >
+            <IconDropletOff size={14} />
+            Reset
+          </button>
+          <div className="grid grid-cols-5 gap-1">
+            {BG_COLORS.map((color) => (
+              <button
+                key={color}
+                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
+                style={{ backgroundColor: color }}
+                onClick={() => handleHighlightColor(color)}
+              />
+            ))}
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Alignment Dropdown */}
+      {/* ── Block Styles ── */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -224,21 +325,77 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </TooltipTrigger>
           <TooltipContent>Text alignment</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => handleAlign("left")}>
-            <IconAlignLeft size={16} className="mr-2" />
-            Left
+        <DropdownMenuContent className="w-[200px]">
+          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
+            <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
+            <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleAlign("center")}>
-            <IconAlignCenter size={16} className="mr-2" />
-            Center
+          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
+            <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
+            <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleAlign("right")}>
-            <IconAlignRight size={16} className="mr-2" />
-            Right
+          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
+            <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
+            <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
+            <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
+            <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
+            aria-label="Bulleted list"
+          >
+            <IconList size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => { editor?.toggleList("ordered"); editor?.focus(); }}
+            aria-label="Numbered list"
+          >
+            <IconListNumbers size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Numbered list ({modKey}+⇧7)</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => { editor?.outdent(); editor?.focus(); }}
+            aria-label="Decrease indent"
+          >
+            <IconIndentDecrease size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Decrease indent ({modKey}+[)</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => { editor?.indent(); editor?.focus(); }}
+            aria-label="Increase indent"
+          >
+            <IconIndentIncrease size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

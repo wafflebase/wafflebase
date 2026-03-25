@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import type { InlineStyle, BlockStyle } from '../model/types.js';
+import type { InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
@@ -41,6 +41,16 @@ export interface EditorAPI {
   onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
+  /** Get the block type at the cursor position */
+  getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+  /** Set the block type for the block at cursor */
+  setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
+  /** Toggle list type on the block at cursor */
+  toggleList(kind: 'ordered' | 'unordered'): void;
+  /** Increase indent of the block at cursor */
+  indent(): void;
+  /** Decrease indent of the block at cursor */
+  outdent(): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -272,7 +282,7 @@ export function initialize(
       }
     }
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections);
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout);
 
     // Draw drag guideline if active
     if (dragGuideline) {
@@ -525,6 +535,78 @@ export function initialize(
       cursorMoveCallback = cb;
     },
     getPeerCursorPixels: () => lastPeerPixels,
+    getBlockType() {
+      const block = doc.getBlock(cursor.position.blockId);
+      return {
+        type: block.type,
+        headingLevel: block.headingLevel,
+        listKind: block.listKind,
+        listLevel: block.listLevel,
+      };
+    },
+    setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
+      docStore.snapshot();
+      doc.setBlockType(cursor.position.blockId, type, opts);
+      invalidateLayout();
+      render();
+    },
+    toggleList(kind: 'ordered' | 'unordered') {
+      const block = doc.getBlock(cursor.position.blockId);
+      docStore.snapshot();
+      if (block.type === 'list-item' && block.listKind === kind) {
+        doc.setBlockType(block.id, 'paragraph');
+      } else {
+        doc.setBlockType(block.id, 'list-item', {
+          listKind: kind,
+          listLevel: block.listLevel ?? 0,
+        });
+      }
+      invalidateLayout();
+      render();
+    },
+    indent() {
+      const MAX_LIST_LEVEL = 8;
+      const block = doc.getBlock(cursor.position.blockId);
+      docStore.snapshot();
+      if (block.type === 'list-item') {
+        const currentLevel = block.listLevel ?? 0;
+        if (currentLevel >= MAX_LIST_LEVEL) return;
+        const newLevel = currentLevel + 1;
+        doc.setBlockType(block.id, 'list-item', {
+          listKind: block.listKind,
+          listLevel: newLevel,
+        });
+      } else {
+        const INDENT_STEP = 36;
+        doc.applyBlockStyle(block.id, {
+          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+        });
+      }
+      markDirty(block.id);
+      render();
+    },
+    outdent() {
+      const block = doc.getBlock(cursor.position.blockId);
+      if (block.type === 'list-item') {
+        const currentLevel = block.listLevel ?? 0;
+        if (currentLevel <= 0) return;
+        docStore.snapshot();
+        doc.setBlockType(block.id, 'list-item', {
+          listKind: block.listKind,
+          listLevel: currentLevel - 1,
+        });
+      } else {
+        const INDENT_STEP = 36;
+        const current = block.style.marginLeft ?? 0;
+        if (current <= 0) return;
+        docStore.snapshot();
+        doc.applyBlockStyle(block.id, {
+          marginLeft: Math.max(0, current - INDENT_STEP),
+        });
+      }
+      markDirty(block.id);
+      render();
+    },
     focus: () => textEditor.focus(),
     dispose: () => {
       peerCursors = [];

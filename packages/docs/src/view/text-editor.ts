@@ -1,4 +1,4 @@
-import type { DocPosition, InlineStyle } from '../model/types.js';
+import type { DocPosition, InlineStyle, HeadingLevel } from '../model/types.js';
 import { getBlockText, getBlockTextLength } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { Cursor } from './cursor.js';
@@ -186,6 +186,10 @@ export class TextEditor {
     // Ignore all input events fired synchronously after compositionend
     if (this.ignoreInputUntilNextTick) return;
 
+    // Horizontal rules have no text content — block all input
+    const currentBlock = this.doc.getBlock(this.cursor.position.blockId);
+    if (currentBlock.type === 'horizontal-rule') return;
+
     if (this.composition.active) {
       // Browser IME path: read textarea.value which contains the current
       // composing text as managed by the browser's native IME system.
@@ -234,6 +238,11 @@ export class TextEditor {
       offset: this.cursor.position.offset + data.length,
     };
     this.markDirty(blockId);
+    // Markdown-style auto-conversion: check after each space
+    if (data === ' ' && this.tryAutoConvert(blockId)) {
+      this.requestRender();
+      return;
+    }
     this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
     this.requestRender();
   };
@@ -280,6 +289,10 @@ export class TextEditor {
       case 'Enter':
         e.preventDefault();
         this.handleEnter();
+        break;
+      case 'Tab':
+        e.preventDefault();
+        this.handleTab(shiftKey);
         break;
       case 'ArrowLeft':
         e.preventDefault();
@@ -379,6 +392,78 @@ export class TextEditor {
         if (mod) {
           e.preventDefault();
           this.redoAction();
+        }
+        break;
+      case '0':
+        if (mod && altKey) {
+          e.preventDefault();
+          this.saveSnapshot();
+          this.doc.setBlockType(this.cursor.position.blockId, 'paragraph');
+          this.invalidateLayout();
+          this.requestRender();
+        }
+        break;
+      case '7':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.toggleList('ordered');
+        }
+        break;
+      case '8':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.toggleList('unordered');
+        }
+        break;
+      case 'l':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.handleAlign('left');
+        }
+        break;
+      case 'e':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.handleAlign('center');
+        }
+        break;
+      case 'r':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.handleAlign('right');
+        }
+        break;
+      case 'j':
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.handleAlign('justify');
+        }
+        break;
+      case '[':
+        if (mod) {
+          e.preventDefault();
+          this.handleOutdent();
+        }
+        break;
+      case ']':
+        if (mod) {
+          e.preventDefault();
+          this.handleIndent();
+        }
+        break;
+      case '1': case '2': case '3': case '4': case '5': case '6':
+        if (mod && altKey) {
+          e.preventDefault();
+          this.saveSnapshot();
+          const level = Number(key) as HeadingLevel;
+          const block = this.doc.getBlock(this.cursor.position.blockId);
+          if (block && block.type === 'heading' && block.headingLevel === level) {
+            this.doc.setBlockType(block.id, 'paragraph');
+          } else if (block) {
+            this.doc.setBlockType(block.id, 'heading', { headingLevel: level });
+          }
+          this.invalidateLayout();
+          this.requestRender();
         }
         break;
     }
@@ -657,13 +742,152 @@ export class TextEditor {
     this.saveSnapshot();
     this.deleteSelection();
     this.invalidateLayout();
-    const newBlockId = this.doc.splitBlock(
-      this.cursor.position.blockId,
-      this.cursor.position.offset,
-    );
-    this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+
+    // Auto-convert "---" to horizontal rule on Enter
+    const enterPos = this.cursor.position;
+    const enterBlock = this.doc.getBlock(enterPos.blockId);
+    if (enterBlock && enterBlock.type === 'paragraph' && getBlockText(enterBlock) === '---') {
+      this.doc.deleteText({ blockId: enterPos.blockId, offset: 0 }, 3);
+      this.doc.setBlockType(enterPos.blockId, 'horizontal-rule');
+      const newId = this.doc.splitBlock(enterPos.blockId, 0);
+      this.cursor.moveTo({ blockId: newId, offset: 0 });
+      this.selection.setRange(null);
+      this.requestRender();
+      return;
+    }
+
+    const pos = this.cursor.position;
+    const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+
+    if (newBlockId === pos.blockId) {
+      // Block was converted in-place (e.g., empty list → paragraph)
+      this.cursor.moveTo({ blockId: pos.blockId, offset: 0 });
+    } else {
+      this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+    }
     this.selection.setRange(null);
     this.requestRender();
+  }
+
+  private handleTab(shift: boolean): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    if (block.type !== 'list-item') return;
+
+    this.saveSnapshot();
+    const currentLevel = block.listLevel ?? 0;
+    const newLevel = shift ? Math.max(0, currentLevel - 1) : Math.min(8, currentLevel + 1);
+    if (newLevel === currentLevel) return;
+
+    this.doc.setBlockType(block.id, 'list-item', {
+      listKind: block.listKind,
+      listLevel: newLevel,
+    });
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private handleAlign(alignment: 'left' | 'center' | 'right' | 'justify'): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    this.saveSnapshot();
+    this.doc.applyBlockStyle(block.id, { alignment });
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private toggleList(kind: 'ordered' | 'unordered'): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    this.saveSnapshot();
+    if (block.type === 'list-item' && block.listKind === kind) {
+      this.doc.setBlockType(block.id, 'paragraph');
+    } else {
+      this.doc.setBlockType(block.id, 'list-item', {
+        listKind: kind,
+        listLevel: block.listLevel ?? 0,
+      });
+    }
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private handleIndent(): void {
+    const INDENT_STEP = 36;
+    const MAX_LIST_LEVEL = 8;
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    this.saveSnapshot();
+    if (block.type === 'list-item') {
+      const currentLevel = block.listLevel ?? 0;
+      if (currentLevel >= MAX_LIST_LEVEL) return;
+      this.doc.setBlockType(block.id, 'list-item', {
+        listKind: block.listKind,
+        listLevel: currentLevel + 1,
+      });
+    } else {
+      this.doc.applyBlockStyle(block.id, {
+        marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+      });
+    }
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private handleOutdent(): void {
+    const INDENT_STEP = 36;
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    if (block.type === 'list-item') {
+      const currentLevel = block.listLevel ?? 0;
+      if (currentLevel <= 0) return;
+      this.saveSnapshot();
+      this.doc.setBlockType(block.id, 'list-item', {
+        listKind: block.listKind,
+        listLevel: currentLevel - 1,
+      });
+    } else {
+      const current = block.style.marginLeft ?? 0;
+      if (current <= 0) return;
+      this.saveSnapshot();
+      this.doc.applyBlockStyle(block.id, {
+        marginLeft: Math.max(0, current - INDENT_STEP),
+      });
+    }
+    this.invalidateLayout();
+    this.requestRender();
+  }
+
+  private tryAutoConvert(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId);
+    if (!block || block.type !== 'paragraph') return false;
+    const text = getBlockText(block);
+
+    // Heading: "# " through "###### "
+    const headingMatch = text.match(/^(#{1,6}) $/);
+    if (headingMatch) {
+      const level = headingMatch[1].length as HeadingLevel;
+      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.doc.setBlockType(blockId, 'heading', { headingLevel: level });
+      this.cursor.moveTo({ blockId, offset: 0 });
+      this.invalidateLayout();
+      return true;
+    }
+
+    // Unordered list: "- " or "* "
+    if (text === '- ' || text === '* ') {
+      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.doc.setBlockType(blockId, 'list-item', { listKind: 'unordered', listLevel: 0 });
+      this.cursor.moveTo({ blockId, offset: 0 });
+      this.invalidateLayout();
+      return true;
+    }
+
+    // Ordered list: "1. "
+    if (text === '1. ') {
+      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.doc.setBlockType(blockId, 'list-item', { listKind: 'ordered', listLevel: 0 });
+      this.cursor.moveTo({ blockId, offset: 0 });
+      this.invalidateLayout();
+      return true;
+    }
+
+    return false;
   }
 
   private handleArrow(
@@ -836,7 +1060,17 @@ export class TextEditor {
   private toggleStyle(style: Partial<InlineStyle>): void {
     if (!this.selection.hasSelection() || !this.selection.range) return;
     const range = this.selection.range;
-    this.doc.applyInlineStyle(range, style);
+    // Read current style at cursor to toggle (flip boolean properties)
+    const current = this.getStyleAtCursor();
+    const resolved: Partial<InlineStyle> = {};
+    for (const key of Object.keys(style) as (keyof InlineStyle)[]) {
+      if (typeof style[key] === 'boolean') {
+        (resolved as Record<string, unknown>)[key] = !current[key];
+      } else {
+        (resolved as Record<string, unknown>)[key] = style[key];
+      }
+    }
+    this.doc.applyInlineStyle(range, resolved);
     // Mark all blocks in the selection range as dirty
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
@@ -850,6 +1084,23 @@ export class TextEditor {
       this.markDirty(this.doc.document.blocks[i].id);
     }
     this.requestRender();
+  }
+
+  private getStyleAtCursor(): Partial<InlineStyle> {
+    const block = this.doc.document.blocks.find(
+      (b) => b.id === this.cursor.position.blockId,
+    );
+    if (!block) return {};
+    let pos = 0;
+    for (const inline of block.inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (this.cursor.position.offset <= inlineEnd) {
+        return { ...inline.style };
+      }
+      pos = inlineEnd;
+    }
+    const last = block.inlines[block.inlines.length - 1];
+    return last ? { ...last.style } : {};
   }
 
   // --- Helpers ---

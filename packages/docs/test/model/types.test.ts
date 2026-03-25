@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import type { HeadingLevel } from '../../src/model/types.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
   PAPER_SIZES,
   resolvePageSetup,
   getEffectiveDimensions,
+  createBlock,
+  getHeadingDefaults,
 } from '../../src/model/types.js';
 
 describe('BlockStyle', () => {
@@ -50,5 +53,69 @@ describe('PageSetup', () => {
     const dims = getEffectiveDimensions(landscape);
     expect(dims.width).toBe(1056);
     expect(dims.height).toBe(816);
+  });
+});
+
+describe('createBlock', () => {
+  it('creates a heading block with headingLevel', () => {
+    const block = createBlock('heading', { headingLevel: 1 });
+    expect(block.type).toBe('heading');
+    expect(block.headingLevel).toBe(1);
+    expect(block.inlines).toHaveLength(1);
+    expect(block.inlines[0].text).toBe('');
+  });
+
+  it('creates a list-item block with defaults', () => {
+    const block = createBlock('list-item', { listKind: 'unordered', listLevel: 0 });
+    expect(block.type).toBe('list-item');
+    expect(block.listKind).toBe('unordered');
+    expect(block.listLevel).toBe(0);
+    expect(block.inlines).toHaveLength(1);
+  });
+
+  it('creates a horizontal-rule block with empty inlines', () => {
+    const block = createBlock('horizontal-rule');
+    expect(block.type).toBe('horizontal-rule');
+    expect(block.inlines).toHaveLength(0);
+  });
+
+  it('defaults to paragraph when called with no arguments', () => {
+    const block = createBlock();
+    expect(block.type).toBe('paragraph');
+    expect(block.inlines).toHaveLength(1);
+  });
+
+  it('creates a heading block with headingLevel 1 when no opts provided', () => {
+    const block = createBlock('heading');
+    expect(block.type).toBe('heading');
+    expect(block.headingLevel).toBe(1);
+  });
+
+  it('creates a list-item block with defaults when no opts provided', () => {
+    const block = createBlock('list-item');
+    expect(block.type).toBe('list-item');
+    expect(block.listKind).toBe('unordered');
+    expect(block.listLevel).toBe(0);
+  });
+});
+
+describe('getHeadingDefaults', () => {
+  it('returns fontSize 24 and bold for level 1', () => {
+    expect(getHeadingDefaults(1)).toEqual({ fontSize: 24, bold: true });
+  });
+
+  it('returns fontSize 11 (no bold) for level 6', () => {
+    expect(getHeadingDefaults(6)).toEqual({ fontSize: 11 });
+  });
+
+  it.each([
+    [1, { fontSize: 24, bold: true }],
+    [2, { fontSize: 20, bold: true }],
+    [3, { fontSize: 16, bold: true }],
+    [4, { fontSize: 14, bold: true }],
+    [5, { fontSize: 12 }],
+    [6, { fontSize: 11 }],
+  ] as const)('returns correct defaults for level %i', (level, expected) => {
+    expect(getHeadingDefaults(level as HeadingLevel)).toEqual(expected);
   });
 });

@@ -31,7 +31,11 @@ six-phase plan to close the remaining feature gap.
 |------|--------|
 | Text editing (insert / delete / block split & merge) | ✅ |
 | Inline formatting (Bold, Italic, Underline, Strikethrough, color, font, size) | ✅ |
-| Block formatting (alignment, line height, margins, indent) | ✅ |
+| Inline highlight (backgroundColor) | ✅ |
+| Block formatting (alignment incl. justify, line height, margins, indent) | ✅ |
+| Headings (H1–H6), Title, Subtitle | ✅ |
+| Lists (ordered / unordered, nested levels, marker rendering) | ✅ |
+| Horizontal rule | ✅ |
 | Pagination (Letter / A4 / Legal, margins, page shadows) | ✅ |
 | IME support (Korean, Japanese, Chinese) | ✅ |
 | Real-time collaboration (Yorkie CRDT, peer cursors & selections) | ✅ |
@@ -39,17 +43,24 @@ six-phase plan to close the remaining feature gap.
 | Ruler & draggable margin / indent controls | ✅ |
 | Dark mode | ✅ |
 | Canvas rendering optimizations (incremental layout, viewport culling) | ✅ |
+| Keyboard shortcuts (Google Docs compatible) | ✅ Partial |
 
 ## Data Model Evolution
 
 Current model:
 
 ```typescript
+type BlockType = 'paragraph' | 'title' | 'subtitle' | 'heading'
+  | 'list-item' | 'horizontal-rule';
+
 interface Block {
   id: string;
-  type: 'paragraph';
+  type: BlockType;
   inlines: Inline[];
-  style: BlockStyle;
+  style: BlockStyle;        // alignment now includes 'justify'
+  headingLevel?: HeadingLevel;
+  listKind?: 'ordered' | 'unordered';
+  listLevel?: number;       // 0–8
 }
 
 interface InlineStyle {
@@ -60,6 +71,7 @@ interface InlineStyle {
   fontSize?: number;
   fontFamily?: string;
   color?: string;
+  backgroundColor?: string;
 }
 ```
 
@@ -116,47 +128,64 @@ interface InlineStyle {
 > design document. The above is a directional sketch and may change during
 > implementation (e.g., splitting Block into a union of per-type interfaces).
 
-## Phase 1: Block Type Extensions
+## Phase 1: Block Type Extensions ✅
 
 **Goal**: Support headings, lists, and horizontal rules so documents can express
 structural hierarchy.
 
-### 1.1 Heading (H1–H6)
+**Status**: Complete — shipped in PR #83.
+
+### 1.1 Heading (H1–H6) ✅
 
 - `Block.type = 'heading'`, `headingLevel: 1–6`
 - Default font-size mapping per level (H1: 24pt, H2: 20pt, H3: 16pt, H4: 14pt, H5: 12pt, H6: 11pt)
 - Default weight per level (H1–H4: bold, H5–H6: normal)
 - Layout engine applies heading defaults before reusing paragraph layout
-- Toolbar heading-level dropdown
-- Shortcut: Ctrl+Alt+1–6
+- Google Docs-style dropdown with Title, Subtitle, H1–H3 (with styled previews and shortcut hints)
+- Shortcut: Ctrl+Alt+0 (normal), Ctrl+Alt+1–6 (headings)
 
-### 1.2 List (Ordered / Unordered)
+### 1.2 List (Ordered / Unordered) ✅
 
 - `Block.type = 'list-item'`, `listKind`, `listLevel`
-- Bullet markers: unordered (●, ○, ■ by level), ordered (1. 2. 3., a. b. c., i. ii. iii.)
+- Bullet markers: unordered (●, ○, ■ by level), ordered (1. a. i. cycling by level)
 - Indent: 36px left margin per level
-- Tab to increase level, Shift+Tab to decrease
+- Tab/Shift+Tab and Cmd+]/Cmd+[ to change indent level
 - Enter on empty list item exits list (converts to paragraph)
 - Auto-numbering: consecutive ordered list-items at the same level share a counter
-- Toolbar toggle buttons for ordered / unordered lists
+- Toolbar toggle buttons with shortcuts (Cmd+Shift+7/8)
 
-### 1.3 Horizontal Rule
+### 1.3 Horizontal Rule ✅
 
 - `Block.type = 'horizontal-rule'`
 - Content-free block with a fixed height (1px line + vertical padding)
 - Markdown-style shortcut: typing `---` then Enter auto-converts
 
-### 1.4 Layout Engine Changes
+### 1.4 Title / Subtitle ✅
+
+- `Block.type = 'title'` (26pt), `Block.type = 'subtitle'` (15pt, gray)
+- Style defaults merged as base layer under explicit inline styles
+- Available in the styles dropdown
+
+### 1.5 Layout Engine Changes ✅
 
 - Branch on block type inside `computeLayout()`
-- Heading: apply default style overrides, then reuse existing paragraph layout
+- Heading/Title/Subtitle: apply default style overrides via `resolveBlockInlines()`
 - List: reserve marker area (left margin), render marker, adjust text region
 - Horizontal rule: fixed-height block in layout
+- Justify alignment: distribute extra space across word gaps (except last line)
 
-### 1.5 Yorkie Integration
+### 1.6 Yorkie Integration ✅
 
 - Serialize / deserialize new block-type attributes in the Yorkie Tree
 - Backward compatibility: treat missing `type` as `'paragraph'`
+
+### 1.7 Toolbar & Shortcuts ✅
+
+- Toolbar grouped: Undo/Redo | Styles | Font Styles | Block Styles
+- Highlight color picker (backgroundColor) — pulled forward from Phase 2
+- Alignment dropdown with Left/Center/Right/Justify and shortcut hints
+- All shortcuts: Cmd+Shift+L/E/R/J (align), Cmd+]/[ (indent), Cmd+Shift+7/8 (lists)
+- Markdown auto-conversion: `#`→H1, `##`→H2, `-`→bullet, `1.`→ordered, `---`→HR
 
 ## Phase 2: Inline Extensions & Clipboard
 
@@ -171,11 +200,12 @@ editing experience.
 - Ctrl+K: insert / edit link dialog
 - Auto-detect URLs: convert `https://...` to a link on Enter or Space
 
-### 2.2 Background Color (Highlight)
+### 2.2 Background Color (Highlight) ✅
 
 - Add `InlineStyle.backgroundColor: string`
 - Render colored rectangle behind text (independent of selection highlight)
 - Toolbar highlight color picker
+- *Completed in Phase 1 PR*
 
 ### 2.3 Superscript / Subscript
 
