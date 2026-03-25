@@ -1,4 +1,5 @@
 import type { DocPosition, DocRange } from '../model/types.js';
+import { LIST_INDENT_PX } from '../model/types.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
@@ -83,9 +84,12 @@ export function resolvePositionPixel(
       height: pageLine.line.height,
     };
   }
-  // Empty line — account for the block's marginLeft (e.g. list indent)
-  const blockMarginLeft = lb.block.style.marginLeft ?? 0;
-  return { x: pageX + pageLine.x + blockMarginLeft, y: pageY + pageLine.y, height: pageLine.line.height };
+  // Empty line — compute effective marginLeft (includes list indent)
+  let marginLeft = lb.block.style.marginLeft ?? 0;
+  if (lb.block.type === 'list-item') {
+    marginLeft += LIST_INDENT_PX * ((lb.block.listLevel ?? 0) + 1);
+  }
+  return { x: pageX + pageLine.x + marginLeft, y: pageY + pageLine.y, height: pageLine.line.height };
 }
 
 /**
