@@ -40,7 +40,7 @@ export { MemDocStore } from './store/memory.js';
 
 // View
 export { initialize, type EditorAPI } from './view/editor.js';
-export { computeLayout } from './view/layout.js';
+export { computeLayout, computeListCounters } from './view/layout.js';
 export type {
   DocumentLayout,
   LayoutBlock,

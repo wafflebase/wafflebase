@@ -4,6 +4,7 @@ import type { PaginatedLayout } from './pagination.js';
 import { getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
 import type { LayoutRun } from './layout.js';
+import { computeListCounters } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 
@@ -63,6 +64,8 @@ export class DocCanvas {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
     const logicalHeight = this.canvas.height / dpr;
+
+    const listCounters = layout ? computeListCounters(layout.blocks.map(b => b.block)) : new Map<string, string>();
 
     // Clear with canvas background
     this.ctx.fillStyle = Theme.canvasBackground;
@@ -157,7 +160,7 @@ export class DocCanvas {
             const markerX = pageX + margins.left + LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
             const marker = block.listKind === 'unordered'
               ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
-              : '1.'; // Placeholder — real numbering comes in Task 10
+              : (listCounters.get(block.id) ?? '1.');
             this.renderListMarker(block, pageX + pl.x, pageY + pl.y, pl.line.height, markerX, marker);
           }
         }

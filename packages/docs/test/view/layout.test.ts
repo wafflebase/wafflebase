@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLayout } from '../../src/view/layout.js';
+import { computeLayout, computeListCounters } from '../../src/view/layout.js';
 import { createBlock } from '../../src/model/types.js';
 
 function mockCtx(): CanvasRenderingContext2D {
@@ -68,5 +68,68 @@ describe('horizontal-rule layout', () => {
     expect(hrBlock.lines).toHaveLength(1);
     expect(hrBlock.lines[0].runs).toHaveLength(0);
     expect(hrBlock.height).toBe(20);
+  });
+});
+
+describe('computeListCounters', () => {
+  it('should number consecutive ordered items', () => {
+    const blocks = [
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+    ];
+    const counters = computeListCounters(blocks);
+    expect(counters.get(blocks[0].id)).toBe('1.');
+    expect(counters.get(blocks[1].id)).toBe('2.');
+    expect(counters.get(blocks[2].id)).toBe('3.');
+  });
+
+  it('should reset counter after a non-list block', () => {
+    const blocks = [
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+      createBlock('paragraph'),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+    ];
+    const counters = computeListCounters(blocks);
+    expect(counters.get(blocks[0].id)).toBe('1.');
+    expect(counters.get(blocks[2].id)).toBe('1.');
+  });
+
+  it('should use level-based formatting (a. for level 1, i. for level 2)', () => {
+    const blocks = [
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 1 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 2 }),
+    ];
+    const counters = computeListCounters(blocks);
+    expect(counters.get(blocks[0].id)).toBe('1.');
+    expect(counters.get(blocks[1].id)).toBe('a.');
+    expect(counters.get(blocks[2].id)).toBe('i.');
+  });
+
+  it('should not include unordered list items', () => {
+    const blocks = [
+      createBlock('list-item', { listKind: 'unordered', listLevel: 0 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+    ];
+    const counters = computeListCounters(blocks);
+    expect(counters.has(blocks[0].id)).toBe(false);
+    expect(counters.get(blocks[1].id)).toBe('1.');
+  });
+
+  it('should reset deeper levels when a shallower level appears', () => {
+    const blocks = [
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 1 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 1 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 0 }),
+      createBlock('list-item', { listKind: 'ordered', listLevel: 1 }),
+    ];
+    const counters = computeListCounters(blocks);
+    expect(counters.get(blocks[0].id)).toBe('1.');
+    expect(counters.get(blocks[1].id)).toBe('a.');
+    expect(counters.get(blocks[2].id)).toBe('b.');
+    expect(counters.get(blocks[3].id)).toBe('2.');
+    expect(counters.get(blocks[4].id)).toBe('a.'); // reset back to 'a' after level 0 appeared
   });
 });

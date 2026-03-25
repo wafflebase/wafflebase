@@ -409,3 +409,52 @@ function getLineMaxFontSizePx(line: LayoutLine, block: Block): number {
   return ptToPx(Theme.defaultFontSize);
 }
 
+/**
+ * Compute display numbers for ordered list items.
+ * Returns a map of blockId → display number string.
+ * Consecutive ordered list-items at the same level share a counter.
+ */
+export function computeListCounters(blocks: Block[]): Map<string, string> {
+  const counters = new Map<string, string>();
+  const levelCounters: number[] = [];
+
+  for (const block of blocks) {
+    if (block.type !== 'list-item' || block.listKind !== 'ordered') {
+      levelCounters.length = 0; // Reset on non-list block
+      continue;
+    }
+    const level = block.listLevel ?? 0;
+    // Trim counters above this level
+    levelCounters.length = Math.max(levelCounters.length, level + 1);
+    if (levelCounters[level] === undefined) levelCounters[level] = 0;
+    levelCounters[level]++;
+    // Reset deeper levels
+    for (let i = level + 1; i < levelCounters.length; i++) {
+      levelCounters[i] = 0;
+    }
+    counters.set(block.id, formatOrderedMarker(levelCounters[level], level));
+  }
+  return counters;
+}
+
+function formatOrderedMarker(num: number, level: number): string {
+  const format = level % 3;
+  if (format === 0) return `${num}.`;
+  if (format === 1) return `${String.fromCharCode(96 + ((num - 1) % 26) + 1)}.`;
+  // lower-roman for level 2, 5, 8...
+  return `${toRoman(num)}.`;
+}
+
+function toRoman(num: number): string {
+  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const syms = ['m', 'cm', 'd', 'cd', 'c', 'xc', 'l', 'xl', 'x', 'ix', 'v', 'iv', 'i'];
+  let result = '';
+  for (let i = 0; i < vals.length; i++) {
+    while (num >= vals[i]) {
+      result += syms[i];
+      num -= vals[i];
+    }
+  }
+  return result;
+}
+
