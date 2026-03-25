@@ -47,6 +47,10 @@ export interface EditorAPI {
   setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
   /** Toggle list type on the block at cursor */
   toggleList(kind: 'ordered' | 'unordered'): void;
+  /** Increase indent of the block at cursor */
+  indent(): void;
+  /** Decrease indent of the block at cursor */
+  outdent(): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -558,6 +562,28 @@ export function initialize(
         });
       }
       invalidateLayout();
+      render();
+    },
+    indent() {
+      const INDENT_STEP = 36;
+      const block = doc.getBlock(cursor.position.blockId);
+      docStore.snapshot();
+      doc.applyBlockStyle(block.id, {
+        marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+      });
+      markDirty(block.id);
+      render();
+    },
+    outdent() {
+      const INDENT_STEP = 36;
+      const block = doc.getBlock(cursor.position.blockId);
+      const current = block.style.marginLeft ?? 0;
+      if (current <= 0) return;
+      docStore.snapshot();
+      doc.applyBlockStyle(block.id, {
+        marginLeft: Math.max(0, current - INDENT_STEP),
+      });
+      markDirty(block.id);
       render();
     },
     focus: () => textEditor.focus(),

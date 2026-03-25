@@ -29,6 +29,8 @@ import {
   IconChevronDown,
   IconList,
   IconListNumbers,
+  IconIndentDecrease,
+  IconIndentIncrease,
 } from "@tabler/icons-react";
 
 /** Style option for the block-type dropdown (Google Docs style). */
@@ -337,6 +339,32 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </button>
         </TooltipTrigger>
         <TooltipContent>Numbered list</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => { editor?.outdent(); editor?.focus(); }}
+            aria-label="Decrease indent"
+          >
+            <IconIndentDecrease size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Decrease indent</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => { editor?.indent(); editor?.focus(); }}
+            aria-label="Increase indent"
+          >
+            <IconIndentIncrease size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Increase indent</TooltipContent>
       </Tooltip>
     </div>
   );
