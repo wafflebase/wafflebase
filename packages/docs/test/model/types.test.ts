@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { HeadingLevel } from '../../src/model/types.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
@@ -83,6 +84,19 @@ describe('createBlock', () => {
     expect(block.type).toBe('paragraph');
     expect(block.inlines).toHaveLength(1);
   });
+
+  it('creates a heading block with headingLevel 1 when no opts provided', () => {
+    const block = createBlock('heading');
+    expect(block.type).toBe('heading');
+    expect(block.headingLevel).toBe(1);
+  });
+
+  it('creates a list-item block with defaults when no opts provided', () => {
+    const block = createBlock('list-item');
+    expect(block.type).toBe('list-item');
+    expect(block.listKind).toBe('unordered');
+    expect(block.listLevel).toBe(0);
+  });
 });
 
 describe('getHeadingDefaults', () => {
@@ -92,5 +106,16 @@ describe('getHeadingDefaults', () => {
 
   it('returns fontSize 11 (no bold) for level 6', () => {
     expect(getHeadingDefaults(6)).toEqual({ fontSize: 11 });
+  });
+
+  it.each([
+    [1, { fontSize: 24, bold: true }],
+    [2, { fontSize: 20, bold: true }],
+    [3, { fontSize: 16, bold: true }],
+    [4, { fontSize: 14, bold: true }],
+    [5, { fontSize: 12 }],
+    [6, { fontSize: 11 }],
+  ] as const)('returns correct defaults for level %i', (level, expected) => {
+    expect(getHeadingDefaults(level as HeadingLevel)).toEqual(expected);
   });
 });

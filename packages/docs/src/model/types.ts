@@ -175,8 +175,8 @@ export function createBlock(
     inlines: type === 'horizontal-rule' ? [] : [{ text: '', style: {} }],
     style: { ...DEFAULT_BLOCK_STYLE },
   };
-  if (type === 'heading' && opts?.headingLevel) {
-    block.headingLevel = opts.headingLevel;
+  if (type === 'heading') {
+    block.headingLevel = opts?.headingLevel ?? 1;
   }
   if (type === 'list-item') {
     block.listKind = opts?.listKind ?? 'unordered';
