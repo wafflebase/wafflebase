@@ -16,7 +16,7 @@ export interface Document {
 /**
  * Block type discriminator.
  */
-export type BlockType = 'paragraph' | 'heading' | 'list-item' | 'horizontal-rule';
+export type BlockType = 'paragraph' | 'title' | 'subtitle' | 'heading' | 'list-item' | 'horizontal-rule';
 
 /**
  * Heading levels (1–6), matching HTML h1–h6.
@@ -153,6 +153,11 @@ const HEADING_DEFAULTS: Record<HeadingLevel, Partial<InlineStyle>> = {
 export function getHeadingDefaults(level: HeadingLevel): Partial<InlineStyle> {
   return { ...HEADING_DEFAULTS[level] };
 }
+
+// --- Title / Subtitle defaults ---
+
+export const TITLE_DEFAULTS: Partial<InlineStyle> = { fontSize: 26 };
+export const SUBTITLE_DEFAULTS: Partial<InlineStyle> = { fontSize: 15, color: '#666666' };
 
 // --- List constants ---
 

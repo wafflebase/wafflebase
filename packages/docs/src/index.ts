@@ -27,6 +27,8 @@ export {
   getBlockText,
   getBlockTextLength,
   getHeadingDefaults,
+  TITLE_DEFAULTS,
+  SUBTITLE_DEFAULTS,
   inlineStylesEqual,
   resolvePageSetup,
   getEffectiveDimensions,

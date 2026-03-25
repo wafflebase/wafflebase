@@ -27,10 +27,33 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconChevronDown,
-  IconH1,
   IconList,
   IconListNumbers,
 } from "@tabler/icons-react";
+
+/** Style option for the block-type dropdown (Google Docs style). */
+interface StyleOption {
+  label: string;
+  type: BlockType;
+  headingLevel?: HeadingLevel;
+  className: string;
+}
+
+const STYLE_OPTIONS: StyleOption[] = [
+  { label: "Normal text", type: "paragraph", className: "text-[13px]" },
+  { label: "Title", type: "title", className: "text-[22px] leading-tight" },
+  { label: "Subtitle", type: "subtitle", className: "text-[13px] text-muted-foreground" },
+  { label: "Heading 1", type: "heading", headingLevel: 1, className: "text-[18px] font-bold" },
+  { label: "Heading 2", type: "heading", headingLevel: 2, className: "text-[16px] font-bold" },
+  { label: "Heading 3", type: "heading", headingLevel: 3, className: "text-[14px] font-bold" },
+];
+
+function getBlockLabel(type: BlockType, headingLevel?: HeadingLevel): string {
+  if (type === "title") return "Title";
+  if (type === "subtitle") return "Subtitle";
+  if (type === "heading" && headingLevel) return `Heading ${headingLevel}`;
+  return "Normal text";
+}
 
 const isMac =
   typeof navigator !== "undefined" &&
@@ -252,34 +275,35 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Heading Dropdown */}
+      {/* Styles Dropdown (Google Docs style) */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <button
-                className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted"
-                aria-label="Heading level"
+                className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted"
+                aria-label="Text style"
               >
-                <IconH1 size={16} />
-                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                <span className="truncate">
+                  {editor ? getBlockLabel(
+                    editor.getBlockType().type,
+                    editor.getBlockType().headingLevel,
+                  ) : "Normal text"}
+                </span>
+                <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Heading level</TooltipContent>
+          <TooltipContent>Styles</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent>
-          <DropdownMenuItem onClick={() => handleBlockType("paragraph")}>
-            Normal text
-          </DropdownMenuItem>
-          {([1, 2, 3, 4, 5, 6] as const).map((level) => (
+        <DropdownMenuContent className="w-[180px]">
+          {STYLE_OPTIONS.map((opt) => (
             <DropdownMenuItem
-              key={level}
-              onClick={() =>
-                handleBlockType("heading", { headingLevel: level })
-              }
+              key={opt.label}
+              className="py-1"
+              onClick={() => handleBlockType(opt.type, opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined)}
             >
-              Heading {level}
+              <span className={opt.className}>{opt.label}</span>
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

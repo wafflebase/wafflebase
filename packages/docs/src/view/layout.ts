@@ -1,5 +1,7 @@
 import {
   getHeadingDefaults,
+  TITLE_DEFAULTS,
+  SUBTITLE_DEFAULTS,
   LIST_INDENT_PX,
   type Block,
   type HeadingLevel,
@@ -34,8 +36,15 @@ export function clearMeasureCache(): void {
  * Heading defaults act as a base layer; explicit inline styles override them.
  */
 export function resolveBlockInlines(block: Block): Inline[] {
+  let defaults: Partial<InlineStyle> | undefined;
   if (block.type === 'heading' && block.headingLevel) {
-    const defaults = getHeadingDefaults(block.headingLevel as HeadingLevel);
+    defaults = getHeadingDefaults(block.headingLevel as HeadingLevel);
+  } else if (block.type === 'title') {
+    defaults = TITLE_DEFAULTS;
+  } else if (block.type === 'subtitle') {
+    defaults = SUBTITLE_DEFAULTS;
+  }
+  if (defaults) {
     return block.inlines.map((inline) => ({
       text: inline.text,
       style: { ...defaults, ...inline.style },
