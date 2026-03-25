@@ -238,6 +238,11 @@ export class TextEditor {
       offset: this.cursor.position.offset + data.length,
     };
     this.markDirty(blockId);
+    // Markdown-style auto-conversion: check after each space
+    if (data === ' ' && this.tryAutoConvert(blockId)) {
+      this.requestRender();
+      return;
+    }
     this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
     this.requestRender();
   };
@@ -690,6 +695,19 @@ export class TextEditor {
     this.deleteSelection();
     this.invalidateLayout();
 
+    // Auto-convert "---" to horizontal rule on Enter
+    const enterPos = this.cursor.position;
+    const enterBlock = this.doc.getBlock(enterPos.blockId);
+    if (enterBlock && enterBlock.type === 'paragraph' && getBlockText(enterBlock) === '---') {
+      this.doc.deleteText({ blockId: enterPos.blockId, offset: 0 }, 3);
+      this.doc.setBlockType(enterPos.blockId, 'horizontal-rule');
+      const newId = this.doc.splitBlock(enterPos.blockId, 0);
+      this.cursor.moveTo({ blockId: newId, offset: 0 });
+      this.selection.setRange(null);
+      this.requestRender();
+      return;
+    }
+
     const pos = this.cursor.position;
     const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
 
@@ -718,6 +736,43 @@ export class TextEditor {
     });
     this.invalidateLayout();
     this.requestRender();
+  }
+
+  private tryAutoConvert(blockId: string): boolean {
+    const block = this.doc.getBlock(blockId);
+    if (!block || block.type !== 'paragraph') return false;
+    const text = getBlockText(block);
+
+    // Heading: "# " through "###### "
+    const headingMatch = text.match(/^(#{1,6}) $/);
+    if (headingMatch) {
+      const level = headingMatch[1].length as HeadingLevel;
+      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.doc.setBlockType(blockId, 'heading', { headingLevel: level });
+      this.cursor.moveTo({ blockId, offset: 0 });
+      this.invalidateLayout();
+      return true;
+    }
+
+    // Unordered list: "- " or "* "
+    if (text === '- ' || text === '* ') {
+      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.doc.setBlockType(blockId, 'list-item', { listKind: 'unordered', listLevel: 0 });
+      this.cursor.moveTo({ blockId, offset: 0 });
+      this.invalidateLayout();
+      return true;
+    }
+
+    // Ordered list: "1. "
+    if (text === '1. ') {
+      this.doc.deleteText({ blockId, offset: 0 }, text.length);
+      this.doc.setBlockType(blockId, 'list-item', { listKind: 'ordered', listLevel: 0 });
+      this.cursor.moveTo({ blockId, offset: 0 });
+      this.invalidateLayout();
+      return true;
+    }
+
+    return false;
   }
 
   private handleArrow(
