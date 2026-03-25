@@ -69,6 +69,7 @@ export interface InlineStyle {
   fontSize?: number;
   fontFamily?: string;
   color?: string;
+  backgroundColor?: string;
 }
 
 /**
@@ -215,7 +216,8 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.strikethrough === b.strikethrough &&
     a.fontSize === b.fontSize &&
     a.fontFamily === b.fontFamily &&
-    a.color === b.color
+    a.color === b.color &&
+    a.backgroundColor === b.backgroundColor
   );
 }
 

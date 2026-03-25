@@ -13,16 +13,16 @@ import {
   DropdownMenuTrigger,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { TEXT_COLORS } from "@/components/formatting-colors";
+import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import {
   IconBold,
   IconItalic,
   IconUnderline,
-  IconStrikethrough,
   IconAlignLeft,
   IconAlignCenter,
   IconAlignRight,
   IconTypography,
+  IconHighlight,
   IconDropletOff,
   IconArrowBackUp,
   IconArrowForwardUp,
@@ -88,12 +88,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
     editor.applyStyle({ underline: !current.underline });
   }, [editor]);
 
-  const toggleStrikethrough = useCallback(() => {
-    if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ strikethrough: !current.strikethrough });
-  }, [editor]);
-
   const handleBlockType = useCallback(
     (type: BlockType, opts?: { headingLevel?: HeadingLevel }) => {
       editor?.setBlockType(type, opts);
@@ -113,6 +107,14 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
   const handleTextColor = useCallback(
     (color: string) => {
       editor?.applyStyle({ color });
+      editor?.focus();
+    },
+    [editor],
+  );
+
+  const handleHighlightColor = useCallback(
+    (backgroundColor: string) => {
+      editor?.applyStyle({ backgroundColor });
       editor?.focus();
     },
     [editor],
@@ -230,20 +232,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipContent>Underline ({modKey}+U)</TooltipContent>
       </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            onPressedChange={toggleStrikethrough}
-            className="h-7 w-7 cursor-pointer"
-            aria-label="Strikethrough"
-          >
-            <IconStrikethrough size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Strikethrough</TooltipContent>
-      </Tooltip>
-
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -273,6 +261,41 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
                 className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
                 style={{ backgroundColor: color }}
                 onClick={() => handleTextColor(color)}
+              />
+            ))}
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                aria-label="Highlight color"
+              >
+                <IconHighlight size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Highlight color</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent className="w-auto p-2">
+          <button
+            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+            onClick={() => handleHighlightColor("")}
+          >
+            <IconDropletOff size={14} />
+            Reset
+          </button>
+          <div className="grid grid-cols-5 gap-1">
+            {BG_COLORS.map((color) => (
+              <button
+                key={color}
+                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
+                style={{ backgroundColor: color }}
+                onClick={() => handleHighlightColor(color)}
               />
             ))}
           </div>

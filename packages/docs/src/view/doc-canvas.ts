@@ -235,6 +235,14 @@ export class DocCanvas {
     const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
     const x = Math.round(lineX + run.x);
 
+    if (style.backgroundColor) {
+      this.ctx.save();
+      this.ctx.fillStyle = style.backgroundColor;
+      this.ctx.fillRect(x, lineY, run.width, lineHeight);
+      this.ctx.restore();
+      this.ctx.fillStyle = style.color ?? Theme.defaultColor;
+    }
+
     this.ctx.fillText(run.text, x, baselineY);
 
     if (style.underline) {

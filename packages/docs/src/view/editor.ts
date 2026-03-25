@@ -565,24 +565,42 @@ export function initialize(
       render();
     },
     indent() {
-      const INDENT_STEP = 36;
       const block = doc.getBlock(cursor.position.blockId);
       docStore.snapshot();
-      doc.applyBlockStyle(block.id, {
-        marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-      });
+      if (block.type === 'list-item') {
+        const newLevel = (block.listLevel ?? 0) + 1;
+        doc.setBlockType(block.id, 'list-item', {
+          listKind: block.listKind,
+          listLevel: newLevel,
+        });
+      } else {
+        const INDENT_STEP = 36;
+        doc.applyBlockStyle(block.id, {
+          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+        });
+      }
       markDirty(block.id);
       render();
     },
     outdent() {
-      const INDENT_STEP = 36;
       const block = doc.getBlock(cursor.position.blockId);
-      const current = block.style.marginLeft ?? 0;
-      if (current <= 0) return;
-      docStore.snapshot();
-      doc.applyBlockStyle(block.id, {
-        marginLeft: Math.max(0, current - INDENT_STEP),
-      });
+      if (block.type === 'list-item') {
+        const currentLevel = block.listLevel ?? 0;
+        if (currentLevel <= 0) return;
+        docStore.snapshot();
+        doc.setBlockType(block.id, 'list-item', {
+          listKind: block.listKind,
+          listLevel: currentLevel - 1,
+        });
+      } else {
+        const INDENT_STEP = 36;
+        const current = block.style.marginLeft ?? 0;
+        if (current <= 0) return;
+        docStore.snapshot();
+        doc.applyBlockStyle(block.id, {
+          marginLeft: Math.max(0, current - INDENT_STEP),
+        });
+      }
       markDirty(block.id);
       render();
     },

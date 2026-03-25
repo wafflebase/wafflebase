@@ -41,6 +41,7 @@ function serializeInlineStyle(style: InlineStyle): Record<string, string> {
   setIfDefined(attrs, 'fontSize', style.fontSize);
   if (style.fontFamily !== undefined) attrs.fontFamily = style.fontFamily;
   if (style.color !== undefined) attrs.color = style.color;
+  if (style.backgroundColor !== undefined) attrs.backgroundColor = style.backgroundColor;
   return attrs;
 }
 
@@ -54,6 +55,7 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   if ('fontSize' in attrs) style.fontSize = Number(attrs.fontSize);
   if ('fontFamily' in attrs) style.fontFamily = attrs.fontFamily;
   if ('color' in attrs) style.color = attrs.color;
+  if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
   return style;
 }
 
