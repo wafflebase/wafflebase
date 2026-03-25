@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import type { InlineStyle, BlockStyle } from '../model/types.js';
+import type { InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
@@ -41,6 +41,12 @@ export interface EditorAPI {
   onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
+  /** Get the block type at the cursor position */
+  getBlockType(): { type: BlockType; headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number };
+  /** Set the block type for the block at cursor */
+  setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }): void;
+  /** Toggle list type on the block at cursor */
+  toggleList(kind: 'ordered' | 'unordered'): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -525,6 +531,35 @@ export function initialize(
       cursorMoveCallback = cb;
     },
     getPeerCursorPixels: () => lastPeerPixels,
+    getBlockType() {
+      const block = doc.getBlock(cursor.position.blockId);
+      return {
+        type: block.type,
+        headingLevel: block.headingLevel,
+        listKind: block.listKind,
+        listLevel: block.listLevel,
+      };
+    },
+    setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
+      docStore.snapshot();
+      doc.setBlockType(cursor.position.blockId, type, opts);
+      invalidateLayout();
+      render();
+    },
+    toggleList(kind: 'ordered' | 'unordered') {
+      const block = doc.getBlock(cursor.position.blockId);
+      docStore.snapshot();
+      if (block.type === 'list-item' && block.listKind === kind) {
+        doc.setBlockType(block.id, 'paragraph');
+      } else {
+        doc.setBlockType(block.id, 'list-item', {
+          listKind: kind,
+          listLevel: block.listLevel ?? 0,
+        });
+      }
+      invalidateLayout();
+      render();
+    },
     focus: () => textEditor.focus(),
     dispose: () => {
       peerCursors = [];
