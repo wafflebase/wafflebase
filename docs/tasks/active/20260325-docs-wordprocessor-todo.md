@@ -4,11 +4,11 @@ Design doc: [docs-wordprocessor-roadmap.md](../../design/docs-wordprocessor-road
 
 ## Phase 1: Block Type Extensions
 
-- [ ] 1.1 Heading (H1–H6) — data model, layout, rendering, toolbar
-- [ ] 1.2 List (Ordered/Unordered) — data model, marker rendering, Tab level control
-- [ ] 1.3 Horizontal Rule — data model, rendering, `---` auto-convert
-- [ ] 1.4 Layout engine block-type branching
-- [ ] 1.5 Yorkie serialization / deserialization + backward compatibility
+- [x] 1.1 Heading (H1–H6) — data model, layout, rendering, toolbar
+- [x] 1.2 List (Ordered/Unordered) — data model, marker rendering, Tab level control
+- [x] 1.3 Horizontal Rule — data model, rendering, `---` auto-convert
+- [x] 1.4 Layout engine block-type branching
+- [x] 1.5 Yorkie serialization / deserialization + backward compatibility
 
 ## Phase 2: Inline Extensions & Clipboard
 
