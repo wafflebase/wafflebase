@@ -186,6 +186,10 @@ export class TextEditor {
     // Ignore all input events fired synchronously after compositionend
     if (this.ignoreInputUntilNextTick) return;
 
+    // Horizontal rules have no text content — block all input
+    const currentBlock = this.doc.getBlock(this.cursor.position.blockId);
+    if (currentBlock.type === 'horizontal-rule') return;
+
     if (this.composition.active) {
       // Browser IME path: read textarea.value which contains the current
       // composing text as managed by the browser's native IME system.
@@ -280,6 +284,10 @@ export class TextEditor {
       case 'Enter':
         e.preventDefault();
         this.handleEnter();
+        break;
+      case 'Tab':
+        e.preventDefault();
+        this.handleTab(shiftKey);
         break;
       case 'ArrowLeft':
         e.preventDefault();
@@ -657,12 +665,34 @@ export class TextEditor {
     this.saveSnapshot();
     this.deleteSelection();
     this.invalidateLayout();
-    const newBlockId = this.doc.splitBlock(
-      this.cursor.position.blockId,
-      this.cursor.position.offset,
-    );
-    this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+
+    const pos = this.cursor.position;
+    const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+
+    if (newBlockId === pos.blockId) {
+      // Block was converted in-place (e.g., empty list → paragraph)
+      this.cursor.moveTo({ blockId: pos.blockId, offset: 0 });
+    } else {
+      this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+    }
     this.selection.setRange(null);
+    this.requestRender();
+  }
+
+  private handleTab(shift: boolean): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    if (block.type !== 'list-item') return;
+
+    this.saveSnapshot();
+    const currentLevel = block.listLevel ?? 0;
+    const newLevel = shift ? Math.max(0, currentLevel - 1) : Math.min(8, currentLevel + 1);
+    if (newLevel === currentLevel) return;
+
+    this.doc.setBlockType(block.id, 'list-item', {
+      listKind: block.listKind,
+      listLevel: newLevel,
+    });
+    this.invalidateLayout();
     this.requestRender();
   }
 
