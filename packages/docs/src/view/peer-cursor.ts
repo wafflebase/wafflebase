@@ -83,7 +83,9 @@ export function resolvePositionPixel(
       height: pageLine.line.height,
     };
   }
-  return { x: pageX + pageLine.x, y: pageY + pageLine.y, height: pageLine.line.height };
+  // Empty line — account for the block's marginLeft (e.g. list indent)
+  const blockMarginLeft = lb.block.style.marginLeft ?? 0;
+  return { x: pageX + pageLine.x + blockMarginLeft, y: pageY + pageLine.y, height: pageLine.line.height };
 }
 
 /**
