@@ -1,4 +1,4 @@
-import type { DocPosition, InlineStyle } from '../model/types.js';
+import type { DocPosition, InlineStyle, HeadingLevel } from '../model/types.js';
 import { getBlockText, getBlockTextLength } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { Cursor } from './cursor.js';
@@ -387,6 +387,30 @@ export class TextEditor {
         if (mod) {
           e.preventDefault();
           this.redoAction();
+        }
+        break;
+      case '0':
+        if (mod && altKey) {
+          e.preventDefault();
+          this.saveSnapshot();
+          this.doc.setBlockType(this.cursor.position.blockId, 'paragraph');
+          this.invalidateLayout();
+          this.requestRender();
+        }
+        break;
+      case '1': case '2': case '3': case '4': case '5': case '6':
+        if (mod && altKey) {
+          e.preventDefault();
+          this.saveSnapshot();
+          const level = Number(key) as HeadingLevel;
+          const block = this.doc.getBlock(this.cursor.position.blockId);
+          if (block && block.type === 'heading' && block.headingLevel === level) {
+            this.doc.setBlockType(block.id, 'paragraph');
+          } else if (block) {
+            this.doc.setBlockType(block.id, 'heading', { headingLevel: level });
+          }
+          this.invalidateLayout();
+          this.requestRender();
         }
         break;
     }
