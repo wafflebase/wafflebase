@@ -94,11 +94,14 @@ all cell, selection, and navigation operations.
   (including plain-value pastes). External pastes (TSV/HTML) run through the
   same conservative input inference as `setData` before persistence.
 - **Autofill (fill handle)** — dragging the selection handle repeats the source
-  pattern across the expanded range. Formula cells are relocated per target
-  offset (same reference-shift semantics as internal paste), then dependants are
-  recalculated from all changed destination refs. With freeze panes, the handle
-  is hidden (and non-interactive) when the selection is in the unfrozen
-  scrollable quadrant but the handle position would fall under frozen panes.
+  pattern across the expanded range. The fill is constrained to a single axis
+  (vertical or horizontal) based on whichever direction the drag extends
+  furthest from the source edge; ties favour vertical. Formula cells are
+  relocated per target offset (same reference-shift semantics as internal
+  paste), then dependants are recalculated from all changed destination refs.
+  With freeze panes, the handle is hidden (and non-interactive) when the
+  selection is in the unfrozen scrollable quadrant but the handle position
+  would fall under frozen panes.
 - **Cell drag-move** — hovering near the edges of a selected cell or range
   (excluding the bottom-right autofill handle corner) shows a `move` cursor.
   Dragging from the edge moves the entire selection to the drop position.

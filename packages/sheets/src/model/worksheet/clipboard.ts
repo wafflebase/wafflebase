@@ -53,8 +53,10 @@ export function buildCutRefMap(
 }
 
 /**
- * `computeAutofillRange` returns the expanded fill range, or undefined
- * when `target` is inside the source range.
+ * `computeAutofillRange` returns the expanded fill range constrained to a
+ * single axis (vertical or horizontal), or undefined when `target` is inside
+ * the source range.  The dominant axis is the one where the target is
+ * furthest from the source edge; ties favour vertical.
  */
 export function computeAutofillRange(
   sourceRange: Range,
@@ -63,7 +65,24 @@ export function computeAutofillRange(
   if (inRange(target, sourceRange)) {
     return undefined;
   }
-  return mergeRanges(sourceRange, [target, target]);
+
+  const distUp = Math.max(0, sourceRange[0].r - target.r);
+  const distDown = Math.max(0, target.r - sourceRange[1].r);
+  const distLeft = Math.max(0, sourceRange[0].c - target.c);
+  const distRight = Math.max(0, target.c - sourceRange[1].c);
+
+  const verticalDist = Math.max(distUp, distDown);
+  const horizontalDist = Math.max(distLeft, distRight);
+
+  if (verticalDist >= horizontalDist) {
+    // Constrain to vertical: keep source columns, extend rows to target
+    const clampedTarget: Ref = { r: target.r, c: sourceRange[1].c };
+    return mergeRanges(sourceRange, [clampedTarget, clampedTarget]);
+  } else {
+    // Constrain to horizontal: keep source rows, extend columns to target
+    const clampedTarget: Ref = { r: sourceRange[1].r, c: target.c };
+    return mergeRanges(sourceRange, [clampedTarget, clampedTarget]);
+  }
 }
 
 /**
