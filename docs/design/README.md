@@ -32,6 +32,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [docs-frontend-integration.md](docs-frontend-integration.md)     | Docs frontend integration — document type field, list UI, routing, backend API changes            |
 | [peer-cursor-labels.md](peer-cursor-labels.md)         | Peer cursor name labels — transient username tags on collaborative cursors                        |
 | [docs-remote-cursor.md](docs-remote-cursor.md)         | Docs remote cursor — peer cursor carets + name labels in collaborative docs editor                |
+| [docs-wordprocessor-roadmap.md](docs-wordprocessor-roadmap.md) | Docs word processor roadmap — 6-phase plan for Google Docs parity                        |
 
 ## Template
 
