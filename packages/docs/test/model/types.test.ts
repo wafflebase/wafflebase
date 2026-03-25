@@ -5,6 +5,8 @@ import {
   PAPER_SIZES,
   resolvePageSetup,
   getEffectiveDimensions,
+  createBlock,
+  getHeadingDefaults,
 } from '../../src/model/types.js';
 
 describe('BlockStyle', () => {
@@ -50,5 +52,45 @@ describe('PageSetup', () => {
     const dims = getEffectiveDimensions(landscape);
     expect(dims.width).toBe(1056);
     expect(dims.height).toBe(816);
+  });
+});
+
+describe('createBlock', () => {
+  it('creates a heading block with headingLevel', () => {
+    const block = createBlock('heading', { headingLevel: 1 });
+    expect(block.type).toBe('heading');
+    expect(block.headingLevel).toBe(1);
+    expect(block.inlines).toHaveLength(1);
+    expect(block.inlines[0].text).toBe('');
+  });
+
+  it('creates a list-item block with defaults', () => {
+    const block = createBlock('list-item', { listKind: 'unordered', listLevel: 0 });
+    expect(block.type).toBe('list-item');
+    expect(block.listKind).toBe('unordered');
+    expect(block.listLevel).toBe(0);
+    expect(block.inlines).toHaveLength(1);
+  });
+
+  it('creates a horizontal-rule block with empty inlines', () => {
+    const block = createBlock('horizontal-rule');
+    expect(block.type).toBe('horizontal-rule');
+    expect(block.inlines).toHaveLength(0);
+  });
+
+  it('defaults to paragraph when called with no arguments', () => {
+    const block = createBlock();
+    expect(block.type).toBe('paragraph');
+    expect(block.inlines).toHaveLength(1);
+  });
+});
+
+describe('getHeadingDefaults', () => {
+  it('returns fontSize 24 and bold for level 1', () => {
+    expect(getHeadingDefaults(1)).toEqual({ fontSize: 24, bold: true });
+  });
+
+  it('returns fontSize 11 (no bold) for level 6', () => {
+    expect(getHeadingDefaults(6)).toEqual({ fontSize: 11 });
   });
 });

@@ -14,14 +14,26 @@ export interface Document {
 }
 
 /**
- * A block-level element (currently only paragraphs).
- * The discriminated union allows future extension to tables, lists, etc.
+ * Block type discriminator.
+ */
+export type BlockType = 'paragraph' | 'heading' | 'list-item' | 'horizontal-rule';
+
+/**
+ * Heading levels (1–6), matching HTML h1–h6.
+ */
+export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
+/**
+ * A block-level element: paragraph, heading, list item, or horizontal rule.
  */
 export interface Block {
   id: string;
-  type: 'paragraph';
+  type: BlockType;
   inlines: Inline[];
   style: BlockStyle;
+  headingLevel?: HeadingLevel;
+  listKind?: 'ordered' | 'unordered';
+  listLevel?: number;
 }
 
 /**
@@ -125,6 +137,52 @@ export function createEmptyBlock(): Block {
     inlines: [{ text: '', style: {} }],
     style: { ...DEFAULT_BLOCK_STYLE },
   };
+}
+
+// --- Heading defaults ---
+
+const HEADING_DEFAULTS: Record<HeadingLevel, Partial<InlineStyle>> = {
+  1: { fontSize: 24, bold: true },
+  2: { fontSize: 20, bold: true },
+  3: { fontSize: 16, bold: true },
+  4: { fontSize: 14, bold: true },
+  5: { fontSize: 12 },
+  6: { fontSize: 11 },
+};
+
+export function getHeadingDefaults(level: HeadingLevel): Partial<InlineStyle> {
+  return { ...HEADING_DEFAULTS[level] };
+}
+
+// --- List constants ---
+
+export const LIST_INDENT_PX = 36;
+export const UNORDERED_MARKERS = ['●', '○', '■'];
+export const ORDERED_FORMATS = ['decimal', 'lower-alpha', 'lower-roman'] as const;
+
+// --- Block factory ---
+
+/**
+ * Create a block of the given type with sensible defaults.
+ */
+export function createBlock(
+  type: BlockType = 'paragraph',
+  opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number },
+): Block {
+  const block: Block = {
+    id: generateBlockId(),
+    type,
+    inlines: type === 'horizontal-rule' ? [] : [{ text: '', style: {} }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  };
+  if (type === 'heading' && opts?.headingLevel) {
+    block.headingLevel = opts.headingLevel;
+  }
+  if (type === 'list-item') {
+    block.listKind = opts?.listKind ?? 'unordered';
+    block.listLevel = opts?.listLevel ?? 0;
+  }
+  return block;
 }
 
 /**
