@@ -1,11 +1,14 @@
 import {
   type Block,
+  type BlockType,
   type DocPosition,
   type DocRange,
   type Document,
+  type HeadingLevel,
   type InlineStyle,
   type BlockStyle,
   createEmptyBlock,
+  DEFAULT_BLOCK_STYLE,
   getBlockText,
   getBlockTextLength,
   inlineStylesEqual,
@@ -146,6 +149,25 @@ export class Doc {
     const block = this._document.blocks[blockIndex];
     const blockText = getBlockText(block);
 
+    // Empty list-item: exit list by converting to paragraph
+    if (block.type === 'list-item' && blockText.length === 0) {
+      this.setBlockType(blockId, 'paragraph');
+      return blockId;
+    }
+
+    // Horizontal rules should not be split — create paragraph after
+    if (block.type === 'horizontal-rule') {
+      const newBlock: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: '', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      this.store.insertBlock(blockIndex + 1, newBlock);
+      this.refresh();
+      return newBlock.id;
+    }
+
     // Build inlines for the first block (before split)
     const beforeInlines = this.buildInlinesFromSplit(block, 0, offset);
     // Build inlines for the new block (after split)
@@ -161,15 +183,25 @@ export class Doc {
         ? beforeInlines
         : [{ text: '', style: this.getStyleAtOffset(block, offset) }];
 
+    // Determine new block type
+    let newType: BlockType = 'paragraph';
+    const extra: Partial<Block> = {};
+    if (block.type === 'list-item') {
+      newType = 'list-item';
+      extra.listKind = block.listKind;
+      extra.listLevel = block.listLevel;
+    }
+
     // Create new block
     const newBlock: Block = {
       id: generateBlockId(),
-      type: 'paragraph',
+      type: newType,
       inlines:
         afterInlines.length > 0
           ? afterInlines
           : [{ text: '', style: this.getStyleAtOffset(block, offset) }],
       style: { ...block.style },
+      ...extra,
     };
 
     this.store.updateBlock(blockId, block);
@@ -230,6 +262,36 @@ export class Doc {
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
     const block = this.getBlock(blockId);
     block.style = { ...block.style, ...style };
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Change the block type, setting type-specific fields and clearing stale ones.
+   */
+  setBlockType(
+    blockId: string,
+    type: BlockType,
+    opts?: {
+      headingLevel?: HeadingLevel;
+      listKind?: 'ordered' | 'unordered';
+      listLevel?: number;
+    },
+  ): void {
+    const block = this.getBlock(blockId);
+    block.type = type;
+    // Clear type-specific fields
+    delete block.headingLevel;
+    delete block.listKind;
+    delete block.listLevel;
+    // Set new type-specific fields
+    if (type === 'heading') {
+      block.headingLevel = opts?.headingLevel ?? 1;
+    }
+    if (type === 'list-item') {
+      block.listKind = opts?.listKind ?? 'unordered';
+      block.listLevel = opts?.listLevel ?? 0;
+    }
     this.store.updateBlock(blockId, block);
     this.refresh();
   }
