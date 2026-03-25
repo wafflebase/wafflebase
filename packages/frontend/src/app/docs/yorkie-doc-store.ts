@@ -97,13 +97,23 @@ function buildInlineNode(inline: Inline): ElementNode {
 }
 
 function buildBlockNode(block: Block): ElementNode {
+  const attrs: Record<string, string> = {
+    id: block.id,
+    type: block.type,
+    ...serializeBlockStyle(block.style),
+  };
+  if (block.headingLevel !== undefined) {
+    attrs.headingLevel = String(block.headingLevel);
+  }
+  if (block.listKind !== undefined) {
+    attrs.listKind = block.listKind;
+  }
+  if (block.listLevel !== undefined) {
+    attrs.listLevel = String(block.listLevel);
+  }
   return {
     type: 'block',
-    attributes: {
-      id: block.id,
-      type: block.type,
-      ...serializeBlockStyle(block.style),
-    },
+    attributes: attrs,
     children: block.inlines.map(buildInlineNode),
   };
 }
@@ -134,12 +144,22 @@ function treeNodeToBlock(node: TreeNode): Block {
   const inlines = (el.children ?? [])
     .filter((c) => c.type === 'inline')
     .map(treeNodeToInline);
-  return {
+  const block: Block = {
     id: attrs.id ?? '',
     type: (attrs.type as Block['type']) ?? 'paragraph',
     inlines: inlines.length > 0 ? inlines : [{ text: '', style: {} }],
     style: parseBlockStyle(attrs),
   };
+  if ('headingLevel' in attrs) {
+    block.headingLevel = Number(attrs.headingLevel) as Block['headingLevel'];
+  }
+  if ('listKind' in attrs) {
+    block.listKind = attrs.listKind as Block['listKind'];
+  }
+  if ('listLevel' in attrs) {
+    block.listLevel = Number(attrs.listLevel);
+  }
+  return block;
 }
 
 function treeToDocument(root: TreeNode): Document {
