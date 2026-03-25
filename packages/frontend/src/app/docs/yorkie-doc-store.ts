@@ -146,10 +146,15 @@ function treeNodeToBlock(node: TreeNode): Block {
   const inlines = (el.children ?? [])
     .filter((c) => c.type === 'inline')
     .map(treeNodeToInline);
+  const blockType = (attrs.type as Block['type']) ?? 'paragraph';
   const block: Block = {
     id: attrs.id ?? '',
-    type: (attrs.type as Block['type']) ?? 'paragraph',
-    inlines: inlines.length > 0 ? inlines : [{ text: '', style: {} }],
+    type: blockType,
+    inlines: inlines.length > 0
+      ? inlines
+      : blockType === 'horizontal-rule'
+        ? []
+        : [{ text: '', style: {} }],
     style: parseBlockStyle(attrs),
   };
   if ('headingLevel' in attrs) {

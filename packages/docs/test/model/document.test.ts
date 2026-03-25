@@ -325,6 +325,39 @@ describe('Doc', () => {
       expect(newId).not.toBe(blockId);
       expect(doc.document.blocks[1].type).toBe('paragraph');
     });
+
+    it('should delete HR when backspacing from paragraph after it', () => {
+      const doc = Doc.create();
+      const firstId = doc.document.blocks[0].id;
+      doc.setBlockType(firstId, 'horizontal-rule');
+      // Split to create paragraph after HR
+      const paraId = doc.splitBlock(firstId, 0);
+      doc.insertText({ blockId: paraId, offset: 0 }, 'Hello');
+      expect(doc.document.blocks).toHaveLength(2);
+      // Backspace at start of paragraph should delete the HR
+      doc.deleteBackward({ blockId: paraId, offset: 0 });
+      expect(doc.document.blocks).toHaveLength(1);
+      expect(doc.document.blocks[0].type).toBe('paragraph');
+      expect(doc.document.blocks[0].inlines[0].text).toBe('Hello');
+    });
+
+    it('should clear inlines when converting to horizontal-rule', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'text');
+      doc.setBlockType(blockId, 'horizontal-rule');
+      expect(doc.document.blocks[0].inlines).toHaveLength(0);
+    });
+
+    it('should restore empty inline when converting HR back to paragraph', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'horizontal-rule');
+      expect(doc.document.blocks[0].inlines).toHaveLength(0);
+      doc.setBlockType(blockId, 'paragraph');
+      expect(doc.document.blocks[0].inlines).toHaveLength(1);
+      expect(doc.document.blocks[0].inlines[0].text).toBe('');
+    });
   });
 
   describe('applyBlockStyle', () => {

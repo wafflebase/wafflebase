@@ -565,10 +565,13 @@ export function initialize(
       render();
     },
     indent() {
+      const MAX_LIST_LEVEL = 8;
       const block = doc.getBlock(cursor.position.blockId);
       docStore.snapshot();
       if (block.type === 'list-item') {
-        const newLevel = (block.listLevel ?? 0) + 1;
+        const currentLevel = block.listLevel ?? 0;
+        if (currentLevel >= MAX_LIST_LEVEL) return;
+        const newLevel = currentLevel + 1;
         doc.setBlockType(block.id, 'list-item', {
           listKind: block.listKind,
           listLevel: newLevel,

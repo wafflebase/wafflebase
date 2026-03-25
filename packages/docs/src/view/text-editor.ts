@@ -811,12 +811,15 @@ export class TextEditor {
 
   private handleIndent(): void {
     const INDENT_STEP = 36;
+    const MAX_LIST_LEVEL = 8;
     const block = this.doc.getBlock(this.cursor.position.blockId);
     this.saveSnapshot();
     if (block.type === 'list-item') {
+      const currentLevel = block.listLevel ?? 0;
+      if (currentLevel >= MAX_LIST_LEVEL) return;
       this.doc.setBlockType(block.id, 'list-item', {
         listKind: block.listKind,
-        listLevel: (block.listLevel ?? 0) + 1,
+        listLevel: currentLevel + 1,
       });
     } else {
       this.doc.applyBlockStyle(block.id, {

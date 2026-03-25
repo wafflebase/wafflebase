@@ -133,9 +133,17 @@ export class Doc {
     if (blockIndex <= 0) return pos;
 
     const prevBlock = this._document.blocks[blockIndex - 1];
-    const prevLength = getBlockTextLength(prevBlock);
     const currentBlock = this._document.blocks[blockIndex];
 
+    // Cannot merge into a non-text block (e.g., horizontal-rule)
+    if (prevBlock.type === 'horizontal-rule') {
+      // Delete the HR instead
+      this.store.deleteBlock(prevBlock.id);
+      this.refresh();
+      return pos;
+    }
+
+    const prevLength = getBlockTextLength(prevBlock);
     this.mergeBlocks(prevBlock.id, currentBlock.id);
     return { blockId: prevBlock.id, offset: prevLength };
   }
@@ -291,6 +299,12 @@ export class Doc {
     if (type === 'list-item') {
       block.listKind = opts?.listKind ?? 'unordered';
       block.listLevel = opts?.listLevel ?? 0;
+    }
+    // Normalize inlines for block type invariant
+    if (type === 'horizontal-rule') {
+      block.inlines = [];
+    } else if (block.inlines.length === 0) {
+      block.inlines = [{ text: '', style: {} }];
     }
     this.store.updateBlock(blockId, block);
     this.refresh();
