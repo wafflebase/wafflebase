@@ -20,7 +20,7 @@ describe('Sheet.autofill', () => {
     ]);
   });
 
-  it('tiles a multi-cell pattern across a larger range', async () => {
+  it('tiles a multi-cell pattern vertically (single-axis)', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '1');
     await sheet.setData({ r: 1, c: 2 }, '2');
@@ -29,13 +29,29 @@ describe('Sheet.autofill', () => {
 
     sheet.selectStart({ r: 1, c: 1 });
     sheet.selectEnd({ r: 2, c: 2 });
-    const changed = await sheet.autofill({ r: 4, c: 3 });
+    const changed = await sheet.autofill({ r: 4, c: 2 });
 
     expect(changed).toBe(true);
+    // Pattern tiles: rows 3-4 repeat rows 1-2
     expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('1');
-    expect(await sheet.toDisplayString({ r: 3, c: 3 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('2');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('3');
     expect(await sheet.toDisplayString({ r: 4, c: 2 })).toBe('4');
-    expect(await sheet.toDisplayString({ r: 4, c: 3 })).toBe('3');
+  });
+
+  it('constrains autofill to single axis (vertical wins on tie)', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'a');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    // Diagonal target: row extends by 2, col extends by 1 → vertical wins
+    const changed = await sheet.autofill({ r: 3, c: 2 });
+
+    expect(changed).toBe(true);
+    // Vertical fill only: cols stay at 1
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('a');
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('a');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('');
   });
 
   it('relocates formulas during autofill', async () => {

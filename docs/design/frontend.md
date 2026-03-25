@@ -84,7 +84,8 @@ React and the `@wafflebase/sheets` engine:
 5. Fill handle drag is handled inside `Worksheet`/`Overlay`: the bottom-right
    handle on a cell selection (or merged active cell bounds when no explicit
    range exists) shows a crosshair cursor, previews the expanded fill range
-   with a dashed border, and commits `Sheet.autofill(...)` on mouseup.
+   (constrained to a single axis — vertical or horizontal) with a dashed
+   border, and commits `Sheet.autofill(...)` on mouseup.
 6. On mobile viewports, `useMobileSheetGestures` adds one-finger drag panning
    (`spreadsheet.panBy(...)`) and double-tap-to-edit
    (`spreadsheet.handleMobileDoubleTap(...)`) on the canvas container.
