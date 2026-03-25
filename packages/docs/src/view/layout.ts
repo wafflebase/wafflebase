@@ -149,7 +149,10 @@ export function computeLayout(
 
     let lines: LayoutLine[];
 
-    if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
+    if (block.type === 'horizontal-rule') {
+      const HR_HEIGHT = 20;
+      lines = [{ runs: [], y: 0, height: HR_HEIGHT, width: availableWidth }];
+    } else if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
       lines = cache!.blocks.get(block.id)!.lines;
     } else {
       lines = layoutBlock(effectiveBlock, ctx, availableWidth);

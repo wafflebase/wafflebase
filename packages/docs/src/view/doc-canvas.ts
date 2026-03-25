@@ -130,6 +130,21 @@ export class DocCanvas {
 
       // Draw text
       for (const pl of page.lines) {
+        // Render horizontal-rule blocks as a thin line
+        if (layout) {
+          const block = layout.blocks[pl.blockIndex]?.block;
+          if (block && block.type === 'horizontal-rule') {
+            const lineY = Math.round(pageY + pl.y + pl.line.height / 2);
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = Theme.defaultColor;
+            this.ctx.lineWidth = 1;
+            this.ctx.moveTo(pageX + margins.left, lineY);
+            this.ctx.lineTo(pageX + page.width - margins.right, lineY);
+            this.ctx.stroke();
+            continue;
+          }
+        }
+
         for (const run of pl.line.runs) {
           this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height);
         }

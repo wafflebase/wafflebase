@@ -59,3 +59,14 @@ describe('list-item layout', () => {
     expect(x1).toBeGreaterThan(x0);
   });
 });
+
+describe('horizontal-rule layout', () => {
+  it('should have fixed height with no text runs', () => {
+    const block = createBlock('horizontal-rule');
+    const { layout } = computeLayout([block], mockCtx(), 600);
+    const hrBlock = layout.blocks[0];
+    expect(hrBlock.lines).toHaveLength(1);
+    expect(hrBlock.lines[0].runs).toHaveLength(0);
+    expect(hrBlock.height).toBe(20);
+  });
+});
