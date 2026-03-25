@@ -1,4 +1,10 @@
-import type { Block, Inline, InlineStyle } from '../model/types.js';
+import {
+  getHeadingDefaults,
+  type Block,
+  type HeadingLevel,
+  type Inline,
+  type InlineStyle,
+} from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 
 const measureCache = new Map<string, number>();
@@ -20,6 +26,21 @@ export function cachedMeasureText(
 
 export function clearMeasureCache(): void {
   measureCache.clear();
+}
+
+/**
+ * For heading blocks, return inlines with heading default styles merged in.
+ * Heading defaults act as a base layer; explicit inline styles override them.
+ */
+export function resolveBlockInlines(block: Block): Inline[] {
+  if (block.type === 'heading' && block.headingLevel) {
+    const defaults = getHeadingDefaults(block.headingLevel as HeadingLevel);
+    return block.inlines.map((inline) => ({
+      text: inline.text,
+      style: { ...defaults, ...inline.style },
+    }));
+  }
+  return block.inlines;
 }
 
 /**
@@ -164,8 +185,10 @@ function layoutBlock(
   ctx: CanvasRenderingContext2D,
   maxWidth: number,
 ): LayoutLine[] {
+  // Resolve heading defaults into inlines before measurement
+  const inlines = resolveBlockInlines(block);
   // Measure all segments (word-level)
-  const segments = measureSegments(block, ctx);
+  const segments = measureSegments(inlines, ctx);
 
   if (segments.length === 0) {
     // Empty block — one empty line
@@ -226,7 +249,7 @@ function layoutBlock(
           continue; // Re-measure from charIdx on fresh line
         }
         currentRuns.push({
-          inline: block.inlines[seg.inlineIndex],
+          inline: inlines[seg.inlineIndex],
           text: seg.text.slice(charIdx, endIdx),
           x: lineStartX + lineWidth,
           width: runWidth,
@@ -244,7 +267,7 @@ function layoutBlock(
     }
 
     currentRuns.push({
-      inline: block.inlines[seg.inlineIndex],
+      inline: inlines[seg.inlineIndex],
       text: seg.text,
       x: lineStartX + lineWidth,
       width: seg.width,
@@ -272,13 +295,13 @@ function layoutBlock(
  * Break inlines into word-level segments and measure each.
  */
 function measureSegments(
-  block: Block,
+  inlines: Inline[],
   ctx: CanvasRenderingContext2D,
 ): MeasuredSegment[] {
   const segments: MeasuredSegment[] = [];
 
-  for (let i = 0; i < block.inlines.length; i++) {
-    const inline = block.inlines[i];
+  for (let i = 0; i < inlines.length; i++) {
+    const inline = inlines[i];
     const font = buildFont(
       inline.style.fontSize,
       inline.style.fontFamily,
