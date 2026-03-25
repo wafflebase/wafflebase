@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import type { EditorAPI } from "@wafflebase/docs";
+import type { BlockType, EditorAPI, HeadingLevel } from "@wafflebase/docs";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -27,6 +27,9 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconChevronDown,
+  IconH1,
+  IconList,
+  IconListNumbers,
 } from "@tabler/icons-react";
 
 const isMac =
@@ -65,6 +68,13 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
     const current = editor.getSelectionStyle();
     editor.applyStyle({ strikethrough: !current.strikethrough });
   }, [editor]);
+
+  const handleBlockType = useCallback(
+    (type: BlockType, opts?: { headingLevel?: HeadingLevel }) => {
+      editor?.setBlockType(type, opts);
+    },
+    [editor],
+  );
 
   const handleAlign = useCallback(
     (alignment: "left" | "center" | "right") => {
@@ -239,6 +249,68 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Separator orientation="vertical" className="mx-1 h-6" />
+
+      {/* Heading Dropdown */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted"
+                aria-label="Heading level"
+              >
+                <IconH1 size={16} />
+                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Heading level</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent>
+          <DropdownMenuItem onClick={() => handleBlockType("paragraph")}>
+            Normal text
+          </DropdownMenuItem>
+          {([1, 2, 3, 4, 5, 6] as const).map((level) => (
+            <DropdownMenuItem
+              key={level}
+              onClick={() =>
+                handleBlockType("heading", { headingLevel: level })
+              }
+            >
+              Heading {level}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* List Buttons */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => editor?.toggleList("unordered")}
+            aria-label="Bulleted list"
+          >
+            <IconList size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Bulleted list</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => editor?.toggleList("ordered")}
+            aria-label="Numbered list"
+          >
+            <IconListNumbers size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Numbered list</TooltipContent>
+      </Tooltip>
     </div>
   );
 }
