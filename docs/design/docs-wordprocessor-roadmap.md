@@ -187,7 +187,7 @@ editing experience.
 
 - **Internal copy / paste**: serialize selected blocks / inlines as JSON, restore on paste
 - **External HTML paste**: parse `text/html` MIME type, convert basic formatting
-- **Copy formatting**: Ctrl+Shift+C copies style only, Ctrl+Shift+V applies it
+- **Copy formatting**: Ctrl+Shift+C copies style only, Ctrl+Alt+V applies it
 - **Plain-text paste**: Ctrl+Shift+V strips all formatting
 
 ### 2.5 Find & Replace
@@ -332,7 +332,7 @@ documents.
 
 ## Phase Dependencies
 
-```
+```text
 Phase 1 (Block Types) ──┐
                         ├──→ Phase 3 (Complex Blocks) ──→ Phase 4 (Page Features)
 Phase 2 (Inline + Clipboard) ┘                                    │
