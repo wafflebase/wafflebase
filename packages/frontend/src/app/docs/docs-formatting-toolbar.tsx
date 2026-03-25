@@ -120,7 +120,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
 
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap">
-      {/* Undo / Redo */}
+      {/* ── Undo / Redo ── */}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -151,7 +151,43 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Text Style Toggles */}
+      {/* ── Styles ── */}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted"
+                aria-label="Text style"
+              >
+                <span className="truncate">
+                  {editor ? getBlockLabel(
+                    editor.getBlockType().type,
+                    editor.getBlockType().headingLevel,
+                  ) : "Normal text"}
+                </span>
+                <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Styles</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent className="w-[180px]">
+          {STYLE_OPTIONS.map((opt) => (
+            <DropdownMenuItem
+              key={opt.label}
+              className="py-1"
+              onClick={() => handleBlockType(opt.type, opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined)}
+            >
+              <span className={opt.className}>{opt.label}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Separator orientation="vertical" className="mx-1 h-6" />
+
+      {/* ── Font Styles ── */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Toggle
@@ -208,7 +244,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipContent>Strikethrough</TooltipContent>
       </Tooltip>
 
-      {/* Text Color */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -246,7 +281,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
-      {/* Alignment Dropdown */}
+      {/* ── Block Styles ── */}
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -278,43 +313,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
-
-      {/* Styles Dropdown (Google Docs style) */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted"
-                aria-label="Text style"
-              >
-                <span className="truncate">
-                  {editor ? getBlockLabel(
-                    editor.getBlockType().type,
-                    editor.getBlockType().headingLevel,
-                  ) : "Normal text"}
-                </span>
-                <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Styles</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent className="w-[180px]">
-          {STYLE_OPTIONS.map((opt) => (
-            <DropdownMenuItem
-              key={opt.label}
-              className="py-1"
-              onClick={() => handleBlockType(opt.type, opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined)}
-            >
-              <span className={opt.className}>{opt.label}</span>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* List Buttons */}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
