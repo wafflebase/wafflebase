@@ -1056,6 +1056,7 @@ export class TextEditor {
       strikethrough: undefined,
       superscript: undefined,
       subscript: undefined,
+      href: undefined,
     });
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);

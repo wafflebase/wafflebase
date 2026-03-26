@@ -72,6 +72,7 @@ export interface InlineStyle {
   backgroundColor?: string;
   superscript?: boolean;
   subscript?: boolean;
+  href?: string;
 }
 
 /**
@@ -221,7 +222,8 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.color === b.color &&
     a.backgroundColor === b.backgroundColor &&
     a.superscript === b.superscript &&
-    a.subscript === b.subscript
+    a.subscript === b.subscript &&
+    a.href === b.href
   );
 }
 

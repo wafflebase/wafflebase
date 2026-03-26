@@ -131,4 +131,14 @@ describe('inlineStylesEqual', () => {
     expect(inlineStylesEqual({ subscript: true }, {})).toBe(false);
     expect(inlineStylesEqual({ subscript: true }, { subscript: true })).toBe(true);
   });
+
+  it('should detect href difference', () => {
+    expect(inlineStylesEqual({ href: 'https://example.com' }, {})).toBe(false);
+    expect(
+      inlineStylesEqual(
+        { href: 'https://example.com' },
+        { href: 'https://example.com' },
+      ),
+    ).toBe(true);
+  });
 });

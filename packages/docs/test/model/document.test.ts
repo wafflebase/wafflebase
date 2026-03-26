@@ -392,6 +392,33 @@ describe('Doc', () => {
     });
   });
 
+  describe('hyperlink', () => {
+    it('should apply href to selected text', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'click here');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 10 },
+      };
+      doc.applyInlineStyle(range, { href: 'https://example.com' });
+      expect(doc.document.blocks[0].inlines[0].style.href).toBe('https://example.com');
+    });
+
+    it('should remove href by setting undefined', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'link');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 4 },
+      };
+      doc.applyInlineStyle(range, { href: 'https://example.com' });
+      doc.applyInlineStyle(range, { href: undefined });
+      expect(doc.document.blocks[0].inlines[0].style.href).toBeUndefined();
+    });
+  });
+
   describe('applyBlockStyle', () => {
     it('should change paragraph alignment', () => {
       const doc = Doc.create();
