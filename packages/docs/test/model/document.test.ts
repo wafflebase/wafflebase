@@ -360,6 +360,38 @@ describe('Doc', () => {
     });
   });
 
+  describe('superscript/subscript mutual exclusion', () => {
+    it('should clear subscript when applying superscript', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'Hello');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 5 },
+      };
+      doc.applyInlineStyle(range, { subscript: true });
+      expect(doc.document.blocks[0].inlines[0].style.subscript).toBe(true);
+
+      doc.applyInlineStyle(range, { superscript: true });
+      expect(doc.document.blocks[0].inlines[0].style.superscript).toBe(true);
+      expect(doc.document.blocks[0].inlines[0].style.subscript).toBeUndefined();
+    });
+
+    it('should clear superscript when applying subscript', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'Hello');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 5 },
+      };
+      doc.applyInlineStyle(range, { superscript: true });
+      doc.applyInlineStyle(range, { subscript: true });
+      expect(doc.document.blocks[0].inlines[0].style.subscript).toBe(true);
+      expect(doc.document.blocks[0].inlines[0].style.superscript).toBeUndefined();
+    });
+  });
+
   describe('applyBlockStyle', () => {
     it('should change paragraph alignment', () => {
       const doc = Doc.create();

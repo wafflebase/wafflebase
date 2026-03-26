@@ -70,6 +70,8 @@ export interface InlineStyle {
   fontFamily?: string;
   color?: string;
   backgroundColor?: string;
+  superscript?: boolean;
+  subscript?: boolean;
 }
 
 /**
@@ -217,7 +219,9 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.fontSize === b.fontSize &&
     a.fontFamily === b.fontFamily &&
     a.color === b.color &&
-    a.backgroundColor === b.backgroundColor
+    a.backgroundColor === b.backgroundColor &&
+    a.superscript === b.superscript &&
+    a.subscript === b.subscript
   );
 }
 

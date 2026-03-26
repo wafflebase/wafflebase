@@ -397,6 +397,13 @@ export class Doc {
     end: number,
     style: Partial<InlineStyle>,
   ): void {
+    const resolvedStyle = { ...style };
+    if (resolvedStyle.superscript) {
+      resolvedStyle.subscript = undefined;
+    } else if (resolvedStyle.subscript) {
+      resolvedStyle.superscript = undefined;
+    }
+
     const newInlines: typeof block.inlines = [];
     let pos = 0;
 
@@ -422,7 +429,7 @@ export class Doc {
         // Overlap (apply style)
         newInlines.push({
           text: inline.text.slice(overlapStart, overlapEnd),
-          style: { ...inline.style, ...style },
+          style: { ...inline.style, ...resolvedStyle },
         });
 
         // After overlap

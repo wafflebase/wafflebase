@@ -8,6 +8,7 @@ import {
   getEffectiveDimensions,
   createBlock,
   getHeadingDefaults,
+  inlineStylesEqual,
 } from '../../src/model/types.js';
 
 describe('BlockStyle', () => {
@@ -117,5 +118,17 @@ describe('getHeadingDefaults', () => {
     [6, { fontSize: 11 }],
   ] as const)('returns correct defaults for level %i', (level, expected) => {
     expect(getHeadingDefaults(level as HeadingLevel)).toEqual(expected);
+  });
+});
+
+describe('inlineStylesEqual', () => {
+  it('should detect superscript difference', () => {
+    expect(inlineStylesEqual({ superscript: true }, {})).toBe(false);
+    expect(inlineStylesEqual({ superscript: true }, { superscript: true })).toBe(true);
+  });
+
+  it('should detect subscript difference', () => {
+    expect(inlineStylesEqual({ subscript: true }, {})).toBe(false);
+    expect(inlineStylesEqual({ subscript: true }, { subscript: true })).toBe(true);
   });
 });
