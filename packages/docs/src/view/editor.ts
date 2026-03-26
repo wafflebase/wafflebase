@@ -61,6 +61,10 @@ export interface EditorAPI {
   onLinkRequest(cb: () => void): void;
   /** Register a callback for link hover events */
   onLinkHover(cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void): void;
+  /** Register a callback for Cmd/Ctrl+F find requests */
+  onFindRequest(cb: () => void): void;
+  /** Register a callback for Cmd/Ctrl+H find & replace requests */
+  onFindReplaceRequest(cb: () => void): void;
   /** Set search match highlights and active match index */
   setSearchMatches(matches: SearchMatch[], activeIndex: number): void;
   /** Clear all search match highlights */
@@ -713,6 +717,12 @@ export function initialize(
     },
     onLinkHover: (cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) => {
       textEditor.onLinkHover = cb;
+    },
+    onFindRequest: (cb: () => void) => {
+      textEditor.onFindRequest = cb;
+    },
+    onFindReplaceRequest: (cb: () => void) => {
+      textEditor.onFindReplaceRequest = cb;
     },
     setSearchMatches: (matches: SearchMatch[], activeIndex: number) => {
       searchMatches = matches;

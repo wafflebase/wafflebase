@@ -79,6 +79,12 @@ export class TextEditor {
   /** Callback invoked when the mouse hovers over (or leaves) a link. */
   onLinkHover?: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void;
 
+  /** Callback invoked when Cmd/Ctrl+F is pressed to open find bar. */
+  onFindRequest?: () => void;
+
+  /** Callback invoked when Cmd/Ctrl+H is pressed to open find & replace bar. */
+  onFindReplaceRequest?: () => void;
+
   constructor(
     private container: HTMLElement,
     private doc: Doc,
@@ -403,6 +409,18 @@ export class TextEditor {
         if (mod) {
           e.preventDefault();
           this.toggleStyle({ subscript: true });
+        }
+        break;
+      case 'f':
+        if (mod) {
+          e.preventDefault();
+          this.onFindRequest?.();
+        }
+        break;
+      case 'h':
+        if (mod) {
+          e.preventDefault();
+          this.onFindReplaceRequest?.();
         }
         break;
       case 'k':

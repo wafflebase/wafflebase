@@ -12,6 +12,7 @@ import { useTheme } from "@/components/theme-provider";
 import type { YorkieDocsRoot } from "@/types/docs-document";
 import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
+import { DocsFindBar } from "./docs-find-bar";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -79,6 +80,8 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
   const [didMount, setDidMount] = useState(false);
+  const [findBarOpen, setFindBarOpen] = useState(false);
+  const [findBarShowReplace, setFindBarShowReplace] = useState(false);
   const { doc, loading, error } = useDocument<YorkieDocsRoot>();
   const { resolvedTheme } = useTheme();
 
@@ -218,6 +221,15 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
       }
     });
 
+    editor.onFindRequest(() => {
+      setFindBarOpen(true);
+      setFindBarShowReplace(false);
+    });
+    editor.onFindReplaceRequest(() => {
+      setFindBarOpen(true);
+      setFindBarShowReplace(true);
+    });
+
     const handleMouseMove = (e: MouseEvent) => {
       const ed = editorRef.current;
       if (!ed) return;
@@ -309,6 +321,13 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
   return (
     <div ref={containerRef} className="relative flex-1 w-full min-h-0">
       <DocsLinkPopover editor={editorRef.current} containerRef={containerRef} />
+      {findBarOpen && (
+        <DocsFindBar
+          editor={editorRef.current}
+          showReplace={findBarShowReplace}
+          onClose={() => setFindBarOpen(false)}
+        />
+      )}
     </div>
   );
 }
