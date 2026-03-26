@@ -253,8 +253,12 @@ function layoutBlock(
 
     // Character-level fallback for segments wider than effectiveWidth
     if (seg.width > effectiveWidth && seg.text.length > 1) {
+      const isSuperOrSub = seg.style.superscript || seg.style.subscript;
+      const charFontSize = isSuperOrSub
+        ? (seg.style.fontSize ?? Theme.defaultFontSize) * 0.6
+        : seg.style.fontSize;
       ctx.font = buildFont(
-        seg.style.fontSize,
+        charFontSize,
         seg.style.fontFamily,
         seg.style.bold,
         seg.style.italic,
@@ -328,8 +332,13 @@ function measureSegments(
 
   for (let i = 0; i < inlines.length; i++) {
     const inline = inlines[i];
+    // Superscript/subscript runs use 60% of the original font size for measurement
+    const isSuperOrSub = inline.style.superscript || inline.style.subscript;
+    const measureFontSize = isSuperOrSub
+      ? (inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
+      : inline.style.fontSize;
     const font = buildFont(
-      inline.style.fontSize,
+      measureFontSize,
       inline.style.fontFamily,
       inline.style.bold,
       inline.style.italic,

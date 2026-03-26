@@ -222,8 +222,17 @@ export class DocCanvas {
     lineHeight: number,
   ): void {
     const style = run.inline.style;
+    const originalFontSizePx = ptToPx(style.fontSize ?? Theme.defaultFontSize);
+
+    // Superscript/subscript: reduce font size to 60% and shift baseline
+    const isSuperscript = style.superscript === true;
+    const isSubscript = style.subscript === true;
+    const renderFontSize = (isSuperscript || isSubscript)
+      ? (style.fontSize ?? Theme.defaultFontSize) * 0.6
+      : style.fontSize;
+
     this.ctx.font = buildFont(
-      style.fontSize,
+      renderFontSize,
       style.fontFamily,
       style.bold,
       style.italic,
@@ -231,8 +240,12 @@ export class DocCanvas {
     this.ctx.fillStyle = style.color ?? Theme.defaultColor;
     this.ctx.textBaseline = 'alphabetic';
 
-    const fontSizePx = ptToPx(style.fontSize ?? Theme.defaultFontSize);
-    const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
+    let baselineY = Math.round(lineY + (lineHeight + originalFontSizePx * 0.8) / 2);
+    if (isSuperscript) {
+      baselineY -= Math.round(originalFontSizePx * 0.4);
+    } else if (isSubscript) {
+      baselineY += Math.round(originalFontSizePx * 0.2);
+    }
     const x = Math.round(lineX + run.x);
 
     if (style.backgroundColor) {
@@ -256,7 +269,12 @@ export class DocCanvas {
     }
 
     if (style.strikethrough) {
-      const strikeY = Math.round(lineY + lineHeight / 2);
+      const renderFontSizePx = ptToPx(
+        (isSuperscript || isSubscript)
+          ? (style.fontSize ?? Theme.defaultFontSize) * 0.6
+          : (style.fontSize ?? Theme.defaultFontSize),
+      );
+      const strikeY = Math.round(baselineY - renderFontSizePx * 0.3);
       this.ctx.beginPath();
       this.ctx.strokeStyle = style.color ?? Theme.defaultColor;
       this.ctx.lineWidth = 1;
