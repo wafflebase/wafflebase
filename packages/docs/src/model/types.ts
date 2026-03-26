@@ -227,6 +227,19 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
   );
 }
 
+// --- Search ---
+
+export interface SearchOptions {
+  caseSensitive?: boolean;
+  useRegex?: boolean;
+}
+
+export interface SearchMatch {
+  blockId: string;
+  startOffset: number;
+  endOffset: number;
+}
+
 // --- Page Setup ---
 
 export interface PageMargins {

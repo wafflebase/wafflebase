@@ -7,6 +7,8 @@ import {
   type HeadingLevel,
   type InlineStyle,
   type BlockStyle,
+  type SearchOptions,
+  type SearchMatch,
   createEmptyBlock,
   DEFAULT_BLOCK_STYLE,
   getBlockText,
@@ -340,6 +342,32 @@ export class Doc {
   insertBlockAt(index: number, block: Block): void {
     this.store.insertBlock(index, block);
     this.refresh();
+  }
+
+  /**
+   * Search for text matches across all blocks.
+   * Returns matches with block ID and character offsets.
+   */
+  searchText(query: string, options?: SearchOptions): SearchMatch[] {
+    if (!query) return [];
+    const matches: SearchMatch[] = [];
+    const flags = options?.caseSensitive ? 'g' : 'gi';
+    const pattern = options?.useRegex
+      ? new RegExp(query, flags)
+      : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+
+    for (const block of this._document.blocks) {
+      const text = getBlockText(block);
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(text)) !== null) {
+        matches.push({
+          blockId: block.id,
+          startOffset: match.index,
+          endOffset: match.index + match[0].length,
+        });
+      }
+    }
+    return matches;
   }
 
   // --- Private helpers ---
