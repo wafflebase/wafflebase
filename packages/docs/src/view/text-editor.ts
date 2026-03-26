@@ -70,6 +70,9 @@ export class TextEditor {
   private handleFocus: (() => void) | null = null;
   private handleBlur: (() => void) | null = null;
 
+  /** Callback invoked when Cmd/Ctrl+K is pressed to request link insertion. */
+  onLinkRequest?: () => void;
+
   constructor(
     private container: HTMLElement,
     private doc: Doc,
@@ -382,6 +385,12 @@ export class TextEditor {
         if (mod) {
           e.preventDefault();
           this.toggleStyle({ subscript: true });
+        }
+        break;
+      case 'k':
+        if (mod) {
+          e.preventDefault();
+          this.onLinkRequest?.();
         }
         break;
       case '\\':

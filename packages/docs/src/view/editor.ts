@@ -51,6 +51,14 @@ export interface EditorAPI {
   indent(): void;
   /** Decrease indent of the block at cursor */
   outdent(): void;
+  /** Insert a hyperlink on the current selection (or insert URL text if no selection) */
+  insertLink(url: string): void;
+  /** Remove the hyperlink at the current cursor position */
+  removeLink(): void;
+  /** Get the href of the link at the current cursor position, if any */
+  getLinkAtCursor(): string | undefined;
+  /** Register a callback for Cmd/Ctrl+K link requests */
+  onLinkRequest(cb: () => void): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -606,6 +614,80 @@ export function initialize(
       }
       markDirty(block.id);
       render();
+    },
+    insertLink: (url: string) => {
+      if (selection.hasSelection() && selection.range) {
+        // Apply href to the selected range
+        docStore.snapshot();
+        const range = selection.range;
+        doc.applyInlineStyle(range, { href: url });
+        const startIdx = doc.getBlockIndex(range.anchor.blockId);
+        const endIdx = doc.getBlockIndex(range.focus.blockId);
+        if (startIdx >= 0 && endIdx >= 0) {
+          const lo = Math.min(startIdx, endIdx);
+          const hi = Math.max(startIdx, endIdx);
+          for (let i = lo; i <= hi; i++) {
+            markDirty(doc.document.blocks[i].id);
+          }
+        }
+        render();
+      } else {
+        // No selection: insert the URL text, then apply href to it
+        docStore.snapshot();
+        const pos = cursor.position;
+        doc.insertText(pos, url);
+        markDirty(pos.blockId);
+        // Apply href to the just-inserted text
+        const range = {
+          anchor: { blockId: pos.blockId, offset: pos.offset },
+          focus: { blockId: pos.blockId, offset: pos.offset + url.length },
+        };
+        doc.applyInlineStyle(range, { href: url });
+        cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
+        needsScrollIntoView = true;
+        render();
+      }
+    },
+    removeLink: () => {
+      // Find the full link range at the cursor position and remove href
+      const block = doc.document.blocks.find(
+        (b) => b.id === cursor.position.blockId,
+      );
+      if (!block) return;
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (cursor.position.offset >= pos && cursor.position.offset <= inlineEnd && inline.style.href) {
+          docStore.snapshot();
+          const range = {
+            anchor: { blockId: block.id, offset: pos },
+            focus: { blockId: block.id, offset: inlineEnd },
+          };
+          doc.applyInlineStyle(range, { href: undefined });
+          markDirty(block.id);
+          render();
+          return;
+        }
+        pos = inlineEnd;
+      }
+    },
+    getLinkAtCursor: (): string | undefined => {
+      const block = doc.document.blocks.find(
+        (b) => b.id === cursor.position.blockId,
+      );
+      if (!block) return undefined;
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (cursor.position.offset <= inlineEnd) {
+          return inline.style.href;
+        }
+        pos = inlineEnd;
+      }
+      return undefined;
+    },
+    onLinkRequest: (cb: () => void) => {
+      textEditor.onLinkRequest = cb;
     },
     focus: () => textEditor.focus(),
     dispose: () => {

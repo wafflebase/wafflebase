@@ -34,6 +34,7 @@ import {
   IconIndentIncrease,
   IconSuperscript,
   IconSubscript,
+  IconLink,
 } from "@tabler/icons-react";
 
 /** Style option for the block-type dropdown (Google Docs style). */
@@ -102,6 +103,15 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
     if (!editor) return;
     const current = editor.getSelectionStyle();
     editor.applyStyle({ subscript: !current.subscript });
+  }, [editor]);
+
+  const handleInsertLink = useCallback(() => {
+    if (!editor) return;
+    const url = window.prompt("Enter URL:");
+    if (url) {
+      editor.insertLink(url);
+    }
+    editor.focus();
   }, [editor]);
 
   const handleBlockType = useCallback(
@@ -348,6 +358,19 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </div>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={handleInsertLink}
+            aria-label="Insert link"
+          >
+            <IconLink size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 

@@ -44,6 +44,7 @@ function serializeInlineStyle(style: InlineStyle): Record<string, string> {
   if (style.fontFamily !== undefined) attrs.fontFamily = style.fontFamily;
   if (style.color !== undefined) attrs.color = style.color;
   if (style.backgroundColor !== undefined) attrs.backgroundColor = style.backgroundColor;
+  if (style.href !== undefined) attrs.href = style.href;
   return attrs;
 }
 
@@ -60,6 +61,7 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   if ('fontFamily' in attrs) style.fontFamily = attrs.fontFamily;
   if ('color' in attrs) style.color = attrs.color;
   if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
+  if (attrs.href !== undefined) style.href = attrs.href;
   return style;
 }
 
