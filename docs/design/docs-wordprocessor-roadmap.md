@@ -44,6 +44,10 @@ six-phase plan to close the remaining feature gap.
 | Dark mode | ✅ |
 | Canvas rendering optimizations (incremental layout, viewport culling) | ✅ |
 | Keyboard shortcuts (Google Docs compatible) | ✅ Partial |
+| Superscript / Subscript | ✅ |
+| Hyperlinks (href, popover, Ctrl+K, auto-detect) | ✅ |
+| Clipboard (JSON, HTML paste, format painter) | ✅ |
+| Find & Replace (Ctrl+F/H, match highlighting) | ✅ |
 
 ## Data Model Evolution
 
@@ -72,6 +76,9 @@ interface InlineStyle {
   fontFamily?: string;
   color?: string;
   backgroundColor?: string;
+  superscript?: boolean;   // Phase 2
+  subscript?: boolean;     // Phase 2
+  href?: string;           // Phase 2
 }
 ```
 
@@ -187,18 +194,21 @@ structural hierarchy.
 - All shortcuts: Cmd+Shift+L/E/R/J (align), Cmd+]/[ (indent), Cmd+Shift+7/8 (lists)
 - Markdown auto-conversion: `#`→H1, `##`→H2, `-`→bullet, `1.`→ordered, `---`→HR
 
-## Phase 2: Inline Extensions & Clipboard
+## Phase 2: Inline Extensions & Clipboard ✅
 
 **Goal**: Support links, highlights, and clipboard operations for a practical
 editing experience.
 
-### 2.1 Hyperlink
+**Status**: Complete.
 
-- Add `InlineStyle.href: string`
-- Rendering: blue text + underline when `href` is present
-- Click popover: show URL with open / edit / remove actions
+### 2.1 Hyperlink ✅
+
+- `InlineStyle.href: string` — link rendering with blue text + underline
+- Hover popover: URL preview with open / edit / remove buttons
 - Ctrl+K: insert / edit link dialog
-- Auto-detect URLs: convert `https://...` to a link on Enter or Space
+- Ctrl+Click / Cmd+Click: open link in new tab
+- Auto-detect URLs: convert `https://...` to a link on Space or Enter
+- Yorkie serialization for `href` attribute
 
 ### 2.2 Background Color (Highlight) ✅
 
@@ -207,25 +217,30 @@ editing experience.
 - Toolbar highlight color picker
 - *Completed in Phase 1 PR*
 
-### 2.3 Superscript / Subscript
+### 2.3 Superscript / Subscript ✅
 
-- Add `InlineStyle.superscript` and `InlineStyle.subscript`
-- Reduce font size (~60% of base) and apply vertical baseline offset
-- Layout engine computes baseline shift per run
+- `InlineStyle.superscript` and `InlineStyle.subscript` (mutually exclusive)
+- 60% font size reduction with baseline offset (up 40% / down 20%)
+- Layout engine preserves original font size for line height
+- Shortcuts: Cmd+. (superscript), Cmd+, (subscript)
+- Toolbar toggle buttons
+- Yorkie serialization
 
-### 2.4 Clipboard
+### 2.4 Clipboard ✅
 
-- **Internal copy / paste**: serialize selected blocks / inlines as JSON, restore on paste
-- **External HTML paste**: parse `text/html` MIME type, convert basic formatting
-- **Copy formatting**: Ctrl+Shift+C copies style only, Ctrl+Alt+V applies it
-- **Plain-text paste**: Ctrl+Shift+V strips all formatting
+- **Internal copy / paste**: JSON serialization with `application/x-waffledocs` MIME type
+- **External HTML paste**: parses bold, italic, underline, strikethrough, color, fontSize, href
+- **Copy formatting**: Cmd+Shift+C copies style, Cmd+Alt+V applies it
+- **Plain-text paste**: Cmd+Shift+V strips all formatting
 
-### 2.5 Find & Replace
+### 2.5 Find & Replace ✅
 
-- Ctrl+F: search bar at top of document
-- Ctrl+H: search + replace bar
-- Match highlighting with previous / next navigation
-- Case-sensitive and regex options
+- Cmd+F: search bar at top-right of document
+- Cmd+H: search + replace bar
+- Match highlighting (yellow inactive, orange active) with prev/next navigation
+- Replace and Replace All with undo support
+- Case-sensitive and regex toggle options
+- Auto-invalidation on document mutation
 
 ## Phase 3: Complex Blocks
 
