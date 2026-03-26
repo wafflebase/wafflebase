@@ -326,6 +326,22 @@ export class Doc {
     this.refresh();
   }
 
+  /**
+   * Update a block directly (e.g. after modifying its inlines externally).
+   */
+  updateBlockDirect(blockId: string, block: Block): void {
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Insert a block at a specific index.
+   */
+  insertBlockAt(index: number, block: Block): void {
+    this.store.insertBlock(index, block);
+    this.refresh();
+  }
+
   // --- Private helpers ---
 
   /**

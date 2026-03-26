@@ -1,6 +1,7 @@
-import type { DocPosition, InlineStyle, HeadingLevel } from '../model/types.js';
-import { getBlockText, getBlockTextLength } from '../model/types.js';
+import type { Block, DocPosition, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength } from '../model/types.js';
 import { Doc } from '../model/document.js';
+import { serializeBlocks, deserializeBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
@@ -502,15 +503,19 @@ export class TextEditor {
   private handleCopy = (e: ClipboardEvent): void => {
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
-    const text = this.selection.getSelectedText(this.getLayout());
-    e.clipboardData?.setData('text/plain', text);
+    const selectedBlocks = this.getSelectedBlocks();
+    const json = serializeBlocks(selectedBlocks);
+    e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
+    e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
   };
 
   private handleCut = (e: ClipboardEvent): void => {
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
-    const text = this.selection.getSelectedText(this.getLayout());
-    e.clipboardData?.setData('text/plain', text);
+    const selectedBlocks = this.getSelectedBlocks();
+    const json = serializeBlocks(selectedBlocks);
+    e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
+    e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
     this.saveSnapshot();
     this.deleteSelection();
     this.requestRender();
@@ -518,6 +523,22 @@ export class TextEditor {
 
   private handlePaste = (e: ClipboardEvent): void => {
     e.preventDefault();
+
+    // Try rich internal paste first
+    const json = e.clipboardData?.getData(WAFFLEDOCS_MIME);
+    if (json) {
+      const blocks = deserializeBlocks(json);
+      if (blocks.length > 0) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.insertBlocks(blocks);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
+    }
+
+    // Fall through to plain text handling
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
 
@@ -1232,6 +1253,187 @@ export class TextEditor {
     this.selection.setRange(null);
     this.requestRender();
     return true;
+  }
+
+  /**
+   * Extract the selected blocks with formatting, trimming the first and last
+   * block to the selection boundaries. Block IDs are regenerated.
+   */
+  private getSelectedBlocks(): Block[] {
+    const layout = this.getLayout();
+    const normalized = this.selection.getNormalizedRange(layout);
+    if (!normalized) return [];
+
+    const { start, end } = normalized;
+    const startBlockIdx = layout.blocks.findIndex(
+      (lb) => lb.block.id === start.blockId,
+    );
+    const endBlockIdx = layout.blocks.findIndex(
+      (lb) => lb.block.id === end.blockId,
+    );
+    if (startBlockIdx === -1 || endBlockIdx === -1) return [];
+
+    const result: Block[] = [];
+
+    for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
+      const block = layout.blocks[bi].block;
+      const blockLen = getBlockTextLength(block);
+      const sliceStart = bi === startBlockIdx ? start.offset : 0;
+      const sliceEnd = bi === endBlockIdx ? end.offset : blockLen;
+
+      const slicedInlines = this.sliceInlines(block.inlines, sliceStart, sliceEnd);
+      const cloned: Block = {
+        id: generateBlockId(),
+        type: block.type,
+        inlines: slicedInlines.length > 0 ? slicedInlines : [{ text: '', style: {} }],
+        style: { ...block.style },
+      };
+      if (block.headingLevel !== undefined) cloned.headingLevel = block.headingLevel;
+      if (block.listKind !== undefined) cloned.listKind = block.listKind;
+      if (block.listLevel !== undefined) cloned.listLevel = block.listLevel;
+      result.push(cloned);
+    }
+
+    return result;
+  }
+
+  /**
+   * Slice inlines to extract text from [start, end) character offsets.
+   */
+  private sliceInlines(inlines: Inline[], start: number, end: number): Inline[] {
+    const result: Inline[] = [];
+    let pos = 0;
+
+    for (const inline of inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (inlineEnd <= start || pos >= end) {
+        pos = inlineEnd;
+        continue;
+      }
+      const sliceStart = Math.max(0, start - pos);
+      const sliceEnd = Math.min(inline.text.length, end - pos);
+      const text = inline.text.slice(sliceStart, sliceEnd);
+      if (text.length > 0) {
+        result.push({ text, style: { ...inline.style } });
+      }
+      pos = inlineEnd;
+    }
+
+    return result;
+  }
+
+  /**
+   * Insert deserialized blocks at the current cursor position, preserving
+   * formatting. Handles single-block (inline merge) and multi-block
+   * (split + insert) cases.
+   */
+  private insertBlocks(blocks: Block[]): void {
+    if (blocks.length === 0) return;
+
+    const pos = this.cursor.position;
+
+    if (blocks.length === 1) {
+      // Single block: merge pasted inlines into the current block at cursor
+      const pastedInlines = blocks[0].inlines;
+      const pastedTextLen = pastedInlines.reduce((sum, il) => sum + il.text.length, 0);
+
+      // Insert each inline's text with its style
+      // Strategy: split the block at cursor, splice pasted inlines in
+      const block = this.doc.getBlock(pos.blockId);
+      const newInlines = this.spliceInlinesAt(block.inlines, pos.offset, pastedInlines);
+      block.inlines = newInlines;
+      this.doc.updateBlockDirect(pos.blockId, block);
+
+      const newPos = { blockId: pos.blockId, offset: pos.offset + pastedTextLen };
+      this.markDirty(pos.blockId);
+      this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+    } else {
+      // Multi-block: split the current block, then insert pasted blocks
+      this.invalidateLayout();
+
+      // Split at cursor
+      const tailBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+
+      // Append first pasted block's inlines to the head block
+      const headBlock = this.doc.getBlock(pos.blockId);
+      const firstPastedInlines = blocks[0].inlines;
+      headBlock.inlines = this.spliceInlinesAt(headBlock.inlines, getBlockTextLength(headBlock), firstPastedInlines);
+      this.doc.updateBlockDirect(pos.blockId, headBlock);
+
+      // Insert middle blocks (blocks[1..n-2]) after head block
+      let insertAfterIdx = this.doc.getBlockIndex(pos.blockId);
+      for (let i = 1; i < blocks.length - 1; i++) {
+        const newBlock: Block = {
+          ...blocks[i],
+          id: generateBlockId(),
+          inlines: blocks[i].inlines.map((il) => ({ text: il.text, style: { ...il.style } })),
+          style: { ...blocks[i].style },
+        };
+        insertAfterIdx++;
+        this.doc.insertBlockAt(insertAfterIdx, newBlock);
+      }
+
+      // Prepend last pasted block's inlines to the tail block
+      const tailBlock = this.doc.getBlock(tailBlockId);
+      const lastPastedInlines = blocks[blocks.length - 1].inlines;
+      const lastPastedTextLen = lastPastedInlines.reduce((sum, il) => sum + il.text.length, 0);
+      tailBlock.inlines = this.spliceInlinesAt(tailBlock.inlines, 0, lastPastedInlines);
+      this.doc.updateBlockDirect(tailBlockId, tailBlock);
+
+      const newPos = { blockId: tailBlockId, offset: lastPastedTextLen };
+      this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+    }
+  }
+
+  /**
+   * Splice pasted inlines into existing inlines at a character offset.
+   * Returns the new inlines array with adjacent same-style inlines merged.
+   */
+  private spliceInlinesAt(
+    existing: Inline[],
+    offset: number,
+    toInsert: Inline[],
+  ): Inline[] {
+    const before = this.sliceInlines(existing, 0, offset);
+    const after = this.sliceInlines(existing, offset, existing.reduce((s, il) => s + il.text.length, 0));
+
+    const combined = [...before, ...toInsert.map((il) => ({ text: il.text, style: { ...il.style } })), ...after];
+
+    // Normalize: merge adjacent inlines with same style, remove empties
+    return this.normalizeInlineList(combined);
+  }
+
+  /**
+   * Merge adjacent inlines with identical styles, remove empty ones.
+   */
+  private normalizeInlineList(inlines: Inline[]): Inline[] {
+    const merged: Inline[] = [];
+    for (const inline of inlines) {
+      if (inline.text.length === 0) continue;
+      const last = merged[merged.length - 1];
+      if (last && this.inlineStylesMatch(last.style, inline.style)) {
+        last.text += inline.text;
+      } else {
+        merged.push({ text: inline.text, style: { ...inline.style } });
+      }
+    }
+    return merged.length > 0 ? merged : [{ text: '', style: {} }];
+  }
+
+  private inlineStylesMatch(a: InlineStyle, b: InlineStyle): boolean {
+    return (
+      a.bold === b.bold &&
+      a.italic === b.italic &&
+      a.underline === b.underline &&
+      a.strikethrough === b.strikethrough &&
+      a.fontSize === b.fontSize &&
+      a.fontFamily === b.fontFamily &&
+      a.color === b.color &&
+      a.backgroundColor === b.backgroundColor &&
+      a.superscript === b.superscript &&
+      a.subscript === b.subscript &&
+      a.href === b.href
+    );
   }
 
   private moveLeft(pos: DocPosition): DocPosition {
