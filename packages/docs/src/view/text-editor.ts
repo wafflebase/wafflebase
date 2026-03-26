@@ -8,6 +8,7 @@ import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
+import { detectUrlBeforeCursor } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
 import { findVisualLine } from './visual-line.js';
 
@@ -248,6 +249,11 @@ export class TextEditor {
     if (data === ' ' && this.tryAutoConvert(blockId)) {
       this.requestRender();
       return;
+    }
+    // URL auto-detection: after typing a space, check if the preceding token
+    // is a URL and convert it to a hyperlink.
+    if (data === ' ') {
+      this.tryAutoLinkBeforeCursor(blockId, newPos.offset - 1);
     }
     this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
     this.requestRender();
@@ -803,7 +809,9 @@ export class TextEditor {
       return;
     }
 
+    // URL auto-detection before splitting the block on Enter
     const pos = this.cursor.position;
+    this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
     const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
 
     if (newBlockId === pos.blockId) {
@@ -935,6 +943,26 @@ export class TextEditor {
     }
 
     return false;
+  }
+
+  /**
+   * Check if the token immediately before `cursorOffset` in the given block
+   * is a URL, and if so apply an `href` inline style to convert it into a
+   * clickable hyperlink.
+   */
+  private tryAutoLinkBeforeCursor(blockId: string, cursorOffset: number): void {
+    const block = this.doc.getBlock(blockId);
+    if (!block) return;
+    const text = getBlockText(block);
+    const match = detectUrlBeforeCursor(text, cursorOffset);
+    if (!match) return;
+
+    const range = {
+      anchor: { blockId, offset: match.start },
+      focus: { blockId, offset: match.end },
+    };
+    this.doc.applyInlineStyle(range, { href: match.url });
+    this.markDirty(blockId);
   }
 
   private handleArrow(
