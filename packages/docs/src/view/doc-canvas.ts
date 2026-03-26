@@ -60,6 +60,8 @@ export class DocCanvas {
       rects: Array<{ x: number; y: number; width: number; height: number }>;
     }>,
     layout?: DocumentLayout,
+    searchHighlightRects?: Array<Array<{ x: number; y: number; width: number; height: number }>>,
+    activeSearchIndex?: number,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -108,6 +110,19 @@ export class DocCanvas {
       this.ctx.beginPath();
       this.ctx.rect(contentX, contentY, contentWidth, contentHeight);
       this.ctx.clip();
+
+      // Draw search match highlights for this page (behind all selections)
+      if (searchHighlightRects) {
+        for (let mi = 0; mi < searchHighlightRects.length; mi++) {
+          const isActive = mi === activeSearchIndex;
+          this.ctx.fillStyle = isActive ? '#f4a939' : '#fff2a8';
+          for (const rect of searchHighlightRects[mi]) {
+            if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+              this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            }
+          }
+        }
+      }
 
       // Draw peer selection highlights for this page (behind local selection)
       if (peerSelections) {

@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import type { InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
+import type { InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
@@ -61,6 +61,10 @@ export interface EditorAPI {
   onLinkRequest(cb: () => void): void;
   /** Register a callback for link hover events */
   onLinkHover(cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void): void;
+  /** Set search match highlights and active match index */
+  setSearchMatches(matches: SearchMatch[], activeIndex: number): void;
+  /** Clear all search match highlights */
+  clearSearchMatches(): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -120,6 +124,8 @@ export function initialize(
   let peerCursors: PeerCursor[] = [];
   let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
+  let searchMatches: SearchMatch[] = [];
+  let activeMatchIndex = -1;
 
   // Compute layout helper
   const recomputeLayout = () => {
@@ -292,7 +298,21 @@ export function initialize(
       }
     }
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout);
+    // Compute search highlight rectangles
+    let searchHighlightRects: Array<{ x: number; y: number; width: number; height: number }>[] | undefined;
+    if (searchMatches.length > 0) {
+      searchHighlightRects = searchMatches.map((match) =>
+        computeSelectionRects(
+          { anchor: { blockId: match.blockId, offset: match.startOffset }, focus: { blockId: match.blockId, offset: match.endOffset } },
+          paginatedLayout,
+          layout,
+          docCanvas.getContext(),
+          canvasWidth,
+        ),
+      );
+    }
+
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout, searchHighlightRects, activeMatchIndex);
 
     // Draw drag guideline if active
     if (dragGuideline) {
@@ -693,6 +713,16 @@ export function initialize(
     },
     onLinkHover: (cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) => {
       textEditor.onLinkHover = cb;
+    },
+    setSearchMatches: (matches: SearchMatch[], activeIndex: number) => {
+      searchMatches = matches;
+      activeMatchIndex = activeIndex;
+      render();
+    },
+    clearSearchMatches: () => {
+      searchMatches = [];
+      activeMatchIndex = -1;
+      render();
     },
     focus: () => textEditor.focus(),
     dispose: () => {
