@@ -59,6 +59,8 @@ export interface EditorAPI {
   getLinkAtCursor(): string | undefined;
   /** Register a callback for Cmd/Ctrl+K link requests */
   onLinkRequest(cb: () => void): void;
+  /** Register a callback for link hover events */
+  onLinkHover(cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -688,6 +690,9 @@ export function initialize(
     },
     onLinkRequest: (cb: () => void) => {
       textEditor.onLinkRequest = cb;
+    },
+    onLinkHover: (cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) => {
+      textEditor.onLinkHover = cb;
     },
     focus: () => textEditor.focus(),
     dispose: () => {

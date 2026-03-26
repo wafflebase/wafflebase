@@ -11,6 +11,7 @@ import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieDocsRoot } from "@/types/docs-document";
 import { YorkieDocStore } from "./yorkie-doc-store";
+import { DocsLinkPopover } from "./docs-link-popover";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -306,7 +307,9 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
   }
 
   return (
-    <div ref={containerRef} className="relative flex-1 w-full min-h-0" />
+    <div ref={containerRef} className="relative flex-1 w-full min-h-0">
+      <DocsLinkPopover editor={editorRef.current} containerRef={containerRef} />
+    </div>
   );
 }
 

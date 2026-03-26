@@ -73,6 +73,9 @@ export class TextEditor {
   /** Callback invoked when Cmd/Ctrl+K is pressed to request link insertion. */
   onLinkRequest?: () => void;
 
+  /** Callback invoked when the mouse hovers over (or leaves) a link. */
+  onLinkHover?: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void;
+
   constructor(
     private container: HTMLElement,
     private doc: Doc,
@@ -543,6 +546,20 @@ export class TextEditor {
 
   private handleMouseDown = (e: MouseEvent): void => {
     if (e.target === this.textarea) return;
+
+    // Ctrl+Click (or Cmd+Click on Mac) on a link opens it in a new tab
+    if (e.ctrlKey || e.metaKey) {
+      const rect = this.container.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const linkInfo = this.getLinkAtPosition(cx, cy);
+      if (linkInfo) {
+        e.preventDefault();
+        window.open(linkInfo.href, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    }
+
     e.preventDefault();
     this.flushHangul();
     this.focus();
@@ -600,6 +617,15 @@ export class TextEditor {
   };
 
   private handleMouseMove = (e: MouseEvent): void => {
+    // Link hover detection (even when mouse is not pressed)
+    if (!this.isMouseDown && this.onLinkHover) {
+      const rect = this.container.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const linkInfo = this.getLinkAtPosition(cx, cy);
+      this.onLinkHover(linkInfo ?? undefined);
+    }
+
     if (!this.isMouseDown || !this.selection.range) return;
 
     this.lastMouseClientY = e.clientY;
@@ -1472,6 +1498,64 @@ export class TextEditor {
   updateTextareaPosition(screenX: number, screenY: number): void {
     this.textarea.style.top = `${screenY}px`;
     this.textarea.style.left = `${screenX}px`;
+  }
+
+  /**
+   * Returns link info (href + bounding rect in canvas coordinates) at the
+   * given container-relative pixel coordinates, or undefined if no link is
+   * found at that position.
+   */
+  getLinkAtPosition(containerX: number, containerY: number): { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined {
+    const x = containerX;
+    const y = containerY - this.getCanvasOffsetTop();
+    const scrollY = this.container.scrollTop;
+    const result = paginatedPixelToPosition(
+      this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
+    );
+    if (!result) return undefined;
+
+    // Find the inline at this document position
+    const block = this.doc.document.blocks.find((b) => b.id === result.blockId);
+    if (!block) return undefined;
+    let pos = 0;
+    let linkInline: { href: string; inlineStart: number; inlineEnd: number } | undefined;
+    for (const inline of block.inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (result.offset >= pos && result.offset < inlineEnd && inline.style.href) {
+        linkInline = { href: inline.style.href, inlineStart: pos, inlineEnd };
+        break;
+      }
+      // Also check if cursor is exactly at end and this inline has href
+      if (result.offset === inlineEnd && result.offset > pos && inline.style.href) {
+        linkInline = { href: inline.style.href, inlineStart: pos, inlineEnd };
+        break;
+      }
+      pos = inlineEnd;
+    }
+    if (!linkInline) return undefined;
+
+    // Compute bounding rect of the full link text in canvas coordinates.
+    // The link may span multiple runs if the text wraps, but we compute the
+    // rect for the first line containing the hovered offset for simplicity.
+    const startPixel = this.getPixelForPosition({ blockId: result.blockId, offset: linkInline.inlineStart });
+    const endPixel = this.getPixelForPosition({ blockId: result.blockId, offset: linkInline.inlineEnd });
+    if (!startPixel || !endPixel) return undefined;
+
+    // If start and end are on different lines, use the line containing the hovered offset
+    const hoverPixel = this.getPixelForPosition({ blockId: result.blockId, offset: result.offset });
+    if (!hoverPixel) return undefined;
+
+    // Use the full line if same line, otherwise just the hovered run
+    const sameY = Math.abs(startPixel.y - endPixel.y) < 2;
+    const rectX = sameY ? startPixel.x : hoverPixel.x;
+    const rectWidth = sameY ? (endPixel.x - startPixel.x) : 50;
+    const rectY = hoverPixel.y - scrollY;
+    const rectHeight = hoverPixel.height;
+
+    return {
+      href: linkInline.href,
+      rect: { x: rectX, y: rectY, width: Math.max(rectWidth, 1), height: rectHeight },
+    };
   }
 
   dispose(): void {
