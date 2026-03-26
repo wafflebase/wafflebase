@@ -1,7 +1,7 @@
 import type { Block, DocPosition, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
-import { serializeBlocks, deserializeBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeBlocks, deserializeBlocks, parseHtmlToInlines, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
@@ -482,6 +482,20 @@ export class TextEditor {
           this.handleIndent();
         }
         break;
+      case 'v':
+        // Cmd/Ctrl+Shift+V: paste as plain text (strip formatting)
+        if (mod && shiftKey) {
+          e.preventDefault();
+          navigator.clipboard.readText().then((text) => {
+            if (!text) return;
+            this.saveSnapshot();
+            this.deleteSelection();
+            this.insertPlainText(text);
+            this.selection.setRange(null);
+            this.requestRender();
+          });
+        }
+        break;
       case '1': case '2': case '3': case '4': case '5': case '6':
         if (mod && altKey) {
           e.preventDefault();
@@ -538,35 +552,35 @@ export class TextEditor {
       }
     }
 
+    // Try HTML paste (unless shift is held for plain-text paste)
+    if (!e.shiftKey) {
+      const html = e.clipboardData?.getData('text/html');
+      if (html) {
+        const inlines = parseHtmlToInlines(html);
+        if (inlines.length > 0) {
+          this.saveSnapshot();
+          this.deleteSelection();
+          const block: Block = {
+            id: generateBlockId(),
+            type: 'paragraph',
+            inlines,
+            style: { ...DEFAULT_BLOCK_STYLE },
+          };
+          this.insertBlocks([block]);
+          this.selection.setRange(null);
+          this.requestRender();
+          return;
+        }
+      }
+    }
+
     // Fall through to plain text handling
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
 
     this.saveSnapshot();
     this.deleteSelection();
-
-    // Split pasted text by newlines into separate blocks
-    const lines = text.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      if (i > 0) {
-        // Create a new block for each line after the first
-        this.invalidateLayout();
-        const newBlockId = this.doc.splitBlock(
-          this.cursor.position.blockId,
-          this.cursor.position.offset,
-        );
-        this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
-      }
-      if (lines[i].length > 0) {
-        this.doc.insertText(this.cursor.position, lines[i]);
-        const newPos = {
-          blockId: this.cursor.position.blockId,
-          offset: this.cursor.position.offset + lines[i].length,
-        };
-        this.markDirty(newPos.blockId);
-        this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
-      }
-    }
+    this.insertPlainText(text);
     this.selection.setRange(null);
     this.requestRender();
   };
@@ -1320,6 +1334,33 @@ export class TextEditor {
     }
 
     return result;
+  }
+
+  /**
+   * Insert plain text at the current cursor position, splitting by newlines
+   * into separate blocks. The text inherits no special formatting.
+   */
+  private insertPlainText(text: string): void {
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) {
+        this.invalidateLayout();
+        const newBlockId = this.doc.splitBlock(
+          this.cursor.position.blockId,
+          this.cursor.position.offset,
+        );
+        this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+      }
+      if (lines[i].length > 0) {
+        this.doc.insertText(this.cursor.position, lines[i]);
+        const newPos = {
+          blockId: this.cursor.position.blockId,
+          offset: this.cursor.position.offset + lines[i].length,
+        };
+        this.markDirty(newPos.blockId);
+        this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+      }
+    }
   }
 
   /**

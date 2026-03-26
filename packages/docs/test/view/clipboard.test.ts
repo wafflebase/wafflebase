@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { serializeBlocks, deserializeBlocks } from '../../src/view/clipboard.js';
+import { serializeBlocks, deserializeBlocks, parseHtmlToInlines } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
   it('should round-trip blocks with formatting', () => {
@@ -123,5 +124,89 @@ describe('clipboard JSON serialization', () => {
     expect(style.superscript).toBe(true);
     expect(style.href).toBe('https://example.com');
     expect(parsed[0].style.alignment).toBe('center');
+  });
+});
+
+describe('HTML paste parsing', () => {
+  it('should parse bold tags', () => {
+    const inlines = parseHtmlToInlines('<b>hello</b> world');
+    expect(inlines[0].style.bold).toBe(true);
+    expect(inlines[0].text).toBe('hello');
+    expect(inlines[1].text).toBe(' world');
+  });
+
+  it('should parse strong tags as bold', () => {
+    const inlines = parseHtmlToInlines('<strong>text</strong>');
+    expect(inlines[0].style.bold).toBe(true);
+    expect(inlines[0].text).toBe('text');
+  });
+
+  it('should parse italic tags', () => {
+    const inlines = parseHtmlToInlines('<em>text</em>');
+    expect(inlines[0].style.italic).toBe(true);
+  });
+
+  it('should parse i tag as italic', () => {
+    const inlines = parseHtmlToInlines('<i>text</i>');
+    expect(inlines[0].style.italic).toBe(true);
+  });
+
+  it('should parse underline tag', () => {
+    const inlines = parseHtmlToInlines('<u>text</u>');
+    expect(inlines[0].style.underline).toBe(true);
+  });
+
+  it('should parse strikethrough tags', () => {
+    for (const tag of ['s', 'del', 'strike']) {
+      const inlines = parseHtmlToInlines(`<${tag}>text</${tag}>`);
+      expect(inlines[0].style.strikethrough).toBe(true);
+      expect(inlines[0].text).toBe('text');
+    }
+  });
+
+  it('should parse anchor tags as href', () => {
+    const inlines = parseHtmlToInlines('<a href="https://example.com">link</a>');
+    expect(inlines[0].style.href).toBe('https://example.com');
+    expect(inlines[0].text).toBe('link');
+  });
+
+  it('should parse inline style attributes', () => {
+    const inlines = parseHtmlToInlines('<span style="color: red; font-size: 16px">styled</span>');
+    expect(inlines[0].style.color).toBe('red');
+    expect(inlines[0].style.fontSize).toBe(16);
+  });
+
+  it('should parse background-color style', () => {
+    const inlines = parseHtmlToInlines('<span style="background-color: yellow">highlighted</span>');
+    expect(inlines[0].style.backgroundColor).toBe('yellow');
+    expect(inlines[0].text).toBe('highlighted');
+  });
+
+  it('should handle nested formatting', () => {
+    const inlines = parseHtmlToInlines('<b><i>bold italic</i></b>');
+    expect(inlines[0].style.bold).toBe(true);
+    expect(inlines[0].style.italic).toBe(true);
+    expect(inlines[0].text).toBe('bold italic');
+  });
+
+  it('should fall back to plain text for unknown tags', () => {
+    const inlines = parseHtmlToInlines('<div><custom>text</custom></div>');
+    expect(inlines[0].text).toBe('text');
+  });
+
+  it('should return empty array for empty HTML', () => {
+    const inlines = parseHtmlToInlines('');
+    expect(inlines).toHaveLength(0);
+  });
+
+  it('should handle plain text without tags', () => {
+    const inlines = parseHtmlToInlines('plain text');
+    expect(inlines[0].text).toBe('plain text');
+  });
+
+  it('should merge adjacent inlines with same style', () => {
+    const inlines = parseHtmlToInlines('<span>hello </span><span>world</span>');
+    expect(inlines).toHaveLength(1);
+    expect(inlines[0].text).toBe('hello world');
   });
 });
