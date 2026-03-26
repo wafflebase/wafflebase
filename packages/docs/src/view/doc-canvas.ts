@@ -231,13 +231,21 @@ export class DocCanvas {
       ? (style.fontSize ?? Theme.defaultFontSize) * 0.6
       : style.fontSize;
 
+    // Link defaults: blue text + underline (user-set values take precedence)
+    let textColor = style.color || Theme.defaultColor;
+    let showUnderline = style.underline ?? false;
+    if (style.href) {
+      if (!style.color) textColor = '#1155cc';
+      if (style.underline === undefined) showUnderline = true;
+    }
+
     this.ctx.font = buildFont(
       renderFontSize,
       style.fontFamily,
       style.bold,
       style.italic,
     );
-    this.ctx.fillStyle = style.color ?? Theme.defaultColor;
+    this.ctx.fillStyle = textColor;
     this.ctx.textBaseline = 'alphabetic';
 
     let baselineY = Math.round(lineY + (lineHeight + originalFontSizePx * 0.8) / 2);
@@ -253,15 +261,15 @@ export class DocCanvas {
       this.ctx.fillStyle = style.backgroundColor;
       this.ctx.fillRect(x, lineY, run.width, lineHeight);
       this.ctx.restore();
-      this.ctx.fillStyle = style.color ?? Theme.defaultColor;
+      this.ctx.fillStyle = textColor;
     }
 
     this.ctx.fillText(run.text, x, baselineY);
 
-    if (style.underline) {
+    if (showUnderline) {
       const underlineY = baselineY + 2;
       this.ctx.beginPath();
-      this.ctx.strokeStyle = style.color ?? Theme.defaultColor;
+      this.ctx.strokeStyle = textColor;
       this.ctx.lineWidth = 1;
       this.ctx.moveTo(x, underlineY);
       this.ctx.lineTo(x + run.width, underlineY);
@@ -276,7 +284,7 @@ export class DocCanvas {
       );
       const strikeY = Math.round(baselineY - renderFontSizePx * 0.3);
       this.ctx.beginPath();
-      this.ctx.strokeStyle = style.color ?? Theme.defaultColor;
+      this.ctx.strokeStyle = textColor;
       this.ctx.lineWidth = 1;
       this.ctx.moveTo(x, strikeY);
       this.ctx.lineTo(x + run.width, strikeY);
