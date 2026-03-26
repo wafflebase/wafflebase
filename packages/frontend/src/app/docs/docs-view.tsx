@@ -64,6 +64,7 @@ const HOVER_RADIUS = 10;
 
 interface DocsViewProps {
   onEditorReady?: (editor: EditorAPI | null) => void;
+  readOnly?: boolean;
 }
 
 /**
@@ -73,7 +74,7 @@ interface DocsViewProps {
  * It also subscribes to presence changes for peer cursors with label visibility
  * and hover detection.
  */
-export function DocsView({ onEditorReady }: DocsViewProps) {
+export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
@@ -182,7 +183,7 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
     const store = new YorkieDocStore(doc);
     storeRef.current = store;
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
-    const editor: EditorAPI = initialize(container, store, theme);
+    const editor: EditorAPI = initialize(container, store, theme, readOnly);
     editorRef.current = editor;
     onEditorReady?.(editor);
 
