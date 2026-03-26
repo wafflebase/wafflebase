@@ -32,6 +32,8 @@ import {
   IconListNumbers,
   IconIndentDecrease,
   IconIndentIncrease,
+  IconSuperscript,
+  IconSubscript,
 } from "@tabler/icons-react";
 
 /** Style option for the block-type dropdown (Google Docs style). */
@@ -88,6 +90,18 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
     if (!editor) return;
     const current = editor.getSelectionStyle();
     editor.applyStyle({ underline: !current.underline });
+  }, [editor]);
+
+  const toggleSuperscript = useCallback(() => {
+    if (!editor) return;
+    const current = editor.getSelectionStyle();
+    editor.applyStyle({ superscript: !current.superscript });
+  }, [editor]);
+
+  const toggleSubscript = useCallback(() => {
+    if (!editor) return;
+    const current = editor.getSelectionStyle();
+    editor.applyStyle({ subscript: !current.subscript });
   }, [editor]);
 
   const handleBlockType = useCallback(
@@ -235,6 +249,34 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </Toggle>
         </TooltipTrigger>
         <TooltipContent>Underline ({modKey}+U)</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            onPressedChange={toggleSuperscript}
+            className="h-7 w-7 cursor-pointer"
+            aria-label="Superscript"
+          >
+            <IconSuperscript size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>Superscript ({modKey}+.)</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            onPressedChange={toggleSubscript}
+            className="h-7 w-7 cursor-pointer"
+            aria-label="Subscript"
+          >
+            <IconSubscript size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>Subscript ({modKey}+,)</TooltipContent>
       </Tooltip>
 
       <DropdownMenu>

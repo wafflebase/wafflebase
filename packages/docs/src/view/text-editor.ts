@@ -372,6 +372,18 @@ export class TextEditor {
           this.toggleStyle({ strikethrough: true });
         }
         break;
+      case '.':
+        if (mod) {
+          e.preventDefault();
+          this.toggleStyle({ superscript: true });
+        }
+        break;
+      case ',':
+        if (mod) {
+          e.preventDefault();
+          this.toggleStyle({ subscript: true });
+        }
+        break;
       case '\\':
         if (mod) {
           e.preventDefault();
@@ -1042,6 +1054,8 @@ export class TextEditor {
       italic: undefined,
       underline: undefined,
       strikethrough: undefined,
+      superscript: undefined,
+      subscript: undefined,
     });
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
