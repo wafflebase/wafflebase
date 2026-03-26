@@ -63,6 +63,7 @@ export class TextEditor {
    * browsers fire more than one).
    */
   private ignoreInputUntilNextTick = false;
+  private styleBuffer: Partial<InlineStyle> | null = null;
 
   // Software Hangul assembler for browsers that don't fire composition events
   // (e.g., Mobile Safari with hidden textarea sends raw jamo as insertText).
@@ -361,6 +362,13 @@ export class TextEditor {
           this.selectAll();
         }
         break;
+      case 'c':
+        // Cmd/Ctrl+Shift+C: copy formatting (format painter)
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.styleBuffer = { ...this.getStyleAtCursor() };
+        }
+        break;
       case 'b':
         if (mod) {
           e.preventDefault();
@@ -483,6 +491,15 @@ export class TextEditor {
         }
         break;
       case 'v':
+        // Cmd/Ctrl+Alt+V: paste formatting (format painter apply)
+        if (mod && altKey) {
+          e.preventDefault();
+          if (this.styleBuffer && this.selection.hasSelection() && this.selection.range) {
+            this.doc.applyInlineStyle(this.selection.range, this.styleBuffer);
+            this.requestRender();
+          }
+          break;
+        }
         // Cmd/Ctrl+Shift+V: paste as plain text (strip formatting)
         if (mod && shiftKey) {
           e.preventDefault();
