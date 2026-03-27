@@ -1,7 +1,7 @@
 import type { Block, DocPosition, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength } from '../model/types.js';
 import { Doc } from '../model/document.js';
-import { serializeBlocks, deserializeBlocks, parseHtmlToInlines, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
@@ -623,36 +623,10 @@ export class TextEditor {
     if (!this.shiftHeld) {
       const html = e.clipboardData?.getData('text/html');
       if (html) {
-        const inlines = parseHtmlToInlines(html);
-        if (inlines.length > 0) {
+        const blocks = parseHtmlToBlocks(html);
+        if (blocks.length > 0) {
           this.saveSnapshot();
           this.deleteSelection();
-          // Split inlines by newline separators into multiple blocks
-          const blocks: Block[] = [];
-          let current: Inline[] = [];
-          for (const il of inlines) {
-            const parts = il.text.split('\n');
-            for (let i = 0; i < parts.length; i++) {
-              if (i > 0) {
-                blocks.push({
-                  id: generateBlockId(),
-                  type: 'paragraph',
-                  inlines: current.length > 0 ? current : [{ text: '', style: {} }],
-                  style: { ...DEFAULT_BLOCK_STYLE },
-                });
-                current = [];
-              }
-              if (parts[i].length > 0) {
-                current.push({ text: parts[i], style: { ...il.style } });
-              }
-            }
-          }
-          blocks.push({
-            id: generateBlockId(),
-            type: 'paragraph',
-            inlines: current.length > 0 ? current : [{ text: '', style: {} }],
-            style: { ...DEFAULT_BLOCK_STYLE },
-          });
           this.insertBlocks(blocks);
           this.selection.setRange(null);
           this.requestRender();
@@ -1429,7 +1403,22 @@ export class TextEditor {
     }
   }
 
+  /**
+   * If the cursor is on a non-editable block (e.g. horizontal-rule),
+   * split it to create a new paragraph and move the cursor there.
+   */
+  private ensureEditableBlock(): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    if (block.type === 'horizontal-rule') {
+      this.invalidateLayout();
+      const newId = this.doc.splitBlock(this.cursor.position.blockId, 0);
+      this.cursor.moveTo({ blockId: newId, offset: 0 });
+    }
+  }
+
   private insertPlainText(text: string): void {
+    // If cursor is on a non-editable block, split to create a text block first
+    this.ensureEditableBlock();
     const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       if (i > 0) {
@@ -1460,6 +1449,8 @@ export class TextEditor {
   private insertBlocks(blocks: Block[]): void {
     if (blocks.length === 0) return;
 
+    // If cursor is on a non-editable block, split to create a text block first
+    this.ensureEditableBlock();
     const pos = this.cursor.position;
 
     if (blocks.length === 1) {

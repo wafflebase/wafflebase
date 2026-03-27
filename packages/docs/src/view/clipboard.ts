@@ -1,5 +1,5 @@
-import type { Block, Inline, InlineStyle } from '../model/types.js';
-import { inlineStylesEqual } from '../model/types.js';
+import type { Block, BlockType, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
+import { generateBlockId, DEFAULT_BLOCK_STYLE, inlineStylesEqual } from '../model/types.js';
 
 interface ClipboardPayload {
   version: 1;
@@ -37,6 +37,11 @@ const TAG_STYLE_MAP: Record<string, Partial<InlineStyle>> = {
   strike: { strikethrough: true },
 };
 
+/** Heading tag → HeadingLevel mapping. */
+const HEADING_MAP: Record<string, HeadingLevel> = {
+  h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6,
+};
+
 /** Block-level HTML tags that introduce paragraph breaks. */
 const BLOCK_TAGS = new Set([
   'p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -44,24 +49,114 @@ const BLOCK_TAGS = new Set([
   'header', 'footer', 'tr',
 ]);
 
+interface BlockMeta {
+  type: BlockType;
+  headingLevel?: HeadingLevel;
+  listKind?: 'ordered' | 'unordered';
+}
+
+function makeBlock(inlines: Inline[], meta?: BlockMeta): Block {
+  const merged = mergeInlines(inlines);
+  return {
+    id: generateBlockId(),
+    type: meta?.type ?? 'paragraph',
+    inlines: merged.length > 0 ? merged : [{ text: '', style: {} }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+    ...(meta?.headingLevel != null ? { headingLevel: meta.headingLevel } : {}),
+    ...(meta?.listKind != null ? { listKind: meta.listKind } : {}),
+  };
+}
+
+function mergeInlines(inlines: Inline[]): Inline[] {
+  const merged: Inline[] = [];
+  for (const inline of inlines) {
+    if (merged.length > 0 && inlineStylesEqual(merged[merged.length - 1].style, inline.style)) {
+      merged[merged.length - 1].text += inline.text;
+    } else {
+      merged.push(inline);
+    }
+  }
+  return merged;
+}
+
 /**
- * Parse an HTML string into an array of Inline objects, preserving formatting.
- *
- * Walks the DOM tree produced by DOMParser, collecting text nodes with their
- * inherited style context from ancestor elements.
+ * Resolve block metadata from an HTML tag name.
  */
-export function parseHtmlToInlines(html: string): Inline[] {
+function resolveBlockMeta(el: Element): BlockMeta | undefined {
+  const tag = el.tagName.toLowerCase();
+  if (tag in HEADING_MAP) {
+    return { type: 'heading', headingLevel: HEADING_MAP[tag] };
+  }
+  if (tag === 'li') {
+    const parent = el.parentElement;
+    const parentTag = parent?.tagName.toLowerCase();
+    return {
+      type: 'list-item',
+      listKind: parentTag === 'ol' ? 'ordered' : 'unordered',
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Resolve inline style overrides from an HTML element's CSS.
+ */
+function resolveInlineCSS(el: Element, style: InlineStyle): void {
+  if (!(el instanceof HTMLElement) || !el.style) return;
+
+  if (el.style.color) {
+    style.color = el.style.color;
+  }
+  if (el.style.backgroundColor) {
+    style.backgroundColor = el.style.backgroundColor;
+  }
+  if (el.style.fontSize) {
+    const match = el.style.fontSize.match(/^(\d+(?:\.\d+)?)(px|pt)$/);
+    if (match) {
+      const value = parseFloat(match[1]);
+      style.fontSize = match[2] === 'px' ? (value * 72) / 96 : value;
+    }
+  }
+  if (el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight) >= 700) {
+    style.bold = true;
+  }
+  if (el.style.fontStyle === 'italic') {
+    style.italic = true;
+  }
+  if (el.style.textDecoration?.includes('underline')) {
+    style.underline = true;
+  }
+  if (el.style.textDecoration?.includes('line-through')) {
+    style.strikethrough = true;
+  }
+}
+
+/**
+ * Parse an HTML string into an array of Block objects, preserving both
+ * inline formatting and block-level semantics (headings, list items, etc.).
+ */
+export function parseHtmlToBlocks(html: string): Block[] {
   if (!html) return [];
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
-  const inlines: Inline[] = [];
+  const blocks: Block[] = [];
+  let currentInlines: Inline[] = [];
+  let currentMeta: BlockMeta | undefined;
+
+  function flushBlock(): void {
+    if (currentInlines.length > 0) {
+      blocks.push(makeBlock(currentInlines, currentMeta));
+      currentInlines = [];
+      currentMeta = undefined;
+    }
+  }
 
   function walk(node: Node, inherited: InlineStyle): void {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent ?? '';
       if (text.length > 0) {
-        inlines.push({ text, style: { ...inherited } });
+        currentInlines.push({ text, style: { ...inherited } });
       }
       return;
     }
@@ -71,9 +166,17 @@ export function parseHtmlToInlines(html: string): Inline[] {
     const el = node as Element;
     const tag = el.tagName.toLowerCase();
 
-    // <br> → emit a newline separator
+    // <br> → emit a newline within the current block
     if (tag === 'br') {
-      inlines.push({ text: '\n', style: { ...inherited } });
+      flushBlock();
+      return;
+    }
+
+    // Skip list containers (ul/ol) — only process their <li> children
+    if (tag === 'ul' || tag === 'ol') {
+      for (const child of Array.from(node.childNodes)) {
+        walk(child, inherited);
+      }
       return;
     }
 
@@ -94,67 +197,45 @@ export function parseHtmlToInlines(html: string): Inline[] {
     }
 
     // Parse inline CSS styles
-    if (el instanceof HTMLElement && el.style) {
-      if (el.style.color) {
-        style.color = el.style.color;
-      }
-      if (el.style.backgroundColor) {
-        style.backgroundColor = el.style.backgroundColor;
-      }
-      if (el.style.fontSize) {
-        const match = el.style.fontSize.match(/^(\d+(?:\.\d+)?)(px|pt)$/);
-        if (match) {
-          const value = parseFloat(match[1]);
-          style.fontSize = match[2] === 'px' ? (value * 72) / 96 : value;
-        }
-      }
-      if (el.style.fontWeight === 'bold' || parseInt(el.style.fontWeight) >= 700) {
-        style.bold = true;
-      }
-      if (el.style.fontStyle === 'italic') {
-        style.italic = true;
-      }
-      if (el.style.textDecoration?.includes('underline')) {
-        style.underline = true;
-      }
-      if (el.style.textDecoration?.includes('line-through')) {
-        style.strikethrough = true;
-      }
-    }
+    resolveInlineCSS(el, style);
 
-    // Block-level tags: emit a newline before children if content already exists
     const isBlock = BLOCK_TAGS.has(tag);
-    if (isBlock && inlines.length > 0) {
-      const last = inlines[inlines.length - 1];
-      if (!last.text.endsWith('\n')) {
-        inlines.push({ text: '\n', style: {} });
+
+    if (isBlock) {
+      // Flush any accumulated inline content as a paragraph
+      flushBlock();
+
+      // Set block metadata for this block-level element
+      currentMeta = resolveBlockMeta(el);
+
+      for (const child of Array.from(node.childNodes)) {
+        walk(child, style);
       }
-    }
 
-    for (const child of Array.from(node.childNodes)) {
-      walk(child, style);
-    }
-
-    // Block-level tags: ensure a trailing newline after children
-    if (isBlock && inlines.length > 0) {
-      const last = inlines[inlines.length - 1];
-      if (!last.text.endsWith('\n')) {
-        inlines.push({ text: '\n', style: {} });
+      // Flush the block element's content
+      flushBlock();
+    } else {
+      for (const child of Array.from(node.childNodes)) {
+        walk(child, style);
       }
     }
   }
 
   walk(doc.body, {});
 
-  // Merge adjacent inlines with identical styles
-  const merged: Inline[] = [];
-  for (const inline of inlines) {
-    if (merged.length > 0 && inlineStylesEqual(merged[merged.length - 1].style, inline.style)) {
-      merged[merged.length - 1].text += inline.text;
-    } else {
-      merged.push(inline);
-    }
+  // Flush any remaining inline content
+  if (currentInlines.length > 0) {
+    blocks.push(makeBlock(currentInlines, currentMeta));
   }
 
-  return merged;
+  return blocks;
+}
+
+/**
+ * Parse an HTML string into a flat array of Inline objects.
+ * @deprecated Use parseHtmlToBlocks for block-aware parsing.
+ */
+export function parseHtmlToInlines(html: string): Inline[] {
+  const blocks = parseHtmlToBlocks(html);
+  return blocks.flatMap((b) => b.inlines);
 }
