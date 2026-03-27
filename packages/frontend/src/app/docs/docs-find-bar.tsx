@@ -111,7 +111,7 @@ export function DocsFindBar({
   };
 
   const handleClose = () => {
-    editor?.clearSearchMatches();
+    editor?.clearSearchMatches(true);
     setQuery("");
     setReplacement("");
     onClose();

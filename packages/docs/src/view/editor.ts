@@ -71,8 +71,8 @@ export interface EditorAPI {
   onFindReplaceRequest(cb: () => void): void;
   /** Set search match highlights and active match index */
   setSearchMatches(matches: SearchMatch[], activeIndex: number): void;
-  /** Clear all search match highlights */
-  clearSearchMatches(): void;
+  /** Clear all search match highlights and optionally move cursor to active match */
+  clearSearchMatches(moveCursorToActive?: boolean): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -783,8 +783,46 @@ export function initialize(
       searchMatches = matches;
       activeMatchIndex = activeIndex;
       render();
+
+      // Scroll active match into view
+      if (activeIndex >= 0 && activeIndex < matches.length) {
+        const match = matches[activeIndex];
+        const measureEl = container.parentElement ?? container;
+        const viewportWidth = measureEl.getBoundingClientRect().width;
+        const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
+        const cw = Math.max(viewportWidth, pageWidth);
+        const rects = computeSelectionRects(
+          { anchor: { blockId: match.blockId, offset: match.startOffset }, focus: { blockId: match.blockId, offset: match.endOffset } },
+          paginatedLayout,
+          layout,
+          docCanvas.getContext(),
+          cw,
+        );
+        if (rects.length > 0) {
+          const matchTop = rects[0].y;
+          const matchBottom = rects[rects.length - 1].y + rects[rects.length - 1].height;
+          const viewportTop = container.scrollTop;
+          const viewportHeight = container.getBoundingClientRect().height - RULER_SIZE;
+          const scrollMargin = 60;
+
+          if (matchBottom > viewportTop + viewportHeight - scrollMargin) {
+            container.scrollTop = matchTop - viewportHeight / 3;
+          } else if (matchTop < viewportTop + scrollMargin) {
+            container.scrollTop = Math.max(0, matchTop - viewportHeight / 3);
+          }
+        }
+      }
     },
-    clearSearchMatches: () => {
+    clearSearchMatches: (moveCursorToActive?: boolean) => {
+      // Move cursor to the active match position before clearing (Google Docs behavior)
+      if (moveCursorToActive && activeMatchIndex >= 0 && activeMatchIndex < searchMatches.length) {
+        const match = searchMatches[activeMatchIndex];
+        cursor.moveTo({ blockId: match.blockId, offset: match.startOffset });
+        selection.setRange({
+          anchor: { blockId: match.blockId, offset: match.startOffset },
+          focus: { blockId: match.blockId, offset: match.endOffset },
+        });
+      }
       searchMatches = [];
       activeMatchIndex = -1;
       render();
