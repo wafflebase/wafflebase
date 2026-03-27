@@ -70,23 +70,54 @@ export class TextEditor {
   private handleFocus: (() => void) | null = null;
   private handleBlur: (() => void) | null = null;
 
+  private container: HTMLElement;
+  private doc: Doc;
+  private cursor: Cursor;
+  private selection: Selection;
+  private getLayout: () => DocumentLayout;
+  private getPaginatedLayout: () => PaginatedLayout;
+  private getCtx: () => CanvasRenderingContext2D;
+  private getCanvasWidth: () => number;
+  private getCanvasOffsetTop: () => number;
+  private requestRender: () => void;
+  private saveSnapshot: () => void;
+  private undoAction: () => void;
+  private redoAction: () => void;
+  private markDirty: (blockId: string) => void;
+  private invalidateLayout: () => void;
+
   constructor(
-    private container: HTMLElement,
-    private doc: Doc,
-    private cursor: Cursor,
-    private selection: Selection,
-    private getLayout: () => DocumentLayout,
-    private getPaginatedLayout: () => PaginatedLayout,
-    private getCtx: () => CanvasRenderingContext2D,
-    private getCanvasWidth: () => number,
-    private getCanvasOffsetTop: () => number,
-    private requestRender: () => void,
-    private saveSnapshot: () => void,
-    private undoAction: () => void,
-    private redoAction: () => void,
-    private markDirty: (blockId: string) => void,
-    private invalidateLayout: () => void,
+    container: HTMLElement,
+    doc: Doc,
+    cursor: Cursor,
+    selection: Selection,
+    getLayout: () => DocumentLayout,
+    getPaginatedLayout: () => PaginatedLayout,
+    getCtx: () => CanvasRenderingContext2D,
+    getCanvasWidth: () => number,
+    getCanvasOffsetTop: () => number,
+    requestRender: () => void,
+    saveSnapshot: () => void,
+    undoAction: () => void,
+    redoAction: () => void,
+    markDirty: (blockId: string) => void,
+    invalidateLayout: () => void,
   ) {
+    this.container = container;
+    this.doc = doc;
+    this.cursor = cursor;
+    this.selection = selection;
+    this.getLayout = getLayout;
+    this.getPaginatedLayout = getPaginatedLayout;
+    this.getCtx = getCtx;
+    this.getCanvasWidth = getCanvasWidth;
+    this.getCanvasOffsetTop = getCanvasOffsetTop;
+    this.requestRender = requestRender;
+    this.saveSnapshot = saveSnapshot;
+    this.undoAction = undoAction;
+    this.redoAction = redoAction;
+    this.markDirty = markDirty;
+    this.invalidateLayout = invalidateLayout;
     this.textarea = document.createElement('textarea');
     // Keep textarea within the viewport (not off-screen) so iOS IME works
     // correctly. font-size:16px prevents iOS auto-zoom on focus.
