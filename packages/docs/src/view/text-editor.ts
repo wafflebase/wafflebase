@@ -7,7 +7,7 @@ import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
-import { buildFont } from './theme.js';
+import { buildFont, Theme } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
@@ -76,8 +76,6 @@ export class TextEditor {
   /** Callback invoked when Cmd/Ctrl+K is pressed to request link insertion. */
   onLinkRequest?: () => void;
 
-  /** Callback invoked when the mouse hovers over (or leaves) a link. */
-  onLinkHover?: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void;
 
   /** Callback invoked when Cmd/Ctrl+F is pressed to open find bar. */
   onFindRequest?: () => void;
@@ -625,13 +623,10 @@ export class TextEditor {
 
     // Ctrl+Click (or Cmd+Click on Mac) on a link opens it in a new tab
     if (e.ctrlKey || e.metaKey) {
-      const rect = this.container.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const linkInfo = this.getLinkAtPosition(cx, cy);
-      if (linkInfo) {
+      const href = this.getLinkHrefAtMouse(e);
+      if (href) {
         e.preventDefault();
-        window.open(linkInfo.href, '_blank', 'noopener,noreferrer');
+        window.open(href, '_blank', 'noopener,noreferrer');
         return;
       }
     }
@@ -693,15 +688,6 @@ export class TextEditor {
   };
 
   private handleMouseMove = (e: MouseEvent): void => {
-    // Link hover detection (even when mouse is not pressed)
-    if (!this.isMouseDown && this.onLinkHover) {
-      const rect = this.container.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const linkInfo = this.getLinkAtPosition(cx, cy);
-      this.onLinkHover(linkInfo ?? undefined);
-    }
-
     if (!this.isMouseDown || !this.selection.range) return;
 
     this.lastMouseClientY = e.clientY;
@@ -716,7 +702,7 @@ export class TextEditor {
 
   private updateDragSelection(clientX: number, clientY: number): void {
     const rect = this.container.getBoundingClientRect();
-    const x = clientX - rect.left;
+    const x = clientX - rect.left + this.container.scrollLeft;
     const y = clientY - rect.top - this.getCanvasOffsetTop();
     const scrollY = this.container.scrollTop;
     const result = paginatedPixelToPosition(
@@ -1694,7 +1680,7 @@ export class TextEditor {
 
   private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
     const rect = this.container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+    const x = e.clientX - rect.left + this.container.scrollLeft;
     const y = e.clientY - rect.top - this.getCanvasOffsetTop();
     const scrollY = this.container.scrollTop;
     return paginatedPixelToPosition(
@@ -1728,7 +1714,11 @@ export class TextEditor {
       const runLength = run.charEnd - run.charStart;
       if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
         const localOff = lineOffset - charCount;
-        ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+        const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
+        const measureFontSize = isSuperOrSub
+          ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
+          : run.inline.style.fontSize;
+        ctx.font = buildFont(measureFontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
         const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
         return { x, y: pageY + pageLine.y, height: pageLine.line.height };
       }
@@ -1807,32 +1797,54 @@ export class TextEditor {
   }
 
   /**
-   * Returns link info (href + bounding rect in canvas coordinates) at the
-   * given container-relative pixel coordinates, or undefined if no link is
-   * found at that position.
+   * Returns the href of the link at the mouse event position, or undefined.
+   * Used for Ctrl+Click to open links.
    */
-  getLinkAtPosition(containerX: number, containerY: number): { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined {
-    const x = containerX;
-    const y = containerY - this.getCanvasOffsetTop();
+  private getLinkHrefAtMouse(e: MouseEvent): string | undefined {
+    const rect = this.container.getBoundingClientRect();
+    const x = e.clientX - rect.left + this.container.scrollLeft;
+    const y = e.clientY - rect.top - this.getCanvasOffsetTop();
     const scrollY = this.container.scrollTop;
     const result = paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );
     if (!result) return undefined;
 
-    // Find the inline at this document position
     const block = this.doc.document.blocks.find((b) => b.id === result.blockId);
     if (!block) return undefined;
+    let pos = 0;
+    for (const inline of block.inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (result.offset >= pos && result.offset < inlineEnd && inline.style.href) {
+        return inline.style.href;
+      }
+      if (result.offset === inlineEnd && result.offset > pos && inline.style.href) {
+        return inline.style.href;
+      }
+      pos = inlineEnd;
+    }
+    return undefined;
+  }
+
+  /**
+   * Returns link info (href + bounding rect) at the current cursor position,
+   * or undefined if the cursor is not inside a link.
+   */
+  getLinkAtCursorPosition(): { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined {
+    const cursorPos = this.cursor.position;
+    const block = this.doc.document.blocks.find((b) => b.id === cursorPos.blockId);
+    if (!block) return undefined;
+
     let pos = 0;
     let linkInline: { href: string; inlineStart: number; inlineEnd: number } | undefined;
     for (const inline of block.inlines) {
       const inlineEnd = pos + inline.text.length;
-      if (result.offset >= pos && result.offset < inlineEnd && inline.style.href) {
+      if (cursorPos.offset >= pos && cursorPos.offset < inlineEnd && inline.style.href) {
         linkInline = { href: inline.style.href, inlineStart: pos, inlineEnd };
         break;
       }
       // Also check if cursor is exactly at end and this inline has href
-      if (result.offset === inlineEnd && result.offset > pos && inline.style.href) {
+      if (cursorPos.offset === inlineEnd && cursorPos.offset > pos && inline.style.href) {
         linkInline = { href: inline.style.href, inlineStart: pos, inlineEnd };
         break;
       }
@@ -1840,23 +1852,22 @@ export class TextEditor {
     }
     if (!linkInline) return undefined;
 
-    // Compute bounding rect of the full link text in canvas coordinates.
-    // The link may span multiple runs if the text wraps, but we compute the
-    // rect for the first line containing the hovered offset for simplicity.
-    const startPixel = this.getPixelForPosition({ blockId: result.blockId, offset: linkInline.inlineStart });
-    const endPixel = this.getPixelForPosition({ blockId: result.blockId, offset: linkInline.inlineEnd });
+    // Compute bounding rect of the full link text.
+    // Coordinates are in document-space (not viewport-relative) so the
+    // absolutely-positioned popover aligns correctly inside the scrollable container.
+    const startPixel = this.getPixelForPosition({ blockId: cursorPos.blockId, offset: linkInline.inlineStart });
+    const endPixel = this.getPixelForPosition({ blockId: cursorPos.blockId, offset: linkInline.inlineEnd });
     if (!startPixel || !endPixel) return undefined;
 
-    // If start and end are on different lines, use the line containing the hovered offset
-    const hoverPixel = this.getPixelForPosition({ blockId: result.blockId, offset: result.offset });
-    if (!hoverPixel) return undefined;
+    const cursorPixel = this.getPixelForPosition(cursorPos);
+    if (!cursorPixel) return undefined;
 
-    // Use the full line if same line, otherwise just the hovered run
+    // Use the full line if same line, otherwise just the cursor's line segment
     const sameY = Math.abs(startPixel.y - endPixel.y) < 2;
-    const rectX = sameY ? startPixel.x : hoverPixel.x;
+    const rectX = sameY ? startPixel.x : cursorPixel.x;
     const rectWidth = sameY ? (endPixel.x - startPixel.x) : 50;
-    const rectY = hoverPixel.y - scrollY;
-    const rectHeight = hoverPixel.height;
+    const rectY = cursorPixel.y;
+    const rectHeight = cursorPixel.height;
 
     return {
       href: linkInline.href,

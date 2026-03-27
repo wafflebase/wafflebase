@@ -32,8 +32,6 @@ import {
   IconListNumbers,
   IconIndentDecrease,
   IconIndentIncrease,
-  IconSuperscript,
-  IconSubscript,
   IconLink,
 } from "@tabler/icons-react";
 
@@ -93,25 +91,9 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
     editor.applyStyle({ underline: !current.underline });
   }, [editor]);
 
-  const toggleSuperscript = useCallback(() => {
-    if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ superscript: !current.superscript });
-  }, [editor]);
-
-  const toggleSubscript = useCallback(() => {
-    if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ subscript: !current.subscript });
-  }, [editor]);
-
   const handleInsertLink = useCallback(() => {
     if (!editor) return;
-    const url = window.prompt("Enter URL:");
-    if (url) {
-      editor.insertLink(url);
-    }
-    editor.focus();
+    editor.requestLink();
   }, [editor]);
 
   const handleBlockType = useCallback(
@@ -261,34 +243,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipContent>Underline ({modKey}+U)</TooltipContent>
       </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            onPressedChange={toggleSuperscript}
-            className="h-7 w-7 cursor-pointer"
-            aria-label="Superscript"
-          >
-            <IconSuperscript size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Superscript ({modKey}+.)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Toggle
-            size="sm"
-            onPressedChange={toggleSubscript}
-            className="h-7 w-7 cursor-pointer"
-            aria-label="Subscript"
-          >
-            <IconSubscript size={16} />
-          </Toggle>
-        </TooltipTrigger>
-        <TooltipContent>Subscript ({modKey}+,)</TooltipContent>
-      </Tooltip>
-
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -359,6 +313,8 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      <Separator orientation="vertical" className="mx-1 h-6" />
+
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -414,19 +370,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
-            aria-label="Bulleted list"
-          >
-            <IconList size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={() => { editor?.toggleList("ordered"); editor?.focus(); }}
             aria-label="Numbered list"
           >
@@ -434,6 +377,19 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </button>
         </TooltipTrigger>
         <TooltipContent>Numbered list ({modKey}+⇧7)</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
+            aria-label="Bulleted list"
+          >
+            <IconList size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
       </Tooltip>
 
       <Tooltip>

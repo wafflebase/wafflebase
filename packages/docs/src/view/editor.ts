@@ -57,10 +57,14 @@ export interface EditorAPI {
   removeLink(): void;
   /** Get the href of the link at the current cursor position, if any */
   getLinkAtCursor(): string | undefined;
+  /** Programmatically trigger the link request (same as Ctrl+K) */
+  requestLink(): void;
   /** Register a callback for Cmd/Ctrl+K link requests */
   onLinkRequest(cb: () => void): void;
-  /** Register a callback for link hover events */
-  onLinkHover(cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void): void;
+  /** Register a callback for cursor-position-based link detection (fires when cursor enters/leaves a link) */
+  onCursorLinkChange(cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void): void;
+  /** Get the cursor's screen (viewport) coordinates for popover positioning */
+  getCursorScreenRect(): { x: number; y: number; height: number } | undefined;
   /** Register a callback for Cmd/Ctrl+F find requests */
   onFindRequest(cb: () => void): void;
   /** Register a callback for Cmd/Ctrl+H find & replace requests */
@@ -417,6 +421,9 @@ export function initialize(
     }
   };
 
+  let cursorLinkChangeCallback: ((info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) | null = null;
+  let textEditorRef: TextEditor | null = null;
+
   const renderWithScroll = () => {
     needsScrollIntoView = true;
     render();
@@ -424,6 +431,27 @@ export function initialize(
       ? { anchor: selection.range.anchor, focus: selection.range.focus }
       : null;
     cursorMoveCallback?.(cursor.position, selRange);
+    // Notify cursor-based link detection.
+    // Convert document-space coordinates to screen (viewport) coordinates
+    // so the popover can use position:fixed reliably regardless of scroll.
+    if (cursorLinkChangeCallback && textEditorRef) {
+      const linkInfo = textEditorRef.getLinkAtCursorPosition();
+      if (linkInfo) {
+        const canvasRect = canvas.getBoundingClientRect();
+        const scrollY = container.scrollTop;
+        cursorLinkChangeCallback({
+          href: linkInfo.href,
+          rect: {
+            x: canvasRect.left + linkInfo.rect.x,
+            y: canvasRect.top + (linkInfo.rect.y - scrollY),
+            width: linkInfo.rect.width,
+            height: linkInfo.rect.height,
+          },
+        });
+      } else {
+        cursorLinkChangeCallback(undefined);
+      }
+    }
   };
 
   const textEditor = new TextEditor(
@@ -447,6 +475,7 @@ export function initialize(
     markDirty,
     invalidateLayout,
   );
+  textEditorRef = textEditor;
 
   // Start cursor blink
   cursor.startBlink(renderPaintOnly);
@@ -459,7 +488,11 @@ export function initialize(
   render();
 
   // Scroll and resize listeners
-  const handleScroll = () => renderPaintOnly();
+  const handleScroll = () => {
+    // Dismiss link popover on scroll (Google Docs behavior)
+    cursorLinkChangeCallback?.(undefined);
+    renderPaintOnly();
+  };
   container.addEventListener('scroll', handleScroll);
 
   const resizeObserver = new ResizeObserver(() => render());
@@ -712,11 +745,30 @@ export function initialize(
       }
       return undefined;
     },
+    getCursorScreenRect: () => {
+      const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(),
+        Math.max(
+          (container.parentElement ?? container).getBoundingClientRect().width,
+          paginatedLayout.pages[0]?.width ?? 0,
+        ),
+      );
+      if (!cursorPixel) return undefined;
+      const canvasRect = canvas.getBoundingClientRect();
+      const scrollY = container.scrollTop;
+      return {
+        x: canvasRect.left + cursorPixel.x,
+        y: canvasRect.top + (cursorPixel.y - scrollY),
+        height: cursorPixel.height,
+      };
+    },
+    requestLink: () => {
+      textEditor.onLinkRequest?.();
+    },
     onLinkRequest: (cb: () => void) => {
       textEditor.onLinkRequest = cb;
     },
-    onLinkHover: (cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) => {
-      textEditor.onLinkHover = cb;
+    onCursorLinkChange: (cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) => {
+      cursorLinkChangeCallback = cb;
     },
     onFindRequest: (cb: () => void) => {
       textEditor.onFindRequest = cb;

@@ -82,6 +82,10 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
   const [didMount, setDidMount] = useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);
   const [findBarShowReplace, setFindBarShowReplace] = useState(false);
+  const [linkInputRequest, setLinkInputRequest] = useState<{
+    initialUrl: string;
+    position: { x: number; y: number; height: number };
+  } | null>(null);
   const { doc, loading, error } = useDocument<YorkieDocsRoot>();
   const { resolvedTheme } = useTheme();
 
@@ -230,12 +234,19 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
       setFindBarShowReplace(true);
     });
 
+    editor.onLinkRequest(() => {
+      const pos = editor.getCursorScreenRect();
+      if (!pos) return;
+      const existingHref = editor.getLinkAtCursor() ?? "";
+      setLinkInputRequest({ initialUrl: existingHref, position: pos });
+    });
+
     const handleMouseMove = (e: MouseEvent) => {
       const ed = editorRef.current;
       if (!ed) return;
 
       const containerRect = container.getBoundingClientRect();
-      const mouseX = e.clientX - containerRect.left;
+      const mouseX = e.clientX - containerRect.left + container.scrollLeft;
       const mouseY = e.clientY - containerRect.top + container.scrollTop;
 
       const peerPixels = ed.getPeerCursorPixels();
@@ -320,7 +331,12 @@ export function DocsView({ onEditorReady }: DocsViewProps) {
 
   return (
     <div ref={containerRef} className="relative flex-1 w-full min-h-0">
-      <DocsLinkPopover editor={editorRef.current} containerRef={containerRef} />
+      <DocsLinkPopover
+        editor={editorRef.current}
+        containerRef={containerRef}
+        editRequest={linkInputRequest}
+        onEditRequestHandled={() => setLinkInputRequest(null)}
+      />
       {findBarOpen && (
         <DocsFindBar
           editor={editorRef.current}
