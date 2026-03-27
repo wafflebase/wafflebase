@@ -765,19 +765,19 @@ export function initialize(
       };
     },
     requestLink: () => {
-      textEditor.onLinkRequest?.();
+      textEditor?.onLinkRequest?.();
     },
     onLinkRequest: (cb: () => void) => {
-      textEditor.onLinkRequest = cb;
+      if (textEditor) textEditor.onLinkRequest = cb;
     },
     onCursorLinkChange: (cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) => {
       cursorLinkChangeCallback = cb;
     },
     onFindRequest: (cb: () => void) => {
-      textEditor.onFindRequest = cb;
+      if (textEditor) textEditor.onFindRequest = cb;
     },
     onFindReplaceRequest: (cb: () => void) => {
-      textEditor.onFindReplaceRequest = cb;
+      if (textEditor) textEditor.onFindReplaceRequest = cb;
     },
     setSearchMatches: (matches: SearchMatch[], activeIndex: number) => {
       searchMatches = matches;

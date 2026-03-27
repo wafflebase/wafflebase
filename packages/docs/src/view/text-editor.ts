@@ -72,6 +72,8 @@ export class TextEditor {
   private hangulComposingLength = 0;
   private handleFocus: (() => void) | null = null;
   private handleBlur: (() => void) | null = null;
+  /** Track shift key state for paste handler (ClipboardEvent lacks shiftKey). */
+  private shiftHeld = false;
 
   private container: HTMLElement;
   private doc: Doc;
@@ -296,6 +298,7 @@ export class TextEditor {
   };
 
   private handleKeyDown = (e: KeyboardEvent): void => {
+    this.shiftHeld = e.shiftKey;
     // Don't intercept keys during IME composition
     if (this.composition.active || e.isComposing) return;
 
@@ -616,7 +619,7 @@ export class TextEditor {
     }
 
     // Try HTML paste (unless shift is held for plain-text paste)
-    if (!e.shiftKey) {
+    if (!this.shiftHeld) {
       const html = e.clipboardData?.getData('text/html');
       if (html) {
         const inlines = parseHtmlToInlines(html);

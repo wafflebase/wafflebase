@@ -76,9 +76,9 @@ describe('superscript/subscript layout', () => {
     // Use a mock that respects the font property to detect size changes
     const ctx = {
       font: '',
-      measureText: function (text: string) {
+      measureText(text: string) {
         // Parse font size from ctx.font (e.g. "14.666px Arial" -> 14.666)
-        const match = this.font.match(/([\d.]+)px/);
+        const match = (this as { font: string }).font.match(/([\d.]+)px/);
         const pxPerChar = match ? parseFloat(match[1]) : 8;
         return { width: text.length * pxPerChar };
       },
@@ -121,8 +121,8 @@ describe('superscript/subscript layout', () => {
   it('should use reduced font size for subscript width measurement', () => {
     const ctx = {
       font: '',
-      measureText: function (text: string) {
-        const match = this.font.match(/([\d.]+)px/);
+      measureText(text: string) {
+        const match = (this as { font: string }).font.match(/([\d.]+)px/);
         const pxPerChar = match ? parseFloat(match[1]) : 8;
         return { width: text.length * pxPerChar };
       },
