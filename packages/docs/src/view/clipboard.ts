@@ -12,9 +12,13 @@ export function serializeBlocks(blocks: Block[]): string {
 }
 
 export function deserializeBlocks(json: string): Block[] {
-  const payload: ClipboardPayload = JSON.parse(json);
-  if (payload.version !== 1) return [];
-  return payload.blocks;
+  try {
+    const payload = JSON.parse(json) as Partial<ClipboardPayload>;
+    if (payload.version !== 1 || !Array.isArray(payload.blocks)) return [];
+    return payload.blocks as Block[];
+  } catch {
+    return [];
+  }
 }
 
 export const WAFFLEDOCS_MIME = 'application/x-waffledocs';

@@ -343,6 +343,7 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
           editor={editorRef.current}
           showReplace={findBarShowReplace}
           onClose={() => setFindBarOpen(false)}
+          containerRef={containerRef}
         />
       )}
     </div>

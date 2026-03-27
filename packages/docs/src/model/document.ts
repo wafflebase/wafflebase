@@ -352,14 +352,24 @@ export class Doc {
     if (!query) return [];
     const matches: SearchMatch[] = [];
     const flags = options?.caseSensitive ? 'g' : 'gi';
-    const pattern = options?.useRegex
-      ? new RegExp(query, flags)
-      : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+    let pattern: RegExp;
+    try {
+      pattern = options?.useRegex
+        ? new RegExp(query, flags)
+        : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+    } catch {
+      return [];
+    }
 
     for (const block of this._document.blocks) {
       const text = getBlockText(block);
       let match: RegExpExecArray | null;
       while ((match = pattern.exec(text)) !== null) {
+        // Guard against zero-length matches causing infinite loops
+        if (match[0].length === 0) {
+          pattern.lastIndex++;
+          continue;
+        }
         matches.push({
           blockId: block.id,
           startOffset: match.index,

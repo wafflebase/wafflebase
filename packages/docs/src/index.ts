@@ -77,3 +77,4 @@ export { Selection } from './view/selection.js';
 export { Ruler, RULER_SIZE } from './view/ruler.js';
 export { FindReplaceState } from './view/find-replace.js';
 export type { SearchMatch, SearchOptions } from './model/types.js';
+export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';

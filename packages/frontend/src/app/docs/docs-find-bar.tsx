@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import type { EditorAPI } from "@wafflebase/docs";
 import { FindReplaceState } from "@wafflebase/docs";
 import {
@@ -14,6 +15,7 @@ interface DocsFindBarProps {
   /** When true the replace row is visible. */
   showReplace: boolean;
   onClose: () => void;
+  containerRef: React.RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -25,6 +27,7 @@ export function DocsFindBar({
   editor,
   showReplace,
   onClose,
+  containerRef,
 }: DocsFindBarProps) {
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
@@ -42,7 +45,10 @@ export function DocsFindBar({
       stateRef.current = null;
       return;
     }
-    stateRef.current = new FindReplaceState(editor.getDoc());
+    stateRef.current = new FindReplaceState(
+      editor.getDoc(),
+      () => editor.getStore().snapshot(),
+    );
   }, [editor]);
 
   // Focus the search input when the bar opens
@@ -63,7 +69,13 @@ export function DocsFindBar({
     (q: string) => {
       const state = stateRef.current;
       if (!state) return;
-      state.search(q, { caseSensitive, useRegex });
+      try {
+        state.search(q, { caseSensitive, useRegex });
+      } catch {
+        // Invalid regex pattern — clear results gracefully
+        state.matches = [];
+        state.activeIndex = -1;
+      }
       syncHighlights();
     },
     [caseSensitive, useRegex, syncHighlights],
@@ -146,31 +158,37 @@ export function DocsFindBar({
     matchCount > 0 ? `${activeIndex + 1} of ${matchCount}` : "No results";
 
   const iconBtnClass =
-    "flex items-center justify-center w-6 h-6 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 disabled:opacity-40";
+    "flex items-center justify-center w-6 h-6 rounded hover:bg-muted text-muted-foreground disabled:opacity-40";
   const toggleBtnClass = (active: boolean) =>
     `flex items-center justify-center w-6 h-6 rounded ${
       active
-        ? "bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300"
-        : "hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300"
+        ? "bg-primary/10 text-primary"
+        : "hover:bg-muted text-muted-foreground"
     }`;
 
-  return (
+  const containerRect = containerRef.current?.getBoundingClientRect();
+  const fixedTop = containerRect?.top ?? 0;
+  const fixedRight = containerRect
+    ? window.innerWidth - containerRect.right + 16
+    : 16;
+
+  return createPortal(
     <div
-      className="absolute top-0 right-4 z-50 flex flex-col gap-1 rounded-b-lg border border-gray-300 bg-white p-2 shadow-md dark:border-gray-600 dark:bg-gray-800"
-      style={{ minWidth: 320 }}
+      className="fixed z-50 flex flex-col gap-1 rounded-b-lg border bg-popover p-2 text-popover-foreground shadow-md"
+      style={{ top: fixedTop, right: fixedRight, minWidth: 320 }}
     >
       {/* Search row */}
       <div className="flex items-center gap-1">
         <input
           ref={searchInputRef}
           type="text"
-          className="flex-1 rounded border border-gray-300 bg-transparent px-2 py-1 text-sm outline-none focus:border-blue-500 dark:border-gray-600 dark:text-gray-100"
+          className="flex-1 rounded border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
           placeholder="Find"
           value={query}
           onChange={(e) => handleQueryChange(e.target.value)}
           onKeyDown={handleSearchKeyDown}
         />
-        <span className="min-w-[60px] text-center text-xs text-gray-500 dark:text-gray-400">
+        <span className="min-w-[60px] text-center text-xs text-muted-foreground">
           {query ? counterText : ""}
         </span>
         <button
@@ -213,21 +231,21 @@ export function DocsFindBar({
         <div className="flex items-center gap-1">
           <input
             type="text"
-            className="flex-1 rounded border border-gray-300 bg-transparent px-2 py-1 text-sm outline-none focus:border-blue-500 dark:border-gray-600 dark:text-gray-100"
+            className="flex-1 rounded border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-1 focus:ring-ring"
             placeholder="Replace"
             value={replacement}
             onChange={(e) => setReplacement(e.target.value)}
             onKeyDown={handleReplaceKeyDown}
           />
           <button
-            className="rounded border border-gray-300 px-2 py-0.5 text-xs hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700 disabled:opacity-40"
+            className="rounded border px-2 py-0.5 text-xs hover:bg-muted disabled:opacity-40"
             disabled={matchCount === 0}
             onClick={handleReplace}
           >
             Replace
           </button>
           <button
-            className="rounded border border-gray-300 px-2 py-0.5 text-xs hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700 disabled:opacity-40"
+            className="rounded border px-2 py-0.5 text-xs hover:bg-muted disabled:opacity-40"
             disabled={matchCount === 0}
             onClick={handleReplaceAll}
           >
@@ -235,6 +253,7 @@ export function DocsFindBar({
           </button>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

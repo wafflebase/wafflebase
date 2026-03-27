@@ -711,27 +711,38 @@ export function initialize(
       }
     },
     removeLink: () => {
-      // Find the full link range at the cursor position and remove href
+      // Find the full contiguous link range at the cursor and remove href.
+      // A single logical link may span multiple inlines (e.g. bold/italic splits).
       const block = doc.document.blocks.find(
         (b) => b.id === cursor.position.blockId,
       );
       if (!block) return;
-      let pos = 0;
-      for (const inline of block.inlines) {
-        const inlineEnd = pos + inline.text.length;
-        if (cursor.position.offset >= pos && cursor.position.offset <= inlineEnd && inline.style.href) {
-          docStore.snapshot();
-          const range = {
-            anchor: { blockId: block.id, offset: pos },
-            focus: { blockId: block.id, offset: inlineEnd },
-          };
-          doc.applyInlineStyle(range, { href: undefined });
-          markDirty(block.id);
-          render();
-          return;
+      let cursorInlineIdx = -1;
+      const offsets: number[] = [0];
+      for (let i = 0; i < block.inlines.length; i++) {
+        const inlineEnd = offsets[i] + block.inlines[i].text.length;
+        offsets.push(inlineEnd);
+        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && block.inlines[i].style.href) {
+          cursorInlineIdx = i;
         }
-        pos = inlineEnd;
       }
+      if (cursorInlineIdx < 0) return;
+      const href = block.inlines[cursorInlineIdx].style.href;
+      // Expand left
+      let lo = cursorInlineIdx;
+      while (lo > 0 && block.inlines[lo - 1].style.href === href) lo--;
+      // Expand right
+      let hi = cursorInlineIdx;
+      while (hi < block.inlines.length - 1 && block.inlines[hi + 1].style.href === href) hi++;
+
+      docStore.snapshot();
+      const range = {
+        anchor: { blockId: block.id, offset: offsets[lo] },
+        focus: { blockId: block.id, offset: offsets[hi + 1] },
+      };
+      doc.applyInlineStyle(range, { href: undefined });
+      markDirty(block.id);
+      render();
     },
     getLinkAtCursor: (): string | undefined => {
       const block = doc.document.blocks.find(
@@ -741,7 +752,11 @@ export function initialize(
       let pos = 0;
       for (const inline of block.inlines) {
         const inlineEnd = pos + inline.text.length;
-        if (cursor.position.offset <= inlineEnd) {
+        if (cursor.position.offset >= pos && cursor.position.offset < inlineEnd) {
+          return inline.style.href;
+        }
+        // At boundary: return href if this inline has one
+        if (cursor.position.offset === inlineEnd && inline.style.href) {
           return inline.style.href;
         }
         pos = inlineEnd;

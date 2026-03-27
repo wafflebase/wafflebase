@@ -11,16 +11,27 @@ export class FindReplaceState {
   query = '';
   options: SearchOptions = {};
 
-  constructor(private doc: Doc) {}
+  constructor(
+    private doc: Doc,
+    private snapshot?: () => void,
+  ) {}
 
   /**
    * Run a search and update matches/activeIndex.
    */
   search(query: string, options?: SearchOptions): void {
+    const prevIndex = this.activeIndex;
     this.query = query;
     this.options = options ?? {};
     this.matches = this.doc.searchText(query, this.options);
-    this.activeIndex = this.matches.length > 0 ? 0 : -1;
+    if (this.matches.length === 0) {
+      this.activeIndex = -1;
+    } else if (prevIndex >= 0 && prevIndex < this.matches.length) {
+      // Keep the previous active index if it's still valid (e.g. after replace)
+      this.activeIndex = prevIndex;
+    } else {
+      this.activeIndex = 0;
+    }
   }
 
   /**
@@ -45,6 +56,7 @@ export class FindReplaceState {
    */
   replaceActive(replacement: string): void {
     if (this.activeIndex < 0 || this.activeIndex >= this.matches.length) return;
+    this.snapshot?.();
     const match = this.matches[this.activeIndex];
     this.doc.deleteText(
       { blockId: match.blockId, offset: match.startOffset },
@@ -62,6 +74,8 @@ export class FindReplaceState {
    * and re-search.
    */
   replaceAll(replacement: string): void {
+    if (this.matches.length === 0) return;
+    this.snapshot?.();
     for (let i = this.matches.length - 1; i >= 0; i--) {
       const match = this.matches[i];
       this.doc.deleteText(

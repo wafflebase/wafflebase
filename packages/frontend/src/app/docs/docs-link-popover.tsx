@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import type { EditorAPI } from "@wafflebase/docs";
+import { type EditorAPI, normalizeLinkUrl, isSafeUrl } from "@wafflebase/docs";
 import { IconEdit, IconUnlink } from "@tabler/icons-react";
 
 interface LinkHoverInfo {
@@ -127,7 +127,9 @@ export function DocsLinkPopover({
 
   const handleApply = useCallback(() => {
     if (!editor || !editUrl.trim()) return;
-    editor.insertLink(editUrl.trim());
+    const url = normalizeLinkUrl(editUrl);
+    if (!url) return;
+    editor.insertLink(url);
     editor.focus();
     close();
   }, [editor, editUrl, close]);
@@ -171,12 +173,15 @@ export function DocsLinkPopover({
       {mode === "view" && linkInfo ? (
         <>
           <a
-            href={linkInfo.href}
+            href={isSafeUrl(linkInfo.href) ? linkInfo.href : "#"}
             target="_blank"
             rel="noopener noreferrer"
             className="flex h-7 flex-1 items-center truncate rounded border bg-background px-2 text-xs text-blue-600 no-underline hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
             title={linkInfo.href}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isSafeUrl(linkInfo.href)) e.preventDefault();
+            }}
           >
             {linkInfo.href.length > 40
               ? linkInfo.href.slice(0, 37) + "..."

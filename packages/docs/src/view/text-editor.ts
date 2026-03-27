@@ -9,7 +9,7 @@ import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import { buildFont, Theme } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
-import { detectUrlBeforeCursor } from './url-detect.js';
+import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
 import { findVisualLine } from './visual-line.js';
 
@@ -544,7 +544,15 @@ export class TextEditor {
         if (mod && altKey) {
           e.preventDefault();
           if (this.styleBuffer && this.selection.hasSelection() && this.selection.range) {
+            this.saveSnapshot();
             this.doc.applyInlineStyle(this.selection.range, this.styleBuffer);
+            const startIdx = this.doc.getBlockIndex(this.selection.range.anchor.blockId);
+            const endIdx = this.doc.getBlockIndex(this.selection.range.focus.blockId);
+            if (startIdx >= 0 && endIdx >= 0) {
+              for (let i = Math.min(startIdx, endIdx); i <= Math.max(startIdx, endIdx); i++) {
+                this.markDirty(this.doc.document.blocks[i].id);
+              }
+            }
             this.requestRender();
           }
           break;
@@ -552,14 +560,7 @@ export class TextEditor {
         // Cmd/Ctrl+Shift+V: paste as plain text (strip formatting)
         if (mod && shiftKey) {
           e.preventDefault();
-          navigator.clipboard.readText().then((text) => {
-            if (!text) return;
-            this.saveSnapshot();
-            this.deleteSelection();
-            this.insertPlainText(text);
-            this.selection.setRange(null);
-            this.requestRender();
-          });
+          void this.pastePlainTextFromClipboard();
         }
         break;
       case '1': case '2': case '3': case '4': case '5': case '6':
@@ -657,7 +658,7 @@ export class TextEditor {
     // Ctrl+Click (or Cmd+Click on Mac) on a link opens it in a new tab
     if (e.ctrlKey || e.metaKey) {
       const href = this.getLinkHrefAtMouse(e);
-      if (href) {
+      if (href && isSafeUrl(href)) {
         e.preventDefault();
         window.open(href, '_blank', 'noopener,noreferrer');
         return;
@@ -1394,6 +1395,20 @@ export class TextEditor {
    * Insert plain text at the current cursor position, splitting by newlines
    * into separate blocks. The text inherits no special formatting.
    */
+  private async pastePlainTextFromClipboard(): Promise<void> {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      this.saveSnapshot();
+      this.deleteSelection();
+      this.insertPlainText(text);
+      this.selection.setRange(null);
+      this.requestRender();
+    } catch {
+      // Clipboard API unavailable or permission denied — silently ignore.
+    }
+  }
+
   private insertPlainText(text: string): void {
     const lines = text.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
