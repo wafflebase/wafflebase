@@ -34,6 +34,7 @@ import {
   Range,
   Ranges,
   Direction,
+  NumberFormat,
   SelectionType,
 } from '../core/types';
 import {
@@ -3714,6 +3715,34 @@ export class Sheet {
   async getActiveDecimalPlaces(): Promise<number> {
     const style = await this.getStyle(this.activeCell);
     return style?.dp ?? 2;
+  }
+
+  /**
+   * `getActiveDecimalState` returns the decimal places and number format
+   * of the active cell. When the cell has plain format and no explicit dp,
+   * the decimal places are inferred from the stored value string so that
+   * the first increase/decrease starts from the visible precision.
+   */
+  async getActiveDecimalState(): Promise<{ dp: number; nf?: NumberFormat }> {
+    const style = await this.getStyle(this.activeCell);
+    // If dp is explicitly set in the style, use it.
+    if (style?.dp !== undefined) {
+      return { dp: style.dp, nf: style?.nf };
+    }
+    // For plain format (or no format), infer dp from the stored value.
+    if (!style?.nf || style.nf === 'plain') {
+      const cell = await this.store.get(
+        this.normalizeRefToAnchor(this.activeCell),
+      );
+      if (cell?.v) {
+        const dotIndex = cell.v.indexOf('.');
+        if (dotIndex >= 0) {
+          return { dp: cell.v.length - dotIndex - 1, nf: style?.nf };
+        }
+      }
+      return { dp: 0, nf: style?.nf };
+    }
+    return { dp: 2, nf: style?.nf };
   }
 
   /**
