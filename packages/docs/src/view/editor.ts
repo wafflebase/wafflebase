@@ -89,6 +89,7 @@ export function initialize(
   container: HTMLElement,
   store?: DocStore,
   theme?: ThemeMode,
+  readOnly?: boolean,
 ): EditorAPI {
   if (theme) {
     setThemeMode(theme);
@@ -109,7 +110,7 @@ export function initialize(
   canvas.style.display = 'block';
   canvas.style.position = 'sticky';
   canvas.style.top = '0';
-  canvas.style.cursor = 'text';
+  canvas.style.cursor = readOnly ? 'default' : 'text';
   container.style.position = 'relative';
   container.appendChild(canvas);
 
@@ -119,7 +120,7 @@ export function initialize(
   container.appendChild(spacer);
 
   const docCanvas = new DocCanvas(canvas);
-  const ruler = new Ruler(container, canvas);
+  const ruler = new Ruler(container, canvas, readOnly);
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
@@ -127,7 +128,7 @@ export function initialize(
   let layoutCache: LayoutCache | undefined;
   let dirtyBlockIds: Set<string> | undefined;
   let needsScrollIntoView = false;
-  let focused = true;
+  let focused = !readOnly;
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
   let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
@@ -217,7 +218,7 @@ export function initialize(
       const containerRect = container.getBoundingClientRect();
       const screenX = containerRect.left + cursorPixel.x;
       const screenY = containerRect.top + (cursorPixel.y - scrollY);
-      textEditor.updateTextareaPosition(screenX, screenY);
+      textEditor?.updateTextareaPosition(screenX, screenY);
     }
 
     const selectionRects = selection.getSelectionRects(
@@ -454,7 +455,7 @@ export function initialize(
     }
   };
 
-  const textEditor = new TextEditor(
+  const textEditor = readOnly ? null : new TextEditor(
     container,
     doc,
     cursor,
@@ -477,8 +478,10 @@ export function initialize(
   );
   textEditorRef = textEditor;
 
-  // Start cursor blink
-  cursor.startBlink(renderPaintOnly);
+  // Start cursor blink (skip in read-only — no cursor visible)
+  if (!readOnly) {
+    cursor.startBlink(renderPaintOnly);
+  }
 
   // Enable scroll BEFORE the initial render so the container stays
   // flex-constrained instead of growing to match content height.
@@ -520,10 +523,10 @@ export function initialize(
     cursor.stopBlink();
     render();
   };
-  textEditor.onFocusChange(handleFocus, handleBlur);
-
-  // Focus
-  textEditor.focus();
+  if (textEditor) {
+    textEditor.onFocusChange(handleFocus, handleBlur);
+    textEditor.focus();
+  }
 
   return {
     render,
@@ -786,14 +789,14 @@ export function initialize(
       activeMatchIndex = -1;
       render();
     },
-    focus: () => textEditor.focus(),
+    focus: () => textEditor?.focus(),
     dispose: () => {
       peerCursors = [];
       cursorMoveCallback = null;
       lastPeerPixels = [];
       ruler.dispose();
       cursor.dispose();
-      textEditor.dispose();
+      textEditor?.dispose();
       container.removeEventListener('scroll', handleScroll);
       document.removeEventListener('transitionend', handleTransitionEnd);
       resizeObserver.disconnect();

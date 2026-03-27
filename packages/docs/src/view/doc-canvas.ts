@@ -176,7 +176,7 @@ export class DocCanvas {
             const marker = block.listKind === 'unordered'
               ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
               : (listCounters.get(block.id) ?? '1.');
-            this.renderListMarker(block, pageX + pl.x, pageY + pl.y, pl.line.height, markerX, marker);
+            this.renderListMarker(block, pageY + pl.y, pl.line.height, markerX, marker);
           }
         }
       }
@@ -312,7 +312,6 @@ export class DocCanvas {
    */
   private renderListMarker(
     block: Block,
-    lineX: number,
     lineY: number,
     lineHeight: number,
     markerX: number,

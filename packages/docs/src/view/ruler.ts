@@ -74,7 +74,7 @@ export class Ruler {
   // Event handler references for cleanup
   private boundHandlers: Array<[EventTarget, string, EventListener]> = [];
 
-  constructor(container: HTMLElement, docCanvas: HTMLCanvasElement) {
+  constructor(container: HTMLElement, docCanvas: HTMLCanvasElement, readOnly?: boolean) {
     const doc = typeof document !== 'undefined' ? document : null;
 
     // Corner element: collapses into hRuler's space via negative margin
@@ -117,7 +117,7 @@ export class Ruler {
     this.unit = detectUnit(typeof navigator !== 'undefined' ? navigator?.language : undefined);
     this.grid = getGridConfig(this.unit);
 
-    if (typeof document !== 'undefined') {
+    if (typeof document !== 'undefined' && !readOnly) {
       this.addMouseHandlers();
     }
   }

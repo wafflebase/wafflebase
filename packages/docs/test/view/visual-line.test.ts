@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { findVisualLine } from '../../src/view/visual-line.js';
 import type { LayoutBlock, LayoutLine, LayoutRun } from '../../src/view/layout.js';
-import type { Block, Inline, DocPosition } from '../../src/model/types.js';
+import type { Block, Inline } from '../../src/model/types.js';
+import { DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 
 /**
  * Helper to build a minimal LayoutBlock with the given line char ranges.
@@ -15,6 +16,7 @@ function makeLayoutBlock(
     id: blockId,
     type: 'paragraph',
     inlines: [{ text: 'x'.repeat(lineRanges[lineRanges.length - 1]?.[1] ?? 0), style: {} } as Inline],
+    style: { ...DEFAULT_BLOCK_STYLE },
   };
   const lines: LayoutLine[] = lineRanges.map(([start, end], i) => ({
     runs: [{ charStart: start, charEnd: end, x: 0, width: 100, text: '', inlineIndex: 0, inline: block.inlines[0] } as LayoutRun],

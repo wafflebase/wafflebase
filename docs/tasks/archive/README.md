@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 102
+Total archived tasks: 103
 
-## 2026/03 (65 tasks)
+## 2026/03 (66 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| number autofill ols (2026-03-26) | [20260326-number-autofill-ols-todo.md](./2026/03/20260326-number-autofill-ols-todo.md) | - |
 | docs editor improvements (2026-03-25) | [20260325-docs-editor-improvements-todo.md](./2026/03/20260325-docs-editor-improvements-todo.md) | - |
 | docs documentation update (2026-03-24) | [20260324-docs-documentation-update-todo.md](./2026/03/20260324-docs-documentation-update-todo.md) | - |
 | docs remote cursor (2026-03-24) | [20260324-docs-remote-cursor-todo.md](./2026/03/20260324-docs-remote-cursor-todo.md) | - |

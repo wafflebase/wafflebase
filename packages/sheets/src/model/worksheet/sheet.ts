@@ -93,6 +93,8 @@ import {
   computeAutofillRange,
   positiveMod,
   cloneCellForAutofill,
+  computeLinearTrend,
+  isNumericValue,
 } from './clipboard';
 import {
   hasCellContent,
@@ -2188,7 +2190,9 @@ export class Sheet {
 
   /**
    * `autofill` fills from the current selected range to include `target`.
-   * Pattern repeats by wrapping source rows/columns; formulas are relocated.
+   * For columns/rows where all source cells are numeric (no formulas),
+   * OLS linear regression is used to extrapolate the trend. Otherwise,
+   * pattern repeats by wrapping source rows/columns; formulas are relocated.
    */
   public async autofill(target: Ref): Promise<boolean> {
     if (this.selectionType !== 'cell') {
@@ -2211,6 +2215,54 @@ export class Sheet {
     const sourceColCount = sourceRange[1].c - sourceRange[0].c + 1;
     const changedSrefs = new Set<Sref>();
 
+    // Determine fill direction: vertical if rows expanded, horizontal if cols.
+    const isVertical =
+      fillRange[0].r < sourceRange[0].r || fillRange[1].r > sourceRange[1].r;
+
+    // Pre-compute which lines (columns for vertical, rows for horizontal)
+    // are fully numeric and eligible for OLS trend extrapolation.
+    const trendLines = new Map<number, { xs: number[]; ys: number[] }>();
+
+    if (isVertical) {
+      // For each column in source range, check if all cells are numeric
+      for (let c = sourceRange[0].c; c <= sourceRange[1].c; c++) {
+        const xs: number[] = [];
+        const ys: number[] = [];
+        let allNumeric = true;
+        for (let r = sourceRange[0].r; r <= sourceRange[1].r; r++) {
+          const cell = sourceGrid.get(toSref({ r, c }));
+          if (!cell || cell.f || !isNumericValue(cell.v)) {
+            allNumeric = false;
+            break;
+          }
+          xs.push(r);
+          ys.push(Number(cell.v));
+        }
+        if (allNumeric && xs.length >= 2) {
+          trendLines.set(c, { xs, ys });
+        }
+      }
+    } else {
+      // For each row in source range, check if all cells are numeric
+      for (let r = sourceRange[0].r; r <= sourceRange[1].r; r++) {
+        const xs: number[] = [];
+        const ys: number[] = [];
+        let allNumeric = true;
+        for (let c = sourceRange[0].c; c <= sourceRange[1].c; c++) {
+          const cell = sourceGrid.get(toSref({ r, c }));
+          if (!cell || cell.f || !isNumericValue(cell.v)) {
+            allNumeric = false;
+            break;
+          }
+          xs.push(c);
+          ys.push(Number(cell.v));
+        }
+        if (allNumeric && xs.length >= 2) {
+          trendLines.set(r, { xs, ys });
+        }
+      }
+    }
+
     this.store.beginBatch();
     try {
       for (let r = fillRange[0].r; r <= fillRange[1].r; r++) {
@@ -2220,6 +2272,50 @@ export class Sheet {
             continue;
           }
 
+          const normalizedDest = this.normalizeRefToAnchor(dest);
+          const normalizedDestSref = toSref(normalizedDest);
+
+          // Check if this line uses OLS trend
+          const lineKey = isVertical ? c : r;
+          const trend = trendLines.get(lineKey);
+          if (trend) {
+            const targetX = isVertical ? r : c;
+            const predicted = computeLinearTrend(
+              trend.xs,
+              trend.ys,
+              targetX,
+            )!;
+            // Format: use integer if result is integer, otherwise
+            // use 15 significant digits (IEEE 754 double precision,
+            // matching Excel/Google Sheets behavior)
+            const formatted = Number.isInteger(predicted)
+              ? String(predicted)
+              : String(parseFloat(predicted.toPrecision(15)));
+            // Preserve style from the corresponding source cell
+            const sourceRef = isVertical
+              ? {
+                  r:
+                    sourceRange[0].r +
+                    positiveMod(dest.r - sourceRange[0].r, sourceRowCount),
+                  c,
+                }
+              : {
+                  r,
+                  c:
+                    sourceRange[0].c +
+                    positiveMod(dest.c - sourceRange[0].c, sourceColCount),
+                };
+            const sourceCell = sourceGrid.get(toSref(sourceRef));
+            const nextCell: Cell = { v: formatted };
+            if (sourceCell?.s) {
+              nextCell.s = { ...sourceCell.s };
+            }
+            await this.store.set(normalizedDest, nextCell);
+            changedSrefs.add(normalizedDestSref);
+            continue;
+          }
+
+          // Fallback: pattern tiling with wrap-around
           const sourceRef = {
             r:
               sourceRange[0].r +
@@ -2229,8 +2325,6 @@ export class Sheet {
               positiveMod(dest.c - sourceRange[0].c, sourceColCount),
           };
           const sourceCell = sourceGrid.get(toSref(sourceRef));
-          const normalizedDest = this.normalizeRefToAnchor(dest);
-          const normalizedDestSref = toSref(normalizedDest);
 
           if (!sourceCell) {
             await this.store.delete(normalizedDest);

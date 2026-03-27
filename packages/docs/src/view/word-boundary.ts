@@ -12,12 +12,13 @@
 /**
  * Character categories for word-boundary logic.
  */
-const enum CharCategory {
-  Whitespace,
-  Word,
-  Punctuation,
-  CJK,
-}
+const CharCategory = {
+  Whitespace: 0,
+  Word: 1,
+  Punctuation: 2,
+  CJK: 3,
+} as const;
+type CharCategory = (typeof CharCategory)[keyof typeof CharCategory];
 
 /**
  * CJK Unified Ideographs and common CJK ranges.

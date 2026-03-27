@@ -3,11 +3,10 @@ import {
   paginateLayout,
   getPageYOffset,
   getTotalHeight,
-  getPageXOffset,
   findPageForPosition,
   paginatedPixelToPosition,
 } from '../../src/view/pagination.js';
-import { DEFAULT_PAGE_SETUP, PAPER_SIZES } from '../../src/model/types.js';
+import { DEFAULT_PAGE_SETUP } from '../../src/model/types.js';
 import type { DocumentLayout, LayoutBlock, LayoutLine } from '../../src/view/layout.js';
 
 function mockLine(height: number): LayoutLine {
@@ -26,7 +25,7 @@ function mockBlock(
       id,
       type: 'paragraph',
       inlines: [{ text: 'test', style: {} }],
-      style: { alignment: 'left', lineHeight: 1.5, marginTop, marginBottom },
+      style: { alignment: 'left', lineHeight: 1.5, marginTop, marginBottom, textIndent: 0, marginLeft: 0 },
     },
     x: 0,
     y: 0,

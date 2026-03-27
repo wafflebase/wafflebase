@@ -14,7 +14,8 @@ import {
 import type { YorkieDocsRoot } from "@/types/docs-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
-import { DocsView } from "@/app/docs/docs-view";
+import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
+import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import { IconDatabase, IconTable } from "@tabler/icons-react";
 
 type PeerJumpTarget = {
@@ -141,8 +142,8 @@ function SharedDocumentLayout({
 }
 
 function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
-  // TODO: pass readOnly to DocsView once the docs editor supports read-only mode
   const readOnly = resolved.role === "viewer";
+  const [editor, setEditor] = useState<EditorAPI | null>(null);
 
   return (
     <div className="flex h-screen w-full flex-col">
@@ -158,7 +159,8 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
         <UserPresence />
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-        <DocsView />
+        {!readOnly && <DocsFormattingToolbar editor={editor} />}
+        <DocsView onEditorReady={setEditor} readOnly={readOnly} />
       </div>
     </div>
   );
