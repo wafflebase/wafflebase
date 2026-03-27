@@ -1,13 +1,15 @@
-import type { DocPosition, InlineStyle, HeadingLevel } from '../model/types.js';
-import { getBlockText, getBlockTextLength } from '../model/types.js';
+import type { Block, DocPosition, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength } from '../model/types.js';
 import { Doc } from '../model/document.js';
+import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
-import { buildFont } from './theme.js';
+import { buildFont, Theme } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
+import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
 import { findVisualLine } from './visual-line.js';
 
@@ -61,6 +63,7 @@ export class TextEditor {
    * browsers fire more than one).
    */
   private ignoreInputUntilNextTick = false;
+  private styleBuffer: Partial<InlineStyle> | null = null;
 
   // Software Hangul assembler for browsers that don't fire composition events
   // (e.g., Mobile Safari with hidden textarea sends raw jamo as insertText).
@@ -69,6 +72,8 @@ export class TextEditor {
   private hangulComposingLength = 0;
   private handleFocus: (() => void) | null = null;
   private handleBlur: (() => void) | null = null;
+  /** Track shift key state for paste handler (ClipboardEvent lacks shiftKey). */
+  private shiftHeld = false;
 
   private container: HTMLElement;
   private doc: Doc;
@@ -85,6 +90,15 @@ export class TextEditor {
   private redoAction: () => void;
   private markDirty: (blockId: string) => void;
   private invalidateLayout: () => void;
+
+  /** Callback invoked when Cmd/Ctrl+K is pressed to request link insertion. */
+  onLinkRequest?: () => void;
+
+  /** Callback invoked when Cmd/Ctrl+F is pressed to open find bar. */
+  onFindRequest?: () => void;
+
+  /** Callback invoked when Cmd/Ctrl+H is pressed to open find & replace bar. */
+  onFindReplaceRequest?: () => void;
 
   constructor(
     container: HTMLElement,
@@ -274,11 +288,17 @@ export class TextEditor {
       this.requestRender();
       return;
     }
+    // URL auto-detection: after typing a space, check if the preceding token
+    // is a URL and convert it to a hyperlink.
+    if (data === ' ') {
+      this.tryAutoLinkBeforeCursor(blockId, newPos.offset - 1);
+    }
     this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
     this.requestRender();
   };
 
   private handleKeyDown = (e: KeyboardEvent): void => {
+    this.shiftHeld = e.shiftKey;
     // Don't intercept keys during IME composition
     if (this.composition.active || e.isComposing) return;
 
@@ -379,6 +399,13 @@ export class TextEditor {
           this.selectAll();
         }
         break;
+      case 'c':
+        // Cmd/Ctrl+Shift+C: copy formatting (format painter)
+        if (mod && shiftKey) {
+          e.preventDefault();
+          this.styleBuffer = { ...this.getStyleAtCursor() };
+        }
+        break;
       case 'b':
         if (mod) {
           e.preventDefault();
@@ -401,6 +428,36 @@ export class TextEditor {
         if (mod && shiftKey) {
           e.preventDefault();
           this.toggleStyle({ strikethrough: true });
+        }
+        break;
+      case '.':
+        if (mod) {
+          e.preventDefault();
+          this.toggleStyle({ superscript: true });
+        }
+        break;
+      case ',':
+        if (mod) {
+          e.preventDefault();
+          this.toggleStyle({ subscript: true });
+        }
+        break;
+      case 'f':
+        if (mod) {
+          e.preventDefault();
+          this.onFindRequest?.();
+        }
+        break;
+      case 'h':
+        if (mod) {
+          e.preventDefault();
+          this.onFindReplaceRequest?.();
+        }
+        break;
+      case 'k':
+        if (mod) {
+          e.preventDefault();
+          this.onLinkRequest?.();
         }
         break;
       case '\\':
@@ -482,6 +539,30 @@ export class TextEditor {
           this.handleIndent();
         }
         break;
+      case 'v':
+        // Cmd/Ctrl+Alt+V: paste formatting (format painter apply)
+        if (mod && altKey) {
+          e.preventDefault();
+          if (this.styleBuffer && this.selection.hasSelection() && this.selection.range) {
+            this.saveSnapshot();
+            this.doc.applyInlineStyle(this.selection.range, this.styleBuffer);
+            const startIdx = this.doc.getBlockIndex(this.selection.range.anchor.blockId);
+            const endIdx = this.doc.getBlockIndex(this.selection.range.focus.blockId);
+            if (startIdx >= 0 && endIdx >= 0) {
+              for (let i = Math.min(startIdx, endIdx); i <= Math.max(startIdx, endIdx); i++) {
+                this.markDirty(this.doc.document.blocks[i].id);
+              }
+            }
+            this.requestRender();
+          }
+          break;
+        }
+        // Cmd/Ctrl+Shift+V: paste as plain text (strip formatting)
+        if (mod && shiftKey) {
+          e.preventDefault();
+          void this.pastePlainTextFromClipboard();
+        }
+        break;
       case '1': case '2': case '3': case '4': case '5': case '6':
         if (mod && altKey) {
           e.preventDefault();
@@ -503,15 +584,19 @@ export class TextEditor {
   private handleCopy = (e: ClipboardEvent): void => {
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
-    const text = this.selection.getSelectedText(this.getLayout());
-    e.clipboardData?.setData('text/plain', text);
+    const selectedBlocks = this.getSelectedBlocks();
+    const json = serializeBlocks(selectedBlocks);
+    e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
+    e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
   };
 
   private handleCut = (e: ClipboardEvent): void => {
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
-    const text = this.selection.getSelectedText(this.getLayout());
-    e.clipboardData?.setData('text/plain', text);
+    const selectedBlocks = this.getSelectedBlocks();
+    const json = serializeBlocks(selectedBlocks);
+    e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
+    e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
     this.saveSnapshot();
     this.deleteSelection();
     this.requestRender();
@@ -519,40 +604,61 @@ export class TextEditor {
 
   private handlePaste = (e: ClipboardEvent): void => {
     e.preventDefault();
+
+    // Try rich internal paste first
+    const json = e.clipboardData?.getData(WAFFLEDOCS_MIME);
+    if (json) {
+      const blocks = deserializeBlocks(json);
+      if (blocks.length > 0) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.insertBlocks(blocks);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
+    }
+
+    // Try HTML paste (unless shift is held for plain-text paste)
+    if (!this.shiftHeld) {
+      const html = e.clipboardData?.getData('text/html');
+      if (html) {
+        const blocks = parseHtmlToBlocks(html);
+        if (blocks.length > 0) {
+          this.saveSnapshot();
+          this.deleteSelection();
+          this.insertBlocks(blocks);
+          this.selection.setRange(null);
+          this.requestRender();
+          return;
+        }
+      }
+    }
+
+    // Fall through to plain text handling
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
 
     this.saveSnapshot();
     this.deleteSelection();
-
-    // Split pasted text by newlines into separate blocks
-    const lines = text.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      if (i > 0) {
-        // Create a new block for each line after the first
-        this.invalidateLayout();
-        const newBlockId = this.doc.splitBlock(
-          this.cursor.position.blockId,
-          this.cursor.position.offset,
-        );
-        this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
-      }
-      if (lines[i].length > 0) {
-        this.doc.insertText(this.cursor.position, lines[i]);
-        const newPos = {
-          blockId: this.cursor.position.blockId,
-          offset: this.cursor.position.offset + lines[i].length,
-        };
-        this.markDirty(newPos.blockId);
-        this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
-      }
-    }
+    this.insertPlainText(text);
     this.selection.setRange(null);
     this.requestRender();
   };
 
   private handleMouseDown = (e: MouseEvent): void => {
     if (e.target === this.textarea) return;
+
+    // Ctrl+Click (or Cmd+Click on Mac) on a link opens it in a new tab
+    if (e.ctrlKey || e.metaKey) {
+      const href = this.getLinkHrefAtMouse(e);
+      if (href && isSafeUrl(href)) {
+        e.preventDefault();
+        window.open(href, '_blank', 'noopener,noreferrer');
+        return;
+      }
+    }
+
     e.preventDefault();
     this.flushHangul();
     this.focus();
@@ -624,7 +730,7 @@ export class TextEditor {
 
   private updateDragSelection(clientX: number, clientY: number): void {
     const rect = this.container.getBoundingClientRect();
-    const x = clientX - rect.left;
+    const x = clientX - rect.left + this.container.scrollLeft;
     const y = clientY - rect.top - this.getCanvasOffsetTop();
     const scrollY = this.container.scrollTop;
     const result = paginatedPixelToPosition(
@@ -787,7 +893,9 @@ export class TextEditor {
       return;
     }
 
+    // URL auto-detection before splitting the block on Enter
     const pos = this.cursor.position;
+    this.tryAutoLinkBeforeCursor(pos.blockId, pos.offset);
     const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
 
     if (newBlockId === pos.blockId) {
@@ -919,6 +1027,26 @@ export class TextEditor {
     }
 
     return false;
+  }
+
+  /**
+   * Check if the token immediately before `cursorOffset` in the given block
+   * is a URL, and if so apply an `href` inline style to convert it into a
+   * clickable hyperlink.
+   */
+  private tryAutoLinkBeforeCursor(blockId: string, cursorOffset: number): void {
+    const block = this.doc.getBlock(blockId);
+    if (!block) return;
+    const text = getBlockText(block);
+    const match = detectUrlBeforeCursor(text, cursorOffset);
+    if (!match) return;
+
+    const range = {
+      anchor: { blockId, offset: match.start },
+      focus: { blockId, offset: match.end },
+    };
+    this.doc.applyInlineStyle(range, { href: match.url });
+    this.markDirty(blockId);
   }
 
   private handleArrow(
@@ -1073,6 +1201,9 @@ export class TextEditor {
       italic: undefined,
       underline: undefined,
       strikethrough: undefined,
+      superscript: undefined,
+      subscript: undefined,
+      href: undefined,
     });
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
@@ -1185,6 +1316,257 @@ export class TextEditor {
     this.selection.setRange(null);
     this.requestRender();
     return true;
+  }
+
+  /**
+   * Extract the selected blocks with formatting, trimming the first and last
+   * block to the selection boundaries. Block IDs are regenerated.
+   */
+  private getSelectedBlocks(): Block[] {
+    const layout = this.getLayout();
+    const normalized = this.selection.getNormalizedRange(layout);
+    if (!normalized) return [];
+
+    const { start, end } = normalized;
+    const startBlockIdx = layout.blocks.findIndex(
+      (lb) => lb.block.id === start.blockId,
+    );
+    const endBlockIdx = layout.blocks.findIndex(
+      (lb) => lb.block.id === end.blockId,
+    );
+    if (startBlockIdx === -1 || endBlockIdx === -1) return [];
+
+    const result: Block[] = [];
+
+    for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
+      const block = layout.blocks[bi].block;
+      const blockLen = getBlockTextLength(block);
+      const sliceStart = bi === startBlockIdx ? start.offset : 0;
+      const sliceEnd = bi === endBlockIdx ? end.offset : blockLen;
+
+      const slicedInlines = this.sliceInlines(block.inlines, sliceStart, sliceEnd);
+      const cloned: Block = {
+        id: generateBlockId(),
+        type: block.type,
+        inlines: slicedInlines.length > 0 ? slicedInlines : [{ text: '', style: {} }],
+        style: { ...block.style },
+      };
+      if (block.headingLevel !== undefined) cloned.headingLevel = block.headingLevel;
+      if (block.listKind !== undefined) cloned.listKind = block.listKind;
+      if (block.listLevel !== undefined) cloned.listLevel = block.listLevel;
+      result.push(cloned);
+    }
+
+    return result;
+  }
+
+  /**
+   * Slice inlines to extract text from [start, end) character offsets.
+   */
+  private sliceInlines(inlines: Inline[], start: number, end: number): Inline[] {
+    const result: Inline[] = [];
+    let pos = 0;
+
+    for (const inline of inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (inlineEnd <= start || pos >= end) {
+        pos = inlineEnd;
+        continue;
+      }
+      const sliceStart = Math.max(0, start - pos);
+      const sliceEnd = Math.min(inline.text.length, end - pos);
+      const text = inline.text.slice(sliceStart, sliceEnd);
+      if (text.length > 0) {
+        result.push({ text, style: { ...inline.style } });
+      }
+      pos = inlineEnd;
+    }
+
+    return result;
+  }
+
+  /**
+   * Insert plain text at the current cursor position, splitting by newlines
+   * into separate blocks. The text inherits no special formatting.
+   */
+  private async pastePlainTextFromClipboard(): Promise<void> {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      this.saveSnapshot();
+      this.deleteSelection();
+      this.insertPlainText(text);
+      this.selection.setRange(null);
+      this.requestRender();
+    } catch {
+      // Clipboard API unavailable or permission denied — silently ignore.
+    }
+  }
+
+  /**
+   * If the cursor is on a non-editable block (e.g. horizontal-rule),
+   * split it to create a new paragraph and move the cursor there.
+   */
+  private ensureEditableBlock(): void {
+    const block = this.doc.getBlock(this.cursor.position.blockId);
+    if (block.type === 'horizontal-rule') {
+      this.invalidateLayout();
+      const newId = this.doc.splitBlock(this.cursor.position.blockId, 0);
+      this.cursor.moveTo({ blockId: newId, offset: 0 });
+    }
+  }
+
+  private insertPlainText(text: string): void {
+    // If cursor is on a non-editable block, split to create a text block first
+    this.ensureEditableBlock();
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      if (i > 0) {
+        this.invalidateLayout();
+        const newBlockId = this.doc.splitBlock(
+          this.cursor.position.blockId,
+          this.cursor.position.offset,
+        );
+        this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+      }
+      if (lines[i].length > 0) {
+        this.doc.insertText(this.cursor.position, lines[i]);
+        const newPos = {
+          blockId: this.cursor.position.blockId,
+          offset: this.cursor.position.offset + lines[i].length,
+        };
+        this.markDirty(newPos.blockId);
+        this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+      }
+    }
+  }
+
+  /**
+   * Insert deserialized blocks at the current cursor position, preserving
+   * formatting. Handles single-block (inline merge) and multi-block
+   * (split + insert) cases.
+   */
+  private insertBlocks(blocks: Block[]): void {
+    if (blocks.length === 0) return;
+
+    // If cursor is on a non-editable block, split to create a text block first
+    this.ensureEditableBlock();
+    const pos = this.cursor.position;
+
+    if (blocks.length === 1) {
+      // Single block: merge pasted inlines into the current block at cursor
+      const pastedInlines = blocks[0].inlines;
+      const pastedTextLen = pastedInlines.reduce((sum, il) => sum + il.text.length, 0);
+
+      // Insert each inline's text with its style
+      // Strategy: split the block at cursor, splice pasted inlines in
+      const block = this.doc.getBlock(pos.blockId);
+      const newInlines = this.spliceInlinesAt(block.inlines, pos.offset, pastedInlines);
+      block.inlines = newInlines;
+      this.doc.updateBlockDirect(pos.blockId, block);
+
+      const newPos = { blockId: pos.blockId, offset: pos.offset + pastedTextLen };
+      this.markDirty(pos.blockId);
+      this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+    } else {
+      // Multi-block: split the current block, then insert pasted blocks
+      this.invalidateLayout();
+
+      // Split at cursor
+      const tailBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+
+      // Append first pasted block's inlines to the head block, preserving block metadata
+      const headBlock = this.doc.getBlock(pos.blockId);
+      const firstPasted = blocks[0];
+      const firstPastedInlines = firstPasted.inlines;
+      headBlock.inlines = this.spliceInlinesAt(headBlock.inlines, getBlockTextLength(headBlock), firstPastedInlines);
+      headBlock.type = firstPasted.type;
+      headBlock.style = { ...firstPasted.style };
+      headBlock.headingLevel = firstPasted.headingLevel;
+      headBlock.listKind = firstPasted.listKind;
+      headBlock.listLevel = firstPasted.listLevel;
+      this.doc.updateBlockDirect(pos.blockId, headBlock);
+
+      // Insert middle blocks (blocks[1..n-2]) after head block
+      let insertAfterIdx = this.doc.getBlockIndex(pos.blockId);
+      for (let i = 1; i < blocks.length - 1; i++) {
+        const newBlock: Block = {
+          ...blocks[i],
+          id: generateBlockId(),
+          inlines: blocks[i].inlines.map((il) => ({ text: il.text, style: { ...il.style } })),
+          style: { ...blocks[i].style },
+        };
+        insertAfterIdx++;
+        this.doc.insertBlockAt(insertAfterIdx, newBlock);
+      }
+
+      // Prepend last pasted block's inlines to the tail block, preserving block metadata
+      const tailBlock = this.doc.getBlock(tailBlockId);
+      const lastPasted = blocks[blocks.length - 1];
+      const lastPastedInlines = lastPasted.inlines;
+      const lastPastedTextLen = lastPastedInlines.reduce((sum, il) => sum + il.text.length, 0);
+      tailBlock.inlines = this.spliceInlinesAt(tailBlock.inlines, 0, lastPastedInlines);
+      tailBlock.type = lastPasted.type;
+      tailBlock.style = { ...lastPasted.style };
+      tailBlock.headingLevel = lastPasted.headingLevel;
+      tailBlock.listKind = lastPasted.listKind;
+      tailBlock.listLevel = lastPasted.listLevel;
+      this.doc.updateBlockDirect(tailBlockId, tailBlock);
+
+      const newPos = { blockId: tailBlockId, offset: lastPastedTextLen };
+      this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+    }
+  }
+
+  /**
+   * Splice pasted inlines into existing inlines at a character offset.
+   * Returns the new inlines array with adjacent same-style inlines merged.
+   */
+  private spliceInlinesAt(
+    existing: Inline[],
+    offset: number,
+    toInsert: Inline[],
+  ): Inline[] {
+    const before = this.sliceInlines(existing, 0, offset);
+    const after = this.sliceInlines(existing, offset, existing.reduce((s, il) => s + il.text.length, 0));
+
+    const combined = [...before, ...toInsert.map((il) => ({ text: il.text, style: { ...il.style } })), ...after];
+
+    // Normalize: merge adjacent inlines with same style, remove empties
+    return this.normalizeInlineList(combined);
+  }
+
+  /**
+   * Merge adjacent inlines with identical styles, remove empty ones.
+   */
+  private normalizeInlineList(inlines: Inline[]): Inline[] {
+    const merged: Inline[] = [];
+    for (const inline of inlines) {
+      if (inline.text.length === 0) continue;
+      const last = merged[merged.length - 1];
+      if (last && this.inlineStylesMatch(last.style, inline.style)) {
+        last.text += inline.text;
+      } else {
+        merged.push({ text: inline.text, style: { ...inline.style } });
+      }
+    }
+    return merged.length > 0 ? merged : [{ text: '', style: {} }];
+  }
+
+  private inlineStylesMatch(a: InlineStyle, b: InlineStyle): boolean {
+    return (
+      a.bold === b.bold &&
+      a.italic === b.italic &&
+      a.underline === b.underline &&
+      a.strikethrough === b.strikethrough &&
+      a.fontSize === b.fontSize &&
+      a.fontFamily === b.fontFamily &&
+      a.color === b.color &&
+      a.backgroundColor === b.backgroundColor &&
+      a.superscript === b.superscript &&
+      a.subscript === b.subscript &&
+      a.href === b.href
+    );
   }
 
   private moveLeft(pos: DocPosition): DocPosition {
@@ -1369,7 +1751,7 @@ export class TextEditor {
 
   private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
     const rect = this.container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+    const x = e.clientX - rect.left + this.container.scrollLeft;
     const y = e.clientY - rect.top - this.getCanvasOffsetTop();
     const scrollY = this.container.scrollTop;
     return paginatedPixelToPosition(
@@ -1403,7 +1785,11 @@ export class TextEditor {
       const runLength = run.charEnd - run.charStart;
       if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
         const localOff = lineOffset - charCount;
-        ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+        const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
+        const measureFontSize = isSuperOrSub
+          ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
+          : run.inline.style.fontSize;
+        ctx.font = buildFont(measureFontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
         const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
         return { x, y: pageY + pageLine.y, height: pageLine.line.height };
       }
@@ -1479,6 +1865,85 @@ export class TextEditor {
   updateTextareaPosition(screenX: number, screenY: number): void {
     this.textarea.style.top = `${screenY}px`;
     this.textarea.style.left = `${screenX}px`;
+  }
+
+  /**
+   * Returns the href of the link at the mouse event position, or undefined.
+   * Used for Ctrl+Click to open links.
+   */
+  private getLinkHrefAtMouse(e: MouseEvent): string | undefined {
+    const rect = this.container.getBoundingClientRect();
+    const x = e.clientX - rect.left + this.container.scrollLeft;
+    const y = e.clientY - rect.top - this.getCanvasOffsetTop();
+    const scrollY = this.container.scrollTop;
+    const result = paginatedPixelToPosition(
+      this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
+    );
+    if (!result) return undefined;
+
+    const block = this.doc.document.blocks.find((b) => b.id === result.blockId);
+    if (!block) return undefined;
+    let pos = 0;
+    for (const inline of block.inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (result.offset >= pos && result.offset < inlineEnd && inline.style.href) {
+        return inline.style.href;
+      }
+      if (result.offset === inlineEnd && result.offset > pos && inline.style.href) {
+        return inline.style.href;
+      }
+      pos = inlineEnd;
+    }
+    return undefined;
+  }
+
+  /**
+   * Returns link info (href + bounding rect) at the current cursor position,
+   * or undefined if the cursor is not inside a link.
+   */
+  getLinkAtCursorPosition(): { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined {
+    const cursorPos = this.cursor.position;
+    const block = this.doc.document.blocks.find((b) => b.id === cursorPos.blockId);
+    if (!block) return undefined;
+
+    let pos = 0;
+    let linkInline: { href: string; inlineStart: number; inlineEnd: number } | undefined;
+    for (const inline of block.inlines) {
+      const inlineEnd = pos + inline.text.length;
+      if (cursorPos.offset >= pos && cursorPos.offset < inlineEnd && inline.style.href) {
+        linkInline = { href: inline.style.href, inlineStart: pos, inlineEnd };
+        break;
+      }
+      // Also check if cursor is exactly at end and this inline has href
+      if (cursorPos.offset === inlineEnd && cursorPos.offset > pos && inline.style.href) {
+        linkInline = { href: inline.style.href, inlineStart: pos, inlineEnd };
+        break;
+      }
+      pos = inlineEnd;
+    }
+    if (!linkInline) return undefined;
+
+    // Compute bounding rect of the full link text.
+    // Coordinates are in document-space (not viewport-relative) so the
+    // absolutely-positioned popover aligns correctly inside the scrollable container.
+    const startPixel = this.getPixelForPosition({ blockId: cursorPos.blockId, offset: linkInline.inlineStart });
+    const endPixel = this.getPixelForPosition({ blockId: cursorPos.blockId, offset: linkInline.inlineEnd });
+    if (!startPixel || !endPixel) return undefined;
+
+    const cursorPixel = this.getPixelForPosition(cursorPos);
+    if (!cursorPixel) return undefined;
+
+    // Use the full line if same line, otherwise just the cursor's line segment
+    const sameY = Math.abs(startPixel.y - endPixel.y) < 2;
+    const rectX = sameY ? startPixel.x : cursorPixel.x;
+    const rectWidth = sameY ? (endPixel.x - startPixel.x) : 50;
+    const rectY = cursorPixel.y;
+    const rectHeight = cursorPixel.height;
+
+    return {
+      href: linkInline.href,
+      rect: { x: rectX, y: rectY, width: Math.max(rectWidth, 1), height: rectHeight },
+    };
   }
 
   dispose(): void {

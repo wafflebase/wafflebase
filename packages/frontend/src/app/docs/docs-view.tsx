@@ -11,6 +11,8 @@ import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieDocsRoot } from "@/types/docs-document";
 import { YorkieDocStore } from "./yorkie-doc-store";
+import { DocsLinkPopover } from "./docs-link-popover";
+import { DocsFindBar } from "./docs-find-bar";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -78,7 +80,14 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
+  const [mountedEditor, setMountedEditor] = useState<EditorAPI | null>(null);
   const [didMount, setDidMount] = useState(false);
+  const [findBarOpen, setFindBarOpen] = useState(false);
+  const [findBarShowReplace, setFindBarShowReplace] = useState(false);
+  const [linkInputRequest, setLinkInputRequest] = useState<{
+    initialUrl: string;
+    position: { x: number; y: number; height: number };
+  } | null>(null);
   const { doc, loading, error } = useDocument<YorkieDocsRoot>();
   const { resolvedTheme } = useTheme();
 
@@ -185,6 +194,7 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor: EditorAPI = initialize(container, store, theme, readOnly);
     editorRef.current = editor;
+    setMountedEditor(editor);
     onEditorReady?.(editor);
 
     // Re-render the editor whenever a remote peer modifies the document.
@@ -218,12 +228,28 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
       }
     });
 
+    editor.onFindRequest(() => {
+      setFindBarOpen(true);
+      setFindBarShowReplace(false);
+    });
+    editor.onFindReplaceRequest(() => {
+      setFindBarOpen(true);
+      setFindBarShowReplace(true);
+    });
+
+    editor.onLinkRequest(() => {
+      const pos = editor.getCursorScreenRect();
+      if (!pos) return;
+      const existingHref = editor.getLinkAtCursor() ?? "";
+      setLinkInputRequest({ initialUrl: existingHref, position: pos });
+    });
+
     const handleMouseMove = (e: MouseEvent) => {
       const ed = editorRef.current;
       if (!ed) return;
 
       const containerRect = container.getBoundingClientRect();
-      const mouseX = e.clientX - containerRect.left;
+      const mouseX = e.clientX - containerRect.left + container.scrollLeft;
       const mouseY = e.clientY - containerRect.top + container.scrollTop;
 
       const peerPixels = ed.getPeerCursorPixels();
@@ -279,6 +305,7 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
       unsubPresence();
       editor.dispose();
       editorRef.current = null;
+      setMountedEditor(null);
       storeRef.current = null;
       onEditorReady?.(null);
     };
@@ -307,7 +334,22 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
   }
 
   return (
-    <div ref={containerRef} className="relative flex-1 w-full min-h-0" />
+    <div ref={containerRef} className="relative flex-1 w-full min-h-0">
+      <DocsLinkPopover
+        editor={mountedEditor}
+        containerRef={containerRef}
+        editRequest={linkInputRequest}
+        onEditRequestHandled={() => setLinkInputRequest(null)}
+      />
+      {findBarOpen && (
+        <DocsFindBar
+          editor={mountedEditor}
+          showReplace={findBarShowReplace}
+          onClose={() => setFindBarOpen(false)}
+          containerRef={containerRef}
+        />
+      )}
+    </div>
   );
 }
 

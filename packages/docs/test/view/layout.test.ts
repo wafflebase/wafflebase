@@ -71,6 +71,79 @@ describe('horizontal-rule layout', () => {
   });
 });
 
+describe('superscript/subscript layout', () => {
+  it('should use reduced font size for width measurement', () => {
+    // Use a mock that respects the font property to detect size changes
+    const ctx = {
+      font: '',
+      measureText(text: string) {
+        // Parse font size from ctx.font (e.g. "14.666px Arial" -> 14.666)
+        const match = (this as { font: string }).font.match(/([\d.]+)px/);
+        const pxPerChar = match ? parseFloat(match[1]) : 8;
+        return { width: text.length * pxPerChar };
+      },
+    } as unknown as CanvasRenderingContext2D;
+
+    const block = createBlock('paragraph');
+    block.inlines = [
+      { text: 'E=mc', style: {} },
+      { text: '2', style: { superscript: true } },
+    ];
+    const { layout } = computeLayout([block], ctx, 500);
+    const normalRun = layout.blocks[0].lines[0].runs[0];
+    const superRun = layout.blocks[0].lines[0].runs[1];
+    expect(superRun).toBeDefined();
+    // Superscript uses 60% font size, so width-per-char should be ~60% of normal
+    const normalWidthPerChar = normalRun.width / normalRun.text.length;
+    const superWidthPerChar = superRun.width / superRun.text.length;
+    expect(superWidthPerChar).toBeLessThan(normalWidthPerChar);
+    expect(superWidthPerChar / normalWidthPerChar).toBeCloseTo(0.6, 1);
+  });
+
+  it('should preserve original font size for line height with superscript', () => {
+    const ctx = mockCtx();
+    const block = createBlock('paragraph');
+    block.inlines = [
+      { text: '2', style: { superscript: true, fontSize: 11 } },
+    ];
+    const { layout } = computeLayout([block], ctx, 500);
+
+    const normalBlock = createBlock('paragraph');
+    normalBlock.inlines = [{ text: 'X', style: { fontSize: 11 } }];
+    const normalResult = computeLayout([normalBlock], ctx, 500);
+
+    // Line height should be the same — superscript preserves original font size for height
+    expect(layout.blocks[0].lines[0].height).toBeGreaterThanOrEqual(
+      normalResult.layout.blocks[0].lines[0].height,
+    );
+  });
+
+  it('should use reduced font size for subscript width measurement', () => {
+    const ctx = {
+      font: '',
+      measureText(text: string) {
+        const match = (this as { font: string }).font.match(/([\d.]+)px/);
+        const pxPerChar = match ? parseFloat(match[1]) : 8;
+        return { width: text.length * pxPerChar };
+      },
+    } as unknown as CanvasRenderingContext2D;
+
+    const block = createBlock('paragraph');
+    block.inlines = [
+      { text: 'H', style: {} },
+      { text: '2', style: { subscript: true } },
+      { text: 'O', style: {} },
+    ];
+    const { layout } = computeLayout([block], ctx, 500);
+    const normalRun = layout.blocks[0].lines[0].runs[0];
+    const subRun = layout.blocks[0].lines[0].runs[1];
+    expect(subRun).toBeDefined();
+    const normalWidthPerChar = normalRun.width / normalRun.text.length;
+    const subWidthPerChar = subRun.width / subRun.text.length;
+    expect(subWidthPerChar / normalWidthPerChar).toBeCloseTo(0.6, 1);
+  });
+});
+
 describe('computeListCounters', () => {
   it('should number consecutive ordered items', () => {
     const blocks = [

@@ -3,7 +3,7 @@ import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
-import { buildFont } from './theme.js';
+import { buildFont, Theme } from './theme.js';
 
 // --- Free helpers (used by both Selection class and computeSelectionRects) ---
 
@@ -57,8 +57,12 @@ function positionToPagePixel(
     const runLength = run.charEnd - run.charStart;
     if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
       const localOff = lineOffset - charCount;
+      const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
+      const measureFontSize = isSuperOrSub
+        ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
+        : run.inline.style.fontSize;
       ctx.font = buildFont(
-        run.inline.style.fontSize, run.inline.style.fontFamily,
+        measureFontSize, run.inline.style.fontFamily,
         run.inline.style.bold, run.inline.style.italic,
       );
       const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;

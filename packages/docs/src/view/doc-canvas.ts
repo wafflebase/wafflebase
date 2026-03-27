@@ -60,6 +60,8 @@ export class DocCanvas {
       rects: Array<{ x: number; y: number; width: number; height: number }>;
     }>,
     layout?: DocumentLayout,
+    searchHighlightRects?: Array<Array<{ x: number; y: number; width: number; height: number }>>,
+    activeSearchIndex?: number,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -108,6 +110,19 @@ export class DocCanvas {
       this.ctx.beginPath();
       this.ctx.rect(contentX, contentY, contentWidth, contentHeight);
       this.ctx.clip();
+
+      // Draw search match highlights for this page (behind all selections)
+      if (searchHighlightRects) {
+        for (let mi = 0; mi < searchHighlightRects.length; mi++) {
+          const isActive = mi === activeSearchIndex;
+          this.ctx.fillStyle = isActive ? '#f4a939' : '#fff2a8';
+          for (const rect of searchHighlightRects[mi]) {
+            if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+              this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            }
+          }
+        }
+      }
 
       // Draw peer selection highlights for this page (behind local selection)
       if (peerSelections) {
@@ -222,17 +237,38 @@ export class DocCanvas {
     lineHeight: number,
   ): void {
     const style = run.inline.style;
+    const originalFontSizePx = ptToPx(style.fontSize ?? Theme.defaultFontSize);
+
+    // Superscript/subscript: reduce font size to 60% and shift baseline
+    const isSuperscript = style.superscript === true;
+    const isSubscript = style.subscript === true;
+    const renderFontSize = (isSuperscript || isSubscript)
+      ? (style.fontSize ?? Theme.defaultFontSize) * 0.6
+      : style.fontSize;
+
+    // Link defaults: blue text + underline (user-set values take precedence)
+    let textColor = style.color || Theme.defaultColor;
+    let showUnderline = style.underline ?? false;
+    if (style.href) {
+      if (!style.color) textColor = '#1155cc';
+      if (style.underline === undefined) showUnderline = true;
+    }
+
     this.ctx.font = buildFont(
-      style.fontSize,
+      renderFontSize,
       style.fontFamily,
       style.bold,
       style.italic,
     );
-    this.ctx.fillStyle = style.color ?? Theme.defaultColor;
+    this.ctx.fillStyle = textColor;
     this.ctx.textBaseline = 'alphabetic';
 
-    const fontSizePx = ptToPx(style.fontSize ?? Theme.defaultFontSize);
-    const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
+    let baselineY = Math.round(lineY + (lineHeight + originalFontSizePx * 0.8) / 2);
+    if (isSuperscript) {
+      baselineY -= Math.round(originalFontSizePx * 0.4);
+    } else if (isSubscript) {
+      baselineY += Math.round(originalFontSizePx * 0.2);
+    }
     const x = Math.round(lineX + run.x);
 
     if (style.backgroundColor) {
@@ -240,15 +276,15 @@ export class DocCanvas {
       this.ctx.fillStyle = style.backgroundColor;
       this.ctx.fillRect(x, lineY, run.width, lineHeight);
       this.ctx.restore();
-      this.ctx.fillStyle = style.color ?? Theme.defaultColor;
+      this.ctx.fillStyle = textColor;
     }
 
     this.ctx.fillText(run.text, x, baselineY);
 
-    if (style.underline) {
+    if (showUnderline) {
       const underlineY = baselineY + 2;
       this.ctx.beginPath();
-      this.ctx.strokeStyle = style.color ?? Theme.defaultColor;
+      this.ctx.strokeStyle = textColor;
       this.ctx.lineWidth = 1;
       this.ctx.moveTo(x, underlineY);
       this.ctx.lineTo(x + run.width, underlineY);
@@ -256,9 +292,14 @@ export class DocCanvas {
     }
 
     if (style.strikethrough) {
-      const strikeY = Math.round(lineY + lineHeight / 2);
+      const renderFontSizePx = ptToPx(
+        (isSuperscript || isSubscript)
+          ? (style.fontSize ?? Theme.defaultFontSize) * 0.6
+          : (style.fontSize ?? Theme.defaultFontSize),
+      );
+      const strikeY = Math.round(baselineY - renderFontSizePx * 0.3);
       this.ctx.beginPath();
-      this.ctx.strokeStyle = style.color ?? Theme.defaultColor;
+      this.ctx.strokeStyle = textColor;
       this.ctx.lineWidth = 1;
       this.ctx.moveTo(x, strikeY);
       this.ctx.lineTo(x + run.width, strikeY);

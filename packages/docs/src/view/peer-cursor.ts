@@ -3,7 +3,7 @@ import { LIST_INDENT_PX } from '../model/types.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
-import { buildFont } from './theme.js';
+import { buildFont, Theme } from './theme.js';
 
 /**
  * Represents a remote peer's cursor for collaborative editing.
@@ -65,8 +65,12 @@ export function resolvePositionPixel(
     if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
       const localOffset = lineOffset - charCount;
       const textBefore = run.text.slice(0, localOffset);
+      const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
+      const measureFontSize = isSuperOrSub
+        ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
+        : run.inline.style.fontSize;
       ctx.font = buildFont(
-        run.inline.style.fontSize, run.inline.style.fontFamily,
+        measureFontSize, run.inline.style.fontFamily,
         run.inline.style.bold, run.inline.style.italic,
       );
       const x = pageX + pageLine.x + run.x + ctx.measureText(textBefore).width;

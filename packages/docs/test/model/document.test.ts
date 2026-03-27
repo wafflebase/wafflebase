@@ -360,6 +360,131 @@ describe('Doc', () => {
     });
   });
 
+  describe('superscript/subscript mutual exclusion', () => {
+    it('should clear subscript when applying superscript', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'Hello');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 5 },
+      };
+      doc.applyInlineStyle(range, { subscript: true });
+      expect(doc.document.blocks[0].inlines[0].style.subscript).toBe(true);
+
+      doc.applyInlineStyle(range, { superscript: true });
+      expect(doc.document.blocks[0].inlines[0].style.superscript).toBe(true);
+      expect(doc.document.blocks[0].inlines[0].style.subscript).toBeUndefined();
+    });
+
+    it('should clear superscript when applying subscript', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'Hello');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 5 },
+      };
+      doc.applyInlineStyle(range, { superscript: true });
+      doc.applyInlineStyle(range, { subscript: true });
+      expect(doc.document.blocks[0].inlines[0].style.subscript).toBe(true);
+      expect(doc.document.blocks[0].inlines[0].style.superscript).toBeUndefined();
+    });
+  });
+
+  describe('hyperlink', () => {
+    it('should apply href to selected text', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'click here');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 10 },
+      };
+      doc.applyInlineStyle(range, { href: 'https://example.com' });
+      expect(doc.document.blocks[0].inlines[0].style.href).toBe('https://example.com');
+    });
+
+    it('should remove href by setting undefined', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'link');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 4 },
+      };
+      doc.applyInlineStyle(range, { href: 'https://example.com' });
+      doc.applyInlineStyle(range, { href: undefined });
+      expect(doc.document.blocks[0].inlines[0].style.href).toBeUndefined();
+    });
+  });
+
+  describe('searchText', () => {
+    it('should find matches within a single block', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'hello world hello');
+      const matches = doc.searchText('hello');
+      expect(matches).toHaveLength(2);
+      expect(matches[0]).toEqual({ blockId, startOffset: 0, endOffset: 5 });
+      expect(matches[1]).toEqual({ blockId, startOffset: 12, endOffset: 17 });
+    });
+
+    it('should find matches across multiple blocks', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'hello');
+      const newBlockId = doc.splitBlock(blockId, 5);
+      doc.insertText({ blockId: newBlockId, offset: 0 }, 'hello again');
+      const matches = doc.searchText('hello');
+      expect(matches).toHaveLength(2);
+    });
+
+    it('should be case-insensitive by default', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'Hello HELLO hello');
+      const matches = doc.searchText('hello');
+      expect(matches).toHaveLength(3);
+    });
+
+    it('should support case-sensitive search', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'Hello HELLO hello');
+      const matches = doc.searchText('hello', { caseSensitive: true });
+      expect(matches).toHaveLength(1);
+      expect(matches[0].startOffset).toBe(12);
+    });
+
+    it('should support regex search', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'cat bat hat');
+      const matches = doc.searchText('[cbh]at', { useRegex: true });
+      expect(matches).toHaveLength(3);
+    });
+
+    it('should return empty array for no matches', () => {
+      const doc = Doc.create();
+      const matches = doc.searchText('xyz');
+      expect(matches).toHaveLength(0);
+    });
+
+    it('should find match spanning inline boundaries', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'helloworld');
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 0 }, focus: { blockId, offset: 5 } },
+        { bold: true },
+      );
+      const matches = doc.searchText('lloworl');
+      expect(matches).toHaveLength(1);
+      expect(matches[0]).toEqual({ blockId, startOffset: 2, endOffset: 9 });
+    });
+  });
+
   describe('applyBlockStyle', () => {
     it('should change paragraph alignment', () => {
       const doc = Doc.create();

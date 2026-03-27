@@ -32,6 +32,7 @@ import {
   IconListNumbers,
   IconIndentDecrease,
   IconIndentIncrease,
+  IconLink,
 } from "@tabler/icons-react";
 
 /** Style option for the block-type dropdown (Google Docs style). */
@@ -88,6 +89,11 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
     if (!editor) return;
     const current = editor.getSelectionStyle();
     editor.applyStyle({ underline: !current.underline });
+  }, [editor]);
+
+  const handleInsertLink = useCallback(() => {
+    if (!editor) return;
+    editor.requestLink();
   }, [editor]);
 
   const handleBlockType = useCallback(
@@ -309,6 +315,21 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={handleInsertLink}
+            aria-label="Insert link"
+          >
+            <IconLink size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
+      </Tooltip>
+
+      <Separator orientation="vertical" className="mx-1 h-6" />
+
       {/* ── Block Styles ── */}
       <DropdownMenu>
         <Tooltip>
@@ -349,19 +370,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipTrigger asChild>
           <button
             className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
-            aria-label="Bulleted list"
-          >
-            <IconList size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
             onClick={() => { editor?.toggleList("ordered"); editor?.focus(); }}
             aria-label="Numbered list"
           >
@@ -369,6 +377,19 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
           </button>
         </TooltipTrigger>
         <TooltipContent>Numbered list ({modKey}+⇧7)</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+            onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
+            aria-label="Bulleted list"
+          >
+            <IconList size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
       </Tooltip>
 
       <Tooltip>

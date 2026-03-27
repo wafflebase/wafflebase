@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import type { InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
+import type { InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
@@ -51,6 +51,28 @@ export interface EditorAPI {
   indent(): void;
   /** Decrease indent of the block at cursor */
   outdent(): void;
+  /** Insert a hyperlink on the current selection (or insert URL text if no selection) */
+  insertLink(url: string): void;
+  /** Remove the hyperlink at the current cursor position */
+  removeLink(): void;
+  /** Get the href of the link at the current cursor position, if any */
+  getLinkAtCursor(): string | undefined;
+  /** Programmatically trigger the link request (same as Ctrl+K) */
+  requestLink(): void;
+  /** Register a callback for Cmd/Ctrl+K link requests */
+  onLinkRequest(cb: () => void): void;
+  /** Register a callback for cursor-position-based link detection (fires when cursor enters/leaves a link) */
+  onCursorLinkChange(cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void): void;
+  /** Get the cursor's screen (viewport) coordinates for popover positioning */
+  getCursorScreenRect(): { x: number; y: number; height: number } | undefined;
+  /** Register a callback for Cmd/Ctrl+F find requests */
+  onFindRequest(cb: () => void): void;
+  /** Register a callback for Cmd/Ctrl+H find & replace requests */
+  onFindReplaceRequest(cb: () => void): void;
+  /** Set search match highlights and active match index */
+  setSearchMatches(matches: SearchMatch[], activeIndex: number): void;
+  /** Clear all search match highlights and optionally move cursor to active match */
+  clearSearchMatches(moveCursorToActive?: boolean): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -111,6 +133,8 @@ export function initialize(
   let peerCursors: PeerCursor[] = [];
   let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
+  let searchMatches: SearchMatch[] = [];
+  let activeMatchIndex = -1;
 
   // Compute layout helper
   const recomputeLayout = () => {
@@ -283,7 +307,21 @@ export function initialize(
       }
     }
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout);
+    // Compute search highlight rectangles
+    let searchHighlightRects: Array<{ x: number; y: number; width: number; height: number }>[] | undefined;
+    if (searchMatches.length > 0) {
+      searchHighlightRects = searchMatches.map((match) =>
+        computeSelectionRects(
+          { anchor: { blockId: match.blockId, offset: match.startOffset }, focus: { blockId: match.blockId, offset: match.endOffset } },
+          paginatedLayout,
+          layout,
+          docCanvas.getContext(),
+          canvasWidth,
+        ),
+      );
+    }
+
+    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout, searchHighlightRects, activeMatchIndex);
 
     // Draw drag guideline if active
     if (dragGuideline) {
@@ -384,6 +422,9 @@ export function initialize(
     }
   };
 
+  let cursorLinkChangeCallback: ((info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) | null = null;
+  let textEditorRef: TextEditor | null = null;
+
   const renderWithScroll = () => {
     needsScrollIntoView = true;
     render();
@@ -391,6 +432,27 @@ export function initialize(
       ? { anchor: selection.range.anchor, focus: selection.range.focus }
       : null;
     cursorMoveCallback?.(cursor.position, selRange);
+    // Notify cursor-based link detection.
+    // Convert document-space coordinates to screen (viewport) coordinates
+    // so the popover can use position:fixed reliably regardless of scroll.
+    if (cursorLinkChangeCallback && textEditorRef) {
+      const linkInfo = textEditorRef.getLinkAtCursorPosition();
+      if (linkInfo) {
+        const canvasRect = canvas.getBoundingClientRect();
+        const scrollY = container.scrollTop;
+        cursorLinkChangeCallback({
+          href: linkInfo.href,
+          rect: {
+            x: canvasRect.left + linkInfo.rect.x,
+            y: canvasRect.top + (linkInfo.rect.y - scrollY),
+            width: linkInfo.rect.width,
+            height: linkInfo.rect.height,
+          },
+        });
+      } else {
+        cursorLinkChangeCallback(undefined);
+      }
+    }
   };
 
   const textEditor = readOnly ? null : new TextEditor(
@@ -414,6 +476,7 @@ export function initialize(
     markDirty,
     invalidateLayout,
   );
+  textEditorRef = textEditor;
 
   // Start cursor blink (skip in read-only — no cursor visible)
   if (!readOnly) {
@@ -428,7 +491,11 @@ export function initialize(
   render();
 
   // Scroll and resize listeners
-  const handleScroll = () => renderPaintOnly();
+  const handleScroll = () => {
+    // Dismiss link popover on scroll (Google Docs behavior)
+    cursorLinkChangeCallback?.(undefined);
+    renderPaintOnly();
+  };
   container.addEventListener('scroll', handleScroll);
 
   const resizeObserver = new ResizeObserver(() => render());
@@ -608,6 +675,171 @@ export function initialize(
         });
       }
       markDirty(block.id);
+      render();
+    },
+    insertLink: (url: string) => {
+      if (selection.hasSelection() && selection.range) {
+        // Apply href to the selected range
+        docStore.snapshot();
+        const range = selection.range;
+        doc.applyInlineStyle(range, { href: url });
+        const startIdx = doc.getBlockIndex(range.anchor.blockId);
+        const endIdx = doc.getBlockIndex(range.focus.blockId);
+        if (startIdx >= 0 && endIdx >= 0) {
+          const lo = Math.min(startIdx, endIdx);
+          const hi = Math.max(startIdx, endIdx);
+          for (let i = lo; i <= hi; i++) {
+            markDirty(doc.document.blocks[i].id);
+          }
+        }
+        render();
+      } else {
+        // No selection: insert the URL text, then apply href to it
+        docStore.snapshot();
+        const pos = cursor.position;
+        doc.insertText(pos, url);
+        markDirty(pos.blockId);
+        // Apply href to the just-inserted text
+        const range = {
+          anchor: { blockId: pos.blockId, offset: pos.offset },
+          focus: { blockId: pos.blockId, offset: pos.offset + url.length },
+        };
+        doc.applyInlineStyle(range, { href: url });
+        cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
+        needsScrollIntoView = true;
+        render();
+      }
+    },
+    removeLink: () => {
+      // Find the full contiguous link range at the cursor and remove href.
+      // A single logical link may span multiple inlines (e.g. bold/italic splits).
+      const block = doc.document.blocks.find(
+        (b) => b.id === cursor.position.blockId,
+      );
+      if (!block) return;
+      let cursorInlineIdx = -1;
+      const offsets: number[] = [0];
+      for (let i = 0; i < block.inlines.length; i++) {
+        const inlineEnd = offsets[i] + block.inlines[i].text.length;
+        offsets.push(inlineEnd);
+        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && block.inlines[i].style.href) {
+          cursorInlineIdx = i;
+        }
+      }
+      if (cursorInlineIdx < 0) return;
+      const href = block.inlines[cursorInlineIdx].style.href;
+      // Expand left
+      let lo = cursorInlineIdx;
+      while (lo > 0 && block.inlines[lo - 1].style.href === href) lo--;
+      // Expand right
+      let hi = cursorInlineIdx;
+      while (hi < block.inlines.length - 1 && block.inlines[hi + 1].style.href === href) hi++;
+
+      docStore.snapshot();
+      const range = {
+        anchor: { blockId: block.id, offset: offsets[lo] },
+        focus: { blockId: block.id, offset: offsets[hi + 1] },
+      };
+      doc.applyInlineStyle(range, { href: undefined });
+      markDirty(block.id);
+      render();
+    },
+    getLinkAtCursor: (): string | undefined => {
+      const block = doc.document.blocks.find(
+        (b) => b.id === cursor.position.blockId,
+      );
+      if (!block) return undefined;
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (cursor.position.offset >= pos && cursor.position.offset < inlineEnd) {
+          return inline.style.href;
+        }
+        // At boundary: return href if this inline has one
+        if (cursor.position.offset === inlineEnd && inline.style.href) {
+          return inline.style.href;
+        }
+        pos = inlineEnd;
+      }
+      return undefined;
+    },
+    getCursorScreenRect: () => {
+      const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(),
+        Math.max(
+          (container.parentElement ?? container).getBoundingClientRect().width,
+          paginatedLayout.pages[0]?.width ?? 0,
+        ),
+      );
+      if (!cursorPixel) return undefined;
+      const canvasRect = canvas.getBoundingClientRect();
+      const scrollY = container.scrollTop;
+      return {
+        x: canvasRect.left + cursorPixel.x,
+        y: canvasRect.top + (cursorPixel.y - scrollY),
+        height: cursorPixel.height,
+      };
+    },
+    requestLink: () => {
+      textEditor?.onLinkRequest?.();
+    },
+    onLinkRequest: (cb: () => void) => {
+      if (textEditor) textEditor.onLinkRequest = cb;
+    },
+    onCursorLinkChange: (cb: (info: { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined) => void) => {
+      cursorLinkChangeCallback = cb;
+    },
+    onFindRequest: (cb: () => void) => {
+      if (textEditor) textEditor.onFindRequest = cb;
+    },
+    onFindReplaceRequest: (cb: () => void) => {
+      if (textEditor) textEditor.onFindReplaceRequest = cb;
+    },
+    setSearchMatches: (matches: SearchMatch[], activeIndex: number) => {
+      searchMatches = matches;
+      activeMatchIndex = activeIndex;
+      render();
+
+      // Scroll active match into view
+      if (activeIndex >= 0 && activeIndex < matches.length) {
+        const match = matches[activeIndex];
+        const measureEl = container.parentElement ?? container;
+        const viewportWidth = measureEl.getBoundingClientRect().width;
+        const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
+        const cw = Math.max(viewportWidth, pageWidth);
+        const rects = computeSelectionRects(
+          { anchor: { blockId: match.blockId, offset: match.startOffset }, focus: { blockId: match.blockId, offset: match.endOffset } },
+          paginatedLayout,
+          layout,
+          docCanvas.getContext(),
+          cw,
+        );
+        if (rects.length > 0) {
+          const matchTop = rects[0].y;
+          const matchBottom = rects[rects.length - 1].y + rects[rects.length - 1].height;
+          const viewportTop = container.scrollTop;
+          const viewportHeight = container.getBoundingClientRect().height - RULER_SIZE;
+          const scrollMargin = 60;
+
+          if (matchBottom > viewportTop + viewportHeight - scrollMargin) {
+            container.scrollTop = matchTop - viewportHeight / 3;
+          } else if (matchTop < viewportTop + scrollMargin) {
+            container.scrollTop = Math.max(0, matchTop - viewportHeight / 3);
+          }
+        }
+      }
+    },
+    clearSearchMatches: (moveCursorToActive?: boolean) => {
+      // Move cursor to the active match position before clearing (Google Docs behavior)
+      if (moveCursorToActive && activeMatchIndex >= 0 && activeMatchIndex < searchMatches.length) {
+        const match = searchMatches[activeMatchIndex];
+        cursor.moveTo({ blockId: match.blockId, offset: match.startOffset });
+        selection.setRange({
+          anchor: { blockId: match.blockId, offset: match.startOffset },
+          focus: { blockId: match.blockId, offset: match.endOffset },
+        });
+      }
+      searchMatches = [];
+      activeMatchIndex = -1;
       render();
     },
     focus: () => textEditor?.focus(),

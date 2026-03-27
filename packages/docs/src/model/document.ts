@@ -7,6 +7,8 @@ import {
   type HeadingLevel,
   type InlineStyle,
   type BlockStyle,
+  type SearchOptions,
+  type SearchMatch,
   createEmptyBlock,
   DEFAULT_BLOCK_STYLE,
   getBlockText,
@@ -326,6 +328,58 @@ export class Doc {
     this.refresh();
   }
 
+  /**
+   * Update a block directly (e.g. after modifying its inlines externally).
+   */
+  updateBlockDirect(blockId: string, block: Block): void {
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Insert a block at a specific index.
+   */
+  insertBlockAt(index: number, block: Block): void {
+    this.store.insertBlock(index, block);
+    this.refresh();
+  }
+
+  /**
+   * Search for text matches across all blocks.
+   * Returns matches with block ID and character offsets.
+   */
+  searchText(query: string, options?: SearchOptions): SearchMatch[] {
+    if (!query) return [];
+    const matches: SearchMatch[] = [];
+    const flags = options?.caseSensitive ? 'g' : 'gi';
+    let pattern: RegExp;
+    try {
+      pattern = options?.useRegex
+        ? new RegExp(query, flags)
+        : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+    } catch {
+      return [];
+    }
+
+    for (const block of this._document.blocks) {
+      const text = getBlockText(block);
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(text)) !== null) {
+        // Guard against zero-length matches causing infinite loops
+        if (match[0].length === 0) {
+          pattern.lastIndex++;
+          continue;
+        }
+        matches.push({
+          blockId: block.id,
+          startOffset: match.index,
+          endOffset: match.index + match[0].length,
+        });
+      }
+    }
+    return matches;
+  }
+
   // --- Private helpers ---
 
   /**
@@ -397,6 +451,13 @@ export class Doc {
     end: number,
     style: Partial<InlineStyle>,
   ): void {
+    const resolvedStyle = { ...style };
+    if (resolvedStyle.superscript) {
+      resolvedStyle.subscript = undefined;
+    } else if (resolvedStyle.subscript) {
+      resolvedStyle.superscript = undefined;
+    }
+
     const newInlines: typeof block.inlines = [];
     let pos = 0;
 
@@ -422,7 +483,7 @@ export class Doc {
         // Overlap (apply style)
         newInlines.push({
           text: inline.text.slice(overlapStart, overlapEnd),
-          style: { ...inline.style, ...style },
+          style: { ...inline.style, ...resolvedStyle },
         });
 
         // After overlap
