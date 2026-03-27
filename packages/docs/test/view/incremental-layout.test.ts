@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { computeLayout, clearMeasureCache } from '../../src/view/layout.js';
-import type { LayoutCache } from '../../src/view/layout.js';
+
 import type { Block } from '../../src/model/types.js';
 import { createEmptyBlock } from '../../src/model/types.js';
 
