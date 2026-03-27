@@ -946,28 +946,58 @@ export function yearfracFunc(
 
   const s = startDate < endDate ? startDate : endDate;
   const e = startDate < endDate ? endDate : startDate;
-  const diff = Math.round((e.getTime() - s.getTime()) / 86400000);
+  const actualDays = Math.round(
+    (e.getTime() - s.getTime()) / 86400000,
+  );
 
   switch (basis) {
-    case 0:
-    case 4:
-      return { t: 'num', v: diff / 360 };
+    case 0: {
+      // US (NASD) 30/360
+      let d1 = s.getDate();
+      let d2 = e.getDate();
+      const m1 = s.getMonth() + 1;
+      const m2 = e.getMonth() + 1;
+      const y1 = s.getFullYear();
+      const y2 = e.getFullYear();
+      const isLastDayOfFeb = (d: Date): boolean => {
+        const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+        return d.getMonth() === 1 && next.getMonth() !== 1;
+      };
+      if (isLastDayOfFeb(s)) {
+        d1 = 30;
+        if (isLastDayOfFeb(e)) d2 = 30;
+      }
+      if (d1 === 31) d1 = 30;
+      if (d2 === 31 && d1 === 30) d2 = 30;
+      const days30 = (y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1);
+      return { t: 'num', v: days30 / 360 };
+    }
+    case 4: {
+      // European 30/360
+      let d1 = Math.min(s.getDate(), 30);
+      let d2 = Math.min(e.getDate(), 30);
+      const days30 =
+        (e.getFullYear() - s.getFullYear()) * 360 +
+        (e.getMonth() - s.getMonth()) * 30 +
+        (d2 - d1);
+      return { t: 'num', v: days30 / 360 };
+    }
     case 1: {
       const sy = s.getFullYear();
       const ey = e.getFullYear();
       if (sy === ey) {
         const yearDays = (new Date(sy + 1, 0, 1).getTime() - new Date(sy, 0, 1).getTime()) / 86400000;
-        return { t: 'num', v: diff / yearDays };
+        return { t: 'num', v: actualDays / yearDays };
       }
       const years = ey - sy + 1;
       const totalDays = (new Date(ey + 1, 0, 1).getTime() - new Date(sy, 0, 1).getTime()) / 86400000;
       const avgYear = totalDays / years;
-      return { t: 'num', v: diff / avgYear };
+      return { t: 'num', v: actualDays / avgYear };
     }
     case 2:
-      return { t: 'num', v: diff / 360 };
+      return { t: 'num', v: actualDays / 360 };
     case 3:
-      return { t: 'num', v: diff / 365 };
+      return { t: 'num', v: actualDays / 365 };
     default:
       return { t: 'err', v: '#VALUE!' };
   }
