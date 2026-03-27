@@ -80,6 +80,7 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
+  const [mountedEditor, setMountedEditor] = useState<EditorAPI | null>(null);
   const [didMount, setDidMount] = useState(false);
   const [findBarOpen, setFindBarOpen] = useState(false);
   const [findBarShowReplace, setFindBarShowReplace] = useState(false);
@@ -193,6 +194,7 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor: EditorAPI = initialize(container, store, theme, readOnly);
     editorRef.current = editor;
+    setMountedEditor(editor);
     onEditorReady?.(editor);
 
     // Re-render the editor whenever a remote peer modifies the document.
@@ -303,6 +305,7 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
       unsubPresence();
       editor.dispose();
       editorRef.current = null;
+      setMountedEditor(null);
       storeRef.current = null;
       onEditorReady?.(null);
     };
@@ -333,14 +336,14 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
   return (
     <div ref={containerRef} className="relative flex-1 w-full min-h-0">
       <DocsLinkPopover
-        editor={editorRef.current}
+        editor={mountedEditor}
         containerRef={containerRef}
         editRequest={linkInputRequest}
         onEditRequestHandled={() => setLinkInputRequest(null)}
       />
       {findBarOpen && (
         <DocsFindBar
-          editor={editorRef.current}
+          editor={mountedEditor}
           showReplace={findBarShowReplace}
           onClose={() => setFindBarOpen(false)}
           containerRef={containerRef}

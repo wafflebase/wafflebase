@@ -627,13 +627,33 @@ export class TextEditor {
         if (inlines.length > 0) {
           this.saveSnapshot();
           this.deleteSelection();
-          const block: Block = {
+          // Split inlines by newline separators into multiple blocks
+          const blocks: Block[] = [];
+          let current: Inline[] = [];
+          for (const il of inlines) {
+            const parts = il.text.split('\n');
+            for (let i = 0; i < parts.length; i++) {
+              if (i > 0) {
+                blocks.push({
+                  id: generateBlockId(),
+                  type: 'paragraph',
+                  inlines: current.length > 0 ? current : [{ text: '', style: {} }],
+                  style: { ...DEFAULT_BLOCK_STYLE },
+                });
+                current = [];
+              }
+              if (parts[i].length > 0) {
+                current.push({ text: parts[i], style: { ...il.style } });
+              }
+            }
+          }
+          blocks.push({
             id: generateBlockId(),
             type: 'paragraph',
-            inlines,
+            inlines: current.length > 0 ? current : [{ text: '', style: {} }],
             style: { ...DEFAULT_BLOCK_STYLE },
-          };
-          this.insertBlocks([block]);
+          });
+          this.insertBlocks(blocks);
           this.selection.setRange(null);
           this.requestRender();
           return;
@@ -1464,10 +1484,16 @@ export class TextEditor {
       // Split at cursor
       const tailBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
 
-      // Append first pasted block's inlines to the head block
+      // Append first pasted block's inlines to the head block, preserving block metadata
       const headBlock = this.doc.getBlock(pos.blockId);
-      const firstPastedInlines = blocks[0].inlines;
+      const firstPasted = blocks[0];
+      const firstPastedInlines = firstPasted.inlines;
       headBlock.inlines = this.spliceInlinesAt(headBlock.inlines, getBlockTextLength(headBlock), firstPastedInlines);
+      headBlock.type = firstPasted.type;
+      headBlock.style = { ...firstPasted.style };
+      headBlock.headingLevel = firstPasted.headingLevel;
+      headBlock.listKind = firstPasted.listKind;
+      headBlock.listLevel = firstPasted.listLevel;
       this.doc.updateBlockDirect(pos.blockId, headBlock);
 
       // Insert middle blocks (blocks[1..n-2]) after head block
@@ -1483,11 +1509,17 @@ export class TextEditor {
         this.doc.insertBlockAt(insertAfterIdx, newBlock);
       }
 
-      // Prepend last pasted block's inlines to the tail block
+      // Prepend last pasted block's inlines to the tail block, preserving block metadata
       const tailBlock = this.doc.getBlock(tailBlockId);
-      const lastPastedInlines = blocks[blocks.length - 1].inlines;
+      const lastPasted = blocks[blocks.length - 1];
+      const lastPastedInlines = lastPasted.inlines;
       const lastPastedTextLen = lastPastedInlines.reduce((sum, il) => sum + il.text.length, 0);
       tailBlock.inlines = this.spliceInlinesAt(tailBlock.inlines, 0, lastPastedInlines);
+      tailBlock.type = lastPasted.type;
+      tailBlock.style = { ...lastPasted.style };
+      tailBlock.headingLevel = lastPasted.headingLevel;
+      tailBlock.listKind = lastPasted.listKind;
+      tailBlock.listLevel = lastPasted.listLevel;
       this.doc.updateBlockDirect(tailBlockId, tailBlock);
 
       const newPos = { blockId: tailBlockId, offset: lastPastedTextLen };

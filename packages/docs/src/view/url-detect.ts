@@ -48,7 +48,13 @@ export function detectUrlBeforeCursor(
 
   const token = text.slice(start, cursorOffset);
   if (/^https?:\/\/.+/.test(token)) {
-    return { start, end: cursorOffset, url: token };
+    // Trim trailing punctuation that is unlikely part of the URL
+    let url = token;
+    while (url.length > 0 && /[.,;:!?)}\]'"»]$/.test(url)) {
+      url = url.slice(0, -1);
+    }
+    if (url.length <= 'https://'.length) return null;
+    return { start, end: start + url.length, url };
   }
 
   return null;
