@@ -93,6 +93,52 @@ export function positiveMod(value: number, mod: number): number {
 }
 
 /**
+ * `computeLinearTrend` computes OLS linear regression (y = mx + b) from a
+ * sequence of (x, y) data points and returns the predicted value at `targetX`.
+ * Returns undefined if the data has fewer than 2 points.
+ */
+export function computeLinearTrend(
+  xs: number[],
+  ys: number[],
+  targetX: number,
+): number | undefined {
+  const n = xs.length;
+  if (n < 2 || n !== ys.length) return undefined;
+
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumX2 = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += xs[i];
+    sumY += ys[i];
+    sumXY += xs[i] * ys[i];
+    sumX2 += xs[i] * xs[i];
+  }
+
+  const D = n * sumX2 - sumX * sumX;
+  if (D === 0) {
+    // All x values are the same — return mean of y
+    return sumY / n;
+  }
+
+  // Compute as a single fraction to minimize intermediate float error.
+  // y(t) = m*t + b where m = A/D, b = (sumY*D - A*sumX)/(n*D)
+  // → y(t) = (n*A*t + sumY*D - A*sumX) / (n*D)
+  const A = n * sumXY - sumX * sumY;
+  return (n * A * targetX + sumY * D - A * sumX) / (n * D);
+}
+
+/**
+ * `isNumericValue` checks if a cell value string represents a finite number.
+ */
+export function isNumericValue(v: string | undefined): boolean {
+  if (v === undefined || v === '') return false;
+  const num = Number(v);
+  return Number.isFinite(num);
+}
+
+/**
  * `cloneCellForAutofill` clones a source cell for a destination position.
  * Formula cells are relocated and their cached values are dropped.
  */

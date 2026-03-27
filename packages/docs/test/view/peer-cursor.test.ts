@@ -29,7 +29,7 @@ function mockBlock(id: string, lines: LayoutLine[]): LayoutBlock {
       id,
       type: 'paragraph',
       inlines: [{ text: 'hello', style: {} }],
-      style: { alignment: 'left', lineHeight: 1.5, marginTop: 0, marginBottom: 8 },
+      style: { alignment: 'left', lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
     },
     x: 0,
     y: 0,
@@ -57,10 +57,6 @@ function makeCtx(): CanvasRenderingContext2D {
 }
 
 function makePaginatedLayout(blocks: LayoutBlock[]): PaginatedLayout {
-  const layout: DocumentLayout = {
-    blocks,
-    totalHeight: blocks.reduce((s, b) => s + b.height, 0),
-  };
   // Build a simple single-page paginated layout manually
   const lines = blocks.flatMap((b, bi) =>
     b.lines.map((line, li) => ({
