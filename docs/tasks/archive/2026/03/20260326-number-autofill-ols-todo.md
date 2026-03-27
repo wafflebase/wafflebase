@@ -37,4 +37,4 @@ are exact, and one final division produces the best IEEE 754 approximation
 - [x] Add unit tests for linear trend autofill
 - [x] Fix precision: single-fraction computation + `toPrecision(15)` to match Excel
 - [x] Run `pnpm verify:fast` and confirm pass
-- [ ] Investigate and fix remaining precision drift
+- [x] Investigate and fix remaining precision drift
