@@ -22,7 +22,7 @@ OLS result is formatted with `toPrecision(15)` (IEEE 754 double, matching Excel/
 Sheets). To avoid intermediate float error (e.g. `m * t + b` where `b = -7/3`),
 `computeLinearTrend` computes the result as a **single fraction**:
 
-```
+```text
 y(t) = (n * A * t + sumY * D - A * sumX) / (n * D)
 ```
 

@@ -103,7 +103,7 @@ export function computeLinearTrend(
   targetX: number,
 ): number | undefined {
   const n = xs.length;
-  if (n < 2) return undefined;
+  if (n < 2 || n !== ys.length) return undefined;
 
   let sumX = 0;
   let sumY = 0;
