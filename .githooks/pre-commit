@@ -1,2 +1,20 @@
 #!/bin/sh
+
+# ── docs/ directory guard ──────────────────────────────────────────
+# Only docs/design/ and docs/tasks/ are allowed.
+# Other paths (e.g. docs/superpowers/) must not be committed.
+bad_docs=$(git diff --cached --diff-filter=d --name-only | grep '^docs/' | grep -v -E '^docs/(design|tasks)/')
+if [ -n "$bad_docs" ]; then
+  echo ""
+  echo "ERROR: Files staged under disallowed docs/ subdirectory:"
+  echo "$bad_docs" | sed 's/^/  /'
+  echo ""
+  echo "Only docs/design/ and docs/tasks/ are permitted."
+  echo "  - Design documents  → docs/design/<topic>.md"
+  echo "  - Task tracking     → docs/tasks/active/YYYYMMDD-<slug>-todo.md"
+  echo ""
+  echo "Please move or remove the files above and try again."
+  exit 1
+fi
+
 exec pnpm verify:fast
