@@ -416,8 +416,12 @@ export class Spreadsheet {
    */
   public async increaseDecimals() {
     if (!this.sheet || this._readOnly) return;
-    const dp = await this.sheet.getActiveDecimalPlaces();
-    await this.sheet.setRangeStyle({ dp: dp + 1 });
+    const { dp, nf } = await this.sheet.getActiveDecimalState();
+    const patch: Partial<CellStyle> = { dp: dp + 1 };
+    if (!nf || nf === 'plain') {
+      patch.nf = 'number';
+    }
+    await this.sheet.setRangeStyle(patch);
     this.worksheet.render();
     this.notifySelectionChange();
   }
@@ -427,8 +431,12 @@ export class Spreadsheet {
    */
   public async decreaseDecimals() {
     if (!this.sheet || this._readOnly) return;
-    const dp = await this.sheet.getActiveDecimalPlaces();
-    await this.sheet.setRangeStyle({ dp: Math.max(0, dp - 1) });
+    const { dp, nf } = await this.sheet.getActiveDecimalState();
+    const patch: Partial<CellStyle> = { dp: Math.max(0, dp - 1) };
+    if (!nf || nf === 'plain') {
+      patch.nf = 'number';
+    }
+    await this.sheet.setRangeStyle(patch);
     this.worksheet.render();
     this.notifySelectionChange();
   }
