@@ -181,11 +181,14 @@ export function initialize(
     const viewportWidth = measureEl.getBoundingClientRect().width;
     const height = container.getBoundingClientRect().height;
     const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
-    const canvasWidth = Math.max(viewportWidth, pageWidth);
     const totalHeight = getTotalHeight(paginatedLayout);
 
     // Compute scale factor for mobile zoom-to-fit
     scaleFactor = computeScaleFactor(viewportWidth, pageWidth);
+
+    // When scaled, canvas width = viewport width (page fits inside via ctx.scale).
+    // When not scaled, canvas width >= page width (for centering with scroll).
+    const canvasWidth = scaleFactor < 1 ? viewportWidth : Math.max(viewportWidth, pageWidth);
 
     // When scaled, hide rulers and use full container height for canvas
     const rulerSize = scaleFactor < 1 ? 0 : RULER_SIZE;
