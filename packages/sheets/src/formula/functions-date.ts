@@ -953,15 +953,16 @@ export function yearfracFunc(
   switch (basis) {
     case 0: {
       // US (NASD) 30/360
-      let d1 = s.getDate();
-      let d2 = e.getDate();
-      const m1 = s.getMonth() + 1;
-      const m2 = e.getMonth() + 1;
-      const y1 = s.getFullYear();
-      const y2 = e.getFullYear();
+      let d1 = s.getUTCDate();
+      let d2 = e.getUTCDate();
+      const m1 = s.getUTCMonth() + 1;
+      const m2 = e.getUTCMonth() + 1;
+      const y1 = s.getUTCFullYear();
+      const y2 = e.getUTCFullYear();
       const isLastDayOfFeb = (d: Date): boolean => {
-        const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-        return d.getMonth() === 1 && next.getMonth() !== 1;
+        const y = d.getUTCFullYear();
+        const m = d.getUTCMonth();
+        return m === 1 && d.getUTCDate() === new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
       };
       if (isLastDayOfFeb(s)) {
         d1 = 30;
@@ -974,11 +975,11 @@ export function yearfracFunc(
     }
     case 4: {
       // European 30/360
-      let d1 = Math.min(s.getDate(), 30);
-      let d2 = Math.min(e.getDate(), 30);
+      let d1 = Math.min(s.getUTCDate(), 30);
+      let d2 = Math.min(e.getUTCDate(), 30);
       const days30 =
-        (e.getFullYear() - s.getFullYear()) * 360 +
-        (e.getMonth() - s.getMonth()) * 30 +
+        (e.getUTCFullYear() - s.getUTCFullYear()) * 360 +
+        (e.getUTCMonth() - s.getUTCMonth()) * 30 +
         (d2 - d1);
       return { t: 'num', v: days30 / 360 };
     }

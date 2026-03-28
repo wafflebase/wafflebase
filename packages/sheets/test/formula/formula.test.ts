@@ -1371,6 +1371,11 @@ describe('Formula', () => {
     expect(eu30).toBeCloseTo(5.978, 2);
     expect(eu30).toBeLessThan(6);
 
+    // Basis 0 vs 4 diverge on end-of-February / 31st adjustments
+    expect(Number(evaluate('=YEARFRAC("2024-02-29","2024-03-31",0)'))).toBeCloseTo(30 / 360, 10);
+    expect(Number(evaluate('=YEARFRAC("2024-02-29","2024-03-31",4)'))).toBeCloseTo(31 / 360, 10);
+    expect(Number(evaluate('=YEARFRAC("2024-01-31","2024-02-29",0)'))).toBeCloseTo(29 / 360, 10);
+
     // Default basis is 0
     const def = Number(evaluate('=YEARFRAC("2020-04-06","2026-03-28")'));
     expect(def).toBeCloseTo(us30, 10);
