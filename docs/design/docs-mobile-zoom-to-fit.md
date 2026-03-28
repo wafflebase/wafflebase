@@ -35,7 +35,7 @@ the first phase of mobile docs support, focused on reading/viewing; editing
 
 ### 1. Scale Factor Calculation
 
-In `editor.ts` `paint()`, compute the scale factor before sizing the canvas:
+In `packages/docs/src/view/editor.ts` `paint()`, compute the scale factor before sizing the canvas:
 
 ```
 MOBILE_PADDING = 16  // px, each side
@@ -49,7 +49,7 @@ behavior (multiply/divide by 1 is a no-op).
 
 ### 2. Canvas Rendering
 
-`doc-canvas.ts` `render()` receives `scaleFactor` as a new parameter.
+`packages/docs/src/view/doc-canvas.ts` `render()` receives `scaleFactor` as a new parameter.
 
 ```
 ctx.save()
@@ -68,8 +68,8 @@ applied in `render()` (logical coordinates). The two concerns remain separate.
 
 ### 3. Hit-Test Coordinate Inversion
 
-`text-editor.ts` receives a `getScaleFactor` callback (same pattern as
-`getCanvasWidth`).
+`packages/docs/src/view/text-editor.ts` receives a `getScaleFactor` callback
+(same pattern as `getCanvasWidth`).
 
 Two methods need adjustment:
 
@@ -87,7 +87,7 @@ Same inversion applied to clientX/clientY before calling
 
 ### 4. Scroll Height and Position
 
-In `editor.ts` `paint()`:
+In `packages/docs/src/view/editor.ts` `paint()`:
 
 ```
 // Spacer height scaled down so scrollbar range matches visible size
@@ -118,8 +118,8 @@ if (scaleFactor < 1) ruler.hide() else ruler.show()
 | `packages/docs/src/view/doc-canvas.ts` | `render()` accepts scaleFactor, applies ctx.scale, adjusts logical canvasWidth |
 | `packages/docs/src/view/text-editor.ts` | Accepts getScaleFactor callback, coordinate inversion in getPositionFromMouse and updateDragSelection |
 
-**Unchanged:** `layout.ts`, `pagination.ts`, `theme.ts`, `cursor.ts`,
-`selection.ts`, `peer-cursor.ts`, frontend React components.
+**Unchanged:** layout, pagination, theme, cursor,
+selection, peer-cursor modules, frontend React components.
 
 ### 7. Testing
 
