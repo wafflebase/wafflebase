@@ -80,7 +80,7 @@ export class DocCanvas {
     // Canvas is viewport-sized. Translate by -scrollY so that absolute
     // document coordinates map into the visible canvas area.
     const visibleTop = scrollY;
-    const visibleBottom = scrollY + viewportHeight;
+    const visibleBottom = scrollY + viewportHeight / scaleFactor;
 
     this.ctx.save();
     if (scaleFactor !== 1) {

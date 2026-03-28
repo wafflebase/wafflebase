@@ -1878,9 +1878,10 @@ export class TextEditor {
    */
   private getLinkHrefAtMouse(e: MouseEvent): string | undefined {
     const rect = this.container.getBoundingClientRect();
-    const x = e.clientX - rect.left + this.container.scrollLeft;
-    const y = e.clientY - rect.top - this.getCanvasOffsetTop();
-    const scrollY = this.container.scrollTop;
+    const s = this.getScaleFactor();
+    const x = (e.clientX - rect.left + this.container.scrollLeft) / s;
+    const y = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s;
+    const scrollY = this.container.scrollTop / s;
     const result = paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );

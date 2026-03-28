@@ -786,10 +786,9 @@ export function initialize(
       return undefined;
     },
     getCursorScreenRect: () => {
-      const physicalWidth = Math.max(
-        (container.parentElement ?? container).getBoundingClientRect().width,
-        paginatedLayout.pages[0]?.width ?? 0,
-      );
+      const vw = (container.parentElement ?? container).getBoundingClientRect().width;
+      const pw = paginatedLayout.pages[0]?.width ?? 0;
+      const physicalWidth = scaleFactor < 1 ? vw : Math.max(vw, pw);
       const logicalWidth = scaleFactor < 1 ? physicalWidth / scaleFactor : physicalWidth;
       const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalWidth);
       if (!cursorPixel) return undefined;
