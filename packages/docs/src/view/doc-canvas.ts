@@ -62,6 +62,7 @@ export class DocCanvas {
     layout?: DocumentLayout,
     searchHighlightRects?: Array<Array<{ x: number; y: number; width: number; height: number }>>,
     activeSearchIndex?: number,
+    scaleFactor: number = 1,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -79,9 +80,12 @@ export class DocCanvas {
     // Canvas is viewport-sized. Translate by -scrollY so that absolute
     // document coordinates map into the visible canvas area.
     const visibleTop = scrollY;
-    const visibleBottom = scrollY + viewportHeight;
+    const visibleBottom = scrollY + viewportHeight / scaleFactor;
 
     this.ctx.save();
+    if (scaleFactor !== 1) {
+      this.ctx.scale(scaleFactor, scaleFactor);
+    }
     this.ctx.translate(0, -scrollY);
 
     for (const page of paginatedLayout.pages) {

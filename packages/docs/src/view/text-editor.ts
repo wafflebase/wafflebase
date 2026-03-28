@@ -83,6 +83,7 @@ export class TextEditor {
   private getPaginatedLayout: () => PaginatedLayout;
   private getCtx: () => CanvasRenderingContext2D;
   private getCanvasWidth: () => number;
+  private getScaleFactor: () => number;
   private getCanvasOffsetTop: () => number;
   private requestRender: () => void;
   private saveSnapshot: () => void;
@@ -109,6 +110,7 @@ export class TextEditor {
     getPaginatedLayout: () => PaginatedLayout,
     getCtx: () => CanvasRenderingContext2D,
     getCanvasWidth: () => number,
+    getScaleFactor: () => number,
     getCanvasOffsetTop: () => number,
     requestRender: () => void,
     saveSnapshot: () => void,
@@ -125,6 +127,7 @@ export class TextEditor {
     this.getPaginatedLayout = getPaginatedLayout;
     this.getCtx = getCtx;
     this.getCanvasWidth = getCanvasWidth;
+    this.getScaleFactor = getScaleFactor;
     this.getCanvasOffsetTop = getCanvasOffsetTop;
     this.requestRender = requestRender;
     this.saveSnapshot = saveSnapshot;
@@ -730,9 +733,10 @@ export class TextEditor {
 
   private updateDragSelection(clientX: number, clientY: number): void {
     const rect = this.container.getBoundingClientRect();
-    const x = clientX - rect.left + this.container.scrollLeft;
-    const y = clientY - rect.top - this.getCanvasOffsetTop();
-    const scrollY = this.container.scrollTop;
+    const s = this.getScaleFactor();
+    const x = (clientX - rect.left + this.container.scrollLeft) / s;
+    const y = (clientY - rect.top - this.getCanvasOffsetTop()) / s;
+    const scrollY = this.container.scrollTop / s;
     const result = paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );
@@ -1751,9 +1755,10 @@ export class TextEditor {
 
   private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
     const rect = this.container.getBoundingClientRect();
-    const x = e.clientX - rect.left + this.container.scrollLeft;
-    const y = e.clientY - rect.top - this.getCanvasOffsetTop();
-    const scrollY = this.container.scrollTop;
+    const s = this.getScaleFactor();
+    const x = (e.clientX - rect.left + this.container.scrollLeft) / s;
+    const y = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s;
+    const scrollY = this.container.scrollTop / s;
     return paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );
@@ -1873,9 +1878,10 @@ export class TextEditor {
    */
   private getLinkHrefAtMouse(e: MouseEvent): string | undefined {
     const rect = this.container.getBoundingClientRect();
-    const x = e.clientX - rect.left + this.container.scrollLeft;
-    const y = e.clientY - rect.top - this.getCanvasOffsetTop();
-    const scrollY = this.container.scrollTop;
+    const s = this.getScaleFactor();
+    const x = (e.clientX - rect.left + this.container.scrollLeft) / s;
+    const y = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s;
+    const scrollY = this.container.scrollTop / s;
     const result = paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );

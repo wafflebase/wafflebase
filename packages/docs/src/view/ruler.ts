@@ -507,6 +507,24 @@ export class Ruler {
     this.dragGuidelineCb = cb;
   }
 
+  /**
+   * Hide all ruler elements (used when zoom-to-fit is active).
+   */
+  hide(): void {
+    this.hCanvas.style.display = 'none';
+    this.vCanvas.style.display = 'none';
+    this.corner.style.display = 'none';
+  }
+
+  /**
+   * Show all ruler elements.
+   */
+  show(): void {
+    this.hCanvas.style.display = 'block';
+    this.vCanvas.style.display = 'block';
+    this.corner.style.display = 'block';
+  }
+
   dispose(): void {
     for (const [target, event, handler] of this.boundHandlers) {
       target.removeEventListener(event, handler);
