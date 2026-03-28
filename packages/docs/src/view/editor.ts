@@ -484,7 +484,9 @@ export function initialize(
     () => {
       const vw = (container.parentElement ?? container).getBoundingClientRect().width;
       const pw = paginatedLayout.pages[0]?.width ?? 0;
-      const physical = Math.max(vw, pw);
+      // When scaled, canvas width = viewport width (not max with page width),
+      // matching the canvasWidth used in paint() for consistent page centering.
+      const physical = scaleFactor < 1 ? vw : Math.max(vw, pw);
       return scaleFactor < 1 ? physical / scaleFactor : physical;
     },
     () => scaleFactor,
