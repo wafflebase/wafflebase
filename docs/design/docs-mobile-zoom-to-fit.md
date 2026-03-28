@@ -37,7 +37,7 @@ the first phase of mobile docs support, focused on reading/viewing; editing
 
 In `packages/docs/src/view/editor.ts` `paint()`, compute the scale factor before sizing the canvas:
 
-```
+```text
 MOBILE_PADDING = 16  // px, each side
 
 pageWidth  = paginatedLayout.pages[0]?.width ?? 0
@@ -51,7 +51,7 @@ behavior (multiply/divide by 1 is a no-op).
 
 `packages/docs/src/view/doc-canvas.ts` `render()` receives `scaleFactor` as a new parameter.
 
-```
+```text
 ctx.save()
 ctx.scale(scaleFactor, scaleFactor)   // <-- new
 ctx.translate(0, -scrollY)
@@ -74,7 +74,7 @@ applied in `render()` (logical coordinates). The two concerns remain separate.
 Two methods need adjustment:
 
 **`getPositionFromMouse(e)`:**
-```
+```typescript
 const s = this.getScaleFactor();
 const x = (e.clientX - rect.left + container.scrollLeft) / s;
 const y = (e.clientY - rect.top - canvasOffsetTop) / s;
@@ -89,7 +89,7 @@ Same inversion applied to clientX/clientY before calling
 
 In `packages/docs/src/view/editor.ts` `paint()`:
 
-```
+```typescript
 // Spacer height scaled down so scrollbar range matches visible size
 spacer.style.height = `${totalHeight * scaleFactor}px`
 
@@ -106,7 +106,7 @@ Scaling the ruler adds complexity disproportionate to its value on mobile.
 When `scaleFactor < 1`, the ruler is hidden. When `scaleFactor` returns to 1
 (e.g., rotating to landscape on a tablet), the ruler reappears.
 
-```
+```typescript
 if (scaleFactor < 1) ruler.hide() else ruler.show()
 ```
 

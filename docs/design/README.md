@@ -33,6 +33,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [peer-cursor-labels.md](peer-cursor-labels.md)         | Peer cursor name labels — transient username tags on collaborative cursors                        |
 | [docs-remote-cursor.md](docs-remote-cursor.md)         | Docs remote cursor — peer cursor carets + name labels in collaborative docs editor                |
 | [docs-wordprocessor-roadmap.md](docs-wordprocessor-roadmap.md) | Docs word processor roadmap — 6-phase plan for Google Docs parity                        |
+| [docs-mobile-zoom-to-fit.md](docs-mobile-zoom-to-fit.md)       | Docs mobile zoom-to-fit — Canvas scale transform for narrow viewports                    |
 
 ## Template
 
