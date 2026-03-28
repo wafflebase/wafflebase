@@ -1360,6 +1360,25 @@ describe('Formula', () => {
     expect(result).toBeCloseTo(1.003, 2);
     // 2023 is not a leap year: 365/365 = 1
     expect(evaluate('=YEARFRAC("2023-01-01","2024-01-01",3)')).toBe('1');
+
+    // Basis 0 (US 30/360): 2020-04-06 to 2026-03-28 → 2152/360 ≈ 5.978
+    const us30 = Number(evaluate('=YEARFRAC("2020-04-06","2026-03-28",0)'));
+    expect(us30).toBeCloseTo(5.978, 2);
+    expect(us30).toBeLessThan(6);
+
+    // Basis 4 (European 30/360)
+    const eu30 = Number(evaluate('=YEARFRAC("2020-04-06","2026-03-28",4)'));
+    expect(eu30).toBeCloseTo(5.978, 2);
+    expect(eu30).toBeLessThan(6);
+
+    // Basis 0 vs 4 diverge on end-of-February / 31st adjustments
+    expect(Number(evaluate('=YEARFRAC("2024-02-29","2024-03-31",0)'))).toBeCloseTo(30 / 360, 10);
+    expect(Number(evaluate('=YEARFRAC("2024-02-29","2024-03-31",4)'))).toBeCloseTo(31 / 360, 10);
+    expect(Number(evaluate('=YEARFRAC("2024-01-31","2024-02-29",0)'))).toBeCloseTo(29 / 360, 10);
+
+    // Default basis is 0
+    const def = Number(evaluate('=YEARFRAC("2020-04-06","2026-03-28")'));
+    expect(def).toBeCloseTo(us30, 10);
   });
 
   it('should correctly evaluate LOOKUP function', () => {
