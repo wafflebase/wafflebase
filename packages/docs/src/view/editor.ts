@@ -10,6 +10,7 @@ import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, type PaginatedLayout } from './pagination.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
+import { computeScaleFactor } from './scale.js';
 import { setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 
@@ -135,6 +136,7 @@ export function initialize(
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
   let activeMatchIndex = -1;
+  let scaleFactor = 1;
 
   // Compute layout helper
   const recomputeLayout = () => {
@@ -182,25 +184,36 @@ export function initialize(
     const canvasWidth = Math.max(viewportWidth, pageWidth);
     const totalHeight = getTotalHeight(paginatedLayout);
 
-    // Size the canvas to the visible area below the ruler so its element
-    // extent (ruler offset + canvas height) equals the container height,
-    // preventing a spurious scrollbar when the document fits on screen.
-    const canvasHeight = height - RULER_SIZE;
-    docCanvas.resize(canvasWidth, canvasHeight);
-    spacer.style.height = `${totalHeight}px`;
-    // Pull spacer up behind the sticky canvas so it only contributes scroll.
-    // Account for the horizontal ruler height (RULER_SIZE) in the flow.
-    spacer.style.marginTop = `${-height - RULER_SIZE}px`;
+    // Compute scale factor for mobile zoom-to-fit
+    scaleFactor = computeScaleFactor(viewportWidth, pageWidth);
 
-    const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), canvasWidth);
+    // When scaled, hide rulers and use full container height for canvas
+    const rulerSize = scaleFactor < 1 ? 0 : RULER_SIZE;
+    if (scaleFactor < 1) {
+      ruler.hide();
+      canvas.style.top = '0';
+    } else {
+      ruler.show();
+      canvas.style.top = `${RULER_SIZE}px`;
+    }
+
+    const canvasHeight = height - rulerSize;
+    docCanvas.resize(canvasWidth, canvasHeight);
+    spacer.style.height = `${totalHeight * scaleFactor}px`;
+    spacer.style.marginTop = `${-height - rulerSize}px`;
+
+    // Logical canvas width in unscaled document coordinates
+    const logicalCanvasWidth = scaleFactor < 1 ? canvasWidth / scaleFactor : canvasWidth;
+
+    const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalCanvasWidth);
 
     // Auto-scroll to keep cursor visible (only on keyboard/input-driven renders)
     if (needsScrollIntoView && cursorPixel) {
       needsScrollIntoView = false;
       const viewportTop = container.scrollTop;
       const viewportHeight = canvasHeight;
-      const cursorTop = cursorPixel.y;
-      const cursorBottom = cursorPixel.y + cursorPixel.height;
+      const cursorTop = cursorPixel.y * scaleFactor;
+      const cursorBottom = (cursorPixel.y + cursorPixel.height) * scaleFactor;
       const scrollMargin = 20;
 
       if (cursorBottom > viewportTop + viewportHeight - scrollMargin) {
@@ -210,14 +223,14 @@ export function initialize(
       }
     }
 
-    const scrollY = container.scrollTop;
+    const scrollY = container.scrollTop / scaleFactor;
 
     // Keep the hidden textarea at the cursor's screen position so the
     // browser doesn't scroll the container to bring it into view.
     if (cursorPixel) {
       const containerRect = container.getBoundingClientRect();
-      const screenX = containerRect.left + cursorPixel.x;
-      const screenY = containerRect.top + (cursorPixel.y - scrollY);
+      const screenX = containerRect.left + cursorPixel.x * scaleFactor;
+      const screenY = containerRect.top + (cursorPixel.y - scrollY) * scaleFactor;
       textEditor?.updateTextareaPosition(screenX, screenY);
     }
 
@@ -225,7 +238,7 @@ export function initialize(
       paginatedLayout,
       layout,
       docCanvas.getContext(),
-      canvasWidth,
+      logicalCanvasWidth,
     );
 
     // Compute peer cursor pixel positions with stacking
@@ -244,7 +257,7 @@ export function initialize(
         paginatedLayout,
         layout,
         docCanvas.getContext(),
-        canvasWidth,
+        logicalCanvasWidth,
       );
       if (pixel) {
         peerPixels.push({
@@ -299,7 +312,7 @@ export function initialize(
           paginatedLayout,
           layout,
           docCanvas.getContext(),
-          canvasWidth,
+          logicalCanvasWidth,
         );
         if (rects.length > 0) {
           peerSelections.push({ color: peer.color, rects });
@@ -316,12 +329,12 @@ export function initialize(
           paginatedLayout,
           layout,
           docCanvas.getContext(),
-          canvasWidth,
+          logicalCanvasWidth,
         ),
       );
     }
 
-    docCanvas.render(paginatedLayout, scrollY, canvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout, searchHighlightRects, activeMatchIndex);
+    docCanvas.render(paginatedLayout, scrollY, logicalCanvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout, searchHighlightRects, activeMatchIndex, scaleFactor);
 
     // Draw drag guideline if active
     if (dragGuideline) {
@@ -352,14 +365,16 @@ export function initialize(
     const cursorPageInfo = findPageForPosition(
       paginatedLayout, cursor.position.blockId, cursor.position.offset, layout,
     );
-    ruler.render(
-      paginatedLayout,
-      scrollY,
-      canvasWidth,
-      canvasHeight,
-      cursorBlock?.style ?? null,
-      cursorPageInfo?.pageIndex ?? 0,
-    );
+    if (scaleFactor >= 1) {
+      ruler.render(
+        paginatedLayout,
+        scrollY,
+        logicalCanvasWidth,
+        canvasHeight,
+        cursorBlock?.style ?? null,
+        cursorPageInfo?.pageIndex ?? 0,
+      );
+    }
   };
 
   // Render helper — full layout recomputation + paint
@@ -464,10 +479,12 @@ export function initialize(
     () => paginatedLayout,
     () => docCanvas.getContext(),
     () => {
-      const vw = container.getBoundingClientRect().width;
+      const vw = (container.parentElement ?? container).getBoundingClientRect().width;
       const pw = paginatedLayout.pages[0]?.width ?? 0;
-      return Math.max(vw, pw);
+      const physical = Math.max(vw, pw);
+      return scaleFactor < 1 ? physical / scaleFactor : physical;
     },
+    () => scaleFactor,
     () => canvas.getBoundingClientRect().top - container.getBoundingClientRect().top,
     renderWithScroll,
     () => docStore.snapshot(),
@@ -764,19 +781,19 @@ export function initialize(
       return undefined;
     },
     getCursorScreenRect: () => {
-      const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(),
-        Math.max(
-          (container.parentElement ?? container).getBoundingClientRect().width,
-          paginatedLayout.pages[0]?.width ?? 0,
-        ),
+      const physicalWidth = Math.max(
+        (container.parentElement ?? container).getBoundingClientRect().width,
+        paginatedLayout.pages[0]?.width ?? 0,
       );
+      const logicalWidth = scaleFactor < 1 ? physicalWidth / scaleFactor : physicalWidth;
+      const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalWidth);
       if (!cursorPixel) return undefined;
       const canvasRect = canvas.getBoundingClientRect();
-      const scrollY = container.scrollTop;
+      const sy = container.scrollTop / scaleFactor;
       return {
-        x: canvasRect.left + cursorPixel.x,
-        y: canvasRect.top + (cursorPixel.y - scrollY),
-        height: cursorPixel.height,
+        x: canvasRect.left + cursorPixel.x * scaleFactor,
+        y: canvasRect.top + (cursorPixel.y - sy) * scaleFactor,
+        height: cursorPixel.height * scaleFactor,
       };
     },
     requestLink: () => {
@@ -806,18 +823,20 @@ export function initialize(
         const viewportWidth = measureEl.getBoundingClientRect().width;
         const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
         const cw = Math.max(viewportWidth, pageWidth);
+        const logicalCw = scaleFactor < 1 ? cw / scaleFactor : cw;
         const rects = computeSelectionRects(
           { anchor: { blockId: match.blockId, offset: match.startOffset }, focus: { blockId: match.blockId, offset: match.endOffset } },
           paginatedLayout,
           layout,
           docCanvas.getContext(),
-          cw,
+          logicalCw,
         );
         if (rects.length > 0) {
-          const matchTop = rects[0].y;
-          const matchBottom = rects[rects.length - 1].y + rects[rects.length - 1].height;
+          const matchTop = rects[0].y * scaleFactor;
+          const matchBottom = (rects[rects.length - 1].y + rects[rects.length - 1].height) * scaleFactor;
           const viewportTop = container.scrollTop;
-          const viewportHeight = container.getBoundingClientRect().height - RULER_SIZE;
+          const rulerSize = scaleFactor < 1 ? 0 : RULER_SIZE;
+          const viewportHeight = container.getBoundingClientRect().height - rulerSize;
           const scrollMargin = 60;
 
           if (matchBottom > viewportTop + viewportHeight - scrollMargin) {
