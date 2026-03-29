@@ -156,15 +156,7 @@ function buildBlockNode(block: Block): ElementNode {
         cols: block.tableData.columnWidths.join(','),
         ...serializeBlockStyle(block.style),
       },
-      children: block.tableData.rows.map((row) => ({
-        type: 'row' as const,
-        attributes: {},
-        children: row.cells.map((cell) => ({
-          type: 'cell' as const,
-          attributes: serializeCellStyle(cell),
-          children: cell.blocks.map(buildBlockNode),
-        })),
-      })),
+      children: block.tableData.rows.map(buildRowNode),
     };
   }
 
@@ -186,6 +178,22 @@ function buildBlockNode(block: Block): ElementNode {
     type: 'block',
     attributes: attrs,
     children: block.inlines.map(buildInlineNode),
+  };
+}
+
+function buildCellNode(cell: TableCell): ElementNode {
+  return {
+    type: 'cell' as const,
+    attributes: serializeCellStyle(cell),
+    children: cell.blocks.map(buildBlockNode),
+  };
+}
+
+function buildRowNode(row: TableRow): ElementNode {
+  return {
+    type: 'row' as const,
+    attributes: {},
+    children: row.cells.map(buildCellNode),
   };
 }
 
