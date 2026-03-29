@@ -320,15 +320,18 @@ export class Selection {
 
     const { start, end } = normalized;
 
-    // Cell-internal selection
+    // Cell-internal selection (same block index)
     if (start.cellAddress && end.cellAddress) {
       const lb = layout.blocks.find((b) => b.block.id === start.blockId);
       if (!lb?.block.tableData) return '';
       const cell = lb.block.tableData.rows[start.cellAddress.rowIndex]
         ?.cells[start.cellAddress.colIndex];
       if (!cell) return '';
-      const fullText = cell.blocks.flatMap(b => b.inlines).map((i) => i.text).join('');
-      return fullText.slice(start.offset, end.offset);
+      const cbi = start.cellBlockIndex ?? 0;
+      const targetBlock = cell.blocks[cbi];
+      if (!targetBlock) return '';
+      const blockText = targetBlock.inlines.map((i) => i.text).join('');
+      return blockText.slice(start.offset, end.offset);
     }
 
     const texts: string[] = [];

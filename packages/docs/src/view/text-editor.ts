@@ -198,24 +198,26 @@ export class TextEditor {
     const { startPosition, currentLength } = this.composition;
 
     const ca = startPosition.cellAddress;
+    const cbi = startPosition.cellBlockIndex ?? 0;
     if (currentLength > 0) {
       if (ca) {
-        this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength);
+        this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength, cbi);
       } else {
         this.doc.deleteText(startPosition, currentLength);
       }
     }
     if (finalText.length > 0) {
       if (ca) {
-        this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, finalText);
+        this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, finalText, cbi);
       } else {
         this.doc.insertText(startPosition, finalText);
       }
     }
-    const endPos = {
+    const endPos: DocPosition = {
       blockId: startPosition.blockId,
       offset: startPosition.offset + finalText.length,
       cellAddress: ca,
+      cellBlockIndex: ca ? cbi : undefined,
     };
     this.markDirty(startPosition.blockId);
     this.cursor.moveTo(endPos, this.getWrapAffinity(endPos));
@@ -303,16 +305,19 @@ export class TextEditor {
 
     // Route text input to table cell if cursor is inside one
     if (this.cursor.position.cellAddress) {
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
       this.doc.insertTextInCell(
         blockId,
         this.cursor.position.cellAddress,
         this.cursor.position.offset,
         data,
+        cbi,
       );
       const newPos: DocPosition = {
         blockId,
         offset: this.cursor.position.offset + data.length,
         cellAddress: this.cursor.position.cellAddress,
+        cellBlockIndex: cbi,
       };
       this.markDirty(blockId);
       this.cursor.moveTo(newPos);
@@ -765,19 +770,23 @@ export class TextEditor {
           pos.cellAddress = cellAddr;
 
           if (this.clickCount === 3) {
-            // Triple-click: select all cell text
-            const cellLen = this.getCellTextLength(pos.blockId, cellAddr);
-            const start: DocPosition = { blockId: pos.blockId, offset: 0, cellAddress: cellAddr };
-            const end: DocPosition = { blockId: pos.blockId, offset: cellLen, cellAddress: cellAddr };
+            // Triple-click: select all text in the clicked block
+            const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            const cbi = resolved.cellBlockIndex;
+            const bLen = this.doc.getCellBlockTextLength(pos.blockId, cellAddr, cbi);
+            const start: DocPosition = { blockId: pos.blockId, offset: 0, cellAddress: cellAddr, cellBlockIndex: cbi };
+            const end: DocPosition = { blockId: pos.blockId, offset: bLen, cellAddress: cellAddr, cellBlockIndex: cbi };
             this.selection.setRange({ anchor: start, focus: end });
             this.cursor.moveTo(end);
           } else if (this.clickCount === 2) {
-            // Double-click: select word in cell
-            const text = this.getCellText(pos.blockId, cellAddr);
-            const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
-            const [start, end] = getWordRange(text, clickOffset);
-            const anchor: DocPosition = { blockId: pos.blockId, offset: start, cellAddress: cellAddr };
-            const focus: DocPosition = { blockId: pos.blockId, offset: end, cellAddress: cellAddr };
+            // Double-click: select word in cell block
+            const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            const block = this.doc.getBlock(pos.blockId);
+            const tc = block.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex];
+            const blockText = getBlockText(tc.blocks[resolved.cellBlockIndex]);
+            const [start, end] = getWordRange(blockText, resolved.offset);
+            const anchor: DocPosition = { blockId: pos.blockId, offset: start, cellAddress: cellAddr, cellBlockIndex: resolved.cellBlockIndex };
+            const focus: DocPosition = { blockId: pos.blockId, offset: end, cellAddress: cellAddr, cellBlockIndex: resolved.cellBlockIndex };
             this.selection.setRange({ anchor, focus });
             this.cursor.moveTo(focus);
           } else if (e.shiftKey) {
@@ -786,19 +795,21 @@ export class TextEditor {
             if (anchor.cellAddress &&
                 anchor.cellAddress.rowIndex === cellAddr.rowIndex &&
                 anchor.cellAddress.colIndex === cellAddr.colIndex) {
-              const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
-              const focus: DocPosition = { blockId: pos.blockId, offset: clickOffset, cellAddress: cellAddr };
+              const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+              const focus: DocPosition = { blockId: pos.blockId, offset: resolved.offset, cellAddress: cellAddr, cellBlockIndex: resolved.cellBlockIndex };
               this.selection.setRange({ anchor, focus });
               this.cursor.moveTo(focus);
             } else {
               pos.offset = 0;
+              pos.cellBlockIndex = 0;
               this.cursor.moveTo(pos);
               this.selection.setRange(null);
             }
           } else {
             // Single click — resolve character offset from mouse position
-            const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
-            pos.offset = clickOffset;
+            const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            pos.offset = resolved.offset;
+            pos.cellBlockIndex = resolved.cellBlockIndex;
             this.cursor.moveTo(pos);
             this.selection.setRange(null);
           }
@@ -866,11 +877,12 @@ export class TextEditor {
 
       if (anchor.cellAddress) {
         // Resolve character offset from logical X within the anchor cell
-        const cellOffset = this.resolveOffsetInCellAtX(anchor.blockId, anchor.cellAddress, x);
+        const resolved = this.resolveOffsetInCellAtX(anchor.blockId, anchor.cellAddress, x);
         pos = {
           blockId: anchor.blockId,
-          offset: cellOffset,
+          offset: resolved.offset,
           cellAddress: anchor.cellAddress,
+          cellBlockIndex: resolved.cellBlockIndex,
         };
       }
 
@@ -932,16 +944,32 @@ export class TextEditor {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
 
-    // Table cell backspace: delete within cell, no-op at cell start
+    // Table cell backspace: delete within cell block, merge blocks, or no-op
     if (this.cursor.position.cellAddress) {
       const pos = this.cursor.position;
-      if (pos.offset <= 0) return; // At cell start — no-op
-      this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset - 1, 1);
-      this.cursor.moveTo({
-        blockId: pos.blockId,
-        offset: pos.offset - 1,
-        cellAddress: pos.cellAddress,
-      });
+      const cbi = pos.cellBlockIndex ?? 0;
+      if (pos.offset > 0) {
+        this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset - 1, 1, cbi);
+        this.cursor.moveTo({
+          blockId: pos.blockId,
+          offset: pos.offset - 1,
+          cellAddress: pos.cellAddress,
+          cellBlockIndex: cbi,
+        });
+      } else if (cbi > 0) {
+        // At start of non-first block: merge with previous
+        const prevLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress!, cbi - 1);
+        this.doc.mergeBlocksInCell(pos.blockId, pos.cellAddress!, cbi);
+        this.cursor.moveTo({
+          blockId: pos.blockId,
+          offset: prevLen,
+          cellAddress: pos.cellAddress,
+          cellBlockIndex: cbi - 1,
+        });
+        this.invalidateLayout();
+      } else {
+        return; // At start of first block in cell — no-op
+      }
       this.markDirty(pos.blockId);
       this.requestRender();
       return;
@@ -964,12 +992,24 @@ export class TextEditor {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
 
-    // Table cell delete: delete within cell, no-op at cell end
+    // Table cell delete: delete within cell block, merge blocks, or no-op
     if (this.cursor.position.cellAddress) {
       const pos = this.cursor.position;
-      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress!);
-      if (pos.offset >= cellLen) return; // At cell end — no-op
-      this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset, 1);
+      const cbi = pos.cellBlockIndex ?? 0;
+      const blockLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress!, cbi);
+      if (pos.offset < blockLen) {
+        this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset, 1, cbi);
+      } else {
+        // At end of block: merge with next block if exists
+        const block = this.doc.getBlock(pos.blockId);
+        const tableCell = block.tableData!.rows[pos.cellAddress!.rowIndex].cells[pos.cellAddress!.colIndex];
+        if (cbi + 1 < tableCell.blocks.length) {
+          this.doc.mergeBlocksInCell(pos.blockId, pos.cellAddress!, cbi + 1);
+          this.invalidateLayout();
+        } else {
+          return; // At end of last block in cell — no-op
+        }
+      }
       this.markDirty(pos.blockId);
       this.requestRender();
       return;
@@ -1037,22 +1077,25 @@ export class TextEditor {
   }
 
   private handleEnter(): void {
-    // In a table cell: move to cell below (same column), no-op at last row
+    // In a table cell: split block within cell
     if (this.cursor.position.cellAddress) {
+      this.saveSnapshot();
+      this.deleteSelection();
       const pos = this.cursor.position;
-      const cellAddr = pos.cellAddress!;
-      const block = this.doc.getBlock(pos.blockId);
-      if (!block.tableData) return;
-      const { rowIndex, colIndex } = cellAddr;
-      if (rowIndex < block.tableData.rows.length - 1) {
-        this.cursor.moveTo({
-          blockId: pos.blockId,
-          offset: 0,
-          cellAddress: { rowIndex: rowIndex + 1, colIndex },
-        });
-        this.selection.setRange(null);
-        this.requestRender();
-      }
+      const cbi = pos.cellBlockIndex ?? 0;
+      const newBlockIndex = this.doc.splitBlockInCell(
+        pos.blockId, pos.cellAddress!, cbi, pos.offset,
+      );
+      this.cursor.moveTo({
+        blockId: pos.blockId,
+        offset: 0,
+        cellAddress: pos.cellAddress,
+        cellBlockIndex: newBlockIndex,
+      });
+      this.selection.setRange(null);
+      this.markDirty(pos.blockId);
+      this.invalidateLayout();
+      this.requestRender();
       return;
     }
 
@@ -1849,8 +1892,14 @@ export class TextEditor {
 
   private moveLeft(pos: DocPosition): DocPosition {
     if (pos.cellAddress) {
+      const cbi = pos.cellBlockIndex ?? 0;
       if (pos.offset > 0) {
-        return { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
+        return { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress, cellBlockIndex: cbi };
+      }
+      if (cbi > 0) {
+        // Move to end of previous block in same cell
+        const prevLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress, cbi - 1);
+        return { blockId: pos.blockId, offset: prevLen, cellAddress: pos.cellAddress, cellBlockIndex: cbi - 1 };
       }
       return pos; // Clamp at cell start
     }
@@ -1866,8 +1915,10 @@ export class TextEditor {
         const td = prevBlock.tableData;
         const lastRow = td.rows.length - 1;
         const lastCol = td.columnWidths.length - 1;
-        const cellText = td.rows[lastRow].cells[lastCol].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
-        return { blockId: prevBlock.id, offset: cellText.length, cellAddress: { rowIndex: lastRow, colIndex: lastCol } };
+        const lastCell = td.rows[lastRow].cells[lastCol];
+        const lastCellBlockIdx = lastCell.blocks.length - 1;
+        const lastBlockLen = getBlockTextLength(lastCell.blocks[lastCellBlockIdx]);
+        return { blockId: prevBlock.id, offset: lastBlockLen, cellAddress: { rowIndex: lastRow, colIndex: lastCol }, cellBlockIndex: lastCellBlockIdx };
       }
       return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
     }
@@ -1876,9 +1927,16 @@ export class TextEditor {
 
   private moveRight(pos: DocPosition): DocPosition {
     if (pos.cellAddress) {
-      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
-      if (pos.offset < cellLen) {
-        return { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
+      const cbi = pos.cellBlockIndex ?? 0;
+      const blockLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress, cbi);
+      if (pos.offset < blockLen) {
+        return { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress, cellBlockIndex: cbi };
+      }
+      // Move to start of next block in same cell
+      const block = this.doc.getBlock(pos.blockId);
+      const tableCell = block.tableData!.rows[pos.cellAddress.rowIndex].cells[pos.cellAddress.colIndex];
+      if (cbi + 1 < tableCell.blocks.length) {
+        return { blockId: pos.blockId, offset: 0, cellAddress: pos.cellAddress, cellBlockIndex: cbi + 1 };
       }
       return pos; // Clamp at cell end
     }
@@ -2137,9 +2195,9 @@ export class TextEditor {
   }
 
   /**
-   * Resolve a mouse event to a character offset within a specific table cell.
+   * Resolve a mouse event to a character offset and block index within a table cell.
    */
-  private resolveOffsetInCell(blockId: string, cellAddr: CellAddress, e: MouseEvent): number {
+  private resolveOffsetInCell(blockId: string, cellAddr: CellAddress, e: MouseEvent): { offset: number; cellBlockIndex: number } {
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
     const logicalX = (e.clientX - rect.left + this.container.scrollLeft) / s;
@@ -2147,16 +2205,16 @@ export class TextEditor {
   }
 
   /**
-   * Resolve a logical X coordinate to a character offset within a table cell.
+   * Resolve a logical X coordinate to a character offset and block index within a table cell.
    */
-  private resolveOffsetInCellAtX(blockId: string, cellAddr: CellAddress, logicalX: number): number {
+  private resolveOffsetInCellAtX(blockId: string, cellAddr: CellAddress, logicalX: number): { offset: number; cellBlockIndex: number } {
     const layout = this.getLayout();
     const lb = layout.blocks.find((b) => b.block.id === blockId);
-    if (!lb?.layoutTable) return 0;
+    if (!lb?.layoutTable) return { offset: 0, cellBlockIndex: 0 };
 
     const tl = lb.layoutTable;
     const cell = tl.cells[cellAddr.rowIndex]?.[cellAddr.colIndex];
-    if (!cell || cell.merged) return 0;
+    if (!cell || cell.merged) return { offset: 0, cellBlockIndex: 0 };
 
     const paginatedLayout = this.getPaginatedLayout();
     const { margins } = paginatedLayout.pageSetup;
@@ -2168,7 +2226,15 @@ export class TextEditor {
 
     const ctx = this.getCtx();
     let offset = 0;
-    for (const line of cell.lines) {
+    let currentBlockIndex = 0;
+    for (let lineIdx = 0; lineIdx < cell.lines.length; lineIdx++) {
+      // Track which block this line belongs to
+      const nextBoundary = cell.blockBoundaries[currentBlockIndex + 1];
+      if (nextBoundary !== undefined && lineIdx >= nextBoundary) {
+        currentBlockIndex++;
+        offset = 0;
+      }
+      const line = cell.lines[lineIdx];
       for (const run of line.runs) {
         ctx.font = buildFont(
           run.inline.style.fontSize, run.inline.style.fontFamily,
@@ -2176,12 +2242,12 @@ export class TextEditor {
         );
         for (let i = 0; i <= run.text.length; i++) {
           const w = ctx.measureText(run.text.slice(0, i)).width + run.x;
-          if (w >= localX) return offset + i;
+          if (w >= localX) return { offset: offset + i, cellBlockIndex: currentBlockIndex };
         }
         offset += run.text.length;
       }
     }
-    return offset;
+    return { offset, cellBlockIndex: currentBlockIndex };
   }
 
   /**
@@ -2286,11 +2352,13 @@ export class TextEditor {
     for (let c = colIndex - 1; c >= 0; c--) {
       const cell = td.rows[rowIndex]?.cells[c];
       if (cell && cell.colSpan !== 0) {
-        const len = cell.blocks.flatMap(b => b.inlines).reduce((s, i) => s + i.text.length, 0);
+        const lastIdx = cell.blocks.length - 1;
+        const len = getBlockTextLength(cell.blocks[lastIdx]);
         this.cursor.moveTo({
           blockId: pos.blockId,
           offset: len,
           cellAddress: { rowIndex, colIndex: c },
+          cellBlockIndex: lastIdx,
         });
         return true;
       }
@@ -2300,11 +2368,13 @@ export class TextEditor {
       for (let c = td.columnWidths.length - 1; c >= 0; c--) {
         const cell = td.rows[r]?.cells[c];
         if (cell && cell.colSpan !== 0) {
-          const len = cell.blocks.flatMap(b => b.inlines).reduce((s, i) => s + i.text.length, 0);
+          const lastIdx = cell.blocks.length - 1;
+          const len = getBlockTextLength(cell.blocks[lastIdx]);
           this.cursor.moveTo({
             blockId: pos.blockId,
             offset: len,
             cellAddress: { rowIndex: r, colIndex: c },
+            cellBlockIndex: lastIdx,
           });
           return true;
         }
@@ -2370,9 +2440,10 @@ export class TextEditor {
     if (result.commit) {
       if (this.hangulComposingLength > 0) {
         const ca = this.hangulStartPos.cellAddress;
+        const hcbi = this.hangulStartPos.cellBlockIndex ?? 0;
         if (ca) {
-          this.doc.deleteTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, this.hangulComposingLength);
-          this.doc.insertTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, result.commit);
+          this.doc.deleteTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, this.hangulComposingLength, hcbi);
+          this.doc.insertTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, result.commit, hcbi);
         } else {
           this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
           this.doc.insertText(this.hangulStartPos, result.commit);
@@ -2381,12 +2452,14 @@ export class TextEditor {
           blockId: this.hangulStartPos.blockId,
           offset: this.hangulStartPos.offset + result.commit.length,
           cellAddress: this.hangulStartPos.cellAddress,
+          cellBlockIndex: this.hangulStartPos.cellBlockIndex,
         };
       } else {
         this.deleteSelection();
         const ca2 = this.cursor.position.cellAddress;
+        const cbi2 = this.cursor.position.cellBlockIndex ?? 0;
         if (ca2) {
-          this.doc.insertTextInCell(this.cursor.position.blockId, ca2, this.cursor.position.offset, result.commit);
+          this.doc.insertTextInCell(this.cursor.position.blockId, ca2, this.cursor.position.offset, result.commit, cbi2);
         } else {
           this.doc.insertText(this.cursor.position, result.commit);
         }
@@ -2394,6 +2467,7 @@ export class TextEditor {
           blockId: this.cursor.position.blockId,
           offset: this.cursor.position.offset + result.commit.length,
           cellAddress: this.cursor.position.cellAddress,
+          cellBlockIndex: this.cursor.position.cellBlockIndex,
         };
       }
       this.hangulComposingLength = 0;
@@ -2406,15 +2480,16 @@ export class TextEditor {
         this.hangulStartPos = { ...this.cursor.position };
       }
       const hca = this.hangulStartPos.cellAddress;
+      const hcbi = this.hangulStartPos.cellBlockIndex ?? 0;
       if (this.hangulComposingLength > 0) {
         if (hca) {
-          this.doc.deleteTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, this.hangulComposingLength);
+          this.doc.deleteTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, this.hangulComposingLength, hcbi);
         } else {
           this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
         }
       }
       if (hca) {
-        this.doc.insertTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, result.composing);
+        this.doc.insertTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, result.composing, hcbi);
       } else {
         this.doc.insertText(this.hangulStartPos, result.composing);
       }
@@ -2427,6 +2502,7 @@ export class TextEditor {
       blockId: this.hangulStartPos.blockId,
       offset: this.hangulStartPos.offset + this.hangulComposingLength,
       cellAddress: this.hangulStartPos.cellAddress,
+      cellBlockIndex: this.hangulStartPos.cellBlockIndex,
     };
     this.markDirty(this.hangulStartPos.blockId);
     this.cursor.moveTo(hangulPos, this.getWrapAffinity(hangulPos));

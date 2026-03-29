@@ -75,13 +75,19 @@ export function resolvePositionPixel(
     const cellX = tl.columnXOffsets[colIndex] + cellPadding;
     const cellY = tl.rowYOffsets[rowIndex] + cellPadding;
 
-    // Measure text offset within cell lines
+    // Determine which lines belong to the target cell block
+    const cbi = position.cellBlockIndex ?? 0;
+    const startLine = cell.blockBoundaries[cbi] ?? 0;
+    const endLine = cell.blockBoundaries[cbi + 1] ?? cell.lines.length;
+
+    // Measure text offset within the target block's lines
     let cursorX = 0;
     let cursorLineY = 0;
     let lineHeight = tl.rowHeights[rowIndex] ?? 20;
     let offsetRemaining = position.offset;
 
-    for (const line of cell.lines) {
+    for (let li = startLine; li < endLine; li++) {
+      const line = cell.lines[li];
       let lineChars = 0;
       for (const run of line.runs) {
         lineChars += run.text.length;

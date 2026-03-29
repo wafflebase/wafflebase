@@ -159,4 +159,84 @@ describe('Doc table operations', () => {
       expect(sum).toBeCloseTo(1.0);
     });
   });
+
+  describe('splitBlockInCell', () => {
+    it('should split a cell block into two paragraphs', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'abcd');
+      const newIdx = doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 2);
+      expect(newIdx).toBe(1);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(2);
+      expect(cell.blocks[0].inlines.map(i => i.text).join('')).toBe('ab');
+      expect(cell.blocks[1].inlines.map(i => i.text).join('')).toBe('cd');
+    });
+
+    it('should split at start of block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'hello');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 0);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(2);
+      expect(cell.blocks[0].inlines.map(i => i.text).join('')).toBe('');
+      expect(cell.blocks[1].inlines.map(i => i.text).join('')).toBe('hello');
+    });
+
+    it('should split at end of block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'hello');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 5);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(2);
+      expect(cell.blocks[0].inlines.map(i => i.text).join('')).toBe('hello');
+      expect(cell.blocks[1].inlines.map(i => i.text).join('')).toBe('');
+    });
+  });
+
+  describe('mergeBlocksInCell', () => {
+    it('should merge second block into first', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'abcd');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 2);
+      doc.mergeBlocksInCell(tableId, { rowIndex: 0, colIndex: 0 }, 1);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(1);
+      expect(cell.blocks[0].inlines.map(i => i.text).join('')).toBe('abcd');
+    });
+
+    it('should no-op when merging first block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.mergeBlocksInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(1);
+    });
+  });
+
+  describe('insertTextInCell with cellBlockIndex', () => {
+    it('should insert text into the second block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'abcd');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'X', 1);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks[1].inlines.map(i => i.text).join('')).toBe('Xcd');
+    });
+  });
+
+  describe('getCellBlockTextLength', () => {
+    it('should return length of specific block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'abcd');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 2);
+      expect(doc.getCellBlockTextLength(tableId, { rowIndex: 0, colIndex: 0 }, 0)).toBe(2);
+      expect(doc.getCellBlockTextLength(tableId, { rowIndex: 0, colIndex: 0 }, 1)).toBe(2);
+    });
+  });
 });

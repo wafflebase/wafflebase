@@ -402,17 +402,18 @@ export class Doc {
   }
 
   /**
-   * Insert text at offset in a table cell's first block.
+   * Insert text at offset in a table cell block.
    */
   insertTextInCell(
     blockId: string,
     cell: CellAddress,
     offset: number,
     text: string,
+    cellBlockIndex = 0,
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
-    const targetBlock = tableCell.blocks[0];
+    const targetBlock = tableCell.blocks[cellBlockIndex];
     if (!targetBlock) return;
     const { inlineIndex, charOffset } = this.resolveOffsetInInlines(
       targetBlock.inlines,
@@ -426,17 +427,18 @@ export class Doc {
   }
 
   /**
-   * Delete text from a table cell's first block.
+   * Delete text from a table cell block.
    */
   deleteTextInCell(
     blockId: string,
     cell: CellAddress,
     offset: number,
     length: number,
+    cellBlockIndex = 0,
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
-    const targetBlock = tableCell.blocks[0];
+    const targetBlock = tableCell.blocks[cellBlockIndex];
     if (!targetBlock) return;
     const totalLen = targetBlock.inlines.reduce((s, i) => s + i.text.length, 0);
     let remaining = Math.min(length, totalLen - offset);
@@ -467,7 +469,7 @@ export class Doc {
   }
 
   /**
-   * Apply inline style to a range within a table cell's first block.
+   * Apply inline style to a range within a table cell block.
    */
   applyCellInlineStyle(
     blockId: string,
@@ -475,10 +477,11 @@ export class Doc {
     start: number,
     end: number,
     style: Partial<InlineStyle>,
+    cellBlockIndex = 0,
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
-    const targetBlock = tableCell.blocks[0];
+    const targetBlock = tableCell.blocks[cellBlockIndex];
     if (!targetBlock) return;
     targetBlock.inlines = this.applyStyleToInlines(
       targetBlock.inlines,
@@ -488,6 +491,85 @@ export class Doc {
     );
     this.store.updateBlock(blockId, block);
     this.refresh();
+  }
+
+  /**
+   * Split a block within a table cell at the given offset.
+   * Returns the index of the new block (cellBlockIndex + 1).
+   */
+  splitBlockInCell(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+    offset: number,
+  ): number {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return cellBlockIndex;
+
+    const blockText = getBlockText(targetBlock);
+    const beforeInlines = this.buildInlinesFromSplit(targetBlock, 0, offset);
+    const afterInlines = this.buildInlinesFromSplit(targetBlock, offset, blockText.length);
+    const cursorStyle = this.getStyleAtOffset(targetBlock, offset);
+
+    targetBlock.inlines = beforeInlines.length > 0
+      ? beforeInlines
+      : [{ text: '', style: cursorStyle }];
+
+    const newBlock: Block = {
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: afterInlines.length > 0
+        ? afterInlines
+        : [{ text: '', style: cursorStyle }],
+      style: { ...targetBlock.style },
+    };
+
+    tableCell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+    return cellBlockIndex + 1;
+  }
+
+  /**
+   * Merge a cell block into the previous cell block.
+   * No-op if cellBlockIndex <= 0.
+   */
+  mergeBlocksInCell(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+  ): void {
+    if (cellBlockIndex <= 0) return;
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const prevBlock = tableCell.blocks[cellBlockIndex - 1];
+    const curBlock = tableCell.blocks[cellBlockIndex];
+    if (!prevBlock || !curBlock) return;
+
+    prevBlock.inlines = this.normalizeInlinesArray([
+      ...prevBlock.inlines,
+      ...curBlock.inlines,
+    ]);
+    tableCell.blocks.splice(cellBlockIndex, 1);
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Get the text length of a specific block within a table cell.
+   */
+  getCellBlockTextLength(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+  ): number {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return 0;
+    return getBlockTextLength(targetBlock);
   }
 
   /**

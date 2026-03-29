@@ -84,6 +84,7 @@ export interface DocPosition {
   blockId: string;
   offset: number;
   cellAddress?: CellAddress;
+  cellBlockIndex?: number;
 }
 
 /**

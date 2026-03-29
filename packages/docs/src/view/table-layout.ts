@@ -5,6 +5,7 @@ import { buildFont, ptToPx, Theme } from './theme.js';
 
 export interface LayoutTableCell {
   lines: LayoutLine[];
+  blockBoundaries: number[];
   width: number;
   height: number;
   merged: boolean;
@@ -138,20 +139,26 @@ function splitWords(text: string): string[] {
 
 /**
  * Layout blocks within a table cell into wrapped lines.
+ * Returns lines and blockBoundaries (line index where each block starts).
  */
 function layoutCellBlocks(
   blocks: Block[],
   ctx: CanvasRenderingContext2D,
   maxWidth: number,
-): LayoutLine[] {
+): { lines: LayoutLine[]; blockBoundaries: number[] } {
   if (blocks.length === 0) {
     const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
-    return [{ runs: [], y: 0, height: defaultHeight, width: 0 }];
+    return {
+      lines: [{ runs: [], y: 0, height: defaultHeight, width: 0 }],
+      blockBoundaries: [0],
+    };
   }
 
   const allLines: LayoutLine[] = [];
+  const blockBoundaries: number[] = [];
 
   for (const block of blocks) {
+    blockBoundaries.push(allLines.length);
     const blockLines = layoutCellInlines(block.inlines, ctx, maxWidth);
     allLines.push(...blockLines);
   }
@@ -163,7 +170,7 @@ function layoutCellBlocks(
     y += line.height;
   }
 
-  return allLines;
+  return { lines: allLines, blockBoundaries };
 }
 
 /**
@@ -200,7 +207,7 @@ export function computeTableLayout(
 
       if (colSpan === 0) {
         // Merged cell placeholder
-        cellRow.push({ lines: [], width: 0, height: 0, merged: true });
+        cellRow.push({ lines: [], blockBoundaries: [], width: 0, height: 0, merged: true });
         continue;
       }
 
@@ -213,10 +220,10 @@ export function computeTableLayout(
       const padding = cell?.style?.padding ?? DEFAULT_CELL_PADDING;
       const innerWidth = Math.max(cellWidth - padding * 2, 0);
 
-      const lines = layoutCellBlocks(cell?.blocks ?? [], ctx, innerWidth);
+      const { lines, blockBoundaries } = layoutCellBlocks(cell?.blocks ?? [], ctx, innerWidth);
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 
-      cellRow.push({ lines, width: cellWidth, height: cellHeight, merged: false });
+      cellRow.push({ lines, blockBoundaries, width: cellWidth, height: cellHeight, merged: false });
     }
     cells.push(cellRow);
   }
