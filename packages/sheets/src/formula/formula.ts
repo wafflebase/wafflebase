@@ -242,14 +242,40 @@ export function extractReferences(formula: string): Set<Reference> {
 }
 
 /**
+ * `codePointToUtf16Offsets` builds a mapping from code-point index to UTF-16
+ * index.  `offsets[i]` is the UTF-16 position of the i-th code point.
+ * `offsets[codePointCount]` equals `str.length` (a sentinel past the end).
+ *
+ * ANTLR4-ts `CharStreams.fromString` uses Unicode code points for token
+ * indices, while JavaScript string methods use UTF-16 code units.  Characters
+ * outside the BMP (e.g. emoji) are 1 code point but 2 UTF-16 code units,
+ * causing the two index systems to diverge.
+ */
+function codePointToUtf16Offsets(str: string): number[] {
+  const offsets: number[] = [];
+  let u16 = 0;
+  for (const ch of str) {
+    offsets.push(u16);
+    u16 += ch.length; // 1 for BMP, 2 for supplementary
+  }
+  offsets.push(u16); // sentinel
+  return offsets;
+}
+
+/**
  * `extractTokens` returns tokens in the expression.
  */
 export function extractTokens(formula: string): Array<Token> {
-  const stream = CharStreams.fromString(formula.slice(1));
+  const body = formula.slice(1); // skip '='
+  const stream = CharStreams.fromString(body);
   const lexer = new FormulaLexer(stream);
   const tokenStream = new CommonTokenStream(lexer);
   lexer.removeErrorListeners();
   tokenStream.fill();
+
+  // ANTLR token indices are code-point based; JS slice is UTF-16 based.
+  // Build a mapping so gap-filling and returned start/stop use UTF-16.
+  const cpOff = codePointToUtf16Offsets(body);
 
   const tokens: Array<Token> = [];
   for (const token of tokenStream.getTokens()) {
@@ -259,8 +285,8 @@ export function extractTokens(formula: string): Array<Token> {
 
     tokens.push({
       type: lexer.vocabulary.getSymbolicName(token.type) || 'STRING',
-      start: token.startIndex,
-      stop: token.stopIndex,
+      start: cpOff[token.startIndex],
+      stop: cpOff[token.stopIndex + 1] - 1,
       text: token.text!,
     });
   }
@@ -274,14 +300,14 @@ export function extractTokens(formula: string): Array<Token> {
         type: 'STRING',
         start: 0,
         stop: token.start - 1,
-        text: formula.slice(1, token.start + 1),
+        text: body.slice(0, token.start),
       });
     } else if (currToken && currToken.stop + 1 !== token.start) {
       filledTokens.push({
         type: 'STRING',
         start: currToken.stop + 1,
         stop: token.start - 1,
-        text: formula.slice(currToken.stop + 2, token.start + 1),
+        text: body.slice(currToken.stop + 1, token.start),
       });
     }
     filledTokens.push(token);
@@ -289,12 +315,12 @@ export function extractTokens(formula: string): Array<Token> {
     currToken = token;
   }
 
-  if (currToken && currToken.stop + 2 < formula.length) {
+  if (currToken && currToken.stop + 1 < body.length) {
     filledTokens.push({
       type: 'STRING',
       start: currToken.stop + 1,
-      stop: formula.length - 1,
-      text: formula.slice(currToken.stop + 2),
+      stop: body.length - 1,
+      text: body.slice(currToken.stop + 1),
     });
   }
 
