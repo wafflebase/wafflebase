@@ -36,7 +36,7 @@
 **Files:**
 - Modify: `packages/docs/src/model/types.ts`
 
-- [ ] **Step 1: Update `TableCell` interface**
+- [x] **Step 1: Update `TableCell` interface**
 
 Change:
 ```typescript
@@ -58,7 +58,7 @@ export interface TableCell {
 }
 ```
 
-- [ ] **Step 2: Update `createTableCell` factory**
+- [x] **Step 2: Update `createTableCell` factory**
 
 Change:
 ```typescript
@@ -85,7 +85,7 @@ export function createTableCell(): TableCell {
 }
 ```
 
-- [ ] **Step 3: Add `getCellText` helper function**
+- [x] **Step 3: Add `getCellText` helper function**
 
 Add a utility function to extract text from a cell's blocks (needed during migration of merge/split and tests):
 
@@ -98,12 +98,12 @@ export function getCellText(cell: TableCell): string {
 }
 ```
 
-- [ ] **Step 4: Verify it compiles (expect errors in downstream files)**
+- [x] **Step 4: Verify it compiles (expect errors in downstream files)**
 
 Run: `cd packages/docs && npx tsc --noEmit 2>&1 | grep "error TS" | wc -l`
 Expected: Compilation errors in document.ts, table-layout.ts, table-renderer.ts, and test files referencing `.inlines` on cells. Note the count — all subsequent tasks will fix these.
 
-- [ ] **Step 5: Commit (with `--no-verify` since code won't compile yet)**
+- [x] **Step 5: Commit (with `--no-verify` since code won't compile yet)**
 
 ```bash
 git add packages/docs/src/model/types.ts
@@ -119,7 +119,7 @@ git commit --no-verify -m "refactor(docs): change TableCell from inlines to bloc
 
 The `*InCell` methods operate on `cell.inlines`. They need to operate on the first block in `cell.blocks` instead. Also update `mergeCells`/`splitCell` which reference `cell.inlines`.
 
-- [ ] **Step 1: Update `insertTextInCell` to use cell blocks**
+- [x] **Step 1: Update `insertTextInCell` to use cell blocks**
 
 Replace the method to insert text into the first block of the cell:
 
@@ -146,7 +146,7 @@ Replace the method to insert text into the first block of the cell:
   }
 ```
 
-- [ ] **Step 2: Update `deleteTextInCell` to use cell blocks**
+- [x] **Step 2: Update `deleteTextInCell` to use cell blocks**
 
 Replace the method to delete text from the first block of the cell:
 
@@ -190,7 +190,7 @@ Replace the method to delete text from the first block of the cell:
   }
 ```
 
-- [ ] **Step 3: Update `applyCellInlineStyle` to use cell blocks**
+- [x] **Step 3: Update `applyCellInlineStyle` to use cell blocks**
 
 ```typescript
   applyCellInlineStyle(
@@ -215,7 +215,7 @@ Replace the method to delete text from the first block of the cell:
   }
 ```
 
-- [ ] **Step 4: Update `mergeCells` to use cell blocks**
+- [x] **Step 4: Update `mergeCells` to use cell blocks**
 
 Replace `cell.inlines` references with `cell.blocks`:
 
@@ -259,7 +259,7 @@ Replace `cell.inlines` references with `cell.blocks`:
   }
 ```
 
-- [ ] **Step 5: Update `splitCell` to use cell blocks**
+- [x] **Step 5: Update `splitCell` to use cell blocks**
 
 ```typescript
   splitCell(blockId: string, cell: CellAddress): void {
@@ -287,16 +287,16 @@ Replace `cell.inlines` references with `cell.blocks`:
   }
 ```
 
-- [ ] **Step 6: Add imports**
+- [x] **Step 6: Add imports**
 
 At the top of `document.ts`, ensure `getCellText`, `generateBlockId`, `DEFAULT_BLOCK_STYLE` are imported from `types.ts`.
 
-- [ ] **Step 7: Verify it compiles (fewer errors now)**
+- [x] **Step 7: Verify it compiles (fewer errors now)**
 
 Run: `cd packages/docs && npx tsc --noEmit 2>&1 | grep "error TS" | wc -l`
 Expected: Errors now only in table-layout.ts, table-renderer.ts, and test files.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts
@@ -312,7 +312,7 @@ git commit --no-verify -m "refactor(docs): update Doc table methods for block-ba
 
 The `layoutCellInlines` function takes `Inline[]`. Update to take a cell's `Block[]` and lay out each block's inlines sequentially.
 
-- [ ] **Step 1: Rename and update `layoutCellInlines` to `layoutCellBlocks`**
+- [x] **Step 1: Rename and update `layoutCellInlines` to `layoutCellBlocks`**
 
 ```typescript
 import type { TableData, Block } from '../model/types.js';
@@ -350,7 +350,7 @@ function layoutCellBlocks(
 
 Keep the existing `layoutCellInlines` function as-is (it's now a private helper called by `layoutCellBlocks`).
 
-- [ ] **Step 2: Update `computeTableLayout` to use `layoutCellBlocks`**
+- [x] **Step 2: Update `computeTableLayout` to use `layoutCellBlocks`**
 
 Change line 184:
 ```typescript
@@ -361,19 +361,19 @@ const lines = layoutCellInlines(cell?.inlines ?? [], ctx, innerWidth);
 const lines = layoutCellBlocks(cell?.blocks ?? [], ctx, innerWidth);
 ```
 
-- [ ] **Step 3: Update import to include `Block`**
+- [x] **Step 3: Update import to include `Block`**
 
 Change the import at line 1:
 ```typescript
 import type { TableData, Block } from '../model/types.js';
 ```
 
-- [ ] **Step 4: Verify it compiles**
+- [x] **Step 4: Verify it compiles**
 
 Run: `cd packages/docs && npx tsc --noEmit 2>&1 | grep "error TS" | wc -l`
 Expected: Errors now only in table-renderer.ts and test files.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/table-layout.ts
@@ -389,18 +389,18 @@ git commit --no-verify -m "refactor(docs): layout cell blocks instead of cell in
 
 The renderer accesses `cell.inlines` in the text rendering section (to get inline styles). Since cell layout now produces lines from `cell.blocks`, and `LayoutLine.runs` already contain the inline references, the renderer mostly works — but any direct `cell.inlines` access needs updating.
 
-- [ ] **Step 1: Check and fix any `cell.inlines` references**
+- [x] **Step 1: Check and fix any `cell.inlines` references**
 
 Search `table-renderer.ts` for `.inlines` — the renderer uses `rows[r].cells[c]` for style access but should not access `.inlines` directly (it uses `layoutCell.lines` for run data). Verify no `.inlines` references exist.
 
 If none: no changes needed. If found, replace with `cell.blocks[0]?.inlines ?? []`.
 
-- [ ] **Step 2: Verify it compiles**
+- [x] **Step 2: Verify it compiles**
 
 Run: `cd packages/docs && npx tsc --noEmit 2>&1 | grep "error TS" | wc -l`
 Expected: Errors now only in test files.
 
-- [ ] **Step 3: Commit (if changes were made)**
+- [x] **Step 3: Commit (if changes were made)**
 
 ```bash
 git add packages/docs/src/view/table-renderer.ts
@@ -416,7 +416,7 @@ git commit --no-verify -m "refactor(docs): update table renderer for block-based
 
 Replace JSON `tableData` attribute with tree node children: `row → cell → block → inline → text`.
 
-- [ ] **Step 1: Add cell style serialization helpers**
+- [x] **Step 1: Add cell style serialization helpers**
 
 ```typescript
 function serializeCellStyle(cell: TableCell): Record<string, string> {
@@ -453,7 +453,7 @@ function parseCellStyle(attrs: Record<string, string>): CellStyle {
 }
 ```
 
-- [ ] **Step 2: Update `buildBlockNode` for table blocks**
+- [x] **Step 2: Update `buildBlockNode` for table blocks**
 
 Replace the `tableData` JSON serialization with tree children:
 
@@ -491,7 +491,7 @@ function buildBlockNode(block: Block): ElementNode {
 }
 ```
 
-- [ ] **Step 3: Update `treeNodeToBlock` for table deserialization**
+- [x] **Step 3: Update `treeNodeToBlock` for table deserialization**
 
 Replace the `tableData` JSON parsing with tree traversal:
 
@@ -546,20 +546,20 @@ function treeNodeToCell(node: TreeNode): TableCell {
 }
 ```
 
-- [ ] **Step 4: Remove old JSON tableData parsing**
+- [x] **Step 4: Remove old JSON tableData parsing**
 
 Delete the `if ('tableData' in attrs && attrs.tableData)` block from `treeNodeToBlock`.
 
-- [ ] **Step 5: Add imports**
+- [x] **Step 5: Add imports**
 
 Add imports for `TableRow`, `TableCell`, `CellStyle`, `BorderStyle` from `@wafflebase/docs`.
 
-- [ ] **Step 6: Verify frontend compiles**
+- [x] **Step 6: Verify frontend compiles**
 
 Run: `cd packages/frontend && npx tsc --noEmit 2>&1 | head -10`
 Expected: No errors.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/yorkie-doc-store.ts
@@ -576,7 +576,7 @@ git commit --no-verify -m "refactor(frontend): serialize tables as Yorkie Tree n
 - Modify: `packages/docs/test/view/table-layout.test.ts`
 - Modify: `packages/docs/test/view/table-selection.test.ts`
 
-- [ ] **Step 1: Update `getCellText` helper in `table.test.ts`**
+- [x] **Step 1: Update `getCellText` helper in `table.test.ts`**
 
 Change:
 ```typescript
@@ -596,7 +596,7 @@ function getCellText(doc: Doc, blockId: string, cell: CellAddress): string {
 }
 ```
 
-- [ ] **Step 2: Update merge test assertion**
+- [x] **Step 2: Update merge test assertion**
 
 The merge test checks `topLeft.inlines` — change to `topLeft.blocks[0].inlines`:
 
@@ -604,7 +604,7 @@ The merge test checks `topLeft.inlines` — change to `topLeft.blocks[0].inlines
 expect(topLeft.blocks[0].inlines.map(i => i.text).join('')).toBe('ABC');
 ```
 
-- [ ] **Step 3: Update applyCellInlineStyle test**
+- [x] **Step 3: Update applyCellInlineStyle test**
 
 Change `cell.inlines[0]` to `cell.blocks[0].inlines[0]`:
 
@@ -615,7 +615,7 @@ expect(cell.blocks[0].inlines[0].text).toBe('Hel');
 expect(cell.blocks[0].inlines[1].text).toBe('lo');
 ```
 
-- [ ] **Step 4: Update `types.test.ts` table factory tests**
+- [x] **Step 4: Update `types.test.ts` table factory tests**
 
 Change `createTableCell` assertions from `.inlines` to `.blocks`:
 
@@ -629,7 +629,7 @@ it('createTableCell returns cell with empty block and default style', () => {
 });
 ```
 
-- [ ] **Step 5: Update `table-selection.test.ts`**
+- [x] **Step 5: Update `table-selection.test.ts`**
 
 Change cell text assertions from `.inlines` to `.blocks`:
 
@@ -638,16 +638,16 @@ const text = block.tableData!.rows[0].cells[0].blocks
   .flatMap(b => b.inlines).map(i => i.text).join('');
 ```
 
-- [ ] **Step 6: Update `table-layout.test.ts`**
+- [x] **Step 6: Update `table-layout.test.ts`**
 
 If layout tests create cells with `inlines`, change to `blocks`. Check for any `cell.inlines` references.
 
-- [ ] **Step 7: Run all tests**
+- [x] **Step 7: Run all tests**
 
 Run: `cd packages/docs && npx vitest run`
 Expected: All pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/docs/test/
@@ -662,11 +662,11 @@ git commit -m "test(docs): update table tests for block-based cells"
 - Modify: `packages/docs/src/index.ts`
 - Modify: `packages/docs/src/view/text-editor.ts` (cell text helpers)
 
-- [ ] **Step 1: Export `getCellText` from index.ts**
+- [x] **Step 1: Export `getCellText` from index.ts**
 
 Add `getCellText` to the exports in `packages/docs/src/index.ts`.
 
-- [ ] **Step 2: Update `getCellText` and `getCellTextLength` in text-editor.ts**
+- [x] **Step 2: Update `getCellText` and `getCellTextLength` in text-editor.ts**
 
 These private helpers on TextEditor read `cell.inlines` — update to use `cell.blocks`:
 
@@ -692,21 +692,21 @@ These private helpers on TextEditor read `cell.inlines` — update to use `cell.
   }
 ```
 
-- [ ] **Step 3: Update `mergeCells` reference in `editor.ts` context menu**
+- [x] **Step 3: Update `mergeCells` reference in `editor.ts` context menu**
 
 Check `docs-table-context-menu.tsx` for any `.inlines` references on cells — these should not exist (the component uses EditorAPI methods).
 
-- [ ] **Step 4: Verify full compilation**
+- [x] **Step 4: Verify full compilation**
 
 Run: `cd packages/docs && npx tsc --noEmit && cd ../frontend && npx tsc --noEmit`
 Expected: No errors.
 
-- [ ] **Step 5: Run all tests**
+- [x] **Step 5: Run all tests**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/ packages/frontend/src/
@@ -717,17 +717,17 @@ git commit -m "refactor(docs): update remaining cell.inlines references to cell.
 
 ### Task 8: Final Verification
 
-- [ ] **Step 1: Run verify:fast**
+- [x] **Step 1: Run verify:fast**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 2: Run verify:entropy**
+- [x] **Step 2: Run verify:entropy**
 
 Run: `node scripts/verify-entropy.mjs`
 Expected: All entropy checks passed.
 
-- [ ] **Step 3: Manual smoke test**
+- [x] **Step 3: Manual smoke test**
 
 1. `pnpm dev`, open a Docs document
 2. Insert table via toolbar grid picker
