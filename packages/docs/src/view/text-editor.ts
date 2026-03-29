@@ -1781,6 +1781,14 @@ export class TextEditor {
     const idx = this.doc.getBlockIndex(pos.blockId);
     if (idx > 0) {
       const prevBlock = this.doc.document.blocks[idx - 1];
+      // If previous block is a table, enter its last cell
+      if (prevBlock.type === 'table' && prevBlock.tableData) {
+        const td = prevBlock.tableData;
+        const lastRow = td.rows.length - 1;
+        const lastCol = td.columnWidths.length - 1;
+        const cellText = td.rows[lastRow].cells[lastCol].inlines.map(i => i.text).join('');
+        return { blockId: prevBlock.id, offset: cellText.length, cellAddress: { rowIndex: lastRow, colIndex: lastCol } };
+      }
       return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
     }
     return pos;
@@ -1795,7 +1803,12 @@ export class TextEditor {
     // Move to start of next block
     const idx = this.doc.getBlockIndex(pos.blockId);
     if (idx < this.doc.document.blocks.length - 1) {
-      return { blockId: this.doc.document.blocks[idx + 1].id, offset: 0 };
+      const nextBlock = this.doc.document.blocks[idx + 1];
+      // If next block is a table, enter its first cell
+      if (nextBlock.type === 'table' && nextBlock.tableData) {
+        return { blockId: nextBlock.id, offset: 0, cellAddress: { rowIndex: 0, colIndex: 0 } };
+      }
+      return { blockId: nextBlock.id, offset: 0 };
     }
     return pos;
   }
@@ -2129,6 +2142,13 @@ export class TextEditor {
           return true;
         }
       }
+    }
+    // At first cell — exit table, move to the block before the table
+    const blockIndex = this.doc.getBlockIndex(pos.blockId);
+    if (blockIndex > 0) {
+      const prevBlock = this.doc.document.blocks[blockIndex - 1];
+      this.cursor.moveTo({ blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) });
+      return true;
     }
     return false;
   }
