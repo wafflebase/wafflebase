@@ -502,11 +502,9 @@ export class Doc {
                   continue;
                 }
                 matches.push({
-                  blockId: block.id,
+                  blockId: cellBlock.id,
                   startOffset: match.index,
                   endOffset: match.index + match[0].length,
-                  cellAddress: { rowIndex: r, colIndex: c },
-                  cellBlockIndex: bi,
                 });
               }
             }
