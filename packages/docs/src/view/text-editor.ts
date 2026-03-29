@@ -1049,7 +1049,7 @@ export class TextEditor {
       if (shift) {
         this.moveToPrevCell();
       } else {
-        this.moveToNextCell();
+        this.moveToNextCell(true);
       }
       this.selection.setRange(null);
       this.requestRender();
@@ -2030,9 +2030,11 @@ export class TextEditor {
 
   /**
    * Move to the next table cell (left-to-right, top-to-bottom).
-   * Returns true if movement happened. At last cell, inserts a new row.
+   * Returns true if movement happened.
+   * When addRowAtEnd is true (Tab key), inserts a new row at the last cell.
+   * When false (ArrowRight), exits the table instead.
    */
-  private moveToNextCell(): boolean {
+  private moveToNextCell(addRowAtEnd = false): boolean {
     const pos = this.cursor.position;
     if (!pos.cellAddress) return false;
     const block = this.doc.getBlock(pos.blockId);
@@ -2066,15 +2068,25 @@ export class TextEditor {
         }
       }
     }
-    // At last cell — insert a new row and move to it
-    this.saveSnapshot();
-    this.doc.insertRow(pos.blockId, td.rows.length);
-    this.invalidateLayout();
-    this.cursor.moveTo({
-      blockId: pos.blockId,
-      offset: 0,
-      cellAddress: { rowIndex: td.rows.length, colIndex: 0 },
-    });
+    // At last cell
+    if (addRowAtEnd) {
+      // Tab: insert a new row and move to it
+      this.saveSnapshot();
+      this.doc.insertRow(pos.blockId, td.rows.length);
+      this.invalidateLayout();
+      this.cursor.moveTo({
+        blockId: pos.blockId,
+        offset: 0,
+        cellAddress: { rowIndex: td.rows.length, colIndex: 0 },
+      });
+      return true;
+    }
+    // ArrowRight: exit table — move to the block after the table
+    const blockIndex = this.doc.getBlockIndex(pos.blockId);
+    const blocks = this.doc.document.blocks;
+    if (blockIndex < blocks.length - 1) {
+      this.cursor.moveTo({ blockId: blocks[blockIndex + 1].id, offset: 0 });
+    }
     return true;
   }
 
