@@ -1780,6 +1780,12 @@ export class TextEditor {
   }
 
   private moveLeft(pos: DocPosition): DocPosition {
+    if (pos.cellAddress) {
+      if (pos.offset > 0) {
+        return { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
+      }
+      return pos; // Clamp at cell start
+    }
     if (pos.offset > 0) {
       return { blockId: pos.blockId, offset: pos.offset - 1 };
     }
@@ -1801,6 +1807,13 @@ export class TextEditor {
   }
 
   private moveRight(pos: DocPosition): DocPosition {
+    if (pos.cellAddress) {
+      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
+      if (pos.offset < cellLen) {
+        return { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
+      }
+      return pos; // Clamp at cell end
+    }
     const block = this.doc.getBlock(pos.blockId);
     const len = getBlockTextLength(block);
     if (pos.offset < len) {
@@ -1820,6 +1833,13 @@ export class TextEditor {
   }
 
   private moveWordLeft(pos: DocPosition): DocPosition {
+    if (pos.cellAddress) {
+      if (pos.offset > 0) {
+        const text = this.getCellText(pos.blockId, pos.cellAddress);
+        return { blockId: pos.blockId, offset: findPrevWordBoundary(text, pos.offset), cellAddress: pos.cellAddress };
+      }
+      return pos;
+    }
     if (pos.offset > 0) {
       const text = getBlockText(this.doc.getBlock(pos.blockId));
       return { blockId: pos.blockId, offset: findPrevWordBoundary(text, pos.offset) };
@@ -1834,6 +1854,13 @@ export class TextEditor {
   }
 
   private moveWordRight(pos: DocPosition): DocPosition {
+    if (pos.cellAddress) {
+      const text = this.getCellText(pos.blockId, pos.cellAddress);
+      if (pos.offset < text.length) {
+        return { blockId: pos.blockId, offset: findNextWordBoundary(text, pos.offset), cellAddress: pos.cellAddress };
+      }
+      return pos;
+    }
     const block = this.doc.getBlock(pos.blockId);
     const len = getBlockTextLength(block);
     if (pos.offset < len) {
@@ -1865,11 +1892,18 @@ export class TextEditor {
   }
 
   private getVisualLineStart(pos: DocPosition): DocPosition {
+    if (pos.cellAddress) {
+      return { blockId: pos.blockId, offset: 0, cellAddress: pos.cellAddress };
+    }
     const [start] = this.getVisualLineRange(pos);
     return { blockId: pos.blockId, offset: start };
   }
 
   private getVisualLineEnd(pos: DocPosition): DocPosition {
+    if (pos.cellAddress) {
+      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
+      return { blockId: pos.blockId, offset: cellLen, cellAddress: pos.cellAddress };
+    }
     const [lineStart, lineEnd] = this.getVisualLineRange(pos);
     const block = this.doc.getBlock(pos.blockId);
     const totalLen = getBlockTextLength(block);
@@ -2045,6 +2079,16 @@ export class TextEditor {
     const tc = row.cells[cell.colIndex];
     if (!tc) return 0;
     return tc.inlines.reduce((s, i) => s + i.text.length, 0);
+  }
+
+  private getCellText(blockId: string, cell: CellAddress): string {
+    const block = this.doc.getBlock(blockId);
+    if (!block.tableData) return '';
+    const row = block.tableData.rows[cell.rowIndex];
+    if (!row) return '';
+    const tc = row.cells[cell.colIndex];
+    if (!tc) return '';
+    return tc.inlines.map((i) => i.text).join('');
   }
 
   /**
