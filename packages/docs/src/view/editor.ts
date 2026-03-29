@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import type { DocPosition, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle } from '../model/types.js';
+import type { InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
@@ -153,28 +153,6 @@ export function initialize(
   let needsScrollIntoView = false;
   let focused = !readOnly;
 
-  /** Apply inline style to a cell selection that may span multiple cell blocks. */
-  function applyCellStyleToRange(start: DocPosition, end: DocPosition, style: Partial<InlineStyle>): void {
-    if (!start.cellAddress) return;
-    const startCbi = start.cellBlockIndex ?? 0;
-    const endCbi = end.cellBlockIndex ?? 0;
-    if (startCbi === endCbi) {
-      doc.applyCellInlineStyle(start.blockId, start.cellAddress, start.offset, end.offset, style, startCbi);
-      return;
-    }
-    const block = doc.getBlock(start.blockId);
-    const cell = block.tableData!.rows[start.cellAddress.rowIndex].cells[start.cellAddress.colIndex];
-    for (let bi = startCbi; bi <= endCbi; bi++) {
-      const cellBlock = cell.blocks[bi];
-      if (!cellBlock) continue;
-      const s = bi === startCbi ? start.offset : 0;
-      const e = bi === endCbi ? end.offset : getBlockTextLength(cellBlock);
-      if (s < e) {
-        doc.applyCellInlineStyle(start.blockId, start.cellAddress, s, e, style, bi);
-      }
-    }
-  }
-
   /** Apply inline style to all blocks in all cells within a cell range. */
   function applyStyleToCellRange(
     cellRange: { blockId: string; start: CellAddress; end: CellAddress },
@@ -190,10 +168,13 @@ export function initialize(
       for (let c = minCol; c <= maxCol; c++) {
         const cell = block.tableData.rows[r]?.cells[c];
         if (!cell || cell.colSpan === 0) continue;
-        for (let bi = 0; bi < cell.blocks.length; bi++) {
-          const len = getBlockTextLength(cell.blocks[bi]);
+        for (const cellBlock of cell.blocks) {
+          const len = getBlockTextLength(cellBlock);
           if (len > 0) {
-            doc.applyCellInlineStyle(cellRange.blockId, { rowIndex: r, colIndex: c }, 0, len, style, bi);
+            doc.applyInlineStyle(
+              { anchor: { blockId: cellBlock.id, offset: 0 }, focus: { blockId: cellBlock.id, offset: len } },
+              style,
+            );
           }
         }
       }
@@ -402,8 +383,8 @@ export function initialize(
       searchHighlightRects = searchMatches.map((match) =>
         computeSelectionRects(
           {
-            anchor: { blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
-            focus: { blockId: match.blockId, offset: match.endOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
+            anchor: { blockId: match.blockId, offset: match.startOffset },
+            focus: { blockId: match.blockId, offset: match.endOffset },
           },
           paginatedLayout,
           layout,
@@ -631,30 +612,11 @@ export function initialize(
     getDoc: () => doc,
     getStore: () => docStore,
     getSelectionStyle: (): Partial<InlineStyle> => {
-      const block = doc.document.blocks.find(
-        (b) => b.id === cursor.position.blockId,
-      );
+      // Resolve the block — either a cell block (via blockParentMap) or a top-level block
+      const block = layout.blockParentMap.has(cursor.position.blockId)
+        ? doc.getBlock(cursor.position.blockId)
+        : doc.document.blocks.find((b) => b.id === cursor.position.blockId);
       if (!block) return {};
-
-      // Read from cell-internal block if cursor is in a table cell
-      const ca = cursor.position.cellAddress;
-      if (ca && block.tableData) {
-        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
-        if (!cell) return {};
-        const cbi = cursor.position.cellBlockIndex ?? 0;
-        const cellBlock = cell.blocks[cbi];
-        if (!cellBlock) return {};
-        let cPos = 0;
-        for (const inline of cellBlock.inlines) {
-          const inlineEnd = cPos + inline.text.length;
-          if (cursor.position.offset <= inlineEnd) {
-            return { ...inline.style };
-          }
-          cPos = inlineEnd;
-        }
-        const cLast = cellBlock.inlines[cellBlock.inlines.length - 1];
-        return cLast ? { ...cLast.style } : {};
-      }
 
       let pos = 0;
       for (const inline of block.inlines) {
@@ -672,7 +634,6 @@ export function initialize(
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
         const range = selection.range;
-        const anchor = range.anchor;
 
         // Cell-range mode: apply to all cells in range
         if (range.tableCellRange) {
@@ -680,17 +641,6 @@ export function initialize(
           markDirty(range.tableCellRange.blockId);
           render();
           return;
-        }
-
-        // Route to cell-aware method if selection is within a table cell
-        if (anchor.cellAddress) {
-          const normalized = selection.getNormalizedRange(layout);
-          if (normalized) {
-            applyCellStyleToRange(normalized.start, normalized.end, style);
-            markDirty(anchor.blockId);
-            render();
-            return;
-          }
         }
 
         doc.applyInlineStyle(range, style);
@@ -711,13 +661,6 @@ export function initialize(
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
-      const ca = cursor.position.cellAddress;
-      if (ca) {
-        doc.applyBlockStyleInCell(cursor.position.blockId, ca, cursor.position.cellBlockIndex ?? 0, style);
-        markDirty(cursor.position.blockId);
-        render();
-        return;
-      }
       if (selection.hasSelection() && selection.range) {
         const range = selection.range;
         const startIdx = doc.getBlockIndex(range.anchor.blockId);
@@ -753,23 +696,6 @@ export function initialize(
     },
     getPeerCursorPixels: () => lastPeerPixels,
     getBlockType() {
-      const ca = cursor.position.cellAddress;
-      if (ca) {
-        const block = doc.getBlock(cursor.position.blockId);
-        if (block.tableData) {
-          const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
-          const cbi = cursor.position.cellBlockIndex ?? 0;
-          const cellBlock = cell?.blocks[cbi];
-          if (cellBlock) {
-            return {
-              type: cellBlock.type,
-              headingLevel: cellBlock.headingLevel,
-              listKind: cellBlock.listKind,
-              listLevel: cellBlock.listLevel,
-            };
-          }
-        }
-      }
       const block = doc.getBlock(cursor.position.blockId);
       return {
         type: block.type,
@@ -780,69 +706,27 @@ export function initialize(
     },
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
       docStore.snapshot();
-      const ca = cursor.position.cellAddress;
-      if (ca) {
-        doc.setBlockTypeInCell(cursor.position.blockId, ca, cursor.position.cellBlockIndex ?? 0, type, opts);
-      } else {
-        doc.setBlockType(cursor.position.blockId, type, opts);
-      }
+      doc.setBlockType(cursor.position.blockId, type, opts);
       invalidateLayout();
       render();
     },
     toggleList(kind: 'ordered' | 'unordered') {
-      const ca = cursor.position.cellAddress;
       docStore.snapshot();
-      if (ca) {
-        const block = doc.getBlock(cursor.position.blockId);
-        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
-        const cbi = cursor.position.cellBlockIndex ?? 0;
-        const cellBlock = cell?.blocks[cbi];
-        if (cellBlock) {
-          if (cellBlock.type === 'list-item' && cellBlock.listKind === kind) {
-            doc.setBlockTypeInCell(block.id, ca, cbi, 'paragraph');
-          } else {
-            doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
-              listKind: kind,
-              listLevel: cellBlock.listLevel ?? 0,
-            });
-          }
-        }
+      const block = doc.getBlock(cursor.position.blockId);
+      if (block.type === 'list-item' && block.listKind === kind) {
+        doc.setBlockType(block.id, 'paragraph');
       } else {
-        const block = doc.getBlock(cursor.position.blockId);
-        if (block.type === 'list-item' && block.listKind === kind) {
-          doc.setBlockType(block.id, 'paragraph');
-        } else {
-          doc.setBlockType(block.id, 'list-item', {
-            listKind: kind,
-            listLevel: block.listLevel ?? 0,
-          });
-        }
+        doc.setBlockType(block.id, 'list-item', {
+          listKind: kind,
+          listLevel: block.listLevel ?? 0,
+        });
       }
       invalidateLayout();
       render();
     },
     indent() {
       const MAX_LIST_LEVEL = 8;
-      const ca = cursor.position.cellAddress;
       docStore.snapshot();
-
-      if (ca) {
-        const block = doc.getBlock(cursor.position.blockId);
-        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
-        const cbi = cursor.position.cellBlockIndex ?? 0;
-        const cellBlock = cell?.blocks[cbi];
-        if (cellBlock?.type === 'list-item') {
-          const currentLevel = cellBlock.listLevel ?? 0;
-          if (currentLevel >= MAX_LIST_LEVEL) return;
-          doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
-            listKind: cellBlock.listKind,
-            listLevel: currentLevel + 1,
-          });
-        }
-        markDirty(block.id);
-        render();
-        return;
-      }
 
       const block = doc.getBlock(cursor.position.blockId);
       if (block.type === 'list-item') {
@@ -862,27 +746,6 @@ export function initialize(
       render();
     },
     outdent() {
-      const ca = cursor.position.cellAddress;
-
-      if (ca) {
-        const block = doc.getBlock(cursor.position.blockId);
-        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
-        const cbi = cursor.position.cellBlockIndex ?? 0;
-        const cellBlock = cell?.blocks[cbi];
-        if (cellBlock?.type === 'list-item') {
-          const currentLevel = cellBlock.listLevel ?? 0;
-          if (currentLevel <= 0) return;
-          docStore.snapshot();
-          doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
-            listKind: cellBlock.listKind,
-            listLevel: currentLevel - 1,
-          });
-          markDirty(block.id);
-          render();
-        }
-        return;
-      }
-
       const block = doc.getBlock(cursor.position.blockId);
       if (block.type === 'list-item') {
         const currentLevel = block.listLevel ?? 0;
@@ -908,17 +771,6 @@ export function initialize(
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
         const range = selection.range;
-        const anchor = range.anchor;
-
-        if (anchor.cellAddress) {
-          const normalized = selection.getNormalizedRange(layout);
-          if (normalized) {
-            applyCellStyleToRange(normalized.start, normalized.end, { href: url });
-            markDirty(anchor.blockId);
-            render();
-            return;
-          }
-        }
 
         doc.applyInlineStyle(range, { href: url });
         const startIdx = doc.getBlockIndex(range.anchor.blockId);
@@ -934,42 +786,25 @@ export function initialize(
       } else {
         docStore.snapshot();
         const pos = cursor.position;
-        const ca = pos.cellAddress;
-        const cbi = pos.cellBlockIndex ?? 0;
 
-        if (ca) {
-          doc.insertTextInCell(pos.blockId, ca, pos.offset, url, cbi);
-          doc.applyCellInlineStyle(pos.blockId, ca, pos.offset, pos.offset + url.length, { href: url }, cbi);
-          cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length, cellAddress: ca, cellBlockIndex: cbi });
-        } else {
-          doc.insertText(pos, url);
-          const range = {
-            anchor: { blockId: pos.blockId, offset: pos.offset },
-            focus: { blockId: pos.blockId, offset: pos.offset + url.length },
-          };
-          doc.applyInlineStyle(range, { href: url });
-          cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
-        }
+        doc.insertText(pos, url);
+        const range = {
+          anchor: { blockId: pos.blockId, offset: pos.offset },
+          focus: { blockId: pos.blockId, offset: pos.offset + url.length },
+        };
+        doc.applyInlineStyle(range, { href: url });
+        cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
         markDirty(pos.blockId);
         needsScrollIntoView = true;
         render();
       }
     },
     removeLink: () => {
-      const block = doc.document.blocks.find(
-        (b) => b.id === cursor.position.blockId,
-      );
+      // Resolve the block — either a cell block (via blockParentMap) or a top-level block
+      const block = doc.getBlock(cursor.position.blockId);
       if (!block) return;
 
-      // Resolve the inlines to search — cell block or top-level block
-      const ca = cursor.position.cellAddress;
-      let inlines = block.inlines;
-      if (ca && block.tableData) {
-        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
-        const cbi = cursor.position.cellBlockIndex ?? 0;
-        const cellBlock = cell?.blocks[cbi];
-        if (cellBlock) inlines = cellBlock.inlines;
-      }
+      const inlines = block.inlines;
 
       let cursorInlineIdx = -1;
       const offsets: number[] = [0];
@@ -988,36 +823,21 @@ export function initialize(
       while (hi < inlines.length - 1 && inlines[hi + 1].style.href === href) hi++;
 
       docStore.snapshot();
-      if (ca) {
-        doc.applyCellInlineStyle(
-          block.id, ca, offsets[lo], offsets[hi + 1],
-          { href: undefined }, cursor.position.cellBlockIndex ?? 0,
-        );
-      } else {
-        const range = {
-          anchor: { blockId: block.id, offset: offsets[lo] },
-          focus: { blockId: block.id, offset: offsets[hi + 1] },
-        };
-        doc.applyInlineStyle(range, { href: undefined });
-      }
-      markDirty(block.id);
+      const range = {
+        anchor: { blockId: block.id, offset: offsets[lo] },
+        focus: { blockId: block.id, offset: offsets[hi + 1] },
+      };
+      doc.applyInlineStyle(range, { href: undefined });
+      // Mark the containing block (or table block for cell blocks) as dirty
+      const cellInfo = layout.blockParentMap.get(block.id);
+      markDirty(cellInfo ? cellInfo.tableBlockId : block.id);
       render();
     },
     getLinkAtCursor: (): string | undefined => {
-      const block = doc.document.blocks.find(
-        (b) => b.id === cursor.position.blockId,
-      );
+      const block = doc.getBlock(cursor.position.blockId);
       if (!block) return undefined;
 
-      // Read from cell block if cursor is in a table cell
-      const ca = cursor.position.cellAddress;
-      let inlines = block.inlines;
-      if (ca && block.tableData) {
-        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
-        const cbi = cursor.position.cellBlockIndex ?? 0;
-        const cellBlock = cell?.blocks[cbi];
-        if (cellBlock) inlines = cellBlock.inlines;
-      }
+      const inlines = block.inlines;
 
       let pos = 0;
       for (const inline of inlines) {
@@ -1102,10 +922,10 @@ export function initialize(
       // Move cursor to the active match position before clearing (Google Docs behavior)
       if (moveCursorToActive && activeMatchIndex >= 0 && activeMatchIndex < searchMatches.length) {
         const match = searchMatches[activeMatchIndex];
-        cursor.moveTo({ blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex });
+        cursor.moveTo({ blockId: match.blockId, offset: match.startOffset });
         selection.setRange({
-          anchor: { blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
-          focus: { blockId: match.blockId, offset: match.endOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
+          anchor: { blockId: match.blockId, offset: match.startOffset },
+          focus: { blockId: match.blockId, offset: match.endOffset },
         });
       }
       searchMatches = [];
@@ -1116,13 +936,16 @@ export function initialize(
       docStore.snapshot();
       const blockIndex = doc.getBlockIndex(cursor.position.blockId);
       const tableId = doc.insertTable(blockIndex + 1, rows, cols);
-      cursor.moveTo({ blockId: tableId, offset: 0, cellAddress: { rowIndex: 0, colIndex: 0 } });
+      const tableBlock = doc.getBlock(tableId);
+      const firstCellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+      cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 });
       invalidateLayout();
       render();
     },
     deleteTable: () => {
-      if (!cursor.position.cellAddress) return;
-      const blockId = cursor.position.blockId;
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return;
+      const blockId = cellInfo.tableBlockId;
       const blockIndex = doc.getBlockIndex(blockId);
       docStore.snapshot();
       doc.deleteBlock(blockId);
@@ -1135,79 +958,89 @@ export function initialize(
       invalidateLayout();
       render();
     },
-    isInTable: () => cursor.position.cellAddress != null,
-    getCellAddress: () => cursor.position.cellAddress,
+    isInTable: () => layout.blockParentMap.has(cursor.position.blockId),
+    getCellAddress: (): CellAddress | undefined => {
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return undefined;
+      return { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex };
+    },
     insertTableRow: (above: boolean) => {
-      const ca = cursor.position.cellAddress;
-      if (!ca) return;
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return;
       docStore.snapshot();
-      const idx = above ? ca.rowIndex : ca.rowIndex + 1;
-      doc.insertRow(cursor.position.blockId, idx);
+      const idx = above ? cellInfo.rowIndex : cellInfo.rowIndex + 1;
+      doc.insertRow(cellInfo.tableBlockId, idx);
       invalidateLayout();
       render();
     },
     deleteTableRow: () => {
-      const ca = cursor.position.cellAddress;
-      if (!ca) return;
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return;
       docStore.snapshot();
-      const blockId = cursor.position.blockId;
-      doc.deleteRow(blockId, ca.rowIndex);
+      const tableBlockId = cellInfo.tableBlockId;
+      doc.deleteRow(tableBlockId, cellInfo.rowIndex);
       // Re-home cursor if the deleted row was the last one
-      const td = doc.getBlock(blockId).tableData;
+      const td = doc.getBlock(tableBlockId).tableData;
       if (td) {
-        const newRow = Math.min(ca.rowIndex, td.rows.length - 1);
-        cursor.moveTo({ blockId, offset: 0, cellAddress: { rowIndex: newRow, colIndex: ca.colIndex } });
+        const newRow = Math.min(cellInfo.rowIndex, td.rows.length - 1);
+        const newCellBlock = td.rows[newRow].cells[cellInfo.colIndex].blocks[0];
+        cursor.moveTo({ blockId: newCellBlock.id, offset: 0 });
       }
       invalidateLayout();
       render();
     },
     insertTableColumn: (left: boolean) => {
-      const ca = cursor.position.cellAddress;
-      if (!ca) return;
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return;
       docStore.snapshot();
-      const idx = left ? ca.colIndex : ca.colIndex + 1;
-      doc.insertColumn(cursor.position.blockId, idx);
+      const idx = left ? cellInfo.colIndex : cellInfo.colIndex + 1;
+      doc.insertColumn(cellInfo.tableBlockId, idx);
       invalidateLayout();
       render();
     },
     deleteTableColumn: () => {
-      const ca = cursor.position.cellAddress;
-      if (!ca) return;
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return;
       docStore.snapshot();
-      const blockId = cursor.position.blockId;
-      doc.deleteColumn(blockId, ca.colIndex);
+      const tableBlockId = cellInfo.tableBlockId;
+      doc.deleteColumn(tableBlockId, cellInfo.colIndex);
       // Re-home cursor if the deleted column was the last one
-      const td = doc.getBlock(blockId).tableData;
+      const td = doc.getBlock(tableBlockId).tableData;
       if (td) {
-        const newCol = Math.min(ca.colIndex, td.columnWidths.length - 1);
-        cursor.moveTo({ blockId, offset: 0, cellAddress: { rowIndex: ca.rowIndex, colIndex: newCol } });
+        const newCol = Math.min(cellInfo.colIndex, td.columnWidths.length - 1);
+        const newCellBlock = td.rows[cellInfo.rowIndex].cells[newCol].blocks[0];
+        cursor.moveTo({ blockId: newCellBlock.id, offset: 0 });
       }
       invalidateLayout();
       render();
     },
     mergeTableCells: (range: CellRange) => {
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return;
       docStore.snapshot();
-      const blockId = cursor.position.blockId;
-      doc.mergeCells(blockId, range);
+      const tableBlockId = cellInfo.tableBlockId;
+      doc.mergeCells(tableBlockId, range);
       // Move cursor to top-left cell of merged range
-      cursor.moveTo({ blockId, offset: 0, cellAddress: range.start });
+      const td = doc.getBlock(tableBlockId).tableData!;
+      const topLeftBlock = td.rows[range.start.rowIndex].cells[range.start.colIndex].blocks[0];
+      cursor.moveTo({ blockId: topLeftBlock.id, offset: 0 });
       invalidateLayout();
       render();
     },
     splitTableCell: () => {
-      const ca = cursor.position.cellAddress;
-      if (!ca) return;
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return;
       docStore.snapshot();
-      doc.splitCell(cursor.position.blockId, ca);
+      doc.splitCell(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex });
       invalidateLayout();
       render();
     },
     applyTableCellStyle: (style: Partial<CellStyle>) => {
-      const ca = cursor.position.cellAddress;
-      if (!ca) return;
+      const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
+      if (!cellInfo) return;
       docStore.snapshot();
-      doc.applyCellStyle(cursor.position.blockId, ca, style);
-      markDirty(cursor.position.blockId);
+      doc.applyCellStyle(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex }, style);
+      markDirty(cellInfo.tableBlockId);
       render();
     },
     focus: () => textEditor?.focus(),
