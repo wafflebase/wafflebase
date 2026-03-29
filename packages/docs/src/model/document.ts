@@ -359,6 +359,26 @@ export class Doc {
 
     for (let i = fromBlockIdx; i <= toBlockIdx; i++) {
       const block = this._document.blocks[i];
+
+      // Table block in the middle of a cross-block selection:
+      // apply style to every block in every cell.
+      if (block.type === 'table' && block.tableData) {
+        for (let r = 0; r < block.tableData.rows.length; r++) {
+          for (let c = 0; c < block.tableData.rows[r].cells.length; c++) {
+            const cell = block.tableData.rows[r].cells[c];
+            if (cell.colSpan === 0) continue;
+            for (const cellBlock of cell.blocks) {
+              const len = getBlockTextLength(cellBlock);
+              if (len > 0) {
+                this.applyStyleToBlock(cellBlock, 0, len, style);
+              }
+            }
+            this.store.updateTableCell(block.id, r, c, cell);
+          }
+        }
+        continue;
+      }
+
       const blockLen = getBlockTextLength(block);
       const start = i === fromBlockIdx ? from.offset : 0;
       const end = i === toBlockIdx ? to.offset : blockLen;

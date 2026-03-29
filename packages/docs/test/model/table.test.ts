@@ -185,6 +185,52 @@ describe('Doc table operations', () => {
       expect(cell.blocks[0].inlines[0].text).toBe('Hel');
       expect(cell.blocks[0].inlines[1].text).toBe('lo');
     });
+
+    it('should apply italic across paragraphs spanning a table', () => {
+      // Build: paragraph("abcd") → table(2x2) → paragraph("abcd")
+      const doc = Doc.create();
+      const block0 = doc.document.blocks[0];
+      doc.insertText({ blockId: block0.id, offset: 0 }, 'abcd');
+      // Split to get two paragraphs: ["abcd", ""]
+      const block2Id = doc.splitBlock(block0.id, 4);
+      // Insert table between them at index 1: ["abcd", table, ""]
+      const tableId = doc.insertTable(1, 2, 2);
+      doc.setBlockParentMap(buildParentMap(doc, tableId));
+      // Put text in cells
+      const cell00 = getCellBlock(doc, tableId, { rowIndex: 0, colIndex: 0 });
+      doc.insertText({ blockId: cell00.id, offset: 0 }, 'X');
+      const cell11 = getCellBlock(doc, tableId, { rowIndex: 1, colIndex: 1 });
+      doc.insertText({ blockId: cell11.id, offset: 0 }, 'Y');
+      // Put text in last paragraph
+      doc.insertText({ blockId: block2Id, offset: 0 }, 'abcd');
+
+      // Select from "ab|cd" (offset 2) to last paragraph "ab|cd" (offset 2)
+      doc.applyInlineStyle(
+        { anchor: { blockId: block0.id, offset: 2 }, focus: { blockId: block2Id, offset: 2 } },
+        { italic: true },
+      );
+
+      // First paragraph: "ab" plain + "cd" italic
+      const p0 = doc.getBlock(block0.id);
+      expect(p0.inlines[0].text).toBe('ab');
+      expect(p0.inlines[0].style.italic).toBeUndefined();
+      expect(p0.inlines[1].text).toBe('cd');
+      expect(p0.inlines[1].style.italic).toBe(true);
+
+      // Table cells with text should have italic applied
+      const td = doc.getBlock(tableId).tableData!;
+      expect(td.rows[0].cells[0].blocks[0].inlines[0].style.italic).toBe(true);
+      expect(td.rows[0].cells[0].blocks[0].inlines[0].text).toBe('X');
+      expect(td.rows[1].cells[1].blocks[0].inlines[0].style.italic).toBe(true);
+      expect(td.rows[1].cells[1].blocks[0].inlines[0].text).toBe('Y');
+
+      // Last paragraph: "ab" italic + "cd" plain
+      const p2 = doc.getBlock(block2Id);
+      expect(p2.inlines[0].text).toBe('ab');
+      expect(p2.inlines[0].style.italic).toBe(true);
+      expect(p2.inlines[1].text).toBe('cd');
+      expect(p2.inlines[1].style.italic).toBeUndefined();
+    });
   });
 
   describe('setColumnWidth', () => {
