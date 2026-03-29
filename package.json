@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "concurrently \"pnpm frontend dev\" \"pnpm backend start:dev\" \"pnpm documentation dev\"",
     "build": "concurrently \"pnpm sheets build\" \"pnpm frontend build\" \"pnpm backend build\" \"pnpm cli build\"",
-    "test": "concurrently \"pnpm sheets test\" \"pnpm frontend test\" \"pnpm backend test\" \"pnpm cli test\"",
+    "test": "concurrently \"pnpm sheets test\" \"pnpm frontend test\" \"pnpm backend test\" \"pnpm cli test\" \"pnpm --filter @wafflebase/docs test\"",
     "verify:architecture": "pnpm frontend lint:arch && pnpm backend lint:arch",
-    "verify:fast": "pnpm verify:architecture && pnpm frontend lint && pnpm frontend test && pnpm backend test && pnpm sheets typecheck && pnpm sheets test && pnpm cli typecheck && pnpm cli test",
+    "verify:fast": "pnpm verify:architecture && pnpm frontend lint && pnpm frontend test && pnpm backend test && pnpm sheets typecheck && pnpm sheets test && pnpm cli typecheck && pnpm cli test && pnpm --filter @wafflebase/docs typecheck && pnpm --filter @wafflebase/docs test",
     "verify:frontend:chunks": "node ./scripts/verify-frontend-chunks.mjs",
     "verify:frontend:visual": "pnpm frontend test:visual:browser",
     "verify:frontend:interaction": "pnpm frontend test:interaction",
@@ -28,7 +28,6 @@
     "backend": "pnpm --filter @wafflebase/backend",
     "sheets": "pnpm --filter @wafflebase/sheets",
     "cli": "pnpm --filter @wafflebase/cli",
-    "docs": "pnpm --filter @wafflebase/docs",
     "documentation": "pnpm --filter @wafflebase/documentation",
     "build:all": "pnpm frontend build && pnpm documentation build && rm -rf packages/frontend/dist/docs && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs",
     "postinstall": "git config core.hooksPath .githooks || true"
