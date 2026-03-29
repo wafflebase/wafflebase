@@ -1,4 +1,4 @@
-import type { Block, DocPosition, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
+import type { Block, CellAddress, DocPosition, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
@@ -280,6 +280,26 @@ export class TextEditor {
     this.saveSnapshot();
     this.deleteSelection();
     const blockId = this.cursor.position.blockId;
+
+    // Route text input to table cell if cursor is inside one
+    if (this.cursor.position.cellAddress) {
+      this.doc.insertTextInCell(
+        blockId,
+        this.cursor.position.cellAddress,
+        this.cursor.position.offset,
+        data,
+      );
+      const newPos: DocPosition = {
+        blockId,
+        offset: this.cursor.position.offset + data.length,
+        cellAddress: this.cursor.position.cellAddress,
+      };
+      this.markDirty(blockId);
+      this.cursor.moveTo(newPos);
+      this.requestRender();
+      return;
+    }
+
     this.doc.insertText(this.cursor.position, data);
     const newPos = {
       blockId: this.cursor.position.blockId,
@@ -688,6 +708,31 @@ export class TextEditor {
     const pos: DocPosition = { blockId: result.blockId, offset: result.offset };
     const { lineAffinity } = result;
 
+    // Table cell click detection: resolve which cell was clicked
+    const clickedBlock = this.doc.document.blocks.find((b) => b.id === pos.blockId);
+    if (clickedBlock?.type === 'table' && clickedBlock.tableData) {
+      const layout = this.getLayout();
+      const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
+      if (lb?.layoutTable) {
+        const rect = this.container.getBoundingClientRect();
+        const s = this.getScaleFactor();
+        const mouseX = (e.clientX - rect.left + this.container.scrollLeft) / s;
+        const mouseY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
+        // Compute local coords relative to table block
+        const localX = mouseX - lb.x;
+        const localY = mouseY - lb.y;
+        const cellAddr = this.resolveTableCellClick(pos.blockId, localX, localY);
+        if (cellAddr) {
+          pos.cellAddress = cellAddr;
+          pos.offset = 0; // Place cursor at start of cell
+          this.cursor.moveTo(pos);
+          this.selection.setRange(null);
+          this.requestRender();
+          return;
+        }
+      }
+    }
+
     if (this.clickCount === 3) {
       // Triple-click: select entire paragraph
       const block = this.doc.getBlock(pos.blockId);
@@ -802,6 +847,22 @@ export class TextEditor {
   private handleBackspace(): void {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
+
+    // Table cell backspace: delete within cell, no-op at cell start
+    if (this.cursor.position.cellAddress) {
+      const pos = this.cursor.position;
+      if (pos.offset <= 0) return; // At cell start — no-op
+      this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset - 1, 1);
+      this.cursor.moveTo({
+        blockId: pos.blockId,
+        offset: pos.offset - 1,
+        cellAddress: pos.cellAddress,
+      });
+      this.markDirty(pos.blockId);
+      this.requestRender();
+      return;
+    }
+
     const blockId = this.cursor.position.blockId;
     const isInBlock = this.cursor.position.offset > 0;
     if (!isInBlock) {
@@ -818,6 +879,18 @@ export class TextEditor {
   private handleDelete(): void {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
+
+    // Table cell delete: delete within cell, no-op at cell end
+    if (this.cursor.position.cellAddress) {
+      const pos = this.cursor.position;
+      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress!);
+      if (pos.offset >= cellLen) return; // At cell end — no-op
+      this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset, 1);
+      this.markDirty(pos.blockId);
+      this.requestRender();
+      return;
+    }
+
     const block = this.doc.getBlock(this.cursor.position.blockId);
     const len = getBlockTextLength(block);
     if (this.cursor.position.offset < len) {
@@ -880,6 +953,25 @@ export class TextEditor {
   }
 
   private handleEnter(): void {
+    // In a table cell: move to cell below (same column), no-op at last row
+    if (this.cursor.position.cellAddress) {
+      const pos = this.cursor.position;
+      const cellAddr = pos.cellAddress!;
+      const block = this.doc.getBlock(pos.blockId);
+      if (!block.tableData) return;
+      const { rowIndex, colIndex } = cellAddr;
+      if (rowIndex < block.tableData.rows.length - 1) {
+        this.cursor.moveTo({
+          blockId: pos.blockId,
+          offset: 0,
+          cellAddress: { rowIndex: rowIndex + 1, colIndex },
+        });
+        this.selection.setRange(null);
+        this.requestRender();
+      }
+      return;
+    }
+
     this.saveSnapshot();
     this.deleteSelection();
     this.invalidateLayout();
@@ -913,6 +1005,18 @@ export class TextEditor {
   }
 
   private handleTab(shift: boolean): void {
+    // Table cell Tab/Shift+Tab navigation
+    if (this.cursor.position.cellAddress) {
+      if (shift) {
+        this.moveToPrevCell();
+      } else {
+        this.moveToNextCell();
+      }
+      this.selection.setRange(null);
+      this.requestRender();
+      return;
+    }
+
     const block = this.doc.getBlock(this.cursor.position.blockId);
     if (block.type !== 'list-item') return;
 
@@ -1059,6 +1163,51 @@ export class TextEditor {
     wordMod = false,
   ): void {
     const pos = this.cursor.position;
+
+    // Table cell arrow key handling: keep cursor within cell boundaries
+    if (pos.cellAddress) {
+      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
+      let newPos: DocPosition | undefined;
+
+      if (direction === 'left') {
+        if (pos.offset > 0) {
+          newPos = { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
+        }
+        // At start — stay put (could move to prev cell, but keeping it simple)
+      } else if (direction === 'right') {
+        if (pos.offset < cellLen) {
+          newPos = { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
+        }
+        // At end — stay put
+      } else if (direction === 'up') {
+        // Move to cell above
+        const block = this.doc.getBlock(pos.blockId);
+        if (block.tableData && pos.cellAddress.rowIndex > 0) {
+          newPos = {
+            blockId: pos.blockId,
+            offset: 0,
+            cellAddress: { rowIndex: pos.cellAddress.rowIndex - 1, colIndex: pos.cellAddress.colIndex },
+          };
+        }
+      } else if (direction === 'down') {
+        // Move to cell below
+        const block = this.doc.getBlock(pos.blockId);
+        if (block.tableData && pos.cellAddress.rowIndex < block.tableData.rows.length - 1) {
+          newPos = {
+            blockId: pos.blockId,
+            offset: 0,
+            cellAddress: { rowIndex: pos.cellAddress.rowIndex + 1, colIndex: pos.cellAddress.colIndex },
+          };
+        }
+      }
+
+      if (newPos) {
+        this.cursor.moveTo(newPos);
+        this.selection.setRange(null);
+        this.requestRender();
+      }
+      return;
+    }
 
     const move = (p: DocPosition): DocPosition => {
       switch (direction) {
@@ -1762,6 +1911,163 @@ export class TextEditor {
     return paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );
+  }
+
+  /**
+   * Resolve which table cell was clicked given coordinates local to the
+   * table block's top-left corner.
+   */
+  private resolveTableCellClick(
+    blockId: string,
+    localX: number,
+    localY: number,
+  ): CellAddress | undefined {
+    const block = this.doc.document.blocks.find((b) => b.id === blockId);
+    if (!block || block.type !== 'table' || !block.tableData) return undefined;
+    const layout = this.getLayout();
+    const lb = layout.blocks.find((b) => b.block.id === blockId);
+    if (!lb?.layoutTable) return undefined;
+    const tl = lb.layoutTable;
+
+    // Find row
+    let rowIndex = tl.rowHeights.length - 1;
+    for (let r = 0; r < tl.rowYOffsets.length; r++) {
+      if (localY < tl.rowYOffsets[r] + tl.rowHeights[r]) {
+        rowIndex = r;
+        break;
+      }
+    }
+    // Find column
+    let colIndex = tl.columnPixelWidths.length - 1;
+    for (let c = 0; c < tl.columnXOffsets.length; c++) {
+      if (localX < tl.columnXOffsets[c] + tl.columnPixelWidths[c]) {
+        colIndex = c;
+        break;
+      }
+    }
+    // Skip merged cells — find owner
+    const cell = block.tableData.rows[rowIndex]?.cells[colIndex];
+    if (cell?.colSpan === 0) {
+      for (let r = rowIndex; r >= 0; r--) {
+        for (let c = colIndex; c >= 0; c--) {
+          const cand = block.tableData.rows[r]?.cells[c];
+          if (cand && cand.colSpan !== 0) {
+            const cs = cand.colSpan ?? 1;
+            const rs = cand.rowSpan ?? 1;
+            if (r + rs > rowIndex && c + cs > colIndex) {
+              return { rowIndex: r, colIndex: c };
+            }
+          }
+        }
+      }
+    }
+    return { rowIndex, colIndex };
+  }
+
+  /**
+   * Get the text length of a table cell's inlines.
+   */
+  private getCellTextLength(blockId: string, cell: CellAddress): number {
+    const block = this.doc.getBlock(blockId);
+    if (!block.tableData) return 0;
+    const row = block.tableData.rows[cell.rowIndex];
+    if (!row) return 0;
+    const tc = row.cells[cell.colIndex];
+    if (!tc) return 0;
+    return tc.inlines.reduce((s, i) => s + i.text.length, 0);
+  }
+
+  /**
+   * Move to the next table cell (left-to-right, top-to-bottom).
+   * Returns true if movement happened. At last cell, inserts a new row.
+   */
+  private moveToNextCell(): boolean {
+    const pos = this.cursor.position;
+    if (!pos.cellAddress) return false;
+    const block = this.doc.getBlock(pos.blockId);
+    if (!block.tableData) return false;
+    const td = block.tableData;
+    const { rowIndex, colIndex } = pos.cellAddress;
+
+    // Try next column, skipping merged cells
+    for (let c = colIndex + 1; c < td.columnWidths.length; c++) {
+      const cell = td.rows[rowIndex]?.cells[c];
+      if (cell && cell.colSpan !== 0) {
+        this.cursor.moveTo({
+          blockId: pos.blockId,
+          offset: 0,
+          cellAddress: { rowIndex, colIndex: c },
+        });
+        return true;
+      }
+    }
+    // Try next rows
+    for (let r = rowIndex + 1; r < td.rows.length; r++) {
+      for (let c = 0; c < td.columnWidths.length; c++) {
+        const cell = td.rows[r]?.cells[c];
+        if (cell && cell.colSpan !== 0) {
+          this.cursor.moveTo({
+            blockId: pos.blockId,
+            offset: 0,
+            cellAddress: { rowIndex: r, colIndex: c },
+          });
+          return true;
+        }
+      }
+    }
+    // At last cell — insert a new row and move to it
+    this.saveSnapshot();
+    this.doc.insertRow(pos.blockId, td.rows.length);
+    this.invalidateLayout();
+    this.cursor.moveTo({
+      blockId: pos.blockId,
+      offset: 0,
+      cellAddress: { rowIndex: td.rows.length, colIndex: 0 },
+    });
+    return true;
+  }
+
+  /**
+   * Move to the previous table cell (right-to-left, bottom-to-top).
+   * Returns true if movement happened.
+   */
+  private moveToPrevCell(): boolean {
+    const pos = this.cursor.position;
+    if (!pos.cellAddress) return false;
+    const block = this.doc.getBlock(pos.blockId);
+    if (!block.tableData) return false;
+    const td = block.tableData;
+    const { rowIndex, colIndex } = pos.cellAddress;
+
+    // Try previous column, skipping merged cells
+    for (let c = colIndex - 1; c >= 0; c--) {
+      const cell = td.rows[rowIndex]?.cells[c];
+      if (cell && cell.colSpan !== 0) {
+        const len = cell.inlines.reduce((s, i) => s + i.text.length, 0);
+        this.cursor.moveTo({
+          blockId: pos.blockId,
+          offset: len,
+          cellAddress: { rowIndex, colIndex: c },
+        });
+        return true;
+      }
+    }
+    // Try previous rows (from last column)
+    for (let r = rowIndex - 1; r >= 0; r--) {
+      for (let c = td.columnWidths.length - 1; c >= 0; c--) {
+        const cell = td.rows[r]?.cells[c];
+        if (cell && cell.colSpan !== 0) {
+          const len = cell.inlines.reduce((s, i) => s + i.text.length, 0);
+          this.cursor.moveTo({
+            blockId: pos.blockId,
+            offset: len,
+            cellAddress: { rowIndex: r, colIndex: c },
+          });
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private getPixelForPosition(pos: DocPosition, lineAffinity: 'forward' | 'backward' = 'backward') {
