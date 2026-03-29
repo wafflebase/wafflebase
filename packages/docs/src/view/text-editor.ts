@@ -865,11 +865,11 @@ export class TextEditor {
       let pos: DocPosition = { blockId: result.blockId, offset: result.offset };
 
       if (anchor.cellAddress) {
-        // Constrain drag selection within the anchor cell
-        const cellLen = this.getCellTextLength(anchor.blockId, anchor.cellAddress);
+        // Resolve character offset from logical X within the anchor cell
+        const cellOffset = this.resolveOffsetInCellAtX(anchor.blockId, anchor.cellAddress, x);
         pos = {
           blockId: anchor.blockId,
-          offset: Math.max(0, Math.min(result.offset, cellLen)),
+          offset: cellOffset,
           cellAddress: anchor.cellAddress,
         };
       }
@@ -2126,6 +2126,16 @@ export class TextEditor {
    * Resolve a mouse event to a character offset within a specific table cell.
    */
   private resolveOffsetInCell(blockId: string, cellAddr: CellAddress, e: MouseEvent): number {
+    const rect = this.container.getBoundingClientRect();
+    const s = this.getScaleFactor();
+    const logicalX = (e.clientX - rect.left + this.container.scrollLeft) / s;
+    return this.resolveOffsetInCellAtX(blockId, cellAddr, logicalX);
+  }
+
+  /**
+   * Resolve a logical X coordinate to a character offset within a table cell.
+   */
+  private resolveOffsetInCellAtX(blockId: string, cellAddr: CellAddress, logicalX: number): number {
     const layout = this.getLayout();
     const lb = layout.blocks.find((b) => b.block.id === blockId);
     if (!lb?.layoutTable) return 0;
@@ -2135,31 +2145,12 @@ export class TextEditor {
     if (!cell || cell.merged) return 0;
 
     const paginatedLayout = this.getPaginatedLayout();
-    const blockIndex = layout.blocks.indexOf(lb);
     const { margins } = paginatedLayout.pageSetup;
-
-    // Find paginated page containing this row
-    let pageY = 0;
-    let rowLineY = 0;
-    for (const page of paginatedLayout.pages) {
-      for (const pl of page.lines) {
-        if (pl.blockIndex === blockIndex && pl.lineIndex === cellAddr.rowIndex) {
-          pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-          rowLineY = pl.y;
-          break;
-        }
-      }
-      if (pageY > 0 || rowLineY > 0) break;
-    }
-
-    const rect = this.container.getBoundingClientRect();
-    const s = this.getScaleFactor();
-    const mouseX = (e.clientX - rect.left + this.container.scrollLeft) / s;
 
     const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
     const cellPadding = lb.block.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex]?.style.padding ?? 4;
     const cellOriginX = pageX + margins.left + tl.columnXOffsets[cellAddr.colIndex] + cellPadding;
-    const localX = mouseX - cellOriginX;
+    const localX = logicalX - cellOriginX;
 
     const ctx = this.getCtx();
     let offset = 0;
