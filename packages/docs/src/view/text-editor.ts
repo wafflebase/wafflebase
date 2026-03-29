@@ -1254,7 +1254,9 @@ export class TextEditor {
       let newPos: DocPosition | undefined;
 
       if (direction === 'left') {
-        if (pos.offset > 0) {
+        if (wordMod) {
+          newPos = this.moveWordLeft(pos);
+        } else if (pos.offset > 0) {
           newPos = { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
         } else {
           // At start of cell — move to end of previous cell
@@ -1265,7 +1267,9 @@ export class TextEditor {
           return;
         }
       } else if (direction === 'right') {
-        if (pos.offset < cellLen) {
+        if (wordMod) {
+          newPos = this.moveWordRight(pos);
+        } else if (pos.offset < cellLen) {
           newPos = { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
         } else {
           // At end of cell — move to start of next cell
