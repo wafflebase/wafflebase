@@ -83,8 +83,6 @@ export interface InlineStyle {
 export interface DocPosition {
   blockId: string;
   offset: number;
-  cellAddress?: CellAddress;
-  cellBlockIndex?: number;
 }
 
 /**
@@ -358,8 +356,6 @@ export interface SearchMatch {
   blockId: string;
   startOffset: number;
   endOffset: number;
-  cellAddress?: CellAddress;
-  cellBlockIndex?: number;
 }
 
 // --- Page Setup ---
