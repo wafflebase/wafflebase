@@ -1,5 +1,5 @@
 import type { Block, CellAddress, DocPosition, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
@@ -879,20 +879,69 @@ export class TextEditor {
     if (result && this.selection.range) {
       const anchor = this.selection.range.anchor;
       let pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+      let tableCellRange: DocRange['tableCellRange'] = undefined;
 
       if (anchor.cellAddress) {
-        // Resolve character offset from X/Y within the anchor cell
-        const resolved = this.resolveOffsetInCellAtXY(anchor.blockId, anchor.cellAddress, x, y + scrollY);
-        pos = {
-          blockId: anchor.blockId,
-          offset: resolved.offset,
-          cellAddress: anchor.cellAddress,
-          cellBlockIndex: resolved.cellBlockIndex,
-        };
+        const anchorCA = anchor.cellAddress;
+
+        // Check if mouse is still in the same table
+        if (result.blockId === anchor.blockId) {
+          const layout = this.getLayout();
+          const lb = layout.blocks.find((b) => b.block.id === anchor.blockId);
+          if (lb?.layoutTable) {
+            const paginatedLayout = this.getPaginatedLayout();
+            const { margins } = paginatedLayout.pageSetup;
+            const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+            // Find table page position for localX/Y
+            const blockIndex = layout.blocks.indexOf(lb);
+            let tablePageY = 0;
+            for (const page of paginatedLayout.pages) {
+              for (const pl of page.lines) {
+                if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
+                  tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
+                  break;
+                }
+              }
+              if (tablePageY !== 0) break;
+            }
+            const localX = x - pageX - margins.left;
+            const localY = (y + scrollY) - tablePageY;
+            const currentCA = this.resolveTableCellClick(anchor.blockId, localX, localY);
+
+            if (currentCA &&
+                currentCA.rowIndex === anchorCA.rowIndex &&
+                currentCA.colIndex === anchorCA.colIndex) {
+              // Same cell — text selection mode
+              const resolved = this.resolveOffsetInCellAtXY(anchor.blockId, anchorCA, x, y + scrollY);
+              pos = {
+                blockId: anchor.blockId,
+                offset: resolved.offset,
+                cellAddress: anchorCA,
+                cellBlockIndex: resolved.cellBlockIndex,
+              };
+            } else if (currentCA) {
+              // Different cell — cell-range mode
+              tableCellRange = {
+                blockId: anchor.blockId,
+                start: anchorCA,
+                end: currentCA,
+              };
+              pos = {
+                blockId: anchor.blockId,
+                offset: 0,
+                cellAddress: currentCA,
+                cellBlockIndex: 0,
+              };
+            }
+          }
+        }
+        // If result.blockId !== anchor.blockId, mouse left the table
+        // → fall through: no tableCellRange, pos is the non-table position
+        // This creates a block-range selection from table to content
       }
 
       this.cursor.moveTo(pos, result.lineAffinity);
-      this.selection.setRange({ anchor, focus: pos });
+      this.selection.setRange({ anchor, focus: pos, tableCellRange });
       this.requestRender();
     }
   }
@@ -1768,6 +1817,36 @@ export class TextEditor {
     const layout = this.getLayout();
     const normalized = this.selection.getNormalizedRange(layout);
     if (!normalized) return false;
+
+    // Cell-range mode: clear content of all selected cells
+    if (normalized.tableCellRange) {
+      const cr = normalized.tableCellRange;
+      const block = this.doc.getBlock(cr.blockId);
+      if (!block.tableData) return false;
+      for (let r = cr.start.rowIndex; r <= cr.end.rowIndex; r++) {
+        for (let c = cr.start.colIndex; c <= cr.end.colIndex; c++) {
+          const cell = block.tableData.rows[r]?.cells[c];
+          if (!cell || cell.colSpan === 0) continue;
+          cell.blocks = [{
+            id: generateBlockId(),
+            type: 'paragraph',
+            inlines: [{ text: '', style: {} }],
+            style: { ...DEFAULT_BLOCK_STYLE },
+          }];
+        }
+      }
+      this.doc.updateBlockDirect(cr.blockId, block);
+      this.cursor.moveTo({
+        blockId: cr.blockId,
+        offset: 0,
+        cellAddress: cr.start,
+        cellBlockIndex: 0,
+      });
+      this.selection.setRange(null);
+      this.markDirty(cr.blockId);
+      this.requestRender();
+      return true;
+    }
 
     const { start, end } = normalized;
     const startBlockIdx = this.doc.getBlockIndex(start.blockId);

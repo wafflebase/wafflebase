@@ -91,9 +91,16 @@ export interface DocPosition {
  * A range of text spanning from anchor to focus.
  * Can span multiple blocks.
  */
+export interface TableCellRange {
+  blockId: string;
+  start: CellAddress;
+  end: CellAddress;
+}
+
 export interface DocRange {
   anchor: DocPosition;
   focus: DocPosition;
+  tableCellRange?: TableCellRange;
 }
 
 /**
