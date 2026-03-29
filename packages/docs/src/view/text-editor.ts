@@ -2298,6 +2298,34 @@ export class TextEditor {
           }
         }
       }
+      // If result lands on a table block, enter its first/last cell
+      const targetBlock = this.doc.document.blocks.find((b) => b.id === result.blockId);
+      if (targetBlock?.type === 'table' && targetBlock.tableData) {
+        const td = targetBlock.tableData;
+        if (direction === 1) {
+          // Down → first cell, first block
+          const firstCellBlock = td.rows[0].cells[0].blocks[0];
+          return {
+            blockId: result.blockId,
+            offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)),
+            cellAddress: { rowIndex: 0, colIndex: 0 },
+            cellBlockIndex: 0,
+          };
+        } else {
+          // Up → last cell, last block
+          const lastRow = td.rows.length - 1;
+          const lastCol = td.columnWidths.length - 1;
+          const lastCell = td.rows[lastRow].cells[lastCol];
+          const lastCbi = lastCell.blocks.length - 1;
+          return {
+            blockId: result.blockId,
+            offset: Math.min(pos.offset, getBlockTextLength(lastCell.blocks[lastCbi])),
+            cellAddress: { rowIndex: lastRow, colIndex: lastCol },
+            cellBlockIndex: lastCbi,
+          };
+        }
+      }
+
       this.cursor.lineAffinity = result.lineAffinity;
       return result;
     }
