@@ -1208,11 +1208,10 @@ export class TextEditor {
     const MAX_LIST_LEVEL = 8;
     const INDENT_STEP = 36;
     this.saveSnapshot();
-
-    for (const block of this.getBlocksInSelectionRange()) {
+    this.forEachBlockInSelection((block) => {
       if (block.type === 'list-item') {
         const currentLevel = block.listLevel ?? 0;
-        if (currentLevel >= MAX_LIST_LEVEL) continue;
+        if (currentLevel >= MAX_LIST_LEVEL) return;
         this.doc.setBlockType(block.id, 'list-item', {
           listKind: block.listKind,
           listLevel: currentLevel + 1,
@@ -1222,7 +1221,7 @@ export class TextEditor {
           marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
         });
       }
-    }
+    });
     this.invalidateLayout();
     this.requestRender();
   }
@@ -1230,48 +1229,97 @@ export class TextEditor {
   private handleOutdent(): void {
     const INDENT_STEP = 36;
     this.saveSnapshot();
-
-    for (const block of this.getBlocksInSelectionRange()) {
+    this.forEachBlockInSelection((block) => {
       if (block.type === 'list-item') {
         const currentLevel = block.listLevel ?? 0;
-        if (currentLevel <= 0) continue;
+        if (currentLevel <= 0) return;
         this.doc.setBlockType(block.id, 'list-item', {
           listKind: block.listKind,
           listLevel: currentLevel - 1,
         });
       } else {
         const current = block.style.marginLeft ?? 0;
-        if (current <= 0) continue;
+        if (current <= 0) return;
         this.doc.applyBlockStyle(block.id, {
           marginLeft: Math.max(0, current - INDENT_STEP),
         });
       }
-    }
+    });
     this.invalidateLayout();
     this.requestRender();
   }
 
   /**
-   * Get all blocks in the current selection range, or just the cursor block
-   * if no selection exists.
+   * Invoke fn for every leaf block in the current selection.
+   * Handles cell-internal blocks, cross-table selections, and cursor-only.
    */
-  private getBlocksInSelectionRange(): Block[] {
-    if (!this.selection.hasSelection() || !this.selection.range) {
-      return [this.doc.getBlock(this.cursor.position.blockId)];
+  private forEachBlockInSelection(fn: (block: Block) => void): void {
+    if (this.selection.hasSelection() && this.selection.range) {
+      const range = this.selection.range;
+      // Cell-range selection
+      if (range.tableCellRange) {
+        const cr = range.tableCellRange;
+        const tableBlock = this.doc.getBlock(cr.blockId);
+        if (tableBlock.tableData) {
+          const minR = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+          const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+          const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
+          const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
+          for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+              const cell = tableBlock.tableData.rows[r]?.cells[c];
+              if (!cell || cell.colSpan === 0) continue;
+              for (const cellBlock of cell.blocks) {
+                fn(cellBlock);
+              }
+            }
+          }
+          return;
+        }
+      }
+      // Same-cell cross-block selection
+      const anchorCI = this.getCellInfo(range.anchor.blockId);
+      const focusCI = this.getCellInfo(range.focus.blockId);
+      if (anchorCI && focusCI &&
+          anchorCI.tableBlockId === focusCI.tableBlockId &&
+          anchorCI.rowIndex === focusCI.rowIndex &&
+          anchorCI.colIndex === focusCI.colIndex) {
+        const tableBlock = this.doc.getBlock(anchorCI.tableBlockId);
+        const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
+        const aIdx = cell.blocks.findIndex(b => b.id === range.anchor.blockId);
+        const fIdx = cell.blocks.findIndex(b => b.id === range.focus.blockId);
+        const lo = Math.min(aIdx, fIdx);
+        const hi = Math.max(aIdx, fIdx);
+        for (let i = lo; i <= hi; i++) {
+          fn(cell.blocks[i]);
+        }
+        return;
+      }
+      // Top-level multi-block (with table traversal)
+      const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
+      const endIdx = this.doc.getBlockIndex(range.focus.blockId);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        for (let i = lo; i <= hi; i++) {
+          const b = this.doc.document.blocks[i];
+          if (b.type === 'table' && b.tableData) {
+            for (const row of b.tableData.rows) {
+              for (const cell of row.cells) {
+                if (cell.colSpan === 0) continue;
+                for (const cellBlock of cell.blocks) {
+                  fn(cellBlock);
+                }
+              }
+            }
+          } else {
+            fn(b);
+          }
+        }
+        return;
+      }
     }
-    const range = this.selection.range;
-    const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
-    const endIdx = this.doc.getBlockIndex(range.focus.blockId);
-    if (startIdx < 0 || endIdx < 0) {
-      return [this.doc.getBlock(this.cursor.position.blockId)];
-    }
-    const lo = Math.min(startIdx, endIdx);
-    const hi = Math.max(startIdx, endIdx);
-    const blocks: Block[] = [];
-    for (let i = lo; i <= hi; i++) {
-      blocks.push(this.doc.document.blocks[i]);
-    }
-    return blocks;
+    fn(this.doc.getBlock(this.cursor.position.blockId));
   }
 
   private tryAutoConvert(blockId: string): boolean {

@@ -215,24 +215,85 @@ export function initialize(
     dirtyBlockIds.add(blockId);
   };
 
-  // Get all blocks in the current selection range, or just the cursor block.
-  const getBlocksInSelectionRange = (): Block[] => {
-    if (!selection.hasSelection() || !selection.range) {
-      return [doc.getBlock(cursor.position.blockId)];
+  /**
+   * Invoke `fn` for every leaf block in the current selection.
+   * Handles cell-range selection, same-cell cross-block, top-level
+   * multi-block (including table-internal cells), and cursor-only.
+   * Calls markDirty for each affected top-level block.
+   */
+  const forEachBlockInSelection = (fn: (block: Block) => void): void => {
+    if (selection.hasSelection() && selection.range) {
+      const range = selection.range;
+      // Cell-range selection
+      if (range.tableCellRange) {
+        const cr = range.tableCellRange;
+        const tableBlock = doc.getBlock(cr.blockId);
+        if (tableBlock.tableData) {
+          const minR = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+          const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+          const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
+          const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
+          for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+              const cell = tableBlock.tableData.rows[r]?.cells[c];
+              if (!cell || cell.colSpan === 0) continue;
+              for (const cellBlock of cell.blocks) {
+                fn(cellBlock);
+              }
+            }
+          }
+          markDirty(cr.blockId);
+          return;
+        }
+      }
+      // Same-cell cross-block selection
+      const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+      const focusCI = layout.blockParentMap.get(range.focus.blockId);
+      if (anchorCI && focusCI &&
+          anchorCI.tableBlockId === focusCI.tableBlockId &&
+          anchorCI.rowIndex === focusCI.rowIndex &&
+          anchorCI.colIndex === focusCI.colIndex) {
+        const tableBlock = doc.getBlock(anchorCI.tableBlockId);
+        const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
+        const aIdx = cell.blocks.findIndex(b => b.id === range.anchor.blockId);
+        const fIdx = cell.blocks.findIndex(b => b.id === range.focus.blockId);
+        const lo = Math.min(aIdx, fIdx);
+        const hi = Math.max(aIdx, fIdx);
+        for (let i = lo; i <= hi; i++) {
+          fn(cell.blocks[i]);
+        }
+        markDirty(anchorCI.tableBlockId);
+        return;
+      }
+      // Top-level multi-block (with table traversal)
+      const startIdx = doc.getBlockIndex(range.anchor.blockId);
+      const endIdx = doc.getBlockIndex(range.focus.blockId);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        for (let i = lo; i <= hi; i++) {
+          const b = doc.document.blocks[i];
+          if (b.type === 'table' && b.tableData) {
+            for (const row of b.tableData.rows) {
+              for (const cell of row.cells) {
+                if (cell.colSpan === 0) continue;
+                for (const cellBlock of cell.blocks) {
+                  fn(cellBlock);
+                }
+              }
+            }
+          } else {
+            fn(b);
+          }
+          markDirty(b.id);
+        }
+        return;
+      }
     }
-    const range = selection.range;
-    const startIdx = doc.getBlockIndex(range.anchor.blockId);
-    const endIdx = doc.getBlockIndex(range.focus.blockId);
-    if (startIdx < 0 || endIdx < 0) {
-      return [doc.getBlock(cursor.position.blockId)];
-    }
-    const lo = Math.min(startIdx, endIdx);
-    const hi = Math.max(startIdx, endIdx);
-    const blocks: Block[] = [];
-    for (let i = lo; i <= hi; i++) {
-      blocks.push(doc.document.blocks[i]);
-    }
-    return blocks;
+    // No selection or fallback: cursor block only
+    const block = doc.getBlock(cursor.position.blockId);
+    fn(block);
+    markDirty(block.id);
   };
 
   // Force full layout recompute on next render (for structural operations)
@@ -693,75 +754,9 @@ export function initialize(
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
-      // Cell-range selection: apply to all blocks in selected cells
-      if (selection.range?.tableCellRange) {
-        const cr = selection.range.tableCellRange;
-        const tableBlock = doc.getBlock(cr.blockId);
-        if (tableBlock.tableData) {
-          const minR = Math.min(cr.start.rowIndex, cr.end.rowIndex);
-          const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
-          const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
-          const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
-          for (let r = minR; r <= maxR; r++) {
-            for (let c = minC; c <= maxC; c++) {
-              const cell = tableBlock.tableData.rows[r]?.cells[c];
-              if (!cell || cell.colSpan === 0) continue;
-              for (const cellBlock of cell.blocks) {
-                doc.applyBlockStyle(cellBlock.id, style);
-              }
-            }
-          }
-          markDirty(cr.blockId);
-        }
-      } else if (selection.hasSelection() && selection.range) {
-        const range = selection.range;
-        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-        const focusCI = layout.blockParentMap.get(range.focus.blockId);
-
-        if (anchorCI && focusCI &&
-            anchorCI.tableBlockId === focusCI.tableBlockId &&
-            anchorCI.rowIndex === focusCI.rowIndex &&
-            anchorCI.colIndex === focusCI.colIndex) {
-          // Selection within the same cell: apply to all cell blocks in range
-          const tableBlock = doc.getBlock(anchorCI.tableBlockId);
-          const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
-          const aIdx = cell.blocks.findIndex(b => b.id === range.anchor.blockId);
-          const fIdx = cell.blocks.findIndex(b => b.id === range.focus.blockId);
-          const lo = Math.min(aIdx, fIdx);
-          const hi = Math.max(aIdx, fIdx);
-          for (let i = lo; i <= hi; i++) {
-            doc.applyBlockStyle(cell.blocks[i].id, style);
-          }
-          markDirty(anchorCI.tableBlockId);
-        } else {
-          // Top-level multi-block selection
-          const startIdx = doc.getBlockIndex(range.anchor.blockId);
-          const endIdx = doc.getBlockIndex(range.focus.blockId);
-          if (startIdx >= 0 && endIdx >= 0) {
-            const lo = Math.min(startIdx, endIdx);
-            const hi = Math.max(startIdx, endIdx);
-            for (let i = lo; i <= hi; i++) {
-              const b = doc.document.blocks[i];
-              if (b.type === 'table' && b.tableData) {
-                for (const row of b.tableData.rows) {
-                  for (const cell of row.cells) {
-                    if (cell.colSpan === 0) continue;
-                    for (const cellBlock of cell.blocks) {
-                      doc.applyBlockStyle(cellBlock.id, style);
-                    }
-                  }
-                }
-              } else {
-                doc.applyBlockStyle(b.id, style);
-              }
-              markDirty(b.id);
-            }
-          }
-        }
-      } else {
-        doc.applyBlockStyle(cursor.position.blockId, style);
-        markDirty(cursor.position.blockId);
-      }
+      forEachBlockInSelection((block) => {
+        doc.applyBlockStyle(block.id, style);
+      });
       render();
     },
     undo: undoFn,
@@ -796,88 +791,16 @@ export function initialize(
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();
-
-      const toggleBlock = (blockId: string) => {
-        const b = doc.getBlock(blockId);
-        if (b.type === 'list-item' && b.listKind === kind) {
-          doc.setBlockType(b.id, 'paragraph');
+      forEachBlockInSelection((block) => {
+        if (block.type === 'list-item' && block.listKind === kind) {
+          doc.setBlockType(block.id, 'paragraph');
         } else {
-          doc.setBlockType(b.id, 'list-item', {
+          doc.setBlockType(block.id, 'list-item', {
             listKind: kind,
-            listLevel: b.listLevel ?? 0,
+            listLevel: block.listLevel ?? 0,
           });
         }
-      };
-
-      if (selection.hasSelection() && selection.range) {
-        const range = selection.range;
-        // Cell-range: toggle all blocks in all selected cells
-        if (range.tableCellRange) {
-          const cr = range.tableCellRange;
-          const tableBlock = doc.getBlock(cr.blockId);
-          if (tableBlock.tableData) {
-            const minR = Math.min(cr.start.rowIndex, cr.end.rowIndex);
-            const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
-            const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
-            const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
-            for (let r = minR; r <= maxR; r++) {
-              for (let c = minC; c <= maxC; c++) {
-                const cell = tableBlock.tableData.rows[r]?.cells[c];
-                if (!cell || cell.colSpan === 0) continue;
-                for (const cellBlock of cell.blocks) {
-                  toggleBlock(cellBlock.id);
-                }
-              }
-            }
-            markDirty(cr.blockId);
-          }
-        } else {
-          // Within-cell or top-level multi-block selection
-          const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-          const focusCI = layout.blockParentMap.get(range.focus.blockId);
-          if (anchorCI && focusCI &&
-              anchorCI.tableBlockId === focusCI.tableBlockId &&
-              anchorCI.rowIndex === focusCI.rowIndex &&
-              anchorCI.colIndex === focusCI.colIndex) {
-            const tableBlock = doc.getBlock(anchorCI.tableBlockId);
-            const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
-            const aIdx = cell.blocks.findIndex(b => b.id === range.anchor.blockId);
-            const fIdx = cell.blocks.findIndex(b => b.id === range.focus.blockId);
-            const lo = Math.min(aIdx, fIdx);
-            const hi = Math.max(aIdx, fIdx);
-            for (let i = lo; i <= hi; i++) {
-              toggleBlock(cell.blocks[i].id);
-            }
-            markDirty(anchorCI.tableBlockId);
-          } else {
-            const startIdx = doc.getBlockIndex(range.anchor.blockId);
-            const endIdx = doc.getBlockIndex(range.focus.blockId);
-            if (startIdx >= 0 && endIdx >= 0) {
-              const lo = Math.min(startIdx, endIdx);
-              const hi = Math.max(startIdx, endIdx);
-              for (let i = lo; i <= hi; i++) {
-                const b = doc.document.blocks[i];
-                if (b.type === 'table' && b.tableData) {
-                  for (const row of b.tableData.rows) {
-                    for (const cell of row.cells) {
-                      if (cell.colSpan === 0) continue;
-                      for (const cellBlock of cell.blocks) {
-                        toggleBlock(cellBlock.id);
-                      }
-                    }
-                  }
-                } else {
-                  toggleBlock(b.id);
-                }
-                markDirty(b.id);
-              }
-            }
-          }
-        }
-      } else {
-        toggleBlock(cursor.position.blockId);
-        markDirty(cursor.position.blockId);
-      }
+      });
       invalidateLayout();
       render();
     },
@@ -885,11 +808,10 @@ export function initialize(
       const MAX_LIST_LEVEL = 8;
       const INDENT_STEP = 36;
       docStore.snapshot();
-
-      for (const block of getBlocksInSelectionRange()) {
+      forEachBlockInSelection((block) => {
         if (block.type === 'list-item') {
           const currentLevel = block.listLevel ?? 0;
-          if (currentLevel >= MAX_LIST_LEVEL) continue;
+          if (currentLevel >= MAX_LIST_LEVEL) return;
           doc.setBlockType(block.id, 'list-item', {
             listKind: block.listKind,
             listLevel: currentLevel + 1,
@@ -899,31 +821,28 @@ export function initialize(
             marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
           });
         }
-        markDirty(block.id);
-      }
+      });
       render();
     },
     outdent() {
       const INDENT_STEP = 36;
       docStore.snapshot();
-
-      for (const block of getBlocksInSelectionRange()) {
+      forEachBlockInSelection((block) => {
         if (block.type === 'list-item') {
           const currentLevel = block.listLevel ?? 0;
-          if (currentLevel <= 0) continue;
+          if (currentLevel <= 0) return;
           doc.setBlockType(block.id, 'list-item', {
             listKind: block.listKind,
             listLevel: currentLevel - 1,
           });
         } else {
           const current = block.style.marginLeft ?? 0;
-          if (current <= 0) continue;
+          if (current <= 0) return;
           doc.applyBlockStyle(block.id, {
             marginLeft: Math.max(0, current - INDENT_STEP),
           });
         }
-        markDirty(block.id);
-      }
+      });
       render();
     },
     insertLink: (url: string) => {

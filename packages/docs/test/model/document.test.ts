@@ -492,5 +492,19 @@ describe('Doc', () => {
       doc.applyBlockStyle(blockId, { alignment: 'center' });
       expect(doc.document.blocks[0].style.alignment).toBe('center');
     });
+
+    it('should apply marginLeft to each block independently', () => {
+      const doc = Doc.create();
+      const block0 = doc.document.blocks[0];
+      doc.insertText({ blockId: block0.id, offset: 0 }, 'first');
+      const block1Id = doc.splitBlock(block0.id, 5);
+      doc.insertText({ blockId: block1Id, offset: 0 }, 'second');
+
+      doc.applyBlockStyle(block0.id, { marginLeft: 36 });
+      doc.applyBlockStyle(block1Id, { marginLeft: 36 });
+
+      expect(doc.document.blocks[0].style.marginLeft).toBe(36);
+      expect(doc.document.blocks[1].style.marginLeft).toBe(36);
+    });
   });
 });
