@@ -1,5 +1,6 @@
 import {
   type Block,
+  type BlockCellInfo,
   type BlockType,
   type CellAddress,
   type CellRange,
@@ -36,6 +37,7 @@ import type { DocStore } from '../store/store.js';
 export class Doc {
   private store: DocStore;
   private _document: Document;
+  private _blockParentMap: Map<string, BlockCellInfo> = new Map();
 
   constructor(store: DocStore) {
     this.store = store;
@@ -44,6 +46,14 @@ export class Doc {
 
   get document(): Document {
     return this._document;
+  }
+
+  setBlockParentMap(map: Map<string, BlockCellInfo>): void {
+    this._blockParentMap = map;
+  }
+
+  get blockParentMap(): Map<string, BlockCellInfo> {
+    return this._blockParentMap;
   }
 
   /**
@@ -67,8 +77,19 @@ export class Doc {
    */
   getBlock(blockId: string): Block {
     const block = this._document.blocks.find((b) => b.id === blockId);
-    if (!block) throw new Error(`Block not found: ${blockId}`);
-    return block;
+    if (block) return block;
+
+    const cellInfo = this._blockParentMap.get(blockId);
+    if (cellInfo) {
+      const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
+      if (tableBlock?.tableData) {
+        const cell = tableBlock.tableData.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+        const found = cell?.blocks.find((b) => b.id === blockId);
+        if (found) return found;
+      }
+    }
+
+    throw new Error(`Block not found: ${blockId}`);
   }
 
   /**
@@ -76,6 +97,16 @@ export class Doc {
    */
   getBlockIndex(blockId: string): number {
     return this._document.blocks.findIndex((b) => b.id === blockId);
+  }
+
+  /**
+   * Find the parent table block for a cell-internal block.
+   * Returns undefined if the block is not inside a table cell.
+   */
+  getParentTableBlock(blockId: string): Block | undefined {
+    const cellInfo = this._blockParentMap.get(blockId);
+    if (!cellInfo) return undefined;
+    return this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
   }
 
   /**
@@ -87,7 +118,7 @@ export class Doc {
     const inline = block.inlines[inlineIndex];
     inline.text =
       inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
-    this.store.updateBlock(pos.blockId, block);
+    this.updateBlockInStore(pos.blockId, block);
     this.refresh();
   }
 
@@ -122,7 +153,7 @@ export class Doc {
     }
 
     this.normalizeInlines(block);
-    this.store.updateBlock(pos.blockId, block);
+    this.updateBlockInStore(pos.blockId, block);
     this.refresh();
   }
 
@@ -163,6 +194,11 @@ export class Doc {
    * Returns the ID of the newly created block.
    */
   splitBlock(blockId: string, offset: number): string {
+    const cellInfo = this._blockParentMap.get(blockId);
+    if (cellInfo) {
+      return this.splitBlockInCellInternal(cellInfo, blockId, offset);
+    }
+
     const blockIndex = this.getBlockIndex(blockId);
     const block = this._document.blocks[blockIndex];
     const blockText = getBlockText(block);
@@ -232,6 +268,23 @@ export class Doc {
    * Merge two adjacent blocks. The second block is removed.
    */
   mergeBlocks(blockId: string, nextBlockId: string): void {
+    const cellInfo = this._blockParentMap.get(blockId);
+    if (cellInfo) {
+      const tableBlock = this.getBlock(cellInfo.tableBlockId);
+      const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+      const idx = cell.blocks.findIndex((b) => b.id === blockId);
+      const nextIdx = cell.blocks.findIndex((b) => b.id === nextBlockId);
+      if (idx === -1 || nextIdx === -1) return;
+
+      const block = cell.blocks[idx];
+      const nextBlock = cell.blocks[nextIdx];
+      block.inlines = this.normalizeInlinesArray([...block.inlines, ...nextBlock.inlines]);
+      cell.blocks.splice(nextIdx, 1);
+      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.refresh();
+      return;
+    }
+
     const block = this.getBlock(blockId);
     const nextBlock = this.getBlock(nextBlockId);
 
@@ -247,10 +300,54 @@ export class Doc {
    * Apply inline style to a range of text within a single block.
    */
   applyInlineStyle(range: DocRange, style: Partial<InlineStyle>): void {
+    const anchorCellInfo = this._blockParentMap.get(range.anchor.blockId);
+    const focusCellInfo = this._blockParentMap.get(range.focus.blockId);
+
+    // Same block (cell or top-level)
+    if (range.anchor.blockId === range.focus.blockId) {
+      const block = this.getBlock(range.anchor.blockId);
+      const [start, end] = range.anchor.offset <= range.focus.offset
+        ? [range.anchor.offset, range.focus.offset]
+        : [range.focus.offset, range.anchor.offset];
+      if (start < end) {
+        this.applyStyleToBlock(block, start, end, style);
+        this.updateBlockInStore(block.id, block);
+      }
+      this.refresh();
+      return;
+    }
+
+    // Cross-block within same cell
+    if (anchorCellInfo && focusCellInfo &&
+        anchorCellInfo.tableBlockId === focusCellInfo.tableBlockId &&
+        anchorCellInfo.rowIndex === focusCellInfo.rowIndex &&
+        anchorCellInfo.colIndex === focusCellInfo.colIndex) {
+      const tableBlock = this.getBlock(anchorCellInfo.tableBlockId);
+      const cell = tableBlock.tableData!.rows[anchorCellInfo.rowIndex].cells[anchorCellInfo.colIndex];
+      const anchorIdx = cell.blocks.findIndex((b) => b.id === range.anchor.blockId);
+      const focusIdx = cell.blocks.findIndex((b) => b.id === range.focus.blockId);
+      const [fromIdx, toIdx, from, to] = anchorIdx <= focusIdx
+        ? [anchorIdx, focusIdx, range.anchor, range.focus]
+        : [focusIdx, anchorIdx, range.focus, range.anchor];
+
+      for (let i = fromIdx; i <= toIdx; i++) {
+        const block = cell.blocks[i];
+        const blockLen = getBlockTextLength(block);
+        const start = i === fromIdx ? from.offset : 0;
+        const end = i === toIdx ? to.offset : blockLen;
+        if (start < end) {
+          this.applyStyleToBlock(block, start, end, style);
+        }
+      }
+      this.store.updateBlock(anchorCellInfo.tableBlockId, tableBlock);
+      this.refresh();
+      return;
+    }
+
+    // Existing top-level cross-block logic
     const startBlock = this.getBlockIndex(range.anchor.blockId);
     const endBlock = this.getBlockIndex(range.focus.blockId);
 
-    // Normalize so start <= end
     const [from, to] =
       startBlock < endBlock ||
       (startBlock === endBlock && range.anchor.offset <= range.focus.offset)
@@ -280,7 +377,7 @@ export class Doc {
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
     const block = this.getBlock(blockId);
     block.style = { ...block.style, ...style };
-    this.store.updateBlock(blockId, block);
+    this.updateBlockInStore(blockId, block);
     this.refresh();
   }
 
@@ -334,7 +431,7 @@ export class Doc {
     } else if (block.inlines.length === 0) {
       block.inlines = [{ text: '', style: {} }];
     }
-    this.store.updateBlock(blockId, block);
+    this.updateBlockInStore(blockId, block);
     this.refresh();
   }
 
@@ -890,6 +987,80 @@ export class Doc {
   }
 
   // --- Private helpers ---
+
+  /**
+   * Update a block in the store. For cell blocks, updates the parent
+   * table block instead.
+   */
+  private updateBlockInStore(blockId: string, block: Block): void {
+    const cellInfo = this._blockParentMap.get(blockId);
+    if (cellInfo) {
+      const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
+      if (tableBlock) {
+        this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      }
+    } else {
+      this.store.updateBlock(blockId, block);
+    }
+  }
+
+  /**
+   * Split a block within a table cell using BlockCellInfo lookup.
+   * Returns the ID of the newly created block.
+   */
+  private splitBlockInCellInternal(
+    cellInfo: BlockCellInfo,
+    blockId: string,
+    offset: number,
+  ): string {
+    const tableBlock = this.getBlock(cellInfo.tableBlockId);
+    const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+    const cellBlockIndex = cell.blocks.findIndex((b) => b.id === blockId);
+    const targetBlock = cell.blocks[cellBlockIndex];
+    if (!targetBlock) return blockId;
+
+    const blockText = getBlockText(targetBlock);
+
+    if (targetBlock.type === 'list-item' && blockText.length === 0) {
+      targetBlock.type = 'paragraph';
+      delete targetBlock.listKind;
+      delete targetBlock.listLevel;
+      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.refresh();
+      return blockId;
+    }
+
+    const beforeInlines = this.buildInlinesFromSplit(targetBlock, 0, offset);
+    const afterInlines = this.buildInlinesFromSplit(targetBlock, offset, blockText.length);
+    const cursorStyle = this.getStyleAtOffset(targetBlock, offset);
+
+    targetBlock.inlines = beforeInlines.length > 0
+      ? beforeInlines
+      : [{ text: '', style: cursorStyle }];
+
+    let newType: BlockType = 'paragraph';
+    const extra: Partial<Block> = {};
+    if (targetBlock.type === 'list-item') {
+      newType = 'list-item';
+      extra.listKind = targetBlock.listKind;
+      extra.listLevel = targetBlock.listLevel;
+    }
+
+    const newBlock: Block = {
+      id: generateBlockId(),
+      type: newType,
+      inlines: afterInlines.length > 0
+        ? afterInlines
+        : [{ text: '', style: cursorStyle }],
+      style: { ...targetBlock.style },
+      ...extra,
+    };
+
+    cell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
+    this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+    this.refresh();
+    return newBlock.id;
+  }
 
   /**
    * Resolve a character offset within a block to the specific
