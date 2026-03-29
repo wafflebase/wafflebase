@@ -3365,7 +3365,7 @@ describe('Formula.extractTokens', () => {
 
     expect(extractTokens('=A1:')).toEqual([
       { type: 'REFERENCE', start: 0, stop: 1, text: 'A1' },
-      { type: 'STRING', start: 2, stop: 3, text: ':' },
+      { type: 'STRING', start: 2, stop: 2, text: ':' },
     ]);
 
     expect(extractTokens('=AA1+AB2')).toEqual([
@@ -3386,6 +3386,46 @@ describe('Formula.extractTokens', () => {
       { type: 'STRING', start: 7, stop: 7, text: '(' },
       { type: 'NUM', start: 8, stop: 8, text: '1' },
       { type: 'STRING', start: 9, stop: 9, text: ')' },
+    ]);
+
+    // Emoji characters (supplementary code points) must produce correct
+    // token text AND UTF-16 start/stop positions.
+    // Formula: =IF(A1>0,"🔴 Bad","🟢 OK")
+    //  body:    I F ( A 1 > 0 , " 🔴    B  a  d  "  ,  "  🟢     O  K  "  )
+    //  UTF-16:  0 1 2 3 4 5 6 7 8 9,10 11 12 13 14 15 16 17 18,19 20 21 22 23 24
+    //  (🔴 = U+1F534, 2 UTF-16 code units at positions 9-10)
+    //  (🟢 = U+1F7E2, 2 UTF-16 code units at positions 18-19)
+    expect(extractTokens('=IF(A1>0,"🔴 Bad","🟢 OK")')).toEqual([
+      { type: 'FUNCNAME', start: 0, stop: 1, text: 'IF' },
+      { type: 'STRING', start: 2, stop: 2, text: '(' },
+      { type: 'REFERENCE', start: 3, stop: 4, text: 'A1' },
+      { type: 'GT', start: 5, stop: 5, text: '>' },
+      { type: 'NUM', start: 6, stop: 6, text: '0' },
+      { type: 'STRING', start: 7, stop: 7, text: ',' },
+      // "🔴 Bad" — 🔴 is 2 UTF-16 units, so the string token spans 8..15
+      { type: 'STRING', start: 8, stop: 15, text: '"🔴 Bad"' },
+      { type: 'STRING', start: 16, stop: 16, text: ',' },
+      // "🟢 OK" — 🟢 is 2 UTF-16 units, so the string token spans 17..23
+      { type: 'STRING', start: 17, stop: 23, text: '"🟢 OK"' },
+      { type: 'STRING', start: 24, stop: 24, text: ')' },
+    ]);
+
+    // Multi-emoji formula reconstructs losslessly
+    const emojiFormula =
+      '=IF(A1>0,"🔴 Over Budget",IF(A1>0,"🟢 OK"))';
+    const emojiTokens = extractTokens(emojiFormula);
+    const reconstructed = '=' + emojiTokens.map((t) => t.text).join('');
+    expect(reconstructed).toBe(emojiFormula);
+
+    // Token after multiple emoji has correct UTF-16 offset
+    // "=1+"🔴🟡"+2" — two emoji in a string, then NUM token after
+    expect(extractTokens('=1+"🔴🟡"+2')).toEqual([
+      { type: 'NUM', start: 0, stop: 0, text: '1' },
+      { type: 'ADD', start: 1, stop: 1, text: '+' },
+      // "🔴🟡" — each emoji is 2 UTF-16 units → string is 6 UTF-16 units
+      { type: 'STRING', start: 2, stop: 7, text: '"🔴🟡"' },
+      { type: 'ADD', start: 8, stop: 8, text: '+' },
+      { type: 'NUM', start: 9, stop: 9, text: '2' },
     ]);
   });
 
