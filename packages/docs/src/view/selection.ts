@@ -1,4 +1,4 @@
-import type { DocPosition, DocRange, TableCellRange, CellAddress } from '../model/types.js';
+import type { DocPosition, DocRange, TableCellRange } from '../model/types.js';
 import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
@@ -43,15 +43,20 @@ function normalizeRange(
   );
   if (anchorIdx === -1 || focusIdx === -1) return null;
 
-  // Cell-aware selection: if either position has cellAddress, handle specially
-  if (range.anchor.cellAddress || range.focus.cellAddress) {
-    // Both must have cellAddress and be in the same cell for a valid selection
-    if (range.anchor.cellAddress && range.focus.cellAddress &&
-        range.anchor.blockId === range.focus.blockId &&
-        range.anchor.cellAddress.rowIndex === range.focus.cellAddress.rowIndex &&
-        range.anchor.cellAddress.colIndex === range.focus.cellAddress.colIndex) {
-      const aCbi = range.anchor.cellBlockIndex ?? 0;
-      const fCbi = range.focus.cellBlockIndex ?? 0;
+  // Cell-aware selection: if either position is in a table cell, handle specially
+  const anchorCellInfo = layout.blockParentMap.get(range.anchor.blockId);
+  const focusCellInfo = layout.blockParentMap.get(range.focus.blockId);
+  if (anchorCellInfo || focusCellInfo) {
+    // Both must be in the same cell for a valid selection
+    if (anchorCellInfo && focusCellInfo &&
+        anchorCellInfo.tableBlockId === focusCellInfo.tableBlockId &&
+        anchorCellInfo.rowIndex === focusCellInfo.rowIndex &&
+        anchorCellInfo.colIndex === focusCellInfo.colIndex) {
+      // Find cell block indices for ordering
+      const tableBlock = layout.blocks.find((b) => b.block.id === anchorCellInfo.tableBlockId);
+      const cell = tableBlock?.block.tableData?.rows[anchorCellInfo.rowIndex]?.cells[anchorCellInfo.colIndex];
+      const aCbi = cell ? cell.blocks.findIndex((b) => b.id === range.anchor.blockId) : 0;
+      const fCbi = cell ? cell.blocks.findIndex((b) => b.id === range.focus.blockId) : 0;
       if (aCbi < fCbi || (aCbi === fCbi && range.anchor.offset <= range.focus.offset)) {
         return { start: range.anchor, end: range.focus };
       }
@@ -144,7 +149,9 @@ function buildRects(
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
   // Cell-internal selection
-  if (start.cellAddress && end.cellAddress) {
+  const startCellInfo = layout.blockParentMap.get(start.blockId);
+  const endCellInfo = layout.blockParentMap.get(end.blockId);
+  if (startCellInfo && endCellInfo) {
     const startPixel = resolvePositionPixel(start, 'forward', paginatedLayout, layout, ctx, canvasWidth);
     const endPixel = resolvePositionPixel(end, 'backward', paginatedLayout, layout, ctx, canvasWidth);
     if (!startPixel || !endPixel) return [];
@@ -160,9 +167,9 @@ function buildRects(
     }
 
     // Multi-line cell selection: find cell bounds for full-width lines
-    const lb = layout.blocks.find((b) => b.block.id === start.blockId);
+    const lb = layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId);
     const tl = lb?.layoutTable;
-    if (!tl || !start.cellAddress) {
+    if (!tl) {
       // Fallback: rect from start to end
       return [{
         x: startPixel.x,
@@ -171,7 +178,7 @@ function buildRects(
         height: endPixel.y + endPixel.height - startPixel.y,
       }];
     }
-    const { rowIndex, colIndex } = start.cellAddress;
+    const { rowIndex, colIndex } = startCellInfo;
     const cellPadding = lb!.block.tableData?.rows[rowIndex]?.cells[colIndex]?.style.padding ?? 4;
     const cellLeftX = startPixel.x - (startPixel.x - (getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + cellPadding));
     const cellRightX = getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + tl.columnPixelWidths[colIndex] - cellPadding;
@@ -318,8 +325,7 @@ export function computeSelectionRects(
   }
 
   if (normalized.start.blockId === normalized.end.blockId &&
-      normalized.start.offset === normalized.end.offset &&
-      (normalized.start.cellBlockIndex ?? 0) === (normalized.end.cellBlockIndex ?? 0)) return [];
+      normalized.start.offset === normalized.end.offset) return [];
   return buildRects(normalized.start, normalized.end, paginatedLayout, layout, ctx, canvasWidth);
 }
 
@@ -392,14 +398,13 @@ export class Selection {
     if (this.range.tableCellRange) return true;
     return (
       this.range.anchor.blockId !== this.range.focus.blockId ||
-      this.range.anchor.offset !== this.range.focus.offset ||
-      (this.range.anchor.cellBlockIndex ?? 0) !== (this.range.focus.cellBlockIndex ?? 0)
+      this.range.anchor.offset !== this.range.focus.offset
     );
   }
 
   getNormalizedRange(
     layout: DocumentLayout,
-  ): { start: DocPosition; end: DocPosition } | null {
+  ): NormalizedRange | null {
     if (!this.range || !this.hasSelection()) return null;
     return normalizeRange(this.range, layout);
   }
@@ -443,30 +448,34 @@ export class Selection {
     const { start, end } = normalized;
 
     // Cell-internal selection
-    if (start.cellAddress && end.cellAddress) {
-      const lb = layout.blocks.find((b) => b.block.id === start.blockId);
+    const startCellInfo = layout.blockParentMap.get(start.blockId);
+    const endCellInfo = layout.blockParentMap.get(end.blockId);
+    if (startCellInfo && endCellInfo) {
+      const lb = layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId);
       if (!lb?.block.tableData) return '';
-      const cell = lb.block.tableData.rows[start.cellAddress.rowIndex]
-        ?.cells[start.cellAddress.colIndex];
+      const cell = lb.block.tableData.rows[startCellInfo.rowIndex]
+        ?.cells[startCellInfo.colIndex];
       if (!cell) return '';
-      const startCbi = start.cellBlockIndex ?? 0;
-      const endCbi = end.cellBlockIndex ?? 0;
+      const startCbi = cell.blocks.findIndex((b) => b.id === start.blockId);
+      const endCbi = cell.blocks.findIndex((b) => b.id === end.blockId);
 
       if (startCbi === endCbi) {
-        const targetBlock = cell.blocks[startCbi];
+        const targetBlock = cell.blocks[startCbi >= 0 ? startCbi : 0];
         if (!targetBlock) return '';
         const blockText = targetBlock.inlines.map((i) => i.text).join('');
         return blockText.slice(start.offset, end.offset);
       }
 
       // Cross-block cell selection
+      const effectiveStart = startCbi >= 0 ? startCbi : 0;
+      const effectiveEnd = endCbi >= 0 ? endCbi : 0;
       const texts: string[] = [];
-      for (let bi = startCbi; bi <= endCbi; bi++) {
+      for (let bi = effectiveStart; bi <= effectiveEnd; bi++) {
         const blk = cell.blocks[bi];
         if (!blk) continue;
         const fullText = blk.inlines.map((i) => i.text).join('');
-        const s = bi === startCbi ? start.offset : 0;
-        const e = bi === endCbi ? end.offset : fullText.length;
+        const s = bi === effectiveStart ? start.offset : 0;
+        const e = bi === effectiveEnd ? end.offset : fullText.length;
         texts.push(fullText.slice(s, e));
       }
       return texts.join('\n');
