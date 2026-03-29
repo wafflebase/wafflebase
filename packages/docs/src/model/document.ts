@@ -555,6 +555,17 @@ export class Doc {
     if (!targetBlock) return cellBlockIndex;
 
     const blockText = getBlockText(targetBlock);
+
+    // Empty list-item: exit list by converting to paragraph (matches splitBlock)
+    if (targetBlock.type === 'list-item' && blockText.length === 0) {
+      targetBlock.type = 'paragraph';
+      delete targetBlock.listKind;
+      delete targetBlock.listLevel;
+      this.store.updateBlock(blockId, block);
+      this.refresh();
+      return cellBlockIndex;
+    }
+
     const beforeInlines = this.buildInlinesFromSplit(targetBlock, 0, offset);
     const afterInlines = this.buildInlinesFromSplit(targetBlock, offset, blockText.length);
     const cursorStyle = this.getStyleAtOffset(targetBlock, offset);
@@ -563,13 +574,23 @@ export class Doc {
       ? beforeInlines
       : [{ text: '', style: cursorStyle }];
 
+    // Preserve list-item type on the new block
+    let newType: BlockType = 'paragraph';
+    const extra: Partial<Block> = {};
+    if (targetBlock.type === 'list-item') {
+      newType = 'list-item';
+      extra.listKind = targetBlock.listKind;
+      extra.listLevel = targetBlock.listLevel;
+    }
+
     const newBlock: Block = {
       id: generateBlockId(),
-      type: 'paragraph',
+      type: newType,
       inlines: afterInlines.length > 0
         ? afterInlines
         : [{ text: '', style: cursorStyle }],
       style: { ...targetBlock.style },
+      ...extra,
     };
 
     tableCell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
@@ -763,19 +784,27 @@ export class Doc {
     const rowSpan = end.rowIndex - start.rowIndex + 1;
     const colSpan = end.colIndex - start.colIndex + 1;
 
-    // Collect text from all cells in range (row-major, skip top-left)
+    // Collect blocks from all cells in range (row-major, skip top-left)
     for (let r = start.rowIndex; r <= end.rowIndex; r++) {
       for (let c = start.colIndex; c <= end.colIndex; c++) {
         if (r === start.rowIndex && c === start.colIndex) continue;
         const cell = td.rows[r].cells[c];
         const cellTextContent = getCellText(cell);
         if (cellTextContent.length > 0) {
-          // Append non-empty inlines from the first block to top-left's first block
-          const srcBlock = cell.blocks[0];
-          if (srcBlock) {
-            topLeft.blocks[0].inlines.push(
-              ...srcBlock.inlines.filter((i) => i.text.length > 0),
-            );
+          // Append all non-empty blocks from source cell to top-left
+          for (const srcBlock of cell.blocks) {
+            const nonEmpty = srcBlock.inlines.filter((i) => i.text.length > 0);
+            if (nonEmpty.length > 0) {
+              topLeft.blocks.push({
+                id: generateBlockId(),
+                type: srcBlock.type,
+                inlines: nonEmpty,
+                style: { ...srcBlock.style },
+                ...(srcBlock.listKind ? { listKind: srcBlock.listKind } : {}),
+                ...(srcBlock.listLevel !== undefined ? { listLevel: srcBlock.listLevel } : {}),
+                ...(srcBlock.headingLevel !== undefined ? { headingLevel: srcBlock.headingLevel } : {}),
+              });
+            }
           }
         }
         // Mark as covered
@@ -785,7 +814,10 @@ export class Doc {
       }
     }
 
-    topLeft.blocks[0].inlines = this.normalizeInlinesArray(topLeft.blocks[0].inlines);
+    // Normalize inlines in each block of the merged cell
+    for (const blk of topLeft.blocks) {
+      blk.inlines = this.normalizeInlinesArray(blk.inlines);
+    }
     topLeft.colSpan = colSpan;
     topLeft.rowSpan = rowSpan;
     this.store.updateBlock(blockId, block);

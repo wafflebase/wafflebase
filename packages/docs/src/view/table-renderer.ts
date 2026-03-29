@@ -154,12 +154,19 @@ export function renderTable(
             continue;
           }
           const level = cellBlock.listLevel ?? 0;
-          // Reset counters for deeper levels
+          // Reset counters for deeper levels and when kind changes
           for (const [k] of listCounters) {
             if (k > level) listCounters.delete(k);
           }
-          const count = (listCounters.get(level) ?? 0) + 1;
-          listCounters.set(level, count);
+          if (cellBlock.listKind === 'unordered') {
+            listCounters.delete(level);
+          }
+          const count = cellBlock.listKind === 'ordered'
+            ? (listCounters.get(level) ?? 0) + 1
+            : 0;
+          if (cellBlock.listKind === 'ordered') {
+            listCounters.set(level, count);
+          }
 
           const firstLineIdx = blockBoundaries[bi];
           if (firstLineIdx === undefined || firstLineIdx >= layoutCell.lines.length) continue;

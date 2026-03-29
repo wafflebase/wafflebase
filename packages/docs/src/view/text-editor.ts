@@ -257,26 +257,28 @@ export class TextEditor {
       const { startPosition, currentLength } = this.composition;
 
       const ca = startPosition.cellAddress;
+      const cbi = startPosition.cellBlockIndex ?? 0;
       if (currentLength > 0) {
         if (ca) {
-          this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength);
+          this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength, cbi);
         } else {
           this.doc.deleteText(startPosition, currentLength);
         }
       }
       if (newText.length > 0) {
         if (ca) {
-          this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, newText);
+          this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, newText, cbi);
         } else {
           this.doc.insertText(startPosition, newText);
         }
       }
 
       this.composition.currentLength = newText.length;
-      const compPos = {
+      const compPos: DocPosition = {
         blockId: startPosition.blockId,
         offset: startPosition.offset + newText.length,
         cellAddress: ca,
+        cellBlockIndex: ca ? cbi : undefined,
       };
       this.markDirty(startPosition.blockId);
       this.cursor.moveTo(compPos, this.getWrapAffinity(compPos));

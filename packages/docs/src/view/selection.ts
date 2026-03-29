@@ -343,15 +343,17 @@ function buildCellRangeRects(
   // Find the page Y offset for this table's first row
   let tablePageY = 0;
   let tableRowBaseY = 0;
+  let foundTablePage = false;
   for (const page of paginatedLayout.pages) {
     for (const pl of page.lines) {
       if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
         tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
         tableRowBaseY = tl.rowYOffsets[0];
+        foundTablePage = true;
         break;
       }
     }
-    if (tablePageY !== 0) break;
+    if (foundTablePage) break;
   }
   const tableOriginY = tablePageY - tableRowBaseY;
 

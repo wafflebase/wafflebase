@@ -913,11 +913,7 @@ export function initialize(
         if (anchor.cellAddress) {
           const normalized = selection.getNormalizedRange(layout);
           if (normalized) {
-            doc.applyCellInlineStyle(
-              anchor.blockId, anchor.cellAddress,
-              normalized.start.offset, normalized.end.offset,
-              { href: url }, anchor.cellBlockIndex ?? 0,
-            );
+            applyCellStyleToRange(normalized.start, normalized.end, { href: url });
             markDirty(anchor.blockId);
             render();
             return;
