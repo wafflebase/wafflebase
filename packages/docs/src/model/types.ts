@@ -16,7 +16,7 @@ export interface Document {
 /**
  * Block type discriminator.
  */
-export type BlockType = 'paragraph' | 'title' | 'subtitle' | 'heading' | 'list-item' | 'horizontal-rule';
+export type BlockType = 'paragraph' | 'title' | 'subtitle' | 'heading' | 'list-item' | 'horizontal-rule' | 'table';
 
 /**
  * Heading levels (1–6), matching HTML h1–h6.
@@ -34,6 +34,7 @@ export interface Block {
   headingLevel?: HeadingLevel;
   listKind?: 'ordered' | 'unordered';
   listLevel?: number;
+  tableData?: TableData;
 }
 
 /**
@@ -82,6 +83,7 @@ export interface InlineStyle {
 export interface DocPosition {
   blockId: string;
   offset: number;
+  cellAddress?: CellAddress;
 }
 
 /**
@@ -181,7 +183,7 @@ export function createBlock(
   const block: Block = {
     id: generateBlockId(),
     type,
-    inlines: type === 'horizontal-rule' ? [] : [{ text: '', style: {} }],
+    inlines: type === 'horizontal-rule' || type === 'table' ? [] : [{ text: '', style: {} }],
     style: { ...DEFAULT_BLOCK_STYLE },
   };
   if (type === 'heading') {
@@ -225,6 +227,95 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.subscript === b.subscript &&
     a.href === b.href
   );
+}
+
+// --- Table types ---
+
+export interface BorderStyle {
+  width: number;
+  color: string;
+  style: 'solid' | 'none';
+}
+
+export const DEFAULT_BORDER_STYLE: BorderStyle = {
+  width: 1,
+  color: '#000000',
+  style: 'solid',
+};
+
+export interface CellStyle {
+  backgroundColor?: string;
+  borderTop?: BorderStyle;
+  borderBottom?: BorderStyle;
+  borderLeft?: BorderStyle;
+  borderRight?: BorderStyle;
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  padding?: number;
+}
+
+export const DEFAULT_CELL_STYLE: CellStyle = {
+  padding: 4,
+};
+
+export interface TableCell {
+  inlines: Inline[];
+  style: CellStyle;
+  colSpan?: number;
+  rowSpan?: number;
+}
+
+export interface TableRow {
+  cells: TableCell[];
+}
+
+export interface TableData {
+  rows: TableRow[];
+  columnWidths: number[];
+}
+
+export interface CellAddress {
+  rowIndex: number;
+  colIndex: number;
+}
+
+export interface CellRange {
+  start: CellAddress;
+  end: CellAddress;
+}
+
+/**
+ * Create an empty table cell with default style.
+ */
+export function createTableCell(): TableCell {
+  return {
+    inlines: [{ text: '', style: {} }],
+    style: { ...DEFAULT_CELL_STYLE },
+  };
+}
+
+/**
+ * Create a table block with the given dimensions.
+ */
+export function createTableBlock(rows: number, cols: number): Block {
+  if (rows < 1 || cols < 1) {
+    throw new Error('Table must have at least 1 row and 1 column');
+  }
+  const columnWidths = Array(cols).fill(1 / cols);
+  const tableRows: TableRow[] = [];
+  for (let r = 0; r < rows; r++) {
+    const cells: TableCell[] = [];
+    for (let c = 0; c < cols; c++) {
+      cells.push(createTableCell());
+    }
+    tableRows.push({ cells });
+  }
+  return {
+    id: generateBlockId(),
+    type: 'table',
+    inlines: [],
+    style: { ...DEFAULT_BLOCK_STYLE },
+    tableData: { rows: tableRows, columnWidths },
+  };
 }
 
 // --- Search ---

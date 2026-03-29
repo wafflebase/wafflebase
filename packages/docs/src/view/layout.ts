@@ -9,6 +9,7 @@ import {
   type InlineStyle,
 } from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
+import { computeTableLayout, type LayoutTable } from './table-layout.js';
 
 const measureCache = new Map<string, number>();
 
@@ -86,6 +87,7 @@ export interface LayoutBlock {
   width: number;
   height: number;
   lines: LayoutLine[];
+  layoutTable?: LayoutTable;
 }
 
 /**
@@ -157,6 +159,24 @@ export function computeLayout(
     }
 
     let lines: LayoutLine[];
+
+    if (block.type === 'table' && block.tableData) {
+      const tableLayout = computeTableLayout(block.tableData, ctx, availableWidth);
+      lines = [{ runs: [], y: 0, height: tableLayout.totalHeight, width: availableWidth }];
+      const lb: LayoutBlock = {
+        block,
+        x: 0,
+        y,
+        width: availableWidth,
+        height: tableLayout.totalHeight,
+        lines,
+        layoutTable: tableLayout,
+      };
+      layoutBlocks.push(lb);
+      newCacheBlocks.set(block.id, lb);
+      y += tableLayout.totalHeight + block.style.marginBottom;
+      continue;
+    }
 
     if (block.type === 'horizontal-rule') {
       const HR_HEIGHT = 20;

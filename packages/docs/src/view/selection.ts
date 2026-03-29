@@ -3,6 +3,7 @@ import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
+import { resolvePositionPixel } from './peer-cursor.js';
 import { buildFont, Theme } from './theme.js';
 
 // --- Free helpers (used by both Selection class and computeSelectionRects) ---
@@ -18,6 +19,22 @@ function normalizeRange(
     (lb) => lb.block.id === range.focus.blockId,
   );
   if (anchorIdx === -1 || focusIdx === -1) return null;
+
+  // Cell-aware selection: if either position has cellAddress, handle specially
+  if (range.anchor.cellAddress || range.focus.cellAddress) {
+    // Both must have cellAddress and be in the same cell for a valid selection
+    if (range.anchor.cellAddress && range.focus.cellAddress &&
+        range.anchor.blockId === range.focus.blockId &&
+        range.anchor.cellAddress.rowIndex === range.focus.cellAddress.rowIndex &&
+        range.anchor.cellAddress.colIndex === range.focus.cellAddress.colIndex) {
+      if (range.anchor.offset <= range.focus.offset) {
+        return { start: range.anchor, end: range.focus };
+      }
+      return { start: range.focus, end: range.anchor };
+    }
+    // Mixed or cross-cell — no valid selection
+    return null;
+  }
 
   if (
     anchorIdx < focusIdx ||
@@ -101,6 +118,68 @@ function buildRects(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
+  // Cell-internal selection
+  if (start.cellAddress && end.cellAddress) {
+    const startPixel = resolvePositionPixel(start, 'forward', paginatedLayout, layout, ctx, canvasWidth);
+    const endPixel = resolvePositionPixel(end, 'backward', paginatedLayout, layout, ctx, canvasWidth);
+    if (!startPixel || !endPixel) return [];
+
+    if (startPixel.y === endPixel.y) {
+      // Same visual line — single rect
+      return [{
+        x: startPixel.x,
+        y: startPixel.y,
+        width: endPixel.x - startPixel.x,
+        height: startPixel.height,
+      }];
+    }
+
+    // Multi-line cell selection: find cell bounds for full-width lines
+    const lb = layout.blocks.find((b) => b.block.id === start.blockId);
+    const tl = lb?.layoutTable;
+    if (!tl || !start.cellAddress) {
+      // Fallback: rect from start to end
+      return [{
+        x: startPixel.x,
+        y: startPixel.y,
+        width: endPixel.x - startPixel.x,
+        height: endPixel.y + endPixel.height - startPixel.y,
+      }];
+    }
+    const { rowIndex, colIndex } = start.cellAddress;
+    const cellPadding = lb!.block.tableData?.rows[rowIndex]?.cells[colIndex]?.style.padding ?? 4;
+    const cellLeftX = startPixel.x - (startPixel.x - (getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + cellPadding));
+    const cellRightX = getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + tl.columnPixelWidths[colIndex] - cellPadding;
+
+    const cellRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+    // First line: from start to cell right edge
+    cellRects.push({
+      x: startPixel.x,
+      y: startPixel.y,
+      width: cellRightX - startPixel.x,
+      height: startPixel.height,
+    });
+    // Middle lines: full cell width
+    let midY = startPixel.y + startPixel.height;
+    while (midY < endPixel.y) {
+      cellRects.push({
+        x: cellLeftX,
+        y: midY,
+        width: cellRightX - cellLeftX,
+        height: startPixel.height, // approximate line height
+      });
+      midY += startPixel.height;
+    }
+    // Last line: from cell left edge to end
+    cellRects.push({
+      x: cellLeftX,
+      y: endPixel.y,
+      width: endPixel.x - cellLeftX,
+      height: endPixel.height,
+    });
+    return cellRects;
+  }
+
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
 
   const startBlockIdx = layout.blocks.findIndex(
@@ -240,6 +319,18 @@ export class Selection {
     if (!normalized) return '';
 
     const { start, end } = normalized;
+
+    // Cell-internal selection
+    if (start.cellAddress && end.cellAddress) {
+      const lb = layout.blocks.find((b) => b.block.id === start.blockId);
+      if (!lb?.block.tableData) return '';
+      const cell = lb.block.tableData.rows[start.cellAddress.rowIndex]
+        ?.cells[start.cellAddress.colIndex];
+      if (!cell) return '';
+      const fullText = cell.inlines.map((i) => i.text).join('');
+      return fullText.slice(start.offset, end.offset);
+    }
+
     const texts: string[] = [];
 
     const startBlockIdx = layout.blocks.findIndex(

@@ -13,6 +13,7 @@ import type { YorkieDocsRoot } from "@/types/docs-document";
 import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
+import { DocsTableContextMenu } from "./docs-table-context-menu";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -197,6 +198,10 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
     setMountedEditor(editor);
     onEditorReady?.(editor);
 
+    if (import.meta.env.DEV) {
+      (window as Record<string, unknown>).__docsEditor = editor;
+    }
+
     // Re-render the editor whenever a remote peer modifies the document.
     // refresh() updates the Doc's cached document from the store, then
     // render() repaints the canvas with the latest content.
@@ -349,6 +354,10 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
           containerRef={containerRef}
         />
       )}
+      <DocsTableContextMenu
+        editor={mountedEditor}
+        containerRef={containerRef}
+      />
     </div>
   );
 }

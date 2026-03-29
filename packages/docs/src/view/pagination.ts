@@ -31,6 +31,7 @@ export function paginateLayout(
     getEffectiveDimensions(pageSetup);
   const { margins } = pageSetup;
   const contentHeight = effectiveHeight - margins.top - margins.bottom;
+  const availableWidth = effectiveWidth - margins.left - margins.right;
 
   const pages: LayoutPage[] = [];
   let currentLines: PageLine[] = [];
@@ -58,31 +59,54 @@ export function paginateLayout(
       currentY += block.style.marginTop;
     }
 
-    for (let li = 0; li < lb.lines.length; li++) {
-      const line = lb.lines[li];
-
-      // Check if line fits on current page
-      if (currentY + line.height > contentHeight && !isPageTop) {
-        startNewPage();
+    if (lb.block.type === 'table' && lb.layoutTable) {
+      const tl = lb.layoutTable;
+      for (let ri = 0; ri < tl.rowHeights.length; ri++) {
+        const rowHeight = tl.rowHeights[ri];
+        if (currentY + rowHeight > contentHeight && !isPageTop) {
+          startNewPage();
+        }
+        currentLines.push({
+          blockIndex: bi,
+          lineIndex: ri,
+          line: { runs: [], y: tl.rowYOffsets[ri], height: rowHeight, width: availableWidth },
+          x: margins.left,
+          y: margins.top + currentY,
+        });
+        currentY += rowHeight;
+        isPageTop = false;
       }
 
-      currentLines.push({
-        blockIndex: bi,
-        lineIndex: li,
-        line,
-        x: margins.left,
-        y: margins.top + currentY,
-      });
+      if (tl.rowHeights.length > 0) {
+        currentY += block.style.marginBottom;
+      }
+    } else {
+      for (let li = 0; li < lb.lines.length; li++) {
+        const line = lb.lines[li];
 
-      currentY += line.height;
-      isPageTop = false;
-    }
+        // Check if line fits on current page
+        if (currentY + line.height > contentHeight && !isPageTop) {
+          startNewPage();
+        }
 
-    // Apply marginBottom after the block's last line.
-    // When a block splits across pages, startNewPage() resets currentY,
-    // so marginBottom is naturally applied only on the final page.
-    if (lb.lines.length > 0) {
-      currentY += block.style.marginBottom;
+        currentLines.push({
+          blockIndex: bi,
+          lineIndex: li,
+          line,
+          x: margins.left,
+          y: margins.top + currentY,
+        });
+
+        currentY += line.height;
+        isPageTop = false;
+      }
+
+      // Apply marginBottom after the block's last line.
+      // When a block splits across pages, startNewPage() resets currentY,
+      // so marginBottom is naturally applied only on the final page.
+      if (lb.lines.length > 0) {
+        currentY += block.style.marginBottom;
+      }
     }
   }
 

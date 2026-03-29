@@ -12,6 +12,13 @@ export type {
   PageSetup,
   PageMargins,
   PaperSize,
+  TableData,
+  TableRow,
+  TableCell,
+  CellStyle,
+  BorderStyle,
+  CellAddress,
+  CellRange,
 } from './model/types.js';
 export {
   DEFAULT_BLOCK_STYLE,
@@ -33,6 +40,10 @@ export {
   resolvePageSetup,
   getEffectiveDimensions,
   normalizeBlockStyle,
+  DEFAULT_CELL_STYLE,
+  DEFAULT_BORDER_STYLE,
+  createTableBlock,
+  createTableCell,
 } from './model/types.js';
 export { Doc } from './model/document.js';
 
@@ -79,3 +90,4 @@ export { FindReplaceState } from './view/find-replace.js';
 export type { SearchMatch, SearchOptions } from './model/types.js';
 export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
+export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';

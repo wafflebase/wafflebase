@@ -1,15 +1,22 @@
 import {
   type Block,
   type BlockType,
+  type CellAddress,
+  type CellRange,
+  type CellStyle,
   type DocPosition,
   type DocRange,
   type Document,
   type HeadingLevel,
+  type Inline,
   type InlineStyle,
   type BlockStyle,
   type SearchOptions,
   type SearchMatch,
+  type TableCell,
   createEmptyBlock,
+  createTableBlock,
+  createTableCell,
   DEFAULT_BLOCK_STYLE,
   getBlockText,
   getBlockTextLength,
@@ -380,6 +387,295 @@ export class Doc {
     return matches;
   }
 
+  // --- Table methods ---
+
+  /**
+   * Insert a table block at the given block index.
+   * Returns the new block's ID.
+   */
+  insertTable(blockIndex: number, rows: number, cols: number): string {
+    const block = createTableBlock(rows, cols);
+    this.store.insertBlock(blockIndex, block);
+    this.refresh();
+    return block.id;
+  }
+
+  /**
+   * Insert text at offset in a table cell's inlines.
+   */
+  insertTextInCell(
+    blockId: string,
+    cell: CellAddress,
+    offset: number,
+    text: string,
+  ): void {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const { inlineIndex, charOffset } = this.resolveOffsetInInlines(
+      tableCell.inlines,
+      offset,
+    );
+    const inline = tableCell.inlines[inlineIndex];
+    inline.text =
+      inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Delete text from a table cell.
+   */
+  deleteTextInCell(
+    blockId: string,
+    cell: CellAddress,
+    offset: number,
+    length: number,
+  ): void {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const totalLen = tableCell.inlines.reduce((s, i) => s + i.text.length, 0);
+    let remaining = Math.min(length, totalLen - offset);
+    if (remaining <= 0) return;
+
+    let curOffset = offset;
+    while (remaining > 0) {
+      const { inlineIndex, charOffset } = this.resolveOffsetInInlines(
+        tableCell.inlines,
+        curOffset,
+      );
+      const inline = tableCell.inlines[inlineIndex];
+      const available = inline.text.length - charOffset;
+      if (available <= 0) break;
+      const toDelete = Math.min(remaining, available);
+      inline.text =
+        inline.text.slice(0, charOffset) +
+        inline.text.slice(charOffset + toDelete);
+      remaining -= toDelete;
+      if (inline.text.length === 0 && tableCell.inlines.length > 1) {
+        tableCell.inlines.splice(inlineIndex, 1);
+      }
+    }
+
+    tableCell.inlines = this.normalizeInlinesArray(tableCell.inlines);
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Apply inline style to a range within a table cell.
+   */
+  applyCellInlineStyle(
+    blockId: string,
+    cell: CellAddress,
+    start: number,
+    end: number,
+    style: Partial<InlineStyle>,
+  ): void {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    tableCell.inlines = this.applyStyleToInlines(
+      tableCell.inlines,
+      start,
+      end,
+      style,
+    );
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Insert a new row at the given index.
+   */
+  insertRow(blockId: string, atIndex: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    const colCount = td.columnWidths.length;
+    const cells: TableCell[] = [];
+    for (let c = 0; c < colCount; c++) {
+      cells.push(createTableCell());
+    }
+    td.rows.splice(atIndex, 0, { cells });
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Delete a row at the given index. Adjusts rowSpan of cells that span
+   * across the deleted row. Prevents deleting the last row.
+   */
+  deleteRow(blockId: string, rowIndex: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    if (td.rows.length <= 1) return; // Prevent 0-row table
+
+    // Adjust rowSpan for cells above that span into the deleted row
+    for (let r = 0; r < rowIndex; r++) {
+      for (const cell of td.rows[r].cells) {
+        const rs = cell.rowSpan ?? 1;
+        if (r + rs > rowIndex) {
+          cell.rowSpan = rs - 1;
+        }
+      }
+    }
+
+    td.rows.splice(rowIndex, 1);
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Insert a column at the given index, renormalize widths.
+   */
+  insertColumn(blockId: string, atIndex: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    td.columnWidths.splice(atIndex, 0, 0);
+    // Renormalize to equal widths
+    const count = td.columnWidths.length;
+    for (let i = 0; i < count; i++) {
+      td.columnWidths[i] = 1 / count;
+    }
+    for (const row of td.rows) {
+      row.cells.splice(atIndex, 0, createTableCell());
+    }
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Delete a column at the given index, renormalize widths. Adjusts colSpan
+   * of cells that span across the deleted column. Prevents deleting the last column.
+   */
+  deleteColumn(blockId: string, colIndex: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    if (td.columnWidths.length <= 1) return; // Prevent 0-column table
+
+    // Adjust colSpan for cells left of the deleted column that span into it
+    for (const row of td.rows) {
+      for (let c = 0; c < colIndex; c++) {
+        const cell = row.cells[c];
+        const cs = cell.colSpan ?? 1;
+        if (c + cs > colIndex) {
+          cell.colSpan = cs - 1;
+        }
+      }
+    }
+
+    td.columnWidths.splice(colIndex, 1);
+    const count = td.columnWidths.length;
+    for (let i = 0; i < count; i++) {
+      td.columnWidths[i] = 1 / count;
+    }
+    for (const row of td.rows) {
+      row.cells.splice(colIndex, 1);
+    }
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Merge cells in the given range. Top-left cell gets colSpan/rowSpan,
+   * covered cells get colSpan: 0. Text from covered cells is appended
+   * to the top-left cell.
+   */
+  mergeCells(blockId: string, range: CellRange): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    const { start, end } = range;
+    const topLeft = td.rows[start.rowIndex].cells[start.colIndex];
+    const rowSpan = end.rowIndex - start.rowIndex + 1;
+    const colSpan = end.colIndex - start.colIndex + 1;
+
+    // Collect text from all cells in range (row-major, skip top-left)
+    for (let r = start.rowIndex; r <= end.rowIndex; r++) {
+      for (let c = start.colIndex; c <= end.colIndex; c++) {
+        if (r === start.rowIndex && c === start.colIndex) continue;
+        const cell = td.rows[r].cells[c];
+        const cellText = cell.inlines.map((i) => i.text).join('');
+        if (cellText.length > 0) {
+          // Append non-empty text to top-left
+          topLeft.inlines.push(...cell.inlines.filter((i) => i.text.length > 0));
+        }
+        // Mark as covered
+        cell.inlines = [{ text: '', style: {} }];
+        cell.colSpan = 0;
+        cell.rowSpan = undefined;
+      }
+    }
+
+    topLeft.inlines = this.normalizeInlinesArray(topLeft.inlines);
+    topLeft.colSpan = colSpan;
+    topLeft.rowSpan = rowSpan;
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Split a previously merged cell, restoring all covered cells.
+   */
+  splitCell(blockId: string, cell: CellAddress): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    const target = td.rows[cell.rowIndex].cells[cell.colIndex];
+    const rowSpan = target.rowSpan ?? 1;
+    const colSpan = target.colSpan ?? 1;
+
+    // Clear merge on top-left
+    delete target.colSpan;
+    delete target.rowSpan;
+
+    // Restore covered cells
+    for (let r = cell.rowIndex; r < cell.rowIndex + rowSpan; r++) {
+      for (let c = cell.colIndex; c < cell.colIndex + colSpan; c++) {
+        if (r === cell.rowIndex && c === cell.colIndex) continue;
+        const covered = td.rows[r].cells[c];
+        delete covered.colSpan;
+        delete covered.rowSpan;
+        covered.inlines = [{ text: '', style: {} }];
+      }
+    }
+
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Apply CellStyle to a table cell.
+   */
+  applyCellStyle(
+    blockId: string,
+    cell: CellAddress,
+    style: Partial<CellStyle>,
+  ): void {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    tableCell.style = { ...tableCell.style, ...style };
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Set a column's width ratio and renormalize the remaining columns
+   * so all widths sum to 1.0.
+   */
+  setColumnWidth(blockId: string, colIndex: number, ratio: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    const count = td.columnWidths.length;
+    const remaining = 1.0 - ratio;
+    const otherCount = count - 1;
+    td.columnWidths[colIndex] = ratio;
+    if (otherCount > 0) {
+      const each = remaining / otherCount;
+      for (let i = 0; i < count; i++) {
+        if (i !== colIndex) td.columnWidths[i] = each;
+      }
+    }
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
   // --- Private helpers ---
 
   /**
@@ -507,8 +803,94 @@ export class Doc {
    * Removes empty inlines (keeping at least one).
    */
   private normalizeInlines(block: Block): void {
-    const inlines = block.inlines;
-    const merged: typeof inlines = [];
+    block.inlines = this.normalizeInlinesArray(block.inlines);
+  }
+
+  /**
+   * Get a table cell from a block, throwing if the block has no table data.
+   */
+  private getTableCell(block: Block, cell: CellAddress): TableCell {
+    if (!block.tableData) throw new Error('Block is not a table');
+    return block.tableData.rows[cell.rowIndex].cells[cell.colIndex];
+  }
+
+  /**
+   * Resolve a character offset within an Inline[] to the specific
+   * inline index and character position.
+   */
+  private resolveOffsetInInlines(
+    inlines: Inline[],
+    offset: number,
+  ): { inlineIndex: number; charOffset: number } {
+    let remaining = offset;
+    for (let i = 0; i < inlines.length; i++) {
+      if (remaining <= inlines[i].text.length) {
+        return { inlineIndex: i, charOffset: remaining };
+      }
+      remaining -= inlines[i].text.length;
+    }
+    const last = inlines.length - 1;
+    return { inlineIndex: last, charOffset: inlines[last].text.length };
+  }
+
+  /**
+   * Apply a partial inline style to a character range within an Inline[].
+   * Returns a new array with the style applied and inlines normalized.
+   */
+  private applyStyleToInlines(
+    inlines: Inline[],
+    start: number,
+    end: number,
+    style: Partial<InlineStyle>,
+  ): Inline[] {
+    const resolvedStyle = { ...style };
+    if (resolvedStyle.superscript) {
+      resolvedStyle.subscript = undefined;
+    } else if (resolvedStyle.subscript) {
+      resolvedStyle.superscript = undefined;
+    }
+
+    const result: Inline[] = [];
+    let pos = 0;
+
+    for (const inline of inlines) {
+      const inlineEnd = pos + inline.text.length;
+
+      if (inlineEnd <= start || pos >= end) {
+        result.push({ text: inline.text, style: { ...inline.style } });
+      } else {
+        const overlapStart = Math.max(0, start - pos);
+        const overlapEnd = Math.min(inline.text.length, end - pos);
+
+        if (overlapStart > 0) {
+          result.push({
+            text: inline.text.slice(0, overlapStart),
+            style: { ...inline.style },
+          });
+        }
+        result.push({
+          text: inline.text.slice(overlapStart, overlapEnd),
+          style: { ...inline.style, ...resolvedStyle },
+        });
+        if (overlapEnd < inline.text.length) {
+          result.push({
+            text: inline.text.slice(overlapEnd),
+            style: { ...inline.style },
+          });
+        }
+      }
+
+      pos = inlineEnd;
+    }
+
+    return this.normalizeInlinesArray(result);
+  }
+
+  /**
+   * Merge adjacent same-style inlines, remove empties (keep at least one).
+   */
+  private normalizeInlinesArray(inlines: Inline[]): Inline[] {
+    const merged: Inline[] = [];
 
     for (const inline of inlines) {
       if (inline.text.length === 0) continue;
@@ -521,7 +903,8 @@ export class Doc {
       }
     }
 
-    block.inlines =
-      merged.length > 0 ? merged : [{ text: '', style: inlines[0]?.style ?? {} }];
+    return merged.length > 0
+      ? merged
+      : [{ text: '', style: inlines[0]?.style ?? {} }];
   }
 }

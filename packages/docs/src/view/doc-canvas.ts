@@ -7,6 +7,7 @@ import type { LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
+import { renderTable } from './table-renderer.js';
 
 /**
  * Convert a peer cursor color (hex) to a translucent selection fill.
@@ -163,6 +164,48 @@ export class DocCanvas {
             this.ctx.moveTo(pageX + margins.left, lineY);
             this.ctx.lineTo(pageX + page.width - margins.right, lineY);
             this.ctx.stroke();
+            continue;
+          }
+
+          const lb = layout.blocks[pl.blockIndex];
+          if (lb && lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
+            // Collect contiguous table rows on this page for this block
+            const startRowIndex = pl.lineIndex;
+            let endRowIndex = startRowIndex + 1;
+            // Peek ahead: find last consecutive row for this block on this page
+            const plIndex = page.lines.indexOf(pl);
+            for (let k = plIndex + 1; k < page.lines.length; k++) {
+              const nextPl = page.lines[k];
+              if (nextPl.blockIndex === pl.blockIndex) {
+                endRowIndex = nextPl.lineIndex + 1;
+              } else {
+                break;
+              }
+            }
+            // Render only on the first row PageLine; skip subsequent rows
+            if (plIndex === 0 || page.lines[plIndex - 1]?.blockIndex !== pl.blockIndex) {
+              // Extend startRow backwards to include rowSpan owners from previous pages
+              let renderStartRow = startRowIndex;
+              for (let r = 0; r < startRowIndex; r++) {
+                for (let c = 0; c < lb.block.tableData.rows[r].cells.length; c++) {
+                  const cell = lb.block.tableData.rows[r].cells[c];
+                  const rs = cell.rowSpan ?? 1;
+                  if (rs > 1 && r + rs > startRowIndex) {
+                    renderStartRow = Math.min(renderStartRow, r);
+                  }
+                }
+              }
+              const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[startRowIndex];
+              renderTable(
+                this.ctx,
+                lb.block.tableData,
+                lb.layoutTable,
+                pageX + margins.left,
+                tableOriginY,
+                renderStartRow,
+                endRowIndex,
+              );
+            }
             continue;
           }
         }

@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import type { InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch } from '../model/types.js';
+import type { InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
@@ -74,6 +74,28 @@ export interface EditorAPI {
   setSearchMatches(matches: SearchMatch[], activeIndex: number): void;
   /** Clear all search match highlights and optionally move cursor to active match */
   clearSearchMatches(moveCursorToActive?: boolean): void;
+  /** Insert a table at the current cursor position */
+  insertTable(rows: number, cols: number): void;
+  /** Insert a row above or below current cell */
+  insertTableRow(above: boolean): void;
+  /** Delete the current row */
+  deleteTableRow(): void;
+  /** Insert a column left or right of current cell */
+  insertTableColumn(left: boolean): void;
+  /** Delete the current column */
+  deleteTableColumn(): void;
+  /** Merge selected cells */
+  mergeTableCells(range: CellRange): void;
+  /** Split the current cell */
+  splitTableCell(): void;
+  /** Apply style to current cell */
+  applyTableCellStyle(style: Partial<CellStyle>): void;
+  /** Delete the table the cursor is currently in */
+  deleteTable(): void;
+  /** Check if cursor is inside a table */
+  isInTable(): boolean;
+  /** Get the current cell address (if in table) */
+  getCellAddress(): CellAddress | undefined;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -863,6 +885,104 @@ export function initialize(
       }
       searchMatches = [];
       activeMatchIndex = -1;
+      render();
+    },
+    insertTable: (rows: number, cols: number) => {
+      docStore.snapshot();
+      const blockIndex = doc.getBlockIndex(cursor.position.blockId);
+      const tableId = doc.insertTable(blockIndex + 1, rows, cols);
+      cursor.moveTo({ blockId: tableId, offset: 0, cellAddress: { rowIndex: 0, colIndex: 0 } });
+      invalidateLayout();
+      render();
+    },
+    deleteTable: () => {
+      if (!cursor.position.cellAddress) return;
+      const blockId = cursor.position.blockId;
+      const blockIndex = doc.getBlockIndex(blockId);
+      docStore.snapshot();
+      doc.deleteBlock(blockId);
+      // Move cursor to nearest block
+      const blocks = doc.document.blocks;
+      if (blocks.length > 0) {
+        const newIndex = Math.min(blockIndex, blocks.length - 1);
+        cursor.moveTo({ blockId: blocks[newIndex].id, offset: 0 });
+      }
+      invalidateLayout();
+      render();
+    },
+    isInTable: () => cursor.position.cellAddress != null,
+    getCellAddress: () => cursor.position.cellAddress,
+    insertTableRow: (above: boolean) => {
+      const ca = cursor.position.cellAddress;
+      if (!ca) return;
+      docStore.snapshot();
+      const idx = above ? ca.rowIndex : ca.rowIndex + 1;
+      doc.insertRow(cursor.position.blockId, idx);
+      invalidateLayout();
+      render();
+    },
+    deleteTableRow: () => {
+      const ca = cursor.position.cellAddress;
+      if (!ca) return;
+      docStore.snapshot();
+      const blockId = cursor.position.blockId;
+      doc.deleteRow(blockId, ca.rowIndex);
+      // Re-home cursor if the deleted row was the last one
+      const td = doc.getBlock(blockId).tableData;
+      if (td) {
+        const newRow = Math.min(ca.rowIndex, td.rows.length - 1);
+        cursor.moveTo({ blockId, offset: 0, cellAddress: { rowIndex: newRow, colIndex: ca.colIndex } });
+      }
+      invalidateLayout();
+      render();
+    },
+    insertTableColumn: (left: boolean) => {
+      const ca = cursor.position.cellAddress;
+      if (!ca) return;
+      docStore.snapshot();
+      const idx = left ? ca.colIndex : ca.colIndex + 1;
+      doc.insertColumn(cursor.position.blockId, idx);
+      invalidateLayout();
+      render();
+    },
+    deleteTableColumn: () => {
+      const ca = cursor.position.cellAddress;
+      if (!ca) return;
+      docStore.snapshot();
+      const blockId = cursor.position.blockId;
+      doc.deleteColumn(blockId, ca.colIndex);
+      // Re-home cursor if the deleted column was the last one
+      const td = doc.getBlock(blockId).tableData;
+      if (td) {
+        const newCol = Math.min(ca.colIndex, td.columnWidths.length - 1);
+        cursor.moveTo({ blockId, offset: 0, cellAddress: { rowIndex: ca.rowIndex, colIndex: newCol } });
+      }
+      invalidateLayout();
+      render();
+    },
+    mergeTableCells: (range: CellRange) => {
+      docStore.snapshot();
+      const blockId = cursor.position.blockId;
+      doc.mergeCells(blockId, range);
+      // Move cursor to top-left cell of merged range
+      cursor.moveTo({ blockId, offset: 0, cellAddress: range.start });
+      invalidateLayout();
+      render();
+    },
+    splitTableCell: () => {
+      const ca = cursor.position.cellAddress;
+      if (!ca) return;
+      docStore.snapshot();
+      doc.splitCell(cursor.position.blockId, ca);
+      invalidateLayout();
+      render();
+    },
+    applyTableCellStyle: (style: Partial<CellStyle>) => {
+      const ca = cursor.position.cellAddress;
+      if (!ca) return;
+      docStore.snapshot();
+      doc.applyCellStyle(cursor.position.blockId, ca, style);
+      markDirty(cursor.position.blockId);
       render();
     },
     focus: () => textEditor?.focus(),
