@@ -280,7 +280,7 @@ export class Doc {
       const nextBlock = cell.blocks[nextIdx];
       block.inlines = this.normalizeInlinesArray([...block.inlines, ...nextBlock.inlines]);
       cell.blocks.splice(nextIdx, 1);
-      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       this.refresh();
       return;
     }
@@ -339,7 +339,7 @@ export class Doc {
           this.applyStyleToBlock(block, start, end, style);
         }
       }
-      this.store.updateBlock(anchorCellInfo.tableBlockId, tableBlock);
+      this.store.updateTableCell(anchorCellInfo.tableBlockId, anchorCellInfo.rowIndex, anchorCellInfo.colIndex, cell);
       this.refresh();
       return;
     }
