@@ -811,7 +811,8 @@ export class TextEditor {
             pos.offset = resolved.offset;
             pos.cellBlockIndex = resolved.cellBlockIndex;
             this.cursor.moveTo(pos);
-            this.selection.setRange(null);
+            // Set anchor for drag selection (same as non-cell single click)
+            this.selection.setRange({ anchor: pos, focus: pos });
           }
           this.requestRender();
           return;
@@ -876,8 +877,8 @@ export class TextEditor {
       let pos: DocPosition = { blockId: result.blockId, offset: result.offset };
 
       if (anchor.cellAddress) {
-        // Resolve character offset from logical X within the anchor cell
-        const resolved = this.resolveOffsetInCellAtX(anchor.blockId, anchor.cellAddress, x);
+        // Resolve character offset from X/Y within the anchor cell
+        const resolved = this.resolveOffsetInCellAtXY(anchor.blockId, anchor.cellAddress, x, y + scrollY);
         pos = {
           blockId: anchor.blockId,
           offset: resolved.offset,
