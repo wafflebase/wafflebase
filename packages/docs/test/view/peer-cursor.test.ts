@@ -78,7 +78,7 @@ describe('resolvePositionPixel', () => {
     const run = mockRun('hello', 0, 50, 0);
     const line = mockLine([run]);
     const block = mockBlock('b1', [line]);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 20 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 20, blockParentMap: new Map() };
     const paginatedLayout = makePaginatedLayout([block]);
     const ctx = makeCtx();
 
@@ -97,7 +97,7 @@ describe('resolvePositionPixel', () => {
     const run = mockRun('hello', 0, 50, 0);
     const line = mockLine([run]);
     const block = mockBlock('b1', [line]);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 20 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 20, blockParentMap: new Map() };
     const paginatedLayout = makePaginatedLayout([block]);
     const ctx = makeCtx();
 
@@ -120,7 +120,7 @@ describe('resolvePositionPixel', () => {
     const run = mockRun('hello', 0, 50, 0);
     const line = mockLine([run]);
     const block = mockBlock('b1', [line]);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 20 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 20, blockParentMap: new Map() };
     const paginatedLayout = makePaginatedLayout([block]);
     const ctx = makeCtx();
 

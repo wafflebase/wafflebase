@@ -116,6 +116,15 @@ export function renderTable(
           const runLineY = cellY + textYOffset + line.y;
           const baselineY = runLineY + line.height * 0.75;
 
+          // Text background highlight
+          if (style.backgroundColor) {
+            ctx.save();
+            ctx.fillStyle = style.backgroundColor;
+            ctx.fillRect(runX, runLineY, run.width, line.height);
+            ctx.restore();
+            ctx.fillStyle = style.color ?? Theme.defaultColor;
+          }
+
           ctx.fillText(run.text, runX, baselineY);
 
           // Underline

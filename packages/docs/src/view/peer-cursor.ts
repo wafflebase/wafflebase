@@ -40,12 +40,13 @@ export function resolvePositionPixel(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
 ): PositionPixel | undefined {
-  const lb = layout.blocks.find((b) => b.block.id === position.blockId);
-
   // --- Table cell cursor ---
-  if (position.cellAddress && lb?.layoutTable) {
+  const cellInfo = layout.blockParentMap.get(position.blockId);
+  if (cellInfo) {
+    const lb = layout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
+    if (!lb?.layoutTable) return undefined;
     const tl = lb.layoutTable;
-    const { rowIndex, colIndex } = position.cellAddress;
+    const { rowIndex, colIndex } = cellInfo;
     const cell = tl.cells[rowIndex]?.[colIndex];
     if (!cell || cell.merged) return undefined;
 
@@ -76,9 +77,11 @@ export function resolvePositionPixel(
     const cellY = tl.rowYOffsets[rowIndex] + cellPadding;
 
     // Determine which lines belong to the target cell block
-    const cbi = position.cellBlockIndex ?? 0;
-    const startLine = cell.blockBoundaries[cbi] ?? 0;
-    const endLine = cell.blockBoundaries[cbi + 1] ?? cell.lines.length;
+    const cellData = lb.block.tableData?.rows[rowIndex]?.cells[colIndex];
+    const cbi = cellData ? cellData.blocks.findIndex((b) => b.id === position.blockId) : 0;
+    const effectiveCbi = cbi >= 0 ? cbi : 0;
+    const startLine = cell.blockBoundaries[effectiveCbi] ?? 0;
+    const endLine = cell.blockBoundaries[effectiveCbi + 1] ?? cell.lines.length;
 
     // Measure text offset within the target block's lines
     let cursorX = 0;
@@ -124,6 +127,7 @@ export function resolvePositionPixel(
   }
 
   // --- Regular (non-table) cursor ---
+  const lb = layout.blocks.find((b) => b.block.id === position.blockId);
   const found = findPageForPosition(
     paginatedLayout, position.blockId, position.offset, layout, lineAffinity,
   );

@@ -76,25 +76,13 @@ export class FindReplaceState {
   }
 
   private replaceMatch(match: SearchMatch, replacement: string): void {
-    if (match.cellAddress) {
-      const cbi = match.cellBlockIndex ?? 0;
-      this.doc.deleteTextInCell(
-        match.blockId, match.cellAddress,
-        match.startOffset, match.endOffset - match.startOffset, cbi,
-      );
-      this.doc.insertTextInCell(
-        match.blockId, match.cellAddress,
-        match.startOffset, replacement, cbi,
-      );
-    } else {
-      this.doc.deleteText(
-        { blockId: match.blockId, offset: match.startOffset },
-        match.endOffset - match.startOffset,
-      );
-      this.doc.insertText(
-        { blockId: match.blockId, offset: match.startOffset },
-        replacement,
-      );
-    }
+    this.doc.deleteText(
+      { blockId: match.blockId, offset: match.startOffset },
+      match.endOffset - match.startOffset,
+    );
+    this.doc.insertText(
+      { blockId: match.blockId, offset: match.startOffset },
+      replacement,
+    );
   }
 }

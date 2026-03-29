@@ -40,7 +40,7 @@ describe('paginateLayout', () => {
   // contentHeight = 1056 - 96 - 96 = 864
 
   it('empty document produces one empty page', () => {
-    const layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+    const layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
     const result = paginateLayout(layout, setup);
     expect(result.pages).toHaveLength(1);
     expect(result.pages[0].lines).toHaveLength(0);
@@ -48,7 +48,7 @@ describe('paginateLayout', () => {
 
   it('single line fits on one page', () => {
     const block = mockBlock('b1', [mockLine(24)]);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 24 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24, blockParentMap: new Map() };
     const result = paginateLayout(layout, setup);
     expect(result.pages).toHaveLength(1);
     expect(result.pages[0].lines).toHaveLength(1);
@@ -58,7 +58,7 @@ describe('paginateLayout', () => {
   it('lines overflow to second page', () => {
     const lines = Array.from({ length: 9 }, () => mockLine(100));
     const block = mockBlock('b1', lines, 0, 0);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 900 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 900, blockParentMap: new Map() };
     const result = paginateLayout(layout, setup);
     expect(result.pages).toHaveLength(2);
     expect(result.pages[0].lines).toHaveLength(8);
@@ -72,6 +72,7 @@ describe('paginateLayout', () => {
     const layout: DocumentLayout = {
       blocks: [block1, block2],
       totalHeight: 908,
+      blockParentMap: new Map(),
     };
     const result = paginateLayout(layout, setup);
     expect(result.pages).toHaveLength(2);
@@ -85,7 +86,7 @@ describe('paginateLayout', () => {
     };
     const lines = Array.from({ length: 7 }, () => mockLine(100));
     const block = mockBlock('b1', lines, 0, 0);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 700 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 700, blockParentMap: new Map() };
     const result = paginateLayout(layout, landscapeSetup);
     expect(result.pages).toHaveLength(2);
     expect(result.pages[0].lines).toHaveLength(6);
@@ -94,14 +95,14 @@ describe('paginateLayout', () => {
 
   it('oversized line gets its own page', () => {
     const block = mockBlock('b1', [mockLine(900)], 0, 0);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 900 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 900, blockParentMap: new Map() };
     const result = paginateLayout(layout, setup);
     expect(result.pages).toHaveLength(1);
     expect(result.pages[0].lines).toHaveLength(1);
   });
 
   it('page dimensions match effective paper size', () => {
-    const layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+    const layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
     const result = paginateLayout(layout, setup);
     expect(result.pages[0].width).toBe(816);
     expect(result.pages[0].height).toBe(1056);
@@ -114,6 +115,7 @@ describe('paginateLayout', () => {
     const layout: DocumentLayout = {
       blocks: [block1, block2],
       totalHeight: 924,
+      blockParentMap: new Map(),
     };
     const result = paginateLayout(layout, setup);
     expect(result.pages).toHaveLength(2);
@@ -125,7 +127,7 @@ describe('paginateLayout', () => {
 
 describe('getPageYOffset', () => {
   it('computes correct Y offset for each page', () => {
-    const layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+    const layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
     const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
     expect(getPageYOffset(paginated, 0)).toBe(40); // pageGap
   });
@@ -133,7 +135,7 @@ describe('getPageYOffset', () => {
 
 describe('getTotalHeight', () => {
   it('accounts for all pages and gaps', () => {
-    const layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+    const layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
     const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
     expect(getTotalHeight(paginated)).toBe(1136); // 40 + 1056 + 40
   });
@@ -141,7 +143,7 @@ describe('getTotalHeight', () => {
   it('multi-page height is correct', () => {
     const lines = Array.from({ length: 9 }, () => mockLine(100));
     const block = mockBlock('b1', lines, 0, 0);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 900 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 900, blockParentMap: new Map() };
     const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
     expect(getTotalHeight(paginated)).toBe(2232); // 40 + 1056 + 40 + 1056 + 40
   });
@@ -150,7 +152,7 @@ describe('getTotalHeight', () => {
 describe('findPageForPosition', () => {
   it('finds position on first page', () => {
     const block = mockBlock('b1', [mockLine(24)]);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 24 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24, blockParentMap: new Map() };
     const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
     const found = findPageForPosition(paginated, 'b1', 0, layout);
     expect(found).toBeDefined();
@@ -158,7 +160,7 @@ describe('findPageForPosition', () => {
   });
 
   it('returns undefined for unknown blockId', () => {
-    const layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+    const layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
     const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
     const found = findPageForPosition(paginated, 'unknown', 0, layout);
     expect(found).toBeUndefined();
@@ -168,7 +170,7 @@ describe('findPageForPosition', () => {
 describe('paginatedPixelToPosition', () => {
   it('maps click in page content area', () => {
     const block = mockBlock('b1', [mockLine(24)]);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 24 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24, blockParentMap: new Map() };
     const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
     // Click inside page 1 content area
     // pageY = 40 (gap), content starts at 40 + 96 (margin) = 136
@@ -179,7 +181,7 @@ describe('paginatedPixelToPosition', () => {
 
   it('maps click in page gap to nearest page', () => {
     const block = mockBlock('b1', [mockLine(24)]);
-    const layout: DocumentLayout = { blocks: [block], totalHeight: 24 };
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24, blockParentMap: new Map() };
     const paginated = paginateLayout(layout, DEFAULT_PAGE_SETUP);
     const result = paginatedPixelToPosition(paginated, layout, 400, 10, 816);
     expect(result).toBeDefined();

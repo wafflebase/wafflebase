@@ -1,4 +1,4 @@
-import type { TableData, Inline, Block } from '../model/types.js';
+import type { TableData, Inline, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
 import { cachedMeasureText, applyAlignment } from './layout.js';
@@ -20,6 +20,7 @@ export interface LayoutTable {
   rowHeights: number[];
   totalWidth: number;
   totalHeight: number;
+  blockParentMap: Map<string, BlockCellInfo>;
 }
 
 const DEFAULT_CELL_PADDING = 4;
@@ -198,6 +199,7 @@ function layoutCellBlocks(
  */
 export function computeTableLayout(
   tableData: TableData,
+  tableBlockId: string,
   ctx: CanvasRenderingContext2D,
   contentWidth: number,
 ): LayoutTable {
@@ -298,7 +300,19 @@ export function computeTableLayout(
     yOffset += rowHeights[r];
   }
 
-  // 7. Return LayoutTable
+  // 7. Build BlockParentMap
+  const blockParentMap = new Map<string, BlockCellInfo>();
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      const cell = rows[r]?.cells[c];
+      if (!cell || (cell.colSpan === 0)) continue;
+      for (const block of cell.blocks) {
+        blockParentMap.set(block.id, { tableBlockId, rowIndex: r, colIndex: c });
+      }
+    }
+  }
+
+  // 8. Return LayoutTable
   const totalWidth = columnPixelWidths.reduce((sum, w) => sum + w, 0);
   const totalHeight = rowHeights.reduce((sum, h) => sum + h, 0);
 
@@ -310,5 +324,6 @@ export function computeTableLayout(
     rowHeights,
     totalWidth,
     totalHeight,
+    blockParentMap,
   };
 }

@@ -83,8 +83,6 @@ export interface InlineStyle {
 export interface DocPosition {
   blockId: string;
   offset: number;
-  cellAddress?: CellAddress;
-  cellBlockIndex?: number;
 }
 
 /**
@@ -282,6 +280,15 @@ export interface TableData {
 }
 
 export interface CellAddress {
+  rowIndex: number;
+  colIndex: number;
+}
+
+/**
+ * Reverse lookup: maps a cell-internal block ID to its parent table/cell.
+ */
+export interface BlockCellInfo {
+  tableBlockId: string;
   rowIndex: number;
   colIndex: number;
 }
