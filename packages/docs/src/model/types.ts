@@ -183,7 +183,7 @@ export function createBlock(
   const block: Block = {
     id: generateBlockId(),
     type,
-    inlines: type === 'horizontal-rule' ? [] : [{ text: '', style: {} }],
+    inlines: type === 'horizontal-rule' || type === 'table' ? [] : [{ text: '', style: {} }],
     style: { ...DEFAULT_BLOCK_STYLE },
   };
   if (type === 'heading') {
@@ -297,6 +297,9 @@ export function createTableCell(): TableCell {
  * Create a table block with the given dimensions.
  */
 export function createTableBlock(rows: number, cols: number): Block {
+  if (rows < 1 || cols < 1) {
+    throw new Error('Table must have at least 1 row and 1 column');
+  }
   const columnWidths = Array(cols).fill(1 / cols);
   const tableRows: TableRow[] = [];
   for (let r = 0; r < rows; r++) {
