@@ -536,7 +536,7 @@ export class Doc {
       cells.push(createTableCell());
     }
     td.rows.splice(atIndex, 0, { cells });
-    this.store.updateBlock(blockId, block);
+    this.store.insertTableRow(blockId, atIndex, td.rows[atIndex]);
     this.refresh();
   }
 
@@ -559,8 +559,18 @@ export class Doc {
       }
     }
 
+    // Update cells with adjusted rowSpan
+    for (let r = 0; r < rowIndex; r++) {
+      for (let c = 0; c < td.rows[r].cells.length; c++) {
+        const cell = td.rows[r].cells[c];
+        const rs = cell.rowSpan ?? 1;
+        if (r + rs > rowIndex) {
+          this.store.updateTableCell(blockId, r, c, cell);
+        }
+      }
+    }
     td.rows.splice(rowIndex, 1);
-    this.store.updateBlock(blockId, block);
+    this.store.deleteTableRow(blockId, rowIndex);
     this.refresh();
   }
 
@@ -579,7 +589,9 @@ export class Doc {
     for (const row of td.rows) {
       row.cells.splice(atIndex, 0, createTableCell());
     }
-    this.store.updateBlock(blockId, block);
+    const newCells = td.rows.map((row) => row.cells[atIndex]);
+    this.store.insertTableColumn(blockId, atIndex, newCells);
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
     this.refresh();
   }
 
@@ -611,7 +623,19 @@ export class Doc {
     for (const row of td.rows) {
       row.cells.splice(colIndex, 1);
     }
-    this.store.updateBlock(blockId, block);
+    // Update cells with adjusted colSpan
+    for (let ri = 0; ri < td.rows.length; ri++) {
+      const row = td.rows[ri];
+      for (let c = 0; c < colIndex; c++) {
+        const cell = row.cells[c];
+        const cs = cell.colSpan ?? 1;
+        if (c + cs > colIndex) {
+          this.store.updateTableCell(blockId, ri, c, cell);
+        }
+      }
+    }
+    this.store.deleteTableColumn(blockId, colIndex);
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
     this.refresh();
   }
 
@@ -664,7 +688,12 @@ export class Doc {
     }
     topLeft.colSpan = colSpan;
     topLeft.rowSpan = rowSpan;
-    this.store.updateBlock(blockId, block);
+    // Update each affected cell in the store
+    for (let r = start.rowIndex; r <= end.rowIndex; r++) {
+      for (let c = start.colIndex; c <= end.colIndex; c++) {
+        this.store.updateTableCell(blockId, r, c, td.rows[r].cells[c]);
+      }
+    }
     this.refresh();
   }
 
@@ -693,7 +722,11 @@ export class Doc {
       }
     }
 
-    this.store.updateBlock(blockId, block);
+    for (let r = cell.rowIndex; r < cell.rowIndex + rowSpan; r++) {
+      for (let c = cell.colIndex; c < cell.colIndex + colSpan; c++) {
+        this.store.updateTableCell(blockId, r, c, td.rows[r].cells[c]);
+      }
+    }
     this.refresh();
   }
 
@@ -708,7 +741,7 @@ export class Doc {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
     tableCell.style = { ...tableCell.style, ...style };
-    this.store.updateBlock(blockId, block);
+    this.store.updateTableCell(blockId, cell.rowIndex, cell.colIndex, tableCell);
     this.refresh();
   }
 
@@ -729,7 +762,7 @@ export class Doc {
         if (i !== colIndex) td.columnWidths[i] = each;
       }
     }
-    this.store.updateBlock(blockId, block);
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
     this.refresh();
   }
 
@@ -744,7 +777,8 @@ export class Doc {
     if (cellInfo) {
       const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
       if (tableBlock) {
-        this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+        const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+        this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       }
     } else {
       this.store.updateBlock(blockId, block);
@@ -772,7 +806,7 @@ export class Doc {
       targetBlock.type = 'paragraph';
       delete targetBlock.listKind;
       delete targetBlock.listLevel;
-      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       this.refresh();
       return blockId;
     }
@@ -786,7 +820,7 @@ export class Doc {
         style: { ...DEFAULT_BLOCK_STYLE },
       };
       cell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
-      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       this.refresh();
       return newBlock.id;
     }
@@ -818,7 +852,7 @@ export class Doc {
     };
 
     cell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
-    this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+    this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
     this.refresh();
     return newBlock.id;
   }
