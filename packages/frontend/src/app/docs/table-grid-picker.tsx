@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 
 interface TableGridPickerProps {
   onSelect: (rows: number, cols: number) => void;
@@ -7,10 +7,46 @@ interface TableGridPickerProps {
 const GRID_SIZE = 10;
 const CELL_SIZE = 20;
 const CELL_GAP = 2;
+const TOTAL_SIZE = GRID_SIZE * CELL_SIZE + (GRID_SIZE - 1) * CELL_GAP;
 
 export function TableGridPicker({ onSelect }: TableGridPickerProps) {
   const [hoverRow, setHoverRow] = useState(-1);
   const [hoverCol, setHoverCol] = useState(-1);
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const resolveCell = useCallback(
+    (e: React.MouseEvent) => {
+      const grid = gridRef.current;
+      if (!grid) return { row: -1, col: -1 };
+      const rect = grid.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const step = CELL_SIZE + CELL_GAP;
+      const col = Math.min(Math.floor(x / step), GRID_SIZE - 1);
+      const row = Math.min(Math.floor(y / step), GRID_SIZE - 1);
+      return { row: Math.max(0, row), col: Math.max(0, col) };
+    },
+    [],
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const { row, col } = resolveCell(e);
+      setHoverRow(row);
+      setHoverCol(col);
+    },
+    [resolveCell],
+  );
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const { row, col } = resolveCell(e);
+      if (row >= 0 && col >= 0) {
+        onSelect(row + 1, col + 1);
+      }
+    },
+    [resolveCell, onSelect],
+  );
 
   const handleMouseLeave = useCallback(() => {
     setHoverRow(-1);
@@ -18,33 +54,33 @@ export function TableGridPicker({ onSelect }: TableGridPickerProps) {
   }, []);
 
   return (
-    <div className="p-2" onMouseLeave={handleMouseLeave}>
+    <div className="p-2">
       <div
-        className="grid"
-        style={{
-          gridTemplateColumns: `repeat(${GRID_SIZE}, ${CELL_SIZE}px)`,
-          gap: `${CELL_GAP}px`,
-        }}
+        ref={gridRef}
+        style={{ width: TOTAL_SIZE, height: TOTAL_SIZE, position: "relative" }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       >
         {Array.from({ length: GRID_SIZE * GRID_SIZE }, (_, i) => {
           const row = Math.floor(i / GRID_SIZE);
           const col = i % GRID_SIZE;
           const isHighlighted = row <= hoverRow && col <= hoverCol;
+          const step = CELL_SIZE + CELL_GAP;
           return (
-            <button
+            <div
               key={i}
-              className={`border rounded-sm transition-colors ${
+              className={`absolute rounded-sm border transition-colors ${
                 isHighlighted
                   ? "bg-primary/20 border-primary"
-                  : "bg-background border-border hover:border-muted-foreground"
+                  : "bg-background border-border"
               }`}
-              style={{ width: CELL_SIZE, height: CELL_SIZE }}
-              onMouseEnter={() => {
-                setHoverRow(row);
-                setHoverCol(col);
+              style={{
+                width: CELL_SIZE,
+                height: CELL_SIZE,
+                left: col * step,
+                top: row * step,
               }}
-              onClick={() => onSelect(row + 1, col + 1)}
-              aria-label={`${row + 1} x ${col + 1} table`}
             />
           );
         })}
