@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorAPI } from "@wafflebase/docs";
 import { BG_COLORS } from "@/components/formatting-colors";
+import {
+  IconRowInsertTop,
+  IconRowInsertBottom,
+  IconColumnInsertLeft,
+  IconColumnInsertRight,
+  IconRowRemove,
+  IconColumnRemove,
+  IconArrowsSplit,
+  IconPalette,
+  IconTableOff,
+} from "@tabler/icons-react";
 
 interface DocsTableContextMenuProps {
   editor: EditorAPI | null;
@@ -13,17 +24,17 @@ interface MenuPosition {
 }
 
 /**
- * A simple context menu for table cell operations.
+ * Context menu for table cell operations.
  *
- * Renders a positioned overlay when the user right-clicks inside a table cell.
- * Uses a plain div + portal approach instead of Radix ContextMenu to avoid
- * interfering with the Canvas editor's pointer events.
+ * Plain positioned overlay — avoids Radix ContextMenu which blocks
+ * Canvas pointer events.
  */
 export function DocsTableContextMenu({
   editor,
   containerRef,
 }: DocsTableContextMenuProps) {
   const [position, setPosition] = useState<MenuPosition | null>(null);
+  const [showColors, setShowColors] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleContextMenu = useCallback(
@@ -31,13 +42,16 @@ export function DocsTableContextMenu({
       if (!editor?.isInTable()) return;
       e.preventDefault();
       setPosition({ x: e.clientX, y: e.clientY });
+      setShowColors(false);
     },
     [editor],
   );
 
-  const close = useCallback(() => setPosition(null), []);
+  const close = useCallback(() => {
+    setPosition(null);
+    setShowColors(false);
+  }, []);
 
-  // Attach contextmenu listener to the container
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -45,7 +59,6 @@ export function DocsTableContextMenu({
     return () => el.removeEventListener("contextmenu", handleContextMenu);
   }, [containerRef, handleContextMenu]);
 
-  // Close on click outside or Escape
   useEffect(() => {
     if (!position) return;
     const handleClick = (e: MouseEvent) => {
@@ -66,76 +79,107 @@ export function DocsTableContextMenu({
 
   if (!position || !editor) return null;
 
-  const menuItem =
-    "flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground";
-  const menuItemDestructive =
-    "flex w-full cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none text-destructive hover:bg-destructive/10";
-  const separator = "my-1 h-px bg-border -mx-1";
+  const item =
+    "flex w-full cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground";
+  const sep = "my-1 h-px bg-border -mx-1";
+  const label = "px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground";
+  const iconSize = 16;
+
+  const act = (fn: () => void) => () => {
+    fn();
+    editor.focus();
+    close();
+  };
 
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[14rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+      className="fixed z-50 min-w-[12rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
       style={{ left: position.x, top: position.y }}
     >
-      <button className={menuItem} onClick={() => { editor.insertTableRow(true); editor.focus(); close(); }}>
-        Insert row above
+      {/* Row */}
+      <div className={label}>Row</div>
+      <button className={item} onClick={act(() => editor.insertTableRow(true))}>
+        <IconRowInsertTop size={iconSize} className="text-muted-foreground" />
+        Insert above
       </button>
-      <button className={menuItem} onClick={() => { editor.insertTableRow(false); editor.focus(); close(); }}>
-        Insert row below
+      <button className={item} onClick={act(() => editor.insertTableRow(false))}>
+        <IconRowInsertBottom size={iconSize} className="text-muted-foreground" />
+        Insert below
       </button>
-      <div className={separator} />
-      <button className={menuItem} onClick={() => { editor.insertTableColumn(true); editor.focus(); close(); }}>
-        Insert column left
-      </button>
-      <button className={menuItem} onClick={() => { editor.insertTableColumn(false); editor.focus(); close(); }}>
-        Insert column right
-      </button>
-      <div className={separator} />
-      <button className={menuItemDestructive} onClick={() => { editor.deleteTableRow(); editor.focus(); close(); }}>
+      <button className={item} onClick={act(() => editor.deleteTableRow())}>
+        <IconRowRemove size={iconSize} className="text-muted-foreground" />
         Delete row
       </button>
-      <button className={menuItemDestructive} onClick={() => { editor.deleteTableColumn(); editor.focus(); close(); }}>
+
+      <div className={sep} />
+
+      {/* Column */}
+      <div className={label}>Column</div>
+      <button className={item} onClick={act(() => editor.insertTableColumn(true))}>
+        <IconColumnInsertLeft size={iconSize} className="text-muted-foreground" />
+        Insert left
+      </button>
+      <button className={item} onClick={act(() => editor.insertTableColumn(false))}>
+        <IconColumnInsertRight size={iconSize} className="text-muted-foreground" />
+        Insert right
+      </button>
+      <button className={item} onClick={act(() => editor.deleteTableColumn())}>
+        <IconColumnRemove size={iconSize} className="text-muted-foreground" />
         Delete column
       </button>
-      <div className={separator} />
-      <button className={menuItem} onClick={() => { editor.splitTableCell(); editor.focus(); close(); }}>
+
+      <div className={sep} />
+
+      {/* Cell */}
+      <button className={item} onClick={act(() => editor.splitTableCell())}>
+        <IconArrowsSplit size={iconSize} className="text-muted-foreground" />
         Split cell
       </button>
-      <div className={separator} />
-      <div className="px-2 py-1.5">
-        <div className="mb-1 text-xs text-muted-foreground">Cell background</div>
-        <div className="grid grid-cols-5 gap-1">
-          {BG_COLORS.map((color) => (
-            <button
-              key={color}
-              className="h-5 w-5 rounded-sm border border-border hover:ring-2 hover:ring-primary"
-              style={{ backgroundColor: color }}
-              onClick={() => { editor.applyTableCellStyle({ backgroundColor: color }); editor.focus(); close(); }}
-              aria-label={`Background ${color}`}
-            />
-          ))}
-        </div>
-      </div>
-      <div className={separator} />
       <button
-        className={menuItemDestructive}
-        onClick={() => {
-          const doc = editor.getDoc();
-          const blocks = doc.document.blocks;
-          const addr = editor.getCellAddress();
-          if (addr) {
-            // Find the block the cursor is in (it's a table)
-            const tableBlock = blocks.find((b) => b.type === "table");
-            if (tableBlock) {
-              doc.deleteBlock(tableBlock.id);
-              editor.render();
-            }
-          }
-          editor.focus();
-          close();
+        className={item}
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowColors((v) => !v);
         }}
       >
+        <IconPalette size={iconSize} className="text-muted-foreground" />
+        Cell background
+      </button>
+      {showColors && (
+        <div className="px-2 py-1.5">
+          <div className="grid grid-cols-5 gap-1">
+            {BG_COLORS.map((color) => (
+              <button
+                key={color}
+                className="h-5 w-5 rounded-sm border border-border hover:ring-2 hover:ring-primary"
+                style={{ backgroundColor: color }}
+                onClick={act(() =>
+                  editor.applyTableCellStyle({ backgroundColor: color }),
+                )}
+                aria-label={`Background ${color}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className={sep} />
+
+      {/* Table */}
+      <button
+        className={item}
+        onClick={act(() => {
+          const doc = editor.getDoc();
+          const blocks = doc.document.blocks;
+          const tableBlock = blocks.find((b) => b.type === "table");
+          if (tableBlock) {
+            doc.deleteBlock(tableBlock.id);
+            editor.render();
+          }
+        })}
+      >
+        <IconTableOff size={iconSize} className="text-muted-foreground" />
         Delete table
       </button>
     </div>
