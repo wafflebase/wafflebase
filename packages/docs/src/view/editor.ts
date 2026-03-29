@@ -204,6 +204,7 @@ export function initialize(
     layout = result.layout;
     layoutCache = result.cache;
     dirtyBlockIds = undefined;
+    doc.setBlockParentMap(layout.blockParentMap);
     paginatedLayout = paginateLayout(layout, pageSetup);
   };
 
