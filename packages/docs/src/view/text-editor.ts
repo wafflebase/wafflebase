@@ -1253,8 +1253,14 @@ export class TextEditor {
       }
 
       if (newPos) {
+        if (shiftKey) {
+          // Extend selection within the cell
+          const anchor = this.selection.range?.anchor ?? pos;
+          this.selection.setRange({ anchor, focus: newPos });
+        } else {
+          this.selection.setRange(null);
+        }
         this.cursor.moveTo(newPos);
-        this.selection.setRange(null);
         this.requestRender();
       }
       return;
