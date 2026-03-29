@@ -13,6 +13,7 @@ import type { YorkieDocsRoot } from "@/types/docs-document";
 import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
+import { DocsTableContextMenu } from "./docs-table-context-menu";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -338,22 +339,24 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
   }
 
   return (
-    <div ref={containerRef} className="relative flex-1 w-full min-h-0">
-      <DocsLinkPopover
-        editor={mountedEditor}
-        containerRef={containerRef}
-        editRequest={linkInputRequest}
-        onEditRequestHandled={() => setLinkInputRequest(null)}
-      />
-      {findBarOpen && (
-        <DocsFindBar
+    <DocsTableContextMenu editor={mountedEditor}>
+      <div ref={containerRef} className="relative flex-1 w-full min-h-0">
+        <DocsLinkPopover
           editor={mountedEditor}
-          showReplace={findBarShowReplace}
-          onClose={() => setFindBarOpen(false)}
           containerRef={containerRef}
+          editRequest={linkInputRequest}
+          onEditRequestHandled={() => setLinkInputRequest(null)}
         />
-      )}
-    </div>
+        {findBarOpen && (
+          <DocsFindBar
+            editor={mountedEditor}
+            showReplace={findBarShowReplace}
+            onClose={() => setFindBarOpen(false)}
+            containerRef={containerRef}
+          />
+        )}
+      </div>
+    </DocsTableContextMenu>
   );
 }
 
