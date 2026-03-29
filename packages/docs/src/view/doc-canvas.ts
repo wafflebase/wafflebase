@@ -7,6 +7,7 @@ import type { LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
+import { renderTable } from './table-renderer.js';
 
 /**
  * Convert a peer cursor color (hex) to a translucent selection fill.
@@ -163,6 +164,20 @@ export class DocCanvas {
             this.ctx.moveTo(pageX + margins.left, lineY);
             this.ctx.lineTo(pageX + page.width - margins.right, lineY);
             this.ctx.stroke();
+            continue;
+          }
+
+          const lb = layout.blocks[pl.blockIndex];
+          if (lb && lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
+            if (pl.lineIndex === 0) {
+              renderTable(
+                this.ctx,
+                lb.block.tableData,
+                lb.layoutTable,
+                pageX + margins.left,
+                pageY + pl.y,
+              );
+            }
             continue;
           }
         }
