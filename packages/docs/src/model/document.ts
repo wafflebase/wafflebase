@@ -345,8 +345,11 @@ export class Doc {
     }
 
     // Existing top-level cross-block logic
-    const startBlock = this.getBlockIndex(range.anchor.blockId);
-    const endBlock = this.getBlockIndex(range.focus.blockId);
+    // Normalize cell endpoints to their parent table block for index lookup
+    const anchorTopId = anchorCellInfo ? anchorCellInfo.tableBlockId : range.anchor.blockId;
+    const focusTopId = focusCellInfo ? focusCellInfo.tableBlockId : range.focus.blockId;
+    const startBlock = this.getBlockIndex(anchorTopId);
+    const endBlock = this.getBlockIndex(focusTopId);
 
     const [from, to] =
       startBlock < endBlock ||
@@ -354,8 +357,10 @@ export class Doc {
         ? [range.anchor, range.focus]
         : [range.focus, range.anchor];
 
-    const fromBlockIdx = this.getBlockIndex(from.blockId);
-    const toBlockIdx = this.getBlockIndex(to.blockId);
+    const fromTopId = this._blockParentMap.get(from.blockId)?.tableBlockId ?? from.blockId;
+    const toTopId = this._blockParentMap.get(to.blockId)?.tableBlockId ?? to.blockId;
+    const fromBlockIdx = this.getBlockIndex(fromTopId);
+    const toBlockIdx = this.getBlockIndex(toTopId);
 
     for (let i = fromBlockIdx; i <= toBlockIdx; i++) {
       const block = this._document.blocks[i];
@@ -571,20 +576,11 @@ export class Doc {
 
     // Adjust rowSpan for cells above that span into the deleted row
     for (let r = 0; r < rowIndex; r++) {
-      for (const cell of td.rows[r].cells) {
-        const rs = cell.rowSpan ?? 1;
-        if (r + rs > rowIndex) {
-          cell.rowSpan = rs - 1;
-        }
-      }
-    }
-
-    // Update cells with adjusted rowSpan
-    for (let r = 0; r < rowIndex; r++) {
       for (let c = 0; c < td.rows[r].cells.length; c++) {
         const cell = td.rows[r].cells[c];
         const rs = cell.rowSpan ?? 1;
         if (r + rs > rowIndex) {
+          cell.rowSpan = rs - 1;
           this.store.updateTableCell(blockId, r, c, cell);
         }
       }
@@ -625,12 +621,13 @@ export class Doc {
     if (td.columnWidths.length <= 1) return; // Prevent 0-column table
 
     // Adjust colSpan for cells left of the deleted column that span into it
-    for (const row of td.rows) {
+    for (let ri = 0; ri < td.rows.length; ri++) {
       for (let c = 0; c < colIndex; c++) {
-        const cell = row.cells[c];
+        const cell = td.rows[ri].cells[c];
         const cs = cell.colSpan ?? 1;
         if (c + cs > colIndex) {
           cell.colSpan = cs - 1;
+          this.store.updateTableCell(blockId, ri, c, cell);
         }
       }
     }
@@ -642,17 +639,6 @@ export class Doc {
     }
     for (const row of td.rows) {
       row.cells.splice(colIndex, 1);
-    }
-    // Update cells with adjusted colSpan
-    for (let ri = 0; ri < td.rows.length; ri++) {
-      const row = td.rows[ri];
-      for (let c = 0; c < colIndex; c++) {
-        const cell = row.cells[c];
-        const cs = cell.colSpan ?? 1;
-        if (c + cs > colIndex) {
-          this.store.updateTableCell(blockId, ri, c, cell);
-        }
-      }
     }
     this.store.deleteTableColumn(blockId, colIndex);
     this.store.updateTableAttrs(blockId, { cols: td.columnWidths });

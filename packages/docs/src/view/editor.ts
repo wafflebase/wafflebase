@@ -293,7 +293,8 @@ export function initialize(
     // No selection or fallback: cursor block only
     const block = doc.getBlock(cursor.position.blockId);
     fn(block);
-    markDirty(block.id);
+    const cellInfo = layout.blockParentMap.get(block.id);
+    markDirty(cellInfo?.tableBlockId ?? block.id);
   };
 
   // Force full layout recompute on next render (for structural operations)
