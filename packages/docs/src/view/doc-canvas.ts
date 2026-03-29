@@ -184,6 +184,17 @@ export class DocCanvas {
             }
             // Render only on the first row PageLine; skip subsequent rows
             if (plIndex === 0 || page.lines[plIndex - 1]?.blockIndex !== pl.blockIndex) {
+              // Extend startRow backwards to include rowSpan owners from previous pages
+              let renderStartRow = startRowIndex;
+              for (let r = 0; r < startRowIndex; r++) {
+                for (let c = 0; c < lb.block.tableData.rows[r].cells.length; c++) {
+                  const cell = lb.block.tableData.rows[r].cells[c];
+                  const rs = cell.rowSpan ?? 1;
+                  if (rs > 1 && r + rs > startRowIndex) {
+                    renderStartRow = Math.min(renderStartRow, r);
+                  }
+                }
+              }
               const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[startRowIndex];
               renderTable(
                 this.ctx,
@@ -191,7 +202,7 @@ export class DocCanvas {
                 lb.layoutTable,
                 pageX + margins.left,
                 tableOriginY,
-                startRowIndex,
+                renderStartRow,
                 endRowIndex,
               );
             }

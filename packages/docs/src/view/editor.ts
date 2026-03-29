@@ -925,7 +925,14 @@ export function initialize(
       const ca = cursor.position.cellAddress;
       if (!ca) return;
       docStore.snapshot();
-      doc.deleteRow(cursor.position.blockId, ca.rowIndex);
+      const blockId = cursor.position.blockId;
+      doc.deleteRow(blockId, ca.rowIndex);
+      // Re-home cursor if the deleted row was the last one
+      const td = doc.getBlock(blockId).tableData;
+      if (td) {
+        const newRow = Math.min(ca.rowIndex, td.rows.length - 1);
+        cursor.moveTo({ blockId, offset: 0, cellAddress: { rowIndex: newRow, colIndex: ca.colIndex } });
+      }
       invalidateLayout();
       render();
     },
@@ -942,13 +949,23 @@ export function initialize(
       const ca = cursor.position.cellAddress;
       if (!ca) return;
       docStore.snapshot();
-      doc.deleteColumn(cursor.position.blockId, ca.colIndex);
+      const blockId = cursor.position.blockId;
+      doc.deleteColumn(blockId, ca.colIndex);
+      // Re-home cursor if the deleted column was the last one
+      const td = doc.getBlock(blockId).tableData;
+      if (td) {
+        const newCol = Math.min(ca.colIndex, td.columnWidths.length - 1);
+        cursor.moveTo({ blockId, offset: 0, cellAddress: { rowIndex: ca.rowIndex, colIndex: newCol } });
+      }
       invalidateLayout();
       render();
     },
     mergeTableCells: (range: CellRange) => {
       docStore.snapshot();
-      doc.mergeCells(cursor.position.blockId, range);
+      const blockId = cursor.position.blockId;
+      doc.mergeCells(blockId, range);
+      // Move cursor to top-left cell of merged range
+      cursor.moveTo({ blockId, offset: 0, cellAddress: range.start });
       invalidateLayout();
       render();
     },

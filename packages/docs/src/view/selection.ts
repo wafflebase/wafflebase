@@ -20,9 +20,11 @@ function normalizeRange(
   );
   if (anchorIdx === -1 || focusIdx === -1) return null;
 
-  // Cell-internal selection: both positions in same cell
-  if (range.anchor.cellAddress && range.focus.cellAddress) {
-    if (range.anchor.blockId === range.focus.blockId &&
+  // Cell-aware selection: if either position has cellAddress, handle specially
+  if (range.anchor.cellAddress || range.focus.cellAddress) {
+    // Both must have cellAddress and be in the same cell for a valid selection
+    if (range.anchor.cellAddress && range.focus.cellAddress &&
+        range.anchor.blockId === range.focus.blockId &&
         range.anchor.cellAddress.rowIndex === range.focus.cellAddress.rowIndex &&
         range.anchor.cellAddress.colIndex === range.focus.cellAddress.colIndex) {
       if (range.anchor.offset <= range.focus.offset) {
@@ -30,7 +32,7 @@ function normalizeRange(
       }
       return { start: range.focus, end: range.anchor };
     }
-    // Different cells — no valid intra-cell selection
+    // Mixed or cross-cell — no valid selection
     return null;
   }
 
@@ -116,17 +118,66 @@ function buildRects(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
-  // Cell-internal selection: single rect from start to end pixel
+  // Cell-internal selection
   if (start.cellAddress && end.cellAddress) {
     const startPixel = resolvePositionPixel(start, 'forward', paginatedLayout, layout, ctx, canvasWidth);
     const endPixel = resolvePositionPixel(end, 'backward', paginatedLayout, layout, ctx, canvasWidth);
     if (!startPixel || !endPixel) return [];
-    return [{
+
+    if (startPixel.y === endPixel.y) {
+      // Same visual line — single rect
+      return [{
+        x: startPixel.x,
+        y: startPixel.y,
+        width: endPixel.x - startPixel.x,
+        height: startPixel.height,
+      }];
+    }
+
+    // Multi-line cell selection: find cell bounds for full-width lines
+    const lb = layout.blocks.find((b) => b.block.id === start.blockId);
+    const tl = lb?.layoutTable;
+    if (!tl || !start.cellAddress) {
+      // Fallback: rect from start to end
+      return [{
+        x: startPixel.x,
+        y: startPixel.y,
+        width: endPixel.x - startPixel.x,
+        height: endPixel.y + endPixel.height - startPixel.y,
+      }];
+    }
+    const { rowIndex, colIndex } = start.cellAddress;
+    const cellPadding = lb!.block.tableData?.rows[rowIndex]?.cells[colIndex]?.style.padding ?? 4;
+    const cellLeftX = startPixel.x - (startPixel.x - (getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + cellPadding));
+    const cellRightX = getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + tl.columnPixelWidths[colIndex] - cellPadding;
+
+    const cellRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+    // First line: from start to cell right edge
+    cellRects.push({
       x: startPixel.x,
       y: startPixel.y,
-      width: endPixel.x - startPixel.x,
+      width: cellRightX - startPixel.x,
       height: startPixel.height,
-    }];
+    });
+    // Middle lines: full cell width
+    let midY = startPixel.y + startPixel.height;
+    while (midY < endPixel.y) {
+      cellRects.push({
+        x: cellLeftX,
+        y: midY,
+        width: cellRightX - cellLeftX,
+        height: startPixel.height, // approximate line height
+      });
+      midY += startPixel.height;
+    }
+    // Last line: from cell left edge to end
+    cellRects.push({
+      x: cellLeftX,
+      y: endPixel.y,
+      width: endPixel.x - cellLeftX,
+      height: endPixel.height,
+    });
+    return cellRects;
   }
 
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
