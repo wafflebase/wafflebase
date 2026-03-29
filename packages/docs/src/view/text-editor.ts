@@ -1326,8 +1326,14 @@ export class TextEditor {
           const moved = this.moveLeft(pos);
           if (moved === pos) {
             if (shiftKey) {
-              // Shift+Left at cell start: select table + exit upward
-              newPos = this.getPositionBeforeTable(tableBlockId);
+              // Shift+Left at cell start: move to previous cell for cross-cell selection
+              const prevCellPos = this.getPrevCellLastPosition(arrowCellInfo);
+              if (prevCellPos) {
+                newPos = prevCellPos;
+              } else {
+                // At first cell: exit table upward
+                newPos = this.getPositionBeforeTable(tableBlockId);
+              }
             } else if (this.moveToPrevCell()) {
               this.selection.setRange(null);
               this.requestRender();
@@ -1345,8 +1351,14 @@ export class TextEditor {
           const moved = this.moveRight(pos);
           if (moved === pos) {
             if (shiftKey) {
-              // Shift+Right at cell end: select table + exit downward
-              newPos = this.getPositionAfterTable(tableBlockId);
+              // Shift+Right at cell end: move to next cell for cross-cell selection
+              const nextCellPos = this.getNextCellFirstPosition(arrowCellInfo);
+              if (nextCellPos) {
+                newPos = nextCellPos;
+              } else {
+                // At last cell: exit table downward
+                newPos = this.getPositionAfterTable(tableBlockId);
+              }
             } else if (this.moveToNextCell()) {
               this.selection.setRange(null);
               this.requestRender();
@@ -2320,6 +2332,60 @@ export class TextEditor {
     const blocks = this.doc.document.blocks;
     if (idx < blocks.length - 1) {
       return { blockId: blocks[idx + 1].id, offset: 0 };
+    }
+    return undefined;
+  }
+
+  /**
+   * Get position at the start of the next cell (row-major order).
+   * Returns undefined if already at the last cell.
+   */
+  private getNextCellFirstPosition(cellInfo: BlockCellInfo): DocPosition | undefined {
+    const tableBlock = this.doc.getBlock(cellInfo.tableBlockId);
+    const td = tableBlock.tableData!;
+    // Try next column in same row
+    for (let c = cellInfo.colIndex + 1; c < td.columnWidths.length; c++) {
+      const cell = td.rows[cellInfo.rowIndex]?.cells[c];
+      if (cell && cell.colSpan !== 0) {
+        return { blockId: cell.blocks[0].id, offset: 0 };
+      }
+    }
+    // Try next rows
+    for (let r = cellInfo.rowIndex + 1; r < td.rows.length; r++) {
+      for (let c = 0; c < td.columnWidths.length; c++) {
+        const cell = td.rows[r]?.cells[c];
+        if (cell && cell.colSpan !== 0) {
+          return { blockId: cell.blocks[0].id, offset: 0 };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Get position at the end of the previous cell (row-major order).
+   * Returns undefined if already at the first cell.
+   */
+  private getPrevCellLastPosition(cellInfo: BlockCellInfo): DocPosition | undefined {
+    const tableBlock = this.doc.getBlock(cellInfo.tableBlockId);
+    const td = tableBlock.tableData!;
+    // Try previous column in same row
+    for (let c = cellInfo.colIndex - 1; c >= 0; c--) {
+      const cell = td.rows[cellInfo.rowIndex]?.cells[c];
+      if (cell && cell.colSpan !== 0) {
+        const lastBlock = cell.blocks[cell.blocks.length - 1];
+        return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+      }
+    }
+    // Try previous rows
+    for (let r = cellInfo.rowIndex - 1; r >= 0; r--) {
+      for (let c = td.columnWidths.length - 1; c >= 0; c--) {
+        const cell = td.rows[r]?.cells[c];
+        if (cell && cell.colSpan !== 0) {
+          const lastBlock = cell.blocks[cell.blocks.length - 1];
+          return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+        }
+      }
     }
     return undefined;
   }
