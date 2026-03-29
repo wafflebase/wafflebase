@@ -662,17 +662,58 @@ export function initialize(
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
-      if (selection.hasSelection() && selection.range) {
+      // Cell-range selection: apply to all blocks in selected cells
+      if (selection.range?.tableCellRange) {
+        const cr = selection.range.tableCellRange;
+        const tableBlock = doc.getBlock(cr.blockId);
+        if (tableBlock.tableData) {
+          const minR = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+          const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+          const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
+          const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
+          for (let r = minR; r <= maxR; r++) {
+            for (let c = minC; c <= maxC; c++) {
+              const cell = tableBlock.tableData.rows[r]?.cells[c];
+              if (!cell || cell.colSpan === 0) continue;
+              for (const cellBlock of cell.blocks) {
+                doc.applyBlockStyle(cellBlock.id, style);
+              }
+            }
+          }
+          markDirty(cr.blockId);
+        }
+      } else if (selection.hasSelection() && selection.range) {
         const range = selection.range;
-        const startIdx = doc.getBlockIndex(range.anchor.blockId);
-        const endIdx = doc.getBlockIndex(range.focus.blockId);
-        if (startIdx >= 0 && endIdx >= 0) {
-          const lo = Math.min(startIdx, endIdx);
-          const hi = Math.max(startIdx, endIdx);
+        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+        const focusCI = layout.blockParentMap.get(range.focus.blockId);
+
+        if (anchorCI && focusCI &&
+            anchorCI.tableBlockId === focusCI.tableBlockId &&
+            anchorCI.rowIndex === focusCI.rowIndex &&
+            anchorCI.colIndex === focusCI.colIndex) {
+          // Selection within the same cell: apply to all cell blocks in range
+          const tableBlock = doc.getBlock(anchorCI.tableBlockId);
+          const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
+          const aIdx = cell.blocks.findIndex(b => b.id === range.anchor.blockId);
+          const fIdx = cell.blocks.findIndex(b => b.id === range.focus.blockId);
+          const lo = Math.min(aIdx, fIdx);
+          const hi = Math.max(aIdx, fIdx);
           for (let i = lo; i <= hi; i++) {
-            const block = doc.document.blocks[i];
-            doc.applyBlockStyle(block.id, style);
-            markDirty(block.id);
+            doc.applyBlockStyle(cell.blocks[i].id, style);
+          }
+          markDirty(anchorCI.tableBlockId);
+        } else {
+          // Top-level multi-block selection
+          const startIdx = doc.getBlockIndex(range.anchor.blockId);
+          const endIdx = doc.getBlockIndex(range.focus.blockId);
+          if (startIdx >= 0 && endIdx >= 0) {
+            const lo = Math.min(startIdx, endIdx);
+            const hi = Math.max(startIdx, endIdx);
+            for (let i = lo; i <= hi; i++) {
+              const block = doc.document.blocks[i];
+              doc.applyBlockStyle(block.id, style);
+              markDirty(block.id);
+            }
           }
         }
       } else {
