@@ -215,6 +215,26 @@ export function initialize(
     dirtyBlockIds.add(blockId);
   };
 
+  // Get all blocks in the current selection range, or just the cursor block.
+  const getBlocksInSelectionRange = (): Block[] => {
+    if (!selection.hasSelection() || !selection.range) {
+      return [doc.getBlock(cursor.position.blockId)];
+    }
+    const range = selection.range;
+    const startIdx = doc.getBlockIndex(range.anchor.blockId);
+    const endIdx = doc.getBlockIndex(range.focus.blockId);
+    if (startIdx < 0 || endIdx < 0) {
+      return [doc.getBlock(cursor.position.blockId)];
+    }
+    const lo = Math.min(startIdx, endIdx);
+    const hi = Math.max(startIdx, endIdx);
+    const blocks: Block[] = [];
+    for (let i = lo; i <= hi; i++) {
+      blocks.push(doc.document.blocks[i]);
+    }
+    return blocks;
+  };
+
   // Force full layout recompute on next render (for structural operations)
   const invalidateLayout = () => {
     layoutCache = undefined;
@@ -863,45 +883,47 @@ export function initialize(
     },
     indent() {
       const MAX_LIST_LEVEL = 8;
+      const INDENT_STEP = 36;
       docStore.snapshot();
 
-      const block = doc.getBlock(cursor.position.blockId);
-      if (block.type === 'list-item') {
-        const currentLevel = block.listLevel ?? 0;
-        if (currentLevel >= MAX_LIST_LEVEL) return;
-        doc.setBlockType(block.id, 'list-item', {
-          listKind: block.listKind,
-          listLevel: currentLevel + 1,
-        });
-      } else {
-        const INDENT_STEP = 36;
-        doc.applyBlockStyle(block.id, {
-          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-        });
+      for (const block of getBlocksInSelectionRange()) {
+        if (block.type === 'list-item') {
+          const currentLevel = block.listLevel ?? 0;
+          if (currentLevel >= MAX_LIST_LEVEL) continue;
+          doc.setBlockType(block.id, 'list-item', {
+            listKind: block.listKind,
+            listLevel: currentLevel + 1,
+          });
+        } else {
+          doc.applyBlockStyle(block.id, {
+            marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+          });
+        }
+        markDirty(block.id);
       }
-      markDirty(block.id);
       render();
     },
     outdent() {
-      const block = doc.getBlock(cursor.position.blockId);
-      if (block.type === 'list-item') {
-        const currentLevel = block.listLevel ?? 0;
-        if (currentLevel <= 0) return;
-        docStore.snapshot();
-        doc.setBlockType(block.id, 'list-item', {
-          listKind: block.listKind,
-          listLevel: currentLevel - 1,
-        });
-      } else {
-        const INDENT_STEP = 36;
-        const current = block.style.marginLeft ?? 0;
-        if (current <= 0) return;
-        docStore.snapshot();
-        doc.applyBlockStyle(block.id, {
-          marginLeft: Math.max(0, current - INDENT_STEP),
-        });
+      const INDENT_STEP = 36;
+      docStore.snapshot();
+
+      for (const block of getBlocksInSelectionRange()) {
+        if (block.type === 'list-item') {
+          const currentLevel = block.listLevel ?? 0;
+          if (currentLevel <= 0) continue;
+          doc.setBlockType(block.id, 'list-item', {
+            listKind: block.listKind,
+            listLevel: currentLevel - 1,
+          });
+        } else {
+          const current = block.style.marginLeft ?? 0;
+          if (current <= 0) continue;
+          doc.applyBlockStyle(block.id, {
+            marginLeft: Math.max(0, current - INDENT_STEP),
+          });
+        }
+        markDirty(block.id);
       }
-      markDirty(block.id);
       render();
     },
     insertLink: (url: string) => {

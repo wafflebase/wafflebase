@@ -1209,18 +1209,19 @@ export class TextEditor {
     const INDENT_STEP = 36;
     this.saveSnapshot();
 
-    const block = this.doc.getBlock(this.cursor.position.blockId);
-    if (block.type === 'list-item') {
-      const currentLevel = block.listLevel ?? 0;
-      if (currentLevel >= MAX_LIST_LEVEL) return;
-      this.doc.setBlockType(block.id, 'list-item', {
-        listKind: block.listKind,
-        listLevel: currentLevel + 1,
-      });
-    } else {
-      this.doc.applyBlockStyle(block.id, {
-        marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
-      });
+    for (const block of this.getBlocksInSelectionRange()) {
+      if (block.type === 'list-item') {
+        const currentLevel = block.listLevel ?? 0;
+        if (currentLevel >= MAX_LIST_LEVEL) continue;
+        this.doc.setBlockType(block.id, 'list-item', {
+          listKind: block.listKind,
+          listLevel: currentLevel + 1,
+        });
+      } else {
+        this.doc.applyBlockStyle(block.id, {
+          marginLeft: (block.style.marginLeft ?? 0) + INDENT_STEP,
+        });
+      }
     }
     this.invalidateLayout();
     this.requestRender();
@@ -1228,25 +1229,49 @@ export class TextEditor {
 
   private handleOutdent(): void {
     const INDENT_STEP = 36;
-    const block = this.doc.getBlock(this.cursor.position.blockId);
-    if (block.type === 'list-item') {
-      const currentLevel = block.listLevel ?? 0;
-      if (currentLevel <= 0) return;
-      this.saveSnapshot();
-      this.doc.setBlockType(block.id, 'list-item', {
-        listKind: block.listKind,
-        listLevel: currentLevel - 1,
-      });
-    } else {
-      const current = block.style.marginLeft ?? 0;
-      if (current <= 0) return;
-      this.saveSnapshot();
-      this.doc.applyBlockStyle(block.id, {
-        marginLeft: Math.max(0, current - INDENT_STEP),
-      });
+    this.saveSnapshot();
+
+    for (const block of this.getBlocksInSelectionRange()) {
+      if (block.type === 'list-item') {
+        const currentLevel = block.listLevel ?? 0;
+        if (currentLevel <= 0) continue;
+        this.doc.setBlockType(block.id, 'list-item', {
+          listKind: block.listKind,
+          listLevel: currentLevel - 1,
+        });
+      } else {
+        const current = block.style.marginLeft ?? 0;
+        if (current <= 0) continue;
+        this.doc.applyBlockStyle(block.id, {
+          marginLeft: Math.max(0, current - INDENT_STEP),
+        });
+      }
     }
     this.invalidateLayout();
     this.requestRender();
+  }
+
+  /**
+   * Get all blocks in the current selection range, or just the cursor block
+   * if no selection exists.
+   */
+  private getBlocksInSelectionRange(): Block[] {
+    if (!this.selection.hasSelection() || !this.selection.range) {
+      return [this.doc.getBlock(this.cursor.position.blockId)];
+    }
+    const range = this.selection.range;
+    const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
+    const endIdx = this.doc.getBlockIndex(range.focus.blockId);
+    if (startIdx < 0 || endIdx < 0) {
+      return [this.doc.getBlock(this.cursor.position.blockId)];
+    }
+    const lo = Math.min(startIdx, endIdx);
+    const hi = Math.max(startIdx, endIdx);
+    const blocks: Block[] = [];
+    for (let i = lo; i <= hi; i++) {
+      blocks.push(this.doc.document.blocks[i]);
+    }
+    return blocks;
   }
 
   private tryAutoConvert(blockId: string): boolean {
