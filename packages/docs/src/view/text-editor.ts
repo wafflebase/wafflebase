@@ -1660,6 +1660,11 @@ export class TextEditor {
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
     if (startIdx < 0 || endIdx < 0) {
+      // Cell-internal block — mark the parent table block dirty
+      const cellInfo = this.getCellInfo(range.anchor.blockId);
+      if (cellInfo) {
+        this.markDirty(cellInfo.tableBlockId);
+      }
       this.requestRender();
       return;
     }
