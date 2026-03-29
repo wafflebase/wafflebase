@@ -119,10 +119,13 @@ function buildBlockNode(block: Block): ElementNode {
   if (block.listLevel !== undefined) {
     attrs.listLevel = String(block.listLevel);
   }
+  if (block.tableData !== undefined) {
+    attrs.tableData = JSON.stringify(block.tableData);
+  }
   return {
     type: 'block',
     attributes: attrs,
-    children: block.inlines.map(buildInlineNode),
+    children: block.type === 'table' ? [] : block.inlines.map(buildInlineNode),
   };
 }
 
@@ -171,6 +174,14 @@ function treeNodeToBlock(node: TreeNode): Block {
   }
   if ('listLevel' in attrs) {
     block.listLevel = Number(attrs.listLevel);
+  }
+  if ('tableData' in attrs && attrs.tableData) {
+    try {
+      block.tableData = JSON.parse(attrs.tableData);
+      block.inlines = [];
+    } catch {
+      // Ignore malformed tableData
+    }
   }
   return block;
 }
