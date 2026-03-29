@@ -1548,6 +1548,22 @@ export class TextEditor {
         (resolved as Record<string, unknown>)[key] = style[key];
       }
     }
+    // Route to cell-aware method if selection is within a table cell
+    const anchor = range.anchor;
+    if (anchor.cellAddress) {
+      const normalized = this.selection.getNormalizedRange(this.getLayout());
+      if (normalized) {
+        this.doc.applyCellInlineStyle(
+          anchor.blockId, anchor.cellAddress,
+          normalized.start.offset, normalized.end.offset,
+          resolved, anchor.cellBlockIndex ?? 0,
+        );
+        this.markDirty(anchor.blockId);
+        this.requestRender();
+        return;
+      }
+    }
+
     this.doc.applyInlineStyle(range, resolved);
     // Mark all blocks in the selection range as dirty
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);

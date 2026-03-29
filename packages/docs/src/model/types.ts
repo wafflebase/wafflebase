@@ -342,6 +342,8 @@ export interface SearchMatch {
   blockId: string;
   startOffset: number;
   endOffset: number;
+  cellAddress?: CellAddress;
+  cellBlockIndex?: number;
 }
 
 // --- Page Setup ---

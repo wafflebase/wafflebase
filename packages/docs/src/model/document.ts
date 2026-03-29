@@ -370,19 +370,47 @@ export class Doc {
     }
 
     for (const block of this._document.blocks) {
-      const text = getBlockText(block);
-      let match: RegExpExecArray | null;
-      while ((match = pattern.exec(text)) !== null) {
-        // Guard against zero-length matches causing infinite loops
-        if (match[0].length === 0) {
-          pattern.lastIndex++;
-          continue;
+      if (block.type === 'table' && block.tableData) {
+        // Search within each cell's blocks
+        for (let r = 0; r < block.tableData.rows.length; r++) {
+          const row = block.tableData.rows[r];
+          for (let c = 0; c < row.cells.length; c++) {
+            const cell = row.cells[c];
+            for (let bi = 0; bi < cell.blocks.length; bi++) {
+              const cellBlock = cell.blocks[bi];
+              const text = getBlockText(cellBlock);
+              pattern.lastIndex = 0;
+              let match: RegExpExecArray | null;
+              while ((match = pattern.exec(text)) !== null) {
+                if (match[0].length === 0) {
+                  pattern.lastIndex++;
+                  continue;
+                }
+                matches.push({
+                  blockId: block.id,
+                  startOffset: match.index,
+                  endOffset: match.index + match[0].length,
+                  cellAddress: { rowIndex: r, colIndex: c },
+                  cellBlockIndex: bi,
+                });
+              }
+            }
+          }
         }
-        matches.push({
-          blockId: block.id,
-          startOffset: match.index,
-          endOffset: match.index + match[0].length,
-        });
+      } else {
+        const text = getBlockText(block);
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(text)) !== null) {
+          if (match[0].length === 0) {
+            pattern.lastIndex++;
+            continue;
+          }
+          matches.push({
+            blockId: block.id,
+            startOffset: match.index,
+            endOffset: match.index + match[0].length,
+          });
+        }
       }
     }
     return matches;

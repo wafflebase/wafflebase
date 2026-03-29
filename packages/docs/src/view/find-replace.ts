@@ -58,14 +58,7 @@ export class FindReplaceState {
     if (this.activeIndex < 0 || this.activeIndex >= this.matches.length) return;
     this.snapshot?.();
     const match = this.matches[this.activeIndex];
-    this.doc.deleteText(
-      { blockId: match.blockId, offset: match.startOffset },
-      match.endOffset - match.startOffset,
-    );
-    this.doc.insertText(
-      { blockId: match.blockId, offset: match.startOffset },
-      replacement,
-    );
+    this.replaceMatch(match, replacement);
     this.search(this.query, this.options);
   }
 
@@ -77,7 +70,23 @@ export class FindReplaceState {
     if (this.matches.length === 0) return;
     this.snapshot?.();
     for (let i = this.matches.length - 1; i >= 0; i--) {
-      const match = this.matches[i];
+      this.replaceMatch(this.matches[i], replacement);
+    }
+    this.search(this.query, this.options);
+  }
+
+  private replaceMatch(match: SearchMatch, replacement: string): void {
+    if (match.cellAddress) {
+      const cbi = match.cellBlockIndex ?? 0;
+      this.doc.deleteTextInCell(
+        match.blockId, match.cellAddress,
+        match.startOffset, match.endOffset - match.startOffset, cbi,
+      );
+      this.doc.insertTextInCell(
+        match.blockId, match.cellAddress,
+        match.startOffset, replacement, cbi,
+      );
+    } else {
       this.doc.deleteText(
         { blockId: match.blockId, offset: match.startOffset },
         match.endOffset - match.startOffset,
@@ -87,6 +96,5 @@ export class FindReplaceState {
         replacement,
       );
     }
-    this.search(this.query, this.options);
   }
 }

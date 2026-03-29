@@ -350,7 +350,10 @@ export function initialize(
     if (searchMatches.length > 0) {
       searchHighlightRects = searchMatches.map((match) =>
         computeSelectionRects(
-          { anchor: { blockId: match.blockId, offset: match.startOffset }, focus: { blockId: match.blockId, offset: match.endOffset } },
+          {
+            anchor: { blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
+            focus: { blockId: match.blockId, offset: match.endOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
+          },
           paginatedLayout,
           layout,
           docCanvas.getContext(),
@@ -597,6 +600,23 @@ export function initialize(
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
         const range = selection.range;
+        const anchor = range.anchor;
+
+        // Route to cell-aware method if selection is within a table cell
+        if (anchor.cellAddress) {
+          const normalized = selection.getNormalizedRange(layout);
+          if (normalized) {
+            doc.applyCellInlineStyle(
+              anchor.blockId, anchor.cellAddress,
+              normalized.start.offset, normalized.end.offset,
+              style, anchor.cellBlockIndex ?? 0,
+            );
+            markDirty(anchor.blockId);
+            render();
+            return;
+          }
+        }
+
         doc.applyInlineStyle(range, style);
         // Mark all blocks in the selection range as dirty
         const startIdx = doc.getBlockIndex(range.anchor.blockId);
@@ -877,10 +897,10 @@ export function initialize(
       // Move cursor to the active match position before clearing (Google Docs behavior)
       if (moveCursorToActive && activeMatchIndex >= 0 && activeMatchIndex < searchMatches.length) {
         const match = searchMatches[activeMatchIndex];
-        cursor.moveTo({ blockId: match.blockId, offset: match.startOffset });
+        cursor.moveTo({ blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex });
         selection.setRange({
-          anchor: { blockId: match.blockId, offset: match.startOffset },
-          focus: { blockId: match.blockId, offset: match.endOffset },
+          anchor: { blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
+          focus: { blockId: match.blockId, offset: match.endOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
         });
       }
       searchMatches = [];
