@@ -6,15 +6,16 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 109
+Total archived tasks: 110
 
-## 2026/03 (72 tasks)
+## 2026/03 (73 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | docs table selection (2026-03-29) | [20260329-docs-table-selection-todo.md](./2026/03/20260329-docs-table-selection-todo.md) | - |
 | docs table ui (2026-03-29) | [20260329-docs-table-ui-todo.md](./2026/03/20260329-docs-table-ui-todo.md) | - |
 | docs tables (2026-03-29) | [20260329-docs-tables-todo.md](./2026/03/20260329-docs-tables-todo.md) | - |
+| table crdt phase a (2026-03-29) | [20260329-table-crdt-phase-a-todo.md](./2026/03/20260329-table-crdt-phase-a-todo.md) | [20260329-table-crdt-phase-a-lessons.md](./2026/03/20260329-table-crdt-phase-a-lessons.md) |
 | docs mobile zoom to fit (2026-03-28) | [20260328-docs-mobile-zoom-to-fit-todo.md](./2026/03/20260328-docs-mobile-zoom-to-fit-todo.md) | [20260328-docs-mobile-zoom-to-fit-lessons.md](./2026/03/20260328-docs-mobile-zoom-to-fit-lessons.md) |
 | docs phase2 (2026-03-26) | [20260326-docs-phase2-todo.md](./2026/03/20260326-docs-phase2-todo.md) | [20260326-docs-phase2-lessons.md](./2026/03/20260326-docs-phase2-lessons.md) |
 | number autofill ols (2026-03-26) | [20260326-number-autofill-ols-todo.md](./2026/03/20260326-number-autofill-ols-todo.md) | - |
