@@ -285,6 +285,24 @@ export class Doc {
   }
 
   /**
+   * Apply block-level style to a block within a table cell.
+   */
+  applyBlockStyleInCell(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+    style: Partial<BlockStyle>,
+  ): void {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return;
+    targetBlock.style = { ...targetBlock.style, ...style };
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
    * Change the block type, setting type-specific fields and clearing stale ones.
    */
   setBlockType(

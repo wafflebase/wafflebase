@@ -711,6 +711,13 @@ export function initialize(
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
+      const ca = cursor.position.cellAddress;
+      if (ca) {
+        doc.applyBlockStyleInCell(cursor.position.blockId, ca, cursor.position.cellBlockIndex ?? 0, style);
+        markDirty(cursor.position.blockId);
+        render();
+        return;
+      }
       if (selection.hasSelection() && selection.range) {
         const range = selection.range;
         const startIdx = doc.getBlockIndex(range.anchor.blockId);

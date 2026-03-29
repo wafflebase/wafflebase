@@ -1224,9 +1224,17 @@ export class TextEditor {
   }
 
   private handleAlign(alignment: 'left' | 'center' | 'right' | 'justify'): void {
-    const block = this.doc.getBlock(this.cursor.position.blockId);
     this.saveSnapshot();
-    this.doc.applyBlockStyle(block.id, { alignment });
+    const ca = this.cursor.position.cellAddress;
+    if (ca) {
+      this.doc.applyBlockStyleInCell(
+        this.cursor.position.blockId, ca,
+        this.cursor.position.cellBlockIndex ?? 0,
+        { alignment },
+      );
+    } else {
+      this.doc.applyBlockStyle(this.cursor.position.blockId, { alignment });
+    }
     this.invalidateLayout();
     this.requestRender();
   }

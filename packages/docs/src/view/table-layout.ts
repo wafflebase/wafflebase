@@ -1,7 +1,7 @@
 import type { TableData, Inline, Block } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
-import { cachedMeasureText } from './layout.js';
+import { cachedMeasureText, applyAlignment } from './layout.js';
 import { buildFont, ptToPx, Theme } from './theme.js';
 
 export interface LayoutTableCell {
@@ -164,7 +164,13 @@ function layoutCellBlocks(
     const listIndent = block.type === 'list-item'
       ? LIST_INDENT_PX * ((block.listLevel ?? 0) + 1)
       : 0;
-    const blockLines = layoutCellInlines(block.inlines, ctx, maxWidth - listIndent);
+    const effectiveWidth = maxWidth - listIndent;
+    const blockLines = layoutCellInlines(block.inlines, ctx, effectiveWidth);
+    // Apply horizontal alignment
+    const alignment = block.style?.alignment ?? 'left';
+    for (let li = 0; li < blockLines.length; li++) {
+      applyAlignment(blockLines[li], effectiveWidth, alignment, li === blockLines.length - 1);
+    }
     // Shift runs right by the list indent
     if (listIndent > 0) {
       for (const line of blockLines) {
