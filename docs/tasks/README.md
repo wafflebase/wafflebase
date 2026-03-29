@@ -23,7 +23,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 110
+- Archived task count: 111
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: docs arrow pixel accuracy (2026-03-25)
