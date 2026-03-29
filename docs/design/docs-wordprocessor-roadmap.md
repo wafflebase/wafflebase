@@ -256,17 +256,21 @@ documents.
 - Canvas rendering via `drawImage()`, layout reserves space for image dimensions
 - Alt text support
 
-### 3.2 Table
+### 3.2 Table ✅
 
 - `Block.type = 'table'`
 - `TableData`: `{ rows: TableRow[], columnWidths: number[] }`
 - `TableRow`: `{ cells: TableCell[] }`
-- `TableCell`: `{ inlines: Inline[], style: CellStyle, rowSpan?, colSpan? }`
+- `TableCell`: `{ blocks: Block[], style: CellStyle, rowSpan?, colSpan? }`
+- Cells as Block[] containers (paragraphs, lists, headings inside cells)
 - Inline formatting inside cells
 - Row / column add & delete, cell merge / split
 - Table selection: cell / row / column / whole table
 - Tab to move to next cell
 - Layout: column-width-based cell layout, auto-calculated row height
+- Yorkie Tree CRDT: row → cell → block → inline → text node hierarchy
+- Granular store updates: cell-level `editByPath` for concurrent editing
+- See `docs-tables.md`, `docs-table-ui.md`, `docs-table-crdt.md` for details
 
 ### 3.3 Code Block
 
