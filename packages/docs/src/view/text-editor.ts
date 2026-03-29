@@ -697,6 +697,10 @@ export class TextEditor {
   private handleMouseDown = (e: MouseEvent): void => {
     if (e.target === this.textarea) return;
 
+    // Ignore clicks on non-canvas UI elements (e.g. context menu buttons)
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('button, [role="menu"], [role="menuitem"]')) return;
+
     // Ctrl+Click (or Cmd+Click on Mac) on a link opens it in a new tab
     if (e.ctrlKey || e.metaKey) {
       const href = this.getLinkHrefAtMouse(e);
