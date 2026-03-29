@@ -40,6 +40,7 @@ function normalizeRange(
   const anchorCellInfo = layout.blockParentMap.get(range.anchor.blockId);
   const focusCellInfo = layout.blockParentMap.get(range.focus.blockId);
 
+
   const anchorIdx = layout.blocks.findIndex(
     (lb) => lb.block.id === (anchorCellInfo?.tableBlockId ?? range.anchor.blockId),
   );
