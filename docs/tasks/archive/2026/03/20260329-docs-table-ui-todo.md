@@ -1,6 +1,6 @@
 # Docs Table UI Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add toolbar grid picker for table insertion, right-click context menu for table operations, and IME composition support inside table cells.
 
@@ -29,7 +29,7 @@
 **Files:**
 - Create: `packages/frontend/src/app/docs/table-grid-picker.tsx`
 
-- [ ] **Step 1: Create the TableGridPicker component**
+- [x] **Step 1: Create the TableGridPicker component**
 
 Create `packages/frontend/src/app/docs/table-grid-picker.tsx`:
 
@@ -95,12 +95,12 @@ export function TableGridPicker({ onSelect }: TableGridPickerProps) {
 }
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [x] **Step 2: Verify it compiles**
 
 Run: `cd packages/frontend && npx tsc --noEmit 2>&1 | head -5`
 Expected: No errors related to table-grid-picker.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/table-grid-picker.tsx
@@ -114,7 +114,7 @@ git commit --no-verify -m "feat(frontend): add TableGridPicker component"
 **Files:**
 - Modify: `packages/frontend/src/app/docs/docs-formatting-toolbar.tsx`
 
-- [ ] **Step 1: Add table icon import and dropdown**
+- [x] **Step 1: Add table icon import and dropdown**
 
 At the top of `docs-formatting-toolbar.tsx`, add `IconTable` to the tabler imports:
 
@@ -125,13 +125,13 @@ import {
 } from "@tabler/icons-react";
 ```
 
-- [ ] **Step 2: Add the TableGridPicker import**
+- [x] **Step 2: Add the TableGridPicker import**
 
 ```typescript
 import { TableGridPicker } from "./table-grid-picker";
 ```
 
-- [ ] **Step 3: Add the table insert dropdown before the separator before undo/redo**
+- [x] **Step 3: Add the table insert dropdown before the separator before undo/redo**
 
 Find the closing `</div>` of the indent increase button (around line 419). Before the final `</div>`, add:
 
@@ -163,12 +163,12 @@ Find the closing `</div>` of the indent increase button (around line 419). Befor
       </DropdownMenu>
 ```
 
-- [ ] **Step 4: Verify it compiles**
+- [x] **Step 4: Verify it compiles**
 
 Run: `cd packages/frontend && npx tsc --noEmit 2>&1 | head -10`
 Expected: No errors.
 
-- [ ] **Step 5: Manual test**
+- [x] **Step 5: Manual test**
 
 Run: `pnpm dev`, open a Docs document, verify:
 - Table icon button appears in toolbar
@@ -176,7 +176,7 @@ Run: `pnpm dev`, open a Docs document, verify:
 - Hovering highlights cells with dimension label
 - Clicking a cell inserts a table
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/docs-formatting-toolbar.tsx
@@ -191,7 +191,7 @@ git commit --no-verify -m "feat(frontend): add table insert button to docs toolb
 - Create: `packages/frontend/src/app/docs/docs-table-context-menu.tsx`
 - Modify: `packages/frontend/src/app/docs/docs-view.tsx`
 
-- [ ] **Step 1: Create the context menu component**
+- [x] **Step 1: Create the context menu component**
 
 Create `packages/frontend/src/app/docs/docs-table-context-menu.tsx`:
 
@@ -350,7 +350,7 @@ export function DocsTableContextMenu({
 }
 ```
 
-- [ ] **Step 2: Wrap the editor container in DocsView**
+- [x] **Step 2: Wrap the editor container in DocsView**
 
 In `packages/frontend/src/app/docs/docs-view.tsx`, add the import:
 
@@ -381,12 +381,12 @@ And add the closing tag before the final fragment close — change the closing `
   );
 ```
 
-- [ ] **Step 3: Verify it compiles**
+- [x] **Step 3: Verify it compiles**
 
 Run: `cd packages/frontend && npx tsc --noEmit 2>&1 | head -10`
 Expected: No errors.
 
-- [ ] **Step 4: Manual test**
+- [x] **Step 4: Manual test**
 
 Run: `pnpm dev`, open a Docs document:
 1. Insert a table via toolbar
@@ -397,7 +397,7 @@ Run: `pnpm dev`, open a Docs document:
 6. Test: cell background color
 7. Right-click outside table → normal browser context menu
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/docs-table-context-menu.tsx packages/frontend/src/app/docs/docs-view.tsx
@@ -411,7 +411,7 @@ git commit --no-verify -m "feat(frontend): add table context menu for docs edito
 **Files:**
 - Modify: `packages/docs/src/view/text-editor.ts`
 
-- [ ] **Step 1: Fix handleCompositionEnd to route through cell methods**
+- [x] **Step 1: Fix handleCompositionEnd to route through cell methods**
 
 In `packages/docs/src/view/text-editor.ts`, find `handleCompositionEnd` (around line 190).
 
@@ -446,7 +446,7 @@ With cell-aware routing:
     }
 ```
 
-- [ ] **Step 2: Fix handleInput (composition active) to route through cell methods**
+- [x] **Step 2: Fix handleInput (composition active) to route through cell methods**
 
 In `handleInput`, find the composition-active branch (around line 241).
 
@@ -481,7 +481,7 @@ With cell-aware routing:
       }
 ```
 
-- [ ] **Step 3: Fix applyHangulResult to route through cell methods**
+- [x] **Step 3: Fix applyHangulResult to route through cell methods**
 
 In `applyHangulResult` (around line 2119), replace all `this.doc.deleteText` and `this.doc.insertText` calls with cell-aware versions.
 
@@ -549,12 +549,12 @@ For the composing section (result.composing):
     }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cd packages/docs && npx vitest run`
 Expected: All pass (no regressions).
 
-- [ ] **Step 5: Manual IME test**
+- [x] **Step 5: Manual IME test**
 
 Run: `pnpm dev`:
 1. Insert a table
@@ -563,7 +563,7 @@ Run: `pnpm dev`:
 4. Verify text appears correctly in the cell
 5. Test on multiple cells
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts
@@ -574,12 +574,12 @@ git commit --no-verify -m "feat(docs): route IME composition through table cell 
 
 ### Task 5: Verification
 
-- [ ] **Step 1: Run verify:fast**
+- [x] **Step 1: Run verify:fast**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 2: Full manual smoke test**
+- [x] **Step 2: Full manual smoke test**
 
 1. Open docs editor
 2. Insert table via toolbar grid picker (3x4)

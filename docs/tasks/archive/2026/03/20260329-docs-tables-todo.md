@@ -1,6 +1,6 @@
 # Docs Table Support Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add table support (creation, cell editing, merge/split, styling, layout, rendering) to Wafflebase Docs.
 
@@ -38,7 +38,7 @@
 - Modify: `packages/docs/src/index.ts`
 - Test: `packages/docs/test/model/types.test.ts`
 
-- [ ] **Step 1: Write failing tests for table type factories**
+- [x] **Step 1: Write failing tests for table type factories**
 
 Add to `packages/docs/test/model/types.test.ts`:
 
@@ -80,12 +80,12 @@ describe('Table types', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && npx vitest run test/model/types.test.ts`
 Expected: FAIL — `createTableBlock`, `createTableCell`, `DEFAULT_CELL_STYLE`, `DEFAULT_BORDER_STYLE` not exported.
 
-- [ ] **Step 3: Add table types and factories to types.ts**
+- [x] **Step 3: Add table types and factories to types.ts**
 
 Add to `packages/docs/src/model/types.ts`:
 
@@ -201,7 +201,7 @@ export function createTableBlock(rows: number, cols: number): Block {
 }
 ```
 
-- [ ] **Step 4: Export new types from index.ts**
+- [x] **Step 4: Export new types from index.ts**
 
 Add to `packages/docs/src/index.ts`:
 
@@ -223,12 +223,12 @@ export {
 } from './model/types.js';
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/model/types.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/model/types.ts packages/docs/src/index.ts packages/docs/test/model/types.test.ts
@@ -243,7 +243,7 @@ git commit -m "feat(docs): add table data model types and factories"
 - Modify: `packages/docs/src/model/document.ts`
 - Create: `packages/docs/test/model/table.test.ts`
 
-- [ ] **Step 1: Write failing tests for table CRUD**
+- [x] **Step 1: Write failing tests for table CRUD**
 
 Create `packages/docs/test/model/table.test.ts`:
 
@@ -435,12 +435,12 @@ describe('Doc table operations', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/model/table.test.ts`
 Expected: FAIL — `doc.insertTable` is not a function.
 
-- [ ] **Step 3: Implement Doc table methods**
+- [x] **Step 3: Implement Doc table methods**
 
 Add to `packages/docs/src/model/document.ts`:
 
@@ -763,12 +763,12 @@ Also extract two private helpers (refactored from existing private methods):
   }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/model/table.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts packages/docs/test/model/table.test.ts
@@ -784,7 +784,7 @@ git commit -m "feat(docs): add Doc table manipulation methods"
 - Modify: `packages/docs/src/view/layout.ts`
 - Create: `packages/docs/test/view/table-layout.test.ts`
 
-- [ ] **Step 1: Write failing tests for table layout**
+- [x] **Step 1: Write failing tests for table layout**
 
 Create `packages/docs/test/view/table-layout.test.ts`:
 
@@ -845,12 +845,12 @@ describe('computeTableLayout', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && npx vitest run test/view/table-layout.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement table-layout.ts**
+- [x] **Step 3: Implement table-layout.ts**
 
 Create `packages/docs/src/view/table-layout.ts`:
 
@@ -1081,7 +1081,7 @@ function splitWords(text: string): string[] {
 }
 ```
 
-- [ ] **Step 4: Integrate into layout.ts computeLayout()**
+- [x] **Step 4: Integrate into layout.ts computeLayout()**
 
 In `packages/docs/src/view/layout.ts`, add a branch for table blocks inside the `computeLayout()` function's block loop:
 
@@ -1122,7 +1122,7 @@ Inside the `for (const block of blocks)` loop in `computeLayout()`, add before t
     }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/view/table-layout.test.ts`
 Expected: PASS
@@ -1130,7 +1130,7 @@ Expected: PASS
 Run: `cd packages/docs && npx vitest run`
 Expected: All existing tests still PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/table-layout.ts packages/docs/src/view/layout.ts packages/docs/test/view/table-layout.test.ts
@@ -1145,7 +1145,7 @@ git commit -m "feat(docs): add table layout computation"
 - Create: `packages/docs/src/view/table-renderer.ts`
 - Modify: `packages/docs/src/view/doc-canvas.ts`
 
-- [ ] **Step 1: Create table-renderer.ts**
+- [x] **Step 1: Create table-renderer.ts**
 
 Create `packages/docs/src/view/table-renderer.ts`:
 
@@ -1299,7 +1299,7 @@ export function renderTable(
 }
 ```
 
-- [ ] **Step 2: Integrate into doc-canvas.ts**
+- [x] **Step 2: Integrate into doc-canvas.ts**
 
 In `packages/docs/src/view/doc-canvas.ts`, in the block rendering loop (where it iterates over page lines and draws text runs), add a branch that detects table blocks and calls `renderTable()`. The table block appears as a single line in the paginated layout. When rendering a line whose block is a table:
 
@@ -1325,12 +1325,12 @@ if (lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
 }
 ```
 
-- [ ] **Step 3: Run all tests to verify nothing broke**
+- [x] **Step 3: Run all tests to verify nothing broke**
 
 Run: `cd packages/docs && npx vitest run`
 Expected: All PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/src/view/table-renderer.ts packages/docs/src/view/doc-canvas.ts
@@ -1345,7 +1345,7 @@ git commit -m "feat(docs): add table Canvas rendering"
 - Modify: `packages/docs/src/view/pagination.ts`
 - Modify: `packages/docs/test/view/pagination.test.ts`
 
-- [ ] **Step 1: Write failing test for table pagination**
+- [x] **Step 1: Write failing test for table pagination**
 
 Add to `packages/docs/test/view/pagination.test.ts`:
 
@@ -1403,11 +1403,11 @@ describe('table pagination', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails (or passes if already compatible)**
+- [x] **Step 2: Run test to verify it fails (or passes if already compatible)**
 
 Run: `cd packages/docs && npx vitest run test/view/pagination.test.ts`
 
-- [ ] **Step 3: Update pagination to expand table blocks into per-row lines**
+- [x] **Step 3: Update pagination to expand table blocks into per-row lines**
 
 In `packages/docs/src/view/pagination.ts`, modify the block iteration to handle table blocks specially. When a table block is encountered, expand it into one "line" per row (using `layoutTable.rowHeights`) so pagination can split at row boundaries:
 
@@ -1436,7 +1436,7 @@ if (lb.block.type === 'table' && lb.layoutTable) {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cd packages/docs && npx vitest run test/view/pagination.test.ts`
 Expected: PASS
@@ -1444,7 +1444,7 @@ Expected: PASS
 Run: `cd packages/docs && npx vitest run`
 Expected: All PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/pagination.ts packages/docs/test/view/pagination.test.ts
@@ -1461,7 +1461,7 @@ git commit -m "feat(docs): add row-level table pagination"
 
 This task wires keyboard/mouse interaction for tables. Due to the complexity of `TextEditor`, changes are described as behavioral patches rather than full code listings.
 
-- [ ] **Step 1: Add table-aware click handling**
+- [x] **Step 1: Add table-aware click handling**
 
 In `TextEditor`'s mouse click handler (`handleMouseDown` or equivalent), after resolving a `DocPosition` via `paginatedPixelToPosition()`:
 
@@ -1523,7 +1523,7 @@ private resolveTableCellClick(
 }
 ```
 
-- [ ] **Step 2: Add Tab/Shift+Tab cell navigation**
+- [x] **Step 2: Add Tab/Shift+Tab cell navigation**
 
 In the keyboard handler, when cursor is inside a table (cursor.position.cellAddress is set):
 
@@ -1592,18 +1592,18 @@ if (key === 'Tab' && e.shiftKey && cursor.position.cellAddress) {
 }
 ```
 
-- [ ] **Step 3: Add Enter key (move to cell below) and text input routing**
+- [x] **Step 3: Add Enter key (move to cell below) and text input routing**
 
 When cursor is in a table cell:
 - **Enter**: Move to cell below (same column), or no-op if at last row
 - **Text input** (`handleInput`): Route to `doc.insertTextInCell()` instead of `doc.insertText()`
 - **Backspace**: Route to `doc.deleteTextInCell()`, no-op at cell start (don't merge blocks)
 
-- [ ] **Step 4: Wire table cursor rendering in editor.ts**
+- [x] **Step 4: Wire table cursor rendering in editor.ts**
 
 In `editor.ts`, update `getSelectionStyle()` to handle table cells — when `cursor.position.cellAddress` is set, read the inline style from the cell's inlines instead of the block's inlines.
 
-- [ ] **Step 5: Manual testing**
+- [x] **Step 5: Manual testing**
 
 Run: `pnpm dev` and test:
 - Click inside a table cell → cursor appears in cell
@@ -1612,7 +1612,7 @@ Run: `pnpm dev` and test:
 - Shift+Tab → moves to previous cell
 - Enter → moves to cell below
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts packages/docs/src/view/editor.ts
@@ -1627,7 +1627,7 @@ git commit -m "feat(docs): add table cursor navigation and cell editing"
 - Modify: `packages/docs/src/view/editor.ts`
 - Modify: `packages/docs/src/index.ts`
 
-- [ ] **Step 1: Add table methods to EditorAPI interface**
+- [x] **Step 1: Add table methods to EditorAPI interface**
 
 ```typescript
 // Add to EditorAPI interface in editor.ts:
@@ -1653,7 +1653,7 @@ isInTable(): boolean;
 getCellAddress(): CellAddress | undefined;
 ```
 
-- [ ] **Step 2: Implement the methods in the return object**
+- [x] **Step 2: Implement the methods in the return object**
 
 ```typescript
 insertTable: (rows: number, cols: number) => {
@@ -1724,18 +1724,18 @@ applyTableCellStyle: (style: Partial<CellStyle>) => {
 },
 ```
 
-- [ ] **Step 3: Export LayoutTable type from index.ts**
+- [x] **Step 3: Export LayoutTable type from index.ts**
 
 ```typescript
 export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';
 ```
 
-- [ ] **Step 4: Run verify:fast**
+- [x] **Step 4: Run verify:fast**
 
 Run: `pnpm verify:fast`
 Expected: PASS (lint + unit tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/editor.ts packages/docs/src/index.ts
@@ -1746,12 +1746,12 @@ git commit -m "feat(docs): expose table operations in EditorAPI"
 
 ### Task 8: Integration Verification
 
-- [ ] **Step 1: Run full test suite**
+- [x] **Step 1: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 2: Manual smoke test**
+- [x] **Step 2: Manual smoke test**
 
 Run: `pnpm dev`, open the docs editor, and verify:
 1. Create a document, programmatically insert a table (via browser console: `editor.insertTable(3, 4)`)
@@ -1760,7 +1760,7 @@ Run: `pnpm dev`, open the docs editor, and verify:
 4. Verify table renders with borders
 5. Undo/Redo works after table edits
 
-- [ ] **Step 3: Final commit with all remaining changes**
+- [x] **Step 3: Final commit with all remaining changes**
 
 ```bash
 git add -A

@@ -1,6 +1,6 @@
 # Conditional Format Multi-Range Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Change conditional formatting from single `range` to multi-range `ranges: Range[]` per rule.
 
@@ -17,7 +17,7 @@
 **Files:**
 - Modify: `packages/sheet/src/model/core/types.ts:131-138`
 
-- [ ] **Step 1: Change `range` to `ranges` in `ConditionalFormatRule`**
+- [x] **Step 1: Change `range` to `ranges` in `ConditionalFormatRule`**
 
 ```typescript
 export type ConditionalFormatRule = {
@@ -30,7 +30,7 @@ export type ConditionalFormatRule = {
 };
 ```
 
-- [ ] **Step 2: Verify TypeScript catches all consumers**
+- [x] **Step 2: Verify TypeScript catches all consumers**
 
 Run: `cd packages/sheet && npx tsc --noEmit 2>&1 | head -60`
 Expected: Type errors in conditional-format.ts, memory.ts, sheet.ts, test files — confirms all consumers found.
@@ -43,11 +43,11 @@ Expected: Type errors in conditional-format.ts, memory.ts, sheet.ts, test files 
 - Modify: `packages/sheet/src/model/worksheet/conditional-format.ts`
 - Test: `packages/sheet/test/model/conditional-format.test.ts`
 
-- [ ] **Step 1: Update `cloneConditionalFormatRule`**
+- [x] **Step 1: Update `cloneConditionalFormatRule`**
 
 Replace `range: cloneRange(rule.range)` with `ranges: rule.ranges.map(r => cloneRange(r))`.
 
-- [ ] **Step 2: Update `normalizeConditionalFormatRule`**
+- [x] **Step 2: Update `normalizeConditionalFormatRule`**
 
 Add backward-compat read path: `const ranges = rule.ranges ?? ((rule as any).range ? [(rule as any).range] : undefined)`. Normalize each range. Reject if empty.
 
@@ -77,11 +77,11 @@ const normalized: ConditionalFormatRule = {
 };
 ```
 
-- [ ] **Step 3: Update `resolveConditionalFormatStyleAt`**
+- [x] **Step 3: Update `resolveConditionalFormatStyleAt`**
 
 Replace `if (!inRange(point, rule.range))` with `if (!rule.ranges.some((r) => inRange(point, r)))`.
 
-- [ ] **Step 4: Update `shiftConditionalFormatRules`**
+- [x] **Step 4: Update `shiftConditionalFormatRules`**
 
 Shift every range in `ranges`. Filter out collapsed ranges. Drop rule if all ranges removed.
 
@@ -116,7 +116,7 @@ next.push({
 });
 ```
 
-- [ ] **Step 5: Update `moveConditionalFormatRules`**
+- [x] **Step 5: Update `moveConditionalFormatRules`**
 
 Same pattern — iterate `ranges`, remap each, filter empties.
 
@@ -151,7 +151,7 @@ next.push({
 });
 ```
 
-- [ ] **Step 6: Update tests — change `range` to `ranges` in all rules**
+- [x] **Step 6: Update tests — change `range` to `ranges` in all rules**
 
 Every `range: [...]` in test file becomes `ranges: [[...]]`. Example:
 ```typescript
@@ -161,7 +161,7 @@ range: [{ r: 1, c: 1 }, { r: 10, c: 10 }],
 ranges: [[{ r: 1, c: 1 }, { r: 10, c: 10 }]],
 ```
 
-- [ ] **Step 7: Add multi-range test cases**
+- [x] **Step 7: Add multi-range test cases**
 
 ```typescript
 it('resolves style when cell is in any of multiple ranges', () => {
@@ -202,12 +202,12 @@ it('normalizes legacy single-range rule to ranges', () => {
 });
 ```
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 Run: `cd packages/sheet && npx vitest run test/model/conditional-format.test.ts`
 Expected: All tests pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```
 feat(sheet): change conditional format from single range to ranges array
@@ -225,19 +225,19 @@ legacy single-range documents.
 - Modify: `packages/sheet/src/model/worksheet/sheet.ts`
 - Modify: `packages/sheet/src/store/memory.ts`
 
-- [ ] **Step 1: Fix any remaining type errors in sheet.ts and memory.ts**
+- [x] **Step 1: Fix any remaining type errors in sheet.ts and memory.ts**
 
 These files use `cloneConditionalFormatRule`, `shiftConditionalFormatRules`, etc. which now return `ranges`-based rules. No direct `rule.range` access should exist in these files — verify with `tsc`.
 
 Run: `cd packages/sheet && npx tsc --noEmit`
 Expected: No errors.
 
-- [ ] **Step 2: Run full sheet tests**
+- [x] **Step 2: Run full sheet tests**
 
 Run: `pnpm test`
 Expected: All pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 refactor(sheet): update Sheet and MemStore for multi-range conditional formats
@@ -250,7 +250,7 @@ refactor(sheet): update Sheet and MemStore for multi-range conditional formats
 **Files:**
 - Modify: `packages/frontend/src/app/spreadsheet/conditional-format-panel.tsx`
 
-- [ ] **Step 1: Update `parseA1Range` → support comma-separated ranges**
+- [x] **Step 1: Update `parseA1Range` → support comma-separated ranges**
 
 Replace `parseA1Range` with `parseA1Ranges`:
 ```typescript
@@ -286,7 +286,7 @@ function parseA1Ranges(input: string): Range[] | null {
 }
 ```
 
-- [ ] **Step 2: Update `formatA1Range` → `formatA1Ranges`**
+- [x] **Step 2: Update `formatA1Range` → `formatA1Ranges`**
 
 ```typescript
 function formatA1Ranges(ranges: Range[]): string {
@@ -294,7 +294,7 @@ function formatA1Ranges(ranges: Range[]): string {
 }
 ```
 
-- [ ] **Step 3: Update all usages in the component**
+- [x] **Step 3: Update all usages in the component**
 
 - `setRangeInput`: `formatA1Ranges(selectedRule.ranges)` instead of `formatA1Range(selectedRule.range)`
 - `handleAddRule`: `ranges: [defaultRange]` instead of `range: defaultRange`
@@ -303,12 +303,12 @@ function formatA1Ranges(ranges: Range[]): string {
 - Rule list display: `formatA1Ranges(rule.ranges)` instead of `formatA1Range(rule.range)`
 - Placeholder: `"A1:B10, D1:E10"`
 
-- [ ] **Step 4: Verify frontend builds**
+- [x] **Step 4: Verify frontend builds**
 
 Run: `cd packages/frontend && npx tsc --noEmit`
 Expected: No errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 feat(frontend): support multi-range input in conditional format panel
@@ -324,14 +324,14 @@ conditional formatting panel.
 **Files:**
 - Modify: `packages/frontend/src/app/spreadsheet/yorkie-store.ts`
 
-- [ ] **Step 1: Verify no direct `rule.range` access exists**
+- [x] **Step 1: Verify no direct `rule.range` access exists**
 
 The YorkieStore uses `cloneConditionalFormatRule` and `normalizeConditionalFormatRule` which now handle `ranges`. Verify no direct field access.
 
 Run: `cd packages/frontend && npx tsc --noEmit`
 Expected: No errors (type change flows through automatically).
 
-- [ ] **Step 2: Commit if changes were needed**
+- [x] **Step 2: Commit if changes were needed**
 
 ```
 refactor(frontend): update YorkieStore for multi-range conditional formats
@@ -344,7 +344,7 @@ refactor(frontend): update YorkieStore for multi-range conditional formats
 **Files:**
 - Modify: `packages/sheet/src/model/workbook/worksheet-document.ts`
 
-- [ ] **Step 1: Verify the `Worksheet` type uses `ConditionalFormatRule` (which now has `ranges`)**
+- [x] **Step 1: Verify the `Worksheet` type uses `ConditionalFormatRule` (which now has `ranges`)**
 
 The `conditionalFormats?: ConditionalFormatRule[]` field already references the updated type. No change needed unless the type is inlined.
 
@@ -359,7 +359,7 @@ Expected: No errors.
 - Create: `packages/backend/scripts/migrate-yorkie-cf-ranges.ts`
 - Modify: `packages/backend/package.json` (add npm script)
 
-- [ ] **Step 1: Create migration script**
+- [x] **Step 1: Create migration script**
 
 Follow the `migrate-yorkie-worksheet-shape.ts` pattern. Key logic:
 
@@ -441,19 +441,19 @@ async function migrateDocument(
 
 Full script follows the same main(), parseArgs(), loadDocuments(), summary pattern.
 
-- [ ] **Step 2: Add npm script to backend package.json**
+- [x] **Step 2: Add npm script to backend package.json**
 
 Add to `scripts` in `packages/backend/package.json`:
 ```json
 "migrate:yorkie:cf-ranges": "tsx scripts/migrate-yorkie-cf-ranges.ts"
 ```
 
-- [ ] **Step 3: Verify script compiles**
+- [x] **Step 3: Verify script compiles**
 
 Run: `cd packages/backend && npx tsc --noEmit`
 Expected: No errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```
 feat(backend): add Yorkie migration script for conditional format ranges
@@ -467,16 +467,16 @@ migration: --document <id>, --all, --limit N.
 
 ### Task 8: Run full verification
 
-- [ ] **Step 1: Run verify:fast**
+- [x] **Step 1: Run verify:fast**
 
 Run: `pnpm verify:fast`
 Expected: Lint + all unit tests pass.
 
-- [ ] **Step 2: Verify frontend build**
+- [x] **Step 2: Verify frontend build**
 
 Run: `cd packages/frontend && pnpm build`
 Expected: Build succeeds.
 
-- [ ] **Step 3: Archive task**
+- [x] **Step 3: Archive task**
 
 Run: `pnpm tasks:archive && pnpm tasks:index`

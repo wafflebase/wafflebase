@@ -6,12 +6,17 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 103
+Total archived tasks: 109
 
-## 2026/03 (66 tasks)
+## 2026/03 (72 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs table selection (2026-03-29) | [20260329-docs-table-selection-todo.md](./2026/03/20260329-docs-table-selection-todo.md) | - |
+| docs table ui (2026-03-29) | [20260329-docs-table-ui-todo.md](./2026/03/20260329-docs-table-ui-todo.md) | - |
+| docs tables (2026-03-29) | [20260329-docs-tables-todo.md](./2026/03/20260329-docs-tables-todo.md) | - |
+| docs mobile zoom to fit (2026-03-28) | [20260328-docs-mobile-zoom-to-fit-todo.md](./2026/03/20260328-docs-mobile-zoom-to-fit-todo.md) | [20260328-docs-mobile-zoom-to-fit-lessons.md](./2026/03/20260328-docs-mobile-zoom-to-fit-lessons.md) |
+| docs phase2 (2026-03-26) | [20260326-docs-phase2-todo.md](./2026/03/20260326-docs-phase2-todo.md) | [20260326-docs-phase2-lessons.md](./2026/03/20260326-docs-phase2-lessons.md) |
 | number autofill ols (2026-03-26) | [20260326-number-autofill-ols-todo.md](./2026/03/20260326-number-autofill-ols-todo.md) | - |
 | docs editor improvements (2026-03-25) | [20260325-docs-editor-improvements-todo.md](./2026/03/20260325-docs-editor-improvements-todo.md) | - |
 | docs documentation update (2026-03-24) | [20260324-docs-documentation-update-todo.md](./2026/03/20260324-docs-documentation-update-todo.md) | - |
@@ -24,6 +29,7 @@ Total archived tasks: 103
 | docs keyboard mouse (2026-03-22) | [20260322-docs-keyboard-mouse-todo.md](./2026/03/20260322-docs-keyboard-mouse-todo.md) | [20260322-docs-keyboard-mouse-lessons.md](./2026/03/20260322-docs-keyboard-mouse-lessons.md) |
 | docs rendering optimization (2026-03-22) | [20260322-docs-rendering-optimization-todo.md](./2026/03/20260322-docs-rendering-optimization-todo.md) | - |
 | docs ruler (2026-03-22) | [20260322-docs-ruler-todo.md](./2026/03/20260322-docs-ruler-todo.md) | - |
+| cf multi range (2026-03-21) | [20260321-cf-multi-range-todo.md](./2026/03/20260321-cf-multi-range-todo.md) | [20260321-cf-multi-range-lessons.md](./2026/03/20260321-cf-multi-range-lessons.md) |
 | docs pagination (2026-03-21) | [20260321-docs-pagination-todo.md](./2026/03/20260321-docs-pagination-todo.md) | - |
 | pr58 review (2026-03-21) | [20260321-pr58-review-todo.md](./2026/03/20260321-pr58-review-todo.md) | - |
 | docs package (2026-03-20) | [20260320-docs-package-todo.md](./2026/03/20260320-docs-package-todo.md) | [20260320-docs-package-lessons.md](./2026/03/20260320-docs-package-lessons.md) |

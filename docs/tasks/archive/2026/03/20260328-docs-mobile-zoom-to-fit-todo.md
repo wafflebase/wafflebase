@@ -1,6 +1,6 @@
 # Docs Mobile Zoom-to-Fit Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Scale the Canvas-based docs editor to fit mobile viewports when the container is narrower than the page width.
 
@@ -32,7 +32,7 @@
 - Create: `packages/docs/src/view/scale.ts`
 - Create: `packages/docs/test/view/scale.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/docs/test/view/scale.test.ts`:
 
@@ -78,12 +78,12 @@ describe('computeScaleFactor', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && npx vitest --run test/view/scale.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 Create `packages/docs/src/view/scale.ts`:
 
@@ -110,12 +110,12 @@ export function computeScaleFactor(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && npx vitest --run test/view/scale.test.ts`
 Expected: All 7 tests PASS
 
-- [ ] **Step 5: Export from index**
+- [x] **Step 5: Export from index**
 
 Add to `packages/docs/src/index.ts`:
 
@@ -123,7 +123,7 @@ Add to `packages/docs/src/index.ts`:
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/scale.ts packages/docs/test/view/scale.test.ts packages/docs/src/index.ts
@@ -137,7 +137,7 @@ git commit -m "Add computeScaleFactor utility for docs mobile zoom-to-fit"
 **Files:**
 - Modify: `packages/docs/src/view/doc-canvas.ts`
 
-- [ ] **Step 1: Add scaleFactor parameter to render()**
+- [x] **Step 1: Add scaleFactor parameter to render()**
 
 In `packages/docs/src/view/doc-canvas.ts`, add `scaleFactor` as the last parameter of the `render()` method (default `1`):
 
@@ -168,7 +168,7 @@ render(
 ): void {
 ```
 
-- [ ] **Step 2: Apply ctx.scale before translate**
+- [x] **Step 2: Apply ctx.scale before translate**
 
 Replace the existing `ctx.save(); ctx.translate(0, -scrollY);` block (lines 84-85) with:
 
@@ -182,12 +182,12 @@ this.ctx.translate(0, -scrollY);
 
 The `canvasWidth` passed in should already be the logical width (`physicalCanvasWidth / scaleFactor`) — the caller (editor.ts) handles this in Task 4.
 
-- [ ] **Step 3: Verify existing tests still pass**
+- [x] **Step 3: Verify existing tests still pass**
 
 Run: `cd packages/docs && npx vitest --run`
 Expected: All tests PASS (no existing tests exercise DocCanvas directly, but ensures no import breakage)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/src/view/doc-canvas.ts
@@ -201,7 +201,7 @@ git commit -m "Add scaleFactor support to DocCanvas render method"
 **Files:**
 - Modify: `packages/docs/src/view/ruler.ts`
 
-- [ ] **Step 1: Add hide() and show() methods**
+- [x] **Step 1: Add hide() and show() methods**
 
 Add these methods to the `Ruler` class in `packages/docs/src/view/ruler.ts`, before the `dispose()` method:
 
@@ -225,12 +225,12 @@ show(): void {
 }
 ```
 
-- [ ] **Step 2: Verify existing ruler tests pass**
+- [x] **Step 2: Verify existing ruler tests pass**
 
 Run: `cd packages/docs && npx vitest --run test/view/ruler.test.ts`
 Expected: All PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/docs/src/view/ruler.ts
@@ -244,7 +244,7 @@ git commit -m "Add hide/show methods to Ruler for mobile zoom-to-fit"
 **Files:**
 - Modify: `packages/docs/src/view/text-editor.ts`
 
-- [ ] **Step 1: Add getScaleFactor to constructor**
+- [x] **Step 1: Add getScaleFactor to constructor**
 
 In `packages/docs/src/view/text-editor.ts`, add a new private field and constructor parameter. Insert after `getCanvasWidth`:
 
@@ -263,7 +263,7 @@ Constructor body (add after `this.getCanvasWidth = getCanvasWidth;` at line 128)
 this.getScaleFactor = getScaleFactor;
 ```
 
-- [ ] **Step 2: Update getPositionFromMouse**
+- [x] **Step 2: Update getPositionFromMouse**
 
 In `getPositionFromMouse` (around line 1752), apply scale inversion:
 
@@ -280,7 +280,7 @@ private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'for
 }
 ```
 
-- [ ] **Step 3: Update updateDragSelection**
+- [x] **Step 3: Update updateDragSelection**
 
 In `updateDragSelection` (around line 731), apply scale inversion:
 
@@ -306,12 +306,12 @@ private updateDragSelection(clientX: number, clientY: number): void {
 }
 ```
 
-- [ ] **Step 4: Verify tests pass**
+- [x] **Step 4: Verify tests pass**
 
 Run: `cd packages/docs && npx vitest --run`
 Expected: All PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts
@@ -325,7 +325,7 @@ git commit -m "Add scale factor inversion to TextEditor hit testing"
 **Files:**
 - Modify: `packages/docs/src/view/editor.ts`
 
-- [ ] **Step 1: Import computeScaleFactor**
+- [x] **Step 1: Import computeScaleFactor**
 
 Add to the imports at the top of `packages/docs/src/view/editor.ts`:
 
@@ -333,7 +333,7 @@ Add to the imports at the top of `packages/docs/src/view/editor.ts`:
 import { computeScaleFactor } from './scale.js';
 ```
 
-- [ ] **Step 2: Add scaleFactor state variable**
+- [x] **Step 2: Add scaleFactor state variable**
 
 Add after the `let dragGuideline` declaration (around line 132):
 
@@ -341,7 +341,7 @@ Add after the `let dragGuideline` declaration (around line 132):
 let scaleFactor = 1;
 ```
 
-- [ ] **Step 3: Update paint() — compute scale factor and apply to canvas/spacer**
+- [x] **Step 3: Update paint() — compute scale factor and apply to canvas/spacer**
 
 In the `paint()` function, after computing `canvasWidth` and `totalHeight` (around line 183), add scale factor computation and modify the downstream code:
 
@@ -366,7 +366,7 @@ spacer.style.height = `${totalHeight * scaleFactor}px`;
 spacer.style.marginTop = `${-height - rulerSize}px`;
 ```
 
-- [ ] **Step 4: Update paint() — convert scrollY and pass scale to render**
+- [x] **Step 4: Update paint() — convert scrollY and pass scale to render**
 
 Replace the `const scrollY = container.scrollTop;` line and update the docCanvas.render call:
 
@@ -392,7 +392,7 @@ Then replace all uses of `canvasWidth` in the paint() function that compute docu
 
 Keep the physical `canvasWidth` for `docCanvas.resize()`.
 
-- [ ] **Step 5: Update cursor auto-scroll to account for scale**
+- [x] **Step 5: Update cursor auto-scroll to account for scale**
 
 In the `needsScrollIntoView` block, convert cursor pixel coordinates to physical space:
 
@@ -413,7 +413,7 @@ if (needsScrollIntoView && cursorPixel) {
 }
 ```
 
-- [ ] **Step 6: Pass getScaleFactor to TextEditor**
+- [x] **Step 6: Pass getScaleFactor to TextEditor**
 
 Update the `TextEditor` constructor call to include the scale factor callback. Add after the `getCanvasWidth` callback:
 
@@ -421,7 +421,7 @@ Update the `TextEditor` constructor call to include the scale factor callback. A
 () => scaleFactor,
 ```
 
-- [ ] **Step 7: Update TextEditor callback for getCanvasWidth to return logical width**
+- [x] **Step 7: Update TextEditor callback for getCanvasWidth to return logical width**
 
 The `getCanvasWidth` callback passed to TextEditor should return the logical (unscaled) canvas width so hit-testing uses document coordinates:
 
@@ -434,7 +434,7 @@ The `getCanvasWidth` callback passed to TextEditor should return the logical (un
 },
 ```
 
-- [ ] **Step 8: Update ruler rendering to skip when hidden**
+- [x] **Step 8: Update ruler rendering to skip when hidden**
 
 In the ruler.render call at the end of paint(), wrap it conditionally:
 
@@ -451,7 +451,7 @@ if (scaleFactor >= 1) {
 }
 ```
 
-- [ ] **Step 9: Update getCursorScreenRect to account for scale**
+- [x] **Step 9: Update getCursorScreenRect to account for scale**
 
 In the `getCursorScreenRect` method in the returned API, multiply pixel coordinates by scaleFactor:
 
@@ -474,7 +474,7 @@ getCursorScreenRect: () => {
 },
 ```
 
-- [ ] **Step 10: Update canvas top style when ruler is hidden**
+- [x] **Step 10: Update canvas top style when ruler is hidden**
 
 When the ruler is hidden, the canvas should stick to `top: 0` instead of `top: ${RULER_SIZE}px`. In the scale factor block:
 
@@ -488,17 +488,17 @@ if (scaleFactor < 1) {
 }
 ```
 
-- [ ] **Step 11: Run all tests**
+- [x] **Step 11: Run all tests**
 
 Run: `cd packages/docs && npx vitest --run`
 Expected: All PASS
 
-- [ ] **Step 12: Run verify:fast**
+- [x] **Step 12: Run verify:fast**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 git add packages/docs/src/view/editor.ts
@@ -509,18 +509,18 @@ git commit -m "Integrate zoom-to-fit scaling in docs editor for mobile viewports
 
 ### Task 6: Manual Verification & Final Commit
 
-- [ ] **Step 1: Start dev server**
+- [x] **Step 1: Start dev server**
 
 Run: `pnpm dev`
 
-- [ ] **Step 2: Verify desktop behavior (unchanged)**
+- [x] **Step 2: Verify desktop behavior (unchanged)**
 
 Open `http://localhost:5173` in a desktop browser. Open a docs document.
 - Page renders at full size with rulers visible
 - Clicking, selecting, typing all work normally
 - Cursor auto-scroll works
 
-- [ ] **Step 3: Verify mobile viewport**
+- [x] **Step 3: Verify mobile viewport**
 
 In Chrome DevTools, toggle device toolbar (Cmd+Shift+M). Select iPhone SE (375px).
 - Page shrinks to fit with 16px padding on each side
@@ -529,25 +529,25 @@ In Chrome DevTools, toggle device toolbar (Cmd+Shift+M). Select iPhone SE (375px
 - Click/tap positions map to correct document positions
 - No horizontal scrollbar
 
-- [ ] **Step 4: Verify tablet viewport**
+- [x] **Step 4: Verify tablet viewport**
 
 Switch to iPad (768px).
 - Page shrinks slightly (or fits at scale 1 in landscape)
 - Behavior transitions correctly between scaled and unscaled
 
-- [ ] **Step 5: Verify resize transitions**
+- [x] **Step 5: Verify resize transitions**
 
 Slowly drag the browser width from 1200px down to 375px.
 - Scale factor transitions smoothly
 - Ruler appears/disappears at the threshold
 - No rendering glitches
 
-- [ ] **Step 6: Run verify:fast one more time**
+- [x] **Step 6: Run verify:fast one more time**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 7: Final commit with design doc**
+- [x] **Step 7: Final commit with design doc**
 
 ```bash
 git add docs/design/docs-mobile-zoom-to-fit.md docs/tasks/active/20260328-docs-mobile-zoom-to-fit-todo.md

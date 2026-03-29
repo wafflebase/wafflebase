@@ -1,6 +1,6 @@
 # Docs Phase 2: Inline Extensions & Clipboard — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add superscript/subscript, hyperlinks, clipboard operations, and find & replace to the Docs word processor.
 
@@ -38,7 +38,7 @@
 
 ## Branch Setup
 
-- [ ] **Step 1: Create branch**
+- [x] **Step 1: Create branch**
 
 ```bash
 git checkout main
@@ -58,7 +58,7 @@ git checkout -b feat/docs-phase2
 - Test: `packages/docs/test/model/types.test.ts`
 - Test: `packages/docs/test/model/document.test.ts`
 
-- [ ] **Step 1: Write failing tests for `inlineStylesEqual` with new fields**
+- [x] **Step 1: Write failing tests for `inlineStylesEqual` with new fields**
 
 In `packages/docs/test/model/types.test.ts`, add:
 
@@ -74,13 +74,13 @@ it('should detect subscript difference', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL** (properties don't exist)
+- [x] **Step 2: Run tests — expect FAIL** (properties don't exist)
 
 ```bash
 cd packages/docs && pnpm test
 ```
 
-- [ ] **Step 3: Add `superscript` and `subscript` to `InlineStyle`**
+- [x] **Step 3: Add `superscript` and `subscript` to `InlineStyle`**
 
 In `packages/docs/src/model/types.ts`, add to the `InlineStyle` interface (after `backgroundColor`):
 
@@ -89,7 +89,7 @@ superscript?: boolean;
 subscript?: boolean;
 ```
 
-- [ ] **Step 4: Update `inlineStylesEqual()` to compare new fields**
+- [x] **Step 4: Update `inlineStylesEqual()` to compare new fields**
 
 In `packages/docs/src/model/types.ts`, inside `inlineStylesEqual()`, add:
 
@@ -98,13 +98,13 @@ if (a.superscript !== b.superscript) return false;
 if (a.subscript !== b.subscript) return false;
 ```
 
-- [ ] **Step 5: Run tests — expect PASS**
+- [x] **Step 5: Run tests — expect PASS**
 
 ```bash
 cd packages/docs && pnpm test
 ```
 
-- [ ] **Step 6: Write failing test for mutual exclusion**
+- [x] **Step 6: Write failing test for mutual exclusion**
 
 In `packages/docs/test/model/document.test.ts`, add:
 
@@ -142,9 +142,9 @@ describe('superscript/subscript mutual exclusion', () => {
 });
 ```
 
-- [ ] **Step 7: Run tests — expect FAIL** (no mutual exclusion logic)
+- [x] **Step 7: Run tests — expect FAIL** (no mutual exclusion logic)
 
-- [ ] **Step 8: Implement mutual exclusion in `applyStyleToBlock()`**
+- [x] **Step 8: Implement mutual exclusion in `applyStyleToBlock()`**
 
 In `packages/docs/src/model/document.ts`, inside `applyStyleToBlock()`, before applying the style to the overlap part, add:
 
@@ -160,13 +160,13 @@ if (resolvedStyle.superscript) {
 
 Use `resolvedStyle` instead of `style` when merging into the overlap inline's style.
 
-- [ ] **Step 9: Run tests — expect PASS**
+- [x] **Step 9: Run tests — expect PASS**
 
 ```bash
 cd packages/docs && pnpm test
 ```
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/docs/src/model/types.ts packages/docs/src/model/document.ts \
@@ -183,7 +183,7 @@ git commit -m "feat(docs): add superscript/subscript to InlineStyle with mutual 
 - Modify: `packages/docs/src/view/doc-canvas.ts:218-267` (renderRun)
 - Test: `packages/docs/test/view/layout.test.ts`
 
-- [ ] **Step 1: Write failing test for layout with superscript**
+- [x] **Step 1: Write failing test for layout with superscript**
 
 In `packages/docs/test/view/layout.test.ts`, add:
 
@@ -225,9 +225,9 @@ describe('superscript/subscript layout', () => {
 
 > **Note:** `layoutBlock` is private; use the exported `computeLayout()` and access results via `result.layout.blocks[0].lines`.
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
-- [ ] **Step 3: Update layout to handle superscript/subscript font size**
+- [x] **Step 3: Update layout to handle superscript/subscript font size**
 
 In `packages/docs/src/view/layout.ts`:
 
@@ -235,9 +235,9 @@ In `packages/docs/src/view/layout.ts`:
 
 2. In `getLineMaxFontSizePx()`, use the **original** font size (not reduced) when the run has superscript/subscript, so line height is not shrunk.
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
-- [ ] **Step 5: Add baseline shift rendering in `doc-canvas.ts`**
+- [x] **Step 5: Add baseline shift rendering in `doc-canvas.ts`**
 
 In `packages/docs/src/view/doc-canvas.ts`, inside the render run method:
 
@@ -256,13 +256,13 @@ if (style.superscript) {
 // Add baselineOffset to baselineY for fillText()
 ```
 
-- [ ] **Step 6: Run full verify**
+- [x] **Step 6: Run full verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/view/layout.ts packages/docs/src/view/doc-canvas.ts \
@@ -279,7 +279,7 @@ git commit -m "feat(docs): render superscript/subscript with font reduction and 
 - Modify: `packages/docs/src/view/editor.ts:19-58` (EditorAPI)
 - Modify: `packages/frontend/src/app/docs/docs-formatting-toolbar.tsx`
 
-- [ ] **Step 1: Add `Cmd+.` and `Cmd+,` shortcuts in `text-editor.ts`**
+- [x] **Step 1: Add `Cmd+.` and `Cmd+,` shortcuts in `text-editor.ts`**
 
 In `handleKeyDown()`, add after the strikethrough shortcut block:
 
@@ -298,7 +298,7 @@ if ((e.metaKey || e.ctrlKey) && e.key === ',') {
 }
 ```
 
-- [ ] **Step 2: Update `clearFormatting()` to clear new fields**
+- [x] **Step 2: Update `clearFormatting()` to clear new fields**
 
 In `text-editor.ts`, `clearFormatting()`, add to the style object:
 
@@ -307,17 +307,17 @@ superscript: undefined,
 subscript: undefined,
 ```
 
-- [ ] **Step 3: Add toolbar buttons in `docs-formatting-toolbar.tsx`**
+- [x] **Step 3: Add toolbar buttons in `docs-formatting-toolbar.tsx`**
 
 Add superscript and subscript toggle buttons after the underline button. Follow the existing pattern (read `current.superscript`, toggle via `editor.applyStyle({ superscript: !current.superscript })`). Use `Superscript` and `Subscript` icons from lucide-react.
 
-- [ ] **Step 4: Run verify**
+- [x] **Step 4: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts packages/docs/src/view/editor.ts \
@@ -332,7 +332,7 @@ git commit -m "feat(docs): add superscript/subscript shortcuts and toolbar butto
 **Files:**
 - Modify: `packages/frontend/src/app/docs/yorkie-doc-store.ts:35-60`
 
-- [ ] **Step 1: Update `serializeInlineStyle()`**
+- [x] **Step 1: Update `serializeInlineStyle()`**
 
 Add after the `strikethrough` line:
 
@@ -341,7 +341,7 @@ setIfDefined(attrs, 'superscript', style.superscript);
 setIfDefined(attrs, 'subscript', style.subscript);
 ```
 
-- [ ] **Step 2: Update `parseInlineStyle()`**
+- [x] **Step 2: Update `parseInlineStyle()`**
 
 Add parsing for the new fields:
 
@@ -350,13 +350,13 @@ if (attrs.superscript !== undefined) style.superscript = attrs.superscript === '
 if (attrs.subscript !== undefined) style.subscript = attrs.subscript === 'true';
 ```
 
-- [ ] **Step 3: Run verify**
+- [x] **Step 3: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/yorkie-doc-store.ts
@@ -374,7 +374,7 @@ git commit -m "feat(docs): serialize superscript/subscript in Yorkie Tree attrib
 - Test: `packages/docs/test/model/types.test.ts`
 - Test: `packages/docs/test/model/document.test.ts`
 
-- [ ] **Step 1: Write failing test for `inlineStylesEqual` with `href`**
+- [x] **Step 1: Write failing test for `inlineStylesEqual` with `href`**
 
 In `packages/docs/test/model/types.test.ts`:
 
@@ -390,9 +390,9 @@ it('should detect href difference', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
-- [ ] **Step 3: Add `href` to `InlineStyle` and update `inlineStylesEqual()`**
+- [x] **Step 3: Add `href` to `InlineStyle` and update `inlineStylesEqual()`**
 
 In `types.ts`, add to `InlineStyle`:
 
@@ -406,7 +406,7 @@ In `inlineStylesEqual()`, add:
 if (a.href !== b.href) return false;
 ```
 
-- [ ] **Step 4: Write test for applying href as inline style**
+- [x] **Step 4: Write test for applying href as inline style**
 
 In `packages/docs/test/model/document.test.ts`:
 
@@ -439,13 +439,13 @@ describe('hyperlink', () => {
 });
 ```
 
-- [ ] **Step 5: Run tests — expect PASS** (existing applyInlineStyle handles this)
+- [x] **Step 5: Run tests — expect PASS** (existing applyInlineStyle handles this)
 
-- [ ] **Step 6: Update `clearFormatting()` in `text-editor.ts`**
+- [x] **Step 6: Update `clearFormatting()` in `text-editor.ts`**
 
 Add `href: undefined` to the style object in `clearFormatting()`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/model/types.ts packages/docs/src/view/text-editor.ts \
@@ -460,7 +460,7 @@ git commit -m "feat(docs): add href to InlineStyle for hyperlinks"
 **Files:**
 - Modify: `packages/docs/src/view/doc-canvas.ts:218-267`
 
-- [ ] **Step 1: Add link default rendering in `doc-canvas.ts`**
+- [x] **Step 1: Add link default rendering in `doc-canvas.ts`**
 
 In the render run method, before applying text color and underline:
 
@@ -476,13 +476,13 @@ if (style.href) {
 
 Use `textColor` for `fillStyle` and `showUnderline` for the underline rendering branch.
 
-- [ ] **Step 2: Run verify**
+- [x] **Step 2: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/docs/src/view/doc-canvas.ts
@@ -499,7 +499,7 @@ git commit -m "feat(docs): render hyperlinks with blue text and underline"
 - Modify: `packages/frontend/src/app/docs/docs-formatting-toolbar.tsx`
 - Modify: `packages/frontend/src/app/docs/yorkie-doc-store.ts`
 
-- [ ] **Step 1: Add `insertLink` and `removeLink` methods to `EditorAPI`**
+- [x] **Step 1: Add `insertLink` and `removeLink` methods to `EditorAPI`**
 
 In `packages/docs/src/view/editor.ts`, add to the `EditorAPI` interface:
 
@@ -511,7 +511,7 @@ getLinkAtCursor(): string | undefined;
 
 Implement: `insertLink` applies `{ href: url }` to the selection range. If no selection, insert the URL as text first, then apply href. `removeLink` applies `{ href: undefined }` to the current link's inline range. `getLinkAtCursor` returns the `href` from the style at cursor.
 
-- [ ] **Step 2: Add `Cmd+K` shortcut in `text-editor.ts`**
+- [x] **Step 2: Add `Cmd+K` shortcut in `text-editor.ts`**
 
 In `handleKeyDown()`:
 
@@ -526,11 +526,11 @@ if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
 
 Add a callback `onLinkRequest?: () => void` that the frontend can wire to show a link dialog.
 
-- [ ] **Step 3: Add link button to toolbar**
+- [x] **Step 3: Add link button to toolbar**
 
 In `docs-formatting-toolbar.tsx`, add a Link button (use `Link` icon from lucide-react). On click, show a simple dialog/popover with a URL input field. On submit, call `editor.insertLink(url)`.
 
-- [ ] **Step 4: Update Yorkie serialization**
+- [x] **Step 4: Update Yorkie serialization**
 
 In `yorkie-doc-store.ts`:
 
@@ -544,13 +544,13 @@ if (style.href !== undefined) attrs.href = style.href;
 if (attrs.href !== undefined) style.href = attrs.href;
 ```
 
-- [ ] **Step 5: Run verify**
+- [x] **Step 5: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts packages/docs/src/view/editor.ts \
@@ -568,25 +568,25 @@ git commit -m "feat(docs): add Ctrl+K link insertion, toolbar button, and Yorkie
 - Modify: `packages/docs/src/view/editor.ts`
 - Modify: `packages/frontend/src/app/docs/docs-editor.tsx` (or equivalent container)
 
-- [ ] **Step 1: Add link hit-test in `text-editor.ts`**
+- [x] **Step 1: Add link hit-test in `text-editor.ts`**
 
 Add a method `getLinkAtPosition(x, y)` that:
 1. Converts screen coordinates to document position (block + offset)
 2. Finds the inline at that offset
 3. Returns `{ href, rect }` if the inline has `href`, or `undefined`
 
-- [ ] **Step 2: Add mousemove handler for hover detection**
+- [x] **Step 2: Add mousemove handler for hover detection**
 
 In `text-editor.ts`, on `mousemove`:
 - Call `getLinkAtPosition(e.offsetX, e.offsetY)`
 - If link found, emit `onLinkHover({ href, rect })` callback
 - If no link, emit `onLinkHover(undefined)` to dismiss
 
-- [ ] **Step 3: Add Ctrl+Click handler**
+- [x] **Step 3: Add Ctrl+Click handler**
 
 In the `mousedown` handler, check `e.ctrlKey || e.metaKey`. If clicking on a link, call `window.open(href, '_blank')` and prevent default cursor positioning.
 
-- [ ] **Step 4: Build popover DOM component in frontend**
+- [x] **Step 4: Build popover DOM component in frontend**
 
 Create a popover component (DOM overlay, not Canvas) with:
 - URL text (truncated to ~40 chars)
@@ -596,17 +596,17 @@ Create a popover component (DOM overlay, not Canvas) with:
 
 Position using the `rect` from `onLinkHover`.
 
-- [ ] **Step 5: Add dismiss logic**
+- [x] **Step 5: Add dismiss logic**
 
 Dismiss popover on: click outside, scroll, `onLinkHover(undefined)`.
 
-- [ ] **Step 6: Run verify**
+- [x] **Step 6: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts packages/docs/src/view/editor.ts \
@@ -623,7 +623,7 @@ git commit -m "feat(docs): add link popover on hover and Ctrl+Click to open"
 - Modify: `packages/docs/src/view/text-editor.ts`
 - Create: `packages/docs/test/view/url-detect.test.ts`
 
-- [ ] **Step 1: Write test for URL detection utility**
+- [x] **Step 1: Write test for URL detection utility**
 
 In `packages/docs/test/view/url-detect.test.ts`:
 
@@ -648,9 +648,9 @@ describe('URL auto-detection', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
-- [ ] **Step 3: Implement `detectUrlBeforeCursor()` in `url-detect.ts`**
+- [x] **Step 3: Implement `detectUrlBeforeCursor()` in `url-detect.ts`**
 
 Create `packages/docs/src/view/url-detect.ts`. Simple backward scan from cursor: find the last whitespace before cursor, check if the token starts with `http://` or `https://`.
 
@@ -672,19 +672,19 @@ export function detectUrlBeforeCursor(
 }
 ```
 
-- [ ] **Step 4: Hook into Space/Enter handling in `text-editor.ts`**
+- [x] **Step 4: Hook into Space/Enter handling in `text-editor.ts`**
 
 After inserting a space or handling Enter, call `detectUrlBeforeCursor()` on the block text. If a URL is found, apply `{ href: url }` to that range.
 
-- [ ] **Step 5: Run tests — expect PASS**
+- [x] **Step 5: Run tests — expect PASS**
 
-- [ ] **Step 6: Run verify**
+- [x] **Step 6: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts packages/docs/src/model/document.ts \
@@ -703,7 +703,7 @@ git commit -m "feat(docs): auto-detect URLs and convert to hyperlinks"
 - Create: `packages/docs/test/view/clipboard.test.ts`
 - Modify: `packages/docs/src/view/text-editor.ts:472-521`
 
-- [ ] **Step 1: Write failing tests for clipboard serialization**
+- [x] **Step 1: Write failing tests for clipboard serialization**
 
 Create `packages/docs/test/view/clipboard.test.ts`:
 
@@ -739,9 +739,9 @@ describe('clipboard JSON serialization', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
-- [ ] **Step 3: Implement `clipboard.ts`**
+- [x] **Step 3: Implement `clipboard.ts`**
 
 Create `packages/docs/src/view/clipboard.ts`:
 
@@ -767,9 +767,9 @@ export function deserializeBlocks(json: string): Block[] {
 export const WAFFLEDOCS_MIME = 'application/x-waffledocs';
 ```
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
-- [ ] **Step 5: Wire into `text-editor.ts` copy/cut/paste handlers**
+- [x] **Step 5: Wire into `text-editor.ts` copy/cut/paste handlers**
 
 Update `handleCopy()`:
 ```typescript
@@ -791,7 +791,7 @@ if (json) {
 // Fall through to existing plain text handling
 ```
 
-- [ ] **Step 6: Implement `getSelectedBlocks()` helper**
+- [x] **Step 6: Implement `getSelectedBlocks()` helper**
 
 Extract the blocks/inlines covered by the current selection range, trimming the first and last block to match the selection boundaries:
 
@@ -800,17 +800,17 @@ Extract the blocks/inlines covered by the current selection range, trimming the 
 3. For multi-block selection: clone first block (trim inlines from startOffset to end), clone middle blocks fully, clone last block (trim inlines from start to endOffset)
 4. Generate new block IDs for cloned blocks to avoid conflicts on paste
 
-- [ ] **Step 7: Implement `insertBlocks()` helper**
+- [x] **Step 7: Implement `insertBlocks()` helper**
 
 Insert deserialized blocks at the cursor position. For a single-block paste, merge inlines. For multi-block paste, split the current block and insert in between.
 
-- [ ] **Step 8: Run verify**
+- [x] **Step 8: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/docs/src/view/clipboard.ts packages/docs/test/view/clipboard.test.ts \
@@ -827,7 +827,7 @@ git commit -m "feat(docs): internal JSON clipboard for rich copy/paste"
 - Modify: `packages/docs/src/view/text-editor.ts`
 - Test: `packages/docs/test/view/clipboard.test.ts`
 
-- [ ] **Step 1: Write failing tests for HTML parsing**
+- [x] **Step 1: Write failing tests for HTML parsing**
 
 In `packages/docs/test/view/clipboard.test.ts`:
 
@@ -866,24 +866,24 @@ describe('HTML paste parsing', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
-- [ ] **Step 3: Implement `parseHtmlToInlines()`**
+- [x] **Step 3: Implement `parseHtmlToInlines()`**
 
 In `packages/docs/src/view/clipboard.ts`:
 
 Use `DOMParser` to parse the HTML string. Walk the DOM tree, collecting text nodes with style context from parent elements. Map `<b>`/`<strong>` → bold, `<i>`/`<em>` → italic, `<u>` → underline, `<s>`/`<del>`/`<strike>` → strikethrough, `<a>` → href. Parse `style` attribute for color, fontSize, backgroundColor.
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
-- [ ] **Step 5: Wire HTML paste into `handlePaste()`**
+- [x] **Step 5: Wire HTML paste into `handlePaste()`**
 
 In `text-editor.ts`, update paste handler priority:
 1. Check `application/x-waffledocs` → JSON paste
 2. Check `text/html` → parse HTML → insert inlines
 3. Fall back to `text/plain`
 
-- [ ] **Step 6: Add `Cmd+Shift+V` for plain-text paste**
+- [x] **Step 6: Add `Cmd+Shift+V` for plain-text paste**
 
 In `handleKeyDown()`:
 
@@ -900,13 +900,13 @@ if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'v') {
 
 `insertPlainText()` inserts text inheriting the style at cursor position, ignoring any formatting.
 
-- [ ] **Step 7: Run verify**
+- [x] **Step 7: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/docs/src/view/clipboard.ts packages/docs/test/view/clipboard.test.ts \
@@ -921,7 +921,7 @@ git commit -m "feat(docs): HTML paste parsing and plain-text paste shortcut"
 **Files:**
 - Modify: `packages/docs/src/view/text-editor.ts`
 
-- [ ] **Step 1: Add style buffer and shortcuts**
+- [x] **Step 1: Add style buffer and shortcuts**
 
 In `text-editor.ts`, add an instance field:
 
@@ -950,13 +950,13 @@ if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === 'v') {
 }
 ```
 
-- [ ] **Step 2: Run verify**
+- [x] **Step 2: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts
@@ -974,7 +974,7 @@ git commit -m "feat(docs): copy formatting with Cmd+Shift+C / Cmd+Alt+V"
 - Modify: `packages/docs/src/model/types.ts` (export SearchMatch, SearchOptions)
 - Test: `packages/docs/test/model/document.test.ts`
 
-- [ ] **Step 1: Write failing tests for `searchText()`**
+- [x] **Step 1: Write failing tests for `searchText()`**
 
 In `packages/docs/test/model/document.test.ts`:
 
@@ -1048,9 +1048,9 @@ describe('searchText', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
-- [ ] **Step 3: Define types and implement `searchText()`**
+- [x] **Step 3: Define types and implement `searchText()`**
 
 In `packages/docs/src/model/types.ts`, add and export:
 
@@ -1093,9 +1093,9 @@ searchText(query: string, options?: SearchOptions): SearchMatch[] {
 }
 ```
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/model/types.ts packages/docs/src/model/document.ts \
@@ -1111,7 +1111,7 @@ git commit -m "feat(docs): add searchText() method for find & replace"
 - Modify: `packages/docs/src/view/doc-canvas.ts`
 - Modify: `packages/docs/src/view/editor.ts`
 
-- [ ] **Step 1: Add search highlight state to editor**
+- [x] **Step 1: Add search highlight state to editor**
 
 In `packages/docs/src/view/editor.ts`, add state:
 
@@ -1136,7 +1136,7 @@ clearSearchMatches(): void {
 }
 ```
 
-- [ ] **Step 2: Render search highlights in `doc-canvas.ts`**
+- [x] **Step 2: Render search highlights in `doc-canvas.ts`**
 
 In the render pipeline, before rendering selection highlights, add a pass for search match highlights. For each match:
 
@@ -1146,13 +1146,13 @@ In the render pipeline, before rendering selection highlights, add a pass for se
 
 Z-order: search highlights → selection highlights → backgroundColor → text.
 
-- [ ] **Step 3: Run verify**
+- [x] **Step 3: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/src/view/doc-canvas.ts packages/docs/src/view/editor.ts
@@ -1170,7 +1170,7 @@ git commit -m "feat(docs): render search match highlights in Canvas"
 - Modify: `packages/docs/src/view/editor.ts`
 - Modify: `packages/frontend/src/app/docs/` (find bar component)
 
-- [ ] **Step 1: Write tests for FindReplaceState**
+- [x] **Step 1: Write tests for FindReplaceState**
 
 Create `packages/docs/test/view/find-replace.test.ts`:
 
@@ -1244,9 +1244,9 @@ describe('FindReplaceState', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
-- [ ] **Step 3: Implement `FindReplaceState`**
+- [x] **Step 3: Implement `FindReplaceState`**
 
 Create `packages/docs/src/view/find-replace.ts`:
 
@@ -1312,9 +1312,9 @@ export class FindReplaceState {
 }
 ```
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
-- [ ] **Step 5: Add `Cmd+F` and `Cmd+H` shortcuts in `text-editor.ts`**
+- [x] **Step 5: Add `Cmd+F` and `Cmd+H` shortcuts in `text-editor.ts`**
 
 ```typescript
 // Find: Cmd+F
@@ -1331,7 +1331,7 @@ if ((e.metaKey || e.ctrlKey) && e.key === 'h') {
 }
 ```
 
-- [ ] **Step 6: Build find bar React component in frontend**
+- [x] **Step 6: Build find bar React component in frontend**
 
 Create a find bar component (DOM overlay at top of the document area):
 - Search input field with debounced `state.search()` on change
@@ -1343,21 +1343,21 @@ Create a find bar component (DOM overlay at top of the document area):
 
 Wire the component to `EditorAPI.setSearchMatches()` to update Canvas highlighting.
 
-- [ ] **Step 7: Add auto-scroll on match navigation**
+- [x] **Step 7: Add auto-scroll on match navigation**
 
 When `next()` or `previous()` is called, move the cursor to the active match's `blockId`/`startOffset` position and set `needsScrollIntoView = true` in the editor to scroll the active match into the viewport.
 
-- [ ] **Step 8: Add invalidation — re-search on document mutation**
+- [x] **Step 8: Add invalidation — re-search on document mutation**
 
 In the editor, after any document mutation (insert, delete, style change), if the find bar is open, call `state.search(currentQuery)` and update highlights. Clamp `activeIndex` to the new match count.
 
-- [ ] **Step 9: Run verify**
+- [x] **Step 9: Run verify**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/docs/src/view/find-replace.ts packages/docs/test/view/find-replace.test.ts \
@@ -1375,28 +1375,28 @@ git commit -m "feat(docs): add find & replace with search bar UI and match highl
 **Files:**
 - Modify: `docs/design/docs-wordprocessor-roadmap.md`
 
-- [ ] **Step 1: Run full verification**
+- [x] **Step 1: Run full verification**
 
 ```bash
 pnpm verify:fast
 ```
 
-- [ ] **Step 2: Update roadmap**
+- [x] **Step 2: Update roadmap**
 
 Mark Phase 2 items as complete (✅) in `docs/design/docs-wordprocessor-roadmap.md`. Update the "Current State" table with new features.
 
-- [ ] **Step 3: Update `Keyboard Shortcuts` status**
+- [x] **Step 3: Update `Keyboard Shortcuts` status**
 
 Change from "✅ Partial" to "✅" if all planned shortcuts are now implemented.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/design/docs-wordprocessor-roadmap.md
 git commit -m "docs: mark Phase 2 complete in word processor roadmap"
 ```
 
-- [ ] **Step 5: Archive tasks**
+- [x] **Step 5: Archive tasks**
 
 ```bash
 pnpm tasks:archive && pnpm tasks:index
