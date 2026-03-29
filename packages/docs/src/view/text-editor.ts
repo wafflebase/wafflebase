@@ -968,7 +968,7 @@ export class TextEditor {
     if (bsCellInfo) {
       const pos = this.cursor.position;
       if (pos.offset > 0) {
-        this.doc.deleteText(pos, -1);
+        this.doc.deleteText({ blockId: pos.blockId, offset: pos.offset - 1 }, 1);
         this.cursor.moveTo({
           blockId: pos.blockId,
           offset: pos.offset - 1,
