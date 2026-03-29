@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
-import type { InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
+import type { DocPosition, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
@@ -152,6 +152,28 @@ export function initialize(
   let dirtyBlockIds: Set<string> | undefined;
   let needsScrollIntoView = false;
   let focused = !readOnly;
+
+  /** Apply inline style to a cell selection that may span multiple cell blocks. */
+  function applyCellStyleToRange(start: DocPosition, end: DocPosition, style: Partial<InlineStyle>): void {
+    if (!start.cellAddress) return;
+    const startCbi = start.cellBlockIndex ?? 0;
+    const endCbi = end.cellBlockIndex ?? 0;
+    if (startCbi === endCbi) {
+      doc.applyCellInlineStyle(start.blockId, start.cellAddress, start.offset, end.offset, style, startCbi);
+      return;
+    }
+    const block = doc.getBlock(start.blockId);
+    const cell = block.tableData!.rows[start.cellAddress.rowIndex].cells[start.cellAddress.colIndex];
+    for (let bi = startCbi; bi <= endCbi; bi++) {
+      const cellBlock = cell.blocks[bi];
+      if (!cellBlock) continue;
+      const s = bi === startCbi ? start.offset : 0;
+      const e = bi === endCbi ? end.offset : getBlockTextLength(cellBlock);
+      if (s < e) {
+        doc.applyCellInlineStyle(start.blockId, start.cellAddress, s, e, style, bi);
+      }
+    }
+  }
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
   let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
@@ -627,11 +649,7 @@ export function initialize(
         if (anchor.cellAddress) {
           const normalized = selection.getNormalizedRange(layout);
           if (normalized) {
-            doc.applyCellInlineStyle(
-              anchor.blockId, anchor.cellAddress,
-              normalized.start.offset, normalized.end.offset,
-              style, anchor.cellBlockIndex ?? 0,
-            );
+            applyCellStyleToRange(normalized.start, normalized.end, style);
             markDirty(anchor.blockId);
             render();
             return;

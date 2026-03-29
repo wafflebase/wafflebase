@@ -1591,11 +1591,7 @@ export class TextEditor {
     if (anchor.cellAddress) {
       const normalized = this.selection.getNormalizedRange(this.getLayout());
       if (normalized) {
-        this.doc.applyCellInlineStyle(
-          anchor.blockId, anchor.cellAddress,
-          normalized.start.offset, normalized.end.offset,
-          clearStyle, anchor.cellBlockIndex ?? 0,
-        );
+        this.applyCellStyleToRange(normalized.start, normalized.end, clearStyle);
         this.markDirty(anchor.blockId);
         this.requestRender();
         return;
@@ -1635,11 +1631,7 @@ export class TextEditor {
     if (anchor.cellAddress) {
       const normalized = this.selection.getNormalizedRange(this.getLayout());
       if (normalized) {
-        this.doc.applyCellInlineStyle(
-          anchor.blockId, anchor.cellAddress,
-          normalized.start.offset, normalized.end.offset,
-          resolved, anchor.cellBlockIndex ?? 0,
-        );
+        this.applyCellStyleToRange(normalized.start, normalized.end, resolved);
         this.markDirty(anchor.blockId);
         this.requestRender();
         return;
@@ -1660,6 +1652,40 @@ export class TextEditor {
       this.markDirty(this.doc.document.blocks[i].id);
     }
     this.requestRender();
+  }
+
+  /**
+   * Apply inline style to a cell selection that may span multiple cell blocks.
+   */
+  private applyCellStyleToRange(
+    start: DocPosition,
+    end: DocPosition,
+    style: Partial<InlineStyle>,
+  ): void {
+    if (!start.cellAddress) return;
+    const startCbi = start.cellBlockIndex ?? 0;
+    const endCbi = end.cellBlockIndex ?? 0;
+
+    if (startCbi === endCbi) {
+      this.doc.applyCellInlineStyle(
+        start.blockId, start.cellAddress,
+        start.offset, end.offset, style, startCbi,
+      );
+      return;
+    }
+
+    // Cross-block: apply to each block in range
+    const block = this.doc.getBlock(start.blockId);
+    const cell = block.tableData!.rows[start.cellAddress.rowIndex].cells[start.cellAddress.colIndex];
+    for (let bi = startCbi; bi <= endCbi; bi++) {
+      const cellBlock = cell.blocks[bi];
+      if (!cellBlock) continue;
+      const s = bi === startCbi ? start.offset : 0;
+      const e = bi === endCbi ? end.offset : getBlockTextLength(cellBlock);
+      if (s < e) {
+        this.doc.applyCellInlineStyle(start.blockId, start.cellAddress, s, e, style, bi);
+      }
+    }
   }
 
   private getStyleAtCursor(): Partial<InlineStyle> {

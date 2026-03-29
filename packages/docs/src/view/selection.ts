@@ -27,7 +27,9 @@ function normalizeRange(
         range.anchor.blockId === range.focus.blockId &&
         range.anchor.cellAddress.rowIndex === range.focus.cellAddress.rowIndex &&
         range.anchor.cellAddress.colIndex === range.focus.cellAddress.colIndex) {
-      if (range.anchor.offset <= range.focus.offset) {
+      const aCbi = range.anchor.cellBlockIndex ?? 0;
+      const fCbi = range.focus.cellBlockIndex ?? 0;
+      if (aCbi < fCbi || (aCbi === fCbi && range.anchor.offset <= range.focus.offset)) {
         return { start: range.anchor, end: range.focus };
       }
       return { start: range.focus, end: range.anchor };
@@ -273,7 +275,9 @@ export function computeSelectionRects(
 ): Array<{ x: number; y: number; width: number; height: number }> {
   const normalized = normalizeRange(range, layout);
   if (!normalized) return [];
-  if (normalized.start.blockId === normalized.end.blockId && normalized.start.offset === normalized.end.offset) return [];
+  if (normalized.start.blockId === normalized.end.blockId &&
+      normalized.start.offset === normalized.end.offset &&
+      (normalized.start.cellBlockIndex ?? 0) === (normalized.end.cellBlockIndex ?? 0)) return [];
   return buildRects(normalized.start, normalized.end, paginatedLayout, layout, ctx, canvasWidth);
 }
 
@@ -293,7 +297,8 @@ export class Selection {
     if (!this.range) return false;
     return (
       this.range.anchor.blockId !== this.range.focus.blockId ||
-      this.range.anchor.offset !== this.range.focus.offset
+      this.range.anchor.offset !== this.range.focus.offset ||
+      (this.range.anchor.cellBlockIndex ?? 0) !== (this.range.focus.cellBlockIndex ?? 0)
     );
   }
 
@@ -320,18 +325,34 @@ export class Selection {
 
     const { start, end } = normalized;
 
-    // Cell-internal selection (same block index)
+    // Cell-internal selection
     if (start.cellAddress && end.cellAddress) {
       const lb = layout.blocks.find((b) => b.block.id === start.blockId);
       if (!lb?.block.tableData) return '';
       const cell = lb.block.tableData.rows[start.cellAddress.rowIndex]
         ?.cells[start.cellAddress.colIndex];
       if (!cell) return '';
-      const cbi = start.cellBlockIndex ?? 0;
-      const targetBlock = cell.blocks[cbi];
-      if (!targetBlock) return '';
-      const blockText = targetBlock.inlines.map((i) => i.text).join('');
-      return blockText.slice(start.offset, end.offset);
+      const startCbi = start.cellBlockIndex ?? 0;
+      const endCbi = end.cellBlockIndex ?? 0;
+
+      if (startCbi === endCbi) {
+        const targetBlock = cell.blocks[startCbi];
+        if (!targetBlock) return '';
+        const blockText = targetBlock.inlines.map((i) => i.text).join('');
+        return blockText.slice(start.offset, end.offset);
+      }
+
+      // Cross-block cell selection
+      const texts: string[] = [];
+      for (let bi = startCbi; bi <= endCbi; bi++) {
+        const blk = cell.blocks[bi];
+        if (!blk) continue;
+        const fullText = blk.inlines.map((i) => i.text).join('');
+        const s = bi === startCbi ? start.offset : 0;
+        const e = bi === endCbi ? end.offset : fullText.length;
+        texts.push(fullText.slice(s, e));
+      }
+      return texts.join('\n');
     }
 
     const texts: string[] = [];
