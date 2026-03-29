@@ -765,14 +765,75 @@ export function initialize(
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();
-      const block = doc.getBlock(cursor.position.blockId);
-      if (block.type === 'list-item' && block.listKind === kind) {
-        doc.setBlockType(block.id, 'paragraph');
+
+      const toggleBlock = (blockId: string) => {
+        const b = doc.getBlock(blockId);
+        if (b.type === 'list-item' && b.listKind === kind) {
+          doc.setBlockType(b.id, 'paragraph');
+        } else {
+          doc.setBlockType(b.id, 'list-item', {
+            listKind: kind,
+            listLevel: b.listLevel ?? 0,
+          });
+        }
+      };
+
+      if (selection.hasSelection() && selection.range) {
+        const range = selection.range;
+        // Cell-range: toggle all blocks in all selected cells
+        if (range.tableCellRange) {
+          const cr = range.tableCellRange;
+          const tableBlock = doc.getBlock(cr.blockId);
+          if (tableBlock.tableData) {
+            const minR = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+            const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+            const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
+            const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
+            for (let r = minR; r <= maxR; r++) {
+              for (let c = minC; c <= maxC; c++) {
+                const cell = tableBlock.tableData.rows[r]?.cells[c];
+                if (!cell || cell.colSpan === 0) continue;
+                for (const cellBlock of cell.blocks) {
+                  toggleBlock(cellBlock.id);
+                }
+              }
+            }
+            markDirty(cr.blockId);
+          }
+        } else {
+          // Within-cell or top-level multi-block selection
+          const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+          const focusCI = layout.blockParentMap.get(range.focus.blockId);
+          if (anchorCI && focusCI &&
+              anchorCI.tableBlockId === focusCI.tableBlockId &&
+              anchorCI.rowIndex === focusCI.rowIndex &&
+              anchorCI.colIndex === focusCI.colIndex) {
+            const tableBlock = doc.getBlock(anchorCI.tableBlockId);
+            const cell = tableBlock.tableData!.rows[anchorCI.rowIndex].cells[anchorCI.colIndex];
+            const aIdx = cell.blocks.findIndex(b => b.id === range.anchor.blockId);
+            const fIdx = cell.blocks.findIndex(b => b.id === range.focus.blockId);
+            const lo = Math.min(aIdx, fIdx);
+            const hi = Math.max(aIdx, fIdx);
+            for (let i = lo; i <= hi; i++) {
+              toggleBlock(cell.blocks[i].id);
+            }
+            markDirty(anchorCI.tableBlockId);
+          } else {
+            const startIdx = doc.getBlockIndex(range.anchor.blockId);
+            const endIdx = doc.getBlockIndex(range.focus.blockId);
+            if (startIdx >= 0 && endIdx >= 0) {
+              const lo = Math.min(startIdx, endIdx);
+              const hi = Math.max(startIdx, endIdx);
+              for (let i = lo; i <= hi; i++) {
+                toggleBlock(doc.document.blocks[i].id);
+                markDirty(doc.document.blocks[i].id);
+              }
+            }
+          }
+        }
       } else {
-        doc.setBlockType(block.id, 'list-item', {
-          listKind: kind,
-          listLevel: block.listLevel ?? 0,
-        });
+        toggleBlock(cursor.position.blockId);
+        markDirty(cursor.position.blockId);
       }
       invalidateLayout();
       render();
