@@ -166,10 +166,12 @@ export function renderTable(
       const x = tableX + columnXOffsets[c];
       const y = tableY + rowYOffsets[r];
 
-      drawBorder(ctx, cell.style?.borderTop ?? DEFAULT_BORDER_STYLE, x, y, x + cellWidth, y);
-      drawBorder(ctx, cell.style?.borderBottom ?? DEFAULT_BORDER_STYLE, x, y + cellHeight, x + cellWidth, y + cellHeight);
-      drawBorder(ctx, cell.style?.borderLeft ?? DEFAULT_BORDER_STYLE, x, y, x, y + cellHeight);
-      drawBorder(ctx, cell.style?.borderRight ?? DEFAULT_BORDER_STYLE, x + cellWidth, y, x + cellWidth, y + cellHeight);
+      // Use theme-aware default border color so borders adapt to dark mode
+      const themeBorder: BorderStyle = { ...DEFAULT_BORDER_STYLE, color: Theme.defaultColor };
+      drawBorder(ctx, cell.style?.borderTop ?? themeBorder, x, y, x + cellWidth, y);
+      drawBorder(ctx, cell.style?.borderBottom ?? themeBorder, x, y + cellHeight, x + cellWidth, y + cellHeight);
+      drawBorder(ctx, cell.style?.borderLeft ?? themeBorder, x, y, x, y + cellHeight);
+      drawBorder(ctx, cell.style?.borderRight ?? themeBorder, x + cellWidth, y, x + cellWidth, y + cellHeight);
     }
   }
 }
