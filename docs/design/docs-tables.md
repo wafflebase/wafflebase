@@ -388,3 +388,230 @@ capabilities.
 | Pagination edge case: row taller than page | Low | Place oversized row on its own page |
 | Cursor navigation across merged cells | Medium | Skip merged cells in Tab/arrow navigation; jump to next visible cell |
 | Undo granularity too coarse (whole table snapshot) | Low | Acceptable for Phase 3; cell-level ops can use finer snapshots if needed |
+| Text selection broken inside cells | High | Propagate `cellAddress` through all position-creating code paths (see below) |
+
+## Cell-Aware Text Selection
+
+### Problem
+
+`DocPosition.cellAddress` is set when a user clicks inside a table cell, but
+many code paths that **create or transform** positions drop the field. This
+breaks drag selection, Shift+Arrow, Shift+Home/End, double/triple-click, and
+word-boundary movement inside cells.
+
+The root cause: every helper that returns a new `DocPosition` constructs it
+with only `{ blockId, offset }`, losing the `cellAddress` context.
+
+### Invariant
+
+> When the cursor is inside a table cell, **every `DocPosition` produced by
+> movement, hit-testing, or selection helpers must preserve `cellAddress`**.
+> Selection must never span across cell boundaries — if anchor and focus have
+> different `cellAddress` values, constrain focus to the anchor's cell.
+
+### Changes
+
+Seven areas need fixes. All changes are in `packages/docs/src/view/text-editor.ts` except (1) which
+touches `packages/docs/src/view/selection.ts`.
+
+#### 1. Movement helpers — propagate `cellAddress`
+
+`moveLeft`, `moveRight`, `moveWordLeft`, `moveWordRight` receive a
+`DocPosition` but return `{ blockId, offset }` without `cellAddress`.
+
+**Fix:** When `pos.cellAddress` exists, clamp movement to cell boundaries and
+include `cellAddress` in the returned position.
+
+```typescript
+private moveLeft(pos: DocPosition): DocPosition {
+  if (pos.cellAddress) {
+    // Clamp to cell start — do not cross cell boundary
+    if (pos.offset > 0) {
+      return { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
+    }
+    return pos;
+  }
+  // ... existing block-level logic
+}
+
+private moveRight(pos: DocPosition): DocPosition {
+  if (pos.cellAddress) {
+    const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
+    if (pos.offset < cellLen) {
+      return { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
+    }
+    return pos;
+  }
+  // ... existing block-level logic
+}
+
+private moveWordLeft(pos: DocPosition): DocPosition {
+  if (pos.cellAddress) {
+    const text = this.getCellText(pos.blockId, pos.cellAddress);
+    return { blockId: pos.blockId, offset: findPrevWordBoundary(text, pos.offset), cellAddress: pos.cellAddress };
+  }
+  // ... existing block-level logic
+}
+
+private moveWordRight(pos: DocPosition): DocPosition {
+  if (pos.cellAddress) {
+    const text = this.getCellText(pos.blockId, pos.cellAddress);
+    return { blockId: pos.blockId, offset: findNextWordBoundary(text, pos.offset), cellAddress: pos.cellAddress };
+  }
+  // ... existing block-level logic
+}
+```
+
+#### 2. Visual line helpers — propagate `cellAddress`
+
+`getVisualLineStart` and `getVisualLineEnd` return `{ blockId, offset }`
+without `cellAddress`. Used by Home/End/Shift+Home/Shift+End and line
+backspace.
+
+**Fix:** Append `cellAddress` from the input position. When inside a cell,
+the visual line range is the cell's full text extent (cells are single-line
+in the layout model).
+
+```typescript
+private getVisualLineStart(pos: DocPosition): DocPosition {
+  if (pos.cellAddress) {
+    return { blockId: pos.blockId, offset: 0, cellAddress: pos.cellAddress };
+  }
+  const [start] = this.getVisualLineRange(pos);
+  return { blockId: pos.blockId, offset: start };
+}
+
+private getVisualLineEnd(pos: DocPosition): DocPosition {
+  if (pos.cellAddress) {
+    const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
+    return { blockId: pos.blockId, offset: cellLen, cellAddress: pos.cellAddress };
+  }
+  // ... existing block-level logic
+}
+```
+
+#### 3. Drag selection — resolve `cellAddress` from pixel coordinates
+
+`updateDragSelection` calls `paginatedPixelToPosition` which returns
+`{ blockId, offset }` without `cellAddress`. The drag position loses cell
+context.
+
+**Fix:** After `paginatedPixelToPosition`, if the anchor has `cellAddress`,
+resolve the drag position's cell context and clamp the focus to the same
+cell.
+
+```typescript
+private updateDragSelection(clientX: number, clientY: number): void {
+  // ... existing pixel calculation ...
+  const result = paginatedPixelToPosition(...);
+  if (result && this.selection.range) {
+    const anchor = this.selection.range.anchor;
+    let pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+
+    if (anchor.cellAddress) {
+      // Constrain drag selection within the same cell
+      const cellLen = this.getCellTextLength(anchor.blockId, anchor.cellAddress);
+      pos = {
+        blockId: anchor.blockId,
+        offset: Math.max(0, Math.min(result.offset, cellLen)),
+        cellAddress: anchor.cellAddress,
+      };
+    }
+
+    this.cursor.moveTo(pos, result.lineAffinity);
+    this.selection.setRange({ anchor, focus: pos });
+    this.requestRender();
+  }
+}
+```
+
+#### 4. Double/triple-click — preserve `cellAddress`
+
+Double-click (word select) and triple-click (paragraph select) create
+positions without `cellAddress`.
+
+**Fix:** When the click position has `cellAddress`, include it in the
+selection endpoints and scope the text to cell content.
+
+```typescript
+if (this.clickCount === 3) {
+  if (pos.cellAddress) {
+    const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
+    const start: DocPosition = { blockId: pos.blockId, offset: 0, cellAddress: pos.cellAddress };
+    const end: DocPosition = { blockId: pos.blockId, offset: cellLen, cellAddress: pos.cellAddress };
+    this.selection.setRange({ anchor: start, focus: end });
+    this.cursor.moveTo(end);
+  } else {
+    // ... existing block-level logic
+  }
+} else if (this.clickCount === 2) {
+  if (pos.cellAddress) {
+    const text = this.getCellText(pos.blockId, pos.cellAddress);
+    const [start, end] = getWordRange(text, pos.offset);
+    const anchor: DocPosition = { blockId: pos.blockId, offset: start, cellAddress: pos.cellAddress };
+    const focus: DocPosition = { blockId: pos.blockId, offset: end, cellAddress: pos.cellAddress };
+    this.selection.setRange({ anchor, focus });
+    this.cursor.moveTo(focus);
+  } else {
+    // ... existing block-level logic
+  }
+}
+```
+
+#### 5. Shift+click — constrain to same cell
+
+When Shift+clicking, the anchor may be in a cell but the new focus may
+resolve outside it.
+
+**Fix:** If anchor has `cellAddress`, clamp the Shift+click focus to the
+same cell.
+
+#### 6. Selection rendering — handle cell positions
+
+`packages/docs/src/view/selection.ts` functions (`normalizeRange`, `positionToPagePixel`,
+`buildRects`, `getSelectedText`) compare positions by `blockId` and `offset`
+only. When positions include `cellAddress`, offset refers to within-cell
+offset, not block-level offset.
+
+**Fix:** Add cell-aware branches:
+- `normalizeRange`: When both positions have the same `cellAddress`, compare
+  offsets directly (they are cell-relative). When `cellAddress` differs,
+  no valid within-cell selection exists — return null.
+- `positionToPagePixel`: When `cellAddress` is present, find the cell's
+  layout lines and compute pixel position relative to the cell's origin.
+- `buildRects`: When positions have `cellAddress`, compute rects within the
+  cell's layout bounds.
+- `getSelectedText`: When positions have `cellAddress`, extract text from
+  the cell's inlines, not block inlines.
+
+#### 7. Arrow key handler — delegate to movement helpers for Shift case
+
+The table-cell arrow key handler (lines 1207–1265) currently handles
+Shift+Arrow only for basic left/right/up/down. It should also delegate
+Ctrl+Shift+Arrow (word movement) to the cell-aware `moveWordLeft` /
+`moveWordRight`.
+
+### What NOT to Change
+
+- `paginatedPixelToPosition` — this function resolves block-level positions
+  from pixels. Cell address resolution happens at a higher level
+  (`resolveTableCellClick` in `handleMouseDown`), so the function's return
+  type stays unchanged.
+- `handleDocStart` / `handleDocEnd` — Ctrl+Home/End should exit the cell
+  and go to document boundaries. No `cellAddress` needed.
+
+### Testing
+
+| Test case | Expected |
+|-----------|----------|
+| Shift+Left/Right inside cell | Text selection extends within cell, stops at cell boundary |
+| Shift+Up/Down inside cell | Selection extends to cell above/below (if exists) |
+| Ctrl+Shift+Left/Right in cell | Word-boundary selection within cell |
+| Shift+Home/End in cell | Select to start/end of cell content |
+| Mouse drag within cell | Text highlighted within cell only |
+| Mouse drag across cell boundary | Selection clamped to anchor cell |
+| Double-click in cell | Word selected within cell |
+| Triple-click in cell | Entire cell text selected |
+| Shift+click in cell | Selection extended within same cell |
+| Selection highlight rendering | Blue rects appear within cell bounds |
+| Copy selected cell text | Clipboard contains only selected cell text |
