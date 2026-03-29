@@ -35,17 +35,18 @@ function normalizeRange(
     };
   }
 
-  const anchorIdx = layout.blocks.findIndex(
-    (lb) => lb.block.id === range.anchor.blockId,
-  );
-  const focusIdx = layout.blocks.findIndex(
-    (lb) => lb.block.id === range.focus.blockId,
-  );
-  if (anchorIdx === -1 || focusIdx === -1) return null;
-
-  // Cell-aware selection: if either position is in a table cell, handle specially
+  // Cell-aware selection: check before top-level index lookup since cell
+  // block IDs are not in layout.blocks (they live inside table blocks).
   const anchorCellInfo = layout.blockParentMap.get(range.anchor.blockId);
   const focusCellInfo = layout.blockParentMap.get(range.focus.blockId);
+
+  const anchorIdx = layout.blocks.findIndex(
+    (lb) => lb.block.id === (anchorCellInfo?.tableBlockId ?? range.anchor.blockId),
+  );
+  const focusIdx = layout.blocks.findIndex(
+    (lb) => lb.block.id === (focusCellInfo?.tableBlockId ?? range.focus.blockId),
+  );
+  if (anchorIdx === -1 || focusIdx === -1) return null;
   if (anchorCellInfo || focusCellInfo) {
     // Both must be in the same cell for a valid selection
     if (anchorCellInfo && focusCellInfo &&
