@@ -645,17 +645,24 @@ export function initialize(
         }
 
         doc.applyInlineStyle(range, style);
-        // Mark all blocks in the selection range as dirty
-        const startIdx = doc.getBlockIndex(range.anchor.blockId);
-        const endIdx = doc.getBlockIndex(range.focus.blockId);
-        if (startIdx < 0 || endIdx < 0) {
-          render();
-          return;
-        }
-        const lo = Math.min(startIdx, endIdx);
-        const hi = Math.max(startIdx, endIdx);
-        for (let i = lo; i <= hi; i++) {
-          markDirty(doc.document.blocks[i].id);
+        // Mark affected blocks as dirty
+        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
+        const focusCI = layout.blockParentMap.get(range.focus.blockId);
+        if (anchorCI) {
+          // Cell block: mark the parent table block dirty
+          markDirty(anchorCI.tableBlockId);
+        } else if (focusCI) {
+          markDirty(focusCI.tableBlockId);
+        } else {
+          const startIdx = doc.getBlockIndex(range.anchor.blockId);
+          const endIdx = doc.getBlockIndex(range.focus.blockId);
+          if (startIdx >= 0 && endIdx >= 0) {
+            const lo = Math.min(startIdx, endIdx);
+            const hi = Math.max(startIdx, endIdx);
+            for (let i = lo; i <= hi; i++) {
+              markDirty(doc.document.blocks[i].id);
+            }
+          }
         }
         render();
       }
