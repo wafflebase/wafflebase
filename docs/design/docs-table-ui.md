@@ -103,7 +103,7 @@ table-specific operations when right-clicking inside a table cell.
 
 The IME composition handlers (`handleCompositionStart`,
 `handleCompositionEnd`, `handleInput` during composition) in
-`text-editor.ts` use `doc.insertText()` / `doc.deleteText()` which
+`packages/docs/src/view/text-editor.ts` use `doc.insertText()` / `doc.deleteText()` which
 operate on block-level inlines. When cursor is in a table cell, these
 must route to `doc.insertTextInCell()` / `doc.deleteTextInCell()`.
 
