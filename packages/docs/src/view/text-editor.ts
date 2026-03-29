@@ -1288,6 +1288,13 @@ export class TextEditor {
             offset: 0,
             cellAddress: { rowIndex: pos.cellAddress.rowIndex - 1, colIndex: pos.cellAddress.colIndex },
           };
+        } else {
+          // At first row — exit table upward
+          const blockIndex = this.doc.getBlockIndex(pos.blockId);
+          if (blockIndex > 0) {
+            const prevBlock = this.doc.document.blocks[blockIndex - 1];
+            newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+          }
         }
       } else if (direction === 'down') {
         // Move to cell below
@@ -1298,6 +1305,13 @@ export class TextEditor {
             offset: 0,
             cellAddress: { rowIndex: pos.cellAddress.rowIndex + 1, colIndex: pos.cellAddress.colIndex },
           };
+        } else {
+          // At last row — exit table downward
+          const blockIndex = this.doc.getBlockIndex(pos.blockId);
+          const blocks = this.doc.document.blocks;
+          if (blockIndex < blocks.length - 1) {
+            newPos = { blockId: blocks[blockIndex + 1].id, offset: 0 };
+          }
         }
       }
 
@@ -2237,12 +2251,13 @@ export class TextEditor {
     if (addRowAtEnd) {
       // Tab: insert a new row and move to it
       this.saveSnapshot();
-      this.doc.insertRow(pos.blockId, td.rows.length);
+      const newRowIndex = td.rows.length;
+      this.doc.insertRow(pos.blockId, newRowIndex);
       this.invalidateLayout();
       this.cursor.moveTo({
         blockId: pos.blockId,
         offset: 0,
-        cellAddress: { rowIndex: td.rows.length, colIndex: 0 },
+        cellAddress: { rowIndex: newRowIndex, colIndex: 0 },
       });
       return true;
     }
@@ -2408,9 +2423,10 @@ export class TextEditor {
       this.hangulComposingLength = 0;
     }
 
-    const hangulPos = {
+    const hangulPos: DocPosition = {
       blockId: this.hangulStartPos.blockId,
       offset: this.hangulStartPos.offset + this.hangulComposingLength,
+      cellAddress: this.hangulStartPos.cellAddress,
     };
     this.markDirty(this.hangulStartPos.blockId);
     this.cursor.moveTo(hangulPos, this.getWrapAffinity(hangulPos));

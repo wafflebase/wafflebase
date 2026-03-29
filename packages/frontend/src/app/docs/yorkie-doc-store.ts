@@ -177,8 +177,11 @@ function treeNodeToBlock(node: TreeNode): Block {
   }
   if ('tableData' in attrs && attrs.tableData) {
     try {
-      block.tableData = JSON.parse(attrs.tableData);
-      block.inlines = [];
+      const parsed = JSON.parse(attrs.tableData);
+      if (parsed && Array.isArray(parsed.rows) && Array.isArray(parsed.columnWidths)) {
+        block.tableData = parsed;
+        block.inlines = [];
+      }
     } catch {
       // Ignore malformed tableData
     }

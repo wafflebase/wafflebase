@@ -500,11 +500,24 @@ export class Doc {
   }
 
   /**
-   * Delete a row at the given index.
+   * Delete a row at the given index. Adjusts rowSpan of cells that span
+   * across the deleted row. Prevents deleting the last row.
    */
   deleteRow(blockId: string, rowIndex: number): void {
     const block = this.getBlock(blockId);
     const td = block.tableData!;
+    if (td.rows.length <= 1) return; // Prevent 0-row table
+
+    // Adjust rowSpan for cells above that span into the deleted row
+    for (let r = 0; r < rowIndex; r++) {
+      for (const cell of td.rows[r].cells) {
+        const rs = cell.rowSpan ?? 1;
+        if (r + rs > rowIndex) {
+          cell.rowSpan = rs - 1;
+        }
+      }
+    }
+
     td.rows.splice(rowIndex, 1);
     this.store.updateBlock(blockId, block);
     this.refresh();
@@ -530,11 +543,25 @@ export class Doc {
   }
 
   /**
-   * Delete a column at the given index, renormalize widths.
+   * Delete a column at the given index, renormalize widths. Adjusts colSpan
+   * of cells that span across the deleted column. Prevents deleting the last column.
    */
   deleteColumn(blockId: string, colIndex: number): void {
     const block = this.getBlock(blockId);
     const td = block.tableData!;
+    if (td.columnWidths.length <= 1) return; // Prevent 0-column table
+
+    // Adjust colSpan for cells left of the deleted column that span into it
+    for (const row of td.rows) {
+      for (let c = 0; c < colIndex; c++) {
+        const cell = row.cells[c];
+        const cs = cell.colSpan ?? 1;
+        if (c + cs > colIndex) {
+          cell.colSpan = cs - 1;
+        }
+      }
+    }
+
     td.columnWidths.splice(colIndex, 1);
     const count = td.columnWidths.length;
     for (let i = 0; i < count; i++) {

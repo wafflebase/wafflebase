@@ -90,6 +90,8 @@ export interface EditorAPI {
   splitTableCell(): void;
   /** Apply style to current cell */
   applyTableCellStyle(style: Partial<CellStyle>): void;
+  /** Delete the table the cursor is currently in */
+  deleteTable(): void;
   /** Check if cursor is inside a table */
   isInTable(): boolean;
   /** Get the current cell address (if in table) */
@@ -890,6 +892,21 @@ export function initialize(
       const blockIndex = doc.getBlockIndex(cursor.position.blockId);
       const tableId = doc.insertTable(blockIndex + 1, rows, cols);
       cursor.moveTo({ blockId: tableId, offset: 0, cellAddress: { rowIndex: 0, colIndex: 0 } });
+      invalidateLayout();
+      render();
+    },
+    deleteTable: () => {
+      if (!cursor.position.cellAddress) return;
+      const blockId = cursor.position.blockId;
+      const blockIndex = doc.getBlockIndex(blockId);
+      docStore.snapshot();
+      doc.deleteBlock(blockId);
+      // Move cursor to nearest block
+      const blocks = doc.document.blocks;
+      if (blocks.length > 0) {
+        const newIndex = Math.min(blockIndex, blocks.length - 1);
+        cursor.moveTo({ blockId: blocks[newIndex].id, offset: 0 });
+      }
       invalidateLayout();
       render();
     },

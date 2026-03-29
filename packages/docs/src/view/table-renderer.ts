@@ -14,15 +14,18 @@ export function renderTable(
   tableLayout: LayoutTable,
   tableX: number,
   tableY: number,
+  startRow = 0,
+  endRow?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
 
   const numRows = cells.length;
   const numCols = columnPixelWidths.length;
+  const rowEnd = endRow ?? numRows;
 
   // 1. Cell backgrounds
-  for (let r = 0; r < numRows; r++) {
+  for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
       const layoutCell = cells[r][c];
       if (layoutCell.merged) continue;
@@ -54,7 +57,7 @@ export function renderTable(
   }
 
   // 2. Cell text
-  for (let r = 0; r < numRows; r++) {
+  for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
       const layoutCell = cells[r][c];
       if (layoutCell.merged) continue;
@@ -142,7 +145,7 @@ export function renderTable(
   }
 
   // 3. Borders
-  for (let r = 0; r < numRows; r++) {
+  for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
       const layoutCell = cells[r][c];
       if (layoutCell.merged) continue;

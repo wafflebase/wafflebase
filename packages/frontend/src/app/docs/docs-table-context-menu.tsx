@@ -170,13 +170,7 @@ export function DocsTableContextMenu({
       <button
         className={item}
         onClick={act(() => {
-          const doc = editor.getDoc();
-          const blocks = doc.document.blocks;
-          const tableBlock = blocks.find((b) => b.type === "table");
-          if (tableBlock) {
-            doc.deleteBlock(tableBlock.id);
-            editor.render();
-          }
+          editor.deleteTable();
         })}
       >
         <IconTableOff size={iconSize} className="text-muted-foreground" />

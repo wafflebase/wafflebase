@@ -169,13 +169,30 @@ export class DocCanvas {
 
           const lb = layout.blocks[pl.blockIndex];
           if (lb && lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
-            if (pl.lineIndex === 0) {
+            // Collect contiguous table rows on this page for this block
+            const startRowIndex = pl.lineIndex;
+            let endRowIndex = startRowIndex + 1;
+            // Peek ahead: find last consecutive row for this block on this page
+            const plIndex = page.lines.indexOf(pl);
+            for (let k = plIndex + 1; k < page.lines.length; k++) {
+              const nextPl = page.lines[k];
+              if (nextPl.blockIndex === pl.blockIndex) {
+                endRowIndex = nextPl.lineIndex + 1;
+              } else {
+                break;
+              }
+            }
+            // Render only on the first row PageLine; skip subsequent rows
+            if (plIndex === 0 || page.lines[plIndex - 1]?.blockIndex !== pl.blockIndex) {
+              const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[startRowIndex];
               renderTable(
                 this.ctx,
                 lb.block.tableData,
                 lb.layoutTable,
                 pageX + margins.left,
-                pageY + pl.y,
+                tableOriginY,
+                startRowIndex,
+                endRowIndex,
               );
             }
             continue;
