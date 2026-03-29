@@ -2783,8 +2783,8 @@ export class TextEditor {
     );
     if (!result) return undefined;
 
-    const block = this.doc.document.blocks.find((b) => b.id === result.blockId);
-    if (!block) return undefined;
+    let block: import('../model/types.js').Block;
+    try { block = this.doc.getBlock(result.blockId); } catch { return undefined; }
     let pos = 0;
     for (const inline of block.inlines) {
       const inlineEnd = pos + inline.text.length;
@@ -2805,8 +2805,8 @@ export class TextEditor {
    */
   getLinkAtCursorPosition(): { href: string; rect: { x: number; y: number; width: number; height: number } } | undefined {
     const cursorPos = this.cursor.position;
-    const block = this.doc.document.blocks.find((b) => b.id === cursorPos.blockId);
-    if (!block) return undefined;
+    let block: import('../model/types.js').Block;
+    try { block = this.doc.getBlock(cursorPos.blockId); } catch { return undefined; }
 
     let pos = 0;
     let linkInline: { href: string; inlineStart: number; inlineEnd: number } | undefined;
