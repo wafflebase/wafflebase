@@ -825,12 +825,21 @@ export class TextEditor {
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );
     if (result && this.selection.range) {
-      const pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+      const anchor = this.selection.range.anchor;
+      let pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+
+      if (anchor.cellAddress) {
+        // Constrain drag selection within the anchor cell
+        const cellLen = this.getCellTextLength(anchor.blockId, anchor.cellAddress);
+        pos = {
+          blockId: anchor.blockId,
+          offset: Math.max(0, Math.min(result.offset, cellLen)),
+          cellAddress: anchor.cellAddress,
+        };
+      }
+
       this.cursor.moveTo(pos, result.lineAffinity);
-      this.selection.setRange({
-        anchor: this.selection.range.anchor,
-        focus: pos,
-      });
+      this.selection.setRange({ anchor, focus: pos });
       this.requestRender();
     }
   }
