@@ -1085,9 +1085,26 @@ export function initialize(
       render();
     },
     applyTableCellStyle: (style: Partial<CellStyle>) => {
+      docStore.snapshot();
+      // Cell-range selection: apply to all cells in range
+      if (selection.range?.tableCellRange) {
+        const cr = selection.range.tableCellRange;
+        const minR = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+        const maxR = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+        const minC = Math.min(cr.start.colIndex, cr.end.colIndex);
+        const maxC = Math.max(cr.start.colIndex, cr.end.colIndex);
+        for (let r = minR; r <= maxR; r++) {
+          for (let c = minC; c <= maxC; c++) {
+            doc.applyCellStyle(cr.blockId, { rowIndex: r, colIndex: c }, style);
+          }
+        }
+        markDirty(cr.blockId);
+        render();
+        return;
+      }
+      // Single cell
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      docStore.snapshot();
       doc.applyCellStyle(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex }, style);
       markDirty(cellInfo.tableBlockId);
       render();
