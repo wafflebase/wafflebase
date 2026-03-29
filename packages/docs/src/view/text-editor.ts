@@ -763,9 +763,45 @@ export class TextEditor {
         const cellAddr = this.resolveTableCellClick(pos.blockId, localX, localY);
         if (cellAddr) {
           pos.cellAddress = cellAddr;
-          pos.offset = 0;
-          this.cursor.moveTo(pos);
-          this.selection.setRange(null);
+
+          if (this.clickCount === 3) {
+            // Triple-click: select all cell text
+            const cellLen = this.getCellTextLength(pos.blockId, cellAddr);
+            const start: DocPosition = { blockId: pos.blockId, offset: 0, cellAddress: cellAddr };
+            const end: DocPosition = { blockId: pos.blockId, offset: cellLen, cellAddress: cellAddr };
+            this.selection.setRange({ anchor: start, focus: end });
+            this.cursor.moveTo(end);
+          } else if (this.clickCount === 2) {
+            // Double-click: select word in cell
+            const text = this.getCellText(pos.blockId, cellAddr);
+            const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            const [start, end] = getWordRange(text, clickOffset);
+            const anchor: DocPosition = { blockId: pos.blockId, offset: start, cellAddress: cellAddr };
+            const focus: DocPosition = { blockId: pos.blockId, offset: end, cellAddress: cellAddr };
+            this.selection.setRange({ anchor, focus });
+            this.cursor.moveTo(focus);
+          } else if (e.shiftKey) {
+            // Shift+click: extend selection within cell
+            const anchor = this.selection.range?.anchor ?? this.cursor.position;
+            if (anchor.cellAddress &&
+                anchor.cellAddress.rowIndex === cellAddr.rowIndex &&
+                anchor.cellAddress.colIndex === cellAddr.colIndex) {
+              const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+              const focus: DocPosition = { blockId: pos.blockId, offset: clickOffset, cellAddress: cellAddr };
+              this.selection.setRange({ anchor, focus });
+              this.cursor.moveTo(focus);
+            } else {
+              pos.offset = 0;
+              this.cursor.moveTo(pos);
+              this.selection.setRange(null);
+            }
+          } else {
+            // Single click — resolve character offset from mouse position
+            const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            pos.offset = clickOffset;
+            this.cursor.moveTo(pos);
+            this.selection.setRange(null);
+          }
           this.requestRender();
           return;
         }
@@ -2075,6 +2111,63 @@ export class TextEditor {
       }
     }
     return { rowIndex, colIndex };
+  }
+
+  /**
+   * Resolve a mouse event to a character offset within a specific table cell.
+   */
+  private resolveOffsetInCell(blockId: string, cellAddr: CellAddress, e: MouseEvent): number {
+    const layout = this.getLayout();
+    const lb = layout.blocks.find((b) => b.block.id === blockId);
+    if (!lb?.layoutTable) return 0;
+
+    const tl = lb.layoutTable;
+    const cell = tl.cells[cellAddr.rowIndex]?.[cellAddr.colIndex];
+    if (!cell || cell.merged) return 0;
+
+    const paginatedLayout = this.getPaginatedLayout();
+    const blockIndex = layout.blocks.indexOf(lb);
+    const { margins } = paginatedLayout.pageSetup;
+
+    // Find paginated page containing this row
+    let pageY = 0;
+    let rowLineY = 0;
+    for (const page of paginatedLayout.pages) {
+      for (const pl of page.lines) {
+        if (pl.blockIndex === blockIndex && pl.lineIndex === cellAddr.rowIndex) {
+          pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+          rowLineY = pl.y;
+          break;
+        }
+      }
+      if (pageY > 0 || rowLineY > 0) break;
+    }
+
+    const rect = this.container.getBoundingClientRect();
+    const s = this.getScaleFactor();
+    const mouseX = (e.clientX - rect.left + this.container.scrollLeft) / s;
+
+    const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+    const cellPadding = lb.block.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex]?.style.padding ?? 4;
+    const cellOriginX = pageX + margins.left + tl.columnXOffsets[cellAddr.colIndex] + cellPadding;
+    const localX = mouseX - cellOriginX;
+
+    const ctx = this.getCtx();
+    let offset = 0;
+    for (const line of cell.lines) {
+      for (const run of line.runs) {
+        ctx.font = buildFont(
+          run.inline.style.fontSize, run.inline.style.fontFamily,
+          run.inline.style.bold, run.inline.style.italic,
+        );
+        for (let i = 0; i <= run.text.length; i++) {
+          const w = ctx.measureText(run.text.slice(0, i)).width + run.x;
+          if (w >= localX) return offset + i;
+        }
+        offset += run.text.length;
+      }
+    }
+    return offset;
   }
 
   /**
