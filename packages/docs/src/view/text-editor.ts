@@ -1352,34 +1352,37 @@ export class TextEditor {
 
     // Table cell arrow key handling: keep cursor within cell boundaries
     if (pos.cellAddress) {
-      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
       let newPos: DocPosition | undefined;
 
       if (direction === 'left') {
         if (wordMod) {
           newPos = this.moveWordLeft(pos);
-        } else if (pos.offset > 0) {
-          newPos = { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
         } else {
-          // At start of cell — move to end of previous cell
-          if (this.moveToPrevCell()) {
-            this.selection.setRange(null);
-            this.requestRender();
+          const moved = this.moveLeft(pos);
+          if (moved === pos) {
+            // At start of first block in cell — move to previous cell
+            if (this.moveToPrevCell()) {
+              this.selection.setRange(null);
+              this.requestRender();
+            }
+            return;
           }
-          return;
+          newPos = moved;
         }
       } else if (direction === 'right') {
         if (wordMod) {
           newPos = this.moveWordRight(pos);
-        } else if (pos.offset < cellLen) {
-          newPos = { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
         } else {
-          // At end of cell — move to start of next cell
-          if (this.moveToNextCell()) {
-            this.selection.setRange(null);
-            this.requestRender();
+          const moved = this.moveRight(pos);
+          if (moved === pos) {
+            // At end of last block in cell — move to next cell
+            if (this.moveToNextCell()) {
+              this.selection.setRange(null);
+              this.requestRender();
+            }
+            return;
           }
-          return;
+          newPos = moved;
         }
       } else if (direction === 'up') {
         // Move to cell above
@@ -1389,6 +1392,7 @@ export class TextEditor {
             blockId: pos.blockId,
             offset: 0,
             cellAddress: { rowIndex: pos.cellAddress.rowIndex - 1, colIndex: pos.cellAddress.colIndex },
+            cellBlockIndex: 0,
           };
         } else {
           // At first row — exit table upward
@@ -1406,6 +1410,7 @@ export class TextEditor {
             blockId: pos.blockId,
             offset: 0,
             cellAddress: { rowIndex: pos.cellAddress.rowIndex + 1, colIndex: pos.cellAddress.colIndex },
+            cellBlockIndex: 0,
           };
         } else {
           // At last row — exit table downward
