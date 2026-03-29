@@ -12,6 +12,13 @@ export type {
   PageSetup,
   PageMargins,
   PaperSize,
+  TableData,
+  TableRow,
+  TableCell,
+  CellStyle,
+  BorderStyle,
+  CellAddress,
+  CellRange,
 } from './model/types.js';
 export {
   DEFAULT_BLOCK_STYLE,
@@ -33,6 +40,10 @@ export {
   resolvePageSetup,
   getEffectiveDimensions,
   normalizeBlockStyle,
+  DEFAULT_CELL_STYLE,
+  DEFAULT_BORDER_STYLE,
+  createTableBlock,
+  createTableCell,
 } from './model/types.js';
 export { Doc } from './model/document.js';
 

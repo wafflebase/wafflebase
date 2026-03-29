@@ -3,12 +3,15 @@ import type { HeadingLevel } from '../../src/model/types.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
+  DEFAULT_CELL_STYLE,
   PAPER_SIZES,
   resolvePageSetup,
   getEffectiveDimensions,
   createBlock,
   getHeadingDefaults,
   inlineStylesEqual,
+  createTableCell,
+  createTableBlock,
 } from '../../src/model/types.js';
 
 describe('BlockStyle', () => {
@@ -140,5 +143,33 @@ describe('inlineStylesEqual', () => {
         { href: 'https://example.com' },
       ),
     ).toBe(true);
+  });
+});
+
+describe('Table types', () => {
+  it('createTableCell returns cell with empty inline and default style', () => {
+    const cell = createTableCell();
+    expect(cell.inlines).toEqual([{ text: '', style: {} }]);
+    expect(cell.style).toEqual(DEFAULT_CELL_STYLE);
+    expect(cell.colSpan).toBeUndefined();
+    expect(cell.rowSpan).toBeUndefined();
+  });
+
+  it('createTableBlock creates a table with given dimensions', () => {
+    const block = createTableBlock(3, 4);
+    expect(block.type).toBe('table');
+    expect(block.tableData).toBeDefined();
+    expect(block.tableData!.rows).toHaveLength(3);
+    expect(block.tableData!.rows[0].cells).toHaveLength(4);
+    expect(block.tableData!.columnWidths).toHaveLength(4);
+    const sum = block.tableData!.columnWidths.reduce((a, b) => a + b, 0);
+    expect(sum).toBeCloseTo(1.0);
+  });
+
+  it('createTableBlock columns have equal widths', () => {
+    const block = createTableBlock(2, 3);
+    for (const w of block.tableData!.columnWidths) {
+      expect(w).toBeCloseTo(1 / 3);
+    }
   });
 });
