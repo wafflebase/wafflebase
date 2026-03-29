@@ -39,7 +39,7 @@ export interface EditorAPI {
   /** Update peer cursor data and re-render */
   setPeerCursors(cursors: PeerCursor[]): void;
   /** Register a callback for cursor position changes */
-  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void): void;
+  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): void;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
   getPeerCursorPixels(): Array<{ clientID: string; x: number; y: number; height: number }>;
   /** Get the block type at the cursor position */
@@ -183,7 +183,7 @@ export function initialize(
 
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
-  let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
+  let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void) | null = null;
   let lastPeerPixels: Array<{ clientID: string; x: number; y: number; height: number }> = [];
   let searchMatches: SearchMatch[] = [];
   let activeMatchIndex = -1;
@@ -505,7 +505,11 @@ export function initialize(
     needsScrollIntoView = true;
     render();
     const selRange = selection.hasSelection() && selection.range
-      ? { anchor: selection.range.anchor, focus: selection.range.focus }
+      ? {
+          anchor: selection.range.anchor,
+          focus: selection.range.focus,
+          tableCellRange: selection.range.tableCellRange,
+        }
       : null;
     cursorMoveCallback?.(cursor.position, selRange);
     // Notify cursor-based link detection.

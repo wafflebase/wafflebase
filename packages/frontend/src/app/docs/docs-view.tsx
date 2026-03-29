@@ -134,7 +134,7 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
           labelVisible:
             visiblePeerLabels.current.has(p.clientID) ||
             hoveredPeerClientID.current === p.clientID,
-          selection: sel ? { anchor: sel.anchor, focus: sel.focus } : undefined,
+          selection: sel ? { anchor: sel.anchor, focus: sel.focus, tableCellRange: sel.tableCellRange } : undefined,
         };
       });
   }, []);

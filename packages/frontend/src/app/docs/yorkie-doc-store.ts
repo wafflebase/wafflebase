@@ -583,6 +583,11 @@ export class YorkieDocStore implements DocStore {
     selection?: {
       anchor: { blockId: string; offset: number };
       focus: { blockId: string; offset: number };
+      tableCellRange?: {
+        blockId: string;
+        start: { rowIndex: number; colIndex: number };
+        end: { rowIndex: number; colIndex: number };
+      };
     } | null,
   ): void {
     this.doc.update((_, p) => {

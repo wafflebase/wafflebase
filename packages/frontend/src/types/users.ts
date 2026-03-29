@@ -24,5 +24,10 @@ export type DocsPresence = {
   activeSelection?: {
     anchor: { blockId: string; offset: number };
     focus: { blockId: string; offset: number };
+    tableCellRange?: {
+      blockId: string;
+      start: { rowIndex: number; colIndex: number };
+      end: { rowIndex: number; colIndex: number };
+    };
   };
 };
