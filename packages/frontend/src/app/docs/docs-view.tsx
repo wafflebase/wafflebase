@@ -339,24 +339,26 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
   }
 
   return (
-    <DocsTableContextMenu editor={mountedEditor}>
-      <div ref={containerRef} className="relative flex-1 w-full min-h-0">
-        <DocsLinkPopover
+    <div ref={containerRef} className="relative flex-1 w-full min-h-0">
+      <DocsLinkPopover
+        editor={mountedEditor}
+        containerRef={containerRef}
+        editRequest={linkInputRequest}
+        onEditRequestHandled={() => setLinkInputRequest(null)}
+      />
+      {findBarOpen && (
+        <DocsFindBar
           editor={mountedEditor}
+          showReplace={findBarShowReplace}
+          onClose={() => setFindBarOpen(false)}
           containerRef={containerRef}
-          editRequest={linkInputRequest}
-          onEditRequestHandled={() => setLinkInputRequest(null)}
         />
-        {findBarOpen && (
-          <DocsFindBar
-            editor={mountedEditor}
-            showReplace={findBarShowReplace}
-            onClose={() => setFindBarOpen(false)}
-            containerRef={containerRef}
-          />
-        )}
-      </div>
-    </DocsTableContextMenu>
+      )}
+      <DocsTableContextMenu
+        editor={mountedEditor}
+        containerRef={containerRef}
+      />
+    </div>
   );
 }
 
