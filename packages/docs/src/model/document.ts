@@ -280,7 +280,7 @@ export class Doc {
       const nextBlock = cell.blocks[nextIdx];
       block.inlines = this.normalizeInlinesArray([...block.inlines, ...nextBlock.inlines]);
       cell.blocks.splice(nextIdx, 1);
-      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       this.refresh();
       return;
     }
@@ -339,14 +339,17 @@ export class Doc {
           this.applyStyleToBlock(block, start, end, style);
         }
       }
-      this.store.updateBlock(anchorCellInfo.tableBlockId, tableBlock);
+      this.store.updateTableCell(anchorCellInfo.tableBlockId, anchorCellInfo.rowIndex, anchorCellInfo.colIndex, cell);
       this.refresh();
       return;
     }
 
     // Existing top-level cross-block logic
-    const startBlock = this.getBlockIndex(range.anchor.blockId);
-    const endBlock = this.getBlockIndex(range.focus.blockId);
+    // Normalize cell endpoints to their parent table block for index lookup
+    const anchorTopId = anchorCellInfo ? anchorCellInfo.tableBlockId : range.anchor.blockId;
+    const focusTopId = focusCellInfo ? focusCellInfo.tableBlockId : range.focus.blockId;
+    const startBlock = this.getBlockIndex(anchorTopId);
+    const endBlock = this.getBlockIndex(focusTopId);
 
     const [from, to] =
       startBlock < endBlock ||
@@ -354,11 +357,33 @@ export class Doc {
         ? [range.anchor, range.focus]
         : [range.focus, range.anchor];
 
-    const fromBlockIdx = this.getBlockIndex(from.blockId);
-    const toBlockIdx = this.getBlockIndex(to.blockId);
+    const fromTopId = this._blockParentMap.get(from.blockId)?.tableBlockId ?? from.blockId;
+    const toTopId = this._blockParentMap.get(to.blockId)?.tableBlockId ?? to.blockId;
+    const fromBlockIdx = this.getBlockIndex(fromTopId);
+    const toBlockIdx = this.getBlockIndex(toTopId);
 
     for (let i = fromBlockIdx; i <= toBlockIdx; i++) {
       const block = this._document.blocks[i];
+
+      // Table block in the middle of a cross-block selection:
+      // apply style to every block in every cell.
+      if (block.type === 'table' && block.tableData) {
+        for (let r = 0; r < block.tableData.rows.length; r++) {
+          for (let c = 0; c < block.tableData.rows[r].cells.length; c++) {
+            const cell = block.tableData.rows[r].cells[c];
+            if (cell.colSpan === 0) continue;
+            for (const cellBlock of cell.blocks) {
+              const len = getBlockTextLength(cellBlock);
+              if (len > 0) {
+                this.applyStyleToBlock(cellBlock, 0, len, style);
+              }
+            }
+            this.store.updateTableCell(block.id, r, c, cell);
+          }
+        }
+        continue;
+      }
+
       const blockLen = getBlockTextLength(block);
       const start = i === fromBlockIdx ? from.offset : 0;
       const end = i === toBlockIdx ? to.offset : blockLen;
@@ -536,7 +561,7 @@ export class Doc {
       cells.push(createTableCell());
     }
     td.rows.splice(atIndex, 0, { cells });
-    this.store.updateBlock(blockId, block);
+    this.store.insertTableRow(blockId, atIndex, td.rows[atIndex]);
     this.refresh();
   }
 
@@ -551,16 +576,17 @@ export class Doc {
 
     // Adjust rowSpan for cells above that span into the deleted row
     for (let r = 0; r < rowIndex; r++) {
-      for (const cell of td.rows[r].cells) {
+      for (let c = 0; c < td.rows[r].cells.length; c++) {
+        const cell = td.rows[r].cells[c];
         const rs = cell.rowSpan ?? 1;
         if (r + rs > rowIndex) {
           cell.rowSpan = rs - 1;
+          this.store.updateTableCell(blockId, r, c, cell);
         }
       }
     }
-
     td.rows.splice(rowIndex, 1);
-    this.store.updateBlock(blockId, block);
+    this.store.deleteTableRow(blockId, rowIndex);
     this.refresh();
   }
 
@@ -579,7 +605,9 @@ export class Doc {
     for (const row of td.rows) {
       row.cells.splice(atIndex, 0, createTableCell());
     }
-    this.store.updateBlock(blockId, block);
+    const newCells = td.rows.map((row) => row.cells[atIndex]);
+    this.store.insertTableColumn(blockId, atIndex, newCells);
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
     this.refresh();
   }
 
@@ -593,12 +621,13 @@ export class Doc {
     if (td.columnWidths.length <= 1) return; // Prevent 0-column table
 
     // Adjust colSpan for cells left of the deleted column that span into it
-    for (const row of td.rows) {
+    for (let ri = 0; ri < td.rows.length; ri++) {
       for (let c = 0; c < colIndex; c++) {
-        const cell = row.cells[c];
+        const cell = td.rows[ri].cells[c];
         const cs = cell.colSpan ?? 1;
         if (c + cs > colIndex) {
           cell.colSpan = cs - 1;
+          this.store.updateTableCell(blockId, ri, c, cell);
         }
       }
     }
@@ -611,7 +640,8 @@ export class Doc {
     for (const row of td.rows) {
       row.cells.splice(colIndex, 1);
     }
-    this.store.updateBlock(blockId, block);
+    this.store.deleteTableColumn(blockId, colIndex);
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
     this.refresh();
   }
 
@@ -664,7 +694,12 @@ export class Doc {
     }
     topLeft.colSpan = colSpan;
     topLeft.rowSpan = rowSpan;
-    this.store.updateBlock(blockId, block);
+    // Update each affected cell in the store
+    for (let r = start.rowIndex; r <= end.rowIndex; r++) {
+      for (let c = start.colIndex; c <= end.colIndex; c++) {
+        this.store.updateTableCell(blockId, r, c, td.rows[r].cells[c]);
+      }
+    }
     this.refresh();
   }
 
@@ -693,7 +728,11 @@ export class Doc {
       }
     }
 
-    this.store.updateBlock(blockId, block);
+    for (let r = cell.rowIndex; r < cell.rowIndex + rowSpan; r++) {
+      for (let c = cell.colIndex; c < cell.colIndex + colSpan; c++) {
+        this.store.updateTableCell(blockId, r, c, td.rows[r].cells[c]);
+      }
+    }
     this.refresh();
   }
 
@@ -708,7 +747,7 @@ export class Doc {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
     tableCell.style = { ...tableCell.style, ...style };
-    this.store.updateBlock(blockId, block);
+    this.store.updateTableCell(blockId, cell.rowIndex, cell.colIndex, tableCell);
     this.refresh();
   }
 
@@ -729,7 +768,7 @@ export class Doc {
         if (i !== colIndex) td.columnWidths[i] = each;
       }
     }
-    this.store.updateBlock(blockId, block);
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
     this.refresh();
   }
 
@@ -744,7 +783,8 @@ export class Doc {
     if (cellInfo) {
       const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
       if (tableBlock) {
-        this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+        const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+        this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       }
     } else {
       this.store.updateBlock(blockId, block);
@@ -772,7 +812,7 @@ export class Doc {
       targetBlock.type = 'paragraph';
       delete targetBlock.listKind;
       delete targetBlock.listLevel;
-      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       this.refresh();
       return blockId;
     }
@@ -786,7 +826,7 @@ export class Doc {
         style: { ...DEFAULT_BLOCK_STYLE },
       };
       cell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
-      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       this.refresh();
       return newBlock.id;
     }
@@ -818,7 +858,7 @@ export class Doc {
     };
 
     cell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
-    this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+    this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
     this.refresh();
     return newBlock.id;
   }

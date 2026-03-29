@@ -291,20 +291,7 @@ function treeNodeToCell(node: TreeNode): TableCell {
 
 #### Granular Updates
 
-Current `updateBlock` replaces the entire block. For tables, this must be
-decomposed into granular tree operations:
-
-| Operation | Yorkie Tree call |
-|-----------|-----------------|
-| Cell text edit | `editByPath` on the inline/text nodes within the cell |
-| Cell style change | `editByPath` to replace cell node with updated attributes |
-| Insert row | `editByPath` to insert `row` node with `cell` children |
-| Delete row | `editByPath` to remove `row` node |
-| Insert column | `editByPath` on each `row` to insert a `cell` node |
-| Delete column | `editByPath` on each `row` to remove the `cell` node |
-
-The `DocStore` interface needs new methods or the existing `updateBlock`
-needs to detect table mutations and generate fine-grained tree edits.
+See Phase C below for the full design of granular table operations.
 
 ### Layout Changes
 
@@ -361,120 +348,97 @@ YorkieDocStore to serialize tables as Yorkie Tree node hierarchy
 tests. The `*InCell` methods were adapted to operate on `cell.blocks[0]`
 but not yet removed.
 
-### Phase B: Unified Editing Pipeline
+### Phase B: Unified Editing Pipeline (Complete)
 
-Remove `cellAddress` from `DocPosition` and eliminate all `*InCell` methods.
-Cell blocks become first-class blocks addressed by `blockId` alone. The
+Removed `cellAddress` from `DocPosition` and eliminated all `*InCell` methods.
+Cell blocks are first-class blocks addressed by `blockId` alone. The
 editing pipeline no longer distinguishes between top-level and cell blocks.
 
-**Scope:**
-- Implement `BlockParentMap` on `DocumentLayout`
-- Extend `getBlock()` to find cell-internal blocks
-- Extend `splitBlock()` / `mergeBlocks()` to handle cell context
-- Remove `cellAddress` and `cellBlockIndex` from `DocPosition`
-- Remove all `*InCell` methods from `Doc`
-- Remove all `cellAddress` branches in `TextEditor` and `Editor`
-- Update mouse click resolution to return cell block IDs directly
-- Update navigation (Tab, Arrow, Enter) to use `BlockParentMap`
+### Phase C: Granular Store Updates (Complete)
 
-**Not in scope (Phase C):** YorkieDocStore granular updates — table edits
-continue using whole-block `updateBlock()`. Concurrent cell-level CRDT
-merging is deferred.
+Decomposed `updateBlock()` for tables into fine-grained Yorkie Tree
+operations (`editByPath`) for concurrent cell-level editing. Extended the
+`DocStore` interface with operation-specific methods so the `Doc` class
+expresses intent (insert row, update cell, etc.) instead of replacing
+the entire table block.
 
-#### BlockParentMap
+#### DocStore Interface Extension
 
 ```typescript
-interface BlockCellInfo {
-  tableBlockId: string;
-  rowIndex: number;
-  colIndex: number;
-}
+interface DocStore {
+  // ... existing methods ...
 
-type BlockParentMap = Map<string, BlockCellInfo>;
-```
-
-Built during `computeTableLayout()` by walking the table structure. Cached
-on `DocumentLayout` and invalidated when the table block is dirty.
-
-**Usage:**
-- Navigation: Tab, Shift+Tab, Arrow at cell boundaries, Enter behavior
-- Block operations: `splitBlock` / `mergeBlocks` detect cell context
-- Store updates: find parent table block for `updateBlock()` call
-- Query: `blockParentMap.has(blockId)` replaces `cellAddress != null`
-
-#### getBlock Extension
-
-```typescript
-getBlock(blockId: string): Block {
-  // 1. Top-level block lookup (existing, fast path)
-  const topLevel = this.blockMap.get(blockId);
-  if (topLevel) return topLevel;
-
-  // 2. Cell block lookup via BlockParentMap
-  const cellInfo = this.blockParentMap.get(blockId);
-  if (cellInfo) {
-    const table = this.blockMap.get(cellInfo.tableBlockId);
-    return table.tableData.rows[cellInfo.rowIndex]
-      .cells[cellInfo.colIndex]
-      .blocks.find(b => b.id === blockId);
-  }
-
-  throw new Error(`Block not found: ${blockId}`);
+  insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void;
+  deleteTableRow(tableBlockId: string, rowIndex: number): void;
+  insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void;
+  deleteTableColumn(tableBlockId: string, colIndex: number): void;
+  updateTableCell(
+    tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
+  ): void;
+  updateTableAttrs(tableBlockId: string, attrs: { cols: number[] }): void;
 }
 ```
 
-#### splitBlock / mergeBlocks Cell Support
+**Design rationale:** The `Doc` class already knows the exact operation
+(insert row, change cell style, etc.). Passing that intent to the store
+lets `YorkieDocStore` emit the minimal Yorkie Tree edit, while a diff-based
+approach inside `updateBlock()` would be fragile for structural changes
+and wasteful since the intent was already known.
 
-`splitBlock(blockId, offset)` — if `blockParentMap.has(blockId)`, insert
-the new block into the cell's `blocks[]` array instead of the document's
-top-level block list. Update the parent table via `store.updateBlock()`.
+#### Yorkie Tree Path Mapping
 
-`mergeBlocks(blockId, nextBlockId)` — if both blocks are in the same cell,
-merge inlines and remove `nextBlockId` from the cell's `blocks[]`. At the
-first block of a cell, no-op (cannot merge with previous cell).
-
-#### Editor Branch Elimination
-
-| Pattern | Before | After |
-|---------|--------|-------|
-| Text input/delete | `if (cellAddress) doc.insertTextInCell(...) else doc.insertText(...)` | `doc.insertText(pos, text)` |
-| Style application | `if (ca) doc.applyBlockStyleInCell(...) else doc.applyBlockStyle(...)` | `doc.applyBlockStyle(pos.blockId, style)` |
-| Block type change | `if (ca) doc.setBlockTypeInCell(...) else doc.setBlockType(...)` | `doc.setBlockType(pos.blockId, type)` |
-| Cell detection | `cursor.position.cellAddress != null` | `layout.blockParentMap.has(pos.blockId)` |
-| Navigation | `moveToNextCell(blockId, cellAddress)` | `moveToNextCell(cellInfo)` via BlockParentMap |
-| Mouse click | `resolveTableCellClick() → CellAddress` | `resolveTableCellClick() → { blockId, offset }` |
-
-#### Mouse Click Resolution
-
-`resolveTableCellClick` changes from returning a `CellAddress` to returning
-a `DocPosition` with the cell's block ID:
-
-```typescript
-// Before: returns CellAddress, caller sets pos.cellAddress
-// After: returns DocPosition { blockId: cellBlock.id, offset }
+```
+doc (root)
+├─ [0] block(paragraph)
+├─ [1] block(table)          ← tableIndex (tIdx)
+│   ├─ [0] row
+│   │   ├─ [0] cell
+│   │   │   └─ [0] block → [0] inline → text
+│   │   └─ [1] cell
+│   └─ [1] row
+│       ├─ [0] cell
+│       └─ [1] cell
+└─ [2] block(paragraph)
 ```
 
-The cell address is no longer propagated through the cursor. If navigation
-logic needs cell context, it queries `blockParentMap.get(blockId)`.
+| Operation | editByPath call |
+|-----------|-----------------|
+| Insert row at index 1 | `editByPath([tIdx, 1], [tIdx, 1], rowNode)` |
+| Delete row at index 0 | `editByPath([tIdx, 0], [tIdx, 1])` |
+| Insert column at index 1 | Per row: `editByPath([tIdx, r, 1], [tIdx, r, 1], cellNode)` |
+| Delete column at index 0 | Per row: `editByPath([tIdx, r, 0], [tIdx, r, 1])` |
+| Update cell (row 0, col 1) | `editByPath([tIdx, 0, 1], [tIdx, 0, 2], cellNode)` |
+| Update table attrs | Whole-block replacement (no attribute-only Yorkie API) |
 
-### Phase C: Granular Store Updates (Future)
+Column insert/delete iterates all rows within a single `doc.update()`
+callback for atomicity.
 
-Decompose `updateBlock()` for tables into fine-grained Yorkie Tree
-operations (`editByPath`) for concurrent cell-level editing. See the
-Granular Updates section above for the operation mapping.
+#### Concurrent Editing Behavior
 
-## Migration
+| Scenario | Before (Phase B) | After (Phase C) |
+|----------|------------------|-----------------|
+| Different cells edited simultaneously | LWW — one edit lost | Cell-level replace — **both preserved** |
+| Same cell text edited simultaneously | LWW — one edit lost | LWW on cell node — **last writer wins within cell** |
+| Cell style + different cell text | LWW — one change lost | Independent nodes — **both preserved** |
+| Row inserted + cell edited | LWW — one change lost | Independent tree ops — **both preserved** |
+| Two rows inserted simultaneously | LWW — one insert lost | Adjacent tree inserts — **both preserved** |
+| Column width + cell edit | LWW — one change lost | Table attrs vs cell node — **both preserved** |
 
-No migration needed. The current `tableData` JSON format has not been
-deployed to production users. The old format is removed entirely — reading
-code for the JSON-stringified format is deleted.
+Note: same-cell concurrent text edits remain LWW at the cell level. True
+character-level merge within a single cell would require text-node-level
+`editByPath` (targeting `[tIdx, row, col, blockIdx, inlineIdx]`), which
+is deferred as it adds significant complexity for a rare scenario.
+
+Undo/redo remains snapshot-based (unchanged). Remote change reception
+is unchanged — the `subscribe` callback sets `dirty = true` and the
+next `getDocument()` re-reads the full Tree.
 
 ## Risks and Mitigation
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Large refactor scope (removing cellAddress everywhere) | High | Incremental: model change first, then store, then editor |
 | Yorkie Tree editByPath complexity for column operations | Medium | Column ops iterate rows sequentially — atomic within `doc.update()` |
 | Performance regression from deeper tree traversal | Low | Cache `BlockParentMap`; existing dirty-block optimization applies |
 | Cell blocks with no content (empty cell) | Low | Every cell starts with one empty paragraph block |
-| Cursor navigation edge cases at cell boundaries | Medium | Reuse existing block-boundary logic; cell exit via BlockParentMap |
+| deleteRow/deleteColumn span adjustment requires multiple store calls | Medium | Span-adjusted cells updated via `updateTableCell()` within same `Doc` method call |
+| updateTableAttrs still replaces whole table block | Low | Column width changes are infrequent and low-conflict |

@@ -1,4 +1,4 @@
-import type { Block, Document, PageSetup } from '../model/types.js';
+import type { Block, Document, PageSetup, TableRow, TableCell } from '../model/types.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -31,4 +31,20 @@ export interface DocStore {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+
+  // --- Table granular updates (Phase C) ---
+  /** Insert a row into a table at the given index. */
+  insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void;
+  /** Delete a row from a table. */
+  deleteTableRow(tableBlockId: string, rowIndex: number): void;
+  /** Insert a column (one cell per row) at the given index. */
+  insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void;
+  /** Delete a column from a table. */
+  deleteTableColumn(tableBlockId: string, colIndex: number): void;
+  /** Update a single cell (content + style). */
+  updateTableCell(
+    tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
+  ): void;
+  /** Update table-level attributes (column widths). */
+  updateTableAttrs(tableBlockId: string, attrs: { cols: number[] }): void;
 }

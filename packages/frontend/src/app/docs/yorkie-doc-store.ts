@@ -156,15 +156,7 @@ function buildBlockNode(block: Block): ElementNode {
         cols: block.tableData.columnWidths.join(','),
         ...serializeBlockStyle(block.style),
       },
-      children: block.tableData.rows.map((row) => ({
-        type: 'row' as const,
-        attributes: {},
-        children: row.cells.map((cell) => ({
-          type: 'cell' as const,
-          attributes: serializeCellStyle(cell),
-          children: cell.blocks.map(buildBlockNode),
-        })),
-      })),
+      children: block.tableData.rows.map(buildRowNode),
     };
   }
 
@@ -186,6 +178,22 @@ function buildBlockNode(block: Block): ElementNode {
     type: 'block',
     attributes: attrs,
     children: block.inlines.map(buildInlineNode),
+  };
+}
+
+function buildCellNode(cell: TableCell): ElementNode {
+  return {
+    type: 'cell' as const,
+    attributes: serializeCellStyle(cell),
+    children: cell.blocks.map(buildBlockNode),
+  };
+}
+
+function buildRowNode(row: TableRow): ElementNode {
+  return {
+    type: 'row' as const,
+    attributes: {},
+    children: row.cells.map(buildCellNode),
   };
 }
 
@@ -463,6 +471,104 @@ export class YorkieDocStore implements DocStore {
     // Update cache in-place
     const currentDoc = this.getDocument();
     currentDoc.blocks.splice(index, 1);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  // -----------------------------------------------------------------------
+  // Table granular updates
+  // -----------------------------------------------------------------------
+
+  private findTableIndex(tableBlockId: string): number {
+    const currentDoc = this.getDocument();
+    const index = currentDoc.blocks.findIndex((b) => b.id === tableBlockId);
+    if (index === -1) throw new Error(`Table block not found: ${tableBlockId}`);
+    return index;
+  }
+
+  insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
+    const tIdx = this.findTableIndex(tableBlockId);
+    const rowNode = buildRowNode(row);
+    this.doc.update((root) => {
+      root.content.editByPath([tIdx, atIndex], [tIdx, atIndex], rowNode);
+    });
+    const currentDoc = this.getDocument();
+    currentDoc.blocks[tIdx].tableData!.rows.splice(atIndex, 0, row);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  deleteTableRow(tableBlockId: string, rowIndex: number): void {
+    const tIdx = this.findTableIndex(tableBlockId);
+    this.doc.update((root) => {
+      root.content.editByPath([tIdx, rowIndex], [tIdx, rowIndex + 1]);
+    });
+    const currentDoc = this.getDocument();
+    currentDoc.blocks[tIdx].tableData!.rows.splice(rowIndex, 1);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
+    const tIdx = this.findTableIndex(tableBlockId);
+    this.doc.update((root) => {
+      const tree = root.content;
+      for (let r = 0; r < cells.length; r++) {
+        tree.editByPath([tIdx, r, atIndex], [tIdx, r, atIndex], buildCellNode(cells[r]));
+      }
+    });
+    const currentDoc = this.getDocument();
+    const td = currentDoc.blocks[tIdx].tableData!;
+    td.rows.forEach((row, i) => {
+      row.cells.splice(atIndex, 0, cells[i]);
+    });
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  deleteTableColumn(tableBlockId: string, colIndex: number): void {
+    const tIdx = this.findTableIndex(tableBlockId);
+    const currentDoc = this.getDocument();
+    const rowCount = currentDoc.blocks[tIdx].tableData!.rows.length;
+    this.doc.update((root) => {
+      const tree = root.content;
+      for (let r = 0; r < rowCount; r++) {
+        tree.editByPath([tIdx, r, colIndex], [tIdx, r, colIndex + 1]);
+      }
+    });
+    currentDoc.blocks[tIdx].tableData!.rows.forEach((row) => {
+      row.cells.splice(colIndex, 1);
+    });
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  updateTableCell(
+    tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
+  ): void {
+    const tIdx = this.findTableIndex(tableBlockId);
+    const cellNode = buildCellNode(cell);
+    this.doc.update((root) => {
+      root.content.editByPath(
+        [tIdx, rowIndex, colIndex],
+        [tIdx, rowIndex, colIndex + 1],
+        cellNode,
+      );
+    });
+    const currentDoc = this.getDocument();
+    currentDoc.blocks[tIdx].tableData!.rows[rowIndex].cells[colIndex] = cell;
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  updateTableAttrs(tableBlockId: string, attrs: { cols: number[] }): void {
+    const tIdx = this.findTableIndex(tableBlockId);
+    const currentDoc = this.getDocument();
+    const block = currentDoc.blocks[tIdx];
+    block.tableData!.columnWidths = attrs.cols;
+    this.doc.update((root) => {
+      root.content.editByPath([tIdx], [tIdx + 1], buildBlockNode(block));
+    });
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }

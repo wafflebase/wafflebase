@@ -2,8 +2,8 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
-import { generateBlockId, DEFAULT_BLOCK_STYLE } from '@wafflebase/docs';
-import type { Block } from '@wafflebase/docs';
+import { generateBlockId, DEFAULT_BLOCK_STYLE, createTableBlock, createTableCell } from '@wafflebase/docs';
+import type { Block, TableRow, TableCell as TCell } from '@wafflebase/docs';
 
 function makeBlock(text: string, style?: Partial<Block['style']>): Block {
   return {
@@ -12,6 +12,11 @@ function makeBlock(text: string, style?: Partial<Block['style']>): Block {
     inlines: [{ text, style: {} }],
     style: { ...DEFAULT_BLOCK_STYLE, ...style },
   };
+}
+
+function makeTableDoc(): { tableBlock: Block; doc: { blocks: Block[] } } {
+  const tableBlock = createTableBlock(2, 2);
+  return { tableBlock, doc: { blocks: [makeBlock('before'), tableBlock, makeBlock('after')] } };
 }
 
 describe('YorkieDocStore', () => {
@@ -218,6 +223,127 @@ describe('YorkieDocStore', () => {
       const doc = store.getDocument();
       doc.blocks[0].inlines[0].text = 'Mutated';
       assert.equal(store.getDocument().blocks[0].inlines[0].text, 'Hello');
+    });
+  });
+
+  describe('insertTableRow', () => {
+    it('should insert a row without affecting other rows', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      const cellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+      cellBlock.inlines[0].text = 'keep me';
+      store.updateBlock(tableBlock.id, tableBlock);
+
+      const newRow: TableRow = { cells: [createTableCell(), createTableCell()] };
+      store.insertTableRow(tableBlock.id, 1, newRow);
+
+      const result = store.getDocument();
+      const td = result.blocks[1].tableData!;
+      assert.equal(td.rows.length, 3);
+      assert.equal(td.rows[0].cells[0].blocks[0].inlines[0].text, 'keep me');
+      assert.equal(td.rows[1].cells.length, 2);
+      assert.equal(td.rows[2].cells[0].blocks[0].inlines[0].text, '');
+    });
+  });
+
+  describe('deleteTableRow', () => {
+    it('should delete a row and preserve others', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      const cell10 = tableBlock.tableData!.rows[1].cells[0].blocks[0];
+      cell10.inlines[0].text = 'row 1';
+      store.updateBlock(tableBlock.id, tableBlock);
+
+      store.deleteTableRow(tableBlock.id, 0);
+
+      const result = store.getDocument();
+      const td = result.blocks[1].tableData!;
+      assert.equal(td.rows.length, 1);
+      assert.equal(td.rows[0].cells[0].blocks[0].inlines[0].text, 'row 1');
+    });
+  });
+
+  describe('insertTableColumn', () => {
+    it('should insert a column in every row', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      const newCells: TCell[] = [createTableCell(), createTableCell()];
+      store.insertTableColumn(tableBlock.id, 1, newCells);
+
+      const result = store.getDocument();
+      const td = result.blocks[1].tableData!;
+      assert.equal(td.rows[0].cells.length, 3);
+      assert.equal(td.rows[1].cells.length, 3);
+    });
+  });
+
+  describe('deleteTableColumn', () => {
+    it('should delete a column from every row', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      store.deleteTableColumn(tableBlock.id, 0);
+
+      const result = store.getDocument();
+      const td = result.blocks[1].tableData!;
+      assert.equal(td.rows[0].cells.length, 1);
+      assert.equal(td.rows[1].cells.length, 1);
+    });
+  });
+
+  describe('updateTableCell', () => {
+    it('should update one cell without affecting others', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      const cell00 = tableBlock.tableData!.rows[0].cells[0];
+      cell00.blocks[0].inlines[0].text = 'original 00';
+      const cell11 = tableBlock.tableData!.rows[1].cells[1];
+      cell11.blocks[0].inlines[0].text = 'original 11';
+      store.updateBlock(tableBlock.id, tableBlock);
+
+      const updatedCell = createTableCell();
+      updatedCell.blocks[0].inlines[0].text = 'updated 00';
+      store.updateTableCell(tableBlock.id, 0, 0, updatedCell);
+
+      const result = store.getDocument();
+      const td = result.blocks[1].tableData!;
+      assert.equal(td.rows[0].cells[0].blocks[0].inlines[0].text, 'updated 00');
+      assert.equal(td.rows[1].cells[1].blocks[0].inlines[0].text, 'original 11');
+    });
+  });
+
+  describe('updateTableAttrs', () => {
+    it('should update column widths without affecting cell content', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      const cell00 = tableBlock.tableData!.rows[0].cells[0];
+      cell00.blocks[0].inlines[0].text = 'keep me';
+      store.updateBlock(tableBlock.id, tableBlock);
+
+      store.updateTableAttrs(tableBlock.id, { cols: [0.7, 0.3] });
+
+      const result = store.getDocument();
+      const td = result.blocks[1].tableData!;
+      assert.deepEqual(td.columnWidths, [0.7, 0.3]);
+      assert.equal(td.rows[0].cells[0].blocks[0].inlines[0].text, 'keep me');
+    });
+  });
+
+  describe('granular table ops preserve surrounding blocks', () => {
+    it('should not affect blocks before and after the table', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      store.insertTableRow(tableBlock.id, 1, { cells: [createTableCell(), createTableCell()] });
+
+      const result = store.getDocument();
+      assert.equal(result.blocks[0].inlines[0].text, 'before');
+      assert.equal(result.blocks[2].inlines[0].text, 'after');
     });
   });
 });
