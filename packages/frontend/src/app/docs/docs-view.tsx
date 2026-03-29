@@ -197,6 +197,10 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
     setMountedEditor(editor);
     onEditorReady?.(editor);
 
+    if (import.meta.env.DEV) {
+      (window as Record<string, unknown>).__docsEditor = editor;
+    }
+
     // Re-render the editor whenever a remote peer modifies the document.
     // refresh() updates the Doc's cached document from the store, then
     // render() repaints the canvas with the latest content.
