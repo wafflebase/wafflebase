@@ -1386,39 +1386,65 @@ export class TextEditor {
           newPos = moved;
         }
       } else if (direction === 'up') {
-        // Move to cell above
-        const block = this.doc.getBlock(pos.blockId);
-        if (block.tableData && pos.cellAddress.rowIndex > 0) {
+        const cbi = pos.cellBlockIndex ?? 0;
+        if (cbi > 0) {
+          // Move to previous block within the same cell
+          const prevLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress, cbi - 1);
           newPos = {
             blockId: pos.blockId,
-            offset: 0,
-            cellAddress: { rowIndex: pos.cellAddress.rowIndex - 1, colIndex: pos.cellAddress.colIndex },
-            cellBlockIndex: 0,
+            offset: Math.min(pos.offset, prevLen),
+            cellAddress: pos.cellAddress,
+            cellBlockIndex: cbi - 1,
           };
         } else {
-          // At first row — exit table upward
-          const blockIndex = this.doc.getBlockIndex(pos.blockId);
-          if (blockIndex > 0) {
-            const prevBlock = this.doc.document.blocks[blockIndex - 1];
-            newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+          // At first block — move to cell above or exit table
+          const block = this.doc.getBlock(pos.blockId);
+          if (block.tableData && pos.cellAddress.rowIndex > 0) {
+            const aboveCell = block.tableData.rows[pos.cellAddress.rowIndex - 1].cells[pos.cellAddress.colIndex];
+            const lastCbi = aboveCell.blocks.length - 1;
+            const lastBlockLen = getBlockTextLength(aboveCell.blocks[lastCbi]);
+            newPos = {
+              blockId: pos.blockId,
+              offset: Math.min(pos.offset, lastBlockLen),
+              cellAddress: { rowIndex: pos.cellAddress.rowIndex - 1, colIndex: pos.cellAddress.colIndex },
+              cellBlockIndex: lastCbi,
+            };
+          } else {
+            const blockIndex = this.doc.getBlockIndex(pos.blockId);
+            if (blockIndex > 0) {
+              const prevBlock = this.doc.document.blocks[blockIndex - 1];
+              newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+            }
           }
         }
       } else if (direction === 'down') {
-        // Move to cell below
+        const cbi = pos.cellBlockIndex ?? 0;
         const block = this.doc.getBlock(pos.blockId);
-        if (block.tableData && pos.cellAddress.rowIndex < block.tableData.rows.length - 1) {
+        const cell = block.tableData?.rows[pos.cellAddress.rowIndex]?.cells[pos.cellAddress.colIndex];
+        if (cell && cbi < cell.blocks.length - 1) {
+          // Move to next block within the same cell
+          const nextLen = getBlockTextLength(cell.blocks[cbi + 1]);
           newPos = {
             blockId: pos.blockId,
-            offset: 0,
-            cellAddress: { rowIndex: pos.cellAddress.rowIndex + 1, colIndex: pos.cellAddress.colIndex },
-            cellBlockIndex: 0,
+            offset: Math.min(pos.offset, nextLen),
+            cellAddress: pos.cellAddress,
+            cellBlockIndex: cbi + 1,
           };
         } else {
-          // At last row — exit table downward
-          const blockIndex = this.doc.getBlockIndex(pos.blockId);
-          const blocks = this.doc.document.blocks;
-          if (blockIndex < blocks.length - 1) {
-            newPos = { blockId: blocks[blockIndex + 1].id, offset: 0 };
+          // At last block — move to cell below or exit table
+          if (block.tableData && pos.cellAddress.rowIndex < block.tableData.rows.length - 1) {
+            newPos = {
+              blockId: pos.blockId,
+              offset: Math.min(pos.offset, getBlockTextLength(block.tableData.rows[pos.cellAddress.rowIndex + 1].cells[pos.cellAddress.colIndex].blocks[0])),
+              cellAddress: { rowIndex: pos.cellAddress.rowIndex + 1, colIndex: pos.cellAddress.colIndex },
+              cellBlockIndex: 0,
+            };
+          } else {
+            const blockIndex = this.doc.getBlockIndex(pos.blockId);
+            const blocks = this.doc.document.blocks;
+            if (blockIndex < blocks.length - 1) {
+              newPos = { blockId: blocks[blockIndex + 1].id, offset: 0 };
+            }
           }
         }
       }
