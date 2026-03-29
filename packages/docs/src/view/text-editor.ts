@@ -703,6 +703,9 @@ export class TextEditor {
     const target = e.target as HTMLElement;
     if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('button, [role="menu"], [role="menuitem"]')) return;
 
+    // Right-click: preserve existing cell-range selection for context menu
+    if (e.button === 2 && this.selection.range?.tableCellRange) return;
+
     // Ctrl+Click (or Cmd+Click on Mac) on a link opens it in a new tab
     if (e.ctrlKey || e.metaKey) {
       const href = this.getLinkHrefAtMouse(e);
