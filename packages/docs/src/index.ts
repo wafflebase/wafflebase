@@ -19,6 +19,7 @@ export type {
   BorderStyle,
   CellAddress,
   CellRange,
+  BlockCellInfo,
   TableCellRange,
 } from './model/types.js';
 export {

@@ -146,7 +146,7 @@ export function initialize(
   const ruler = new Ruler(container, canvas, readOnly);
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();
-  let layout: DocumentLayout = { blocks: [], totalHeight: 0 };
+  let layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
   let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
   let layoutCache: LayoutCache | undefined;
   let dirtyBlockIds: Set<string> | undefined;

@@ -286,6 +286,15 @@ export interface CellAddress {
   colIndex: number;
 }
 
+/**
+ * Reverse lookup: maps a cell-internal block ID to its parent table/cell.
+ */
+export interface BlockCellInfo {
+  tableBlockId: string;
+  rowIndex: number;
+  colIndex: number;
+}
+
 export interface CellRange {
   start: CellAddress;
   end: CellAddress;

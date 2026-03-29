@@ -4,6 +4,7 @@ import {
   SUBTITLE_DEFAULTS,
   LIST_INDENT_PX,
   type Block,
+  type BlockCellInfo,
   type HeadingLevel,
   type Inline,
   type InlineStyle,
@@ -96,6 +97,7 @@ export interface LayoutBlock {
 export interface DocumentLayout {
   blocks: LayoutBlock[];
   totalHeight: number;
+  blockParentMap: Map<string, BlockCellInfo>;
 }
 
 /**
@@ -140,6 +142,7 @@ export function computeLayout(
 
   const newCacheBlocks = new Map<string, LayoutBlock>();
   const layoutBlocks: LayoutBlock[] = [];
+  const blockParentMap = new Map<string, BlockCellInfo>();
   let y = 0;
 
   for (const block of blocks) {
@@ -161,7 +164,11 @@ export function computeLayout(
     let lines: LayoutLine[];
 
     if (block.type === 'table' && block.tableData) {
-      const tableLayout = computeTableLayout(block.tableData, ctx, availableWidth);
+      const tableLayout = computeTableLayout(block.tableData, block.id, ctx, availableWidth);
+      // Merge per-table blockParentMap into document-level map
+      for (const [k, v] of tableLayout.blockParentMap) {
+        blockParentMap.set(k, v);
+      }
       lines = [{ runs: [], y: 0, height: tableLayout.totalHeight, width: availableWidth }];
       const lb: LayoutBlock = {
         block,
@@ -218,7 +225,7 @@ export function computeLayout(
   }
 
   return {
-    layout: { blocks: layoutBlocks, totalHeight: y },
+    layout: { blocks: layoutBlocks, totalHeight: y, blockParentMap },
     cache: { blocks: newCacheBlocks, contentWidth },
   };
 }
