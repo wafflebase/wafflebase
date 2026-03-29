@@ -351,6 +351,118 @@ Unchanged from current design: tables split at **row boundaries** only.
 A row is never split across pages. Cell content with multiple blocks may
 make rows taller, but the row remains atomic for page-splitting purposes.
 
+## Implementation Phases
+
+### Phase A: Data Model + Store (Complete)
+
+Changed `TableCell` from `Inline[]` to `Block[]` containers and updated
+YorkieDocStore to serialize tables as Yorkie Tree node hierarchy
+(`row → cell → block → inline → text`). Updated layout, renderer, and all
+tests. The `*InCell` methods were adapted to operate on `cell.blocks[0]`
+but not yet removed.
+
+### Phase B: Unified Editing Pipeline
+
+Remove `cellAddress` from `DocPosition` and eliminate all `*InCell` methods.
+Cell blocks become first-class blocks addressed by `blockId` alone. The
+editing pipeline no longer distinguishes between top-level and cell blocks.
+
+**Scope:**
+- Implement `BlockParentMap` on `DocumentLayout`
+- Extend `getBlock()` to find cell-internal blocks
+- Extend `splitBlock()` / `mergeBlocks()` to handle cell context
+- Remove `cellAddress` and `cellBlockIndex` from `DocPosition`
+- Remove all `*InCell` methods from `Doc`
+- Remove all `cellAddress` branches in `TextEditor` and `Editor`
+- Update mouse click resolution to return cell block IDs directly
+- Update navigation (Tab, Arrow, Enter) to use `BlockParentMap`
+
+**Not in scope (Phase C):** YorkieDocStore granular updates — table edits
+continue using whole-block `updateBlock()`. Concurrent cell-level CRDT
+merging is deferred.
+
+#### BlockParentMap
+
+```typescript
+interface BlockCellInfo {
+  tableBlockId: string;
+  rowIndex: number;
+  colIndex: number;
+}
+
+type BlockParentMap = Map<string, BlockCellInfo>;
+```
+
+Built during `computeTableLayout()` by walking the table structure. Cached
+on `DocumentLayout` and invalidated when the table block is dirty.
+
+**Usage:**
+- Navigation: Tab, Shift+Tab, Arrow at cell boundaries, Enter behavior
+- Block operations: `splitBlock` / `mergeBlocks` detect cell context
+- Store updates: find parent table block for `updateBlock()` call
+- Query: `blockParentMap.has(blockId)` replaces `cellAddress != null`
+
+#### getBlock Extension
+
+```typescript
+getBlock(blockId: string): Block {
+  // 1. Top-level block lookup (existing, fast path)
+  const topLevel = this.blockMap.get(blockId);
+  if (topLevel) return topLevel;
+
+  // 2. Cell block lookup via BlockParentMap
+  const cellInfo = this.blockParentMap.get(blockId);
+  if (cellInfo) {
+    const table = this.blockMap.get(cellInfo.tableBlockId);
+    return table.tableData.rows[cellInfo.rowIndex]
+      .cells[cellInfo.colIndex]
+      .blocks.find(b => b.id === blockId);
+  }
+
+  throw new Error(`Block not found: ${blockId}`);
+}
+```
+
+#### splitBlock / mergeBlocks Cell Support
+
+`splitBlock(blockId, offset)` — if `blockParentMap.has(blockId)`, insert
+the new block into the cell's `blocks[]` array instead of the document's
+top-level block list. Update the parent table via `store.updateBlock()`.
+
+`mergeBlocks(blockId, nextBlockId)` — if both blocks are in the same cell,
+merge inlines and remove `nextBlockId` from the cell's `blocks[]`. At the
+first block of a cell, no-op (cannot merge with previous cell).
+
+#### Editor Branch Elimination
+
+| Pattern | Before | After |
+|---------|--------|-------|
+| Text input/delete | `if (cellAddress) doc.insertTextInCell(...) else doc.insertText(...)` | `doc.insertText(pos, text)` |
+| Style application | `if (ca) doc.applyBlockStyleInCell(...) else doc.applyBlockStyle(...)` | `doc.applyBlockStyle(pos.blockId, style)` |
+| Block type change | `if (ca) doc.setBlockTypeInCell(...) else doc.setBlockType(...)` | `doc.setBlockType(pos.blockId, type)` |
+| Cell detection | `cursor.position.cellAddress != null` | `layout.blockParentMap.has(pos.blockId)` |
+| Navigation | `moveToNextCell(blockId, cellAddress)` | `moveToNextCell(cellInfo)` via BlockParentMap |
+| Mouse click | `resolveTableCellClick() → CellAddress` | `resolveTableCellClick() → { blockId, offset }` |
+
+#### Mouse Click Resolution
+
+`resolveTableCellClick` changes from returning a `CellAddress` to returning
+a `DocPosition` with the cell's block ID:
+
+```typescript
+// Before: returns CellAddress, caller sets pos.cellAddress
+// After: returns DocPosition { blockId: cellBlock.id, offset }
+```
+
+The cell address is no longer propagated through the cursor. If navigation
+logic needs cell context, it queries `blockParentMap.get(blockId)`.
+
+### Phase C: Granular Store Updates (Future)
+
+Decompose `updateBlock()` for tables into fine-grained Yorkie Tree
+operations (`editByPath`) for concurrent cell-level editing. See the
+Granular Updates section above for the operation mapping.
+
 ## Migration
 
 No migration needed. The current `tableData` JSON format has not been
