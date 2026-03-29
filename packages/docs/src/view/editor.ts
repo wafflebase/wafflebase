@@ -721,9 +721,20 @@ export function initialize(
             const lo = Math.min(startIdx, endIdx);
             const hi = Math.max(startIdx, endIdx);
             for (let i = lo; i <= hi; i++) {
-              const block = doc.document.blocks[i];
-              doc.applyBlockStyle(block.id, style);
-              markDirty(block.id);
+              const b = doc.document.blocks[i];
+              if (b.type === 'table' && b.tableData) {
+                for (const row of b.tableData.rows) {
+                  for (const cell of row.cells) {
+                    if (cell.colSpan === 0) continue;
+                    for (const cellBlock of cell.blocks) {
+                      doc.applyBlockStyle(cellBlock.id, style);
+                    }
+                  }
+                }
+              } else {
+                doc.applyBlockStyle(b.id, style);
+              }
+              markDirty(b.id);
             }
           }
         }
@@ -825,8 +836,20 @@ export function initialize(
               const lo = Math.min(startIdx, endIdx);
               const hi = Math.max(startIdx, endIdx);
               for (let i = lo; i <= hi; i++) {
-                toggleBlock(doc.document.blocks[i].id);
-                markDirty(doc.document.blocks[i].id);
+                const b = doc.document.blocks[i];
+                if (b.type === 'table' && b.tableData) {
+                  for (const row of b.tableData.rows) {
+                    for (const cell of row.cells) {
+                      if (cell.colSpan === 0) continue;
+                      for (const cellBlock of cell.blocks) {
+                        toggleBlock(cellBlock.id);
+                      }
+                    }
+                  }
+                } else {
+                  toggleBlock(b.id);
+                }
+                markDirty(b.id);
               }
             }
           }
