@@ -1538,7 +1538,12 @@ export class TextEditor {
 
     if (startBlockIdx === endBlockIdx) {
       // Same block — mark dirty for incremental layout
-      this.doc.deleteText(start, end.offset - start.offset);
+      if (start.cellAddress) {
+        // Cell-internal deletion
+        this.doc.deleteTextInCell(start.blockId, start.cellAddress, start.offset, end.offset - start.offset);
+      } else {
+        this.doc.deleteText(start, end.offset - start.offset);
+      }
       this.markDirty(start.blockId);
     } else {
       // Multi-block structural change — force full layout recompute
