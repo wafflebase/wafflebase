@@ -44,6 +44,7 @@ export {
   DEFAULT_BORDER_STYLE,
   createTableBlock,
   createTableCell,
+  getCellText,
 } from './model/types.js';
 export { Doc } from './model/document.js';
 

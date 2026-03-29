@@ -1,6 +1,6 @@
 ---
 title: docs-tables
-target-version: 0.4.0
+target-version: 0.3.1
 ---
 
 # Docs Table Support

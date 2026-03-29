@@ -1,6 +1,6 @@
 ---
 title: docs-table-crdt
-target-version: 0.5.0
+target-version: 0.3.1
 ---
 
 # Table CRDT Collaboration & Container Cells

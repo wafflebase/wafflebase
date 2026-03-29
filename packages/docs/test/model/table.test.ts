@@ -4,8 +4,8 @@ import type { CellAddress, CellRange } from '../../src/model/types.js';
 
 function getCellText(doc: Doc, blockId: string, cell: CellAddress): string {
   const block = doc.getBlock(blockId);
-  return block.tableData!.rows[cell.rowIndex].cells[cell.colIndex]
-    .inlines.map(i => i.text).join('');
+  const tc = block.tableData!.rows[cell.rowIndex].cells[cell.colIndex];
+  return tc.blocks.flatMap(b => b.inlines).map(i => i.text).join('');
 }
 
 describe('Doc table operations', () => {
@@ -105,7 +105,7 @@ describe('Doc table operations', () => {
       const topLeft = block.tableData!.rows[0].cells[0];
       expect(topLeft.colSpan).toBe(2);
       expect(topLeft.rowSpan).toBe(2);
-      expect(topLeft.inlines.map(i => i.text).join('')).toBe('ABC');
+      expect(topLeft.blocks[0].inlines.map(i => i.text).join('')).toBe('ABC');
       expect(block.tableData!.rows[0].cells[1].colSpan).toBe(0);
       expect(block.tableData!.rows[1].cells[0].colSpan).toBe(0);
       expect(block.tableData!.rows[1].cells[1].colSpan).toBe(0);
@@ -142,9 +142,9 @@ describe('Doc table operations', () => {
       doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'Hello');
       doc.applyCellInlineStyle(tableId, { rowIndex: 0, colIndex: 0 }, 0, 3, { bold: true });
       const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
-      expect(cell.inlines[0].style.bold).toBe(true);
-      expect(cell.inlines[0].text).toBe('Hel');
-      expect(cell.inlines[1].text).toBe('lo');
+      expect(cell.blocks[0].inlines[0].style.bold).toBe(true);
+      expect(cell.blocks[0].inlines[0].text).toBe('Hel');
+      expect(cell.blocks[0].inlines[1].text).toBe('lo');
     });
   });
 

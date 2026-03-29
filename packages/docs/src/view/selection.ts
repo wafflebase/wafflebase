@@ -327,7 +327,7 @@ export class Selection {
       const cell = lb.block.tableData.rows[start.cellAddress.rowIndex]
         ?.cells[start.cellAddress.colIndex];
       if (!cell) return '';
-      const fullText = cell.inlines.map((i) => i.text).join('');
+      const fullText = cell.blocks.flatMap(b => b.inlines).map((i) => i.text).join('');
       return fullText.slice(start.offset, end.offset);
     }
 

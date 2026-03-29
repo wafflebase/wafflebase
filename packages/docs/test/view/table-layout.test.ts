@@ -19,7 +19,7 @@ describe('computeTableLayout', () => {
 
   it('should compute row heights based on cell content', () => {
     const block = createTableBlock(2, 2);
-    block.tableData!.rows[0].cells[0].inlines = [{ text: 'Hello', style: {} }];
+    block.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'Hello', style: {} }];
     const result = computeTableLayout(block.tableData!, stubCtx(), 200);
     expect(result.rowHeights[0]).toBeGreaterThan(0);
     expect(result.rowHeights[1]).toBeGreaterThan(0);
@@ -30,7 +30,7 @@ describe('computeTableLayout', () => {
     const td = block.tableData!;
     td.rows[0].cells[0].colSpan = 2;
     td.rows[0].cells[1].colSpan = 0;
-    td.rows[0].cells[1].inlines = [];
+    td.rows[0].cells[1].blocks = [];
     const result = computeTableLayout(td, stubCtx(), 200);
     expect(result.cells[0][0].merged).toBe(false);
     expect(result.cells[0][1].merged).toBe(true);

@@ -17,6 +17,7 @@ import {
   createEmptyBlock,
   createTableBlock,
   createTableCell,
+  getCellText,
   DEFAULT_BLOCK_STYLE,
   getBlockText,
   getBlockTextLength,
@@ -401,7 +402,7 @@ export class Doc {
   }
 
   /**
-   * Insert text at offset in a table cell's inlines.
+   * Insert text at offset in a table cell's first block.
    */
   insertTextInCell(
     blockId: string,
@@ -411,11 +412,13 @@ export class Doc {
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[0];
+    if (!targetBlock) return;
     const { inlineIndex, charOffset } = this.resolveOffsetInInlines(
-      tableCell.inlines,
+      targetBlock.inlines,
       offset,
     );
-    const inline = tableCell.inlines[inlineIndex];
+    const inline = targetBlock.inlines[inlineIndex];
     inline.text =
       inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
     this.store.updateBlock(blockId, block);
@@ -423,7 +426,7 @@ export class Doc {
   }
 
   /**
-   * Delete text from a table cell.
+   * Delete text from a table cell's first block.
    */
   deleteTextInCell(
     blockId: string,
@@ -433,17 +436,19 @@ export class Doc {
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
-    const totalLen = tableCell.inlines.reduce((s, i) => s + i.text.length, 0);
+    const targetBlock = tableCell.blocks[0];
+    if (!targetBlock) return;
+    const totalLen = targetBlock.inlines.reduce((s, i) => s + i.text.length, 0);
     let remaining = Math.min(length, totalLen - offset);
     if (remaining <= 0) return;
 
     let curOffset = offset;
     while (remaining > 0) {
       const { inlineIndex, charOffset } = this.resolveOffsetInInlines(
-        tableCell.inlines,
+        targetBlock.inlines,
         curOffset,
       );
-      const inline = tableCell.inlines[inlineIndex];
+      const inline = targetBlock.inlines[inlineIndex];
       const available = inline.text.length - charOffset;
       if (available <= 0) break;
       const toDelete = Math.min(remaining, available);
@@ -451,18 +456,18 @@ export class Doc {
         inline.text.slice(0, charOffset) +
         inline.text.slice(charOffset + toDelete);
       remaining -= toDelete;
-      if (inline.text.length === 0 && tableCell.inlines.length > 1) {
-        tableCell.inlines.splice(inlineIndex, 1);
+      if (inline.text.length === 0 && targetBlock.inlines.length > 1) {
+        targetBlock.inlines.splice(inlineIndex, 1);
       }
     }
 
-    tableCell.inlines = this.normalizeInlinesArray(tableCell.inlines);
+    targetBlock.inlines = this.normalizeInlinesArray(targetBlock.inlines);
     this.store.updateBlock(blockId, block);
     this.refresh();
   }
 
   /**
-   * Apply inline style to a range within a table cell.
+   * Apply inline style to a range within a table cell's first block.
    */
   applyCellInlineStyle(
     blockId: string,
@@ -473,8 +478,10 @@ export class Doc {
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
-    tableCell.inlines = this.applyStyleToInlines(
-      tableCell.inlines,
+    const targetBlock = tableCell.blocks[0];
+    if (!targetBlock) return;
+    targetBlock.inlines = this.applyStyleToInlines(
+      targetBlock.inlines,
       start,
       end,
       style,
@@ -592,19 +599,24 @@ export class Doc {
       for (let c = start.colIndex; c <= end.colIndex; c++) {
         if (r === start.rowIndex && c === start.colIndex) continue;
         const cell = td.rows[r].cells[c];
-        const cellText = cell.inlines.map((i) => i.text).join('');
-        if (cellText.length > 0) {
-          // Append non-empty text to top-left
-          topLeft.inlines.push(...cell.inlines.filter((i) => i.text.length > 0));
+        const cellTextContent = getCellText(cell);
+        if (cellTextContent.length > 0) {
+          // Append non-empty inlines from the first block to top-left's first block
+          const srcBlock = cell.blocks[0];
+          if (srcBlock) {
+            topLeft.blocks[0].inlines.push(
+              ...srcBlock.inlines.filter((i) => i.text.length > 0),
+            );
+          }
         }
         // Mark as covered
-        cell.inlines = [{ text: '', style: {} }];
+        cell.blocks = [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }];
         cell.colSpan = 0;
         cell.rowSpan = undefined;
       }
     }
 
-    topLeft.inlines = this.normalizeInlinesArray(topLeft.inlines);
+    topLeft.blocks[0].inlines = this.normalizeInlinesArray(topLeft.blocks[0].inlines);
     topLeft.colSpan = colSpan;
     topLeft.rowSpan = rowSpan;
     this.store.updateBlock(blockId, block);
@@ -632,7 +644,7 @@ export class Doc {
         const covered = td.rows[r].cells[c];
         delete covered.colSpan;
         delete covered.rowSpan;
-        covered.inlines = [{ text: '', style: {} }];
+        covered.blocks = [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }];
       }
     }
 

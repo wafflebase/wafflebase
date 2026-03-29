@@ -24,14 +24,14 @@ describe('Table cell selection helpers', () => {
   describe('Doc table cell text operations', () => {
     it('inserts and retrieves cell text', () => {
       const block = doc.getBlock(tableBlockId);
-      const text = block.tableData!.rows[0].cells[0].inlines.map(i => i.text).join('');
+      const text = block.tableData!.rows[0].cells[0].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
       expect(text).toBe('hello');
     });
 
     it('retrieves text from different cells', () => {
       const block = doc.getBlock(tableBlockId);
-      const text01 = block.tableData!.rows[0].cells[1].inlines.map(i => i.text).join('');
-      const text10 = block.tableData!.rows[1].cells[0].inlines.map(i => i.text).join('');
+      const text01 = block.tableData!.rows[0].cells[1].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
+      const text10 = block.tableData!.rows[1].cells[0].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
       expect(text01).toBe('world');
       expect(text10).toBe('foo bar');
     });
@@ -40,7 +40,7 @@ describe('Table cell selection helpers', () => {
       const ca00: CellAddress = { rowIndex: 0, colIndex: 0 };
       doc.deleteTextInCell(tableBlockId, ca00, 1, 3); // delete "ell"
       const block = doc.getBlock(tableBlockId);
-      const text = block.tableData!.rows[0].cells[0].inlines.map(i => i.text).join('');
+      const text = block.tableData!.rows[0].cells[0].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
       expect(text).toBe('ho');
     });
 
@@ -48,7 +48,7 @@ describe('Table cell selection helpers', () => {
       const ca00: CellAddress = { rowIndex: 0, colIndex: 0 };
       doc.deleteTextInCell(tableBlockId, ca00, 0, 2); // delete "he"
       const block = doc.getBlock(tableBlockId);
-      const text = block.tableData!.rows[0].cells[0].inlines.map(i => i.text).join('');
+      const text = block.tableData!.rows[0].cells[0].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
       expect(text).toBe('llo');
     });
 
@@ -56,7 +56,7 @@ describe('Table cell selection helpers', () => {
       const ca00: CellAddress = { rowIndex: 0, colIndex: 0 };
       doc.deleteTextInCell(tableBlockId, ca00, 3, 2); // delete "lo"
       const block = doc.getBlock(tableBlockId);
-      const text = block.tableData!.rows[0].cells[0].inlines.map(i => i.text).join('');
+      const text = block.tableData!.rows[0].cells[0].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
       expect(text).toBe('hel');
     });
 
@@ -64,13 +64,13 @@ describe('Table cell selection helpers', () => {
       const ca00: CellAddress = { rowIndex: 0, colIndex: 0 };
       doc.insertTextInCell(tableBlockId, ca00, 2, 'XY');
       const block = doc.getBlock(tableBlockId);
-      const text = block.tableData!.rows[0].cells[0].inlines.map(i => i.text).join('');
+      const text = block.tableData!.rows[0].cells[0].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
       expect(text).toBe('heXYllo');
     });
 
     it('empty cell has empty text', () => {
       const block = doc.getBlock(tableBlockId);
-      const text = block.tableData!.rows[2].cells[2].inlines.map(i => i.text).join('');
+      const text = block.tableData!.rows[2].cells[2].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
       expect(text).toBe('');
     });
   });

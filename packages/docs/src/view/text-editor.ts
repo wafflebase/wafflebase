@@ -1866,7 +1866,7 @@ export class TextEditor {
         const td = prevBlock.tableData;
         const lastRow = td.rows.length - 1;
         const lastCol = td.columnWidths.length - 1;
-        const cellText = td.rows[lastRow].cells[lastCol].inlines.map(i => i.text).join('');
+        const cellText = td.rows[lastRow].cells[lastCol].blocks.flatMap(b => b.inlines).map(i => i.text).join('');
         return { blockId: prevBlock.id, offset: cellText.length, cellAddress: { rowIndex: lastRow, colIndex: lastCol } };
       }
       return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
@@ -2185,7 +2185,7 @@ export class TextEditor {
   }
 
   /**
-   * Get the text length of a table cell's inlines.
+   * Get the text length of a table cell's blocks.
    */
   private getCellTextLength(blockId: string, cell: CellAddress): number {
     const block = this.doc.getBlock(blockId);
@@ -2194,7 +2194,7 @@ export class TextEditor {
     if (!row) return 0;
     const tc = row.cells[cell.colIndex];
     if (!tc) return 0;
-    return tc.inlines.reduce((s, i) => s + i.text.length, 0);
+    return tc.blocks.flatMap(b => b.inlines).reduce((s, i) => s + i.text.length, 0);
   }
 
   private getCellText(blockId: string, cell: CellAddress): string {
@@ -2204,7 +2204,7 @@ export class TextEditor {
     if (!row) return '';
     const tc = row.cells[cell.colIndex];
     if (!tc) return '';
-    return tc.inlines.map((i) => i.text).join('');
+    return tc.blocks.flatMap(b => b.inlines).map(i => i.text).join('');
   }
 
   /**
@@ -2286,7 +2286,7 @@ export class TextEditor {
     for (let c = colIndex - 1; c >= 0; c--) {
       const cell = td.rows[rowIndex]?.cells[c];
       if (cell && cell.colSpan !== 0) {
-        const len = cell.inlines.reduce((s, i) => s + i.text.length, 0);
+        const len = cell.blocks.flatMap(b => b.inlines).reduce((s, i) => s + i.text.length, 0);
         this.cursor.moveTo({
           blockId: pos.blockId,
           offset: len,
@@ -2300,7 +2300,7 @@ export class TextEditor {
       for (let c = td.columnWidths.length - 1; c >= 0; c--) {
         const cell = td.rows[r]?.cells[c];
         if (cell && cell.colSpan !== 0) {
-          const len = cell.inlines.reduce((s, i) => s + i.text.length, 0);
+          const len = cell.blocks.flatMap(b => b.inlines).reduce((s, i) => s + i.text.length, 0);
           this.cursor.moveTo({
             blockId: pos.blockId,
             offset: len,

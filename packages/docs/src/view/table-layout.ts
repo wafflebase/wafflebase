@@ -1,4 +1,4 @@
-import type { TableData, Inline } from '../model/types.js';
+import type { TableData, Inline, Block } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
 import { cachedMeasureText } from './layout.js';
 import { buildFont, ptToPx, Theme } from './theme.js';
@@ -137,6 +137,36 @@ function splitWords(text: string): string[] {
 }
 
 /**
+ * Layout blocks within a table cell into wrapped lines.
+ */
+function layoutCellBlocks(
+  blocks: Block[],
+  ctx: CanvasRenderingContext2D,
+  maxWidth: number,
+): LayoutLine[] {
+  if (blocks.length === 0) {
+    const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
+    return [{ runs: [], y: 0, height: defaultHeight, width: 0 }];
+  }
+
+  const allLines: LayoutLine[] = [];
+
+  for (const block of blocks) {
+    const blockLines = layoutCellInlines(block.inlines, ctx, maxWidth);
+    allLines.push(...blockLines);
+  }
+
+  // Recalculate cumulative y offsets
+  let y = 0;
+  for (const line of allLines) {
+    line.y = y;
+    y += line.height;
+  }
+
+  return allLines;
+}
+
+/**
  * Compute the spatial layout of a table.
  */
 export function computeTableLayout(
@@ -183,7 +213,7 @@ export function computeTableLayout(
       const padding = cell?.style?.padding ?? DEFAULT_CELL_PADDING;
       const innerWidth = Math.max(cellWidth - padding * 2, 0);
 
-      const lines = layoutCellInlines(cell?.inlines ?? [], ctx, innerWidth);
+      const lines = layoutCellBlocks(cell?.blocks ?? [], ctx, innerWidth);
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 
       cellRow.push({ lines, width: cellWidth, height: cellHeight, merged: false });
