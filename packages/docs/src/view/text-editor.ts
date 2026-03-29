@@ -934,10 +934,19 @@ export class TextEditor {
               };
             }
           }
+        } else {
+          // Mouse left the table — select all cells in the table
+          const block = this.doc.getBlock(anchor.blockId);
+          if (block.tableData) {
+            const td = block.tableData;
+            tableCellRange = {
+              blockId: anchor.blockId,
+              start: { rowIndex: 0, colIndex: 0 },
+              end: { rowIndex: td.rows.length - 1, colIndex: td.columnWidths.length - 1 },
+            };
+            pos = { blockId: anchor.blockId, offset: 0, cellAddress: anchorCA, cellBlockIndex: 0 };
+          }
         }
-        // If result.blockId !== anchor.blockId, mouse left the table
-        // → fall through: no tableCellRange, pos is the non-table position
-        // This creates a block-range selection from table to content
       }
 
       this.cursor.moveTo(pos, result.lineAffinity);

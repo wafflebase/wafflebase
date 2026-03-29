@@ -217,6 +217,19 @@ function buildRects(
 
   for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
     const lb = layout.blocks[bi];
+
+    // Table block within selection: highlight all cells
+    if (lb.block.type === 'table' && lb.block.tableData && lb.layoutTable) {
+      const td = lb.block.tableData;
+      const fullRange: TableCellRange = {
+        blockId: lb.block.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: td.rows.length - 1, colIndex: td.columnWidths.length - 1 },
+      };
+      rects.push(...buildCellRangeRects(fullRange, paginatedLayout, layout, canvasWidth));
+      continue;
+    }
+
     const blockStart = bi === startBlockIdx ? start.offset : 0;
     const blockEnd =
       bi === endBlockIdx ? end.offset : getBlockTextLength(lb.block);
