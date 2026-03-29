@@ -732,19 +732,38 @@ export class TextEditor {
     const clickedBlock = this.doc.document.blocks.find((b) => b.id === pos.blockId);
     if (clickedBlock?.type === 'table' && clickedBlock.tableData) {
       const layout = this.getLayout();
+      const paginatedLayout = this.getPaginatedLayout();
       const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
       if (lb?.layoutTable) {
         const rect = this.container.getBoundingClientRect();
         const s = this.getScaleFactor();
         const mouseX = (e.clientX - rect.left + this.container.scrollLeft) / s;
         const mouseY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
-        // Compute local coords relative to table block
-        const localX = mouseX - lb.x;
-        const localY = mouseY - lb.y;
+
+        // Find which page the table block is on to compute correct local coordinates
+        const blockIndex = layout.blocks.indexOf(lb);
+        const { margins } = paginatedLayout.pageSetup;
+        let tablePageY = 0;
+        let tablePageLineY = 0;
+        for (const page of paginatedLayout.pages) {
+          for (const pl of page.lines) {
+            if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
+              tablePageY = getPageYOffset(paginatedLayout, page.pageIndex);
+              tablePageLineY = pl.y;
+              break;
+            }
+          }
+          if (tablePageY > 0) break;
+        }
+
+        const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+        const localX = mouseX - pageX - margins.left;
+        const localY = mouseY - tablePageY - tablePageLineY;
+
         const cellAddr = this.resolveTableCellClick(pos.blockId, localX, localY);
         if (cellAddr) {
           pos.cellAddress = cellAddr;
-          pos.offset = 0; // Place cursor at start of cell
+          pos.offset = 0;
           this.cursor.moveTo(pos);
           this.selection.setRange(null);
           this.requestRender();
