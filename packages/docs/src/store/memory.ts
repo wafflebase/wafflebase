@@ -1,4 +1,4 @@
-import type { Block, Document, PageSetup } from '../model/types.js';
+import type { Block, Document, PageSetup, TableRow, TableCell } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
 
@@ -96,6 +96,48 @@ export class MemDocStore implements DocStore {
   snapshot(): void {
     this.pushUndo();
     this.redoStack = [];
+  }
+
+  insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
+    const block = this.findBlock(tableBlockId);
+    block.tableData!.rows.splice(atIndex, 0, JSON.parse(JSON.stringify(row)));
+  }
+
+  deleteTableRow(tableBlockId: string, rowIndex: number): void {
+    const block = this.findBlock(tableBlockId);
+    block.tableData!.rows.splice(rowIndex, 1);
+  }
+
+  insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
+    const block = this.findBlock(tableBlockId);
+    block.tableData!.rows.forEach((row, i) => {
+      row.cells.splice(atIndex, 0, JSON.parse(JSON.stringify(cells[i])));
+    });
+  }
+
+  deleteTableColumn(tableBlockId: string, colIndex: number): void {
+    const block = this.findBlock(tableBlockId);
+    block.tableData!.rows.forEach((row) => {
+      row.cells.splice(colIndex, 1);
+    });
+  }
+
+  updateTableCell(
+    tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
+  ): void {
+    const block = this.findBlock(tableBlockId);
+    block.tableData!.rows[rowIndex].cells[colIndex] = JSON.parse(JSON.stringify(cell));
+  }
+
+  updateTableAttrs(tableBlockId: string, attrs: { cols: number[] }): void {
+    const block = this.findBlock(tableBlockId);
+    block.tableData!.columnWidths = [...attrs.cols];
+  }
+
+  private findBlock(id: string): Block {
+    const block = this.doc.blocks.find((b) => b.id === id);
+    if (!block) throw new Error(`Block not found: ${id}`);
+    return block;
   }
 
   private pushUndo(): void {
