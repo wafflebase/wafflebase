@@ -777,6 +777,20 @@ export class Doc {
       return blockId;
     }
 
+    // Horizontal rules should not be split — create paragraph after
+    if (targetBlock.type === 'horizontal-rule') {
+      const newBlock: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: '', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      cell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
+      this.store.updateBlock(cellInfo.tableBlockId, tableBlock);
+      this.refresh();
+      return newBlock.id;
+    }
+
     const beforeInlines = this.buildInlinesFromSplit(targetBlock, 0, offset);
     const afterInlines = this.buildInlinesFromSplit(targetBlock, offset, blockText.length);
     const cursorStyle = this.getStyleAtOffset(targetBlock, offset);
