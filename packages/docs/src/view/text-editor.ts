@@ -1169,25 +1169,63 @@ export class TextEditor {
   }
 
   private toggleList(kind: 'ordered' | 'unordered'): void {
-    const block = this.doc.getBlock(this.cursor.position.blockId);
     this.saveSnapshot();
-    if (block.type === 'list-item' && block.listKind === kind) {
-      this.doc.setBlockType(block.id, 'paragraph');
+    const ca = this.cursor.position.cellAddress;
+    if (ca) {
+      const block = this.doc.getBlock(this.cursor.position.blockId);
+      const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
+      const cellBlock = cell?.blocks[cbi];
+      if (cellBlock) {
+        if (cellBlock.type === 'list-item' && cellBlock.listKind === kind) {
+          this.doc.setBlockTypeInCell(block.id, ca, cbi, 'paragraph');
+        } else {
+          this.doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+            listKind: kind,
+            listLevel: cellBlock.listLevel ?? 0,
+          });
+        }
+      }
     } else {
-      this.doc.setBlockType(block.id, 'list-item', {
-        listKind: kind,
-        listLevel: block.listLevel ?? 0,
-      });
+      const block = this.doc.getBlock(this.cursor.position.blockId);
+      if (block.type === 'list-item' && block.listKind === kind) {
+        this.doc.setBlockType(block.id, 'paragraph');
+      } else {
+        this.doc.setBlockType(block.id, 'list-item', {
+          listKind: kind,
+          listLevel: block.listLevel ?? 0,
+        });
+      }
     }
     this.invalidateLayout();
     this.requestRender();
   }
 
   private handleIndent(): void {
-    const INDENT_STEP = 36;
     const MAX_LIST_LEVEL = 8;
-    const block = this.doc.getBlock(this.cursor.position.blockId);
+    const ca = this.cursor.position.cellAddress;
     this.saveSnapshot();
+
+    if (ca) {
+      const block = this.doc.getBlock(this.cursor.position.blockId);
+      const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
+      const cellBlock = cell?.blocks[cbi];
+      if (cellBlock?.type === 'list-item') {
+        const currentLevel = cellBlock.listLevel ?? 0;
+        if (currentLevel >= MAX_LIST_LEVEL) return;
+        this.doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+          listKind: cellBlock.listKind,
+          listLevel: currentLevel + 1,
+        });
+      }
+      this.invalidateLayout();
+      this.requestRender();
+      return;
+    }
+
+    const INDENT_STEP = 36;
+    const block = this.doc.getBlock(this.cursor.position.blockId);
     if (block.type === 'list-item') {
       const currentLevel = block.listLevel ?? 0;
       if (currentLevel >= MAX_LIST_LEVEL) return;
@@ -1205,6 +1243,27 @@ export class TextEditor {
   }
 
   private handleOutdent(): void {
+    const ca = this.cursor.position.cellAddress;
+
+    if (ca) {
+      const block = this.doc.getBlock(this.cursor.position.blockId);
+      const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
+      const cellBlock = cell?.blocks[cbi];
+      if (cellBlock?.type === 'list-item') {
+        const currentLevel = cellBlock.listLevel ?? 0;
+        if (currentLevel <= 0) return;
+        this.saveSnapshot();
+        this.doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+          listKind: cellBlock.listKind,
+          listLevel: currentLevel - 1,
+        });
+        this.invalidateLayout();
+        this.requestRender();
+      }
+      return;
+    }
+
     const INDENT_STEP = 36;
     const block = this.doc.getBlock(this.cursor.position.blockId);
     if (block.type === 'list-item') {

@@ -601,6 +601,47 @@ export class Doc {
   }
 
   /**
+   * Change the block type of a block within a table cell.
+   */
+  setBlockTypeInCell(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+    type: BlockType,
+    opts?: {
+      headingLevel?: HeadingLevel;
+      listKind?: 'ordered' | 'unordered';
+      listLevel?: number;
+    },
+  ): void {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return;
+
+    targetBlock.type = type;
+    delete targetBlock.headingLevel;
+    delete targetBlock.listKind;
+    delete targetBlock.listLevel;
+
+    if (type === 'heading') {
+      targetBlock.headingLevel = opts?.headingLevel ?? 1;
+    }
+    if (type === 'list-item') {
+      targetBlock.listKind = opts?.listKind ?? 'unordered';
+      targetBlock.listLevel = opts?.listLevel ?? 0;
+    }
+    if (type === 'horizontal-rule') {
+      targetBlock.inlines = [];
+    } else if (targetBlock.inlines.length === 0) {
+      targetBlock.inlines = [{ text: '', style: {} }];
+    }
+
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
    * Insert a new row at the given index.
    */
   insertRow(blockId: string, atIndex: number): void {

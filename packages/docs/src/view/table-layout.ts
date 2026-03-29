@@ -1,4 +1,5 @@
 import type { TableData, Inline, Block } from '../model/types.js';
+import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
 import { cachedMeasureText } from './layout.js';
 import { buildFont, ptToPx, Theme } from './theme.js';
@@ -159,7 +160,20 @@ function layoutCellBlocks(
 
   for (const block of blocks) {
     blockBoundaries.push(allLines.length);
-    const blockLines = layoutCellInlines(block.inlines, ctx, maxWidth);
+    // Reserve space for list marker indent
+    const listIndent = block.type === 'list-item'
+      ? LIST_INDENT_PX * ((block.listLevel ?? 0) + 1)
+      : 0;
+    const blockLines = layoutCellInlines(block.inlines, ctx, maxWidth - listIndent);
+    // Shift runs right by the list indent
+    if (listIndent > 0) {
+      for (const line of blockLines) {
+        for (const run of line.runs) {
+          run.x += listIndent;
+        }
+        line.width += listIndent;
+      }
+    }
     allLines.push(...blockLines);
   }
 

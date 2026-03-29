@@ -1,6 +1,6 @@
 import type { LayoutTable } from './table-layout.js';
 import type { TableData, BorderStyle } from '../model/types.js';
-import { DEFAULT_BORDER_STYLE } from '../model/types.js';
+import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 
 /**
@@ -139,6 +139,46 @@ export function renderTable(
             ctx.lineTo(runX + run.width, strikeY);
             ctx.stroke();
           }
+        }
+      }
+
+      // Render list markers for list-item blocks in this cell
+      const { blockBoundaries } = layoutCell;
+      if (cell.blocks && blockBoundaries.length > 0) {
+        // Track ordered list counter per level within this cell
+        const listCounters = new Map<number, number>();
+        for (let bi = 0; bi < cell.blocks.length; bi++) {
+          const cellBlock = cell.blocks[bi];
+          if (cellBlock.type !== 'list-item') {
+            listCounters.clear();
+            continue;
+          }
+          const level = cellBlock.listLevel ?? 0;
+          // Reset counters for deeper levels
+          for (const [k] of listCounters) {
+            if (k > level) listCounters.delete(k);
+          }
+          const count = (listCounters.get(level) ?? 0) + 1;
+          listCounters.set(level, count);
+
+          const firstLineIdx = blockBoundaries[bi];
+          if (firstLineIdx === undefined || firstLineIdx >= layoutCell.lines.length) continue;
+          const firstLine = layoutCell.lines[firstLineIdx];
+
+          const markerIndent = LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
+          const markerX = cellX + padding + markerIndent;
+          const markerLineY = cellY + textYOffset + firstLine.y;
+
+          const marker = cellBlock.listKind === 'unordered'
+            ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
+            : `${count}.`;
+
+          const fontSize = cellBlock.inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
+          const fontSizePx = ptToPx(fontSize);
+          const baselineY = Math.round(markerLineY + (firstLine.height + fontSizePx * 0.8) / 2);
+          ctx.font = buildFont(fontSize, cellBlock.inlines[0]?.style.fontFamily, false, false);
+          ctx.fillStyle = cellBlock.inlines[0]?.style.color ?? Theme.defaultColor;
+          ctx.fillText(marker, markerX, baselineY);
         }
       }
     }

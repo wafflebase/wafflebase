@@ -691,6 +691,23 @@ export function initialize(
     },
     getPeerCursorPixels: () => lastPeerPixels,
     getBlockType() {
+      const ca = cursor.position.cellAddress;
+      if (ca) {
+        const block = doc.getBlock(cursor.position.blockId);
+        if (block.tableData) {
+          const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+          const cbi = cursor.position.cellBlockIndex ?? 0;
+          const cellBlock = cell?.blocks[cbi];
+          if (cellBlock) {
+            return {
+              type: cellBlock.type,
+              headingLevel: cellBlock.headingLevel,
+              listKind: cellBlock.listKind,
+              listLevel: cellBlock.listLevel,
+            };
+          }
+        }
+      }
       const block = doc.getBlock(cursor.position.blockId);
       return {
         type: block.type,
@@ -701,35 +718,77 @@ export function initialize(
     },
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
       docStore.snapshot();
-      doc.setBlockType(cursor.position.blockId, type, opts);
+      const ca = cursor.position.cellAddress;
+      if (ca) {
+        doc.setBlockTypeInCell(cursor.position.blockId, ca, cursor.position.cellBlockIndex ?? 0, type, opts);
+      } else {
+        doc.setBlockType(cursor.position.blockId, type, opts);
+      }
       invalidateLayout();
       render();
     },
     toggleList(kind: 'ordered' | 'unordered') {
-      const block = doc.getBlock(cursor.position.blockId);
+      const ca = cursor.position.cellAddress;
       docStore.snapshot();
-      if (block.type === 'list-item' && block.listKind === kind) {
-        doc.setBlockType(block.id, 'paragraph');
+      if (ca) {
+        const block = doc.getBlock(cursor.position.blockId);
+        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock) {
+          if (cellBlock.type === 'list-item' && cellBlock.listKind === kind) {
+            doc.setBlockTypeInCell(block.id, ca, cbi, 'paragraph');
+          } else {
+            doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+              listKind: kind,
+              listLevel: cellBlock.listLevel ?? 0,
+            });
+          }
+        }
       } else {
-        doc.setBlockType(block.id, 'list-item', {
-          listKind: kind,
-          listLevel: block.listLevel ?? 0,
-        });
+        const block = doc.getBlock(cursor.position.blockId);
+        if (block.type === 'list-item' && block.listKind === kind) {
+          doc.setBlockType(block.id, 'paragraph');
+        } else {
+          doc.setBlockType(block.id, 'list-item', {
+            listKind: kind,
+            listLevel: block.listLevel ?? 0,
+          });
+        }
       }
       invalidateLayout();
       render();
     },
     indent() {
       const MAX_LIST_LEVEL = 8;
-      const block = doc.getBlock(cursor.position.blockId);
+      const ca = cursor.position.cellAddress;
       docStore.snapshot();
+
+      if (ca) {
+        const block = doc.getBlock(cursor.position.blockId);
+        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock?.type === 'list-item') {
+          const currentLevel = cellBlock.listLevel ?? 0;
+          if (currentLevel >= MAX_LIST_LEVEL) return;
+          doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+            listKind: cellBlock.listKind,
+            listLevel: currentLevel + 1,
+          });
+        }
+        markDirty(block.id);
+        render();
+        return;
+      }
+
+      const block = doc.getBlock(cursor.position.blockId);
       if (block.type === 'list-item') {
         const currentLevel = block.listLevel ?? 0;
         if (currentLevel >= MAX_LIST_LEVEL) return;
-        const newLevel = currentLevel + 1;
         doc.setBlockType(block.id, 'list-item', {
           listKind: block.listKind,
-          listLevel: newLevel,
+          listLevel: currentLevel + 1,
         });
       } else {
         const INDENT_STEP = 36;
@@ -741,6 +800,27 @@ export function initialize(
       render();
     },
     outdent() {
+      const ca = cursor.position.cellAddress;
+
+      if (ca) {
+        const block = doc.getBlock(cursor.position.blockId);
+        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock?.type === 'list-item') {
+          const currentLevel = cellBlock.listLevel ?? 0;
+          if (currentLevel <= 0) return;
+          docStore.snapshot();
+          doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+            listKind: cellBlock.listKind,
+            listLevel: currentLevel - 1,
+          });
+          markDirty(block.id);
+          render();
+        }
+        return;
+      }
+
       const block = doc.getBlock(cursor.position.blockId);
       if (block.type === 'list-item') {
         const currentLevel = block.listLevel ?? 0;
