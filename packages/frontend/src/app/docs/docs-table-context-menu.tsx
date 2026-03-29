@@ -9,6 +9,7 @@ import {
   IconRowRemove,
   IconColumnRemove,
   IconArrowsSplit,
+  IconDropletOff,
   IconPalette,
   IconTableOff,
 } from "@tabler/icons-react";
@@ -148,11 +149,20 @@ export function DocsTableContextMenu({
       </button>
       {showColors && (
         <div className="px-2 py-1.5">
+          <button
+            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+            onClick={act(() =>
+              editor.applyTableCellStyle({ backgroundColor: "" }),
+            )}
+          >
+            <IconDropletOff size={14} />
+            Reset
+          </button>
           <div className="grid grid-cols-5 gap-1">
             {BG_COLORS.map((color) => (
               <button
                 key={color}
-                className="h-5 w-5 rounded-sm border border-border hover:ring-2 hover:ring-primary"
+                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
                 style={{ backgroundColor: color }}
                 onClick={act(() =>
                   editor.applyTableCellStyle({ backgroundColor: color }),
