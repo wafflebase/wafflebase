@@ -2346,13 +2346,27 @@ export class TextEditor {
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
     const logicalX = (e.clientX - rect.left + this.container.scrollLeft) / s;
-    return this.resolveOffsetInCellAtX(blockId, cellAddr, logicalX);
+    const logicalY = (e.clientY - rect.top - this.getCanvasOffsetTop() + this.container.scrollTop) / s;
+    return this.resolveOffsetInCellAtXY(blockId, cellAddr, logicalX, logicalY);
   }
 
   /**
    * Resolve a logical X coordinate to a character offset and block index within a table cell.
+   * Falls back to first-line matching when Y is not provided (drag selection).
    */
   private resolveOffsetInCellAtX(blockId: string, cellAddr: CellAddress, logicalX: number): { offset: number; cellBlockIndex: number } {
+    return this.resolveOffsetInCellAtXY(blockId, cellAddr, logicalX, undefined);
+  }
+
+  /**
+   * Resolve logical X/Y coordinates to a character offset and block index within a table cell.
+   */
+  private resolveOffsetInCellAtXY(
+    blockId: string,
+    cellAddr: CellAddress,
+    logicalX: number,
+    logicalY: number | undefined,
+  ): { offset: number; cellBlockIndex: number } {
     const layout = this.getLayout();
     const lb = layout.blocks.find((b) => b.block.id === blockId);
     if (!lb?.layoutTable) return { offset: 0, cellBlockIndex: 0 };
@@ -2365,22 +2379,62 @@ export class TextEditor {
     const { margins } = paginatedLayout.pageSetup;
 
     const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
-    const cellPadding = lb.block.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex]?.style.padding ?? 4;
+    const dataCell = lb.block.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex];
+    const cellPadding = dataCell?.style.padding ?? 4;
     const cellOriginX = pageX + margins.left + tl.columnXOffsets[cellAddr.colIndex] + cellPadding;
     const localX = logicalX - cellOriginX;
 
-    const ctx = this.getCtx();
-    let offset = 0;
-    let currentBlockIndex = 0;
-    for (let lineIdx = 0; lineIdx < cell.lines.length; lineIdx++) {
-      // Track which block this line belongs to
-      const nextBoundary = cell.blockBoundaries[currentBlockIndex + 1];
-      if (nextBoundary !== undefined && lineIdx >= nextBoundary) {
-        currentBlockIndex++;
-        offset = 0;
+    // Determine which line was clicked using Y coordinate
+    let targetLineIdx = cell.lines.length - 1; // default: last line
+    if (logicalY !== undefined) {
+      // Find the paginated row's page position to compute cell Y origin
+      const blockIndex = layout.blocks.indexOf(lb);
+      let cellPageY = 0;
+      for (const page of paginatedLayout.pages) {
+        for (const pl of page.lines) {
+          if (pl.blockIndex === blockIndex && pl.lineIndex === cellAddr.rowIndex) {
+            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+            cellPageY = pageY + pl.y - tl.rowYOffsets[cellAddr.rowIndex] + cellPadding;
+            break;
+          }
+        }
+        if (cellPageY !== 0) break;
       }
-      const line = cell.lines[lineIdx];
-      for (const run of line.runs) {
+
+      const localY = logicalY - cellPageY;
+      targetLineIdx = cell.lines.length - 1;
+      for (let li = 0; li < cell.lines.length; li++) {
+        if (localY < cell.lines[li].y + cell.lines[li].height) {
+          targetLineIdx = li;
+          break;
+        }
+      }
+    }
+
+    // Determine which block the target line belongs to
+    let currentBlockIndex = 0;
+    for (let bi = 0; bi < cell.blockBoundaries.length; bi++) {
+      const nextBoundary = cell.blockBoundaries[bi + 1] ?? cell.lines.length;
+      if (targetLineIdx < nextBoundary) {
+        currentBlockIndex = bi;
+        break;
+      }
+    }
+
+    // Compute character offset within the target block up to the target line
+    let offset = 0;
+    const blockStartLine = cell.blockBoundaries[currentBlockIndex] ?? 0;
+    for (let li = blockStartLine; li < targetLineIdx; li++) {
+      for (const run of cell.lines[li].runs) {
+        offset += run.text.length;
+      }
+    }
+
+    // Resolve X within the target line
+    const ctx = this.getCtx();
+    const targetLine = cell.lines[targetLineIdx];
+    if (targetLine) {
+      for (const run of targetLine.runs) {
         ctx.font = buildFont(
           run.inline.style.fontSize, run.inline.style.fontFamily,
           run.inline.style.bold, run.inline.style.italic,
