@@ -36,6 +36,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [docs-mobile-zoom-to-fit.md](docs-mobile-zoom-to-fit.md)       | Docs mobile zoom-to-fit — Canvas scale transform for narrow viewports                    |
 | [docs-tables.md](docs-tables.md)                               | Docs tables — data model, cell merge, layout, rendering, extensibility path              |
 | [docs-table-ui.md](docs-table-ui.md)                           | Docs table UI — grid picker, context menu, IME cell routing                              |
+| [docs-table-crdt.md](docs-table-crdt.md)                       | Table CRDT collaboration — Tree node structure, container cells, concurrent editing       |
 
 ## Template
 
