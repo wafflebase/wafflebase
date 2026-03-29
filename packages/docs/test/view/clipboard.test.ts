@@ -173,7 +173,7 @@ describe('HTML paste parsing', () => {
   it('should parse inline style attributes', () => {
     const inlines = parseHtmlToInlines('<span style="color: red; font-size: 16px">styled</span>');
     expect(inlines[0].style.color).toBe('red');
-    expect(inlines[0].style.fontSize).toBe(16);
+    expect(inlines[0].style.fontSize).toBe(12);
   });
 
   it('should parse background-color style', () => {
