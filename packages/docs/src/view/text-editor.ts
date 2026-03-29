@@ -940,17 +940,16 @@ export class TextEditor {
             }
           }
         } else {
-          // Mouse left the table — select all cells in the table
-          const block = this.doc.getBlock(anchor.blockId);
-          if (block.tableData) {
-            const td = block.tableData;
-            tableCellRange = {
-              blockId: anchor.blockId,
-              start: { rowIndex: 0, colIndex: 0 },
-              end: { rowIndex: td.rows.length - 1, colIndex: td.columnWidths.length - 1 },
-            };
-            pos = { blockId: anchor.blockId, offset: 0, cellAddress: anchorCA, cellBlockIndex: 0 };
-          }
+          // Mouse left the table — block-range selection including
+          // the whole table and external content. Drop cellAddress so
+          // buildRects treats the table as a whole-block highlight.
+          this.selection.setRange({
+            anchor: { blockId: anchor.blockId, offset: 0 },
+            focus: pos,
+          });
+          this.cursor.moveTo(pos, result.lineAffinity);
+          this.requestRender();
+          return;
         }
       }
 
