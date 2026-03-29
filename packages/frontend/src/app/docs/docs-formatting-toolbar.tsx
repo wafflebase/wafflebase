@@ -330,6 +330,30 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
       </Tooltip>
 
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                aria-label="Insert table"
+              >
+                <IconTable size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Insert table</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" sideOffset={4}>
+          <TableGridPicker
+            onSelect={(rows, cols) => {
+              editor?.insertTable(rows, cols);
+              editor?.focus();
+            }}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <Separator orientation="vertical" className="mx-1 h-6" />
 
       {/* ── Block Styles ── */}
@@ -420,31 +444,6 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
       </Tooltip>
 
-      <Separator orientation="vertical" className="mx-1 h-5" />
-
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                aria-label="Insert table"
-              >
-                <IconTable size={16} />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Insert table</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start" sideOffset={4}>
-          <TableGridPicker
-            onSelect={(rows, cols) => {
-              editor?.insertTable(rows, cols);
-              editor?.focus();
-            }}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }
