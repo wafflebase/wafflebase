@@ -174,6 +174,32 @@ export function initialize(
       }
     }
   }
+
+  /** Apply inline style to all blocks in all cells within a cell range. */
+  function applyStyleToCellRange(
+    cellRange: { blockId: string; start: CellAddress; end: CellAddress },
+    style: Partial<InlineStyle>,
+  ): void {
+    const block = doc.getBlock(cellRange.blockId);
+    if (!block.tableData) return;
+    const minRow = Math.min(cellRange.start.rowIndex, cellRange.end.rowIndex);
+    const maxRow = Math.max(cellRange.start.rowIndex, cellRange.end.rowIndex);
+    const minCol = Math.min(cellRange.start.colIndex, cellRange.end.colIndex);
+    const maxCol = Math.max(cellRange.start.colIndex, cellRange.end.colIndex);
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minCol; c <= maxCol; c++) {
+        const cell = block.tableData.rows[r]?.cells[c];
+        if (!cell || cell.colSpan === 0) continue;
+        for (let bi = 0; bi < cell.blocks.length; bi++) {
+          const len = getBlockTextLength(cell.blocks[bi]);
+          if (len > 0) {
+            doc.applyCellInlineStyle(cellRange.blockId, { rowIndex: r, colIndex: c }, 0, len, style, bi);
+          }
+        }
+      }
+    }
+  }
+
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
   let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
@@ -252,7 +278,10 @@ export function initialize(
     // Logical canvas width in unscaled document coordinates
     const logicalCanvasWidth = scaleFactor < 1 ? canvasWidth / scaleFactor : canvasWidth;
 
-    const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalCanvasWidth);
+    // Hide cursor when in cell-range selection mode
+    const cursorPixel = selection.range?.tableCellRange
+      ? undefined
+      : cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalCanvasWidth);
 
     // Auto-scroll to keep cursor visible (only on keyboard/input-driven renders)
     if (needsScrollIntoView && cursorPixel) {
@@ -644,6 +673,14 @@ export function initialize(
         docStore.snapshot();
         const range = selection.range;
         const anchor = range.anchor;
+
+        // Cell-range mode: apply to all cells in range
+        if (range.tableCellRange) {
+          applyStyleToCellRange(range.tableCellRange, style);
+          markDirty(range.tableCellRange.blockId);
+          render();
+          return;
+        }
 
         // Route to cell-aware method if selection is within a table cell
         if (anchor.cellAddress) {

@@ -1708,6 +1708,12 @@ export class TextEditor {
     }
     // Route to cell-aware method if selection is within a table cell
     const anchor = range.anchor;
+    if (range.tableCellRange) {
+      this.applyStyleToCellRange(range.tableCellRange, resolved);
+      this.markDirty(range.tableCellRange.blockId);
+      this.requestRender();
+      return;
+    }
     if (anchor.cellAddress) {
       const normalized = this.selection.getNormalizedRange(this.getLayout());
       if (normalized) {
@@ -1764,6 +1770,37 @@ export class TextEditor {
       const e = bi === endCbi ? end.offset : getBlockTextLength(cellBlock);
       if (s < e) {
         this.doc.applyCellInlineStyle(start.blockId, start.cellAddress, s, e, style, bi);
+      }
+    }
+  }
+
+  /**
+   * Apply inline style to all blocks in all cells within a cell range.
+   */
+  private applyStyleToCellRange(
+    cellRange: { blockId: string; start: CellAddress; end: CellAddress },
+    style: Partial<InlineStyle>,
+  ): void {
+    const block = this.doc.getBlock(cellRange.blockId);
+    if (!block.tableData) return;
+    const minRow = Math.min(cellRange.start.rowIndex, cellRange.end.rowIndex);
+    const maxRow = Math.max(cellRange.start.rowIndex, cellRange.end.rowIndex);
+    const minCol = Math.min(cellRange.start.colIndex, cellRange.end.colIndex);
+    const maxCol = Math.max(cellRange.start.colIndex, cellRange.end.colIndex);
+
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minCol; c <= maxCol; c++) {
+        const cell = block.tableData.rows[r]?.cells[c];
+        if (!cell || cell.colSpan === 0) continue;
+        for (let bi = 0; bi < cell.blocks.length; bi++) {
+          const len = getBlockTextLength(cell.blocks[bi]);
+          if (len > 0) {
+            this.doc.applyCellInlineStyle(
+              cellRange.blockId, { rowIndex: r, colIndex: c },
+              0, len, style, bi,
+            );
+          }
+        }
       }
     }
   }
