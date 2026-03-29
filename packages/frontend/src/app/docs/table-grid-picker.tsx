@@ -4,15 +4,26 @@ interface TableGridPickerProps {
   onSelect: (rows: number, cols: number) => void;
 }
 
-const GRID_SIZE = 10;
+const MIN_SIZE = 5;
+const MAX_SIZE = 10;
 const CELL_SIZE = 20;
 const CELL_GAP = 2;
-const TOTAL_SIZE = GRID_SIZE * CELL_SIZE + (GRID_SIZE - 1) * CELL_GAP;
+const STEP = CELL_SIZE + CELL_GAP;
+
+/** Expand the visible grid 1 beyond the hovered cell, clamped to [MIN, MAX]. */
+function visibleSize(hover: number): number {
+  return Math.max(MIN_SIZE, Math.min(hover + 2, MAX_SIZE));
+}
 
 export function TableGridPicker({ onSelect }: TableGridPickerProps) {
   const [hoverRow, setHoverRow] = useState(-1);
   const [hoverCol, setHoverCol] = useState(-1);
   const gridRef = useRef<HTMLDivElement>(null);
+
+  const rows = visibleSize(hoverRow);
+  const cols = visibleSize(hoverCol);
+  const gridW = cols * CELL_SIZE + (cols - 1) * CELL_GAP;
+  const gridH = rows * CELL_SIZE + (rows - 1) * CELL_GAP;
 
   const resolveCell = useCallback(
     (e: React.MouseEvent) => {
@@ -21,9 +32,8 @@ export function TableGridPicker({ onSelect }: TableGridPickerProps) {
       const rect = grid.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      const step = CELL_SIZE + CELL_GAP;
-      const col = Math.min(Math.floor(x / step), GRID_SIZE - 1);
-      const row = Math.min(Math.floor(y / step), GRID_SIZE - 1);
+      const col = Math.min(Math.floor(x / STEP), MAX_SIZE - 1);
+      const row = Math.min(Math.floor(y / STEP), MAX_SIZE - 1);
       return { row: Math.max(0, row), col: Math.max(0, col) };
     },
     [],
@@ -53,37 +63,39 @@ export function TableGridPicker({ onSelect }: TableGridPickerProps) {
     setHoverCol(-1);
   }, []);
 
+  const cells: React.ReactNode[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const isHighlighted = r <= hoverRow && c <= hoverCol;
+      cells.push(
+        <div
+          key={`${r}-${c}`}
+          className={`absolute rounded-sm border transition-colors ${
+            isHighlighted
+              ? "bg-primary/20 border-primary"
+              : "bg-background border-border"
+          }`}
+          style={{
+            width: CELL_SIZE,
+            height: CELL_SIZE,
+            left: c * STEP,
+            top: r * STEP,
+          }}
+        />,
+      );
+    }
+  }
+
   return (
     <div className="p-2">
       <div
         ref={gridRef}
-        style={{ width: TOTAL_SIZE, height: TOTAL_SIZE, position: "relative" }}
+        style={{ width: gridW, height: gridH, position: "relative" }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onClick={handleClick}
       >
-        {Array.from({ length: GRID_SIZE * GRID_SIZE }, (_, i) => {
-          const row = Math.floor(i / GRID_SIZE);
-          const col = i % GRID_SIZE;
-          const isHighlighted = row <= hoverRow && col <= hoverCol;
-          const step = CELL_SIZE + CELL_GAP;
-          return (
-            <div
-              key={i}
-              className={`absolute rounded-sm border transition-colors ${
-                isHighlighted
-                  ? "bg-primary/20 border-primary"
-                  : "bg-background border-border"
-              }`}
-              style={{
-                width: CELL_SIZE,
-                height: CELL_SIZE,
-                left: col * step,
-                top: row * step,
-              }}
-            />
-          );
-        })}
+        {cells}
       </div>
       <div className="mt-2 text-center text-xs text-muted-foreground">
         {hoverRow >= 0 && hoverCol >= 0

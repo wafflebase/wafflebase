@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { BlockType, EditorAPI, HeadingLevel } from "@wafflebase/docs";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
@@ -66,6 +66,36 @@ const isMac =
   typeof navigator !== "undefined" &&
   /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 const modKey = isMac ? "⌘" : "Ctrl";
+
+function TableDropdown({ editor }: { editor: EditorAPI | null }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+              aria-label="Insert table"
+            >
+              <IconTable size={16} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Insert table</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="start" sideOffset={4}>
+        <TableGridPicker
+          onSelect={(rows, cols) => {
+            editor?.insertTable(rows, cols);
+            editor?.focus();
+            setOpen(false);
+          }}
+        />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 interface DocsFormattingToolbarProps {
   editor: EditorAPI | null;
@@ -330,29 +360,7 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
         <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
       </Tooltip>
 
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-                aria-label="Insert table"
-              >
-                <IconTable size={16} />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Insert table</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent align="start" sideOffset={4}>
-          <TableGridPicker
-            onSelect={(rows, cols) => {
-              editor?.insertTable(rows, cols);
-              editor?.focus();
-            }}
-          />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <TableDropdown editor={editor} />
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 
