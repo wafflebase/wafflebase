@@ -40,6 +40,84 @@ export function resolvePositionPixel(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
 ): PositionPixel | undefined {
+  const lb = layout.blocks.find((b) => b.block.id === position.blockId);
+
+  // --- Table cell cursor ---
+  if (position.cellAddress && lb?.layoutTable) {
+    const tl = lb.layoutTable;
+    const { rowIndex, colIndex } = position.cellAddress;
+    const cell = tl.cells[rowIndex]?.[colIndex];
+    if (!cell || cell.merged) return undefined;
+
+    const cellPadding = lb.block.tableData?.rows[rowIndex]?.cells[colIndex]?.style.padding ?? 4;
+
+    // Find which paginated page contains this row
+    const blockIndex = layout.blocks.indexOf(lb);
+    let pageLine: import('./pagination.js').PageLine | undefined;
+    let pageIndex = 0;
+    for (const page of paginatedLayout.pages) {
+      for (const pl of page.lines) {
+        if (pl.blockIndex === blockIndex && pl.lineIndex === rowIndex) {
+          pageLine = pl;
+          pageIndex = page.pageIndex;
+          break;
+        }
+      }
+      if (pageLine) break;
+    }
+    if (!pageLine) return undefined;
+
+    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+    const pageY = getPageYOffset(paginatedLayout, pageIndex);
+    const { margins } = paginatedLayout.pageSetup;
+
+    // Cell origin within table
+    const cellX = tl.columnXOffsets[colIndex] + cellPadding;
+    const cellY = tl.rowYOffsets[rowIndex] + cellPadding;
+
+    // Measure text offset within cell lines
+    let cursorX = 0;
+    let cursorLineY = 0;
+    let lineHeight = tl.rowHeights[rowIndex] ?? 20;
+    let offsetRemaining = position.offset;
+
+    for (const line of cell.lines) {
+      let lineChars = 0;
+      for (const run of line.runs) {
+        lineChars += run.text.length;
+      }
+      if (offsetRemaining <= lineChars) {
+        // Cursor is on this line
+        lineHeight = line.height;
+        cursorLineY = line.y;
+        let chars = 0;
+        for (const run of line.runs) {
+          if (offsetRemaining <= chars + run.text.length) {
+            const localOff = offsetRemaining - chars;
+            const textBefore = run.text.slice(0, localOff);
+            ctx.font = buildFont(
+              run.inline.style.fontSize, run.inline.style.fontFamily,
+              run.inline.style.bold, run.inline.style.italic,
+            );
+            cursorX = run.x + ctx.measureText(textBefore).width;
+            break;
+          }
+          chars += run.text.length;
+        }
+        break;
+      }
+      offsetRemaining -= lineChars;
+      cursorLineY = line.y + line.height;
+    }
+
+    return {
+      x: pageX + margins.left + cellX + cursorX,
+      y: pageY + pageLine.y - tl.rowYOffsets[rowIndex] + cellY + cursorLineY,
+      height: lineHeight,
+    };
+  }
+
+  // --- Regular (non-table) cursor ---
   const found = findPageForPosition(
     paginatedLayout, position.blockId, position.offset, layout, lineAffinity,
   );
@@ -48,7 +126,7 @@ export function resolvePositionPixel(
   const { pageIndex, pageLine } = found;
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const pageY = getPageYOffset(paginatedLayout, pageIndex);
-  const lb = layout.blocks[pageLine.blockIndex];
+  if (!lb) return undefined;
 
   // Count chars before this line
   let charsBeforeLine = 0;
