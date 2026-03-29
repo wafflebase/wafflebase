@@ -1435,14 +1435,18 @@ export class TextEditor {
         } else {
           const moved = this.moveLeft(pos);
           if (moved === pos) {
-            // At start of first block in cell — move to previous cell
-            if (this.moveToPrevCell()) {
+            if (shiftKey) {
+              // Shift+Left at cell start: select table + exit upward
+              newPos = this.getPositionBeforeTable(pos.blockId);
+            } else if (this.moveToPrevCell()) {
               this.selection.setRange(null);
               this.requestRender();
+              return;
             }
-            return;
+            if (!newPos) return;
+          } else {
+            newPos = moved;
           }
-          newPos = moved;
         }
       } else if (direction === 'right') {
         if (wordMod) {
@@ -1450,14 +1454,18 @@ export class TextEditor {
         } else {
           const moved = this.moveRight(pos);
           if (moved === pos) {
-            // At end of last block in cell — move to next cell
-            if (this.moveToNextCell()) {
+            if (shiftKey) {
+              // Shift+Right at cell end: select table + exit downward
+              newPos = this.getPositionAfterTable(pos.blockId);
+            } else if (this.moveToNextCell()) {
               this.selection.setRange(null);
               this.requestRender();
+              return;
             }
-            return;
+            if (!newPos) return;
+          } else {
+            newPos = moved;
           }
-          newPos = moved;
         }
       } else if (direction === 'up') {
         const cbi = pos.cellBlockIndex ?? 0;
@@ -1525,9 +1533,30 @@ export class TextEditor {
 
       if (newPos) {
         if (shiftKey) {
-          // Extend selection within the cell
           const anchor = this.selection.range?.anchor ?? pos;
-          this.selection.setRange({ anchor, focus: newPos });
+          // Detect cross-cell shift selection
+          if (anchor.cellAddress && newPos.cellAddress &&
+              anchor.blockId === newPos.blockId &&
+              (anchor.cellAddress.rowIndex !== newPos.cellAddress.rowIndex ||
+               anchor.cellAddress.colIndex !== newPos.cellAddress.colIndex)) {
+            // Cross-cell: use tableCellRange
+            this.selection.setRange({
+              anchor, focus: newPos,
+              tableCellRange: {
+                blockId: anchor.blockId,
+                start: anchor.cellAddress,
+                end: newPos.cellAddress,
+              },
+            });
+          } else if (anchor.cellAddress && !newPos.cellAddress) {
+            // Exiting table: block-range with anchor at table boundary
+            this.selection.setRange({
+              anchor: { blockId: anchor.blockId, offset: 0 },
+              focus: newPos,
+            });
+          } else {
+            this.selection.setRange({ anchor, focus: newPos });
+          }
         } else {
           this.selection.setRange(null);
         }
@@ -2471,6 +2500,24 @@ export class TextEditor {
       return result;
     }
     return pos;
+  }
+
+  private getPositionBeforeTable(tableBlockId: string): DocPosition | undefined {
+    const idx = this.doc.getBlockIndex(tableBlockId);
+    if (idx > 0) {
+      const prev = this.doc.document.blocks[idx - 1];
+      return { blockId: prev.id, offset: getBlockTextLength(prev) };
+    }
+    return undefined;
+  }
+
+  private getPositionAfterTable(tableBlockId: string): DocPosition | undefined {
+    const idx = this.doc.getBlockIndex(tableBlockId);
+    const blocks = this.doc.document.blocks;
+    if (idx < blocks.length - 1) {
+      return { blockId: blocks[idx + 1].id, offset: 0 };
+    }
+    return undefined;
   }
 
   private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
