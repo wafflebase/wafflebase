@@ -2169,6 +2169,40 @@ export class TextEditor {
    */
   private getVisualLineRange(pos: DocPosition): [number, number] {
     const layout = this.getLayout();
+
+    // Cell block: find lines from the table layout
+    const cellInfo = this.getCellInfo(pos.blockId);
+    if (cellInfo) {
+      const tableLb = layout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
+      if (tableLb?.layoutTable) {
+        const layoutCell = tableLb.layoutTable.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
+        if (layoutCell && !layoutCell.merged) {
+          const tableBlock = this.doc.getBlock(cellInfo.tableBlockId);
+          const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+          const cbi = cell.blocks.findIndex(b => b.id === pos.blockId);
+          const startLine = layoutCell.blockBoundaries[cbi] ?? 0;
+          const endLine = layoutCell.blockBoundaries[cbi + 1] ?? layoutCell.lines.length;
+
+          let charsBefore = 0;
+          for (let li = startLine; li < endLine; li++) {
+            let lineChars = 0;
+            for (const run of layoutCell.lines[li].runs) {
+              lineChars += run.charEnd - run.charStart;
+            }
+            const lineStart = charsBefore;
+            const lineEnd = charsBefore + lineChars;
+            const isLast = li === endLine - 1;
+            if (pos.offset >= lineStart && (pos.offset < lineEnd || (isLast && pos.offset <= lineEnd))) {
+              return [lineStart, lineEnd];
+            }
+            charsBefore = lineEnd;
+          }
+          const total = getBlockTextLength(this.doc.getBlock(pos.blockId));
+          return [0, total];
+        }
+      }
+    }
+
     const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
     if (!lb) return [0, 0];
 
@@ -2180,18 +2214,11 @@ export class TextEditor {
   }
 
   private getVisualLineStart(pos: DocPosition): DocPosition {
-    if (this.isInCell(pos.blockId)) {
-      return { blockId: pos.blockId, offset: 0 };
-    }
     const [start] = this.getVisualLineRange(pos);
     return { blockId: pos.blockId, offset: start };
   }
 
   private getVisualLineEnd(pos: DocPosition): DocPosition {
-    if (this.isInCell(pos.blockId)) {
-      const blockLen = getBlockTextLength(this.doc.getBlock(pos.blockId));
-      return { blockId: pos.blockId, offset: blockLen };
-    }
     const [lineStart, lineEnd] = this.getVisualLineRange(pos);
     const block = this.doc.getBlock(pos.blockId);
     const totalLen = getBlockTextLength(block);
