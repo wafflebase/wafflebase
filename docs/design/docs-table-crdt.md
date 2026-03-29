@@ -354,12 +354,12 @@ Removed `cellAddress` from `DocPosition` and eliminated all `*InCell` methods.
 Cell blocks are first-class blocks addressed by `blockId` alone. The
 editing pipeline no longer distinguishes between top-level and cell blocks.
 
-### Phase C: Granular Store Updates
+### Phase C: Granular Store Updates (Complete)
 
-Decompose `updateBlock()` for tables into fine-grained Yorkie Tree
-operations (`editByPath`) for concurrent cell-level editing. Extends the
+Decomposed `updateBlock()` for tables into fine-grained Yorkie Tree
+operations (`editByPath`) for concurrent cell-level editing. Extended the
 `DocStore` interface with operation-specific methods so the `Doc` class
-can express intent (insert row, update cell, etc.) instead of replacing
+expresses intent (insert row, update cell, etc.) instead of replacing
 the entire table block.
 
 #### DocStore Interface Extension
@@ -368,19 +368,13 @@ the entire table block.
 interface DocStore {
   // ... existing methods ...
 
-  /** Insert a row into a table at the given index. */
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void;
-  /** Delete a row from a table. */
   deleteTableRow(tableBlockId: string, rowIndex: number): void;
-  /** Insert a column (one cell per row) at the given index. */
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void;
-  /** Delete a column from a table. */
   deleteTableColumn(tableBlockId: string, colIndex: number): void;
-  /** Update a single cell (content + style). */
   updateTableCell(
     tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
   ): void;
-  /** Update table-level attributes (column widths). */
   updateTableAttrs(tableBlockId: string, attrs: { cols: number[] }): void;
 }
 ```
@@ -419,105 +413,7 @@ doc (root)
 Column insert/delete iterates all rows within a single `doc.update()`
 callback for atomicity.
 
-#### Build Helper Extraction
-
-Extract row/cell builders from the existing `buildBlockNode`:
-
-```typescript
-function buildRowNode(row: TableRow): ElementNode {
-  return {
-    type: 'row',
-    attributes: {},
-    children: row.cells.map(buildCellNode),
-  };
-}
-
-function buildCellNode(cell: TableCell): ElementNode {
-  return {
-    type: 'cell',
-    attributes: serializeCellStyle(cell),
-    children: cell.blocks.map(buildBlockNode),
-  };
-}
-```
-
-`buildBlockNode` is updated to call these helpers instead of inlining
-the row/cell construction.
-
-#### YorkieDocStore Implementation
-
-Each method finds the table's root-level index, then issues targeted
-`editByPath` calls:
-
-- **`insertTableRow`** — `editByPath([tIdx, atIndex], [tIdx, atIndex], buildRowNode(row))`
-- **`deleteTableRow`** — `editByPath([tIdx, rowIndex], [tIdx, rowIndex + 1])`
-- **`insertTableColumn`** — loop over rows: `editByPath([tIdx, r, atIndex], [tIdx, r, atIndex], buildCellNode(cells[r]))`
-- **`deleteTableColumn`** — loop over rows: `editByPath([tIdx, r, colIndex], [tIdx, r, colIndex + 1])`
-- **`updateTableCell`** — `editByPath([tIdx, rowIndex, colIndex], [tIdx, rowIndex, colIndex + 1], buildCellNode(cell))`
-- **`updateTableAttrs`** — whole-block replacement via `editByPath([tIdx], [tIdx + 1], buildBlockNode(block))` (column width changes are rare and low-conflict)
-
-Cache synchronization follows the existing pattern: each method ends by
-updating `this.cachedDoc` in-place and setting `this.dirty = false`.
-
-#### Doc Class Changes
-
-Each table method in `Doc` switches from `store.updateBlock(tableBlockId, block)`
-to the appropriate granular method:
-
-| Doc method | Before | After |
-|------------|--------|-------|
-| `insertRow` | `store.updateBlock()` | `store.insertTableRow()` |
-| `deleteRow` | `store.updateBlock()` | `store.deleteTableRow()` + `store.updateTableCell()` for rowSpan-adjusted cells |
-| `insertColumn` | `store.updateBlock()` | `store.insertTableColumn()` + `store.updateTableAttrs()` |
-| `deleteColumn` | `store.updateBlock()` | `store.deleteTableColumn()` + `store.updateTableAttrs()` + `store.updateTableCell()` for colSpan-adjusted cells |
-| `applyCellStyle` | `store.updateBlock()` | `store.updateTableCell()` |
-| `mergeCells` | `store.updateBlock()` | `store.updateTableCell()` per affected cell |
-| `splitCell` | `store.updateBlock()` | `store.updateTableCell()` per affected cell |
-| `setColumnWidth` | `store.updateBlock()` | `store.updateTableAttrs()` |
-| `updateBlockInStore` (cell block) | `store.updateBlock(tableBlockId)` | `store.updateTableCell()` for the containing cell |
-| `splitBlockInCellInternal` | `store.updateBlock(tableBlockId)` | `store.updateTableCell()` for the containing cell |
-
-#### MemDocStore Implementation
-
-`MemDocStore` implements all six methods as direct in-memory mutations:
-
-```typescript
-insertTableRow(tableBlockId, atIndex, row) {
-  this.findBlock(tableBlockId).tableData!.rows.splice(atIndex, 0, row);
-}
-deleteTableRow(tableBlockId, rowIndex) {
-  this.findBlock(tableBlockId).tableData!.rows.splice(rowIndex, 1);
-}
-insertTableColumn(tableBlockId, atIndex, cells) {
-  this.findBlock(tableBlockId).tableData!.rows.forEach((row, i) =>
-    row.cells.splice(atIndex, 0, cells[i]));
-}
-deleteTableColumn(tableBlockId, colIndex) {
-  this.findBlock(tableBlockId).tableData!.rows.forEach((row) =>
-    row.cells.splice(colIndex, 1));
-}
-updateTableCell(tableBlockId, rowIndex, colIndex, cell) {
-  this.findBlock(tableBlockId).tableData!.rows[rowIndex].cells[colIndex] = cell;
-}
-updateTableAttrs(tableBlockId, attrs) {
-  this.findBlock(tableBlockId).tableData!.columnWidths = attrs.cols;
-}
-```
-
-#### Undo/Redo
-
-Unchanged. Undo/redo remains snapshot-based (full Document clone).
-`Editor` calls `docStore.snapshot()` before mutations. Undo restores the
-snapshot via `setDocument()`, which rebuilds the entire Yorkie Tree.
-Yorkie-native undo/redo is a separate future project.
-
-#### Remote Change Reception
-
-Unchanged. When a remote client sends granular `editByPath` changes,
-Yorkie propagates them. The local `subscribe` callback sets `dirty = true`,
-and the next `getDocument()` re-reads the full Tree into a `Document`.
-
-#### Concurrent Editing Behavior (Phase C)
+#### Concurrent Editing Behavior
 
 | Scenario | Before (Phase B) | After (Phase C) |
 |----------|------------------|-----------------|
@@ -533,34 +429,9 @@ character-level merge within a single cell would require text-node-level
 `editByPath` (targeting `[tIdx, row, col, blockIdx, inlineIdx]`), which
 is deferred as it adds significant complexity for a rare scenario.
 
-#### Test Strategy
-
-**Unit tests (YorkieDocStore):**
-- Each granular method: verify Tree structure after operation, confirm
-  other cells/rows are preserved
-- `updateTableCell`: verify that modifying one cell does not touch others
-  (the core Phase C value proposition)
-
-**Unit tests (Doc class):**
-- Existing table tests continue to pass via `MemDocStore`
-- Verify granular store methods are called (not `updateBlock`) via spy
-
-**Integration tests (concurrent editing):**
-- Two clients editing different cells simultaneously → both changes merged
-- One client edits cell + another inserts row → both changes preserved
-- Simultaneous column deletions → handled without conflict
-
-Integration tests require Yorkie server (`docker compose up -d`) and run
-in the `verify:integration` lane.
-
-#### Implementation Order
-
-1. Extract `buildRowNode` / `buildCellNode` helpers (refactor, no behavior change)
-2. Add six methods to `DocStore` interface + `MemDocStore` implementation
-3. Implement six methods in `YorkieDocStore` with `editByPath`
-4. Update `Doc` class to call granular methods instead of `updateBlock()`
-5. Add unit tests for YorkieDocStore granular methods
-6. Add concurrent editing integration tests
+Undo/redo remains snapshot-based (unchanged). Remote change reception
+is unchanged — the `subscribe` callback sets `dirty = true` and the
+next `getDocument()` re-reads the full Tree.
 
 ## Risks and Mitigation
 
