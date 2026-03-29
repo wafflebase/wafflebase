@@ -197,15 +197,25 @@ export class TextEditor {
     const finalText = e.data || '';
     const { startPosition, currentLength } = this.composition;
 
+    const ca = startPosition.cellAddress;
     if (currentLength > 0) {
-      this.doc.deleteText(startPosition, currentLength);
+      if (ca) {
+        this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength);
+      } else {
+        this.doc.deleteText(startPosition, currentLength);
+      }
     }
     if (finalText.length > 0) {
-      this.doc.insertText(startPosition, finalText);
+      if (ca) {
+        this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, finalText);
+      } else {
+        this.doc.insertText(startPosition, finalText);
+      }
     }
     const endPos = {
       blockId: startPosition.blockId,
       offset: startPosition.offset + finalText.length,
+      cellAddress: ca,
     };
     this.markDirty(startPosition.blockId);
     this.cursor.moveTo(endPos, this.getWrapAffinity(endPos));
@@ -244,17 +254,27 @@ export class TextEditor {
       const newText = this.textarea.value;
       const { startPosition, currentLength } = this.composition;
 
+      const ca = startPosition.cellAddress;
       if (currentLength > 0) {
-        this.doc.deleteText(startPosition, currentLength);
+        if (ca) {
+          this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength);
+        } else {
+          this.doc.deleteText(startPosition, currentLength);
+        }
       }
       if (newText.length > 0) {
-        this.doc.insertText(startPosition, newText);
+        if (ca) {
+          this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, newText);
+        } else {
+          this.doc.insertText(startPosition, newText);
+        }
       }
 
       this.composition.currentLength = newText.length;
       const compPos = {
         blockId: startPosition.blockId,
         offset: startPosition.offset + newText.length,
+        cellAddress: ca,
       };
       this.markDirty(startPosition.blockId);
       this.cursor.moveTo(compPos, this.getWrapAffinity(compPos));
@@ -2119,18 +2139,31 @@ export class TextEditor {
   private applyHangulResult(result: HangulResult): void {
     if (result.commit) {
       if (this.hangulComposingLength > 0) {
-        this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
-        this.doc.insertText(this.hangulStartPos, result.commit);
+        const ca = this.hangulStartPos.cellAddress;
+        if (ca) {
+          this.doc.deleteTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, this.hangulComposingLength);
+          this.doc.insertTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, result.commit);
+        } else {
+          this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
+          this.doc.insertText(this.hangulStartPos, result.commit);
+        }
         this.hangulStartPos = {
           blockId: this.hangulStartPos.blockId,
           offset: this.hangulStartPos.offset + result.commit.length,
+          cellAddress: this.hangulStartPos.cellAddress,
         };
       } else {
         this.deleteSelection();
-        this.doc.insertText(this.cursor.position, result.commit);
+        const ca2 = this.cursor.position.cellAddress;
+        if (ca2) {
+          this.doc.insertTextInCell(this.cursor.position.blockId, ca2, this.cursor.position.offset, result.commit);
+        } else {
+          this.doc.insertText(this.cursor.position, result.commit);
+        }
         this.hangulStartPos = {
           blockId: this.cursor.position.blockId,
           offset: this.cursor.position.offset + result.commit.length,
+          cellAddress: this.cursor.position.cellAddress,
         };
       }
       this.hangulComposingLength = 0;
@@ -2142,10 +2175,19 @@ export class TextEditor {
         this.deleteSelection();
         this.hangulStartPos = { ...this.cursor.position };
       }
+      const hca = this.hangulStartPos.cellAddress;
       if (this.hangulComposingLength > 0) {
-        this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
+        if (hca) {
+          this.doc.deleteTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, this.hangulComposingLength);
+        } else {
+          this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
+        }
       }
-      this.doc.insertText(this.hangulStartPos, result.composing);
+      if (hca) {
+        this.doc.insertTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, result.composing);
+      } else {
+        this.doc.insertText(this.hangulStartPos, result.composing);
+      }
       this.hangulComposingLength = result.composing.length;
     } else {
       this.hangulComposingLength = 0;
