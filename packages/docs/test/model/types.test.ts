@@ -147,9 +147,11 @@ describe('inlineStylesEqual', () => {
 });
 
 describe('Table types', () => {
-  it('createTableCell returns cell with empty inline and default style', () => {
+  it('createTableCell returns cell with empty block and default style', () => {
     const cell = createTableCell();
-    expect(cell.inlines).toEqual([{ text: '', style: {} }]);
+    expect(cell.blocks).toHaveLength(1);
+    expect(cell.blocks[0].type).toBe('paragraph');
+    expect(cell.blocks[0].inlines).toEqual([{ text: '', style: {} }]);
     expect(cell.style).toEqual(DEFAULT_CELL_STYLE);
     expect(cell.colSpan).toBeUndefined();
     expect(cell.rowSpan).toBeUndefined();

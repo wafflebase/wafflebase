@@ -1,6 +1,6 @@
 ---
 title: docs-wordprocessor-roadmap
-target-version: 1.0.0
+target-version: 0.4.0
 ---
 
 # Docs Word Processor Roadmap

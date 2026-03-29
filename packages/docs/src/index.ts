@@ -19,6 +19,7 @@ export type {
   BorderStyle,
   CellAddress,
   CellRange,
+  TableCellRange,
 } from './model/types.js';
 export {
   DEFAULT_BLOCK_STYLE,
@@ -44,6 +45,7 @@ export {
   DEFAULT_BORDER_STYLE,
   createTableBlock,
   createTableCell,
+  getCellText,
 } from './model/types.js';
 export { Doc } from './model/document.js';
 

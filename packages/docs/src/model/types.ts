@@ -84,15 +84,23 @@ export interface DocPosition {
   blockId: string;
   offset: number;
   cellAddress?: CellAddress;
+  cellBlockIndex?: number;
 }
 
 /**
  * A range of text spanning from anchor to focus.
  * Can span multiple blocks.
  */
+export interface TableCellRange {
+  blockId: string;
+  start: CellAddress;
+  end: CellAddress;
+}
+
 export interface DocRange {
   anchor: DocPosition;
   focus: DocPosition;
+  tableCellRange?: TableCellRange;
 }
 
 /**
@@ -258,7 +266,7 @@ export const DEFAULT_CELL_STYLE: CellStyle = {
 };
 
 export interface TableCell {
-  inlines: Inline[];
+  blocks: Block[];
   style: CellStyle;
   colSpan?: number;
   rowSpan?: number;
@@ -288,9 +296,21 @@ export interface CellRange {
  */
 export function createTableCell(): TableCell {
   return {
-    inlines: [{ text: '', style: {} }],
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: '', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
     style: { ...DEFAULT_CELL_STYLE },
   };
+}
+
+/**
+ * Get the concatenated text content of a table cell.
+ */
+export function getCellText(cell: TableCell): string {
+  return cell.blocks.flatMap(b => b.inlines).map(i => i.text).join('');
 }
 
 /**
@@ -329,6 +349,8 @@ export interface SearchMatch {
   blockId: string;
   startOffset: number;
   endOffset: number;
+  cellAddress?: CellAddress;
+  cellBlockIndex?: number;
 }
 
 // --- Page Setup ---

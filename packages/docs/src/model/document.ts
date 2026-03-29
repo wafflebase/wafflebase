@@ -17,6 +17,7 @@ import {
   createEmptyBlock,
   createTableBlock,
   createTableCell,
+  getCellText,
   DEFAULT_BLOCK_STYLE,
   getBlockText,
   getBlockTextLength,
@@ -284,6 +285,24 @@ export class Doc {
   }
 
   /**
+   * Apply block-level style to a block within a table cell.
+   */
+  applyBlockStyleInCell(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+    style: Partial<BlockStyle>,
+  ): void {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return;
+    targetBlock.style = { ...targetBlock.style, ...style };
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
    * Change the block type, setting type-specific fields and clearing stale ones.
    */
   setBlockType(
@@ -369,19 +388,47 @@ export class Doc {
     }
 
     for (const block of this._document.blocks) {
-      const text = getBlockText(block);
-      let match: RegExpExecArray | null;
-      while ((match = pattern.exec(text)) !== null) {
-        // Guard against zero-length matches causing infinite loops
-        if (match[0].length === 0) {
-          pattern.lastIndex++;
-          continue;
+      if (block.type === 'table' && block.tableData) {
+        // Search within each cell's blocks
+        for (let r = 0; r < block.tableData.rows.length; r++) {
+          const row = block.tableData.rows[r];
+          for (let c = 0; c < row.cells.length; c++) {
+            const cell = row.cells[c];
+            for (let bi = 0; bi < cell.blocks.length; bi++) {
+              const cellBlock = cell.blocks[bi];
+              const text = getBlockText(cellBlock);
+              pattern.lastIndex = 0;
+              let match: RegExpExecArray | null;
+              while ((match = pattern.exec(text)) !== null) {
+                if (match[0].length === 0) {
+                  pattern.lastIndex++;
+                  continue;
+                }
+                matches.push({
+                  blockId: block.id,
+                  startOffset: match.index,
+                  endOffset: match.index + match[0].length,
+                  cellAddress: { rowIndex: r, colIndex: c },
+                  cellBlockIndex: bi,
+                });
+              }
+            }
+          }
         }
-        matches.push({
-          blockId: block.id,
-          startOffset: match.index,
-          endOffset: match.index + match[0].length,
-        });
+      } else {
+        const text = getBlockText(block);
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(text)) !== null) {
+          if (match[0].length === 0) {
+            pattern.lastIndex++;
+            continue;
+          }
+          matches.push({
+            blockId: block.id,
+            startOffset: match.index,
+            endOffset: match.index + match[0].length,
+          });
+        }
       }
     }
     return matches;
@@ -401,21 +448,24 @@ export class Doc {
   }
 
   /**
-   * Insert text at offset in a table cell's inlines.
+   * Insert text at offset in a table cell block.
    */
   insertTextInCell(
     blockId: string,
     cell: CellAddress,
     offset: number,
     text: string,
+    cellBlockIndex = 0,
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return;
     const { inlineIndex, charOffset } = this.resolveOffsetInInlines(
-      tableCell.inlines,
+      targetBlock.inlines,
       offset,
     );
-    const inline = tableCell.inlines[inlineIndex];
+    const inline = targetBlock.inlines[inlineIndex];
     inline.text =
       inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
     this.store.updateBlock(blockId, block);
@@ -423,27 +473,30 @@ export class Doc {
   }
 
   /**
-   * Delete text from a table cell.
+   * Delete text from a table cell block.
    */
   deleteTextInCell(
     blockId: string,
     cell: CellAddress,
     offset: number,
     length: number,
+    cellBlockIndex = 0,
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
-    const totalLen = tableCell.inlines.reduce((s, i) => s + i.text.length, 0);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return;
+    const totalLen = targetBlock.inlines.reduce((s, i) => s + i.text.length, 0);
     let remaining = Math.min(length, totalLen - offset);
     if (remaining <= 0) return;
 
     let curOffset = offset;
     while (remaining > 0) {
       const { inlineIndex, charOffset } = this.resolveOffsetInInlines(
-        tableCell.inlines,
+        targetBlock.inlines,
         curOffset,
       );
-      const inline = tableCell.inlines[inlineIndex];
+      const inline = targetBlock.inlines[inlineIndex];
       const available = inline.text.length - charOffset;
       if (available <= 0) break;
       const toDelete = Math.min(remaining, available);
@@ -451,18 +504,18 @@ export class Doc {
         inline.text.slice(0, charOffset) +
         inline.text.slice(charOffset + toDelete);
       remaining -= toDelete;
-      if (inline.text.length === 0 && tableCell.inlines.length > 1) {
-        tableCell.inlines.splice(inlineIndex, 1);
+      if (inline.text.length === 0 && targetBlock.inlines.length > 1) {
+        targetBlock.inlines.splice(inlineIndex, 1);
       }
     }
 
-    tableCell.inlines = this.normalizeInlinesArray(tableCell.inlines);
+    targetBlock.inlines = this.normalizeInlinesArray(targetBlock.inlines);
     this.store.updateBlock(blockId, block);
     this.refresh();
   }
 
   /**
-   * Apply inline style to a range within a table cell.
+   * Apply inline style to a range within a table cell block.
    */
   applyCellInlineStyle(
     blockId: string,
@@ -470,15 +523,159 @@ export class Doc {
     start: number,
     end: number,
     style: Partial<InlineStyle>,
+    cellBlockIndex = 0,
   ): void {
     const block = this.getBlock(blockId);
     const tableCell = this.getTableCell(block, cell);
-    tableCell.inlines = this.applyStyleToInlines(
-      tableCell.inlines,
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return;
+    targetBlock.inlines = this.applyStyleToInlines(
+      targetBlock.inlines,
       start,
       end,
       style,
     );
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Split a block within a table cell at the given offset.
+   * Returns the index of the new block (cellBlockIndex + 1).
+   */
+  splitBlockInCell(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+    offset: number,
+  ): number {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return cellBlockIndex;
+
+    const blockText = getBlockText(targetBlock);
+
+    // Empty list-item: exit list by converting to paragraph (matches splitBlock)
+    if (targetBlock.type === 'list-item' && blockText.length === 0) {
+      targetBlock.type = 'paragraph';
+      delete targetBlock.listKind;
+      delete targetBlock.listLevel;
+      this.store.updateBlock(blockId, block);
+      this.refresh();
+      return cellBlockIndex;
+    }
+
+    const beforeInlines = this.buildInlinesFromSplit(targetBlock, 0, offset);
+    const afterInlines = this.buildInlinesFromSplit(targetBlock, offset, blockText.length);
+    const cursorStyle = this.getStyleAtOffset(targetBlock, offset);
+
+    targetBlock.inlines = beforeInlines.length > 0
+      ? beforeInlines
+      : [{ text: '', style: cursorStyle }];
+
+    // Preserve list-item type on the new block
+    let newType: BlockType = 'paragraph';
+    const extra: Partial<Block> = {};
+    if (targetBlock.type === 'list-item') {
+      newType = 'list-item';
+      extra.listKind = targetBlock.listKind;
+      extra.listLevel = targetBlock.listLevel;
+    }
+
+    const newBlock: Block = {
+      id: generateBlockId(),
+      type: newType,
+      inlines: afterInlines.length > 0
+        ? afterInlines
+        : [{ text: '', style: cursorStyle }],
+      style: { ...targetBlock.style },
+      ...extra,
+    };
+
+    tableCell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+    return cellBlockIndex + 1;
+  }
+
+  /**
+   * Merge a cell block into the previous cell block.
+   * No-op if cellBlockIndex <= 0.
+   */
+  mergeBlocksInCell(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+  ): void {
+    if (cellBlockIndex <= 0) return;
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const prevBlock = tableCell.blocks[cellBlockIndex - 1];
+    const curBlock = tableCell.blocks[cellBlockIndex];
+    if (!prevBlock || !curBlock) return;
+
+    prevBlock.inlines = this.normalizeInlinesArray([
+      ...prevBlock.inlines,
+      ...curBlock.inlines,
+    ]);
+    tableCell.blocks.splice(cellBlockIndex, 1);
+    this.store.updateBlock(blockId, block);
+    this.refresh();
+  }
+
+  /**
+   * Get the text length of a specific block within a table cell.
+   */
+  getCellBlockTextLength(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+  ): number {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return 0;
+    return getBlockTextLength(targetBlock);
+  }
+
+  /**
+   * Change the block type of a block within a table cell.
+   */
+  setBlockTypeInCell(
+    blockId: string,
+    cell: CellAddress,
+    cellBlockIndex: number,
+    type: BlockType,
+    opts?: {
+      headingLevel?: HeadingLevel;
+      listKind?: 'ordered' | 'unordered';
+      listLevel?: number;
+    },
+  ): void {
+    const block = this.getBlock(blockId);
+    const tableCell = this.getTableCell(block, cell);
+    const targetBlock = tableCell.blocks[cellBlockIndex];
+    if (!targetBlock) return;
+
+    targetBlock.type = type;
+    delete targetBlock.headingLevel;
+    delete targetBlock.listKind;
+    delete targetBlock.listLevel;
+
+    if (type === 'heading') {
+      targetBlock.headingLevel = opts?.headingLevel ?? 1;
+    }
+    if (type === 'list-item') {
+      targetBlock.listKind = opts?.listKind ?? 'unordered';
+      targetBlock.listLevel = opts?.listLevel ?? 0;
+    }
+    if (type === 'horizontal-rule') {
+      targetBlock.inlines = [];
+    } else if (targetBlock.inlines.length === 0) {
+      targetBlock.inlines = [{ text: '', style: {} }];
+    }
+
     this.store.updateBlock(blockId, block);
     this.refresh();
   }
@@ -587,24 +784,40 @@ export class Doc {
     const rowSpan = end.rowIndex - start.rowIndex + 1;
     const colSpan = end.colIndex - start.colIndex + 1;
 
-    // Collect text from all cells in range (row-major, skip top-left)
+    // Collect blocks from all cells in range (row-major, skip top-left)
     for (let r = start.rowIndex; r <= end.rowIndex; r++) {
       for (let c = start.colIndex; c <= end.colIndex; c++) {
         if (r === start.rowIndex && c === start.colIndex) continue;
         const cell = td.rows[r].cells[c];
-        const cellText = cell.inlines.map((i) => i.text).join('');
-        if (cellText.length > 0) {
-          // Append non-empty text to top-left
-          topLeft.inlines.push(...cell.inlines.filter((i) => i.text.length > 0));
+        const cellTextContent = getCellText(cell);
+        if (cellTextContent.length > 0) {
+          // Append all non-empty blocks from source cell to top-left
+          for (const srcBlock of cell.blocks) {
+            const nonEmpty = srcBlock.inlines.filter((i) => i.text.length > 0);
+            if (nonEmpty.length > 0) {
+              topLeft.blocks.push({
+                id: generateBlockId(),
+                type: srcBlock.type,
+                inlines: nonEmpty,
+                style: { ...srcBlock.style },
+                ...(srcBlock.listKind ? { listKind: srcBlock.listKind } : {}),
+                ...(srcBlock.listLevel !== undefined ? { listLevel: srcBlock.listLevel } : {}),
+                ...(srcBlock.headingLevel !== undefined ? { headingLevel: srcBlock.headingLevel } : {}),
+              });
+            }
+          }
         }
         // Mark as covered
-        cell.inlines = [{ text: '', style: {} }];
+        cell.blocks = [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }];
         cell.colSpan = 0;
         cell.rowSpan = undefined;
       }
     }
 
-    topLeft.inlines = this.normalizeInlinesArray(topLeft.inlines);
+    // Normalize inlines in each block of the merged cell
+    for (const blk of topLeft.blocks) {
+      blk.inlines = this.normalizeInlinesArray(blk.inlines);
+    }
     topLeft.colSpan = colSpan;
     topLeft.rowSpan = rowSpan;
     this.store.updateBlock(blockId, block);
@@ -632,7 +845,7 @@ export class Doc {
         const covered = td.rows[r].cells[c];
         delete covered.colSpan;
         delete covered.rowSpan;
-        covered.inlines = [{ text: '', style: {} }];
+        covered.blocks = [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }];
       }
     }
 

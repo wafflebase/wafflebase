@@ -4,8 +4,8 @@ import type { CellAddress, CellRange } from '../../src/model/types.js';
 
 function getCellText(doc: Doc, blockId: string, cell: CellAddress): string {
   const block = doc.getBlock(blockId);
-  return block.tableData!.rows[cell.rowIndex].cells[cell.colIndex]
-    .inlines.map(i => i.text).join('');
+  const tc = block.tableData!.rows[cell.rowIndex].cells[cell.colIndex];
+  return tc.blocks.flatMap(b => b.inlines).map(i => i.text).join('');
 }
 
 describe('Doc table operations', () => {
@@ -105,7 +105,7 @@ describe('Doc table operations', () => {
       const topLeft = block.tableData!.rows[0].cells[0];
       expect(topLeft.colSpan).toBe(2);
       expect(topLeft.rowSpan).toBe(2);
-      expect(topLeft.inlines.map(i => i.text).join('')).toBe('ABC');
+      expect(topLeft.blocks[0].inlines.map(i => i.text).join('')).toBe('ABC');
       expect(block.tableData!.rows[0].cells[1].colSpan).toBe(0);
       expect(block.tableData!.rows[1].cells[0].colSpan).toBe(0);
       expect(block.tableData!.rows[1].cells[1].colSpan).toBe(0);
@@ -142,9 +142,9 @@ describe('Doc table operations', () => {
       doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'Hello');
       doc.applyCellInlineStyle(tableId, { rowIndex: 0, colIndex: 0 }, 0, 3, { bold: true });
       const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
-      expect(cell.inlines[0].style.bold).toBe(true);
-      expect(cell.inlines[0].text).toBe('Hel');
-      expect(cell.inlines[1].text).toBe('lo');
+      expect(cell.blocks[0].inlines[0].style.bold).toBe(true);
+      expect(cell.blocks[0].inlines[0].text).toBe('Hel');
+      expect(cell.blocks[0].inlines[1].text).toBe('lo');
     });
   });
 
@@ -157,6 +157,86 @@ describe('Doc table operations', () => {
       expect(block.tableData!.columnWidths[0]).toBeCloseTo(0.5);
       const sum = block.tableData!.columnWidths.reduce((a, b) => a + b, 0);
       expect(sum).toBeCloseTo(1.0);
+    });
+  });
+
+  describe('splitBlockInCell', () => {
+    it('should split a cell block into two paragraphs', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'abcd');
+      const newIdx = doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 2);
+      expect(newIdx).toBe(1);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(2);
+      expect(cell.blocks[0].inlines.map(i => i.text).join('')).toBe('ab');
+      expect(cell.blocks[1].inlines.map(i => i.text).join('')).toBe('cd');
+    });
+
+    it('should split at start of block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'hello');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 0);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(2);
+      expect(cell.blocks[0].inlines.map(i => i.text).join('')).toBe('');
+      expect(cell.blocks[1].inlines.map(i => i.text).join('')).toBe('hello');
+    });
+
+    it('should split at end of block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'hello');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 5);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(2);
+      expect(cell.blocks[0].inlines.map(i => i.text).join('')).toBe('hello');
+      expect(cell.blocks[1].inlines.map(i => i.text).join('')).toBe('');
+    });
+  });
+
+  describe('mergeBlocksInCell', () => {
+    it('should merge second block into first', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'abcd');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 2);
+      doc.mergeBlocksInCell(tableId, { rowIndex: 0, colIndex: 0 }, 1);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(1);
+      expect(cell.blocks[0].inlines.map(i => i.text).join('')).toBe('abcd');
+    });
+
+    it('should no-op when merging first block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.mergeBlocksInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks).toHaveLength(1);
+    });
+  });
+
+  describe('insertTextInCell with cellBlockIndex', () => {
+    it('should insert text into the second block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'abcd');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'X', 1);
+      const cell = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      expect(cell.blocks[1].inlines.map(i => i.text).join('')).toBe('Xcd');
+    });
+  });
+
+  describe('getCellBlockTextLength', () => {
+    it('should return length of specific block', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.insertTextInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 'abcd');
+      doc.splitBlockInCell(tableId, { rowIndex: 0, colIndex: 0 }, 0, 2);
+      expect(doc.getCellBlockTextLength(tableId, { rowIndex: 0, colIndex: 0 }, 0)).toBe(2);
+      expect(doc.getCellBlockTextLength(tableId, { rowIndex: 0, colIndex: 0 }, 1)).toBe(2);
     });
   });
 });

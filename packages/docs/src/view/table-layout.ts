@@ -1,10 +1,12 @@
-import type { TableData, Inline } from '../model/types.js';
+import type { TableData, Inline, Block } from '../model/types.js';
+import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
-import { cachedMeasureText } from './layout.js';
+import { cachedMeasureText, applyAlignment } from './layout.js';
 import { buildFont, ptToPx, Theme } from './theme.js';
 
 export interface LayoutTableCell {
   lines: LayoutLine[];
+  blockBoundaries: number[];
   width: number;
   height: number;
   merged: boolean;
@@ -137,6 +139,61 @@ function splitWords(text: string): string[] {
 }
 
 /**
+ * Layout blocks within a table cell into wrapped lines.
+ * Returns lines and blockBoundaries (line index where each block starts).
+ */
+function layoutCellBlocks(
+  blocks: Block[],
+  ctx: CanvasRenderingContext2D,
+  maxWidth: number,
+): { lines: LayoutLine[]; blockBoundaries: number[] } {
+  if (blocks.length === 0) {
+    const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
+    return {
+      lines: [{ runs: [], y: 0, height: defaultHeight, width: 0 }],
+      blockBoundaries: [0],
+    };
+  }
+
+  const allLines: LayoutLine[] = [];
+  const blockBoundaries: number[] = [];
+
+  for (const block of blocks) {
+    blockBoundaries.push(allLines.length);
+    // Reserve space for list marker indent
+    const listIndent = block.type === 'list-item'
+      ? LIST_INDENT_PX * ((block.listLevel ?? 0) + 1)
+      : 0;
+    const effectiveWidth = maxWidth - listIndent;
+    const blockLines = layoutCellInlines(block.inlines, ctx, effectiveWidth);
+    // Apply horizontal alignment
+    const alignment = block.style?.alignment ?? 'left';
+    for (let li = 0; li < blockLines.length; li++) {
+      applyAlignment(blockLines[li], effectiveWidth, alignment, li === blockLines.length - 1);
+    }
+    // Shift runs right by the list indent
+    if (listIndent > 0) {
+      for (const line of blockLines) {
+        for (const run of line.runs) {
+          run.x += listIndent;
+        }
+        line.width += listIndent;
+      }
+    }
+    allLines.push(...blockLines);
+  }
+
+  // Recalculate cumulative y offsets
+  let y = 0;
+  for (const line of allLines) {
+    line.y = y;
+    y += line.height;
+  }
+
+  return { lines: allLines, blockBoundaries };
+}
+
+/**
  * Compute the spatial layout of a table.
  */
 export function computeTableLayout(
@@ -170,7 +227,7 @@ export function computeTableLayout(
 
       if (colSpan === 0) {
         // Merged cell placeholder
-        cellRow.push({ lines: [], width: 0, height: 0, merged: true });
+        cellRow.push({ lines: [], blockBoundaries: [], width: 0, height: 0, merged: true });
         continue;
       }
 
@@ -183,10 +240,10 @@ export function computeTableLayout(
       const padding = cell?.style?.padding ?? DEFAULT_CELL_PADDING;
       const innerWidth = Math.max(cellWidth - padding * 2, 0);
 
-      const lines = layoutCellInlines(cell?.inlines ?? [], ctx, innerWidth);
+      const { lines, blockBoundaries } = layoutCellBlocks(cell?.blocks ?? [], ctx, innerWidth);
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 
-      cellRow.push({ lines, width: cellWidth, height: cellHeight, merged: false });
+      cellRow.push({ lines, blockBoundaries, width: cellWidth, height: cellHeight, merged: false });
     }
     cells.push(cellRow);
   }

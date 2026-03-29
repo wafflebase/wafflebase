@@ -413,7 +413,7 @@ function splitWords(text: string): string[] {
 /**
  * Apply horizontal alignment to a line's runs.
  */
-function applyAlignment(
+export function applyAlignment(
   line: LayoutLine,
   maxWidth: number,
   alignment: string,

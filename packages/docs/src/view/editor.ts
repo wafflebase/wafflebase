@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
-import type { InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions } from '../model/types.js';
+import type { DocPosition, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { DocCanvas } from './doc-canvas.js';
@@ -152,6 +152,54 @@ export function initialize(
   let dirtyBlockIds: Set<string> | undefined;
   let needsScrollIntoView = false;
   let focused = !readOnly;
+
+  /** Apply inline style to a cell selection that may span multiple cell blocks. */
+  function applyCellStyleToRange(start: DocPosition, end: DocPosition, style: Partial<InlineStyle>): void {
+    if (!start.cellAddress) return;
+    const startCbi = start.cellBlockIndex ?? 0;
+    const endCbi = end.cellBlockIndex ?? 0;
+    if (startCbi === endCbi) {
+      doc.applyCellInlineStyle(start.blockId, start.cellAddress, start.offset, end.offset, style, startCbi);
+      return;
+    }
+    const block = doc.getBlock(start.blockId);
+    const cell = block.tableData!.rows[start.cellAddress.rowIndex].cells[start.cellAddress.colIndex];
+    for (let bi = startCbi; bi <= endCbi; bi++) {
+      const cellBlock = cell.blocks[bi];
+      if (!cellBlock) continue;
+      const s = bi === startCbi ? start.offset : 0;
+      const e = bi === endCbi ? end.offset : getBlockTextLength(cellBlock);
+      if (s < e) {
+        doc.applyCellInlineStyle(start.blockId, start.cellAddress, s, e, style, bi);
+      }
+    }
+  }
+
+  /** Apply inline style to all blocks in all cells within a cell range. */
+  function applyStyleToCellRange(
+    cellRange: { blockId: string; start: CellAddress; end: CellAddress },
+    style: Partial<InlineStyle>,
+  ): void {
+    const block = doc.getBlock(cellRange.blockId);
+    if (!block.tableData) return;
+    const minRow = Math.min(cellRange.start.rowIndex, cellRange.end.rowIndex);
+    const maxRow = Math.max(cellRange.start.rowIndex, cellRange.end.rowIndex);
+    const minCol = Math.min(cellRange.start.colIndex, cellRange.end.colIndex);
+    const maxCol = Math.max(cellRange.start.colIndex, cellRange.end.colIndex);
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minCol; c <= maxCol; c++) {
+        const cell = block.tableData.rows[r]?.cells[c];
+        if (!cell || cell.colSpan === 0) continue;
+        for (let bi = 0; bi < cell.blocks.length; bi++) {
+          const len = getBlockTextLength(cell.blocks[bi]);
+          if (len > 0) {
+            doc.applyCellInlineStyle(cellRange.blockId, { rowIndex: r, colIndex: c }, 0, len, style, bi);
+          }
+        }
+      }
+    }
+  }
+
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
   let cursorMoveCallback: ((pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number } } | null) => void) | null = null;
@@ -230,7 +278,10 @@ export function initialize(
     // Logical canvas width in unscaled document coordinates
     const logicalCanvasWidth = scaleFactor < 1 ? canvasWidth / scaleFactor : canvasWidth;
 
-    const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalCanvasWidth);
+    // Hide cursor when in cell-range selection mode
+    const cursorPixel = selection.range?.tableCellRange
+      ? undefined
+      : cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalCanvasWidth);
 
     // Auto-scroll to keep cursor visible (only on keyboard/input-driven renders)
     if (needsScrollIntoView && cursorPixel) {
@@ -350,7 +401,10 @@ export function initialize(
     if (searchMatches.length > 0) {
       searchHighlightRects = searchMatches.map((match) =>
         computeSelectionRects(
-          { anchor: { blockId: match.blockId, offset: match.startOffset }, focus: { blockId: match.blockId, offset: match.endOffset } },
+          {
+            anchor: { blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
+            focus: { blockId: match.blockId, offset: match.endOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
+          },
           paginatedLayout,
           layout,
           docCanvas.getContext(),
@@ -581,6 +635,27 @@ export function initialize(
         (b) => b.id === cursor.position.blockId,
       );
       if (!block) return {};
+
+      // Read from cell-internal block if cursor is in a table cell
+      const ca = cursor.position.cellAddress;
+      if (ca && block.tableData) {
+        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+        if (!cell) return {};
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell.blocks[cbi];
+        if (!cellBlock) return {};
+        let cPos = 0;
+        for (const inline of cellBlock.inlines) {
+          const inlineEnd = cPos + inline.text.length;
+          if (cursor.position.offset <= inlineEnd) {
+            return { ...inline.style };
+          }
+          cPos = inlineEnd;
+        }
+        const cLast = cellBlock.inlines[cellBlock.inlines.length - 1];
+        return cLast ? { ...cLast.style } : {};
+      }
+
       let pos = 0;
       for (const inline of block.inlines) {
         const inlineEnd = pos + inline.text.length;
@@ -597,6 +672,27 @@ export function initialize(
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
         const range = selection.range;
+        const anchor = range.anchor;
+
+        // Cell-range mode: apply to all cells in range
+        if (range.tableCellRange) {
+          applyStyleToCellRange(range.tableCellRange, style);
+          markDirty(range.tableCellRange.blockId);
+          render();
+          return;
+        }
+
+        // Route to cell-aware method if selection is within a table cell
+        if (anchor.cellAddress) {
+          const normalized = selection.getNormalizedRange(layout);
+          if (normalized) {
+            applyCellStyleToRange(normalized.start, normalized.end, style);
+            markDirty(anchor.blockId);
+            render();
+            return;
+          }
+        }
+
         doc.applyInlineStyle(range, style);
         // Mark all blocks in the selection range as dirty
         const startIdx = doc.getBlockIndex(range.anchor.blockId);
@@ -615,6 +711,13 @@ export function initialize(
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
       docStore.snapshot();
+      const ca = cursor.position.cellAddress;
+      if (ca) {
+        doc.applyBlockStyleInCell(cursor.position.blockId, ca, cursor.position.cellBlockIndex ?? 0, style);
+        markDirty(cursor.position.blockId);
+        render();
+        return;
+      }
       if (selection.hasSelection() && selection.range) {
         const range = selection.range;
         const startIdx = doc.getBlockIndex(range.anchor.blockId);
@@ -650,6 +753,23 @@ export function initialize(
     },
     getPeerCursorPixels: () => lastPeerPixels,
     getBlockType() {
+      const ca = cursor.position.cellAddress;
+      if (ca) {
+        const block = doc.getBlock(cursor.position.blockId);
+        if (block.tableData) {
+          const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+          const cbi = cursor.position.cellBlockIndex ?? 0;
+          const cellBlock = cell?.blocks[cbi];
+          if (cellBlock) {
+            return {
+              type: cellBlock.type,
+              headingLevel: cellBlock.headingLevel,
+              listKind: cellBlock.listKind,
+              listLevel: cellBlock.listLevel,
+            };
+          }
+        }
+      }
       const block = doc.getBlock(cursor.position.blockId);
       return {
         type: block.type,
@@ -660,35 +780,77 @@ export function initialize(
     },
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
       docStore.snapshot();
-      doc.setBlockType(cursor.position.blockId, type, opts);
+      const ca = cursor.position.cellAddress;
+      if (ca) {
+        doc.setBlockTypeInCell(cursor.position.blockId, ca, cursor.position.cellBlockIndex ?? 0, type, opts);
+      } else {
+        doc.setBlockType(cursor.position.blockId, type, opts);
+      }
       invalidateLayout();
       render();
     },
     toggleList(kind: 'ordered' | 'unordered') {
-      const block = doc.getBlock(cursor.position.blockId);
+      const ca = cursor.position.cellAddress;
       docStore.snapshot();
-      if (block.type === 'list-item' && block.listKind === kind) {
-        doc.setBlockType(block.id, 'paragraph');
+      if (ca) {
+        const block = doc.getBlock(cursor.position.blockId);
+        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock) {
+          if (cellBlock.type === 'list-item' && cellBlock.listKind === kind) {
+            doc.setBlockTypeInCell(block.id, ca, cbi, 'paragraph');
+          } else {
+            doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+              listKind: kind,
+              listLevel: cellBlock.listLevel ?? 0,
+            });
+          }
+        }
       } else {
-        doc.setBlockType(block.id, 'list-item', {
-          listKind: kind,
-          listLevel: block.listLevel ?? 0,
-        });
+        const block = doc.getBlock(cursor.position.blockId);
+        if (block.type === 'list-item' && block.listKind === kind) {
+          doc.setBlockType(block.id, 'paragraph');
+        } else {
+          doc.setBlockType(block.id, 'list-item', {
+            listKind: kind,
+            listLevel: block.listLevel ?? 0,
+          });
+        }
       }
       invalidateLayout();
       render();
     },
     indent() {
       const MAX_LIST_LEVEL = 8;
-      const block = doc.getBlock(cursor.position.blockId);
+      const ca = cursor.position.cellAddress;
       docStore.snapshot();
+
+      if (ca) {
+        const block = doc.getBlock(cursor.position.blockId);
+        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock?.type === 'list-item') {
+          const currentLevel = cellBlock.listLevel ?? 0;
+          if (currentLevel >= MAX_LIST_LEVEL) return;
+          doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+            listKind: cellBlock.listKind,
+            listLevel: currentLevel + 1,
+          });
+        }
+        markDirty(block.id);
+        render();
+        return;
+      }
+
+      const block = doc.getBlock(cursor.position.blockId);
       if (block.type === 'list-item') {
         const currentLevel = block.listLevel ?? 0;
         if (currentLevel >= MAX_LIST_LEVEL) return;
-        const newLevel = currentLevel + 1;
         doc.setBlockType(block.id, 'list-item', {
           listKind: block.listKind,
-          listLevel: newLevel,
+          listLevel: currentLevel + 1,
         });
       } else {
         const INDENT_STEP = 36;
@@ -700,6 +862,27 @@ export function initialize(
       render();
     },
     outdent() {
+      const ca = cursor.position.cellAddress;
+
+      if (ca) {
+        const block = doc.getBlock(cursor.position.blockId);
+        const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock?.type === 'list-item') {
+          const currentLevel = cellBlock.listLevel ?? 0;
+          if (currentLevel <= 0) return;
+          docStore.snapshot();
+          doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+            listKind: cellBlock.listKind,
+            listLevel: currentLevel - 1,
+          });
+          markDirty(block.id);
+          render();
+        }
+        return;
+      }
+
       const block = doc.getBlock(cursor.position.blockId);
       if (block.type === 'list-item') {
         const currentLevel = block.listLevel ?? 0;
@@ -723,9 +906,20 @@ export function initialize(
     },
     insertLink: (url: string) => {
       if (selection.hasSelection() && selection.range) {
-        // Apply href to the selected range
         docStore.snapshot();
         const range = selection.range;
+        const anchor = range.anchor;
+
+        if (anchor.cellAddress) {
+          const normalized = selection.getNormalizedRange(layout);
+          if (normalized) {
+            applyCellStyleToRange(normalized.start, normalized.end, { href: url });
+            markDirty(anchor.blockId);
+            render();
+            return;
+          }
+        }
+
         doc.applyInlineStyle(range, { href: url });
         const startIdx = doc.getBlockIndex(range.anchor.blockId);
         const endIdx = doc.getBlockIndex(range.focus.blockId);
@@ -738,53 +932,74 @@ export function initialize(
         }
         render();
       } else {
-        // No selection: insert the URL text, then apply href to it
         docStore.snapshot();
         const pos = cursor.position;
-        doc.insertText(pos, url);
+        const ca = pos.cellAddress;
+        const cbi = pos.cellBlockIndex ?? 0;
+
+        if (ca) {
+          doc.insertTextInCell(pos.blockId, ca, pos.offset, url, cbi);
+          doc.applyCellInlineStyle(pos.blockId, ca, pos.offset, pos.offset + url.length, { href: url }, cbi);
+          cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length, cellAddress: ca, cellBlockIndex: cbi });
+        } else {
+          doc.insertText(pos, url);
+          const range = {
+            anchor: { blockId: pos.blockId, offset: pos.offset },
+            focus: { blockId: pos.blockId, offset: pos.offset + url.length },
+          };
+          doc.applyInlineStyle(range, { href: url });
+          cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
+        }
         markDirty(pos.blockId);
-        // Apply href to the just-inserted text
-        const range = {
-          anchor: { blockId: pos.blockId, offset: pos.offset },
-          focus: { blockId: pos.blockId, offset: pos.offset + url.length },
-        };
-        doc.applyInlineStyle(range, { href: url });
-        cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
         needsScrollIntoView = true;
         render();
       }
     },
     removeLink: () => {
-      // Find the full contiguous link range at the cursor and remove href.
-      // A single logical link may span multiple inlines (e.g. bold/italic splits).
       const block = doc.document.blocks.find(
         (b) => b.id === cursor.position.blockId,
       );
       if (!block) return;
+
+      // Resolve the inlines to search — cell block or top-level block
+      const ca = cursor.position.cellAddress;
+      let inlines = block.inlines;
+      if (ca && block.tableData) {
+        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock) inlines = cellBlock.inlines;
+      }
+
       let cursorInlineIdx = -1;
       const offsets: number[] = [0];
-      for (let i = 0; i < block.inlines.length; i++) {
-        const inlineEnd = offsets[i] + block.inlines[i].text.length;
+      for (let i = 0; i < inlines.length; i++) {
+        const inlineEnd = offsets[i] + inlines[i].text.length;
         offsets.push(inlineEnd);
-        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && block.inlines[i].style.href) {
+        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && inlines[i].style.href) {
           cursorInlineIdx = i;
         }
       }
       if (cursorInlineIdx < 0) return;
-      const href = block.inlines[cursorInlineIdx].style.href;
-      // Expand left
+      const href = inlines[cursorInlineIdx].style.href;
       let lo = cursorInlineIdx;
-      while (lo > 0 && block.inlines[lo - 1].style.href === href) lo--;
-      // Expand right
+      while (lo > 0 && inlines[lo - 1].style.href === href) lo--;
       let hi = cursorInlineIdx;
-      while (hi < block.inlines.length - 1 && block.inlines[hi + 1].style.href === href) hi++;
+      while (hi < inlines.length - 1 && inlines[hi + 1].style.href === href) hi++;
 
       docStore.snapshot();
-      const range = {
-        anchor: { blockId: block.id, offset: offsets[lo] },
-        focus: { blockId: block.id, offset: offsets[hi + 1] },
-      };
-      doc.applyInlineStyle(range, { href: undefined });
+      if (ca) {
+        doc.applyCellInlineStyle(
+          block.id, ca, offsets[lo], offsets[hi + 1],
+          { href: undefined }, cursor.position.cellBlockIndex ?? 0,
+        );
+      } else {
+        const range = {
+          anchor: { blockId: block.id, offset: offsets[lo] },
+          focus: { blockId: block.id, offset: offsets[hi + 1] },
+        };
+        doc.applyInlineStyle(range, { href: undefined });
+      }
       markDirty(block.id);
       render();
     },
@@ -793,13 +1008,23 @@ export function initialize(
         (b) => b.id === cursor.position.blockId,
       );
       if (!block) return undefined;
+
+      // Read from cell block if cursor is in a table cell
+      const ca = cursor.position.cellAddress;
+      let inlines = block.inlines;
+      if (ca && block.tableData) {
+        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock) inlines = cellBlock.inlines;
+      }
+
       let pos = 0;
-      for (const inline of block.inlines) {
+      for (const inline of inlines) {
         const inlineEnd = pos + inline.text.length;
         if (cursor.position.offset >= pos && cursor.position.offset < inlineEnd) {
           return inline.style.href;
         }
-        // At boundary: return href if this inline has one
         if (cursor.position.offset === inlineEnd && inline.style.href) {
           return inline.style.href;
         }
@@ -877,10 +1102,10 @@ export function initialize(
       // Move cursor to the active match position before clearing (Google Docs behavior)
       if (moveCursorToActive && activeMatchIndex >= 0 && activeMatchIndex < searchMatches.length) {
         const match = searchMatches[activeMatchIndex];
-        cursor.moveTo({ blockId: match.blockId, offset: match.startOffset });
+        cursor.moveTo({ blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex });
         selection.setRange({
-          anchor: { blockId: match.blockId, offset: match.startOffset },
-          focus: { blockId: match.blockId, offset: match.endOffset },
+          anchor: { blockId: match.blockId, offset: match.startOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
+          focus: { blockId: match.blockId, offset: match.endOffset, cellAddress: match.cellAddress, cellBlockIndex: match.cellBlockIndex },
         });
       }
       searchMatches = [];

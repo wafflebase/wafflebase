@@ -1,4 +1,4 @@
-import type { DocPosition, DocRange } from '../model/types.js';
+import type { DocPosition, DocRange, TableCellRange, CellAddress } from '../model/types.js';
 import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
@@ -8,10 +8,33 @@ import { buildFont, Theme } from './theme.js';
 
 // --- Free helpers (used by both Selection class and computeSelectionRects) ---
 
+export interface NormalizedRange {
+  start: DocPosition;
+  end: DocPosition;
+  tableCellRange?: TableCellRange;
+}
+
+function normalizeCellRange(cr: TableCellRange): TableCellRange {
+  const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+  const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+  const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
+  const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
+  return { blockId: cr.blockId, start: { rowIndex: minRow, colIndex: minCol }, end: { rowIndex: maxRow, colIndex: maxCol } };
+}
+
 function normalizeRange(
   range: DocRange,
   layout: DocumentLayout,
-): { start: DocPosition; end: DocPosition } | null {
+): NormalizedRange | null {
+  // Cell-range mode: tableCellRange is set
+  if (range.tableCellRange) {
+    return {
+      start: range.anchor,
+      end: range.focus,
+      tableCellRange: normalizeCellRange(range.tableCellRange),
+    };
+  }
+
   const anchorIdx = layout.blocks.findIndex(
     (lb) => lb.block.id === range.anchor.blockId,
   );
@@ -27,7 +50,9 @@ function normalizeRange(
         range.anchor.blockId === range.focus.blockId &&
         range.anchor.cellAddress.rowIndex === range.focus.cellAddress.rowIndex &&
         range.anchor.cellAddress.colIndex === range.focus.cellAddress.colIndex) {
-      if (range.anchor.offset <= range.focus.offset) {
+      const aCbi = range.anchor.cellBlockIndex ?? 0;
+      const fCbi = range.focus.cellBlockIndex ?? 0;
+      if (aCbi < fCbi || (aCbi === fCbi && range.anchor.offset <= range.focus.offset)) {
         return { start: range.anchor, end: range.focus };
       }
       return { start: range.focus, end: range.anchor };
@@ -192,6 +217,19 @@ function buildRects(
 
   for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
     const lb = layout.blocks[bi];
+
+    // Table block within selection: highlight all cells
+    if (lb.block.type === 'table' && lb.block.tableData && lb.layoutTable) {
+      const td = lb.block.tableData;
+      const fullRange: TableCellRange = {
+        blockId: lb.block.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: td.rows.length - 1, colIndex: td.columnWidths.length - 1 },
+      };
+      rects.push(...buildCellRangeRects(fullRange, paginatedLayout, layout, canvasWidth));
+      continue;
+    }
+
     const blockStart = bi === startBlockIdx ? start.offset : 0;
     const blockEnd =
       bi === endBlockIdx ? end.offset : getBlockTextLength(lb.block);
@@ -273,8 +311,68 @@ export function computeSelectionRects(
 ): Array<{ x: number; y: number; width: number; height: number }> {
   const normalized = normalizeRange(range, layout);
   if (!normalized) return [];
-  if (normalized.start.blockId === normalized.end.blockId && normalized.start.offset === normalized.end.offset) return [];
+
+  // Cell-range mode: highlight entire cells
+  if (normalized.tableCellRange) {
+    return buildCellRangeRects(normalized.tableCellRange, paginatedLayout, layout, canvasWidth);
+  }
+
+  if (normalized.start.blockId === normalized.end.blockId &&
+      normalized.start.offset === normalized.end.offset &&
+      (normalized.start.cellBlockIndex ?? 0) === (normalized.end.cellBlockIndex ?? 0)) return [];
   return buildRects(normalized.start, normalized.end, paginatedLayout, layout, ctx, canvasWidth);
+}
+
+/**
+ * Build highlight rectangles for a cell-range selection.
+ */
+function buildCellRangeRects(
+  cellRange: TableCellRange,
+  paginatedLayout: PaginatedLayout,
+  layout: DocumentLayout,
+  canvasWidth: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const lb = layout.blocks.find((b) => b.block.id === cellRange.blockId);
+  if (!lb?.layoutTable) return [];
+  const tl = lb.layoutTable;
+
+  const blockIndex = layout.blocks.indexOf(lb);
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+
+  // Find the page Y offset for this table's first row
+  let tablePageY = 0;
+  let tableRowBaseY = 0;
+  let foundTablePage = false;
+  for (const page of paginatedLayout.pages) {
+    for (const pl of page.lines) {
+      if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
+        tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
+        tableRowBaseY = tl.rowYOffsets[0];
+        foundTablePage = true;
+        break;
+      }
+    }
+    if (foundTablePage) break;
+  }
+  const tableOriginY = tablePageY - tableRowBaseY;
+
+  const { start, end } = cellRange;
+  const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+  for (let r = start.rowIndex; r <= end.rowIndex; r++) {
+    for (let c = start.colIndex; c <= end.colIndex; c++) {
+      const cell = tl.cells[r]?.[c];
+      if (!cell || cell.merged) continue;
+      rects.push({
+        x: pageX + margins.left + tl.columnXOffsets[c],
+        y: tableOriginY + tl.rowYOffsets[r],
+        width: tl.columnPixelWidths[c],
+        height: tl.rowHeights[r],
+      });
+    }
+  }
+  return rects;
 }
 
 // --- Selection class (local selection state) ---
@@ -291,9 +389,11 @@ export class Selection {
 
   hasSelection(): boolean {
     if (!this.range) return false;
+    if (this.range.tableCellRange) return true;
     return (
       this.range.anchor.blockId !== this.range.focus.blockId ||
-      this.range.anchor.offset !== this.range.focus.offset
+      this.range.anchor.offset !== this.range.focus.offset ||
+      (this.range.anchor.cellBlockIndex ?? 0) !== (this.range.focus.cellBlockIndex ?? 0)
     );
   }
 
@@ -318,6 +418,28 @@ export class Selection {
     const normalized = this.getNormalizedRange(layout);
     if (!normalized) return '';
 
+    // Cell-range selection: tab-separated columns, newline-separated rows
+    if (normalized.tableCellRange) {
+      const cr = normalized.tableCellRange;
+      const lb = layout.blocks.find((b) => b.block.id === cr.blockId);
+      if (!lb?.block.tableData) return '';
+      const td = lb.block.tableData;
+      const rows: string[] = [];
+      for (let r = cr.start.rowIndex; r <= cr.end.rowIndex; r++) {
+        const cols: string[] = [];
+        for (let c = cr.start.colIndex; c <= cr.end.colIndex; c++) {
+          const cell = td.rows[r]?.cells[c];
+          if (cell) {
+            cols.push(cell.blocks.flatMap(b => b.inlines).map(i => i.text).join(''));
+          } else {
+            cols.push('');
+          }
+        }
+        rows.push(cols.join('\t'));
+      }
+      return rows.join('\n');
+    }
+
     const { start, end } = normalized;
 
     // Cell-internal selection
@@ -327,8 +449,27 @@ export class Selection {
       const cell = lb.block.tableData.rows[start.cellAddress.rowIndex]
         ?.cells[start.cellAddress.colIndex];
       if (!cell) return '';
-      const fullText = cell.inlines.map((i) => i.text).join('');
-      return fullText.slice(start.offset, end.offset);
+      const startCbi = start.cellBlockIndex ?? 0;
+      const endCbi = end.cellBlockIndex ?? 0;
+
+      if (startCbi === endCbi) {
+        const targetBlock = cell.blocks[startCbi];
+        if (!targetBlock) return '';
+        const blockText = targetBlock.inlines.map((i) => i.text).join('');
+        return blockText.slice(start.offset, end.offset);
+      }
+
+      // Cross-block cell selection
+      const texts: string[] = [];
+      for (let bi = startCbi; bi <= endCbi; bi++) {
+        const blk = cell.blocks[bi];
+        if (!blk) continue;
+        const fullText = blk.inlines.map((i) => i.text).join('');
+        const s = bi === startCbi ? start.offset : 0;
+        const e = bi === endCbi ? end.offset : fullText.length;
+        texts.push(fullText.slice(s, e));
+      }
+      return texts.join('\n');
     }
 
     const texts: string[] = [];

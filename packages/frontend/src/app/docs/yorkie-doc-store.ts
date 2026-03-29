@@ -10,6 +10,10 @@ import type {
   BlockStyle,
   InlineStyle,
   PageSetup,
+  TableRow,
+  TableCell,
+  CellStyle,
+  BorderStyle,
 } from '@wafflebase/docs';
 import {
   resolvePageSetup,
@@ -89,6 +93,43 @@ function parseBlockStyle(attrs: Record<string, string> | undefined): BlockStyle 
 }
 
 // ---------------------------------------------------------------------------
+// Cell style serialization
+// ---------------------------------------------------------------------------
+
+function serializeCellStyle(cell: TableCell): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  if (cell.colSpan !== undefined && cell.colSpan !== 1) attrs.colSpan = String(cell.colSpan);
+  if (cell.rowSpan !== undefined && cell.rowSpan !== 1) attrs.rowSpan = String(cell.rowSpan);
+  const s = cell.style;
+  if (s.backgroundColor) attrs.backgroundColor = s.backgroundColor;
+  if (s.verticalAlign) attrs.verticalAlign = s.verticalAlign;
+  if (s.padding !== undefined) attrs.padding = String(s.padding);
+  if (s.borderTop) attrs.borderTop = `${s.borderTop.width},${s.borderTop.style},${s.borderTop.color}`;
+  if (s.borderBottom) attrs.borderBottom = `${s.borderBottom.width},${s.borderBottom.style},${s.borderBottom.color}`;
+  if (s.borderLeft) attrs.borderLeft = `${s.borderLeft.width},${s.borderLeft.style},${s.borderLeft.color}`;
+  if (s.borderRight) attrs.borderRight = `${s.borderRight.width},${s.borderRight.style},${s.borderRight.color}`;
+  return attrs;
+}
+
+function parseBorderStyle(value: string): BorderStyle | undefined {
+  const parts = value.split(',');
+  if (parts.length !== 3) return undefined;
+  return { width: Number(parts[0]), style: parts[1] as 'solid' | 'none', color: parts[2] };
+}
+
+function parseCellStyle(attrs: Record<string, string>): CellStyle {
+  const style: CellStyle = {};
+  if (attrs.backgroundColor) style.backgroundColor = attrs.backgroundColor;
+  if (attrs.verticalAlign) style.verticalAlign = attrs.verticalAlign as 'top' | 'middle' | 'bottom';
+  if (attrs.padding) style.padding = Number(attrs.padding);
+  if (attrs.borderTop) style.borderTop = parseBorderStyle(attrs.borderTop);
+  if (attrs.borderBottom) style.borderBottom = parseBorderStyle(attrs.borderBottom);
+  if (attrs.borderLeft) style.borderLeft = parseBorderStyle(attrs.borderLeft);
+  if (attrs.borderRight) style.borderRight = parseBorderStyle(attrs.borderRight);
+  return style;
+}
+
+// ---------------------------------------------------------------------------
 // Tree node builders (plain objects consumed by Yorkie Tree API)
 // ---------------------------------------------------------------------------
 
@@ -105,6 +146,28 @@ function buildInlineNode(inline: Inline): ElementNode {
 }
 
 function buildBlockNode(block: Block): ElementNode {
+  // Table block: children are row → cell → block nodes
+  if (block.type === 'table' && block.tableData) {
+    return {
+      type: 'block',
+      attributes: {
+        id: block.id,
+        type: 'table',
+        cols: block.tableData.columnWidths.join(','),
+        ...serializeBlockStyle(block.style),
+      },
+      children: block.tableData.rows.map((row) => ({
+        type: 'row' as const,
+        attributes: {},
+        children: row.cells.map((cell) => ({
+          type: 'cell' as const,
+          attributes: serializeCellStyle(cell),
+          children: cell.blocks.map(buildBlockNode),
+        })),
+      })),
+    };
+  }
+
   const attrs: Record<string, string> = {
     id: block.id,
     type: block.type,
@@ -119,13 +182,10 @@ function buildBlockNode(block: Block): ElementNode {
   if (block.listLevel !== undefined) {
     attrs.listLevel = String(block.listLevel);
   }
-  if (block.tableData !== undefined) {
-    attrs.tableData = JSON.stringify(block.tableData);
-  }
   return {
     type: 'block',
     attributes: attrs,
-    children: block.type === 'table' ? [] : block.inlines.map(buildInlineNode),
+    children: block.inlines.map(buildInlineNode),
   };
 }
 
@@ -149,13 +209,54 @@ function treeNodeToInline(node: TreeNode): Inline {
   };
 }
 
+function treeNodeToRow(node: TreeNode): TableRow {
+  const el = node as ElementNode;
+  return {
+    cells: (el.children ?? [])
+      .filter((c) => c.type === 'cell')
+      .map(treeNodeToCell),
+  };
+}
+
+function treeNodeToCell(node: TreeNode): TableCell {
+  const el = node as ElementNode;
+  const attrs = (el.attributes ?? {}) as Record<string, string>;
+  const blocks = (el.children ?? [])
+    .filter((c) => c.type === 'block')
+    .map(treeNodeToBlock);
+  return {
+    blocks: blocks.length > 0
+      ? blocks
+      : [{ id: '', type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
+    style: parseCellStyle(attrs),
+    colSpan: attrs.colSpan ? Number(attrs.colSpan) : undefined,
+    rowSpan: attrs.rowSpan ? Number(attrs.rowSpan) : undefined,
+  };
+}
+
 function treeNodeToBlock(node: TreeNode): Block {
   const el = node as ElementNode;
   const attrs = (el.attributes ?? {}) as Record<string, string>;
+  const blockType = (attrs.type as Block['type']) ?? 'paragraph';
+
+  // Table block: parse row → cell → block children
+  if (blockType === 'table') {
+    const rows = (el.children ?? [])
+      .filter((c) => c.type === 'row')
+      .map(treeNodeToRow);
+    const cols = (attrs.cols ?? '').split(',').map(Number).filter(n => !isNaN(n));
+    return {
+      id: attrs.id ?? '',
+      type: 'table',
+      inlines: [],
+      style: parseBlockStyle(attrs),
+      tableData: { rows, columnWidths: cols },
+    };
+  }
+
   const inlines = (el.children ?? [])
     .filter((c) => c.type === 'inline')
     .map(treeNodeToInline);
-  const blockType = (attrs.type as Block['type']) ?? 'paragraph';
   const block: Block = {
     id: attrs.id ?? '',
     type: blockType,
@@ -174,17 +275,6 @@ function treeNodeToBlock(node: TreeNode): Block {
   }
   if ('listLevel' in attrs) {
     block.listLevel = Number(attrs.listLevel);
-  }
-  if ('tableData' in attrs && attrs.tableData) {
-    try {
-      const parsed = JSON.parse(attrs.tableData);
-      if (parsed && Array.isArray(parsed.rows) && Array.isArray(parsed.columnWidths)) {
-        block.tableData = parsed;
-        block.inlines = [];
-      }
-    } catch {
-      // Ignore malformed tableData
-    }
   }
   return block;
 }

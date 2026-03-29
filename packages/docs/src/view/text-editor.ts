@@ -1,5 +1,5 @@
 import type { Block, CellAddress, DocPosition, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
@@ -198,24 +198,26 @@ export class TextEditor {
     const { startPosition, currentLength } = this.composition;
 
     const ca = startPosition.cellAddress;
+    const cbi = startPosition.cellBlockIndex ?? 0;
     if (currentLength > 0) {
       if (ca) {
-        this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength);
+        this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength, cbi);
       } else {
         this.doc.deleteText(startPosition, currentLength);
       }
     }
     if (finalText.length > 0) {
       if (ca) {
-        this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, finalText);
+        this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, finalText, cbi);
       } else {
         this.doc.insertText(startPosition, finalText);
       }
     }
-    const endPos = {
+    const endPos: DocPosition = {
       blockId: startPosition.blockId,
       offset: startPosition.offset + finalText.length,
       cellAddress: ca,
+      cellBlockIndex: ca ? cbi : undefined,
     };
     this.markDirty(startPosition.blockId);
     this.cursor.moveTo(endPos, this.getWrapAffinity(endPos));
@@ -255,26 +257,28 @@ export class TextEditor {
       const { startPosition, currentLength } = this.composition;
 
       const ca = startPosition.cellAddress;
+      const cbi = startPosition.cellBlockIndex ?? 0;
       if (currentLength > 0) {
         if (ca) {
-          this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength);
+          this.doc.deleteTextInCell(startPosition.blockId, ca, startPosition.offset, currentLength, cbi);
         } else {
           this.doc.deleteText(startPosition, currentLength);
         }
       }
       if (newText.length > 0) {
         if (ca) {
-          this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, newText);
+          this.doc.insertTextInCell(startPosition.blockId, ca, startPosition.offset, newText, cbi);
         } else {
           this.doc.insertText(startPosition, newText);
         }
       }
 
       this.composition.currentLength = newText.length;
-      const compPos = {
+      const compPos: DocPosition = {
         blockId: startPosition.blockId,
         offset: startPosition.offset + newText.length,
         cellAddress: ca,
+        cellBlockIndex: ca ? cbi : undefined,
       };
       this.markDirty(startPosition.blockId);
       this.cursor.moveTo(compPos, this.getWrapAffinity(compPos));
@@ -303,16 +307,19 @@ export class TextEditor {
 
     // Route text input to table cell if cursor is inside one
     if (this.cursor.position.cellAddress) {
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
       this.doc.insertTextInCell(
         blockId,
         this.cursor.position.cellAddress,
         this.cursor.position.offset,
         data,
+        cbi,
       );
       const newPos: DocPosition = {
         blockId,
         offset: this.cursor.position.offset + data.length,
         cellAddress: this.cursor.position.cellAddress,
+        cellBlockIndex: cbi,
       };
       this.markDirty(blockId);
       this.cursor.moveTo(newPos);
@@ -692,6 +699,13 @@ export class TextEditor {
   private handleMouseDown = (e: MouseEvent): void => {
     if (e.target === this.textarea) return;
 
+    // Ignore clicks on non-canvas UI elements (e.g. context menu buttons)
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'BUTTON' || target.tagName === 'INPUT' || target.closest('button, [role="menu"], [role="menuitem"]')) return;
+
+    // Right-click: preserve existing cell-range selection for context menu
+    if (e.button === 2 && this.selection.range?.tableCellRange) return;
+
     // Ctrl+Click (or Cmd+Click on Mac) on a link opens it in a new tab
     if (e.ctrlKey || e.metaKey) {
       const href = this.getLinkHrefAtMouse(e);
@@ -765,19 +779,23 @@ export class TextEditor {
           pos.cellAddress = cellAddr;
 
           if (this.clickCount === 3) {
-            // Triple-click: select all cell text
-            const cellLen = this.getCellTextLength(pos.blockId, cellAddr);
-            const start: DocPosition = { blockId: pos.blockId, offset: 0, cellAddress: cellAddr };
-            const end: DocPosition = { blockId: pos.blockId, offset: cellLen, cellAddress: cellAddr };
+            // Triple-click: select all text in the clicked block
+            const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            const cbi = resolved.cellBlockIndex;
+            const bLen = this.doc.getCellBlockTextLength(pos.blockId, cellAddr, cbi);
+            const start: DocPosition = { blockId: pos.blockId, offset: 0, cellAddress: cellAddr, cellBlockIndex: cbi };
+            const end: DocPosition = { blockId: pos.blockId, offset: bLen, cellAddress: cellAddr, cellBlockIndex: cbi };
             this.selection.setRange({ anchor: start, focus: end });
             this.cursor.moveTo(end);
           } else if (this.clickCount === 2) {
-            // Double-click: select word in cell
-            const text = this.getCellText(pos.blockId, cellAddr);
-            const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
-            const [start, end] = getWordRange(text, clickOffset);
-            const anchor: DocPosition = { blockId: pos.blockId, offset: start, cellAddress: cellAddr };
-            const focus: DocPosition = { blockId: pos.blockId, offset: end, cellAddress: cellAddr };
+            // Double-click: select word in cell block
+            const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            const block = this.doc.getBlock(pos.blockId);
+            const tc = block.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex];
+            const blockText = getBlockText(tc.blocks[resolved.cellBlockIndex]);
+            const [start, end] = getWordRange(blockText, resolved.offset);
+            const anchor: DocPosition = { blockId: pos.blockId, offset: start, cellAddress: cellAddr, cellBlockIndex: resolved.cellBlockIndex };
+            const focus: DocPosition = { blockId: pos.blockId, offset: end, cellAddress: cellAddr, cellBlockIndex: resolved.cellBlockIndex };
             this.selection.setRange({ anchor, focus });
             this.cursor.moveTo(focus);
           } else if (e.shiftKey) {
@@ -786,21 +804,24 @@ export class TextEditor {
             if (anchor.cellAddress &&
                 anchor.cellAddress.rowIndex === cellAddr.rowIndex &&
                 anchor.cellAddress.colIndex === cellAddr.colIndex) {
-              const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
-              const focus: DocPosition = { blockId: pos.blockId, offset: clickOffset, cellAddress: cellAddr };
+              const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+              const focus: DocPosition = { blockId: pos.blockId, offset: resolved.offset, cellAddress: cellAddr, cellBlockIndex: resolved.cellBlockIndex };
               this.selection.setRange({ anchor, focus });
               this.cursor.moveTo(focus);
             } else {
               pos.offset = 0;
+              pos.cellBlockIndex = 0;
               this.cursor.moveTo(pos);
               this.selection.setRange(null);
             }
           } else {
             // Single click — resolve character offset from mouse position
-            const clickOffset = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
-            pos.offset = clickOffset;
+            const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
+            pos.offset = resolved.offset;
+            pos.cellBlockIndex = resolved.cellBlockIndex;
             this.cursor.moveTo(pos);
-            this.selection.setRange(null);
+            // Set anchor for drag selection (same as non-cell single click)
+            this.selection.setRange({ anchor: pos, focus: pos });
           }
           this.requestRender();
           return;
@@ -863,19 +884,77 @@ export class TextEditor {
     if (result && this.selection.range) {
       const anchor = this.selection.range.anchor;
       let pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+      let tableCellRange: DocRange['tableCellRange'] = undefined;
 
       if (anchor.cellAddress) {
-        // Resolve character offset from logical X within the anchor cell
-        const cellOffset = this.resolveOffsetInCellAtX(anchor.blockId, anchor.cellAddress, x);
-        pos = {
-          blockId: anchor.blockId,
-          offset: cellOffset,
-          cellAddress: anchor.cellAddress,
-        };
+        const anchorCA = anchor.cellAddress;
+
+        // Check if mouse is still in the same table
+        if (result.blockId === anchor.blockId) {
+          const layout = this.getLayout();
+          const lb = layout.blocks.find((b) => b.block.id === anchor.blockId);
+          if (lb?.layoutTable) {
+            const paginatedLayout = this.getPaginatedLayout();
+            const { margins } = paginatedLayout.pageSetup;
+            const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+            // Find table page position for localX/Y
+            const blockIndex = layout.blocks.indexOf(lb);
+            let tablePageY = 0;
+            for (const page of paginatedLayout.pages) {
+              for (const pl of page.lines) {
+                if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
+                  tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
+                  break;
+                }
+              }
+              if (tablePageY !== 0) break;
+            }
+            const localX = x - pageX - margins.left;
+            const localY = (y + scrollY) - tablePageY;
+            const currentCA = this.resolveTableCellClick(anchor.blockId, localX, localY);
+
+            if (currentCA &&
+                currentCA.rowIndex === anchorCA.rowIndex &&
+                currentCA.colIndex === anchorCA.colIndex) {
+              // Same cell — text selection mode
+              const resolved = this.resolveOffsetInCellAtXY(anchor.blockId, anchorCA, x, y + scrollY);
+              pos = {
+                blockId: anchor.blockId,
+                offset: resolved.offset,
+                cellAddress: anchorCA,
+                cellBlockIndex: resolved.cellBlockIndex,
+              };
+            } else if (currentCA) {
+              // Different cell — cell-range mode
+              tableCellRange = {
+                blockId: anchor.blockId,
+                start: anchorCA,
+                end: currentCA,
+              };
+              pos = {
+                blockId: anchor.blockId,
+                offset: 0,
+                cellAddress: currentCA,
+                cellBlockIndex: 0,
+              };
+            }
+          }
+        } else {
+          // Mouse left the table — block-range selection including
+          // the whole table and external content. Drop cellAddress so
+          // buildRects treats the table as a whole-block highlight.
+          this.selection.setRange({
+            anchor: { blockId: anchor.blockId, offset: 0 },
+            focus: pos,
+          });
+          this.cursor.moveTo(pos, result.lineAffinity);
+          this.requestRender();
+          return;
+        }
       }
 
       this.cursor.moveTo(pos, result.lineAffinity);
-      this.selection.setRange({ anchor, focus: pos });
+      this.selection.setRange({ anchor, focus: pos, tableCellRange });
       this.requestRender();
     }
   }
@@ -932,16 +1011,32 @@ export class TextEditor {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
 
-    // Table cell backspace: delete within cell, no-op at cell start
+    // Table cell backspace: delete within cell block, merge blocks, or no-op
     if (this.cursor.position.cellAddress) {
       const pos = this.cursor.position;
-      if (pos.offset <= 0) return; // At cell start — no-op
-      this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset - 1, 1);
-      this.cursor.moveTo({
-        blockId: pos.blockId,
-        offset: pos.offset - 1,
-        cellAddress: pos.cellAddress,
-      });
+      const cbi = pos.cellBlockIndex ?? 0;
+      if (pos.offset > 0) {
+        this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset - 1, 1, cbi);
+        this.cursor.moveTo({
+          blockId: pos.blockId,
+          offset: pos.offset - 1,
+          cellAddress: pos.cellAddress,
+          cellBlockIndex: cbi,
+        });
+      } else if (cbi > 0) {
+        // At start of non-first block: merge with previous
+        const prevLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress!, cbi - 1);
+        this.doc.mergeBlocksInCell(pos.blockId, pos.cellAddress!, cbi);
+        this.cursor.moveTo({
+          blockId: pos.blockId,
+          offset: prevLen,
+          cellAddress: pos.cellAddress,
+          cellBlockIndex: cbi - 1,
+        });
+        this.invalidateLayout();
+      } else {
+        return; // At start of first block in cell — no-op
+      }
       this.markDirty(pos.blockId);
       this.requestRender();
       return;
@@ -964,12 +1059,24 @@ export class TextEditor {
     this.saveSnapshot();
     if (this.deleteSelection()) return;
 
-    // Table cell delete: delete within cell, no-op at cell end
+    // Table cell delete: delete within cell block, merge blocks, or no-op
     if (this.cursor.position.cellAddress) {
       const pos = this.cursor.position;
-      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress!);
-      if (pos.offset >= cellLen) return; // At cell end — no-op
-      this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset, 1);
+      const cbi = pos.cellBlockIndex ?? 0;
+      const blockLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress!, cbi);
+      if (pos.offset < blockLen) {
+        this.doc.deleteTextInCell(pos.blockId, pos.cellAddress!, pos.offset, 1, cbi);
+      } else {
+        // At end of block: merge with next block if exists
+        const block = this.doc.getBlock(pos.blockId);
+        const tableCell = block.tableData!.rows[pos.cellAddress!.rowIndex].cells[pos.cellAddress!.colIndex];
+        if (cbi + 1 < tableCell.blocks.length) {
+          this.doc.mergeBlocksInCell(pos.blockId, pos.cellAddress!, cbi + 1);
+          this.invalidateLayout();
+        } else {
+          return; // At end of last block in cell — no-op
+        }
+      }
       this.markDirty(pos.blockId);
       this.requestRender();
       return;
@@ -1037,22 +1144,25 @@ export class TextEditor {
   }
 
   private handleEnter(): void {
-    // In a table cell: move to cell below (same column), no-op at last row
+    // In a table cell: split block within cell
     if (this.cursor.position.cellAddress) {
+      this.saveSnapshot();
+      this.deleteSelection();
       const pos = this.cursor.position;
-      const cellAddr = pos.cellAddress!;
-      const block = this.doc.getBlock(pos.blockId);
-      if (!block.tableData) return;
-      const { rowIndex, colIndex } = cellAddr;
-      if (rowIndex < block.tableData.rows.length - 1) {
-        this.cursor.moveTo({
-          blockId: pos.blockId,
-          offset: 0,
-          cellAddress: { rowIndex: rowIndex + 1, colIndex },
-        });
-        this.selection.setRange(null);
-        this.requestRender();
-      }
+      const cbi = pos.cellBlockIndex ?? 0;
+      const newBlockIndex = this.doc.splitBlockInCell(
+        pos.blockId, pos.cellAddress!, cbi, pos.offset,
+      );
+      this.cursor.moveTo({
+        blockId: pos.blockId,
+        offset: 0,
+        cellAddress: pos.cellAddress,
+        cellBlockIndex: newBlockIndex,
+      });
+      this.selection.setRange(null);
+      this.markDirty(pos.blockId);
+      this.invalidateLayout();
+      this.requestRender();
       return;
     }
 
@@ -1118,33 +1228,79 @@ export class TextEditor {
   }
 
   private handleAlign(alignment: 'left' | 'center' | 'right' | 'justify'): void {
-    const block = this.doc.getBlock(this.cursor.position.blockId);
     this.saveSnapshot();
-    this.doc.applyBlockStyle(block.id, { alignment });
+    const ca = this.cursor.position.cellAddress;
+    if (ca) {
+      this.doc.applyBlockStyleInCell(
+        this.cursor.position.blockId, ca,
+        this.cursor.position.cellBlockIndex ?? 0,
+        { alignment },
+      );
+    } else {
+      this.doc.applyBlockStyle(this.cursor.position.blockId, { alignment });
+    }
     this.invalidateLayout();
     this.requestRender();
   }
 
   private toggleList(kind: 'ordered' | 'unordered'): void {
-    const block = this.doc.getBlock(this.cursor.position.blockId);
     this.saveSnapshot();
-    if (block.type === 'list-item' && block.listKind === kind) {
-      this.doc.setBlockType(block.id, 'paragraph');
+    const ca = this.cursor.position.cellAddress;
+    if (ca) {
+      const block = this.doc.getBlock(this.cursor.position.blockId);
+      const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
+      const cellBlock = cell?.blocks[cbi];
+      if (cellBlock) {
+        if (cellBlock.type === 'list-item' && cellBlock.listKind === kind) {
+          this.doc.setBlockTypeInCell(block.id, ca, cbi, 'paragraph');
+        } else {
+          this.doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+            listKind: kind,
+            listLevel: cellBlock.listLevel ?? 0,
+          });
+        }
+      }
     } else {
-      this.doc.setBlockType(block.id, 'list-item', {
-        listKind: kind,
-        listLevel: block.listLevel ?? 0,
-      });
+      const block = this.doc.getBlock(this.cursor.position.blockId);
+      if (block.type === 'list-item' && block.listKind === kind) {
+        this.doc.setBlockType(block.id, 'paragraph');
+      } else {
+        this.doc.setBlockType(block.id, 'list-item', {
+          listKind: kind,
+          listLevel: block.listLevel ?? 0,
+        });
+      }
     }
     this.invalidateLayout();
     this.requestRender();
   }
 
   private handleIndent(): void {
-    const INDENT_STEP = 36;
     const MAX_LIST_LEVEL = 8;
-    const block = this.doc.getBlock(this.cursor.position.blockId);
+    const ca = this.cursor.position.cellAddress;
     this.saveSnapshot();
+
+    if (ca) {
+      const block = this.doc.getBlock(this.cursor.position.blockId);
+      const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
+      const cellBlock = cell?.blocks[cbi];
+      if (cellBlock?.type === 'list-item') {
+        const currentLevel = cellBlock.listLevel ?? 0;
+        if (currentLevel >= MAX_LIST_LEVEL) return;
+        this.doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+          listKind: cellBlock.listKind,
+          listLevel: currentLevel + 1,
+        });
+      }
+      this.invalidateLayout();
+      this.requestRender();
+      return;
+    }
+
+    const INDENT_STEP = 36;
+    const block = this.doc.getBlock(this.cursor.position.blockId);
     if (block.type === 'list-item') {
       const currentLevel = block.listLevel ?? 0;
       if (currentLevel >= MAX_LIST_LEVEL) return;
@@ -1162,6 +1318,27 @@ export class TextEditor {
   }
 
   private handleOutdent(): void {
+    const ca = this.cursor.position.cellAddress;
+
+    if (ca) {
+      const block = this.doc.getBlock(this.cursor.position.blockId);
+      const cell = block.tableData?.rows[ca.rowIndex]?.cells[ca.colIndex];
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
+      const cellBlock = cell?.blocks[cbi];
+      if (cellBlock?.type === 'list-item') {
+        const currentLevel = cellBlock.listLevel ?? 0;
+        if (currentLevel <= 0) return;
+        this.saveSnapshot();
+        this.doc.setBlockTypeInCell(block.id, ca, cbi, 'list-item', {
+          listKind: cellBlock.listKind,
+          listLevel: currentLevel - 1,
+        });
+        this.invalidateLayout();
+        this.requestRender();
+      }
+      return;
+    }
+
     const INDENT_STEP = 36;
     const block = this.doc.getBlock(this.cursor.position.blockId);
     if (block.type === 'list-item') {
@@ -1250,76 +1427,136 @@ export class TextEditor {
 
     // Table cell arrow key handling: keep cursor within cell boundaries
     if (pos.cellAddress) {
-      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
       let newPos: DocPosition | undefined;
 
       if (direction === 'left') {
         if (wordMod) {
           newPos = this.moveWordLeft(pos);
-        } else if (pos.offset > 0) {
-          newPos = { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
         } else {
-          // At start of cell — move to end of previous cell
-          if (this.moveToPrevCell()) {
-            this.selection.setRange(null);
-            this.requestRender();
+          const moved = this.moveLeft(pos);
+          if (moved === pos) {
+            if (shiftKey) {
+              // Shift+Left at cell start: select table + exit upward
+              newPos = this.getPositionBeforeTable(pos.blockId);
+            } else if (this.moveToPrevCell()) {
+              this.selection.setRange(null);
+              this.requestRender();
+              return;
+            }
+            if (!newPos) return;
+          } else {
+            newPos = moved;
           }
-          return;
         }
       } else if (direction === 'right') {
         if (wordMod) {
           newPos = this.moveWordRight(pos);
-        } else if (pos.offset < cellLen) {
-          newPos = { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
         } else {
-          // At end of cell — move to start of next cell
-          if (this.moveToNextCell()) {
-            this.selection.setRange(null);
-            this.requestRender();
+          const moved = this.moveRight(pos);
+          if (moved === pos) {
+            if (shiftKey) {
+              // Shift+Right at cell end: select table + exit downward
+              newPos = this.getPositionAfterTable(pos.blockId);
+            } else if (this.moveToNextCell()) {
+              this.selection.setRange(null);
+              this.requestRender();
+              return;
+            }
+            if (!newPos) return;
+          } else {
+            newPos = moved;
           }
-          return;
         }
       } else if (direction === 'up') {
-        // Move to cell above
-        const block = this.doc.getBlock(pos.blockId);
-        if (block.tableData && pos.cellAddress.rowIndex > 0) {
+        const cbi = pos.cellBlockIndex ?? 0;
+        if (cbi > 0) {
+          // Move to previous block within the same cell
+          const prevLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress, cbi - 1);
           newPos = {
             blockId: pos.blockId,
-            offset: 0,
-            cellAddress: { rowIndex: pos.cellAddress.rowIndex - 1, colIndex: pos.cellAddress.colIndex },
+            offset: Math.min(pos.offset, prevLen),
+            cellAddress: pos.cellAddress,
+            cellBlockIndex: cbi - 1,
           };
         } else {
-          // At first row — exit table upward
-          const blockIndex = this.doc.getBlockIndex(pos.blockId);
-          if (blockIndex > 0) {
-            const prevBlock = this.doc.document.blocks[blockIndex - 1];
-            newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+          // At first block — move to cell above or exit table
+          const block = this.doc.getBlock(pos.blockId);
+          if (block.tableData && pos.cellAddress.rowIndex > 0) {
+            const aboveCell = block.tableData.rows[pos.cellAddress.rowIndex - 1].cells[pos.cellAddress.colIndex];
+            const lastCbi = aboveCell.blocks.length - 1;
+            const lastBlockLen = getBlockTextLength(aboveCell.blocks[lastCbi]);
+            newPos = {
+              blockId: pos.blockId,
+              offset: Math.min(pos.offset, lastBlockLen),
+              cellAddress: { rowIndex: pos.cellAddress.rowIndex - 1, colIndex: pos.cellAddress.colIndex },
+              cellBlockIndex: lastCbi,
+            };
+          } else {
+            const blockIndex = this.doc.getBlockIndex(pos.blockId);
+            if (blockIndex > 0) {
+              const prevBlock = this.doc.document.blocks[blockIndex - 1];
+              newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+            }
           }
         }
       } else if (direction === 'down') {
-        // Move to cell below
+        const cbi = pos.cellBlockIndex ?? 0;
         const block = this.doc.getBlock(pos.blockId);
-        if (block.tableData && pos.cellAddress.rowIndex < block.tableData.rows.length - 1) {
+        const cell = block.tableData?.rows[pos.cellAddress.rowIndex]?.cells[pos.cellAddress.colIndex];
+        if (cell && cbi < cell.blocks.length - 1) {
+          // Move to next block within the same cell
+          const nextLen = getBlockTextLength(cell.blocks[cbi + 1]);
           newPos = {
             blockId: pos.blockId,
-            offset: 0,
-            cellAddress: { rowIndex: pos.cellAddress.rowIndex + 1, colIndex: pos.cellAddress.colIndex },
+            offset: Math.min(pos.offset, nextLen),
+            cellAddress: pos.cellAddress,
+            cellBlockIndex: cbi + 1,
           };
         } else {
-          // At last row — exit table downward
-          const blockIndex = this.doc.getBlockIndex(pos.blockId);
-          const blocks = this.doc.document.blocks;
-          if (blockIndex < blocks.length - 1) {
-            newPos = { blockId: blocks[blockIndex + 1].id, offset: 0 };
+          // At last block — move to cell below or exit table
+          if (block.tableData && pos.cellAddress.rowIndex < block.tableData.rows.length - 1) {
+            newPos = {
+              blockId: pos.blockId,
+              offset: Math.min(pos.offset, getBlockTextLength(block.tableData.rows[pos.cellAddress.rowIndex + 1].cells[pos.cellAddress.colIndex].blocks[0])),
+              cellAddress: { rowIndex: pos.cellAddress.rowIndex + 1, colIndex: pos.cellAddress.colIndex },
+              cellBlockIndex: 0,
+            };
+          } else {
+            const blockIndex = this.doc.getBlockIndex(pos.blockId);
+            const blocks = this.doc.document.blocks;
+            if (blockIndex < blocks.length - 1) {
+              newPos = { blockId: blocks[blockIndex + 1].id, offset: 0 };
+            }
           }
         }
       }
 
       if (newPos) {
         if (shiftKey) {
-          // Extend selection within the cell
           const anchor = this.selection.range?.anchor ?? pos;
-          this.selection.setRange({ anchor, focus: newPos });
+          // Detect cross-cell shift selection
+          if (anchor.cellAddress && newPos.cellAddress &&
+              anchor.blockId === newPos.blockId &&
+              (anchor.cellAddress.rowIndex !== newPos.cellAddress.rowIndex ||
+               anchor.cellAddress.colIndex !== newPos.cellAddress.colIndex)) {
+            // Cross-cell: use tableCellRange
+            this.selection.setRange({
+              anchor, focus: newPos,
+              tableCellRange: {
+                blockId: anchor.blockId,
+                start: anchor.cellAddress,
+                end: newPos.cellAddress,
+              },
+            });
+          } else if (anchor.cellAddress && !newPos.cellAddress) {
+            // Exiting table: block-range with anchor at table boundary
+            this.selection.setRange({
+              anchor: { blockId: anchor.blockId, offset: 0 },
+              focus: newPos,
+            });
+          } else {
+            this.selection.setRange({ anchor, focus: newPos });
+          }
         } else {
           this.selection.setRange(null);
         }
@@ -1469,7 +1706,7 @@ export class TextEditor {
     if (!this.selection.hasSelection() || !this.selection.range) return;
     this.saveSnapshot();
     const range = this.selection.range;
-    this.doc.applyInlineStyle(range, {
+    const clearStyle: Partial<InlineStyle> = {
       bold: undefined,
       italic: undefined,
       underline: undefined,
@@ -1477,7 +1714,21 @@ export class TextEditor {
       superscript: undefined,
       subscript: undefined,
       href: undefined,
-    });
+    };
+
+    // Route to cell-aware method if selection is within a table cell
+    const anchor = range.anchor;
+    if (anchor.cellAddress) {
+      const normalized = this.selection.getNormalizedRange(this.getLayout());
+      if (normalized) {
+        this.applyCellStyleToRange(normalized.start, normalized.end, clearStyle);
+        this.markDirty(anchor.blockId);
+        this.requestRender();
+        return;
+      }
+    }
+
+    this.doc.applyInlineStyle(range, clearStyle);
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
     if (startIdx < 0 || endIdx < 0) {
@@ -1505,6 +1756,24 @@ export class TextEditor {
         (resolved as Record<string, unknown>)[key] = style[key];
       }
     }
+    // Route to cell-aware method if selection is within a table cell
+    const anchor = range.anchor;
+    if (range.tableCellRange) {
+      this.applyStyleToCellRange(range.tableCellRange, resolved);
+      this.markDirty(range.tableCellRange.blockId);
+      this.requestRender();
+      return;
+    }
+    if (anchor.cellAddress) {
+      const normalized = this.selection.getNormalizedRange(this.getLayout());
+      if (normalized) {
+        this.applyCellStyleToRange(normalized.start, normalized.end, resolved);
+        this.markDirty(anchor.blockId);
+        this.requestRender();
+        return;
+      }
+    }
+
     this.doc.applyInlineStyle(range, resolved);
     // Mark all blocks in the selection range as dirty
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
@@ -1521,11 +1790,97 @@ export class TextEditor {
     this.requestRender();
   }
 
+  /**
+   * Apply inline style to a cell selection that may span multiple cell blocks.
+   */
+  private applyCellStyleToRange(
+    start: DocPosition,
+    end: DocPosition,
+    style: Partial<InlineStyle>,
+  ): void {
+    if (!start.cellAddress) return;
+    const startCbi = start.cellBlockIndex ?? 0;
+    const endCbi = end.cellBlockIndex ?? 0;
+
+    if (startCbi === endCbi) {
+      this.doc.applyCellInlineStyle(
+        start.blockId, start.cellAddress,
+        start.offset, end.offset, style, startCbi,
+      );
+      return;
+    }
+
+    // Cross-block: apply to each block in range
+    const block = this.doc.getBlock(start.blockId);
+    const cell = block.tableData!.rows[start.cellAddress.rowIndex].cells[start.cellAddress.colIndex];
+    for (let bi = startCbi; bi <= endCbi; bi++) {
+      const cellBlock = cell.blocks[bi];
+      if (!cellBlock) continue;
+      const s = bi === startCbi ? start.offset : 0;
+      const e = bi === endCbi ? end.offset : getBlockTextLength(cellBlock);
+      if (s < e) {
+        this.doc.applyCellInlineStyle(start.blockId, start.cellAddress, s, e, style, bi);
+      }
+    }
+  }
+
+  /**
+   * Apply inline style to all blocks in all cells within a cell range.
+   */
+  private applyStyleToCellRange(
+    cellRange: { blockId: string; start: CellAddress; end: CellAddress },
+    style: Partial<InlineStyle>,
+  ): void {
+    const block = this.doc.getBlock(cellRange.blockId);
+    if (!block.tableData) return;
+    const minRow = Math.min(cellRange.start.rowIndex, cellRange.end.rowIndex);
+    const maxRow = Math.max(cellRange.start.rowIndex, cellRange.end.rowIndex);
+    const minCol = Math.min(cellRange.start.colIndex, cellRange.end.colIndex);
+    const maxCol = Math.max(cellRange.start.colIndex, cellRange.end.colIndex);
+
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minCol; c <= maxCol; c++) {
+        const cell = block.tableData.rows[r]?.cells[c];
+        if (!cell || cell.colSpan === 0) continue;
+        for (let bi = 0; bi < cell.blocks.length; bi++) {
+          const len = getBlockTextLength(cell.blocks[bi]);
+          if (len > 0) {
+            this.doc.applyCellInlineStyle(
+              cellRange.blockId, { rowIndex: r, colIndex: c },
+              0, len, style, bi,
+            );
+          }
+        }
+      }
+    }
+  }
+
   private getStyleAtCursor(): Partial<InlineStyle> {
     const block = this.doc.document.blocks.find(
       (b) => b.id === this.cursor.position.blockId,
     );
     if (!block) return {};
+
+    // Read from cell-internal block if cursor is in a table cell
+    const ca = this.cursor.position.cellAddress;
+    if (ca && block.tableData) {
+      const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+      if (!cell) return {};
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
+      const cellBlock = cell.blocks[cbi];
+      if (!cellBlock) return {};
+      let pos = 0;
+      for (const inline of cellBlock.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (this.cursor.position.offset <= inlineEnd) {
+          return { ...inline.style };
+        }
+        pos = inlineEnd;
+      }
+      const last = cellBlock.inlines[cellBlock.inlines.length - 1];
+      return last ? { ...last.style } : {};
+    }
+
     let pos = 0;
     for (const inline of block.inlines) {
       const inlineEnd = pos + inline.text.length;
@@ -1549,6 +1904,36 @@ export class TextEditor {
     const layout = this.getLayout();
     const normalized = this.selection.getNormalizedRange(layout);
     if (!normalized) return false;
+
+    // Cell-range mode: clear content of all selected cells
+    if (normalized.tableCellRange) {
+      const cr = normalized.tableCellRange;
+      const block = this.doc.getBlock(cr.blockId);
+      if (!block.tableData) return false;
+      for (let r = cr.start.rowIndex; r <= cr.end.rowIndex; r++) {
+        for (let c = cr.start.colIndex; c <= cr.end.colIndex; c++) {
+          const cell = block.tableData.rows[r]?.cells[c];
+          if (!cell || cell.colSpan === 0) continue;
+          cell.blocks = [{
+            id: generateBlockId(),
+            type: 'paragraph',
+            inlines: [{ text: '', style: {} }],
+            style: { ...DEFAULT_BLOCK_STYLE },
+          }];
+        }
+      }
+      this.doc.updateBlockDirect(cr.blockId, block);
+      this.cursor.moveTo({
+        blockId: cr.blockId,
+        offset: 0,
+        cellAddress: cr.start,
+        cellBlockIndex: 0,
+      });
+      this.selection.setRange(null);
+      this.markDirty(cr.blockId);
+      this.requestRender();
+      return true;
+    }
 
     const { start, end } = normalized;
     const startBlockIdx = this.doc.getBlockIndex(start.blockId);
@@ -1849,8 +2234,14 @@ export class TextEditor {
 
   private moveLeft(pos: DocPosition): DocPosition {
     if (pos.cellAddress) {
+      const cbi = pos.cellBlockIndex ?? 0;
       if (pos.offset > 0) {
-        return { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
+        return { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress, cellBlockIndex: cbi };
+      }
+      if (cbi > 0) {
+        // Move to end of previous block in same cell
+        const prevLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress, cbi - 1);
+        return { blockId: pos.blockId, offset: prevLen, cellAddress: pos.cellAddress, cellBlockIndex: cbi - 1 };
       }
       return pos; // Clamp at cell start
     }
@@ -1866,8 +2257,10 @@ export class TextEditor {
         const td = prevBlock.tableData;
         const lastRow = td.rows.length - 1;
         const lastCol = td.columnWidths.length - 1;
-        const cellText = td.rows[lastRow].cells[lastCol].inlines.map(i => i.text).join('');
-        return { blockId: prevBlock.id, offset: cellText.length, cellAddress: { rowIndex: lastRow, colIndex: lastCol } };
+        const lastCell = td.rows[lastRow].cells[lastCol];
+        const lastCellBlockIdx = lastCell.blocks.length - 1;
+        const lastBlockLen = getBlockTextLength(lastCell.blocks[lastCellBlockIdx]);
+        return { blockId: prevBlock.id, offset: lastBlockLen, cellAddress: { rowIndex: lastRow, colIndex: lastCol }, cellBlockIndex: lastCellBlockIdx };
       }
       return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
     }
@@ -1876,9 +2269,16 @@ export class TextEditor {
 
   private moveRight(pos: DocPosition): DocPosition {
     if (pos.cellAddress) {
-      const cellLen = this.getCellTextLength(pos.blockId, pos.cellAddress);
-      if (pos.offset < cellLen) {
-        return { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
+      const cbi = pos.cellBlockIndex ?? 0;
+      const blockLen = this.doc.getCellBlockTextLength(pos.blockId, pos.cellAddress, cbi);
+      if (pos.offset < blockLen) {
+        return { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress, cellBlockIndex: cbi };
+      }
+      // Move to start of next block in same cell
+      const block = this.doc.getBlock(pos.blockId);
+      const tableCell = block.tableData!.rows[pos.cellAddress.rowIndex].cells[pos.cellAddress.colIndex];
+      if (cbi + 1 < tableCell.blocks.length) {
+        return { blockId: pos.blockId, offset: 0, cellAddress: pos.cellAddress, cellBlockIndex: cbi + 1 };
       }
       return pos; // Clamp at cell end
     }
@@ -2068,10 +2468,56 @@ export class TextEditor {
           }
         }
       }
+      // If result lands on a table block, enter its first/last cell
+      const targetBlock = this.doc.document.blocks.find((b) => b.id === result.blockId);
+      if (targetBlock?.type === 'table' && targetBlock.tableData) {
+        const td = targetBlock.tableData;
+        if (direction === 1) {
+          // Down → first cell, first block
+          const firstCellBlock = td.rows[0].cells[0].blocks[0];
+          return {
+            blockId: result.blockId,
+            offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)),
+            cellAddress: { rowIndex: 0, colIndex: 0 },
+            cellBlockIndex: 0,
+          };
+        } else {
+          // Up → last cell, last block
+          const lastRow = td.rows.length - 1;
+          const lastCol = td.columnWidths.length - 1;
+          const lastCell = td.rows[lastRow].cells[lastCol];
+          const lastCbi = lastCell.blocks.length - 1;
+          return {
+            blockId: result.blockId,
+            offset: Math.min(pos.offset, getBlockTextLength(lastCell.blocks[lastCbi])),
+            cellAddress: { rowIndex: lastRow, colIndex: lastCol },
+            cellBlockIndex: lastCbi,
+          };
+        }
+      }
+
       this.cursor.lineAffinity = result.lineAffinity;
       return result;
     }
     return pos;
+  }
+
+  private getPositionBeforeTable(tableBlockId: string): DocPosition | undefined {
+    const idx = this.doc.getBlockIndex(tableBlockId);
+    if (idx > 0) {
+      const prev = this.doc.document.blocks[idx - 1];
+      return { blockId: prev.id, offset: getBlockTextLength(prev) };
+    }
+    return undefined;
+  }
+
+  private getPositionAfterTable(tableBlockId: string): DocPosition | undefined {
+    const idx = this.doc.getBlockIndex(tableBlockId);
+    const blocks = this.doc.document.blocks;
+    if (idx < blocks.length - 1) {
+      return { blockId: blocks[idx + 1].id, offset: 0 };
+    }
+    return undefined;
   }
 
   private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
@@ -2137,55 +2583,117 @@ export class TextEditor {
   }
 
   /**
-   * Resolve a mouse event to a character offset within a specific table cell.
+   * Resolve a mouse event to a character offset and block index within a table cell.
    */
-  private resolveOffsetInCell(blockId: string, cellAddr: CellAddress, e: MouseEvent): number {
+  private resolveOffsetInCell(blockId: string, cellAddr: CellAddress, e: MouseEvent): { offset: number; cellBlockIndex: number } {
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
     const logicalX = (e.clientX - rect.left + this.container.scrollLeft) / s;
-    return this.resolveOffsetInCellAtX(blockId, cellAddr, logicalX);
+    const logicalY = (e.clientY - rect.top - this.getCanvasOffsetTop() + this.container.scrollTop) / s;
+    return this.resolveOffsetInCellAtXY(blockId, cellAddr, logicalX, logicalY);
   }
 
   /**
-   * Resolve a logical X coordinate to a character offset within a table cell.
+   * Resolve a logical X coordinate to a character offset and block index within a table cell.
+   * Falls back to first-line matching when Y is not provided (drag selection).
    */
-  private resolveOffsetInCellAtX(blockId: string, cellAddr: CellAddress, logicalX: number): number {
+  private resolveOffsetInCellAtX(blockId: string, cellAddr: CellAddress, logicalX: number): { offset: number; cellBlockIndex: number } {
+    return this.resolveOffsetInCellAtXY(blockId, cellAddr, logicalX, undefined);
+  }
+
+  /**
+   * Resolve logical X/Y coordinates to a character offset and block index within a table cell.
+   */
+  private resolveOffsetInCellAtXY(
+    blockId: string,
+    cellAddr: CellAddress,
+    logicalX: number,
+    logicalY: number | undefined,
+  ): { offset: number; cellBlockIndex: number } {
     const layout = this.getLayout();
     const lb = layout.blocks.find((b) => b.block.id === blockId);
-    if (!lb?.layoutTable) return 0;
+    if (!lb?.layoutTable) return { offset: 0, cellBlockIndex: 0 };
 
     const tl = lb.layoutTable;
     const cell = tl.cells[cellAddr.rowIndex]?.[cellAddr.colIndex];
-    if (!cell || cell.merged) return 0;
+    if (!cell || cell.merged) return { offset: 0, cellBlockIndex: 0 };
 
     const paginatedLayout = this.getPaginatedLayout();
     const { margins } = paginatedLayout.pageSetup;
 
     const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
-    const cellPadding = lb.block.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex]?.style.padding ?? 4;
+    const dataCell = lb.block.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex];
+    const cellPadding = dataCell?.style.padding ?? 4;
     const cellOriginX = pageX + margins.left + tl.columnXOffsets[cellAddr.colIndex] + cellPadding;
     const localX = logicalX - cellOriginX;
 
-    const ctx = this.getCtx();
+    // Determine which line was clicked using Y coordinate
+    let targetLineIdx = cell.lines.length - 1; // default: last line
+    if (logicalY !== undefined) {
+      // Find the paginated row's page position to compute cell Y origin
+      const blockIndex = layout.blocks.indexOf(lb);
+      let cellPageY = 0;
+      for (const page of paginatedLayout.pages) {
+        for (const pl of page.lines) {
+          if (pl.blockIndex === blockIndex && pl.lineIndex === cellAddr.rowIndex) {
+            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+            cellPageY = pageY + pl.y - tl.rowYOffsets[cellAddr.rowIndex] + cellPadding;
+            break;
+          }
+        }
+        if (cellPageY !== 0) break;
+      }
+
+      const localY = logicalY - cellPageY;
+      targetLineIdx = cell.lines.length - 1;
+      for (let li = 0; li < cell.lines.length; li++) {
+        if (localY < cell.lines[li].y + cell.lines[li].height) {
+          targetLineIdx = li;
+          break;
+        }
+      }
+    }
+
+    // Determine which block the target line belongs to
+    let currentBlockIndex = 0;
+    for (let bi = 0; bi < cell.blockBoundaries.length; bi++) {
+      const nextBoundary = cell.blockBoundaries[bi + 1] ?? cell.lines.length;
+      if (targetLineIdx < nextBoundary) {
+        currentBlockIndex = bi;
+        break;
+      }
+    }
+
+    // Compute character offset within the target block up to the target line
     let offset = 0;
-    for (const line of cell.lines) {
-      for (const run of line.runs) {
+    const blockStartLine = cell.blockBoundaries[currentBlockIndex] ?? 0;
+    for (let li = blockStartLine; li < targetLineIdx; li++) {
+      for (const run of cell.lines[li].runs) {
+        offset += run.text.length;
+      }
+    }
+
+    // Resolve X within the target line
+    const ctx = this.getCtx();
+    const targetLine = cell.lines[targetLineIdx];
+    if (targetLine) {
+      for (const run of targetLine.runs) {
         ctx.font = buildFont(
           run.inline.style.fontSize, run.inline.style.fontFamily,
           run.inline.style.bold, run.inline.style.italic,
         );
         for (let i = 0; i <= run.text.length; i++) {
           const w = ctx.measureText(run.text.slice(0, i)).width + run.x;
-          if (w >= localX) return offset + i;
+          if (w >= localX) return { offset: offset + i, cellBlockIndex: currentBlockIndex };
         }
         offset += run.text.length;
       }
     }
-    return offset;
+    return { offset, cellBlockIndex: currentBlockIndex };
   }
 
   /**
-   * Get the text length of a table cell's inlines.
+   * Get the text length of a table cell's blocks.
    */
   private getCellTextLength(blockId: string, cell: CellAddress): number {
     const block = this.doc.getBlock(blockId);
@@ -2194,7 +2702,7 @@ export class TextEditor {
     if (!row) return 0;
     const tc = row.cells[cell.colIndex];
     if (!tc) return 0;
-    return tc.inlines.reduce((s, i) => s + i.text.length, 0);
+    return tc.blocks.flatMap(b => b.inlines).reduce((s, i) => s + i.text.length, 0);
   }
 
   private getCellText(blockId: string, cell: CellAddress): string {
@@ -2204,7 +2712,7 @@ export class TextEditor {
     if (!row) return '';
     const tc = row.cells[cell.colIndex];
     if (!tc) return '';
-    return tc.inlines.map((i) => i.text).join('');
+    return tc.blocks.flatMap(b => b.inlines).map(i => i.text).join('');
   }
 
   /**
@@ -2286,11 +2794,13 @@ export class TextEditor {
     for (let c = colIndex - 1; c >= 0; c--) {
       const cell = td.rows[rowIndex]?.cells[c];
       if (cell && cell.colSpan !== 0) {
-        const len = cell.inlines.reduce((s, i) => s + i.text.length, 0);
+        const lastIdx = cell.blocks.length - 1;
+        const len = getBlockTextLength(cell.blocks[lastIdx]);
         this.cursor.moveTo({
           blockId: pos.blockId,
           offset: len,
           cellAddress: { rowIndex, colIndex: c },
+          cellBlockIndex: lastIdx,
         });
         return true;
       }
@@ -2300,11 +2810,13 @@ export class TextEditor {
       for (let c = td.columnWidths.length - 1; c >= 0; c--) {
         const cell = td.rows[r]?.cells[c];
         if (cell && cell.colSpan !== 0) {
-          const len = cell.inlines.reduce((s, i) => s + i.text.length, 0);
+          const lastIdx = cell.blocks.length - 1;
+          const len = getBlockTextLength(cell.blocks[lastIdx]);
           this.cursor.moveTo({
             blockId: pos.blockId,
             offset: len,
             cellAddress: { rowIndex: r, colIndex: c },
+            cellBlockIndex: lastIdx,
           });
           return true;
         }
@@ -2370,9 +2882,10 @@ export class TextEditor {
     if (result.commit) {
       if (this.hangulComposingLength > 0) {
         const ca = this.hangulStartPos.cellAddress;
+        const hcbi = this.hangulStartPos.cellBlockIndex ?? 0;
         if (ca) {
-          this.doc.deleteTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, this.hangulComposingLength);
-          this.doc.insertTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, result.commit);
+          this.doc.deleteTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, this.hangulComposingLength, hcbi);
+          this.doc.insertTextInCell(this.hangulStartPos.blockId, ca, this.hangulStartPos.offset, result.commit, hcbi);
         } else {
           this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
           this.doc.insertText(this.hangulStartPos, result.commit);
@@ -2381,12 +2894,14 @@ export class TextEditor {
           blockId: this.hangulStartPos.blockId,
           offset: this.hangulStartPos.offset + result.commit.length,
           cellAddress: this.hangulStartPos.cellAddress,
+          cellBlockIndex: this.hangulStartPos.cellBlockIndex,
         };
       } else {
         this.deleteSelection();
         const ca2 = this.cursor.position.cellAddress;
+        const cbi2 = this.cursor.position.cellBlockIndex ?? 0;
         if (ca2) {
-          this.doc.insertTextInCell(this.cursor.position.blockId, ca2, this.cursor.position.offset, result.commit);
+          this.doc.insertTextInCell(this.cursor.position.blockId, ca2, this.cursor.position.offset, result.commit, cbi2);
         } else {
           this.doc.insertText(this.cursor.position, result.commit);
         }
@@ -2394,6 +2909,7 @@ export class TextEditor {
           blockId: this.cursor.position.blockId,
           offset: this.cursor.position.offset + result.commit.length,
           cellAddress: this.cursor.position.cellAddress,
+          cellBlockIndex: this.cursor.position.cellBlockIndex,
         };
       }
       this.hangulComposingLength = 0;
@@ -2406,15 +2922,16 @@ export class TextEditor {
         this.hangulStartPos = { ...this.cursor.position };
       }
       const hca = this.hangulStartPos.cellAddress;
+      const hcbi = this.hangulStartPos.cellBlockIndex ?? 0;
       if (this.hangulComposingLength > 0) {
         if (hca) {
-          this.doc.deleteTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, this.hangulComposingLength);
+          this.doc.deleteTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, this.hangulComposingLength, hcbi);
         } else {
           this.doc.deleteText(this.hangulStartPos, this.hangulComposingLength);
         }
       }
       if (hca) {
-        this.doc.insertTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, result.composing);
+        this.doc.insertTextInCell(this.hangulStartPos.blockId, hca, this.hangulStartPos.offset, result.composing, hcbi);
       } else {
         this.doc.insertText(this.hangulStartPos, result.composing);
       }
@@ -2427,6 +2944,7 @@ export class TextEditor {
       blockId: this.hangulStartPos.blockId,
       offset: this.hangulStartPos.offset + this.hangulComposingLength,
       cellAddress: this.hangulStartPos.cellAddress,
+      cellBlockIndex: this.hangulStartPos.cellBlockIndex,
     };
     this.markDirty(this.hangulStartPos.blockId);
     this.cursor.moveTo(hangulPos, this.getWrapAffinity(hangulPos));
