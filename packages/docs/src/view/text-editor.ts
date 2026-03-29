@@ -1512,7 +1512,7 @@ export class TextEditor {
     if (!this.selection.hasSelection() || !this.selection.range) return;
     this.saveSnapshot();
     const range = this.selection.range;
-    this.doc.applyInlineStyle(range, {
+    const clearStyle: Partial<InlineStyle> = {
       bold: undefined,
       italic: undefined,
       underline: undefined,
@@ -1520,7 +1520,25 @@ export class TextEditor {
       superscript: undefined,
       subscript: undefined,
       href: undefined,
-    });
+    };
+
+    // Route to cell-aware method if selection is within a table cell
+    const anchor = range.anchor;
+    if (anchor.cellAddress) {
+      const normalized = this.selection.getNormalizedRange(this.getLayout());
+      if (normalized) {
+        this.doc.applyCellInlineStyle(
+          anchor.blockId, anchor.cellAddress,
+          normalized.start.offset, normalized.end.offset,
+          clearStyle, anchor.cellBlockIndex ?? 0,
+        );
+        this.markDirty(anchor.blockId);
+        this.requestRender();
+        return;
+      }
+    }
+
+    this.doc.applyInlineStyle(range, clearStyle);
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
     if (startIdx < 0 || endIdx < 0) {
@@ -1585,6 +1603,27 @@ export class TextEditor {
       (b) => b.id === this.cursor.position.blockId,
     );
     if (!block) return {};
+
+    // Read from cell-internal block if cursor is in a table cell
+    const ca = this.cursor.position.cellAddress;
+    if (ca && block.tableData) {
+      const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+      if (!cell) return {};
+      const cbi = this.cursor.position.cellBlockIndex ?? 0;
+      const cellBlock = cell.blocks[cbi];
+      if (!cellBlock) return {};
+      let pos = 0;
+      for (const inline of cellBlock.inlines) {
+        const inlineEnd = pos + inline.text.length;
+        if (this.cursor.position.offset <= inlineEnd) {
+          return { ...inline.style };
+        }
+        pos = inlineEnd;
+      }
+      const last = cellBlock.inlines[cellBlock.inlines.length - 1];
+      return last ? { ...last.style } : {};
+    }
+
     let pos = 0;
     for (const inline of block.inlines) {
       const inlineEnd = pos + inline.text.length;

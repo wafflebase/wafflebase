@@ -584,6 +584,27 @@ export function initialize(
         (b) => b.id === cursor.position.blockId,
       );
       if (!block) return {};
+
+      // Read from cell-internal block if cursor is in a table cell
+      const ca = cursor.position.cellAddress;
+      if (ca && block.tableData) {
+        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+        if (!cell) return {};
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell.blocks[cbi];
+        if (!cellBlock) return {};
+        let cPos = 0;
+        for (const inline of cellBlock.inlines) {
+          const inlineEnd = cPos + inline.text.length;
+          if (cursor.position.offset <= inlineEnd) {
+            return { ...inline.style };
+          }
+          cPos = inlineEnd;
+        }
+        const cLast = cellBlock.inlines[cellBlock.inlines.length - 1];
+        return cLast ? { ...cLast.style } : {};
+      }
+
       let pos = 0;
       for (const inline of block.inlines) {
         const inlineEnd = pos + inline.text.length;
@@ -743,9 +764,24 @@ export function initialize(
     },
     insertLink: (url: string) => {
       if (selection.hasSelection() && selection.range) {
-        // Apply href to the selected range
         docStore.snapshot();
         const range = selection.range;
+        const anchor = range.anchor;
+
+        if (anchor.cellAddress) {
+          const normalized = selection.getNormalizedRange(layout);
+          if (normalized) {
+            doc.applyCellInlineStyle(
+              anchor.blockId, anchor.cellAddress,
+              normalized.start.offset, normalized.end.offset,
+              { href: url }, anchor.cellBlockIndex ?? 0,
+            );
+            markDirty(anchor.blockId);
+            render();
+            return;
+          }
+        }
+
         doc.applyInlineStyle(range, { href: url });
         const startIdx = doc.getBlockIndex(range.anchor.blockId);
         const endIdx = doc.getBlockIndex(range.focus.blockId);
@@ -758,53 +794,74 @@ export function initialize(
         }
         render();
       } else {
-        // No selection: insert the URL text, then apply href to it
         docStore.snapshot();
         const pos = cursor.position;
-        doc.insertText(pos, url);
+        const ca = pos.cellAddress;
+        const cbi = pos.cellBlockIndex ?? 0;
+
+        if (ca) {
+          doc.insertTextInCell(pos.blockId, ca, pos.offset, url, cbi);
+          doc.applyCellInlineStyle(pos.blockId, ca, pos.offset, pos.offset + url.length, { href: url }, cbi);
+          cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length, cellAddress: ca, cellBlockIndex: cbi });
+        } else {
+          doc.insertText(pos, url);
+          const range = {
+            anchor: { blockId: pos.blockId, offset: pos.offset },
+            focus: { blockId: pos.blockId, offset: pos.offset + url.length },
+          };
+          doc.applyInlineStyle(range, { href: url });
+          cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
+        }
         markDirty(pos.blockId);
-        // Apply href to the just-inserted text
-        const range = {
-          anchor: { blockId: pos.blockId, offset: pos.offset },
-          focus: { blockId: pos.blockId, offset: pos.offset + url.length },
-        };
-        doc.applyInlineStyle(range, { href: url });
-        cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
         needsScrollIntoView = true;
         render();
       }
     },
     removeLink: () => {
-      // Find the full contiguous link range at the cursor and remove href.
-      // A single logical link may span multiple inlines (e.g. bold/italic splits).
       const block = doc.document.blocks.find(
         (b) => b.id === cursor.position.blockId,
       );
       if (!block) return;
+
+      // Resolve the inlines to search — cell block or top-level block
+      const ca = cursor.position.cellAddress;
+      let inlines = block.inlines;
+      if (ca && block.tableData) {
+        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock) inlines = cellBlock.inlines;
+      }
+
       let cursorInlineIdx = -1;
       const offsets: number[] = [0];
-      for (let i = 0; i < block.inlines.length; i++) {
-        const inlineEnd = offsets[i] + block.inlines[i].text.length;
+      for (let i = 0; i < inlines.length; i++) {
+        const inlineEnd = offsets[i] + inlines[i].text.length;
         offsets.push(inlineEnd);
-        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && block.inlines[i].style.href) {
+        if (cursor.position.offset >= offsets[i] && cursor.position.offset <= inlineEnd && inlines[i].style.href) {
           cursorInlineIdx = i;
         }
       }
       if (cursorInlineIdx < 0) return;
-      const href = block.inlines[cursorInlineIdx].style.href;
-      // Expand left
+      const href = inlines[cursorInlineIdx].style.href;
       let lo = cursorInlineIdx;
-      while (lo > 0 && block.inlines[lo - 1].style.href === href) lo--;
-      // Expand right
+      while (lo > 0 && inlines[lo - 1].style.href === href) lo--;
       let hi = cursorInlineIdx;
-      while (hi < block.inlines.length - 1 && block.inlines[hi + 1].style.href === href) hi++;
+      while (hi < inlines.length - 1 && inlines[hi + 1].style.href === href) hi++;
 
       docStore.snapshot();
-      const range = {
-        anchor: { blockId: block.id, offset: offsets[lo] },
-        focus: { blockId: block.id, offset: offsets[hi + 1] },
-      };
-      doc.applyInlineStyle(range, { href: undefined });
+      if (ca) {
+        doc.applyCellInlineStyle(
+          block.id, ca, offsets[lo], offsets[hi + 1],
+          { href: undefined }, cursor.position.cellBlockIndex ?? 0,
+        );
+      } else {
+        const range = {
+          anchor: { blockId: block.id, offset: offsets[lo] },
+          focus: { blockId: block.id, offset: offsets[hi + 1] },
+        };
+        doc.applyInlineStyle(range, { href: undefined });
+      }
       markDirty(block.id);
       render();
     },
@@ -813,13 +870,23 @@ export function initialize(
         (b) => b.id === cursor.position.blockId,
       );
       if (!block) return undefined;
+
+      // Read from cell block if cursor is in a table cell
+      const ca = cursor.position.cellAddress;
+      let inlines = block.inlines;
+      if (ca && block.tableData) {
+        const cell = block.tableData.rows[ca.rowIndex]?.cells[ca.colIndex];
+        const cbi = cursor.position.cellBlockIndex ?? 0;
+        const cellBlock = cell?.blocks[cbi];
+        if (cellBlock) inlines = cellBlock.inlines;
+      }
+
       let pos = 0;
-      for (const inline of block.inlines) {
+      for (const inline of inlines) {
         const inlineEnd = pos + inline.text.length;
         if (cursor.position.offset >= pos && cursor.position.offset < inlineEnd) {
           return inline.style.href;
         }
-        // At boundary: return href if this inline has one
         if (cursor.position.offset === inlineEnd && inline.style.href) {
           return inline.style.href;
         }
