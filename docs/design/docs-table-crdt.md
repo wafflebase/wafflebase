@@ -119,7 +119,7 @@ top-level document blocks.
 
 ### Data Model Changes
 
-#### `types.ts`
+#### Types
 
 ```typescript
 // Before
