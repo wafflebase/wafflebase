@@ -1213,7 +1213,10 @@ export class TextEditor {
           newPos = { blockId: pos.blockId, offset: pos.offset - 1, cellAddress: pos.cellAddress };
         } else {
           // At start of cell — move to end of previous cell
-          this.moveToPrevCell();
+          if (this.moveToPrevCell()) {
+            this.selection.setRange(null);
+            this.requestRender();
+          }
           return;
         }
       } else if (direction === 'right') {
@@ -1221,7 +1224,10 @@ export class TextEditor {
           newPos = { blockId: pos.blockId, offset: pos.offset + 1, cellAddress: pos.cellAddress };
         } else {
           // At end of cell — move to start of next cell
-          this.moveToNextCell();
+          if (this.moveToNextCell()) {
+            this.selection.setRange(null);
+            this.requestRender();
+          }
           return;
         }
       } else if (direction === 'up') {
