@@ -561,6 +561,10 @@ export class Doc {
       cells.push(createTableCell());
     }
     td.rows.splice(atIndex, 0, { cells });
+    if (td.rowHeights) {
+      td.rowHeights.splice(atIndex, 0, undefined as unknown as number);
+      this.store.updateTableAttrs(blockId, { cols: td.columnWidths, rowHeights: td.rowHeights });
+    }
     this.store.insertTableRow(blockId, atIndex, td.rows[atIndex]);
     this.refresh();
   }
@@ -586,6 +590,10 @@ export class Doc {
       }
     }
     td.rows.splice(rowIndex, 1);
+    if (td.rowHeights) {
+      td.rowHeights.splice(rowIndex, 1);
+      this.store.updateTableAttrs(blockId, { cols: td.columnWidths, rowHeights: td.rowHeights });
+    }
     this.store.deleteTableRow(blockId, rowIndex);
     this.refresh();
   }

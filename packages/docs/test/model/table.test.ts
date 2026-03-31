@@ -390,4 +390,34 @@ describe('Doc table operations', () => {
       expect(td.rowHeights![2]).toBe(80);
     });
   });
+
+  describe('rowHeights sync', () => {
+    it('should splice rowHeights on insertRow', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 3, 2);
+      doc.setRowHeight(tableId, 0, 40);
+      doc.setRowHeight(tableId, 2, 80);
+
+      doc.insertRow(tableId, 1); // insert between row 0 and old row 1
+      const td = doc.getBlock(tableId).tableData!;
+      expect(td.rowHeights).toHaveLength(4);
+      expect(td.rowHeights![0]).toBe(40);
+      expect(td.rowHeights![1]).toBeFalsy(); // new row has no user height (undefined or null after JSON round-trip)
+      expect(td.rowHeights![3]).toBe(80);
+    });
+
+    it('should splice rowHeights on deleteRow', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 3, 2);
+      doc.setRowHeight(tableId, 0, 40);
+      doc.setRowHeight(tableId, 1, 60);
+      doc.setRowHeight(tableId, 2, 80);
+
+      doc.deleteRow(tableId, 1);
+      const td = doc.getBlock(tableId).tableData!;
+      expect(td.rowHeights).toHaveLength(2);
+      expect(td.rowHeights![0]).toBe(40);
+      expect(td.rowHeights![1]).toBe(80);
+    });
+  });
 });
