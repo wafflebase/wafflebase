@@ -444,4 +444,157 @@ describe("Docs Undo/Redo Integration", { skip: !shouldRun }, () => {
     storeA.redo();
     assert.equal(getBlockText(storeA, 0), "step1");
   });
+
+  // -----------------------------------------------------------------------
+  // 7. Realistic typing pattern: multiple updateBlock in single batch
+  //    (simulates UI typing debounce where each keystroke replaces the
+  //     entire block within one open batch)
+  // -----------------------------------------------------------------------
+
+  it("single client: batched sequential block replacements (typing pattern) + undo", async () => {
+    ctx = await createTwoUserDocs("batched-typing", [makeBlock("")]);
+
+    const { storeA } = ctx;
+    const doc = storeA.getDocument();
+    const blockId = doc.blocks[0].id;
+
+    // Simulate typing "abcd" with debounce: one batch, 4 updateBlock calls
+    // This is what actually happens in the UI when the user types quickly.
+    storeA.beginBatch();
+
+    // Keystroke 'a': replace block with "a"
+    const d1 = storeA.getDocument();
+    storeA.updateBlock(blockId, {
+      ...d1.blocks[0],
+      inlines: [{ text: "a", style: {} }],
+    });
+
+    // Keystroke 'b': replace block with "ab"
+    const d2 = storeA.getDocument();
+    storeA.updateBlock(d2.blocks[0].id, {
+      ...d2.blocks[0],
+      inlines: [{ text: "ab", style: {} }],
+    });
+
+    // Keystroke 'c': replace block with "abc"
+    const d3 = storeA.getDocument();
+    storeA.updateBlock(d3.blocks[0].id, {
+      ...d3.blocks[0],
+      inlines: [{ text: "abc", style: {} }],
+    });
+
+    // Keystroke 'd': replace block with "abcd"
+    const d4 = storeA.getDocument();
+    storeA.updateBlock(d4.blocks[0].id, {
+      ...d4.blocks[0],
+      inlines: [{ text: "abcd", style: {} }],
+    });
+
+    storeA.endBatch();
+
+    assert.equal(getBlockText(storeA, 0), "abcd");
+
+    // Single undo should revert the entire typing batch
+    storeA.undo();
+    assert.equal(getBlockText(storeA, 0), "");
+  });
+
+  it("single client: two batched typing sessions + undo each", async () => {
+    ctx = await createTwoUserDocs("two-batched-typing", [makeBlock("")]);
+
+    const { storeA } = ctx;
+    const doc = storeA.getDocument();
+    const blockId = doc.blocks[0].id;
+
+    // Session 1: type "ab" (2 updateBlock in one batch)
+    storeA.beginBatch();
+    const s1d1 = storeA.getDocument();
+    storeA.updateBlock(blockId, {
+      ...s1d1.blocks[0],
+      inlines: [{ text: "a", style: {} }],
+    });
+    const s1d2 = storeA.getDocument();
+    storeA.updateBlock(s1d2.blocks[0].id, {
+      ...s1d2.blocks[0],
+      inlines: [{ text: "ab", style: {} }],
+    });
+    storeA.endBatch();
+
+    assert.equal(getBlockText(storeA, 0), "ab");
+
+    // Session 2: type "cd" → "abcd" (2 more updateBlock in another batch)
+    storeA.beginBatch();
+    const s2d1 = storeA.getDocument();
+    storeA.updateBlock(s2d1.blocks[0].id, {
+      ...s2d1.blocks[0],
+      inlines: [{ text: "abc", style: {} }],
+    });
+    const s2d2 = storeA.getDocument();
+    storeA.updateBlock(s2d2.blocks[0].id, {
+      ...s2d2.blocks[0],
+      inlines: [{ text: "abcd", style: {} }],
+    });
+    storeA.endBatch();
+
+    assert.equal(getBlockText(storeA, 0), "abcd");
+
+    // First undo: revert session 2 → "ab"
+    storeA.undo();
+    assert.equal(getBlockText(storeA, 0), "ab");
+
+    // Second undo: revert session 1 → ""
+    storeA.undo();
+    assert.equal(getBlockText(storeA, 0), "");
+  });
+
+  it("two clients: A types in batch, B types in batch, both undo", async () => {
+    ctx = await createTwoUserDocs("two-client-batched-typing", [
+      makeBlock(""),
+      makeBlock(""),
+    ]);
+
+    const { storeA, storeB, sync } = ctx;
+    await sync();
+
+    const docA = storeA.getDocument();
+    const docB = storeB.getDocument();
+
+    // A types "abcd" in block 0 (batched sequential replacements)
+    storeA.beginBatch();
+    for (const text of ["a", "ab", "abc", "abcd"]) {
+      const d = storeA.getDocument();
+      storeA.updateBlock(docA.blocks[0].id, {
+        ...d.blocks[0],
+        inlines: [{ text, style: {} }],
+      });
+    }
+    storeA.endBatch();
+
+    // B types "qwer" in block 1 (batched sequential replacements)
+    storeB.beginBatch();
+    for (const text of ["q", "qw", "qwe", "qwer"]) {
+      const d = storeB.getDocument();
+      storeB.updateBlock(docB.blocks[1].id, {
+        ...d.blocks[1],
+        inlines: [{ text, style: {} }],
+      });
+    }
+    storeB.endBatch();
+
+    await sync();
+    assert.deepEqual(getAllBlockTexts(storeA), ["abcd", "qwer"]);
+    assert.deepEqual(getAllBlockTexts(storeB), ["abcd", "qwer"]);
+
+    // A undoes
+    storeA.undo();
+    await sync();
+    assert.deepEqual(getAllBlockTexts(storeA), ["", "qwer"]);
+    assert.deepEqual(getAllBlockTexts(storeB), ["", "qwer"]);
+
+    // B undoes
+    storeB.undo();
+    await sync();
+    assert.deepEqual(getAllBlockTexts(storeA), ["", ""]);
+    assert.deepEqual(getAllBlockTexts(storeB), ["", ""]);
+  });
 });
