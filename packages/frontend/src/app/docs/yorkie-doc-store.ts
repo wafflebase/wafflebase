@@ -561,11 +561,14 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
-  updateTableAttrs(tableBlockId: string, attrs: { cols: number[] }): void {
+  updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: number[] }): void {
     const tIdx = this.findTableIndex(tableBlockId);
     const currentDoc = this.getDocument();
     const block = currentDoc.blocks[tIdx];
     block.tableData!.columnWidths = attrs.cols;
+    if (attrs.rowHeights !== undefined) {
+      block.tableData!.rowHeights = attrs.rowHeights;
+    }
     this.doc.update((root) => {
       root.content.editByPath([tIdx], [tIdx + 1], buildBlockNode(block));
     });

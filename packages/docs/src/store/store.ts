@@ -45,6 +45,6 @@ export interface DocStore {
   updateTableCell(
     tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
   ): void;
-  /** Update table-level attributes (column widths). */
-  updateTableAttrs(tableBlockId: string, attrs: { cols: number[] }): void;
+  /** Update table-level attributes (column widths, row heights). */
+  updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: number[] }): void;
 }

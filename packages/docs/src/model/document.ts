@@ -772,6 +772,26 @@ export class Doc {
     this.refresh();
   }
 
+  resizeColumn(blockId: string, colIndex: number, leftRatio: number, rightRatio: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    td.columnWidths[colIndex] = leftRatio;
+    td.columnWidths[colIndex + 1] = rightRatio;
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
+    this.refresh();
+  }
+
+  setRowHeight(blockId: string, rowIndex: number, height: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    if (!td.rowHeights) {
+      td.rowHeights = new Array(td.rows.length).fill(undefined);
+    }
+    td.rowHeights[rowIndex] = height;
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths, rowHeights: td.rowHeights });
+    this.refresh();
+  }
+
   // --- Private helpers ---
 
   /**

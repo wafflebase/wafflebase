@@ -351,4 +351,43 @@ describe('Doc table operations', () => {
       expect(getBlockTextLength(doc.getBlock(block1.id))).toBe(2);
     });
   });
+
+  describe('resizeColumn', () => {
+    it('should resize adjacent columns without affecting others', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 4); // 4 columns, each 0.25
+      const td = doc.getBlock(tableId).tableData!;
+      expect(td.columnWidths).toEqual([0.25, 0.25, 0.25, 0.25]);
+
+      doc.resizeColumn(tableId, 1, 0.35, 0.15); // widen col[1], shrink col[2]
+      const after = doc.getBlock(tableId).tableData!;
+      expect(after.columnWidths[0]).toBeCloseTo(0.25); // unchanged
+      expect(after.columnWidths[1]).toBeCloseTo(0.35);
+      expect(after.columnWidths[2]).toBeCloseTo(0.15);
+      expect(after.columnWidths[3]).toBeCloseTo(0.25); // unchanged
+    });
+  });
+
+  describe('setRowHeight', () => {
+    it('should set a row minimum height', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 3, 2);
+      doc.setRowHeight(tableId, 1, 60);
+      const td = doc.getBlock(tableId).tableData!;
+      expect(td.rowHeights).toBeDefined();
+      expect(td.rowHeights![1]).toBe(60);
+    });
+
+    it('should initialize rowHeights array with undefined entries', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 3, 2);
+      doc.setRowHeight(tableId, 2, 80);
+      const td = doc.getBlock(tableId).tableData!;
+      expect(td.rowHeights).toHaveLength(3);
+      // After JSON round-trip in MemDocStore, undefined slots become null
+      expect(td.rowHeights![0]).toBeFalsy();
+      expect(td.rowHeights![1]).toBeFalsy();
+      expect(td.rowHeights![2]).toBe(80);
+    });
+  });
 });
