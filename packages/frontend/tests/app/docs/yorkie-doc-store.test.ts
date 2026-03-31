@@ -177,11 +177,12 @@ describe('YorkieDocStore', () => {
   });
 
   describe('undo/redo', () => {
-    it('should undo after snapshot', () => {
+    it('should undo after batch', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
-      store.snapshot();
+      store.beginBatch();
       store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });
+      store.endBatch();
       assert.equal(store.getBlock(block.id)?.inlines[0].text, 'World');
       store.undo();
       assert.equal(store.getBlock(block.id)?.inlines[0].text, 'Hello');
@@ -190,28 +191,34 @@ describe('YorkieDocStore', () => {
     it('should redo after undo', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
-      store.snapshot();
+      store.beginBatch();
       store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });
+      store.endBatch();
       store.undo();
       store.redo();
       assert.equal(store.getBlock(block.id)?.inlines[0].text, 'World');
     });
 
-    it('mutation without snapshot is not undoable', () => {
+    it('mutation without batch is still undoable via Yorkie history', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
       store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });
-      assert.equal(store.canUndo(), false);
+      // Yorkie-native undo tracks all doc.update() calls, so even
+      // unbatched mutations are undoable.
+      assert.equal(store.canUndo(), true);
     });
 
-    it('should clear redo stack on new snapshot', () => {
+    it('should clear redo stack on new mutation', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
-      store.snapshot();
+      store.beginBatch();
       store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });
+      store.endBatch();
       store.undo();
       assert.equal(store.canRedo(), true);
-      store.snapshot();
+      store.beginBatch();
+      store.updateBlock(block.id, { ...block, inlines: [{ text: 'Again', style: {} }] });
+      store.endBatch();
       assert.equal(store.canRedo(), false);
     });
   });

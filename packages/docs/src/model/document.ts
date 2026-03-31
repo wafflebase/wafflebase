@@ -258,8 +258,10 @@ export class Doc {
       ...extra,
     };
 
+    this.store.beginBatch();
     this.store.updateBlock(blockId, block);
     this.store.insertBlock(blockIndex + 1, newBlock);
+    this.store.endBatch();
     this.refresh();
     return newBlock.id;
   }
@@ -291,8 +293,10 @@ export class Doc {
     block.inlines = [...block.inlines, ...nextBlock.inlines];
     this.normalizeInlines(block);
 
+    this.store.beginBatch();
     this.store.updateBlock(blockId, block);
     this.store.deleteBlock(nextBlockId);
+    this.store.endBatch();
     this.refresh();
   }
 
@@ -574,6 +578,7 @@ export class Doc {
     const td = block.tableData!;
     if (td.rows.length <= 1) return; // Prevent 0-row table
 
+    this.store.beginBatch();
     // Adjust rowSpan for cells above that span into the deleted row
     for (let r = 0; r < rowIndex; r++) {
       for (let c = 0; c < td.rows[r].cells.length; c++) {
@@ -587,6 +592,7 @@ export class Doc {
     }
     td.rows.splice(rowIndex, 1);
     this.store.deleteTableRow(blockId, rowIndex);
+    this.store.endBatch();
     this.refresh();
   }
 
@@ -606,8 +612,10 @@ export class Doc {
       row.cells.splice(atIndex, 0, createTableCell());
     }
     const newCells = td.rows.map((row) => row.cells[atIndex]);
+    this.store.beginBatch();
     this.store.insertTableColumn(blockId, atIndex, newCells);
     this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
+    this.store.endBatch();
     this.refresh();
   }
 
@@ -620,6 +628,7 @@ export class Doc {
     const td = block.tableData!;
     if (td.columnWidths.length <= 1) return; // Prevent 0-column table
 
+    this.store.beginBatch();
     // Adjust colSpan for cells left of the deleted column that span into it
     for (let ri = 0; ri < td.rows.length; ri++) {
       for (let c = 0; c < colIndex; c++) {
@@ -642,6 +651,7 @@ export class Doc {
     }
     this.store.deleteTableColumn(blockId, colIndex);
     this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
+    this.store.endBatch();
     this.refresh();
   }
 

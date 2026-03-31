@@ -20,6 +20,7 @@ export class MemDocStore implements DocStore {
   private doc: Document;
   private undoStack: Document[] = [];
   private redoStack: Document[] = [];
+  private batchDepth = 0;
 
   constructor(doc?: Document) {
     this.doc = doc ? cloneDocument(doc) : { blocks: [] };
@@ -93,9 +94,18 @@ export class MemDocStore implements DocStore {
     return this.redoStack.length > 0;
   }
 
-  snapshot(): void {
-    this.pushUndo();
-    this.redoStack = [];
+  beginBatch(): void {
+    this.batchDepth++;
+    if (this.batchDepth === 1) {
+      this.pushUndo();
+      this.redoStack = [];
+    }
+  }
+
+  endBatch(): void {
+    if (this.batchDepth > 0) {
+      this.batchDepth--;
+    }
   }
 
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {

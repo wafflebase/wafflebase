@@ -533,19 +533,21 @@ export function initialize(
 
   // Wire ruler callbacks
   ruler.onMarginChange((margins) => {
-    docStore.snapshot();
+    docStore.beginBatch();
     const setup = resolvePageSetup(doc.document.pageSetup);
     setup.margins = { ...margins };
     docStore.setPageSetup(setup);
     doc.refresh();
     layoutCache = undefined;
+    docStore.endBatch();
     render();
   });
 
   ruler.onIndentChange((style) => {
-    docStore.snapshot();
+    docStore.beginBatch();
     doc.applyBlockStyle(cursor.position.blockId, style);
     markDirty(cursor.position.blockId);
+    docStore.endBatch();
     render();
   });
 
@@ -636,7 +638,8 @@ export function initialize(
     () => scaleFactor,
     () => canvas.getBoundingClientRect().top - container.getBoundingClientRect().top,
     renderWithScroll,
-    () => docStore.snapshot(),
+    () => docStore.beginBatch(),
+    () => docStore.endBatch(),
     undoFn,
     redoFn,
     markDirty,
@@ -719,13 +722,14 @@ export function initialize(
     },
     applyStyle: (style: Partial<InlineStyle>) => {
       if (selection.hasSelection() && selection.range) {
-        docStore.snapshot();
+        docStore.beginBatch();
         const range = selection.range;
 
         // Cell-range mode: apply to all cells in range
         if (range.tableCellRange) {
           applyStyleToCellRange(range.tableCellRange, style);
           markDirty(range.tableCellRange.blockId);
+          docStore.endBatch();
           render();
           return;
         }
@@ -750,14 +754,16 @@ export function initialize(
             }
           }
         }
+        docStore.endBatch();
         render();
       }
     },
     applyBlockStyle: (style: Partial<BlockStyle>) => {
-      docStore.snapshot();
+      docStore.beginBatch();
       forEachBlockInSelection((block) => {
         doc.applyBlockStyle(block.id, style);
       });
+      docStore.endBatch();
       render();
     },
     undo: undoFn,
@@ -785,13 +791,14 @@ export function initialize(
       };
     },
     setBlockType(type: BlockType, opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number }) {
-      docStore.snapshot();
+      docStore.beginBatch();
       doc.setBlockType(cursor.position.blockId, type, opts);
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     toggleList(kind: 'ordered' | 'unordered') {
-      docStore.snapshot();
+      docStore.beginBatch();
       forEachBlockInSelection((block) => {
         if (block.type === 'list-item' && block.listKind === kind) {
           doc.setBlockType(block.id, 'paragraph');
@@ -803,12 +810,13 @@ export function initialize(
         }
       });
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     indent() {
       const MAX_LIST_LEVEL = 8;
       const INDENT_STEP = 36;
-      docStore.snapshot();
+      docStore.beginBatch();
       forEachBlockInSelection((block) => {
         if (block.type === 'list-item') {
           const currentLevel = block.listLevel ?? 0;
@@ -823,11 +831,12 @@ export function initialize(
           });
         }
       });
+      docStore.endBatch();
       render();
     },
     outdent() {
       const INDENT_STEP = 36;
-      docStore.snapshot();
+      docStore.beginBatch();
       forEachBlockInSelection((block) => {
         if (block.type === 'list-item') {
           const currentLevel = block.listLevel ?? 0;
@@ -844,11 +853,12 @@ export function initialize(
           });
         }
       });
+      docStore.endBatch();
       render();
     },
     insertLink: (url: string) => {
       if (selection.hasSelection() && selection.range) {
-        docStore.snapshot();
+        docStore.beginBatch();
         const range = selection.range;
 
         doc.applyInlineStyle(range, { href: url });
@@ -861,9 +871,10 @@ export function initialize(
             markDirty(doc.document.blocks[i].id);
           }
         }
+        docStore.endBatch();
         render();
       } else {
-        docStore.snapshot();
+        docStore.beginBatch();
         const pos = cursor.position;
 
         doc.insertText(pos, url);
@@ -875,6 +886,7 @@ export function initialize(
         cursor.moveTo({ blockId: pos.blockId, offset: pos.offset + url.length });
         markDirty(pos.blockId);
         needsScrollIntoView = true;
+        docStore.endBatch();
         render();
       }
     },
@@ -901,7 +913,7 @@ export function initialize(
       let hi = cursorInlineIdx;
       while (hi < inlines.length - 1 && inlines[hi + 1].style.href === href) hi++;
 
-      docStore.snapshot();
+      docStore.beginBatch();
       const range = {
         anchor: { blockId: block.id, offset: offsets[lo] },
         focus: { blockId: block.id, offset: offsets[hi + 1] },
@@ -910,6 +922,7 @@ export function initialize(
       // Mark the containing block (or table block for cell blocks) as dirty
       const cellInfo = layout.blockParentMap.get(block.id);
       markDirty(cellInfo ? cellInfo.tableBlockId : block.id);
+      docStore.endBatch();
       render();
     },
     getLinkAtCursor: (): string | undefined => {
@@ -1012,13 +1025,14 @@ export function initialize(
       render();
     },
     insertTable: (rows: number, cols: number) => {
-      docStore.snapshot();
+      docStore.beginBatch();
       const blockIndex = doc.getBlockIndex(cursor.position.blockId);
       const tableId = doc.insertTable(blockIndex + 1, rows, cols);
       const tableBlock = doc.getBlock(tableId);
       const firstCellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
       cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 });
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     deleteTable: () => {
@@ -1026,7 +1040,7 @@ export function initialize(
       if (!cellInfo) return;
       const blockId = cellInfo.tableBlockId;
       const blockIndex = doc.getBlockIndex(blockId);
-      docStore.snapshot();
+      docStore.beginBatch();
       doc.deleteBlock(blockId);
       // Move cursor to nearest block
       const blocks = doc.document.blocks;
@@ -1035,6 +1049,7 @@ export function initialize(
         cursor.moveTo({ blockId: blocks[newIndex].id, offset: 0 });
       }
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     isInTable: () => layout.blockParentMap.has(cursor.position.blockId),
@@ -1046,16 +1061,17 @@ export function initialize(
     insertTableRow: (above: boolean) => {
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      docStore.snapshot();
+      docStore.beginBatch();
       const idx = above ? cellInfo.rowIndex : cellInfo.rowIndex + 1;
       doc.insertRow(cellInfo.tableBlockId, idx);
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     deleteTableRow: () => {
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      docStore.snapshot();
+      docStore.beginBatch();
       const tableBlockId = cellInfo.tableBlockId;
       doc.deleteRow(tableBlockId, cellInfo.rowIndex);
       // Re-home cursor if the deleted row was the last one
@@ -1066,21 +1082,23 @@ export function initialize(
         cursor.moveTo({ blockId: newCellBlock.id, offset: 0 });
       }
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     insertTableColumn: (left: boolean) => {
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      docStore.snapshot();
+      docStore.beginBatch();
       const idx = left ? cellInfo.colIndex : cellInfo.colIndex + 1;
       doc.insertColumn(cellInfo.tableBlockId, idx);
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     deleteTableColumn: () => {
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      docStore.snapshot();
+      docStore.beginBatch();
       const tableBlockId = cellInfo.tableBlockId;
       doc.deleteColumn(tableBlockId, cellInfo.colIndex);
       // Re-home cursor if the deleted column was the last one
@@ -1091,12 +1109,13 @@ export function initialize(
         cursor.moveTo({ blockId: newCellBlock.id, offset: 0 });
       }
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     mergeTableCells: (range: CellRange) => {
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      docStore.snapshot();
+      docStore.beginBatch();
       const tableBlockId = cellInfo.tableBlockId;
       doc.mergeCells(tableBlockId, range);
       // Move cursor to top-left cell of merged range
@@ -1104,18 +1123,20 @@ export function initialize(
       const topLeftBlock = td.rows[range.start.rowIndex].cells[range.start.colIndex].blocks[0];
       cursor.moveTo({ blockId: topLeftBlock.id, offset: 0 });
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     splitTableCell: () => {
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      docStore.snapshot();
+      docStore.beginBatch();
       doc.splitCell(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex });
       invalidateLayout();
+      docStore.endBatch();
       render();
     },
     applyTableCellStyle: (style: Partial<CellStyle>) => {
-      docStore.snapshot();
+      docStore.beginBatch();
       // Cell-range selection: apply to all cells in range
       if (selection.range?.tableCellRange) {
         const cr = selection.range.tableCellRange;
@@ -1129,6 +1150,7 @@ export function initialize(
           }
         }
         markDirty(cr.blockId);
+        docStore.endBatch();
         render();
         return;
       }
@@ -1137,6 +1159,7 @@ export function initialize(
       if (!cellInfo) return;
       doc.applyCellStyle(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex }, style);
       markDirty(cellInfo.tableBlockId);
+      docStore.endBatch();
       render();
     },
     focus: () => textEditor?.focus(),

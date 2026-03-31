@@ -106,12 +106,13 @@ describe('MemDocStore', () => {
       expect(store.canUndo()).toBe(false);
     });
 
-    it('snapshot + replaceDocument enables correct undo', () => {
+    it('batch + replaceDocument enables correct undo', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
 
-      store.snapshot();
+      store.beginBatch();
       store.replaceDocument({ blocks: [makeBlock('Edited')] });
+      store.endBatch();
       expect(store.getDocument().blocks[0].inlines[0].text).toBe('Edited');
 
       store.undo();
@@ -127,9 +128,10 @@ describe('MemDocStore', () => {
 
     it('setPageSetup updates and supports undo', () => {
       const store = new MemDocStore();
-      store.snapshot();
+      store.beginBatch();
       const a4Setup = { ...DEFAULT_PAGE_SETUP, paperSize: PAPER_SIZES.A4 };
       store.setPageSetup(a4Setup);
+      store.endBatch();
       expect(store.getPageSetup().paperSize).toEqual(PAPER_SIZES.A4);
 
       store.undo();
@@ -138,11 +140,12 @@ describe('MemDocStore', () => {
   });
 
   describe('undo/redo', () => {
-    it('should undo a setDocument when preceded by snapshot', () => {
+    it('should undo a setDocument when preceded by beginBatch', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
-      store.snapshot();
+      store.beginBatch();
       store.setDocument({ blocks: [] });
+      store.endBatch();
       expect(store.getDocument().blocks).toHaveLength(0);
 
       store.undo();
@@ -153,24 +156,27 @@ describe('MemDocStore', () => {
     it('should redo after undo', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
-      store.snapshot();
+      store.beginBatch();
       store.setDocument({ blocks: [] });
+      store.endBatch();
       store.undo();
       store.redo();
       expect(store.getDocument().blocks).toHaveLength(0);
     });
 
-    it('should clear redo stack on new snapshot', () => {
+    it('should clear redo stack on new batch', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
-      store.snapshot();
+      store.beginBatch();
       store.setDocument({ blocks: [] });
+      store.endBatch();
       store.undo();
       expect(store.canRedo()).toBe(true);
 
-      store.snapshot();
+      store.beginBatch();
       const newBlock = makeBlock('New');
       store.insertBlock(0, newBlock);
+      store.endBatch();
       expect(store.canRedo()).toBe(false);
     });
 
@@ -179,8 +185,9 @@ describe('MemDocStore', () => {
       expect(store.canUndo()).toBe(false);
       expect(store.canRedo()).toBe(false);
 
-      store.snapshot();
+      store.beginBatch();
       store.setDocument({ blocks: [makeBlock('A')] });
+      store.endBatch();
       expect(store.canUndo()).toBe(true);
       expect(store.canRedo()).toBe(false);
 
@@ -189,39 +196,42 @@ describe('MemDocStore', () => {
       expect(store.canRedo()).toBe(true);
     });
 
-    it('should undo insertBlock when preceded by snapshot', () => {
+    it('should undo insertBlock when preceded by beginBatch', () => {
       const store = new MemDocStore();
-      store.snapshot();
+      store.beginBatch();
       store.insertBlock(0, makeBlock('Hello'));
+      store.endBatch();
       expect(store.getDocument().blocks).toHaveLength(1);
 
       store.undo();
       expect(store.getDocument().blocks).toHaveLength(0);
     });
 
-    it('should undo deleteBlock when preceded by snapshot', () => {
+    it('should undo deleteBlock when preceded by beginBatch', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
-      store.snapshot();
+      store.beginBatch();
       store.deleteBlock(block.id);
+      store.endBatch();
       expect(store.getDocument().blocks).toHaveLength(0);
 
       store.undo();
       expect(store.getDocument().blocks).toHaveLength(1);
     });
 
-    it('should undo updateBlock when preceded by snapshot', () => {
+    it('should undo updateBlock when preceded by beginBatch', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
-      store.snapshot();
+      store.beginBatch();
       store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });
+      store.endBatch();
       expect(store.getBlock(block.id)?.inlines[0].text).toBe('World');
 
       store.undo();
       expect(store.getBlock(block.id)?.inlines[0].text).toBe('Hello');
     });
 
-    it('mutation without snapshot is not undoable', () => {
+    it('mutation without beginBatch is not undoable', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
       store.updateBlock(block.id, { ...block, inlines: [{ text: 'World', style: {} }] });

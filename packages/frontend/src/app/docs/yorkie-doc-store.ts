@@ -333,9 +333,10 @@ export class YorkieDocStore implements DocStore {
   private cachedDoc: Document | null = null;
   private dirty = true;
 
-  // Local snapshot-based undo/redo (Phase 1)
-  private undoStack: Document[] = [];
-  private redoStack: Document[] = [];
+  // Batch buffering for atomic undo units
+  private batchDepth = 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private batchOps: Array<(root: any) => void> | null = null;
 
   /**
    * Optional callback invoked when a remote change is detected.
@@ -424,10 +425,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error(`Block not found: ${id}`);
     }
 
-    this.doc.update((root) => {
+    const node = buildBlockNode(block);
+    this.execTreeOp((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([index], [index + 1], buildBlockNode(block));
+      tree.editByPath([index], [index + 1], node);
     });
     // Update cache in-place instead of clearing
     currentDoc.blocks[index] = block;
@@ -436,10 +438,11 @@ export class YorkieDocStore implements DocStore {
   }
 
   insertBlock(index: number, block: Block): void {
-    this.doc.update((root) => {
+    const node = buildBlockNode(block);
+    this.execTreeOp((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([index], [index], buildBlockNode(block));
+      tree.editByPath([index], [index], node);
     });
     // Update cache in-place
     const currentDoc = this.getDocument();
@@ -458,7 +461,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   deleteBlockByIndex(index: number): void {
-    this.doc.update((root) => {
+    this.execTreeOp((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       const treeRoot = tree.getRootTreeNode();
@@ -489,7 +492,7 @@ export class YorkieDocStore implements DocStore {
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
     const tIdx = this.findTableIndex(tableBlockId);
     const rowNode = buildRowNode(row);
-    this.doc.update((root) => {
+    this.execTreeOp((root) => {
       root.content.editByPath([tIdx, atIndex], [tIdx, atIndex], rowNode);
     });
     const currentDoc = this.getDocument();
@@ -500,7 +503,7 @@ export class YorkieDocStore implements DocStore {
 
   deleteTableRow(tableBlockId: string, rowIndex: number): void {
     const tIdx = this.findTableIndex(tableBlockId);
-    this.doc.update((root) => {
+    this.execTreeOp((root) => {
       root.content.editByPath([tIdx, rowIndex], [tIdx, rowIndex + 1]);
     });
     const currentDoc = this.getDocument();
@@ -511,10 +514,11 @@ export class YorkieDocStore implements DocStore {
 
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
     const tIdx = this.findTableIndex(tableBlockId);
-    this.doc.update((root) => {
+    const cellNodes = cells.map(buildCellNode);
+    this.execTreeOp((root) => {
       const tree = root.content;
-      for (let r = 0; r < cells.length; r++) {
-        tree.editByPath([tIdx, r, atIndex], [tIdx, r, atIndex], buildCellNode(cells[r]));
+      for (let r = 0; r < cellNodes.length; r++) {
+        tree.editByPath([tIdx, r, atIndex], [tIdx, r, atIndex], cellNodes[r]);
       }
     });
     const currentDoc = this.getDocument();
@@ -530,7 +534,7 @@ export class YorkieDocStore implements DocStore {
     const tIdx = this.findTableIndex(tableBlockId);
     const currentDoc = this.getDocument();
     const rowCount = currentDoc.blocks[tIdx].tableData!.rows.length;
-    this.doc.update((root) => {
+    this.execTreeOp((root) => {
       const tree = root.content;
       for (let r = 0; r < rowCount; r++) {
         tree.editByPath([tIdx, r, colIndex], [tIdx, r, colIndex + 1]);
@@ -548,7 +552,7 @@ export class YorkieDocStore implements DocStore {
   ): void {
     const tIdx = this.findTableIndex(tableBlockId);
     const cellNode = buildCellNode(cell);
-    this.doc.update((root) => {
+    this.execTreeOp((root) => {
       root.content.editByPath(
         [tIdx, rowIndex, colIndex],
         [tIdx, rowIndex, colIndex + 1],
@@ -566,15 +570,16 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const block = currentDoc.blocks[tIdx];
     block.tableData!.columnWidths = attrs.cols;
-    this.doc.update((root) => {
-      root.content.editByPath([tIdx], [tIdx + 1], buildBlockNode(block));
+    const node = buildBlockNode(block);
+    this.execTreeOp((root) => {
+      root.content.editByPath([tIdx], [tIdx + 1], node);
     });
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   setPageSetup(setup: PageSetup): void {
-    this.doc.update((root) => {
+    this.execTreeOp((root) => {
       root.pageSetup = {
         paperSize: { ...setup.paperSize },
         orientation: setup.orientation,
@@ -586,50 +591,73 @@ export class YorkieDocStore implements DocStore {
   }
 
   // -----------------------------------------------------------------------
-  // Undo / Redo (local snapshot stack — Phase 1)
+  // Batch + Undo / Redo (Yorkie-native via doc.history)
   // -----------------------------------------------------------------------
 
-  snapshot(): void {
-    const current = this.getDocument();
-    this.undoStack.push(cloneDocument(current));
-    this.redoStack = [];
+  beginBatch(): void {
+    this.batchDepth++;
+    if (this.batchDepth === 1) {
+      this.batchOps = [];
+    }
+  }
+
+  endBatch(): void {
+    if (this.batchDepth <= 0) return;
+    this.batchDepth--;
+    if (this.batchDepth === 0) {
+      const ops = this.batchOps;
+      this.batchOps = null;
+      if (!ops || ops.length === 0) return;
+      this.doc.update((root) => {
+        for (const op of ops) {
+          op(root);
+        }
+      });
+    }
   }
 
   undo(): void {
     if (!this.canUndo()) return;
-    const current = this.getDocument();
-    this.redoStack.push(cloneDocument(current));
-    const previous = this.undoStack.pop()!;
-    this.writeFullDocument(previous);
+    this.doc.history.undo();
     this.dirty = true;
     this.cachedDoc = null;
   }
 
   redo(): void {
     if (!this.canRedo()) return;
-    const current = this.getDocument();
-    this.undoStack.push(cloneDocument(current));
-    const next = this.redoStack.pop()!;
-    this.writeFullDocument(next);
+    this.doc.history.redo();
     this.dirty = true;
     this.cachedDoc = null;
   }
 
   canUndo(): boolean {
-    return this.undoStack.length > 0;
+    return this.doc.history.canUndo();
   }
 
   canRedo(): boolean {
-    return this.redoStack.length > 0;
+    return this.doc.history.canRedo();
   }
 
   // -----------------------------------------------------------------------
-  // Internal: write a full document to the Yorkie tree
+  // Internal helpers
   // -----------------------------------------------------------------------
 
   /**
+   * Execute a tree operation. If batching, buffer the op; otherwise run
+   * it immediately inside doc.update().
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private execTreeOp(op: (root: any) => void): void {
+    if (this.batchOps) {
+      this.batchOps.push(op);
+    } else {
+      this.doc.update((root) => op(root));
+    }
+  }
+
+  /**
    * Replace the entire tree content with the given document.
-   * This deletes all existing blocks and inserts new ones.
+   * Used only for initial document setup (setDocument), NOT for undo.
    */
   private writeFullDocument(document: Document): void {
     this.doc.update((root) => {

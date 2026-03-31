@@ -25,8 +25,14 @@ export interface DocStore {
   deleteBlockByIndex(index: number): void;
   getPageSetup(): PageSetup;
   setPageSetup(setup: PageSetup): void;
-  /** Save current state to the undo stack before a group of mutations. */
-  snapshot(): void;
+  /**
+   * Begin a batch of mutations. All store calls between beginBatch() and
+   * endBatch() form a single undo unit. Calls are ref-counted so compound
+   * operations (e.g. splitBlock) can nest safely.
+   */
+  beginBatch(): void;
+  /** End a batch. The outermost endBatch() commits the batch as one undo unit. */
+  endBatch(): void;
   undo(): void;
   redo(): void;
   canUndo(): boolean;

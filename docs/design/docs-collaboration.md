@@ -21,12 +21,12 @@ Yorkie's `Tree` CRDT. The docs editor currently uses an in-memory store
 - Collaborative inline styling (bold, italic, underline, fontSize, etc.)
 - Collaborative block styling (alignment, lineHeight, margins)
 - Extensible tree structure for future block types (tables, lists, images)
-- Local snapshot-based undo/redo as a first step
+- Local snapshot-based undo/redo as a first step (Phase 1)
+- Yorkie-native undo/redo via `doc.history.undo()/redo()` (Phase 2)
 
 ### Non-Goals
 
-- Presence / remote cursor display (follow-up work)
-- Yorkie-based undo/redo (future migration from local snapshots)
+- Presence / remote cursor display (follow-up work — done)
 - Offline editing with sync (out of scope)
 - Conflict resolution UI (Yorkie CRDT handles conflicts automatically)
 
@@ -209,27 +209,54 @@ The `onRemoteChange` callback triggers editor re-render. Since
 Stored as a JSON field (`pageSetup`) on the Yorkie document root, separate
 from the `content` tree. See the root schema above.
 
-#### Undo/Redo (Phase 1 — Local Snapshots)
+#### Undo/Redo
 
-The undo contract: **only explicit `snapshot()` calls create undo entries.**
-Individual `updateBlock()`/`insertBlock()`/`deleteBlock()` do NOT push to the
-undo stack. This applies to both `MemDocStore` and `YorkieDocStore`.
+##### Phase 1 — Local Snapshots (deprecated)
 
-Note: The current `MemDocStore` pushes undo on every mutation method. This
-will be fixed to match the `snapshot()`-only contract so that both stores
-behave identically.
+- **`snapshot()`** — Deep-clones the current document state and pushes to
+  a local undo stack. `undo()` replaces the entire tree with the snapshot
+  via `writeFullDocument()`.
+- **Limitation**: `writeFullDocument()` deletes all tree nodes and reinserts
+  from the snapshot. During concurrent editing, this causes duplicate block
+  IDs when Yorkie's CRDT merge preserves both old and new tree nodes
+  (see issue #97).
 
-- **`snapshot()`** — Calls `getDocument()` to deep-clone the current state
-  and pushes it onto a local undo stack.
-- **`undo()`** — Pops from the undo stack, pushes current state to redo
-  stack, and replaces the entire tree content with the snapshot.
-- **`redo()`** — Reverse of undo.
+##### Phase 2 — Yorkie-Native Undo/Redo (current)
 
-**Limitation**: In Phase 1, undo restores a full document snapshot. During
-concurrent editing, this can overwrite other users' changes. This is
-acceptable as a known limitation; undo is scoped to single-user scenarios
-until Phase 2 migrates to `doc.history.undo()/redo()` for operation-level
-undo that respects concurrent edits.
+Migrated from snapshot-based undo to Yorkie's operation-level undo via
+`doc.history.undo()/redo()`. This eliminates the `writeFullDocument()`
+nuke-and-replace pattern that caused concurrent editing bugs.
+
+**Batching**: `snapshot()` is replaced by `beginBatch()/endBatch()`. All
+store mutations between `beginBatch()` and `endBatch()` are buffered and
+flushed as a single `doc.update()` call, producing one undo unit. This
+ensures compound user actions (Enter = split block, Backspace = merge blocks,
+paste = insert multiple blocks) undo atomically.
+
+Batching is reference-counted to support nesting: `Doc.splitBlock()` wraps
+its two store calls in `beginBatch/endBatch`, and the caller in `TextEditor`
+can wrap a larger sequence (e.g., delete selection + split) in an outer batch.
+Only the outermost `endBatch()` flushes to `doc.update()`.
+
+```
+TextEditor: beginBatch()          ← outer batch (depth=1)
+  Doc.splitBlock():
+    store.beginBatch()            ← nested (depth=2, no-op)
+    store.updateBlock(...)        ← buffered
+    store.insertBlock(...)        ← buffered
+    store.endBatch()              ← depth=1, not flushed yet
+TextEditor: endBatch()            ← depth=0 → single doc.update()
+```
+
+**YorkieDocStore undo/redo**:
+- `undo()`: calls `this.doc.history.undo()`
+- `redo()`: calls `this.doc.history.redo()`
+- `canUndo()`: calls `this.doc.history.canUndo()`
+- `canRedo()`: calls `this.doc.history.canRedo()`
+
+**MemDocStore**: continues to use snapshot-based undo/redo for tests.
+`beginBatch()` pushes a snapshot at depth=1; `endBatch()` is a no-op
+since mutations are applied directly.
 
 ### Data Flow
 
@@ -298,6 +325,6 @@ is determined by Yorkie's merge semantics.
 |------|------------|
 | `getDocument()` tree traversal cost on large docs | Dirty-flag cache; only re-traverse on actual changes. Incremental layout (dirty block tracking) already minimizes downstream cost. |
 | `getBlock(id)` O(n) scan per call on hot path | `Map<string, TreeNode>` index rebuilt on dirty; O(1) lookup. |
-| Local snapshot undo overwrites concurrent users' changes | Known Phase 1 limitation; undo restricted to single-user until Phase 2 migrates to Yorkie operation-level history. |
+| Local snapshot undo overwrites concurrent users' changes | Resolved in Phase 2: Yorkie-native undo via `doc.history.undo()` eliminates `writeFullDocument()`. |
 | `yorkie.Tree` API constraints (edit by path vs index) | Prototype key operations early to validate API fit. |
 | Doc refactoring breaks existing tests | MemDocStore preserves identical behavior; tests update constructor only. |
