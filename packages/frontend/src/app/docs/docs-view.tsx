@@ -58,6 +58,10 @@ function ensureTree(doc: ReturnType<typeof useDocument<YorkieDocsRoot>>["doc"]):
     });
   });
 
+  // Clear undo history so the initial tree creation is not undoable.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (doc as any).clearHistory?.();
+
   return true;
 }
 

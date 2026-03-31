@@ -408,6 +408,12 @@ export class YorkieDocStore implements DocStore {
     // (e.g., stale documents whose content field was a plain object).
     this.cachedDoc = cloneDocument(doc);
     this.dirty = false;
+
+    // Clear undo history so the document initialization (writeFullDocument)
+    // is not undoable. Without this, the first undo after typing would
+    // attempt to reverse the initial tree setup, causing CRDT position errors.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (this.doc as any).clearHistory?.();
   }
 
   replaceDocument(doc: Document): void {
