@@ -336,7 +336,7 @@ export class YorkieDocStore implements DocStore {
   // Batch buffering for atomic undo units
   private batchDepth = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private batchOps: Array<(root: any) => void> | null = null;
+  private batchOps: Array<{ key: string; op: (root: any) => void }> | null = null;
 
   /**
    * Optional callback invoked when a remote change is detected.
@@ -430,7 +430,7 @@ export class YorkieDocStore implements DocStore {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath([index], [index + 1], node);
-    });
+    }, `update:${id}`);
     // Update cache in-place instead of clearing
     currentDoc.blocks[index] = block;
     this.cachedDoc = currentDoc;
@@ -609,7 +609,7 @@ export class YorkieDocStore implements DocStore {
       this.batchOps = null;
       if (!ops || ops.length === 0) return;
       this.doc.update((root) => {
-        for (const op of ops) {
+        for (const { op } of ops) {
           op(root);
         }
       });
@@ -645,11 +645,28 @@ export class YorkieDocStore implements DocStore {
   /**
    * Execute a tree operation. If batching, buffer the op; otherwise run
    * it immediately inside doc.update().
+   *
+   * @param op - The tree operation lambda
+   * @param key - Optional dedup key. When provided, if the last buffered
+   *   op has the same key, it is replaced instead of appended. This
+   *   prevents multiple editByPath calls for the same block within a
+   *   single batch (which causes reverseOp CRDT position conflicts).
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private execTreeOp(op: (root: any) => void): void {
+  private execTreeOp(op: (root: any) => void, key?: string): void {
     if (this.batchOps) {
-      this.batchOps.push(op);
+      // Dedup: if the last op targets the same block, replace it.
+      // Consecutive updateBlock calls on the same block only need the
+      // final state — intermediate replacements are redundant and cause
+      // reverseOp conflicts during undo.
+      if (key && this.batchOps.length > 0) {
+        const last = this.batchOps[this.batchOps.length - 1];
+        if (last.key === key) {
+          last.op = op;
+          return;
+        }
+      }
+      this.batchOps.push({ key: key ?? '', op });
     } else {
       this.doc.update((root) => op(root));
     }
