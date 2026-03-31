@@ -765,9 +765,14 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitCall(ctx: CallContext): EvalNode {
-    const callee = this.visit(ctx.expr());
+    const calleeExpr = ctx.expr();
+    const callee = this.visit(calleeExpr);
 
-    if (callee.t === 'bool' && !ctx.args()) {
+    if (
+      callee.t === 'bool' &&
+      !ctx.args() &&
+      calleeExpr instanceof BooleanContext
+    ) {
       return callee;
     }
 

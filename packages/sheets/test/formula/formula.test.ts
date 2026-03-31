@@ -873,6 +873,15 @@ describe('Formula', () => {
     expect(evaluate('=AND(TRUE(),TRUE())')).toBe('TRUE');
     expect(evaluate('=OR(FALSE(),FALSE())')).toBe('FALSE');
     expect(evaluate('=NOT(TRUE())')).toBe('FALSE');
+
+    // Computed booleans must not be callable — only TRUE()/FALSE() literals
+    expect(evaluate('=(1=1)()')).toBe('#ERROR!');
+    expect(evaluate('=(TRUE)()')).toBe('#ERROR!');
+    expect(evaluate('=(1>0)()')).toBe('#ERROR!');
+
+    // TRUE/FALSE with args should error
+    expect(evaluate('=TRUE(1)')).toBe('#ERROR!');
+    expect(evaluate('=FALSE(1)')).toBe('#ERROR!');
   });
 
   it('should correctly evaluate SIN function', () => {
