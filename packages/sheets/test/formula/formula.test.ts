@@ -865,6 +865,16 @@ describe('Formula', () => {
     expect(evaluate('=LOG(10,1)')).toBe('#VALUE!');
   });
 
+  it('should correctly evaluate TRUE and FALSE function', () => {
+    expect(evaluate('=TRUE()')).toBe('true');
+    expect(evaluate('=FALSE()')).toBe('false');
+    expect(evaluate('=IF(TRUE(),"yes","no")')).toBe('yes');
+    expect(evaluate('=IF(FALSE(),"yes","no")')).toBe('no');
+    expect(evaluate('=AND(TRUE(),TRUE())')).toBe('true');
+    expect(evaluate('=OR(FALSE(),FALSE())')).toBe('false');
+    expect(evaluate('=NOT(TRUE())')).toBe('false');
+  });
+
   it('should correctly evaluate SIN function', () => {
     expect(evaluate('=SIN(0)')).toBe('0');
     expect(evaluate('=SIN(PI()/2)')).toBe('1');

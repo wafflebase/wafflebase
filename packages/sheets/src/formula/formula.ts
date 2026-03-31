@@ -761,6 +761,11 @@ class Evaluator implements FormulaVisitor<EvalNode> {
 
   visitCall(ctx: CallContext): EvalNode {
     const callee = this.visit(ctx.expr());
+
+    if (callee.t === 'bool' && !ctx.args()) {
+      return callee;
+    }
+
     if (callee.t !== 'lambda') {
       return { t: 'err', v: '#ERROR!' };
     }
