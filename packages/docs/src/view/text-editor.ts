@@ -75,6 +75,16 @@ export class TextEditor {
   /** Track shift key state for paste handler (ClipboardEvent lacks shiftKey). */
   private shiftHeld = false;
 
+  /**
+   * Typing debounce: consecutive keystrokes share a single batch so that
+   * Yorkie records them as one undo unit. The batch stays open while the
+   * user keeps typing and is flushed after TYPING_BATCH_MS of inactivity
+   * or when a non-typing action occurs.
+   */
+  private static readonly TYPING_BATCH_MS = 300;
+  private typingBatchOpen = false;
+  private typingBatchTimer: ReturnType<typeof setTimeout> | null = null;
+
   private container: HTMLElement;
   private doc: Doc;
   private cursor: Cursor;
@@ -281,7 +291,33 @@ export class TextEditor {
     // Non-jamo input: flush any pending Hangul composition first
     this.flushHangul();
 
-    this.beginBatch();
+    // Space triggers auto-convert / auto-link which are distinct actions,
+    // so flush the typing batch and start a fresh one.
+    if (data === ' ') {
+      this.flushTypingBatch();
+      this.beginBatch();
+      this.deleteSelection();
+      const blockId = this.cursor.position.blockId;
+      this.doc.insertText(this.cursor.position, data);
+      const newPos = {
+        blockId: this.cursor.position.blockId,
+        offset: this.cursor.position.offset + data.length,
+      };
+      this.markDirty(blockId);
+      if (this.tryAutoConvert(blockId)) {
+        this.endBatch();
+        this.requestRender();
+        return;
+      }
+      this.tryAutoLinkBeforeCursor(blockId, newPos.offset - 1);
+      this.endBatch();
+      this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+      this.requestRender();
+      return;
+    }
+
+    // Regular typing: group consecutive keystrokes into one undo unit.
+    this.ensureTypingBatch();
     this.deleteSelection();
     const blockId = this.cursor.position.blockId;
 
@@ -291,18 +327,8 @@ export class TextEditor {
       offset: this.cursor.position.offset + data.length,
     };
     this.markDirty(blockId);
-    // Markdown-style auto-conversion: check after each space
-    if (data === ' ' && this.tryAutoConvert(blockId)) {
-      this.endBatch();
-      this.requestRender();
-      return;
-    }
-    // URL auto-detection: after typing a space, check if the preceding token
-    // is a URL and convert it to a hyperlink.
-    if (data === ' ') {
-      this.tryAutoLinkBeforeCursor(blockId, newPos.offset - 1);
-    }
-    this.endBatch();
+    // Don't endBatch here — the typing batch stays open until the
+    // debounce timer fires or a non-typing action flushes it.
     this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
     this.requestRender();
   };
@@ -327,6 +353,10 @@ export class TextEditor {
         this.flushHangul();
       }
     }
+
+    // Non-typing keys close the typing batch so subsequent undo/redo
+    // operations don't interfere with the typing undo unit.
+    this.flushTypingBatch();
 
     switch (key) {
       case 'Backspace':
@@ -595,6 +625,7 @@ export class TextEditor {
   };
 
   private handleCopy = (e: ClipboardEvent): void => {
+    this.flushTypingBatch();
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
     const selectedBlocks = this.getSelectedBlocks();
@@ -604,6 +635,7 @@ export class TextEditor {
   };
 
   private handleCut = (e: ClipboardEvent): void => {
+    this.flushTypingBatch();
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
     const selectedBlocks = this.getSelectedBlocks();
@@ -617,6 +649,7 @@ export class TextEditor {
   };
 
   private handlePaste = (e: ClipboardEvent): void => {
+    this.flushTypingBatch();
     e.preventDefault();
 
     // Try rich internal paste first
@@ -664,6 +697,7 @@ export class TextEditor {
   };
 
   private handleMouseDown = (e: MouseEvent): void => {
+    this.flushTypingBatch();
     if (e.target === this.textarea) return;
 
     // Ignore clicks on non-canvas UI elements (e.g. context menu buttons)
@@ -2930,6 +2964,41 @@ export class TextEditor {
   }
 
   /**
+   * Ensure a typing batch is open. Consecutive keystrokes share a single
+   * batch so Yorkie records them as one undo unit. The batch auto-closes
+   * after TYPING_BATCH_MS of inactivity.
+   */
+  private ensureTypingBatch(): void {
+    if (this.typingBatchTimer !== null) {
+      clearTimeout(this.typingBatchTimer);
+      this.typingBatchTimer = null;
+    }
+    if (!this.typingBatchOpen) {
+      this.beginBatch();
+      this.typingBatchOpen = true;
+    }
+    this.typingBatchTimer = setTimeout(() => {
+      this.flushTypingBatch();
+    }, TextEditor.TYPING_BATCH_MS);
+  }
+
+  /**
+   * Close the typing batch if one is open. Called when a non-typing
+   * action occurs (Enter, Backspace, paste, style change, etc.) or
+   * after the debounce timeout.
+   */
+  private flushTypingBatch(): void {
+    if (this.typingBatchTimer !== null) {
+      clearTimeout(this.typingBatchTimer);
+      this.typingBatchTimer = null;
+    }
+    if (this.typingBatchOpen) {
+      this.typingBatchOpen = false;
+      this.endBatch();
+    }
+  }
+
+  /**
    * Move the hidden textarea to the cursor's screen position so the
    * browser doesn't scroll the container to bring the textarea into view.
    * The textarea uses position:fixed, so coordinates are viewport-relative.
@@ -3020,6 +3089,7 @@ export class TextEditor {
   }
 
   dispose(): void {
+    this.flushTypingBatch();
     this.textarea.removeEventListener('input', this.handleInput);
     this.textarea.removeEventListener('keydown', this.handleKeyDown);
     this.textarea.removeEventListener('compositionstart', this.handleCompositionStart);
