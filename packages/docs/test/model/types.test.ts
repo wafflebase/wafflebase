@@ -175,3 +175,10 @@ describe('Table types', () => {
     }
   });
 });
+
+describe('createTableBlock rowHeights', () => {
+  it('should not include rowHeights by default', () => {
+    const block = createTableBlock(2, 3);
+    expect(block.tableData!.rowHeights).toBeUndefined();
+  });
+});
