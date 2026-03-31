@@ -472,11 +472,16 @@ export function evaluate(formula: string, grid?: Grid): string {
       const topLeft = node.v[0]?.[0];
       if (!topLeft || topLeft.t === 'empty') return '0';
       if (topLeft.t === 'arr' || topLeft.t === 'lambda') return '#VALUE!';
+      if (topLeft.t === 'bool') return topLeft.v ? 'TRUE' : 'FALSE';
       return topLeft.v.toString();
     }
 
     if (node.t === 'lambda') {
       return '#ERROR!';
+    }
+
+    if (node.t === 'bool') {
+      return node.v ? 'TRUE' : 'FALSE';
     }
 
     return node.v.toString();

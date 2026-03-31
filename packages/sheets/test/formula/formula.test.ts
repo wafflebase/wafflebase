@@ -285,48 +285,48 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate comparison operators', () => {
-    expect(evaluate('=1=1')).toBe('true');
-    expect(evaluate('=1=2')).toBe('false');
-    expect(evaluate('=1<>2')).toBe('true');
-    expect(evaluate('=1<>1')).toBe('false');
-    expect(evaluate('=1<2')).toBe('true');
-    expect(evaluate('=2<1')).toBe('false');
-    expect(evaluate('=2>1')).toBe('true');
-    expect(evaluate('=1>2')).toBe('false');
-    expect(evaluate('=1<=1')).toBe('true');
-    expect(evaluate('=1<=2')).toBe('true');
-    expect(evaluate('=2<=1')).toBe('false');
-    expect(evaluate('=1>=1')).toBe('true');
-    expect(evaluate('=2>=1')).toBe('true');
-    expect(evaluate('=1>=2')).toBe('false');
+    expect(evaluate('=1=1')).toBe('TRUE');
+    expect(evaluate('=1=2')).toBe('FALSE');
+    expect(evaluate('=1<>2')).toBe('TRUE');
+    expect(evaluate('=1<>1')).toBe('FALSE');
+    expect(evaluate('=1<2')).toBe('TRUE');
+    expect(evaluate('=2<1')).toBe('FALSE');
+    expect(evaluate('=2>1')).toBe('TRUE');
+    expect(evaluate('=1>2')).toBe('FALSE');
+    expect(evaluate('=1<=1')).toBe('TRUE');
+    expect(evaluate('=1<=2')).toBe('TRUE');
+    expect(evaluate('=2<=1')).toBe('FALSE');
+    expect(evaluate('=1>=1')).toBe('TRUE');
+    expect(evaluate('=2>=1')).toBe('TRUE');
+    expect(evaluate('=1>=2')).toBe('FALSE');
   });
 
   it('should compare strings lexicographically', () => {
-    expect(evaluate('="abc"="abc"')).toBe('true');
-    expect(evaluate('="abc"="def"')).toBe('false');
-    expect(evaluate('="a"<"b"')).toBe('true');
-    expect(evaluate('="b">"a"')).toBe('true');
-    expect(evaluate('="abc"<>"def"')).toBe('true');
-    expect(evaluate('="abc"<>"abc"')).toBe('false');
-    expect(evaluate('="a"<="a"')).toBe('true');
-    expect(evaluate('="a"<="b"')).toBe('true');
-    expect(evaluate('="b">="a"')).toBe('true');
+    expect(evaluate('="abc"="abc"')).toBe('TRUE');
+    expect(evaluate('="abc"="def"')).toBe('FALSE');
+    expect(evaluate('="a"<"b"')).toBe('TRUE');
+    expect(evaluate('="b">"a"')).toBe('TRUE');
+    expect(evaluate('="abc"<>"def"')).toBe('TRUE');
+    expect(evaluate('="abc"<>"abc"')).toBe('FALSE');
+    expect(evaluate('="a"<="a"')).toBe('TRUE');
+    expect(evaluate('="a"<="b"')).toBe('TRUE');
+    expect(evaluate('="b">="a"')).toBe('TRUE');
   });
 
   it('should compare strings case-insensitively', () => {
-    expect(evaluate('="ABC"="abc"')).toBe('true');
-    expect(evaluate('="Hello"="hello"')).toBe('true');
-    expect(evaluate('="A"<"b"')).toBe('true');
+    expect(evaluate('="ABC"="abc"')).toBe('TRUE');
+    expect(evaluate('="Hello"="hello"')).toBe('TRUE');
+    expect(evaluate('="A"<"b"')).toBe('TRUE');
   });
 
   it('should return false for equality between different types', () => {
-    expect(evaluate('=1="1"')).toBe('false');
-    expect(evaluate('=0=""')).toBe('false');
+    expect(evaluate('=1="1"')).toBe('FALSE');
+    expect(evaluate('=0=""')).toBe('FALSE');
   });
 
   it('should order numbers below strings in comparisons', () => {
-    expect(evaluate('=1<"a"')).toBe('true');
-    expect(evaluate('="a">1')).toBe('true');
+    expect(evaluate('=1<"a"')).toBe('TRUE');
+    expect(evaluate('="a">1')).toBe('TRUE');
   });
 
   it('should correctly evaluate string literals', () => {
@@ -342,7 +342,7 @@ describe('Formula', () => {
     expect(evaluate('=IF(1>0,10,20)')).toBe('10');
     expect(evaluate('=IF(1<0,10,20)')).toBe('20');
     expect(evaluate('=IF(TRUE,1)')).toBe('1');
-    expect(evaluate('=IF(FALSE,1)')).toBe('false');
+    expect(evaluate('=IF(FALSE,1)')).toBe('FALSE');
   });
 
   it('should correctly evaluate IFS function', () => {
@@ -359,29 +359,29 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate AND function', () => {
-    expect(evaluate('=AND(TRUE,TRUE)')).toBe('true');
-    expect(evaluate('=AND(TRUE,FALSE)')).toBe('false');
-    expect(evaluate('=AND(FALSE,FALSE)')).toBe('false');
-    expect(evaluate('=AND(TRUE,TRUE,TRUE)')).toBe('true');
-    expect(evaluate('=AND(TRUE,TRUE,FALSE)')).toBe('false');
-    expect(evaluate('=AND(1,1)')).toBe('true');
-    expect(evaluate('=AND(1,0)')).toBe('false');
+    expect(evaluate('=AND(TRUE,TRUE)')).toBe('TRUE');
+    expect(evaluate('=AND(TRUE,FALSE)')).toBe('FALSE');
+    expect(evaluate('=AND(FALSE,FALSE)')).toBe('FALSE');
+    expect(evaluate('=AND(TRUE,TRUE,TRUE)')).toBe('TRUE');
+    expect(evaluate('=AND(TRUE,TRUE,FALSE)')).toBe('FALSE');
+    expect(evaluate('=AND(1,1)')).toBe('TRUE');
+    expect(evaluate('=AND(1,0)')).toBe('FALSE');
   });
 
   it('should correctly evaluate OR function', () => {
-    expect(evaluate('=OR(TRUE,TRUE)')).toBe('true');
-    expect(evaluate('=OR(TRUE,FALSE)')).toBe('true');
-    expect(evaluate('=OR(FALSE,FALSE)')).toBe('false');
-    expect(evaluate('=OR(FALSE,FALSE,TRUE)')).toBe('true');
-    expect(evaluate('=OR(0,0)')).toBe('false');
-    expect(evaluate('=OR(0,1)')).toBe('true');
+    expect(evaluate('=OR(TRUE,TRUE)')).toBe('TRUE');
+    expect(evaluate('=OR(TRUE,FALSE)')).toBe('TRUE');
+    expect(evaluate('=OR(FALSE,FALSE)')).toBe('FALSE');
+    expect(evaluate('=OR(FALSE,FALSE,TRUE)')).toBe('TRUE');
+    expect(evaluate('=OR(0,0)')).toBe('FALSE');
+    expect(evaluate('=OR(0,1)')).toBe('TRUE');
   });
 
   it('should correctly evaluate NOT function', () => {
-    expect(evaluate('=NOT(TRUE)')).toBe('false');
-    expect(evaluate('=NOT(FALSE)')).toBe('true');
-    expect(evaluate('=NOT(1)')).toBe('false');
-    expect(evaluate('=NOT(0)')).toBe('true');
+    expect(evaluate('=NOT(TRUE)')).toBe('FALSE');
+    expect(evaluate('=NOT(FALSE)')).toBe('TRUE');
+    expect(evaluate('=NOT(1)')).toBe('FALSE');
+    expect(evaluate('=NOT(0)')).toBe('TRUE');
   });
 
   it('should correctly evaluate combined logical formulas', () => {
@@ -736,9 +736,9 @@ describe('Formula', () => {
     grid.set('A1', { v: '' });
     grid.set('A2', { v: 'value' });
 
-    expect(evaluate('=ISBLANK(A1)', grid)).toBe('true');
-    expect(evaluate('=ISBLANK(A2)', grid)).toBe('false');
-    expect(evaluate('=ISBLANK("")')).toBe('false');
+    expect(evaluate('=ISBLANK(A1)', grid)).toBe('TRUE');
+    expect(evaluate('=ISBLANK(A2)', grid)).toBe('FALSE');
+    expect(evaluate('=ISBLANK("")')).toBe('FALSE');
   });
 
   it('should correctly evaluate ISNUMBER function', () => {
@@ -746,10 +746,10 @@ describe('Formula', () => {
     grid.set('A1', { v: '10' });
     grid.set('A2', { v: 'hello' });
 
-    expect(evaluate('=ISNUMBER(10)')).toBe('true');
-    expect(evaluate('=ISNUMBER("10")')).toBe('false');
-    expect(evaluate('=ISNUMBER(A1)', grid)).toBe('true');
-    expect(evaluate('=ISNUMBER(A2)', grid)).toBe('false');
+    expect(evaluate('=ISNUMBER(10)')).toBe('TRUE');
+    expect(evaluate('=ISNUMBER("10")')).toBe('FALSE');
+    expect(evaluate('=ISNUMBER(A1)', grid)).toBe('TRUE');
+    expect(evaluate('=ISNUMBER(A2)', grid)).toBe('FALSE');
   });
 
   it('should correctly evaluate ISTEXT function', () => {
@@ -757,25 +757,25 @@ describe('Formula', () => {
     grid.set('A1', { v: 'hello' });
     grid.set('A2', { v: '10' });
 
-    expect(evaluate('=ISTEXT("hello")')).toBe('true');
-    expect(evaluate('=ISTEXT(10)')).toBe('false');
-    expect(evaluate('=ISTEXT(A1)', grid)).toBe('true');
-    expect(evaluate('=ISTEXT(A2)', grid)).toBe('false');
+    expect(evaluate('=ISTEXT("hello")')).toBe('TRUE');
+    expect(evaluate('=ISTEXT(10)')).toBe('FALSE');
+    expect(evaluate('=ISTEXT(A1)', grid)).toBe('TRUE');
+    expect(evaluate('=ISTEXT(A2)', grid)).toBe('FALSE');
   });
 
   it('should correctly evaluate ISERROR function', () => {
-    expect(evaluate('=ISERROR(SUM())')).toBe('true');
-    expect(evaluate('=ISERROR(10)')).toBe('false');
+    expect(evaluate('=ISERROR(SUM())')).toBe('TRUE');
+    expect(evaluate('=ISERROR(10)')).toBe('FALSE');
   });
 
   it('should correctly evaluate ISERR function', () => {
-    expect(evaluate('=ISERR(MOD(1,0))')).toBe('true');
-    expect(evaluate('=ISERR(SUM())')).toBe('false');
+    expect(evaluate('=ISERR(MOD(1,0))')).toBe('TRUE');
+    expect(evaluate('=ISERR(SUM())')).toBe('FALSE');
   });
 
   it('should correctly evaluate ISNA function', () => {
-    expect(evaluate('=ISNA(SUM())')).toBe('true');
-    expect(evaluate('=ISNA(MOD(1,0))')).toBe('false');
+    expect(evaluate('=ISNA(SUM())')).toBe('TRUE');
+    expect(evaluate('=ISNA(MOD(1,0))')).toBe('FALSE');
   });
 
   it('should correctly evaluate ISLOGICAL function', () => {
@@ -783,9 +783,9 @@ describe('Formula', () => {
     grid.set('A1', { v: 'TRUE' });
     grid.set('A2', { v: '10' });
 
-    expect(evaluate('=ISLOGICAL(TRUE)')).toBe('true');
-    expect(evaluate('=ISLOGICAL(A1)', grid)).toBe('true');
-    expect(evaluate('=ISLOGICAL(A2)', grid)).toBe('false');
+    expect(evaluate('=ISLOGICAL(TRUE)')).toBe('TRUE');
+    expect(evaluate('=ISLOGICAL(A1)', grid)).toBe('TRUE');
+    expect(evaluate('=ISLOGICAL(A2)', grid)).toBe('FALSE');
   });
 
   it('should correctly evaluate ISNONTEXT function', () => {
@@ -795,13 +795,13 @@ describe('Formula', () => {
     grid.set('A3', { v: '10' });
     grid.set('A4', { v: 'TRUE' });
 
-    expect(evaluate('=ISNONTEXT(10)')).toBe('true');
-    expect(evaluate('=ISNONTEXT("hello")')).toBe('false');
-    expect(evaluate('=ISNONTEXT(A1)', grid)).toBe('true');
-    expect(evaluate('=ISNONTEXT(A2)', grid)).toBe('false');
-    expect(evaluate('=ISNONTEXT(A3)', grid)).toBe('true');
-    expect(evaluate('=ISNONTEXT(A4)', grid)).toBe('true');
-    expect(evaluate('=ISNONTEXT(SUM())')).toBe('true');
+    expect(evaluate('=ISNONTEXT(10)')).toBe('TRUE');
+    expect(evaluate('=ISNONTEXT("hello")')).toBe('FALSE');
+    expect(evaluate('=ISNONTEXT(A1)', grid)).toBe('TRUE');
+    expect(evaluate('=ISNONTEXT(A2)', grid)).toBe('FALSE');
+    expect(evaluate('=ISNONTEXT(A3)', grid)).toBe('TRUE');
+    expect(evaluate('=ISNONTEXT(A4)', grid)).toBe('TRUE');
+    expect(evaluate('=ISNONTEXT(SUM())')).toBe('TRUE');
   });
 
   it('should correctly evaluate IFERROR function', () => {
@@ -866,13 +866,13 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate TRUE and FALSE function', () => {
-    expect(evaluate('=TRUE()')).toBe('true');
-    expect(evaluate('=FALSE()')).toBe('false');
+    expect(evaluate('=TRUE()')).toBe('TRUE');
+    expect(evaluate('=FALSE()')).toBe('FALSE');
     expect(evaluate('=IF(TRUE(),"yes","no")')).toBe('yes');
     expect(evaluate('=IF(FALSE(),"yes","no")')).toBe('no');
-    expect(evaluate('=AND(TRUE(),TRUE())')).toBe('true');
-    expect(evaluate('=OR(FALSE(),FALSE())')).toBe('false');
-    expect(evaluate('=NOT(TRUE())')).toBe('false');
+    expect(evaluate('=AND(TRUE(),TRUE())')).toBe('TRUE');
+    expect(evaluate('=OR(FALSE(),FALSE())')).toBe('FALSE');
+    expect(evaluate('=NOT(TRUE())')).toBe('FALSE');
   });
 
   it('should correctly evaluate SIN function', () => {
@@ -955,9 +955,9 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate EXACT function', () => {
-    expect(evaluate('=EXACT("hello","hello")')).toBe('true');
-    expect(evaluate('=EXACT("hello","Hello")')).toBe('false');
-    expect(evaluate('=EXACT("","")')).toBe('true');
+    expect(evaluate('=EXACT("hello","hello")')).toBe('TRUE');
+    expect(evaluate('=EXACT("hello","Hello")')).toBe('FALSE');
+    expect(evaluate('=EXACT("","")')).toBe('TRUE');
   });
 
   it('should correctly evaluate REPLACE function', () => {
@@ -1102,10 +1102,10 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate XOR function', () => {
-    expect(evaluate('=XOR(TRUE,FALSE)')).toBe('true');
-    expect(evaluate('=XOR(TRUE,TRUE)')).toBe('false');
-    expect(evaluate('=XOR(FALSE,FALSE)')).toBe('false');
-    expect(evaluate('=XOR(TRUE,TRUE,TRUE)')).toBe('true');
+    expect(evaluate('=XOR(TRUE,FALSE)')).toBe('TRUE');
+    expect(evaluate('=XOR(TRUE,TRUE)')).toBe('FALSE');
+    expect(evaluate('=XOR(FALSE,FALSE)')).toBe('FALSE');
+    expect(evaluate('=XOR(TRUE,TRUE,TRUE)')).toBe('TRUE');
   });
 
   it('should correctly evaluate CHOOSE function', () => {
@@ -1418,9 +1418,9 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate ISDATE function', () => {
-    expect(evaluate('=ISDATE("2024-01-01")')).toBe('true');
-    expect(evaluate('=ISDATE("not a date")')).toBe('false');
-    expect(evaluate('=ISDATE(123)')).toBe('false');
+    expect(evaluate('=ISDATE("2024-01-01")')).toBe('TRUE');
+    expect(evaluate('=ISDATE("not a date")')).toBe('FALSE');
+    expect(evaluate('=ISDATE(123)')).toBe('FALSE');
   });
 
   it('should correctly evaluate SPLIT function', () => {
@@ -1437,9 +1437,9 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate REGEXMATCH function', () => {
-    expect(evaluate('=REGEXMATCH("hello world","hello")')).toBe('true');
-    expect(evaluate('=REGEXMATCH("hello","^h.*o$")')).toBe('true');
-    expect(evaluate('=REGEXMATCH("hello","xyz")')).toBe('false');
+    expect(evaluate('=REGEXMATCH("hello world","hello")')).toBe('TRUE');
+    expect(evaluate('=REGEXMATCH("hello","^h.*o$")')).toBe('TRUE');
+    expect(evaluate('=REGEXMATCH("hello","xyz")')).toBe('FALSE');
   });
 
   it('should correctly evaluate FORECAST function', () => {
@@ -1518,10 +1518,10 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate ISEVEN and ISODD functions', () => {
-    expect(evaluate('=ISEVEN(4)')).toBe('true');
-    expect(evaluate('=ISEVEN(3)')).toBe('false');
-    expect(evaluate('=ISODD(3)')).toBe('true');
-    expect(evaluate('=ISODD(4)')).toBe('false');
+    expect(evaluate('=ISEVEN(4)')).toBe('TRUE');
+    expect(evaluate('=ISEVEN(3)')).toBe('FALSE');
+    expect(evaluate('=ISODD(3)')).toBe('TRUE');
+    expect(evaluate('=ISODD(4)')).toBe('FALSE');
   });
 
   it('should correctly evaluate FACTDOUBLE function', () => {
@@ -1966,11 +1966,11 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate ISURL function', () => {
-    expect(evaluate('=ISURL("https://example.com")')).toBe('true');
-    expect(evaluate('=ISURL("http://test.org/path")')).toBe('true');
-    expect(evaluate('=ISURL("ftp://files.com")')).toBe('true');
-    expect(evaluate('=ISURL("not a url")')).toBe('false');
-    expect(evaluate('=ISURL("example.com")')).toBe('false');
+    expect(evaluate('=ISURL("https://example.com")')).toBe('TRUE');
+    expect(evaluate('=ISURL("http://test.org/path")')).toBe('TRUE');
+    expect(evaluate('=ISURL("ftp://files.com")')).toBe('TRUE');
+    expect(evaluate('=ISURL("not a url")')).toBe('FALSE');
+    expect(evaluate('=ISURL("example.com")')).toBe('FALSE');
   });
 
   it('should correctly evaluate ISFORMULA function', () => {
@@ -1978,9 +1978,9 @@ describe('Formula', () => {
       ['A1', { v: '10', f: '=5+5' } as Cell],
       ['A2', { v: 'hello' } as Cell],
     ]);
-    expect(evaluate('=ISFORMULA(A1)', grid)).toBe('true');
-    expect(evaluate('=ISFORMULA(A2)', grid)).toBe('false');
-    expect(evaluate('=ISFORMULA(A3)', grid)).toBe('false');
+    expect(evaluate('=ISFORMULA(A1)', grid)).toBe('TRUE');
+    expect(evaluate('=ISFORMULA(A2)', grid)).toBe('FALSE');
+    expect(evaluate('=ISFORMULA(A3)', grid)).toBe('FALSE');
   });
 
   it('should correctly evaluate FORMULATEXT function', () => {
@@ -2418,9 +2418,9 @@ describe('Formula', () => {
 
   it('should correctly evaluate ISREF function', () => {
     const grid = new Map([['A1', { v: '10' } as Cell]]);
-    expect(evaluate('=ISREF(A1)', grid)).toBe('true');
-    expect(evaluate('=ISREF(5)')).toBe('false');
-    expect(evaluate('=ISREF("text")')).toBe('false');
+    expect(evaluate('=ISREF(A1)', grid)).toBe('TRUE');
+    expect(evaluate('=ISREF(5)')).toBe('FALSE');
+    expect(evaluate('=ISREF("text")')).toBe('FALSE');
   });
 
   it('should correctly evaluate SHEET and SHEETS functions', () => {
@@ -3540,8 +3540,8 @@ describe('Formula.extractTokens', () => {
     // COT(0) = cos(0)/sin(0) = 1/0
     expect(evaluate('=COT(0)')).toBe('#DIV/0!');
     // ISERROR should detect #DIV/0!
-    expect(evaluate('=ISERROR(1/0)')).toBe('true');
-    expect(evaluate('=ISERROR(COT(0))')).toBe('true');
+    expect(evaluate('=ISERROR(1/0)')).toBe('TRUE');
+    expect(evaluate('=ISERROR(COT(0))')).toBe('TRUE');
     // ERROR.TYPE: #DIV/0! = 2
     expect(evaluate('=ERROR.TYPE(1/0)')).toBe('2');
   });
