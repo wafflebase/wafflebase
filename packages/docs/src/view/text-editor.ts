@@ -354,9 +354,13 @@ export class TextEditor {
       }
     }
 
-    // Non-typing keys close the typing batch so subsequent undo/redo
-    // operations don't interfere with the typing undo unit.
-    this.flushTypingBatch();
+    // Printable characters (single char, no Ctrl/Cmd) are handled by
+    // handleInput and share the typing batch — don't flush here.
+    // All other keys (Backspace, Enter, arrows, shortcuts) flush.
+    const isTypingKey = key.length === 1 && !mod && !ctrlKey && !metaKey && !altKey;
+    if (!isTypingKey) {
+      this.flushTypingBatch();
+    }
 
     switch (key) {
       case 'Backspace':
