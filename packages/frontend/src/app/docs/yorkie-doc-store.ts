@@ -570,7 +570,9 @@ export class YorkieDocStore implements DocStore {
       block.tableData!.rowHeights = attrs.rowHeights;
     }
     this.doc.update((root) => {
-      root.content.editByPath([tIdx], [tIdx + 1], buildBlockNode(block));
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.editByPath([tIdx], [tIdx + 1], buildBlockNode(block));
     });
     this.cachedDoc = currentDoc;
     this.dirty = false;

@@ -6,8 +6,7 @@ import {
 } from "@wafflebase/docs";
 import { getPeerCursorColor } from "@wafflebase/sheets";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { useDocument } from "@yorkie-js/react";
-import { Tree } from "@yorkie-js/sdk";
+import { useDocument, Tree } from "@yorkie-js/react";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieDocsRoot } from "@/types/docs-document";
