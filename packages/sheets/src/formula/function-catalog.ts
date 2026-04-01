@@ -482,6 +482,16 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
     args: [{ name: 'value' }],
   },
   {
+    name: 'TRUE',
+    description: 'Returns the boolean value TRUE',
+    args: [],
+  },
+  {
+    name: 'FALSE',
+    description: 'Returns the boolean value FALSE',
+    args: [],
+  },
+  {
     name: 'IFERROR',
     description: 'Returns a value if no error, otherwise returns an alternate value',
     args: [{ name: 'value' }, { name: 'value_if_error' }],
@@ -2692,7 +2702,7 @@ const FunctionNamesByCategory: Partial<Record<FunctionCategory, ReadonlySet<stri
     'AREAS',
     'CELL',
   ]),
-  Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE']),
+  Logical: new Set(['IF', 'IFS', 'SWITCH', 'AND', 'OR', 'NOT', 'IFERROR', 'IFNA', 'XOR', 'CHOOSE', 'TRUE', 'FALSE']),
   Lookup: new Set(['MATCH', 'INDEX', 'VLOOKUP', 'HLOOKUP', 'ROW', 'COLUMN', 'ROWS', 'COLUMNS', 'ADDRESS', 'HYPERLINK', 'LOOKUP', 'INDIRECT', 'XLOOKUP', 'OFFSET', 'SORT', 'UNIQUE', 'FLATTEN', 'TRANSPOSE', 'XMATCH', 'TOCOL', 'TOROW', 'CHOOSEROWS', 'CHOOSECOLS', 'TAKE', 'DROP', 'HSTACK', 'VSTACK', 'SORTBY', 'WRAPCOLS', 'WRAPROWS', 'FILTER', 'EXPAND']),
   Math: new Set([
     'SUM',

@@ -314,6 +314,20 @@ export function ifnaFunc(
   return value;
 }
 
+/**
+ * TRUE() — returns the boolean value TRUE.
+ */
+export function trueFunc(): EvalNode {
+  return { t: 'bool', v: true };
+}
+
+/**
+ * FALSE() — returns the boolean value FALSE.
+ */
+export function falseFunc(): EvalNode {
+  return { t: 'bool', v: false };
+}
+
 export const logicalEntries: [string, (...args: any[]) => EvalNode][] = [
   ['IF', ifFunc],
   ['IFS', ifsFunc],
@@ -325,4 +339,6 @@ export const logicalEntries: [string, (...args: any[]) => EvalNode][] = [
   ['CHOOSE', chooseFunc],
   ['IFERROR', iferrorFunc],
   ['IFNA', ifnaFunc],
+  ['TRUE', trueFunc],
+  ['FALSE', falseFunc],
 ];
