@@ -463,12 +463,12 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
   },
   {
     name: 'ISERR',
-    description: 'Checks whether a value is an error except #N/A!',
+    description: 'Checks whether a value is an error except #N/A',
     args: [{ name: 'value' }],
   },
   {
     name: 'ISNA',
-    description: 'Checks whether a value is the #N/A! error',
+    description: 'Checks whether a value is the #N/A error',
     args: [{ name: 'value' }],
   },
   {
@@ -498,7 +498,7 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
   },
   {
     name: 'IFNA',
-    description: 'Returns a value if no #N/A! error, otherwise returns an alternate value',
+    description: 'Returns a value if no #N/A error, otherwise returns an alternate value',
     args: [{ name: 'value' }, { name: 'value_if_na' }],
   },
   {
@@ -902,7 +902,7 @@ const FunctionCatalogEntries: Array<Omit<FunctionInfo, 'category'>> = [
   },
   {
     name: 'NA',
-    description: 'Returns the #N/A! error value',
+    description: 'Returns the #N/A error value',
     args: [],
   },
   {

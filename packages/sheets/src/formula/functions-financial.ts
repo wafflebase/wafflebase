@@ -21,9 +21,9 @@ export function pmtFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -58,9 +58,9 @@ export function fvFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -100,9 +100,9 @@ export function pvFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -142,9 +142,9 @@ export function npvFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 2) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -181,9 +181,9 @@ export function nperFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 5) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -224,9 +224,9 @@ export function ipmtFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 6) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -277,9 +277,9 @@ export function ppmtFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 6) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -329,9 +329,9 @@ export function slnFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
   const salvage = NumberArgs.map(visit(exprs[1]), grid);
@@ -351,9 +351,9 @@ export function effectFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const nominal = NumberArgs.map(visit(exprs[0]), grid);
   if (nominal.t === 'err') return nominal;
   const periods = NumberArgs.map(visit(exprs[1]), grid);
@@ -372,9 +372,9 @@ export function rateFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 6) return { t: 'err', v: '#N/A' };
 
   const nper = NumberArgs.map(visit(exprs[0]), grid);
   if (nper.t === 'err') return nper;
@@ -428,9 +428,9 @@ export function irrFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
 
   const values: number[] = [];
   const refsResult = getRefsFromExpression(exprs[0], visit, grid);
@@ -476,9 +476,9 @@ export function dbFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A' };
 
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
@@ -529,9 +529,9 @@ export function ddbFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A' };
 
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
@@ -578,9 +578,9 @@ export function nominalFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const effectiveRate = NumberArgs.map(visit(exprs[0]), grid);
   if (effectiveRate.t === 'err') return effectiveRate;
   const periods = NumberArgs.map(visit(exprs[1]), grid);
@@ -599,9 +599,9 @@ export function cumipmtFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 6) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -647,9 +647,9 @@ export function cumprincFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 6) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -695,9 +695,9 @@ export function xnpvFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
 
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
@@ -744,9 +744,9 @@ export function xirrFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
 
   const valuesResult = getRefsFromExpression(exprs[0], visit, grid);
   if (valuesResult.t === 'err') return valuesResult;
@@ -807,9 +807,9 @@ export function sydFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A' };
 
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
@@ -837,9 +837,9 @@ export function mirrFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
 
   const valuesResult = getRefsFromExpression(exprs[0], visit, grid);
   if (valuesResult.t === 'err') return valuesResult;
@@ -885,9 +885,9 @@ export function tbilleqFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
 
   const settlementNode = visit(exprs[0]);
   const maturityNode = visit(exprs[1]);
@@ -917,9 +917,9 @@ export function tbillpriceFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
 
   const settlementNode = visit(exprs[0]);
   const maturityNode = visit(exprs[1]);
@@ -949,9 +949,9 @@ export function tbillyieldFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
 
   const settlementNode = visit(exprs[0]);
   const maturityNode = visit(exprs[1]);
@@ -981,9 +981,9 @@ export function dollardeFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
 
   const dollar = NumberArgs.map(visit(exprs[0]), grid);
   if (dollar.t === 'err') return dollar;
@@ -1007,9 +1007,9 @@ export function dollarfrFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
 
   const dollar = NumberArgs.map(visit(exprs[0]), grid);
   if (dollar.t === 'err') return dollar;
@@ -1034,9 +1034,9 @@ export function accrintFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A' };
   const issue = parseDate(visit(exprs[0]), grid);
   if (!(issue instanceof Date)) return issue;
   // first_interest is ignored in simplified calculation
@@ -1064,9 +1064,9 @@ export function accrintmFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A' };
   const issue = parseDate(visit(exprs[0]), grid);
   if (!(issue instanceof Date)) return issue;
   const settlement = parseDate(visit(exprs[1]), grid);
@@ -1091,9 +1091,9 @@ export function coupdaybsFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1115,9 +1115,9 @@ export function coupdaysFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1141,9 +1141,9 @@ export function coupdaysncFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1165,9 +1165,9 @@ export function coupncdFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1188,9 +1188,9 @@ export function coupnumFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1218,9 +1218,9 @@ export function couppcdFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 3 || exprs.length > 4) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1241,9 +1241,9 @@ export function discFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1269,9 +1269,9 @@ export function pricediscFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1296,9 +1296,9 @@ export function yielddiscFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1324,9 +1324,9 @@ export function durationFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1368,9 +1368,9 @@ export function mdurationFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1411,9 +1411,9 @@ export function receivedFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1440,9 +1440,9 @@ export function intrateFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 4 || exprs.length > 5) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1468,9 +1468,9 @@ export function priceFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1517,9 +1517,9 @@ export function yieldBondFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1577,9 +1577,9 @@ export function pricematFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1611,9 +1611,9 @@ export function yieldmatFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 5 || exprs.length > 6) return { t: 'err', v: '#N/A' };
   const settlement = parseDate(visit(exprs[0]), grid);
   if (!(settlement instanceof Date)) return settlement;
   const maturity = parseDate(visit(exprs[1]), grid);
@@ -1646,9 +1646,9 @@ export function amorlincFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 6 || exprs.length > 7) return { t: 'err', v: '#N/A' };
   const cost = NumberArgs.map(visit(exprs[0]), grid);
   if (cost.t === 'err') return cost;
   const purchaseDate = parseDate(visit(exprs[1]), grid);
@@ -1689,9 +1689,9 @@ export function ispmtFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 4) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 4) return { t: 'err', v: '#N/A' };
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
   const per = NumberArgs.map(visit(exprs[1]), grid);
@@ -1712,9 +1712,9 @@ export function fvscheduleFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const principal = NumberArgs.map(visit(exprs[0]), grid);
   if (principal.t === 'err') return principal;
   const scheduleNode = visit(exprs[1]);
@@ -1746,9 +1746,9 @@ export function pdurationFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
   const rate = NumberArgs.map(visit(exprs[0]), grid);
   if (rate.t === 'err') return rate;
   const pv = NumberArgs.map(visit(exprs[1]), grid);
@@ -1768,9 +1768,9 @@ export function rriFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
   const nper = NumberArgs.map(visit(exprs[0]), grid);
   if (nper.t === 'err') return nper;
   const pv = NumberArgs.map(visit(exprs[1]), grid);

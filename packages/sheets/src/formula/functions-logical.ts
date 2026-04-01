@@ -18,12 +18,12 @@ export function ifFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const condition = BoolArgs.map(visit(exprs[0]), grid);
@@ -54,12 +54,12 @@ export function ifsFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length % 2 !== 0) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   for (let i = 0; i < exprs.length; i += 2) {
@@ -73,7 +73,7 @@ export function ifsFunc(
     }
   }
 
-  return { t: 'err', v: '#N/A!' };
+  return { t: 'err', v: '#N/A' };
 }
 
 /**
@@ -87,12 +87,12 @@ export function switchFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length < 3) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const expression = toStr(visit(exprs[0]), grid);
@@ -119,7 +119,7 @@ export function switchFunc(
     return visit(exprs[exprs.length - 1]);
   }
 
-  return { t: 'err', v: '#N/A!' };
+  return { t: 'err', v: '#N/A' };
 }
 
 /**
@@ -133,7 +133,7 @@ export function andFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   for (const node of BoolArgs.iterate(args, visit, grid)) {
@@ -160,7 +160,7 @@ export function orFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   for (const node of BoolArgs.iterate(args, visit, grid)) {
@@ -187,12 +187,12 @@ export function notFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const value = BoolArgs.map(visit(exprs[0]), grid);
@@ -213,7 +213,7 @@ export function xorFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   let trueCount = 0;
@@ -239,12 +239,12 @@ export function chooseFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length < 2) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const indexNode = NumberArgs.map(visit(exprs[0]), grid);
@@ -271,12 +271,12 @@ export function iferrorFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const value = visit(exprs[0]);
@@ -289,7 +289,7 @@ export function iferrorFunc(
 
 /**
  * `ifnaFunc` is the implementation of the IFNA function.
- * IFNA(value, value_if_na) — returns fallback only when value is #N/A!.
+ * IFNA(value, value_if_na) — returns fallback only when value is #N/A.
  */
 export function ifnaFunc(
   ctx: FunctionContext,
@@ -298,16 +298,16 @@ export function ifnaFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const value = visit(exprs[0]);
-  if (value.t === 'err' && value.v === '#N/A!') {
+  if (value.t === 'err' && value.v === '#N/A') {
     return visit(exprs[1]);
   }
 
