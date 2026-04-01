@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 112
+Total archived tasks: 113
 
-## 2026/03 (75 tasks)
+## 2026/03 (76 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| table resize (2026-03-31) | [20260331-table-resize-todo.md](./2026/03/20260331-table-resize-todo.md) | [20260331-table-resize-lessons.md](./2026/03/20260331-table-resize-lessons.md) |
 | docs table selection (2026-03-29) | [20260329-docs-table-selection-todo.md](./2026/03/20260329-docs-table-selection-todo.md) | - |
 | docs table ui (2026-03-29) | [20260329-docs-table-ui-todo.md](./2026/03/20260329-docs-table-ui-todo.md) | - |
 | docs tables (2026-03-29) | [20260329-docs-tables-todo.md](./2026/03/20260329-docs-tables-todo.md) | - |
