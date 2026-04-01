@@ -129,7 +129,7 @@ export class MemDocStore implements DocStore {
     block.tableData!.rows[rowIndex].cells[colIndex] = JSON.parse(JSON.stringify(cell));
   }
 
-  updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: number[] }): void {
+  updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: (number | undefined)[] }): void {
     const block = this.findBlock(tableBlockId);
     block.tableData!.columnWidths = [...attrs.cols];
     if (attrs.rowHeights !== undefined) {

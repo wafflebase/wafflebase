@@ -748,6 +748,9 @@ export class TextEditor {
           hit.type === 'column' ? tableInfo.tableOriginX : tableInfo.tableOriginY,
         );
         this.isMouseDown = true;
+        // Listen on document so drag works even if mouse leaves the editor
+        document.addEventListener('mousemove', this.handleMouseMove);
+        document.addEventListener('mouseup', this.handleMouseUp);
         return;
       }
     }
@@ -935,6 +938,8 @@ export class TextEditor {
 
   private handleMouseUp = (): void => {
     if (this.borderDragState) {
+      document.removeEventListener('mousemove', this.handleMouseMove);
+      document.removeEventListener('mouseup', this.handleMouseUp);
       this.applyBorderDrag();
       this.borderDragState = null;
       this.isMouseDown = false;

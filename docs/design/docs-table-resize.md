@@ -154,7 +154,7 @@ interface BorderDragState {
 
 ### Ratio Calculation (Column)
 
-```
+```text
 deltaRatio = (currentPixel - startPixel) / contentWidth
 
 newLeftRatio  = clamp(oldLeftRatio + deltaRatio, minRatio, maxLeftRatio)
@@ -167,7 +167,7 @@ Where `minRatio = 30 / contentWidth`.
 
 ### Height Calculation (Row)
 
-```
+```text
 deltaPx = currentPixel - startPixel
 layoutHeight = current computed row height from layout
 newHeight = max(layoutHeight + deltaPx, 20)

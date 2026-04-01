@@ -154,6 +154,9 @@ function buildBlockNode(block: Block): ElementNode {
         id: block.id,
         type: 'table',
         cols: block.tableData.columnWidths.join(','),
+        ...(block.tableData.rowHeights && block.tableData.rowHeights.length > 0
+          ? { rowHeights: block.tableData.rowHeights.map(h => h ?? '').join(',') }
+          : {}),
         ...serializeBlockStyle(block.style),
       },
       children: block.tableData.rows.map(buildRowNode),
@@ -253,12 +256,20 @@ function treeNodeToBlock(node: TreeNode): Block {
       .filter((c) => c.type === 'row')
       .map(treeNodeToRow);
     const cols = (attrs.cols ?? '').split(',').map(Number).filter(n => !isNaN(n));
+    const rowHeightsAttr = attrs.rowHeights;
+    const rowHeights = rowHeightsAttr
+      ? rowHeightsAttr.split(',').map(v => v === '' ? undefined : Number(v))
+      : undefined;
     return {
       id: attrs.id ?? '',
       type: 'table',
       inlines: [],
       style: parseBlockStyle(attrs),
-      tableData: { rows, columnWidths: cols },
+      tableData: {
+        rows,
+        columnWidths: cols,
+        ...(rowHeights ? { rowHeights } : {}),
+      },
     };
   }
 
@@ -561,7 +572,7 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
-  updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: number[] }): void {
+  updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: (number | undefined)[] }): void {
     const tIdx = this.findTableIndex(tableBlockId);
     const currentDoc = this.getDocument();
     const block = currentDoc.blocks[tIdx];

@@ -60,14 +60,19 @@ export function createDragState(
     const leftColStart = tableOriginPixel + columnXOffsets[hit.index];
     const rightColEnd =
       tableOriginPixel + columnXOffsets[hit.index + 1] + columnPixelWidths[hit.index + 1];
+    const minPixel = leftColStart + MIN_COLUMN_WIDTH;
+    const maxPixel = rightColEnd - MIN_COLUMN_WIDTH;
+    // If adjacent columns are too narrow, collapse to no-op drag
+    const safeMin = minPixel <= maxPixel ? minPixel : mousePixel;
+    const safeMax = minPixel <= maxPixel ? maxPixel : mousePixel;
     return {
       type: 'column',
       tableBlockId,
       index: hit.index,
       startPixel: mousePixel,
       currentPixel: mousePixel,
-      minPixel: leftColStart + MIN_COLUMN_WIDTH,
-      maxPixel: rightColEnd - MIN_COLUMN_WIDTH,
+      minPixel: safeMin,
+      maxPixel: safeMax,
     };
   } else {
     const rowStart = tableOriginPixel + rowYOffsets[hit.index];

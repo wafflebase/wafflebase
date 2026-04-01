@@ -562,7 +562,7 @@ export class Doc {
     }
     td.rows.splice(atIndex, 0, { cells });
     if (td.rowHeights) {
-      td.rowHeights.splice(atIndex, 0, undefined as unknown as number);
+      td.rowHeights.splice(atIndex, 0, undefined);
       this.store.updateTableAttrs(blockId, { cols: td.columnWidths, rowHeights: td.rowHeights });
     }
     this.store.insertTableRow(blockId, atIndex, td.rows[atIndex]);

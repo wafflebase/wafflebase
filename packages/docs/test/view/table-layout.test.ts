@@ -48,7 +48,7 @@ describe('computeTableLayout', () => {
 
   it('should apply user-specified rowHeights as minimum', () => {
     const block = createTableBlock(2, 2);
-    block.tableData!.rowHeights = [60, undefined as unknown as number];
+    block.tableData!.rowHeights = [60, undefined];
     const result = computeTableLayout(block.tableData!, 'test-table', stubCtx(), 200);
     expect(result.rowHeights[0]).toBeGreaterThanOrEqual(60);
     // Row 1 should use content-based height (at least MIN_ROW_HEIGHT = 20)
@@ -59,7 +59,7 @@ describe('computeTableLayout', () => {
     const block = createTableBlock(2, 2);
     // Add enough text to make content taller than 5px
     block.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'Hello World Long Text', style: {} }];
-    block.tableData!.rowHeights = [5, undefined as unknown as number]; // 5px is less than content
+    block.tableData!.rowHeights = [5, undefined]; // 5px is less than content
     const result = computeTableLayout(block.tableData!, 'test-table', stubCtx(), 50); // narrow width forces wrapping
     // Row height should be content-based, not 5px
     expect(result.rowHeights[0]).toBeGreaterThan(5);

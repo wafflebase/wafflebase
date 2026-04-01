@@ -277,7 +277,7 @@ export interface TableRow {
 export interface TableData {
   rows: TableRow[];
   columnWidths: number[];
-  rowHeights?: number[];
+  rowHeights?: (number | undefined)[];
 }
 
 export interface CellAddress {
