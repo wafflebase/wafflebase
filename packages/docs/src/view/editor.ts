@@ -644,6 +644,13 @@ export function initialize(
   );
   textEditorRef = textEditor;
 
+  if (textEditor) {
+    textEditor.onDragGuideline = (pos) => {
+      dragGuideline = pos;
+      renderPaintOnly();
+    };
+  }
+
   // Start cursor blink (skip in read-only — no cursor visible)
   if (!readOnly) {
     cursor.startBlink(renderPaintOnly);
