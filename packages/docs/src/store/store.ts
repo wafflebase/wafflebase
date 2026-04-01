@@ -47,4 +47,9 @@ export interface DocStore {
   ): void;
   /** Update table-level attributes (column widths, row heights). */
   updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: (number | undefined)[] }): void;
+
+  /** Insert text at the given block-level character offset. */
+  insertText(blockId: string, offset: number, text: string): void;
+  /** Delete `length` characters starting at the given block-level offset. */
+  deleteText(blockId: string, offset: number, length: number): void;
 }

@@ -1,6 +1,7 @@
 import type { Block, Document, PageSetup, TableRow, TableCell } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
+import { applyInsertText, applyDeleteText } from './block-helpers.js';
 
 /**
  * Deep clone a document for snapshot-based undo/redo.
@@ -135,6 +136,18 @@ export class MemDocStore implements DocStore {
     if (attrs.rowHeights !== undefined) {
       block.tableData!.rowHeights = [...attrs.rowHeights];
     }
+  }
+
+  insertText(blockId: string, offset: number, text: string): void {
+    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
+    if (index === -1) throw new Error(`Block not found: ${blockId}`);
+    this.doc.blocks[index] = applyInsertText(this.doc.blocks[index], offset, text);
+  }
+
+  deleteText(blockId: string, offset: number, length: number): void {
+    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
+    if (index === -1) throw new Error(`Block not found: ${blockId}`);
+    this.doc.blocks[index] = applyDeleteText(this.doc.blocks[index], offset, length);
   }
 
   private findBlock(id: string): Block {

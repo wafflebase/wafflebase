@@ -228,4 +228,50 @@ describe('MemDocStore', () => {
       expect(store.canUndo()).toBe(false);
     });
   });
+
+  describe('fine-grained text editing', () => {
+    it('insertText inserts at offset within block', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.insertText(block.id, 5, ' World');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('Hello World');
+    });
+
+    it('insertText at offset 0', () => {
+      const block = makeBlock('World');
+      const store = new MemDocStore({ blocks: [block] });
+      store.insertText(block.id, 0, 'Hello ');
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('Hello World');
+    });
+
+    it('deleteText removes characters at offset', () => {
+      const block = makeBlock('Hello World');
+      const store = new MemDocStore({ blocks: [block] });
+      store.deleteText(block.id, 5, 6);
+      expect(store.getBlock(block.id)?.inlines[0].text).toBe('Hello');
+    });
+
+    it('deleteText across inline boundaries', () => {
+      const block = {
+        id: 'b1',
+        type: 'paragraph' as const,
+        inlines: [
+          { text: 'Hello', style: {} },
+          { text: 'World', style: { bold: true } },
+        ],
+        style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
+      };
+      const store = new MemDocStore({ blocks: [block] });
+      store.deleteText('b1', 3, 4);
+      const updated = store.getBlock('b1')!;
+      // "Hel" (no style) + "rld" (bold) — different styles, not merged
+      expect(updated.inlines[0].text).toBe('Hel');
+      expect(updated.inlines[1].text).toBe('rld');
+    });
+
+    it('insertText throws for non-existent block', () => {
+      const store = new MemDocStore();
+      expect(() => store.insertText('no-such', 0, 'X')).toThrow();
+    });
+  });
 });
