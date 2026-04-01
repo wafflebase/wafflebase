@@ -269,7 +269,7 @@ async function createErrorScenarioStore(): Promise<ScenarioSetup> {
     ["A4", { v: "=1+" }],
     ["B4", { v: "#ERROR!", f: "=1+" }],
     ["A5", { v: "=IFS(FALSE,1)" }],
-    ["B5", { v: "#N/A!", f: "=IFS(FALSE,1)" }],
+    ["B5", { v: "#N/A", f: "=IFS(FALSE,1)" }],
     ["A6", { v: "=VLOOKUP(\"x\",A1:B2,3,FALSE)" }],
     ["B6", { v: "#REF!", f: "=VLOOKUP(\"x\",A1:B2,3,FALSE)" }],
   ]);
@@ -638,7 +638,7 @@ const SCENARIOS: Scenario[] = [
   {
     id: "sheet-formula-errors",
     title: "Formula Errors",
-    description: "Verifies rendering regression of #VALUE!, #REF!, #ERROR!, and #N/A! error displays.",
+    description: "Verifies rendering regression of #VALUE!, #REF!, #ERROR!, and #N/A error displays.",
     setup: createErrorScenarioStore,
   },
   {

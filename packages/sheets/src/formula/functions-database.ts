@@ -200,9 +200,9 @@ function extractDatabaseValues(
   grid?: Grid,
 ): { values: number[]; strValues: string[] } | EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
 
   // Parse database range
   const dbNode = visit(exprs[0]);

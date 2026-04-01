@@ -16,7 +16,7 @@
   - Freeze + selection rendering
   - Text overflow and clip behavior
   - Merge cell layout
-  - Formula error rendering (`#VALUE!`, `#REF!`, `#ERROR!`, `#N/A!`)
+  - Formula error rendering (`#VALUE!`, `#REF!`, `#ERROR!`, `#N/A`)
   - Custom row/column dimensions with freeze
 - Wired the scenario section into
   `packages/frontend/src/app/harness/visual/page.tsx`.

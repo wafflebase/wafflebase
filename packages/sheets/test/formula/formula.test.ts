@@ -348,14 +348,14 @@ describe('Formula', () => {
   it('should correctly evaluate IFS function', () => {
     expect(evaluate('=IFS(1=0,"a",2=2,"b")')).toBe('b');
     expect(evaluate('=IFS(TRUE,1,FALSE,2)')).toBe('1');
-    expect(evaluate('=IFS(FALSE,1,FALSE,2)')).toBe('#N/A!');
-    expect(evaluate('=IFS(TRUE)')).toBe('#N/A!');
+    expect(evaluate('=IFS(FALSE,1,FALSE,2)')).toBe('#N/A');
+    expect(evaluate('=IFS(TRUE)')).toBe('#N/A');
   });
 
   it('should correctly evaluate SWITCH function', () => {
     expect(evaluate('=SWITCH(2,1,"a",2,"b","c")')).toBe('b');
     expect(evaluate('=SWITCH("x","y",1,"z",2,3)')).toBe('3');
-    expect(evaluate('=SWITCH(1,2,"a")')).toBe('#N/A!');
+    expect(evaluate('=SWITCH(1,2,"a")')).toBe('#N/A');
   });
 
   it('should correctly evaluate AND function', () => {
@@ -405,7 +405,7 @@ describe('Formula', () => {
   });
 
   it('should display #N/A for invalid arguments', () => {
-    expect(evaluate('=SUM()')).toBe('#N/A!');
+    expect(evaluate('=SUM()')).toBe('#N/A');
   });
 
   it('should correctly evaluate AVERAGE function', () => {
@@ -526,7 +526,7 @@ describe('Formula', () => {
     expect(evaluate('=MATCH("BANANA",C1:C3,0)', grid)).toBe('2');
     expect(evaluate('=MATCH(25,A1:A3,1)', grid)).toBe('2');
     expect(evaluate('=MATCH(25,B1:B3,-1)', grid)).toBe('1');
-    expect(evaluate('=MATCH(25,A1:B3,0)', grid)).toBe('#N/A!');
+    expect(evaluate('=MATCH(25,A1:B3,0)', grid)).toBe('#N/A');
   });
 
   it('should correctly evaluate INDEX function', () => {
@@ -562,8 +562,8 @@ describe('Formula', () => {
 
     expect(evaluate('=VLOOKUP("b",A1:B3,2,FALSE)', grid)).toBe('20');
     expect(evaluate('=VLOOKUP(7,D1:E3,2,TRUE)', grid)).toBe('500');
-    expect(evaluate('=VLOOKUP(0,D1:E3,2,TRUE)', grid)).toBe('#N/A!');
-    expect(evaluate('=VLOOKUP("z",A1:B3,2,FALSE)', grid)).toBe('#N/A!');
+    expect(evaluate('=VLOOKUP(0,D1:E3,2,TRUE)', grid)).toBe('#N/A');
+    expect(evaluate('=VLOOKUP("z",A1:B3,2,FALSE)', grid)).toBe('#N/A');
     expect(evaluate('=VLOOKUP("A",A1:B3,3,FALSE)', grid)).toBe('#REF!');
   });
 
@@ -581,8 +581,8 @@ describe('Formula', () => {
 
     expect(evaluate('=HLOOKUP(5,A1:C3,2,FALSE)', grid)).toBe('50');
     expect(evaluate('=HLOOKUP(7,A1:C3,3,TRUE)', grid)).toBe('500');
-    expect(evaluate('=HLOOKUP(0,A1:C3,2,TRUE)', grid)).toBe('#N/A!');
-    expect(evaluate('=HLOOKUP(8,A1:C3,2,FALSE)', grid)).toBe('#N/A!');
+    expect(evaluate('=HLOOKUP(0,A1:C3,2,TRUE)', grid)).toBe('#N/A');
+    expect(evaluate('=HLOOKUP(8,A1:C3,2,FALSE)', grid)).toBe('#N/A');
     expect(evaluate('=HLOOKUP(5,A1:C3,4,FALSE)', grid)).toBe('#REF!');
   });
 
@@ -819,7 +819,7 @@ describe('Formula', () => {
 
   it('should correctly evaluate PI function', () => {
     expect(evaluate('=PI()')).toBe(String(Math.PI));
-    expect(evaluate('=PI(1)')).toBe('#N/A!');
+    expect(evaluate('=PI(1)')).toBe('#N/A');
   });
 
   it('should correctly evaluate SIGN function', () => {
@@ -1250,7 +1250,7 @@ describe('Formula', () => {
     expect(evaluate('=RANK(10,A1:A4,1)', grid)).toBe('1');
     expect(evaluate('=RANK(40,A1:A4,1)', grid)).toBe('4');
     // Not found
-    expect(evaluate('=RANK(99,A1:A4)', grid)).toBe('#N/A!');
+    expect(evaluate('=RANK(99,A1:A4)', grid)).toBe('#N/A');
   });
 
   it('should correctly evaluate PERCENTILE function', () => {
@@ -1300,7 +1300,7 @@ describe('Formula', () => {
 
   it('should correctly evaluate MODE function', () => {
     expect(evaluate('=MODE(1,2,2,3,3,3)')).toBe('3');
-    expect(evaluate('=MODE(1,2,3)')).toBe('#N/A!');
+    expect(evaluate('=MODE(1,2,3)')).toBe('#N/A');
   });
 
   it('should correctly evaluate SUMSQ function', () => {
@@ -1309,7 +1309,7 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate NA function', () => {
-    expect(evaluate('=NA()')).toBe('#N/A!');
+    expect(evaluate('=NA()')).toBe('#N/A');
     expect(evaluate('=IFERROR(NA(),"caught")')).toBe('caught');
   });
 
@@ -1420,10 +1420,10 @@ describe('Formula', () => {
   });
 
   it('should correctly evaluate ERROR.TYPE function', () => {
-    expect(evaluate('=ERROR.TYPE(NA())')).toBe('7'); // #N/A!
-    // Non-error returns #N/A!
-    expect(evaluate('=ERROR.TYPE(1)')).toBe('#N/A!');
-    expect(evaluate('=ERROR.TYPE("hello")')).toBe('#N/A!');
+    expect(evaluate('=ERROR.TYPE(NA())')).toBe('7'); // #N/A
+    // Non-error returns #N/A
+    expect(evaluate('=ERROR.TYPE(1)')).toBe('#N/A');
+    expect(evaluate('=ERROR.TYPE("hello")')).toBe('#N/A');
   });
 
   it('should correctly evaluate ISDATE function', () => {
@@ -1511,7 +1511,7 @@ describe('Formula', () => {
     // Not found with fallback
     expect(evaluate('=XLOOKUP(99,A1:A3,B1:B3,"missing")', grid)).toBe('missing');
     // Not found without fallback
-    expect(evaluate('=XLOOKUP(99,A1:A3,B1:B3)', grid)).toBe('#N/A!');
+    expect(evaluate('=XLOOKUP(99,A1:A3,B1:B3)', grid)).toBe('#N/A');
   });
 
   it('should correctly evaluate OFFSET function', () => {
@@ -1574,7 +1574,7 @@ describe('Formula', () => {
   it('should correctly evaluate REGEXEXTRACT function', () => {
     expect(evaluate('=REGEXEXTRACT("abc123","[0-9]+")')).toBe('123');
     expect(evaluate('=REGEXEXTRACT("hello","(h.*o)")')).toBe('hello');
-    expect(evaluate('=REGEXEXTRACT("abc","xyz")')).toBe('#N/A!');
+    expect(evaluate('=REGEXEXTRACT("abc","xyz")')).toBe('#N/A');
   });
 
   it('should correctly evaluate REGEXREPLACE function', () => {
@@ -1998,7 +1998,7 @@ describe('Formula', () => {
       ['A2', { v: 'hello' } as Cell],
     ]);
     expect(evaluate('=FORMULATEXT(A1)', grid)).toBe('=5+5');
-    expect(evaluate('=FORMULATEXT(A2)', grid)).toBe('#N/A!');
+    expect(evaluate('=FORMULATEXT(A2)', grid)).toBe('#N/A');
   });
 
   it('should correctly evaluate CEILING.MATH function', () => {

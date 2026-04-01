@@ -17,9 +17,9 @@ export function deltaFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
 
   const n1 = NumberArgs.map(visit(exprs[0]), grid);
   if (n1.t === 'err') return n1;
@@ -43,9 +43,9 @@ export function gestepFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
 
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
@@ -69,9 +69,9 @@ export function erfFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
 
   const lower = NumberArgs.map(visit(exprs[0]), grid);
   if (lower.t === 'err') return lower;
@@ -94,9 +94,9 @@ export function erfcFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
 
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
@@ -113,9 +113,9 @@ export function convertFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
 
   const numNode = NumberArgs.map(visit(exprs[0]), grid);
   if (numNode.t === 'err') return numNode;
@@ -190,8 +190,8 @@ export function convertFunc(
 
   const fromUnit = units[from];
   const toUnit = units[to];
-  if (!fromUnit || !toUnit) return { t: 'err', v: '#N/A!' };
-  if (fromUnit.category !== toUnit.category) return { t: 'err', v: '#N/A!' };
+  if (!fromUnit || !toUnit) return { t: 'err', v: '#N/A' };
+  if (fromUnit.category !== toUnit.category) return { t: 'err', v: '#N/A' };
 
   if (fromUnit.category === 'temperature') {
     // Convert to Celsius first, then to target
@@ -220,9 +220,9 @@ export function bitandFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -240,9 +240,9 @@ export function bitorFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -260,9 +260,9 @@ export function bitxorFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -280,9 +280,9 @@ export function bitlshiftFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -300,9 +300,9 @@ export function bitrshiftFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const a = NumberArgs.map(visit(exprs[0]), grid);
   if (a.t === 'err') return a;
   const b = NumberArgs.map(visit(exprs[1]), grid);
@@ -320,9 +320,9 @@ export function hex2decFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const hex = s.v.trim();
@@ -344,9 +344,9 @@ export function dec2hexFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   let val = Math.trunc(num.v);
@@ -378,9 +378,9 @@ export function bin2decFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const bin = s.v.trim();
@@ -402,9 +402,9 @@ export function dec2binFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   let val = Math.trunc(num.v);
@@ -436,9 +436,9 @@ export function oct2decFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const oct = s.v.trim();
@@ -460,9 +460,9 @@ export function dec2octFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   let val = Math.trunc(num.v);
@@ -494,9 +494,9 @@ export function hex2binFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 16);
@@ -521,9 +521,9 @@ export function hex2octFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 16);
@@ -548,9 +548,9 @@ export function bin2hexFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 2);
@@ -575,9 +575,9 @@ export function bin2octFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 2);
@@ -602,9 +602,9 @@ export function oct2hexFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 8);
@@ -629,9 +629,9 @@ export function oct2binFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const dec = parseInt(s.v, 8);
@@ -656,9 +656,9 @@ export function complexFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
   const re = NumberArgs.map(visit(exprs[0]), grid);
   if (re.t === 'err') return re;
   const im = NumberArgs.map(visit(exprs[1]), grid);
@@ -693,9 +693,9 @@ export function imrealFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
@@ -712,9 +712,9 @@ export function imaginaryFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
@@ -731,9 +731,9 @@ export function imabsFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
@@ -750,9 +750,9 @@ export function imsumFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1) return { t: 'err', v: '#N/A' };
   let re = 0, im = 0;
   for (const expr of exprs) {
     const s = toStr(visit(expr), grid);
@@ -774,9 +774,9 @@ export function imsubFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const s1 = toStr(visit(exprs[0]), grid);
   if (s1.t === 'err') return s1;
   const c1 = parseComplex(s1.v);
@@ -797,9 +797,9 @@ export function improductFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1) return { t: 'err', v: '#N/A' };
   let re = 1, im = 0;
   for (const expr of exprs) {
     const s = toStr(visit(expr), grid);
@@ -823,9 +823,9 @@ export function imdivFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const s1 = toStr(visit(exprs[0]), grid);
   if (s1.t === 'err') return s1;
   const c1 = parseComplex(s1.v);
@@ -877,9 +877,9 @@ export function impowerFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);
@@ -1153,9 +1153,9 @@ export function besseljFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   const n = NumberArgs.map(visit(exprs[1]), grid);
@@ -1174,9 +1174,9 @@ export function besselyFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   const n = NumberArgs.map(visit(exprs[1]), grid);
@@ -1196,9 +1196,9 @@ export function besseliFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   const n = NumberArgs.map(visit(exprs[1]), grid);
@@ -1217,9 +1217,9 @@ export function besselkFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
   const n = NumberArgs.map(visit(exprs[1]), grid);
@@ -1287,9 +1287,9 @@ function parseComplexArg(
   grid?: Grid,
 ): { re: number; im: number } | EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const s = toStr(visit(exprs[0]), grid);
   if (s.t === 'err') return s;
   const c = parseComplex(s.v);

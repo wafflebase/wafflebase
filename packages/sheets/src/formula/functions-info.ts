@@ -24,12 +24,12 @@ export function isblankFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
@@ -58,12 +58,12 @@ export function isnumberFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
@@ -100,12 +100,12 @@ export function istextFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
@@ -144,12 +144,12 @@ export function iserrorFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const value = visit(exprs[0]);
@@ -158,7 +158,7 @@ export function iserrorFunc(
 
 /**
  * `iserrFunc` is the implementation of the ISERR function.
- * ISERR(value) — returns TRUE for all errors except #N/A!.
+ * ISERR(value) — returns TRUE for all errors except #N/A.
  */
 export function iserrFunc(
   ctx: FunctionContext,
@@ -167,21 +167,21 @@ export function iserrFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const value = visit(exprs[0]);
-  return { t: 'bool', v: value.t === 'err' && value.v !== '#N/A!' };
+  return { t: 'bool', v: value.t === 'err' && value.v !== '#N/A' };
 }
 
 /**
  * `isnaFunc` is the implementation of the ISNA function.
- * ISNA(value) — returns TRUE only for #N/A! errors.
+ * ISNA(value) — returns TRUE only for #N/A errors.
  */
 export function isnaFunc(
   ctx: FunctionContext,
@@ -190,16 +190,16 @@ export function isnaFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const value = visit(exprs[0]);
-  return { t: 'bool', v: value.t === 'err' && value.v === '#N/A!' };
+  return { t: 'bool', v: value.t === 'err' && value.v === '#N/A' };
 }
 
 /**
@@ -213,12 +213,12 @@ export function islogicalFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
@@ -251,12 +251,12 @@ export function isnontextFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
@@ -296,9 +296,9 @@ export function isevenFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   return { t: 'bool', v: Math.trunc(num.v) % 2 === 0 };
@@ -313,9 +313,9 @@ export function isoddFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   return { t: 'bool', v: Math.trunc(num.v) % 2 !== 0 };
@@ -331,12 +331,12 @@ export function isdateFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
@@ -366,9 +366,9 @@ export function isurlFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
 
   const node = visit(exprs[0]);
   const s = toStr(node, grid);
@@ -387,9 +387,9 @@ export function isformulaFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
 
   const node = visit(exprs[0]);
   if (node.t !== 'ref' || !grid) return { t: 'bool', v: false };
@@ -408,9 +408,9 @@ export function isrefFunc(
   _grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
 
   const node = visit(exprs[0]);
   return { t: 'bool', v: node.t === 'ref' };
@@ -426,12 +426,12 @@ export function nFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
@@ -460,7 +460,7 @@ export function nFunc(
 }
 
 /**
- * NA() — returns the #N/A! error value.
+ * NA() — returns the #N/A error value.
  */
 export function naFunc(
   ctx: FunctionContext,
@@ -469,10 +469,10 @@ export function naFunc(
 ): EvalNode {
   const args = ctx.args();
   if (args && args.expr().length > 0) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
-  return { t: 'err', v: '#N/A!' };
+  return { t: 'err', v: '#N/A' };
 }
 
 /**
@@ -486,12 +486,12 @@ export function typeFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
@@ -513,7 +513,7 @@ export function typeFunc(
 
 /**
  * ERROR.TYPE(value) — returns a number corresponding to the error type.
- * 1=#NULL!, 2=#DIV/0!, 3=#VALUE!, 4=#REF!, 5=#NAME?, 6=#NUM!, 7=#N/A!, 8=#ERROR!
+ * 1=#NULL!, 2=#DIV/0!, 3=#VALUE!, 4=#REF!, 5=#NAME?, 6=#NUM!, 7=#N/A, 8=#ERROR!
  */
 export function errortypeFunc(
   ctx: FunctionContext,
@@ -522,17 +522,17 @@ export function errortypeFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const node = visit(exprs[0]);
   if (node.t !== 'err') {
-    return { t: 'err', v: '#N/A!' };
+    return { t: 'err', v: '#N/A' };
   }
 
   const errorMap: Record<string, number> = {
@@ -542,7 +542,7 @@ export function errortypeFunc(
     '#REF!': 4,
     '#NAME?': 5,
     '#NUM!': 6,
-    '#N/A!': 7,
+    '#N/A': 7,
     '#ERROR!': 8,
   };
 
@@ -551,7 +551,7 @@ export function errortypeFunc(
     return { t: 'num', v: code };
   }
 
-  return { t: 'err', v: '#N/A!' };
+  return { t: 'err', v: '#N/A' };
 }
 
 /**
@@ -563,16 +563,16 @@ export function formulatextFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A!' };
+  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
 
   const node = visit(exprs[0]);
-  if (node.t !== 'ref' || !grid) return { t: 'err', v: '#N/A!' };
+  if (node.t !== 'ref' || !grid) return { t: 'err', v: '#N/A' };
   if (isSrng(node.v)) return { t: 'err', v: '#VALUE!' };
 
   const cell = grid.get(node.v);
-  if (!cell || !cell.f) return { t: 'err', v: '#N/A!' };
+  if (!cell || !cell.f) return { t: 'err', v: '#N/A' };
   return { t: 'str', v: cell.f };
 }
 
@@ -586,9 +586,9 @@ export function cellInfoFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A!' };
+  if (!args) return { t: 'err', v: '#N/A' };
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A!' };
+  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
   const infoType = toStr(visit(exprs[0]), grid);
   if (infoType.t === 'err') return infoType;
   const typeStr = infoType.v.toLowerCase();
