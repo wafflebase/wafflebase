@@ -1,6 +1,6 @@
 // packages/docs/test/store/block-helpers.test.ts
 import { describe, it, expect } from 'vitest';
-import { resolveOffset, resolveDeleteRange } from '../../src/store/block-helpers.js';
+import { resolveOffset, resolveDeleteRange, applyInsertText, applyDeleteText } from '../../src/store/block-helpers.js';
 import type { Block } from '../../src/model/types.js';
 import { DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 
@@ -70,5 +70,82 @@ describe('resolveDeleteRange', () => {
     expect(resolveDeleteRange(block, 1, 100)).toEqual([
       { inlineIndex: 0, charFrom: 1, charTo: 2 },
     ]);
+  });
+});
+
+describe('applyInsertText', () => {
+  it('inserts text in single inline', () => {
+    const block = makeBlock({ text: 'Helo' });
+    const result = applyInsertText(block, 3, 'l');
+    expect(result.inlines[0].text).toBe('Hello');
+  });
+
+  it('inserts text at inline boundary', () => {
+    const block = makeBlock({ text: 'AB' }, { text: 'CD' });
+    const result = applyInsertText(block, 2, 'X');
+    expect(result.inlines[0].text).toBe('ABX');
+    expect(result.inlines[1].text).toBe('CD');
+  });
+
+  it('inserts text at offset 0', () => {
+    const block = makeBlock({ text: 'Hello' });
+    const result = applyInsertText(block, 0, 'X');
+    expect(result.inlines[0].text).toBe('XHello');
+  });
+
+  it('preserves inline styles', () => {
+    const block = makeBlock({ text: 'AB', style: { bold: true } });
+    const result = applyInsertText(block, 1, 'X');
+    expect(result.inlines[0].text).toBe('AXB');
+    expect(result.inlines[0].style).toEqual({ bold: true });
+  });
+});
+
+describe('applyDeleteText', () => {
+  it('deletes within single inline', () => {
+    const block = makeBlock({ text: 'Hello' });
+    const result = applyDeleteText(block, 1, 3);
+    expect(result.inlines[0].text).toBe('Ho');
+  });
+
+  it('deletes across inline boundary with different styles', () => {
+    const block = makeBlock({ text: 'Hello' }, { text: 'World', style: { bold: true } });
+    const result = applyDeleteText(block, 3, 4);
+    expect(result.inlines[0].text).toBe('Hel');
+    expect(result.inlines[1].text).toBe('rld');
+    expect(result.inlines[1].style).toEqual({ bold: true });
+  });
+
+  it('deletes across inline boundary with same styles — merges', () => {
+    const block = makeBlock({ text: 'Hello' }, { text: 'World' });
+    const result = applyDeleteText(block, 3, 4);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('Helrld');
+  });
+
+  it('removes empty inlines after deletion (keeps at least one)', () => {
+    const block = makeBlock({ text: 'AB' }, { text: 'CD' });
+    const result = applyDeleteText(block, 0, 2);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('CD');
+  });
+
+  it('keeps one empty inline when all text is deleted', () => {
+    const block = makeBlock({ text: 'AB' });
+    const result = applyDeleteText(block, 0, 2);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('');
+  });
+
+  it('normalizes adjacent same-style inlines after deletion', () => {
+    const block = makeBlock(
+      { text: 'AA', style: { bold: true } },
+      { text: 'XX' },
+      { text: 'BB', style: { bold: true } },
+    );
+    const result = applyDeleteText(block, 2, 2);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('AABB');
+    expect(result.inlines[0].style).toEqual({ bold: true });
   });
 });
