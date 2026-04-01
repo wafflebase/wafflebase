@@ -113,12 +113,18 @@ export class Doc {
    * Insert text at a document position.
    */
   insertText(pos: DocPosition, text: string): void {
-    const block = this.getBlock(pos.blockId);
-    const { inlineIndex, charOffset } = this.resolveOffset(block, pos.offset);
-    const inline = block.inlines[inlineIndex];
-    inline.text =
-      inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
-    this.updateBlockInStore(pos.blockId, block);
+    const cellInfo = this._blockParentMap.get(pos.blockId);
+    if (cellInfo) {
+      // Table cell path — keep existing behavior for now (Phase 4)
+      const block = this.getBlock(pos.blockId);
+      const { inlineIndex, charOffset } = this.resolveOffset(block, pos.offset);
+      const inline = block.inlines[inlineIndex];
+      inline.text =
+        inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
+      this.updateBlockInStore(pos.blockId, block);
+    } else {
+      this.store.insertText(pos.blockId, pos.offset, text);
+    }
     this.refresh();
   }
 
@@ -126,34 +132,40 @@ export class Doc {
    * Delete `length` characters forward from position.
    */
   deleteText(pos: DocPosition, length: number): void {
-    const block = this.getBlock(pos.blockId);
-    const blockLen = getBlockTextLength(block);
-    let remaining = Math.min(length, blockLen - pos.offset);
-    if (remaining <= 0) return;
+    const cellInfo = this._blockParentMap.get(pos.blockId);
+    if (cellInfo) {
+      // Table cell path — keep existing behavior for now (Phase 4)
+      const block = this.getBlock(pos.blockId);
+      const blockLen = getBlockTextLength(block);
+      let remaining = Math.min(length, blockLen - pos.offset);
+      if (remaining <= 0) return;
 
-    let offset = pos.offset;
+      let offset = pos.offset;
 
-    while (remaining > 0) {
-      const { inlineIndex, charOffset } = this.resolveOffset(block, offset);
-      const inline = block.inlines[inlineIndex];
-      const available = inline.text.length - charOffset;
-      if (available <= 0) break;
-      const toDelete = Math.min(remaining, available);
+      while (remaining > 0) {
+        const { inlineIndex, charOffset } = this.resolveOffset(block, offset);
+        const inline = block.inlines[inlineIndex];
+        const available = inline.text.length - charOffset;
+        if (available <= 0) break;
+        const toDelete = Math.min(remaining, available);
 
-      inline.text =
-        inline.text.slice(0, charOffset) +
-        inline.text.slice(charOffset + toDelete);
+        inline.text =
+          inline.text.slice(0, charOffset) +
+          inline.text.slice(charOffset + toDelete);
 
-      remaining -= toDelete;
+        remaining -= toDelete;
 
-      // Remove empty inlines (but keep at least one)
-      if (inline.text.length === 0 && block.inlines.length > 1) {
-        block.inlines.splice(inlineIndex, 1);
+        // Remove empty inlines (but keep at least one)
+        if (inline.text.length === 0 && block.inlines.length > 1) {
+          block.inlines.splice(inlineIndex, 1);
+        }
       }
-    }
 
-    this.normalizeInlines(block);
-    this.updateBlockInStore(pos.blockId, block);
+      this.normalizeInlines(block);
+      this.updateBlockInStore(pos.blockId, block);
+    } else {
+      this.store.deleteText(pos.blockId, pos.offset, length);
+    }
     this.refresh();
   }
 
