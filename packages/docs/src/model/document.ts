@@ -561,6 +561,10 @@ export class Doc {
       cells.push(createTableCell());
     }
     td.rows.splice(atIndex, 0, { cells });
+    if (td.rowHeights) {
+      td.rowHeights.splice(atIndex, 0, undefined);
+      this.store.updateTableAttrs(blockId, { cols: td.columnWidths, rowHeights: td.rowHeights });
+    }
     this.store.insertTableRow(blockId, atIndex, td.rows[atIndex]);
     this.refresh();
   }
@@ -586,6 +590,10 @@ export class Doc {
       }
     }
     td.rows.splice(rowIndex, 1);
+    if (td.rowHeights) {
+      td.rowHeights.splice(rowIndex, 1);
+      this.store.updateTableAttrs(blockId, { cols: td.columnWidths, rowHeights: td.rowHeights });
+    }
     this.store.deleteTableRow(blockId, rowIndex);
     this.refresh();
   }
@@ -769,6 +777,26 @@ export class Doc {
       }
     }
     this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
+    this.refresh();
+  }
+
+  resizeColumn(blockId: string, colIndex: number, leftRatio: number, rightRatio: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    td.columnWidths[colIndex] = leftRatio;
+    td.columnWidths[colIndex + 1] = rightRatio;
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths });
+    this.refresh();
+  }
+
+  setRowHeight(blockId: string, rowIndex: number, height: number): void {
+    const block = this.getBlock(blockId);
+    const td = block.tableData!;
+    if (!td.rowHeights) {
+      td.rowHeights = new Array(td.rows.length).fill(undefined);
+    }
+    td.rowHeights[rowIndex] = height;
+    this.store.updateTableAttrs(blockId, { cols: td.columnWidths, rowHeights: td.rowHeights });
     this.refresh();
   }
 

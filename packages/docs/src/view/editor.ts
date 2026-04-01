@@ -130,6 +130,7 @@ export function initialize(
 
   // Create canvas (viewport-sized) and a spacer div for scroll height
   const canvas = document.createElement('canvas');
+  canvas.dataset.role = 'doc-canvas';
   canvas.style.display = 'block';
   canvas.style.position = 'sticky';
   canvas.style.top = '0';
@@ -643,6 +644,13 @@ export function initialize(
     invalidateLayout,
   );
   textEditorRef = textEditor;
+
+  if (textEditor) {
+    textEditor.onDragGuideline = (pos) => {
+      dragGuideline = pos;
+      renderPaintOnly();
+    };
+  }
 
   // Start cursor blink (skip in read-only — no cursor visible)
   if (!readOnly) {

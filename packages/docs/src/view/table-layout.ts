@@ -292,6 +292,16 @@ export function computeTableLayout(
     }
   }
 
+  // 5b. Apply user-specified row heights as minimums
+  if (tableData.rowHeights) {
+    for (let r = 0; r < numRows; r++) {
+      const userHeight = tableData.rowHeights[r];
+      if (userHeight !== undefined && userHeight > rowHeights[r]) {
+        rowHeights[r] = userHeight;
+      }
+    }
+  }
+
   // 6. Compute row Y offsets (cumulative sum)
   const rowYOffsets: number[] = [];
   let yOffset = 0;

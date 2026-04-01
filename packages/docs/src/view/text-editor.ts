@@ -12,6 +12,7 @@ import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
 import { findVisualLine } from './visual-line.js';
+import { detectTableBorder, createDragState, type BorderDragState } from './table-resize.js';
 
 /**
  * Composition (IME) state tracker.
@@ -48,6 +49,7 @@ export class TextEditor {
   private lastClickTime = 0;
   private lastClickX = 0;
   private lastClickY = 0;
+  private borderDragState: BorderDragState | null = null;
   private static readonly DOUBLE_CLICK_MS = 500;
   private static readonly DOUBLE_CLICK_DIST = 5;
   private composition: CompositionState = {
@@ -100,6 +102,18 @@ export class TextEditor {
 
   /** Callback invoked when Cmd/Ctrl+H is pressed to open find & replace bar. */
   onFindReplaceRequest?: () => void;
+
+  /** Callback to update the drag guideline overlay in the editor paint loop. */
+  onDragGuideline?: (pos: { x?: number; y?: number } | null) => void;
+
+  getBorderDragState(): BorderDragState | null {
+    return this.borderDragState;
+  }
+
+  private setCanvasCursor(cursor: string): void {
+    const canvas = this.container.querySelector('canvas[data-role="doc-canvas"]') as HTMLCanvasElement | null;
+    if (canvas) canvas.style.cursor = cursor;
+  }
 
   constructor(
     container: HTMLElement,
@@ -650,6 +664,52 @@ export class TextEditor {
     this.requestRender();
   };
 
+  private resolveTableFromMouse(e: MouseEvent): {
+    tableBlockId: string;
+    localX: number;
+    localY: number;
+    layout: import('./table-layout.js').LayoutTable;
+    tableOriginX: number;
+    tableOriginY: number;
+  } | null {
+    const rect = this.container.getBoundingClientRect();
+    const s = this.getScaleFactor();
+    const mouseX = (e.clientX - rect.left + this.container.scrollLeft) / s;
+    const mouseY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
+
+    const layout = this.getLayout();
+    const paginatedLayout = this.getPaginatedLayout();
+    const { margins } = paginatedLayout.pageSetup;
+    const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+
+    for (const lb of layout.blocks) {
+      if (lb.block.type !== 'table' || !lb.layoutTable) continue;
+      const tl = lb.layoutTable;
+      const blockIndex = layout.blocks.indexOf(lb);
+
+      let tablePageY = 0;
+      for (const page of paginatedLayout.pages) {
+        for (const pl of page.lines) {
+          if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
+            tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
+            break;
+          }
+        }
+        if (tablePageY !== 0) break;
+      }
+
+      const tableOriginX = pageX + margins.left;
+      const tableOriginY = tablePageY;
+      const localX = mouseX - tableOriginX;
+      const localY = mouseY - tableOriginY;
+
+      if (localX >= 0 && localX <= tl.totalWidth && localY >= 0 && localY <= tl.totalHeight) {
+        return { tableBlockId: lb.block.id, localX, localY, layout: tl, tableOriginX, tableOriginY };
+      }
+    }
+    return null;
+  }
+
   private handleMouseDown = (e: MouseEvent): void => {
     if (e.target === this.textarea) return;
 
@@ -671,6 +731,30 @@ export class TextEditor {
     }
 
     e.preventDefault();
+
+    // Check for border resize drag
+    const tableInfo = this.resolveTableFromMouse(e);
+    if (tableInfo) {
+      const hit = detectTableBorder(tableInfo.layout, tableInfo.localX, tableInfo.localY);
+      if (hit) {
+        const pixel = hit.type === 'column'
+          ? tableInfo.tableOriginX + tableInfo.layout.columnXOffsets[hit.index] + tableInfo.layout.columnPixelWidths[hit.index]
+          : tableInfo.tableOriginY + tableInfo.layout.rowYOffsets[hit.index] + tableInfo.layout.rowHeights[hit.index];
+        this.borderDragState = createDragState(
+          hit,
+          tableInfo.tableBlockId,
+          tableInfo.layout,
+          pixel,
+          hit.type === 'column' ? tableInfo.tableOriginX : tableInfo.tableOriginY,
+        );
+        this.isMouseDown = true;
+        // Listen on document so drag works even if mouse leaves the editor
+        document.addEventListener('mousemove', this.handleMouseMove);
+        document.addEventListener('mouseup', this.handleMouseUp);
+        return;
+      }
+    }
+
     this.flushHangul();
     this.focus();
     this.isMouseDown = true;
@@ -813,17 +897,94 @@ export class TextEditor {
   };
 
   private handleMouseMove = (e: MouseEvent): void => {
-    if (!this.isMouseDown || !this.selection.range) return;
+    // During border drag: update drag position and guideline
+    if (this.borderDragState) {
+      const rect = this.container.getBoundingClientRect();
+      const s = this.getScaleFactor();
+      const pixel = this.borderDragState.type === 'column'
+        ? (e.clientX - rect.left + this.container.scrollLeft) / s
+        : (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
+      this.borderDragState.currentPixel = Math.max(
+        this.borderDragState.minPixel,
+        Math.min(this.borderDragState.maxPixel, pixel),
+      );
+      if (this.borderDragState.type === 'column') {
+        this.onDragGuideline?.({ x: this.borderDragState.currentPixel });
+      } else {
+        this.onDragGuideline?.({ y: this.borderDragState.currentPixel });
+      }
+      return;
+    }
 
+    // Cursor style: check for border proximity
+    const tableInfo = this.resolveTableFromMouse(e);
+    if (tableInfo) {
+      const hit = detectTableBorder(tableInfo.layout, tableInfo.localX, tableInfo.localY);
+      if (hit) {
+        this.setCanvasCursor(hit.type === 'column' ? 'col-resize' : 'row-resize');
+      } else {
+        this.setCanvasCursor('text');
+      }
+    } else {
+      this.setCanvasCursor('text');
+    }
+
+    // Existing drag selection logic
+    if (!this.isMouseDown || !this.selection.range) return;
     this.lastMouseClientY = e.clientY;
     this.updateDragSelection(e.clientX, e.clientY);
     this.startDragScroll();
   };
 
   private handleMouseUp = (): void => {
+    if (this.borderDragState) {
+      document.removeEventListener('mousemove', this.handleMouseMove);
+      document.removeEventListener('mouseup', this.handleMouseUp);
+      this.applyBorderDrag();
+      this.borderDragState = null;
+      this.isMouseDown = false;
+      this.onDragGuideline?.(null);
+      return;
+    }
     this.isMouseDown = false;
     this.stopDragScroll();
   };
+
+  private applyBorderDrag(): void {
+    const drag = this.borderDragState;
+    if (!drag) return;
+
+    const deltaPx = drag.currentPixel - drag.startPixel;
+    if (Math.abs(deltaPx) < 1) return;
+
+    this.saveSnapshot();
+
+    if (drag.type === 'column') {
+      const layout = this.getLayout();
+      const lb = layout.blocks.find((b) => b.block.id === drag.tableBlockId);
+      if (!lb?.layoutTable) return;
+      const tl = lb.layoutTable;
+      const contentWidth = tl.totalWidth;
+      const oldLeftWidth = tl.columnPixelWidths[drag.index];
+      const oldRightWidth = tl.columnPixelWidths[drag.index + 1];
+      const newLeftWidth = oldLeftWidth + deltaPx;
+      const newRightWidth = oldRightWidth - deltaPx;
+      const newLeftRatio = newLeftWidth / contentWidth;
+      const newRightRatio = newRightWidth / contentWidth;
+      this.doc.resizeColumn(drag.tableBlockId, drag.index, newLeftRatio, newRightRatio);
+    } else {
+      const layout = this.getLayout();
+      const lb = layout.blocks.find((b) => b.block.id === drag.tableBlockId);
+      if (!lb?.layoutTable) return;
+      const tl = lb.layoutTable;
+      const currentHeight = tl.rowHeights[drag.index];
+      const newHeight = Math.max(currentHeight + deltaPx, 20);
+      this.doc.setRowHeight(drag.tableBlockId, drag.index, newHeight);
+    }
+
+    this.markDirty(drag.tableBlockId);
+    this.requestRender();
+  }
 
   private updateDragSelection(clientX: number, clientY: number): void {
     const rect = this.container.getBoundingClientRect();
