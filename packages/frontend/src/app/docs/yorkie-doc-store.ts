@@ -19,6 +19,8 @@ import {
   resolvePageSetup,
   normalizeBlockStyle,
   DEFAULT_BLOCK_STYLE,
+  resolveOffset,
+  resolveDeleteRange,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -444,6 +446,55 @@ export class YorkieDocStore implements DocStore {
     currentDoc.blocks[index] = block;
     this.cachedDoc = currentDoc;
     this.dirty = false;
+  }
+
+  insertText(blockId: string, offset: number, text: string): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
+    const block = currentDoc.blocks[blockIdx];
+
+    const { inlineIndex, charOffset } = resolveOffset(block, offset);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.editByPath(
+        [blockIdx, inlineIndex, 0, charOffset],
+        [blockIdx, inlineIndex, 0, charOffset],
+        { type: 'text', value: text },
+      );
+    });
+
+    // Invalidate cache so next getDocument() reads fresh tree
+    this.dirty = true;
+    this.cachedDoc = null;
+  }
+
+  deleteText(blockId: string, offset: number, length: number): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
+    const block = currentDoc.blocks[blockIdx];
+
+    const segments = resolveDeleteRange(block, offset, length);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Reverse order: later segments first to preserve earlier indices
+      for (let i = segments.length - 1; i >= 0; i--) {
+        const seg = segments[i];
+        tree.editByPath(
+          [blockIdx, seg.inlineIndex, 0, seg.charFrom],
+          [blockIdx, seg.inlineIndex, 0, seg.charTo],
+        );
+      }
+    });
+
+    // Invalidate cache
+    this.dirty = true;
+    this.cachedDoc = null;
   }
 
   insertBlock(index: number, block: Block): void {
