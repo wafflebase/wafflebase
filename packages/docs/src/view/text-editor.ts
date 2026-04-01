@@ -110,6 +110,11 @@ export class TextEditor {
     return this.borderDragState;
   }
 
+  private setCanvasCursor(cursor: string): void {
+    const canvas = this.container.querySelector('canvas[data-role="doc-canvas"]') as HTMLCanvasElement | null;
+    if (canvas) canvas.style.cursor = cursor;
+  }
+
   constructor(
     container: HTMLElement,
     doc: Doc,
@@ -913,12 +918,12 @@ export class TextEditor {
     if (tableInfo) {
       const hit = detectTableBorder(tableInfo.layout, tableInfo.localX, tableInfo.localY);
       if (hit) {
-        this.container.style.cursor = hit.type === 'column' ? 'col-resize' : 'row-resize';
+        this.setCanvasCursor(hit.type === 'column' ? 'col-resize' : 'row-resize');
       } else {
-        this.container.style.cursor = '';
+        this.setCanvasCursor('text');
       }
     } else {
-      this.container.style.cursor = '';
+      this.setCanvasCursor('text');
     }
 
     // Existing drag selection logic
