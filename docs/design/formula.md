@@ -99,7 +99,7 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
    - `StrNode { t: 'str', v: string }`
    - `BoolNode { t: 'bool', v: boolean }`
    - `RefNode { t: 'ref', v: Reference }`
-   - `ErrNode { t: 'err', v: '#VALUE!' | '#REF!' | '#N/A' | '#ERROR!' }`
+   - `ErrNode { t: 'err', v: '#VALUE!' | '#REF!' | '#N/A' | '#ERROR!' | '#DIV/0!' }`
    - `EmptyNode { t: 'empty' }` — sentinel for omitted arguments
    - `ArrNode { t: 'arr', v: EvalNode[][], rows, cols }` — array literal
    - `LambdaNode { t: 'lambda', params, body, closureScope }` — lambda
@@ -182,6 +182,7 @@ argument info.
 | `#REF!`   | Invalid cell reference (deleted cell, circular dependency, out-of-range) |
 | `#N/A`    | Function returned no applicable result (missing args)                    |
 | `#ERROR!` | Catch-all for unexpected evaluation errors                               |
+| `#DIV/0!` | Division by zero                                                         |
 
 On commit (`Sheet.setData`), formula input is normalized for one safe case:
 if syntax errors are only `missing ')' at '<EOF>'`, the engine appends the
