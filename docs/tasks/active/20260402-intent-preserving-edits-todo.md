@@ -20,7 +20,7 @@
 - Create: `packages/docs/src/store/block-helpers.ts`
 - Create: `packages/docs/test/store/block-helpers.test.ts`
 
-- [ ] **Step 1: Write failing tests for resolveOffset**
+- [x] **Step 1: Write failing tests for resolveOffset**
 
 ```typescript
 // packages/docs/test/store/block-helpers.test.ts
@@ -103,12 +103,12 @@ describe('resolveDeleteRange', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/store/block-helpers.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement resolveOffset and resolveDeleteRange**
+- [x] **Step 3: Implement resolveOffset and resolveDeleteRange**
 
 ```typescript
 // packages/docs/src/store/block-helpers.ts
@@ -176,12 +176,12 @@ export function resolveDeleteRange(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/store/block-helpers.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/store/block-helpers.ts packages/docs/test/store/block-helpers.test.ts
@@ -196,7 +196,7 @@ git commit -m "Add block-helpers with resolveOffset and resolveDeleteRange"
 - Modify: `packages/docs/src/store/block-helpers.ts`
 - Modify: `packages/docs/test/store/block-helpers.test.ts`
 
-- [ ] **Step 1: Write failing tests for applyInsertText and applyDeleteText**
+- [x] **Step 1: Write failing tests for applyInsertText and applyDeleteText**
 
 ```typescript
 // Append to packages/docs/test/store/block-helpers.test.ts
@@ -276,12 +276,12 @@ describe('applyDeleteText', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/store/block-helpers.test.ts`
 Expected: FAIL — applyInsertText/applyDeleteText not exported
 
-- [ ] **Step 3: Implement applyInsertText, applyDeleteText, and normalizeInlines**
+- [x] **Step 3: Implement applyInsertText, applyDeleteText, and normalizeInlines**
 
 ```typescript
 // Append to packages/docs/src/store/block-helpers.ts
@@ -345,12 +345,12 @@ function cloneBlock(block: Block): Block {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/store/block-helpers.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/store/block-helpers.ts packages/docs/test/store/block-helpers.test.ts
@@ -366,7 +366,7 @@ git commit -m "Add applyInsertText and applyDeleteText helpers"
 - Modify: `packages/docs/src/store/memory.ts`
 - Modify: `packages/docs/test/store/memory.test.ts`
 
-- [ ] **Step 1: Write failing tests for MemDocStore.insertText and deleteText**
+- [x] **Step 1: Write failing tests for MemDocStore.insertText and deleteText**
 
 ```typescript
 // Append to packages/docs/test/store/memory.test.ts
@@ -417,12 +417,12 @@ describe('fine-grained text editing', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/store/memory.test.ts`
 Expected: FAIL — insertText/deleteText not defined
 
-- [ ] **Step 3: Add insertText and deleteText to DocStore interface**
+- [x] **Step 3: Add insertText and deleteText to DocStore interface**
 
 ```typescript
 // Add to packages/docs/src/store/store.ts, after deleteBlockByIndex
@@ -432,7 +432,7 @@ insertText(blockId: string, offset: number, text: string): void;
 deleteText(blockId: string, offset: number, length: number): void;
 ```
 
-- [ ] **Step 4: Implement in MemDocStore**
+- [x] **Step 4: Implement in MemDocStore**
 
 ```typescript
 // Add to packages/docs/src/store/memory.ts
@@ -452,17 +452,17 @@ deleteText(blockId: string, offset: number, length: number): void {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/store/memory.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Run full verify**
+- [x] **Step 6: Run full verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/store/store.ts packages/docs/src/store/memory.ts packages/docs/test/store/memory.test.ts
@@ -476,7 +476,7 @@ git commit -m "Add insertText and deleteText to DocStore and MemDocStore"
 **Files:**
 - Modify: `packages/frontend/src/app/docs/yorkie-doc-store.ts`
 
-- [ ] **Step 1: Add import and implement insertText**
+- [x] **Step 1: Add import and implement insertText**
 
 ```typescript
 // Add import at top of yorkie-doc-store.ts
@@ -503,7 +503,7 @@ insertText(blockId: string, offset: number, text: string): void {
 }
 ```
 
-- [ ] **Step 2: Implement deleteText**
+- [x] **Step 2: Implement deleteText**
 
 ```typescript
 // Add method to YorkieDocStore class
@@ -531,7 +531,7 @@ deleteText(blockId: string, offset: number, length: number): void {
 }
 ```
 
-- [ ] **Step 3: Add findBlockIndex helper if not already present**
+- [x] **Step 3: Add findBlockIndex helper if not already present**
 
 Check if `findBlockIndex(blockId)` exists. If not, add:
 
@@ -542,12 +542,12 @@ private findBlockIndex(blockId: string): number {
 }
 ```
 
-- [ ] **Step 4: Run verify**
+- [x] **Step 4: Run verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS (compile + existing tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/yorkie-doc-store.ts
@@ -562,7 +562,7 @@ git commit -m "Implement insertText and deleteText in YorkieDocStore"
 - Modify: `packages/docs/src/model/document.ts`
 - Modify: `packages/docs/test/model/document.test.ts`
 
-- [ ] **Step 1: Write tests verifying Doc.insertText uses store.insertText**
+- [x] **Step 1: Write tests verifying Doc.insertText uses store.insertText**
 
 Add a test that creates a Doc with a MemDocStore, calls `doc.insertText()`, and verifies the store's block is updated character-level (not full replacement).
 
@@ -587,7 +587,7 @@ it('deleteText delegates to store.deleteText', () => {
 });
 ```
 
-- [ ] **Step 2: Modify Doc.insertText to call store.insertText**
+- [x] **Step 2: Modify Doc.insertText to call store.insertText**
 
 ```typescript
 // packages/docs/src/model/document.ts — replace insertText method (~line 115)
@@ -610,7 +610,7 @@ insertText(pos: DocPosition, text: string): void {
 
 Note: Import `resolveOffset` from `../store/block-helpers.js` and remove the private `resolveOffset` method if it's now redundant, or keep it for other callers during migration.
 
-- [ ] **Step 3: Modify Doc.deleteText to call store.deleteText**
+- [x] **Step 3: Modify Doc.deleteText to call store.deleteText**
 
 ```typescript
 // packages/docs/src/model/document.ts — replace deleteText method (~line 128)
@@ -645,17 +645,17 @@ deleteText(pos: DocPosition, length: number): void {
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `cd packages/docs && npx vitest run`
 Expected: PASS
 
-- [ ] **Step 5: Run full verify**
+- [x] **Step 5: Run full verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts packages/docs/test/model/document.test.ts
@@ -672,7 +672,7 @@ git commit -m "Wire Doc.insertText and deleteText to store methods for top-level
 - Modify: `packages/docs/src/store/block-helpers.ts`
 - Modify: `packages/docs/test/store/block-helpers.test.ts`
 
-- [ ] **Step 1: Write failing tests for resolveStyleRange**
+- [x] **Step 1: Write failing tests for resolveStyleRange**
 
 ```typescript
 // Append to packages/docs/test/store/block-helpers.test.ts
@@ -724,12 +724,12 @@ describe('applyInlineStyle', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/store/block-helpers.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: Implement resolveStyleRange and applyInlineStyle**
+- [x] **Step 3: Implement resolveStyleRange and applyInlineStyle**
 
 ```typescript
 // Append to packages/docs/src/store/block-helpers.ts
@@ -798,12 +798,12 @@ export function applyInlineStyle(
 
 Note: Add `InlineStyle` to the import from `../model/types.js`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/store/block-helpers.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/store/block-helpers.ts packages/docs/test/store/block-helpers.test.ts
@@ -819,7 +819,7 @@ git commit -m "Add resolveStyleRange and applyInlineStyle helpers"
 - Modify: `packages/docs/src/store/memory.ts`
 - Modify: `packages/docs/test/store/memory.test.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```typescript
 // Append to packages/docs/test/store/memory.test.ts
@@ -837,7 +837,7 @@ describe('fine-grained styling', () => {
 });
 ```
 
-- [ ] **Step 2: Add applyStyle to DocStore interface**
+- [x] **Step 2: Add applyStyle to DocStore interface**
 
 ```typescript
 // Add to packages/docs/src/store/store.ts
@@ -852,7 +852,7 @@ applyStyle(
 
 Note: Add `InlineStyle` to the import from `../model/types.js`.
 
-- [ ] **Step 3: Implement in MemDocStore**
+- [x] **Step 3: Implement in MemDocStore**
 
 ```typescript
 // Add to packages/docs/src/store/memory.ts
@@ -865,12 +865,12 @@ applyStyle(blockId: string, fromOffset: number, toOffset: number, style: Partial
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/store/memory.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/store/store.ts packages/docs/src/store/memory.ts packages/docs/test/store/memory.test.ts
@@ -884,7 +884,7 @@ git commit -m "Add applyStyle to DocStore and MemDocStore"
 **Files:**
 - Modify: `packages/frontend/src/app/docs/yorkie-doc-store.ts`
 
-- [ ] **Step 1: Implement applyStyle using styleByPath per segment**
+- [x] **Step 1: Implement applyStyle using styleByPath per segment**
 
 ```typescript
 // Add to YorkieDocStore class
@@ -919,12 +919,12 @@ applyStyle(
 
 Note: Import `resolveStyleRange` from block-helpers. `serializeInlineStyle` already exists in this file.
 
-- [ ] **Step 2: Run verify**
+- [x] **Step 2: Run verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/yorkie-doc-store.ts
@@ -938,7 +938,7 @@ git commit -m "Implement applyStyle in YorkieDocStore using styleByPath"
 **Files:**
 - Modify: `packages/docs/src/model/document.ts`
 
-- [ ] **Step 1: Modify Doc.applyInlineStyle single-block path**
+- [x] **Step 1: Modify Doc.applyInlineStyle single-block path**
 
 In `applyInlineStyle` (~line 302), for the same-block case where both anchor
 and focus are in a top-level block (not table cell), replace:
@@ -956,12 +956,12 @@ this.store.applyStyle(block.id, start, end, style);
 
 Keep the table cell path and cross-block path unchanged for now.
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts
@@ -981,7 +981,7 @@ git commit -m "Wire Doc.applyInlineStyle to store.applyStyle for single-block ca
 - Modify: `packages/docs/src/store/memory.ts`
 - Modify: `packages/docs/test/store/memory.test.ts`
 
-- [ ] **Step 1: Write failing tests for applySplitBlock and applyMergeBlocks helpers**
+- [x] **Step 1: Write failing tests for applySplitBlock and applyMergeBlocks helpers**
 
 ```typescript
 // Append to packages/docs/test/store/block-helpers.test.ts
@@ -1046,12 +1046,12 @@ describe('applyMergeBlocks', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd packages/docs && npx vitest run test/store/block-helpers.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: Implement applySplitBlock and applyMergeBlocks**
+- [x] **Step 3: Implement applySplitBlock and applyMergeBlocks**
 
 ```typescript
 // Append to packages/docs/src/store/block-helpers.ts
@@ -1122,12 +1122,12 @@ export function applyMergeBlocks(block: Block, nextBlock: Block): Block {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/docs && npx vitest run test/store/block-helpers.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Add splitBlock and mergeBlock to DocStore interface**
+- [x] **Step 5: Add splitBlock and mergeBlock to DocStore interface**
 
 ```typescript
 // Add to packages/docs/src/store/store.ts
@@ -1144,7 +1144,7 @@ mergeBlock(blockId: string, nextBlockId: string): void;
 
 Note: Add `BlockType` to the import.
 
-- [ ] **Step 6: Implement in MemDocStore**
+- [x] **Step 6: Implement in MemDocStore**
 
 ```typescript
 // Add to MemDocStore class
@@ -1167,7 +1167,7 @@ mergeBlock(blockId: string, nextBlockId: string): void {
 }
 ```
 
-- [ ] **Step 7: Write and run MemDocStore tests**
+- [x] **Step 7: Write and run MemDocStore tests**
 
 ```typescript
 // Append to packages/docs/test/store/memory.test.ts
@@ -1198,7 +1198,7 @@ describe('structural editing', () => {
 Run: `cd packages/docs && npx vitest run test/store/memory.test.ts`
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/docs/src/store/store.ts packages/docs/src/store/block-helpers.ts packages/docs/test/store/block-helpers.test.ts packages/docs/src/store/memory.ts packages/docs/test/store/memory.test.ts
@@ -1212,7 +1212,7 @@ git commit -m "Add splitBlock and mergeBlock to DocStore, helpers, and MemDocSto
 **Files:**
 - Modify: `packages/frontend/src/app/docs/yorkie-doc-store.ts`
 
-- [ ] **Step 1: Implement splitBlock using single-level splitByPath calls**
+- [x] **Step 1: Implement splitBlock using single-level splitByPath calls**
 
 ```typescript
 // Add to YorkieDocStore class
@@ -1259,7 +1259,7 @@ Note: The exact split path indices and attribute setting depend on how Yorkie's
 implementation based on Yorkie's actual behavior. Write integration tests to
 verify the resulting tree structure.
 
-- [ ] **Step 2: Implement mergeBlock using single-level mergeByPath calls**
+- [x] **Step 2: Implement mergeBlock using single-level mergeByPath calls**
 
 ```typescript
 // Add to YorkieDocStore class
@@ -1293,12 +1293,12 @@ mergeBlock(blockId: string, nextBlockId: string): void {
 }
 ```
 
-- [ ] **Step 3: Run verify**
+- [x] **Step 3: Run verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/yorkie-doc-store.ts
@@ -1312,7 +1312,7 @@ git commit -m "Implement splitBlock and mergeBlock in YorkieDocStore"
 **Files:**
 - Modify: `packages/docs/src/model/document.ts`
 
-- [ ] **Step 1: Modify Doc.splitBlock for top-level blocks**
+- [x] **Step 1: Modify Doc.splitBlock for top-level blocks**
 
 In `splitBlock()` (~line 196), for the top-level (non-cell) path, replace the
 manual inline splitting + `store.updateBlock()` + `store.insertBlock()` with a
@@ -1353,7 +1353,7 @@ splitBlock(blockId: string, offset: number): string {
 }
 ```
 
-- [ ] **Step 2: Modify Doc.mergeBlocks for top-level blocks**
+- [x] **Step 2: Modify Doc.mergeBlocks for top-level blocks**
 
 ```typescript
 mergeBlocks(blockId: string, nextBlockId: string): void {
@@ -1369,12 +1369,12 @@ mergeBlocks(blockId: string, nextBlockId: string): void {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts
