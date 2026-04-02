@@ -82,7 +82,7 @@ auto-convert); Store handles persistence.
 ### 3. Common Helpers
 
 Document model manipulation logic is extracted into pure helper functions in
-`block-helpers.ts`. Both `MemDocStore` and `YorkieDocStore` reuse them.
+`packages/docs/src/store/block-helpers.ts`. Both `MemDocStore` and `YorkieDocStore` reuse them.
 
 **Why:** Avoids duplicating offset resolution, inline normalization, and
 split/merge logic across two Store implementations.
@@ -220,7 +220,7 @@ interface DocStore {
 packages/docs/src/store/
   ├── store.ts              # DocStore interface
   ├── memory.ts             # MemDocStore
-  ├── block-helpers.ts      # ← New: pure helper functions
+  ├── block-helpers.ts      # New: pure helper functions
 ```
 
 ### Helper Functions
@@ -375,7 +375,7 @@ mutation paths use fine-grained methods.
 | `packages/docs/src/store/store.ts` | Add new methods to DocStore interface |
 | `packages/docs/src/store/block-helpers.ts` | New file: pure helper functions |
 | `packages/docs/src/store/memory.ts` | Implement new methods using helpers |
-| `packages/frontend/.../yorkie-doc-store.ts` | Implement new methods with Yorkie Tree API |
+| `packages/frontend/src/app/docs/yorkie-doc-store.ts` | Implement new methods with Yorkie Tree API |
 | `packages/docs/src/model/document.ts` | Simplify to call store methods instead of manual manipulation |
 | `packages/docs/src/view/text-editor.ts` | No change (calls Doc methods as before) |
 
