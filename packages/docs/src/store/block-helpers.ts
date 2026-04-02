@@ -1,5 +1,5 @@
 // packages/docs/src/store/block-helpers.ts
-import type { Block, Inline, InlineStyle } from '../model/types.js';
+import type { Block, Inline, InlineStyle, BlockType } from '../model/types.js';
 import { inlineStylesEqual } from '../model/types.js';
 
 export interface InlinePosition {
@@ -114,7 +114,7 @@ export function applyDeleteText(block: Block, offset: number, length: number): B
   return newBlock;
 }
 
-function cloneBlock(block: Block): Block {
+export function cloneBlock(block: Block): Block {
   return JSON.parse(JSON.stringify(block));
 }
 
@@ -127,6 +127,68 @@ export function resolveStyleRange(
   to: number,
 ): InlineSegment[] {
   return resolveDeleteRange(block, from, to - from);
+}
+
+/**
+ * Split a block at offset. Returns [beforeBlock, afterBlock].
+ * The afterBlock gets the new id and type.
+ */
+export function applySplitBlock(
+  block: Block,
+  offset: number,
+  newBlockId: string,
+  newBlockType: BlockType,
+): [Block, Block] {
+  const before = cloneBlock(block);
+  const after = cloneBlock(block);
+  after.id = newBlockId;
+  after.type = newBlockType;
+
+  const beforeInlines: Inline[] = [];
+  const afterInlines: Inline[] = [];
+  let pos = 0;
+
+  for (const inline of block.inlines) {
+    const inlineEnd = pos + inline.text.length;
+
+    if (inlineEnd <= offset) {
+      beforeInlines.push({ text: inline.text, style: { ...inline.style } });
+    } else if (pos >= offset) {
+      afterInlines.push({ text: inline.text, style: { ...inline.style } });
+    } else {
+      const splitAt = offset - pos;
+      beforeInlines.push({
+        text: inline.text.slice(0, splitAt),
+        style: { ...inline.style },
+      });
+      afterInlines.push({
+        text: inline.text.slice(splitAt),
+        style: { ...inline.style },
+      });
+    }
+    pos = inlineEnd;
+  }
+
+  before.inlines = normalizeInlines(beforeInlines);
+  after.inlines = normalizeInlines(afterInlines);
+
+  // Remove block-specific attrs from after block
+  delete after.tableData;
+  delete after.headingLevel;
+  delete after.listKind;
+  delete after.listLevel;
+
+  return [before, after];
+}
+
+/**
+ * Merge nextBlock into block. Returns the merged block.
+ */
+export function applyMergeBlocks(block: Block, nextBlock: Block): Block {
+  const merged = cloneBlock(block);
+  const nextClone = cloneBlock(nextBlock);
+  merged.inlines = normalizeInlines([...merged.inlines, ...nextClone.inlines]);
+  return merged;
 }
 
 /**

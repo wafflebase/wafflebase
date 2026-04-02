@@ -1,6 +1,6 @@
 // packages/docs/test/store/block-helpers.test.ts
 import { describe, it, expect } from 'vitest';
-import { resolveOffset, resolveDeleteRange, applyInsertText, applyDeleteText, resolveStyleRange, applyInlineStyle } from '../../src/store/block-helpers.js';
+import { resolveOffset, resolveDeleteRange, applyInsertText, applyDeleteText, resolveStyleRange, applyInlineStyle, applySplitBlock, applyMergeBlocks } from '../../src/store/block-helpers.js';
 import type { Block } from '../../src/model/types.js';
 import { DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 
@@ -212,5 +212,69 @@ describe('applyInlineStyle', () => {
     const result = applyInlineStyle(block, 2, 4, { bold: true });
     expect(result.inlines).toHaveLength(1);
     expect(result.inlines[0]).toEqual({ text: 'ABCDEF', style: { bold: true } });
+  });
+});
+
+describe('applySplitBlock', () => {
+  it('splits block at offset', () => {
+    const block = makeBlock({ text: 'Hello World' });
+    const [before, after] = applySplitBlock(block, 5, 'b2', 'paragraph');
+    expect(before.inlines[0].text).toBe('Hello');
+    expect(after.id).toBe('b2');
+    expect(after.inlines[0].text).toBe(' World');
+  });
+
+  it('splits at start — first block empty', () => {
+    const block = makeBlock({ text: 'Hello' });
+    const [before, after] = applySplitBlock(block, 0, 'b2', 'paragraph');
+    expect(before.inlines[0].text).toBe('');
+    expect(after.inlines[0].text).toBe('Hello');
+  });
+
+  it('splits at end — second block empty', () => {
+    const block = makeBlock({ text: 'Hello' });
+    const [before, after] = applySplitBlock(block, 5, 'b2', 'paragraph');
+    expect(before.inlines[0].text).toBe('Hello');
+    expect(after.inlines[0].text).toBe('');
+  });
+
+  it('preserves inline styles across split', () => {
+    const block = makeBlock(
+      { text: 'AB', style: { bold: true } },
+      { text: 'CD', style: { italic: true } },
+    );
+    const [before, after] = applySplitBlock(block, 3, 'b2', 'paragraph');
+    expect(before.inlines).toHaveLength(2);
+    expect(before.inlines[0]).toEqual({ text: 'AB', style: { bold: true } });
+    expect(before.inlines[1]).toEqual({ text: 'C', style: { italic: true } });
+    expect(after.inlines).toHaveLength(1);
+    expect(after.inlines[0]).toEqual({ text: 'D', style: { italic: true } });
+  });
+});
+
+describe('applyMergeBlocks', () => {
+  it('merges two blocks into one', () => {
+    const a = makeBlock({ text: 'Hello' });
+    const b = makeBlock({ text: ' World' });
+    const result = applyMergeBlocks(a, b);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('Hello World');
+  });
+
+  it('merges and normalizes same-style inlines', () => {
+    const a = makeBlock({ text: 'AB', style: { bold: true } });
+    const b = makeBlock({ text: 'CD', style: { bold: true } });
+    const result = applyMergeBlocks(a, b);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('ABCD');
+  });
+
+  it('keeps different-style inlines separate', () => {
+    const a = makeBlock({ text: 'AB', style: { bold: true } });
+    const b = makeBlock({ text: 'CD', style: { italic: true } });
+    const result = applyMergeBlocks(a, b);
+    expect(result.inlines).toHaveLength(2);
+    expect(result.inlines[0]).toEqual({ text: 'AB', style: { bold: true } });
+    expect(result.inlines[1]).toEqual({ text: 'CD', style: { italic: true } });
   });
 });

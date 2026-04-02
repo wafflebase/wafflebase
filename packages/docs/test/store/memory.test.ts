@@ -292,4 +292,27 @@ describe('MemDocStore', () => {
       expect(() => store.applyStyle('no-such', 0, 5, { bold: true })).toThrow();
     });
   });
+
+  describe('structural editing', () => {
+    it('splitBlock splits at offset', () => {
+      const block = makeBlock('Hello World');
+      const store = new MemDocStore({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'b2', 'paragraph');
+      const doc = store.getDocument();
+      expect(doc.blocks).toHaveLength(2);
+      expect(doc.blocks[0].inlines[0].text).toBe('Hello');
+      expect(doc.blocks[1].id).toBe('b2');
+      expect(doc.blocks[1].inlines[0].text).toBe(' World');
+    });
+
+    it('mergeBlock merges and removes next', () => {
+      const b1 = makeBlock('Hello');
+      const b2 = makeBlock(' World');
+      const store = new MemDocStore({ blocks: [b1, b2] });
+      store.mergeBlock(b1.id, b2.id);
+      const doc = store.getDocument();
+      expect(doc.blocks).toHaveLength(1);
+      expect(doc.blocks[0].inlines[0].text).toBe('Hello World');
+    });
+  });
 });

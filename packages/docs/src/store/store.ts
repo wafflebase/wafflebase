@@ -1,4 +1,4 @@
-import type { Block, Document, InlineStyle, PageSetup, TableRow, TableCell } from '../model/types.js';
+import type { Block, Document, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -59,4 +59,13 @@ export interface DocStore {
     toOffset: number,
     style: Partial<InlineStyle>,
   ): void;
+  /** Split a block at offset, creating a new block after it. */
+  splitBlock(
+    blockId: string,
+    offset: number,
+    newBlockId: string,
+    newBlockType: BlockType,
+  ): void;
+  /** Merge nextBlock into blockId, removing nextBlock. */
+  mergeBlock(blockId: string, nextBlockId: string): void;
 }
