@@ -21,8 +21,10 @@ import {
   DEFAULT_BLOCK_STYLE,
   resolveOffset,
   resolveDeleteRange,
+  resolveStyleRange,
   applyInsertText,
   applyDeleteText,
+  applyInlineStyleHelper,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -497,6 +499,38 @@ export class YorkieDocStore implements DocStore {
 
     // Update cache in-place (same pattern as updateBlock)
     currentDoc.blocks[blockIdx] = applyDeleteText(block, offset, length);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  applyStyle(
+    blockId: string,
+    fromOffset: number,
+    toOffset: number,
+    style: Partial<InlineStyle>,
+  ): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
+    const block = currentDoc.blocks[blockIdx];
+
+    const segments = resolveStyleRange(block, fromOffset, toOffset);
+    const serialized = serializeInlineStyle(style as InlineStyle);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      for (const seg of segments) {
+        tree.styleByPath(
+          [blockIdx, seg.inlineIndex, seg.charFrom],
+          [blockIdx, seg.inlineIndex, seg.charTo],
+          serialized,
+        );
+      }
+    });
+
+    // Update cache in-place
+    currentDoc.blocks[blockIdx] = applyInlineStyleHelper(block, fromOffset, toOffset, style);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }

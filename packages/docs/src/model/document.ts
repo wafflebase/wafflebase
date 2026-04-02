@@ -315,15 +315,21 @@ export class Doc {
     const anchorCellInfo = this._blockParentMap.get(range.anchor.blockId);
     const focusCellInfo = this._blockParentMap.get(range.focus.blockId);
 
-    // Same block (cell or top-level)
+    // Same block
     if (range.anchor.blockId === range.focus.blockId) {
       const block = this.getBlock(range.anchor.blockId);
       const [start, end] = range.anchor.offset <= range.focus.offset
         ? [range.anchor.offset, range.focus.offset]
         : [range.focus.offset, range.anchor.offset];
       if (start < end) {
-        this.applyStyleToBlock(block, start, end, style);
-        this.updateBlockInStore(block.id, block);
+        const cellInfo = this._blockParentMap.get(range.anchor.blockId);
+        if (cellInfo) {
+          // Table cell path — keep existing behavior (Phase 4)
+          this.applyStyleToBlock(block, start, end, style);
+          this.updateBlockInStore(block.id, block);
+        } else {
+          this.store.applyStyle(block.id, start, end, style);
+        }
       }
       this.refresh();
       return;

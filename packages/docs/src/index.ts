@@ -56,9 +56,11 @@ export { MemDocStore } from './store/memory.js';
 export {
   resolveOffset,
   resolveDeleteRange,
+  resolveStyleRange,
   normalizeInlines,
   applyInsertText,
   applyDeleteText,
+  applyInlineStyle as applyInlineStyleHelper,
 } from './store/block-helpers.js';
 export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
 

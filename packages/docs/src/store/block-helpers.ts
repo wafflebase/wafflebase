@@ -139,6 +139,14 @@ export function applyInlineStyle(
   to: number,
   style: Partial<InlineStyle>,
 ): Block {
+  // Enforce mutual exclusion: superscript and subscript cannot coexist
+  const resolvedStyle: Partial<InlineStyle> = { ...style };
+  if (resolvedStyle.superscript) {
+    resolvedStyle.subscript = undefined;
+  } else if (resolvedStyle.subscript) {
+    resolvedStyle.superscript = undefined;
+  }
+
   const newBlock = cloneBlock(block);
   const newInlines: Inline[] = [];
   let pos = 0;
@@ -161,7 +169,7 @@ export function applyInlineStyle(
 
       newInlines.push({
         text: inline.text.slice(overlapStart, overlapEnd),
-        style: { ...inline.style, ...style },
+        style: { ...inline.style, ...resolvedStyle },
       });
 
       if (overlapEnd < inline.text.length) {
