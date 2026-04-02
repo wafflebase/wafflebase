@@ -107,7 +107,8 @@ text insertion).
 | API | Purpose | Granularity |
 |-----|---------|-------------|
 | `editByPath(from, to, node?)` | Text insert | Character-level (`[blockIdx, inlineIdx, charOffset]`) |
-| `editByPath(from, to, node?)` | Text delete, style, split, merge | Block-level replacement (`[blockIdx]`) |
+| `editByPath(from, to)` | Text delete | Character-level + empty inline cleanup |
+| `editByPath(from, to, node?)` | Style, split, merge | Block-level replacement (`[blockIdx]`) |
 | `editBulkByPath(from, to, nodes[])` | Full document write | Undo/redo fallback |
 
 ### Future Work
@@ -310,8 +311,9 @@ Key implementation details:
 
 - **Text insert:** Character-level `editByPath([blockIdx, inlineIdx, charOffset],
   [blockIdx, inlineIdx, charOffset], textNode)` — true CRDT merge
-- **Text delete:** Block-level replacement via `editByPath([blockIdx],
-  [blockIdx+1], buildBlockNode(updated))` — avoids empty inline divergence
+- **Text delete:** Character-level `editByPath` per inline segment (reverse
+  order), then empty inline nodes removed via `editByPath([blockIdx, idx],
+  [blockIdx, idx+1])` within the same `doc.update()` — true CRDT merge
 - **IME composition:** `handleCompositionEnd` uses `deleteText` + `insertText`
 
 ### Phase 2: Inline Styling

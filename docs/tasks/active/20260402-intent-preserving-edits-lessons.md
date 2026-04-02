@@ -17,13 +17,15 @@ inline nodes for partial text styling. Bold/italic applied via `styleByPath`
 silently failed — text appeared styled locally (cached model) but was not
 persisted to Yorkie. Fixed by using block-level `editByPath` replacement.
 
-### Character-level delete leaves empty inlines
+### Character-level delete leaves empty inlines — solved
 
 When `editByPath` deletes all text from an inline node, the empty inline
 element remains in the Yorkie tree. But `applyDeleteText` (the model helper)
-runs `normalizeInlines` which removes empty inlines. This cache/tree
-divergence caused issues on remote sync. Fixed by using block-level
-replacement for deletes as well.
+runs `normalizeInlines` which removes empty inlines. Initially fixed by
+falling back to block-level replacement, but later improved: empty inline
+nodes are now removed via `editByPath([blockIdx, idx], [blockIdx, idx+1])`
+within the same `doc.update()`, preserving character-level CRDT semantics
+for concurrent deletions.
 
 ### Cache invalidation vs in-place update
 
@@ -36,11 +38,11 @@ pattern.
 
 ### Where character-level CRDT merge actually helps
 
-Of all operations, only **text insertion** benefits from character-level
-Yorkie Tree editing — two users typing in the same paragraph get both edits
-merged. Delete, style, split, and merge all use block-level replacement
-(LWW) because Yorkie's APIs for those operations either don't exist for text
-ranges or have unverified behavior at deep paths.
+**Text insertion and deletion** both use character-level Yorkie Tree editing
+— two users editing the same paragraph get both edits merged via CRDT.
+Style, split, and merge use block-level replacement (LWW) because Yorkie's
+APIs for those operations either don't exist for text ranges or have
+unverified behavior at deep paths.
 
 ### Takeaway: verify Yorkie API behavior empirically
 
