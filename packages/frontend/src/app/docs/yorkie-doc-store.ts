@@ -460,8 +460,8 @@ export class YorkieDocStore implements DocStore {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath(
-        [blockIdx, inlineIndex, 0, charOffset],
-        [blockIdx, inlineIndex, 0, charOffset],
+        [blockIdx, inlineIndex, charOffset],
+        [blockIdx, inlineIndex, charOffset],
         { type: 'text', value: text },
       );
     });
@@ -486,8 +486,8 @@ export class YorkieDocStore implements DocStore {
       for (let i = segments.length - 1; i >= 0; i--) {
         const seg = segments[i];
         tree.editByPath(
-          [blockIdx, seg.inlineIndex, 0, seg.charFrom],
-          [blockIdx, seg.inlineIndex, 0, seg.charTo],
+          [blockIdx, seg.inlineIndex, seg.charFrom],
+          [blockIdx, seg.inlineIndex, seg.charTo],
         );
       }
     });
