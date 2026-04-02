@@ -38,6 +38,7 @@ Technical design documents for the Wafflebase project. These go deeper than pack
 | [docs-table-ui.md](docs-table-ui.md)                           | Docs table UI — grid picker, context menu, IME cell routing                              |
 | [docs-table-crdt.md](docs-table-crdt.md)                       | Table CRDT collaboration — Tree node structure, container cells, concurrent editing       |
 | [docs-table-resize.md](docs-table-resize.md)                   | Docs table resize — column/row border drag handles, guideline rendering                  |
+| [docs-intent-preserving-edits.md](docs-intent-preserving-edits.md) | Intent-preserving Yorkie edits — character-level Tree editing, 5-phase migration     |
 
 ## Template
 

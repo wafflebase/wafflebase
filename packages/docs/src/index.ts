@@ -61,6 +61,8 @@ export {
   applyInsertText,
   applyDeleteText,
   applyInlineStyle as applyInlineStyleHelper,
+  applySplitBlock,
+  applyMergeBlocks,
 } from './store/block-helpers.js';
 export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
 
