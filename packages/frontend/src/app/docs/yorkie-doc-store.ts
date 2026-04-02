@@ -21,6 +21,8 @@ import {
   DEFAULT_BLOCK_STYLE,
   resolveOffset,
   resolveDeleteRange,
+  applyInsertText,
+  applyDeleteText,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -466,9 +468,10 @@ export class YorkieDocStore implements DocStore {
       );
     });
 
-    // Invalidate cache so next getDocument() reads fresh tree
-    this.dirty = true;
-    this.cachedDoc = null;
+    // Update cache in-place (same pattern as updateBlock)
+    currentDoc.blocks[blockIdx] = applyInsertText(block, offset, text);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
   }
 
   deleteText(blockId: string, offset: number, length: number): void {
@@ -492,9 +495,10 @@ export class YorkieDocStore implements DocStore {
       }
     });
 
-    // Invalidate cache
-    this.dirty = true;
-    this.cachedDoc = null;
+    // Update cache in-place (same pattern as updateBlock)
+    currentDoc.blocks[blockIdx] = applyDeleteText(block, offset, length);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
   }
 
   insertBlock(index: number, block: Block): void {
