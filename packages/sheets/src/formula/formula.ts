@@ -495,7 +495,7 @@ export type StrNode = { t: 'str'; v: string };
 export type BoolNode = { t: 'bool'; v: boolean };
 export type ErrNode = {
   t: 'err';
-  v: '#VALUE!' | '#REF!' | '#N/A' | '#ERROR!' | '#DIV/0!';
+  v: '#NULL!' | '#DIV/0!' | '#VALUE!' | '#REF!' | '#NAME?' | '#NUM!' | '#N/A' | '#ERROR!';
 };
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
