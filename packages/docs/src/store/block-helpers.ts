@@ -1,5 +1,5 @@
 // packages/docs/src/store/block-helpers.ts
-import type { Block, Inline } from '../model/types.js';
+import type { Block, Inline, InlineStyle } from '../model/types.js';
 import { inlineStylesEqual } from '../model/types.js';
 
 export interface InlinePosition {
@@ -116,4 +116,64 @@ export function applyDeleteText(block: Block, offset: number, length: number): B
 
 function cloneBlock(block: Block): Block {
   return JSON.parse(JSON.stringify(block));
+}
+
+/**
+ * Resolve a style range [from, to) into per-inline segments.
+ */
+export function resolveStyleRange(
+  block: Block,
+  from: number,
+  to: number,
+): InlineSegment[] {
+  return resolveDeleteRange(block, from, to - from);
+}
+
+/**
+ * Apply inline style to a range within a block. Returns new Block.
+ * Splits inlines as needed and normalizes the result.
+ */
+export function applyInlineStyle(
+  block: Block,
+  from: number,
+  to: number,
+  style: Partial<InlineStyle>,
+): Block {
+  const newBlock = cloneBlock(block);
+  const newInlines: Inline[] = [];
+  let pos = 0;
+
+  for (const inline of newBlock.inlines) {
+    const inlineEnd = pos + inline.text.length;
+
+    if (inlineEnd <= from || pos >= to) {
+      newInlines.push({ text: inline.text, style: { ...inline.style } });
+    } else {
+      const overlapStart = Math.max(0, from - pos);
+      const overlapEnd = Math.min(inline.text.length, to - pos);
+
+      if (overlapStart > 0) {
+        newInlines.push({
+          text: inline.text.slice(0, overlapStart),
+          style: { ...inline.style },
+        });
+      }
+
+      newInlines.push({
+        text: inline.text.slice(overlapStart, overlapEnd),
+        style: { ...inline.style, ...style },
+      });
+
+      if (overlapEnd < inline.text.length) {
+        newInlines.push({
+          text: inline.text.slice(overlapEnd),
+          style: { ...inline.style },
+        });
+      }
+    }
+    pos = inlineEnd;
+  }
+
+  newBlock.inlines = normalizeInlines(newInlines);
+  return newBlock;
 }
