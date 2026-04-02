@@ -22,7 +22,6 @@ import {
   DEFAULT_BLOCK_STYLE,
   resolveOffset,
   resolveDeleteRange,
-  resolveStyleRange,
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
@@ -517,23 +516,19 @@ export class YorkieDocStore implements DocStore {
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
 
-    const segments = resolveStyleRange(block, fromOffset, toOffset);
-    const serialized = serializeInlineStyle(style as InlineStyle);
+    const updated = applyInlineStyleHelper(block, fromOffset, toOffset, style);
 
+    // styleByPath targets element attributes, not text ranges.
+    // Use block replacement via editByPath until Yorkie supports
+    // text-range style operations.
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      for (const seg of segments) {
-        tree.styleByPath(
-          [blockIdx, seg.inlineIndex, seg.charFrom],
-          [blockIdx, seg.inlineIndex, seg.charTo],
-          serialized,
-        );
-      }
+      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(updated));
     });
 
     // Update cache in-place
-    currentDoc.blocks[blockIdx] = applyInlineStyleHelper(block, fromOffset, toOffset, style);
+    currentDoc.blocks[blockIdx] = updated;
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
