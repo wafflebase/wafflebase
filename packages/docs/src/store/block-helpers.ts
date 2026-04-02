@@ -175,8 +175,11 @@ export function applySplitBlock(
   // Remove block-specific attrs from after block
   delete after.tableData;
   delete after.headingLevel;
-  delete after.listKind;
-  delete after.listLevel;
+  // Preserve list attrs when the new block is also a list-item
+  if (newBlockType !== 'list-item') {
+    delete after.listKind;
+    delete after.listLevel;
+  }
 
   return [before, after];
 }

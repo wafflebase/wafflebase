@@ -6,6 +6,7 @@ import type {
   DocStore,
   Document,
   Block,
+  BlockType,
   Inline,
   BlockStyle,
   InlineStyle,
@@ -25,6 +26,8 @@ import {
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
+  applySplitBlock,
+  applyMergeBlocks,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -571,6 +574,63 @@ export class YorkieDocStore implements DocStore {
     // Update cache in-place
     const currentDoc = this.getDocument();
     currentDoc.blocks.splice(index, 1);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  splitBlock(
+    blockId: string,
+    offset: number,
+    newBlockId: string,
+    newBlockType: BlockType,
+  ): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
+    const block = currentDoc.blocks[blockIdx];
+
+    const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Replace original block with the "before" part
+      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(before));
+      // Insert the "after" part as a new block
+      tree.editByPath([blockIdx + 1], [blockIdx + 1], buildBlockNode(after));
+    });
+
+    // Update cache in-place
+    currentDoc.blocks[blockIdx] = before;
+    currentDoc.blocks.splice(blockIdx + 1, 0, after);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  mergeBlock(blockId: string, nextBlockId: string): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    const nextIdx = currentDoc.blocks.findIndex((b) => b.id === nextBlockId);
+    if (blockIdx === -1 || nextIdx === -1) throw new Error('Block not found');
+
+    const merged = applyMergeBlocks(
+      currentDoc.blocks[blockIdx],
+      currentDoc.blocks[nextIdx],
+    );
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Replace first block with merged content
+      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(merged));
+      // Delete second block
+      const deleteIdx = nextIdx > blockIdx ? nextIdx : nextIdx;
+      tree.editByPath([deleteIdx], [deleteIdx + 1]);
+    });
+
+    // Update cache in-place
+    currentDoc.blocks[blockIdx] = merged;
+    currentDoc.blocks.splice(nextIdx, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }

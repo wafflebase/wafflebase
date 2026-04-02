@@ -234,46 +234,16 @@ export class Doc {
       return newBlock.id;
     }
 
-    // Build inlines for the first block (before split)
-    const beforeInlines = this.buildInlinesFromSplit(block, 0, offset);
-    // Build inlines for the new block (after split)
-    const afterInlines = this.buildInlinesFromSplit(
-      block,
-      offset,
-      blockText.length,
-    );
-
-    // Update current block
-    block.inlines =
-      beforeInlines.length > 0
-        ? beforeInlines
-        : [{ text: '', style: this.getStyleAtOffset(block, offset) }];
-
     // Determine new block type
     let newType: BlockType = 'paragraph';
-    const extra: Partial<Block> = {};
     if (block.type === 'list-item') {
       newType = 'list-item';
-      extra.listKind = block.listKind;
-      extra.listLevel = block.listLevel;
     }
 
-    // Create new block
-    const newBlock: Block = {
-      id: generateBlockId(),
-      type: newType,
-      inlines:
-        afterInlines.length > 0
-          ? afterInlines
-          : [{ text: '', style: this.getStyleAtOffset(block, offset) }],
-      style: { ...block.style },
-      ...extra,
-    };
-
-    this.store.updateBlock(blockId, block);
-    this.store.insertBlock(blockIndex + 1, newBlock);
+    const newBlockId = generateBlockId();
+    this.store.splitBlock(blockId, offset, newBlockId, newType);
     this.refresh();
-    return newBlock.id;
+    return newBlockId;
   }
 
   /**
@@ -297,14 +267,7 @@ export class Doc {
       return;
     }
 
-    const block = this.getBlock(blockId);
-    const nextBlock = this.getBlock(nextBlockId);
-
-    block.inlines = [...block.inlines, ...nextBlock.inlines];
-    this.normalizeInlines(block);
-
-    this.store.updateBlock(blockId, block);
-    this.store.deleteBlock(nextBlockId);
+    this.store.mergeBlock(blockId, nextBlockId);
     this.refresh();
   }
 
