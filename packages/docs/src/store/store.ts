@@ -1,4 +1,4 @@
-import type { Block, Document, PageSetup, TableRow, TableCell } from '../model/types.js';
+import type { Block, Document, InlineStyle, PageSetup, TableRow, TableCell } from '../model/types.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -52,4 +52,11 @@ export interface DocStore {
   insertText(blockId: string, offset: number, text: string): void;
   /** Delete `length` characters starting at the given block-level offset. */
   deleteText(blockId: string, offset: number, length: number): void;
+  /** Apply inline style to a character range within a block. */
+  applyStyle(
+    blockId: string,
+    fromOffset: number,
+    toOffset: number,
+    style: Partial<InlineStyle>,
+  ): void;
 }

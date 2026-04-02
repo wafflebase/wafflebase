@@ -274,4 +274,22 @@ describe('MemDocStore', () => {
       expect(() => store.insertText('no-such', 0, 'X')).toThrow();
     });
   });
+
+  describe('fine-grained styling', () => {
+    it('applyStyle applies bold to range', () => {
+      const block = makeBlock('Hello World');
+      const store = new MemDocStore({ blocks: [block] });
+      store.applyStyle(block.id, 6, 11, { bold: true });
+      const updated = store.getBlock(block.id)!;
+      expect(updated.inlines).toHaveLength(2);
+      expect(updated.inlines[0].text).toBe('Hello ');
+      expect(updated.inlines[1].text).toBe('World');
+      expect(updated.inlines[1].style).toEqual({ bold: true });
+    });
+
+    it('applyStyle throws for non-existent block', () => {
+      const store = new MemDocStore();
+      expect(() => store.applyStyle('no-such', 0, 5, { bold: true })).toThrow();
+    });
+  });
 });

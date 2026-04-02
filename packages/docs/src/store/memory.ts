@@ -1,7 +1,7 @@
-import type { Block, Document, PageSetup, TableRow, TableCell } from '../model/types.js';
+import type { Block, Document, InlineStyle, PageSetup, TableRow, TableCell } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
-import { applyInsertText, applyDeleteText } from './block-helpers.js';
+import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper } from './block-helpers.js';
 
 /**
  * Deep clone a document for snapshot-based undo/redo.
@@ -148,6 +148,12 @@ export class MemDocStore implements DocStore {
     const index = this.doc.blocks.findIndex((b) => b.id === blockId);
     if (index === -1) throw new Error(`Block not found: ${blockId}`);
     this.doc.blocks[index] = applyDeleteText(this.doc.blocks[index], offset, length);
+  }
+
+  applyStyle(blockId: string, fromOffset: number, toOffset: number, style: Partial<InlineStyle>): void {
+    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
+    if (index === -1) throw new Error(`Block not found: ${blockId}`);
+    this.doc.blocks[index] = applyInlineStyleHelper(this.doc.blocks[index], fromOffset, toOffset, style);
   }
 
   private findBlock(id: string): Block {
