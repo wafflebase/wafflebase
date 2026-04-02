@@ -6,7 +6,7 @@
 
 **Architecture:** DocStore gets fine-grained methods (`insertText`, `deleteText`, `applyStyle`, `splitBlock`, `mergeBlock`). Common pure helpers in `block-helpers.ts` handle model manipulation. MemDocStore uses helpers only; YorkieDocStore uses helpers + single-level Yorkie Tree API calls composed within `doc.update()`.
 
-**Tech Stack:** TypeScript, Vitest, Yorkie Tree CRDT (`editByPath`, `styleByPath`, `splitByPath`, `mergeByPath`)
+**Tech Stack:** TypeScript, Vitest, Yorkie Tree CRDT (`editByPath` for character-level insert, block-level replacement for delete/style/structure)
 
 **Design doc:** `docs/design/docs-intent-preserving-edits.md`
 

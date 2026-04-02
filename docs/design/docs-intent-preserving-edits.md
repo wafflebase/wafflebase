@@ -87,36 +87,48 @@ Document model manipulation logic is extracted into pure helper functions in
 **Why:** Avoids duplicating offset resolution, inline normalization, and
 split/merge logic across two Store implementations.
 
-### 4. Single-Level Yorkie API Calls
+### 4. Yorkie API Strategy
 
-Yorkie Tree APIs (`editByPath`, `styleByPath`, `splitByPath`, `mergeByPath`)
-are called one level at a time, composed within a single `doc.update()` block.
-Deep multi-level calls are avoided for stability.
+Text insertion uses character-level `editByPath` for true CRDT merging. All
+other mutations (delete, style, split, merge) use block-level `editByPath`
+replacement because:
+- `styleByPath` only sets element attributes, not text-range styles
+- `splitByPath`/`mergeByPath` behavior at deep paths is not yet verified
+- Character-level delete can leave empty inline nodes in the tree
 
-**Why:** Yorkie Tree APIs may not reliably handle deep multi-level operations.
-Single-level calls composed in one `doc.update()` are predictable and form a
-single undo unit.
+**Why:** Block replacement is safe and consistent. Character-level editing is
+used only where CRDT merge semantics provide a clear benefit (concurrent
+text insertion).
 
 ## Yorkie Tree API Usage
 
-| API | Purpose | Constraint |
-|-----|---------|------------|
-| `editByPath(from, to, node?)` | Text insert/delete | Same level only; no cross-inline ranges |
-| `styleByPath(from, to, attrs)` | Apply inline style | Per-inline segment; Yorkie handles node split |
-| `splitByPath(path, depth=1)` | Split node at path | One level at a time |
-| `mergeByPath(path)` | Merge with previous sibling | One level at a time |
-| `editBulkByPath(from, to, nodes[])` | Bulk insert | Full document write (undo fallback) |
+### Currently Used
 
-**Composition pattern:** Multiple single-level calls within one `doc.update()`
-to form complex operations:
+| API | Purpose | Granularity |
+|-----|---------|-------------|
+| `editByPath(from, to, node?)` | Text insert | Character-level (`[blockIdx, inlineIdx, charOffset]`) |
+| `editByPath(from, to, node?)` | Text delete, style, split, merge | Block-level replacement (`[blockIdx]`) |
+| `editBulkByPath(from, to, nodes[])` | Full document write | Undo/redo fallback |
+
+### Future Work
+
+| API | Purpose | Blocked by |
+|-----|---------|------------|
+| `styleByPath(path, attrs)` | Text-range styling | API only supports element attributes, not text ranges |
+| `splitByPath(path, depth)` | Structural split | Needs deep-path verification |
+| `mergeByPath(path)` | Structural merge | Needs deep-path verification |
+
+**Path format:** Yorkie Tree text paths use 3 levels: `[blockIdx, inlineIdx,
+charOffset]`. The inline node's `hasTextChild()` causes the last path element
+to be interpreted as a character offset within its text children.
 
 ```typescript
 doc.update((root) => {
   const tree = root.content;
-  // All calls here form a single undo unit
-  tree.editByPath(...);
-  tree.splitByPath(..., 1);
-  tree.editByPath(...);
+  // Character-level insert (CRDT merge)
+  tree.editByPath([blockIdx, inlineIdx, charOffset], [blockIdx, inlineIdx, charOffset], textNode);
+  // Block-level replacement (LWW)
+  tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(updated));
 });
 ```
 
@@ -296,35 +308,36 @@ and `store.deleteText()` instead of `store.updateBlock()`.
 
 Key implementation details:
 
-- **Single-inline insert:** `editByPath([blockIdx, inlineIdx, 0, charOffset],
-  [blockIdx, inlineIdx, 0, charOffset], textNode)`
-- **Cross-inline delete:** Multiple `editByPath` calls in reverse order within
-  one `doc.update()` to preserve indices
+- **Text insert:** Character-level `editByPath([blockIdx, inlineIdx, charOffset],
+  [blockIdx, inlineIdx, charOffset], textNode)` — true CRDT merge
+- **Text delete:** Block-level replacement via `editByPath([blockIdx],
+  [blockIdx+1], buildBlockNode(updated))` — avoids empty inline divergence
 - **IME composition:** `handleCompositionEnd` uses `deleteText` + `insertText`
-  within one `doc.update()`
 
 ### Phase 2: Inline Styling
 
 Migrate `Doc.applyInlineStyle()` to use `store.applyStyle()`.
 
-- `styleByPath` per inline segment within one `doc.update()`
-- Yorkie handles inline node splitting internally
-- Remove manual 3-way inline split logic from Doc
+- Computes new block via `applyInlineStyleHelper`, then replaces via
+  block-level `editByPath` (Yorkie's `styleByPath` is element-level only,
+  not text-range)
+- Doc delegates to store for single-block top-level; table cell and
+  cross-block paths unchanged
 
 ### Phase 3: Structural Editing
 
 Migrate `Doc.splitBlock()` and `Doc.mergeBlocks()` to use `store.splitBlock()`
 and `store.mergeBlock()`.
 
-- `splitByPath` called one level at a time: text → inline → block
-- `mergeByPath` called one level at a time: block → inline (cleanup)
+- Uses block-level `editByPath` (replace + insert for split, replace + delete
+  for merge) within a single `doc.update()`
 - Business logic (list item conversion, markdown auto-convert) stays in Doc
 
 ### Phase 4: Table Cell Internal Edits
 
 Extend Phase 1–3 to table cell blocks with deeper Yorkie Tree paths.
 
-- Path extends to `[tIdx, rowIdx, colIdx, cellBlockIdx, inlineIdx, 0, charOffset]`
+- Path extends to `[tIdx, rowIdx, colIdx, cellBlockIdx, inlineIdx, charOffset]`
 - Doc routes via `blockParentMap` to `*InCell` store methods
 - Existing table structural ops (row/column insert/delete) unchanged
 
