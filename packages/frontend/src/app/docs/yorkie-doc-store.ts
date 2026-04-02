@@ -21,6 +21,7 @@ import {
   normalizeBlockStyle,
   DEFAULT_BLOCK_STYLE,
   resolveOffset,
+  resolveDeleteRange,
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
@@ -483,19 +484,43 @@ export class YorkieDocStore implements DocStore {
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
 
-    const updated = applyDeleteText(block, offset, length);
+    const segments = resolveDeleteRange(block, offset, length);
 
-    // Character-level editByPath deletes can leave empty inline nodes in the
-    // Yorkie tree while applyDeleteText normalizes them away, causing
-    // divergence. Use block replacement to keep tree and cache consistent.
+    // Identify inlines that will become completely empty after deletion
+    const emptyInlineIndices: number[] = [];
+    for (const seg of segments) {
+      const inline = block.inlines[seg.inlineIndex];
+      if (seg.charFrom === 0 && seg.charTo === inline.text.length) {
+        emptyInlineIndices.push(seg.inlineIndex);
+      }
+    }
+    // Keep at least one inline in the block
+    if (emptyInlineIndices.length >= block.inlines.length) {
+      emptyInlineIndices.pop();
+    }
+
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(updated));
+
+      // 1. Character-level deletes (reverse order to preserve indices)
+      for (let i = segments.length - 1; i >= 0; i--) {
+        const seg = segments[i];
+        tree.editByPath(
+          [blockIdx, seg.inlineIndex, seg.charFrom],
+          [blockIdx, seg.inlineIndex, seg.charTo],
+        );
+      }
+
+      // 2. Remove empty inline nodes (reverse order to preserve indices)
+      for (let i = emptyInlineIndices.length - 1; i >= 0; i--) {
+        const idx = emptyInlineIndices[i];
+        tree.editByPath([blockIdx, idx], [blockIdx, idx + 1]);
+      }
     });
 
     // Update cache in-place
-    currentDoc.blocks[blockIdx] = updated;
+    currentDoc.blocks[blockIdx] = applyDeleteText(block, offset, length);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
