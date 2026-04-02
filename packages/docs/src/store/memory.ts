@@ -165,6 +165,7 @@ export class MemDocStore implements DocStore {
   }
 
   mergeBlock(blockId: string, nextBlockId: string): void {
+    if (blockId === nextBlockId) throw new Error('Cannot merge a block with itself');
     const index = this.doc.blocks.findIndex((b) => b.id === blockId);
     const nextIndex = this.doc.blocks.findIndex((b) => b.id === nextBlockId);
     if (index === -1 || nextIndex === -1) throw new Error('Block not found');

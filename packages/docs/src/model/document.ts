@@ -27,6 +27,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
+import { applyDeleteText } from '../store/block-helpers.js';
 
 /**
  * Document manipulation logic.
@@ -134,34 +135,10 @@ export class Doc {
   deleteText(pos: DocPosition, length: number): void {
     const cellInfo = this._blockParentMap.get(pos.blockId);
     if (cellInfo) {
-      // Table cell path — keep existing behavior for now (Phase 4)
+      // Table cell path — use shared helper for correct cross-inline deletion
       const block = this.getBlock(pos.blockId);
-      const blockLen = getBlockTextLength(block);
-      let remaining = Math.min(length, blockLen - pos.offset);
-      if (remaining <= 0) return;
-
-      let offset = pos.offset;
-
-      while (remaining > 0) {
-        const { inlineIndex, charOffset } = this.resolveOffset(block, offset);
-        const inline = block.inlines[inlineIndex];
-        const available = inline.text.length - charOffset;
-        if (available <= 0) break;
-        const toDelete = Math.min(remaining, available);
-
-        inline.text =
-          inline.text.slice(0, charOffset) +
-          inline.text.slice(charOffset + toDelete);
-
-        remaining -= toDelete;
-
-        // Remove empty inlines (but keep at least one)
-        if (inline.text.length === 0 && block.inlines.length > 1) {
-          block.inlines.splice(inlineIndex, 1);
-        }
-      }
-
-      this.normalizeInlines(block);
+      const updated = applyDeleteText(block, pos.offset, length);
+      block.inlines = updated.inlines;
       this.updateBlockInStore(pos.blockId, block);
     } else {
       this.store.deleteText(pos.blockId, pos.offset, length);

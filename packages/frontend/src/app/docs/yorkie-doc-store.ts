@@ -21,7 +21,6 @@ import {
   normalizeBlockStyle,
   DEFAULT_BLOCK_STYLE,
   resolveOffset,
-  resolveDeleteRange,
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
@@ -484,23 +483,19 @@ export class YorkieDocStore implements DocStore {
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
 
-    const segments = resolveDeleteRange(block, offset, length);
+    const updated = applyDeleteText(block, offset, length);
 
+    // Character-level editByPath deletes can leave empty inline nodes in the
+    // Yorkie tree while applyDeleteText normalizes them away, causing
+    // divergence. Use block replacement to keep tree and cache consistent.
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      // Reverse order: later segments first to preserve earlier indices
-      for (let i = segments.length - 1; i >= 0; i--) {
-        const seg = segments[i];
-        tree.editByPath(
-          [blockIdx, seg.inlineIndex, seg.charFrom],
-          [blockIdx, seg.inlineIndex, seg.charTo],
-        );
-      }
+      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(updated));
     });
 
-    // Update cache in-place (same pattern as updateBlock)
-    currentDoc.blocks[blockIdx] = applyDeleteText(block, offset, length);
+    // Update cache in-place
+    currentDoc.blocks[blockIdx] = updated;
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
@@ -603,6 +598,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   mergeBlock(blockId: string, nextBlockId: string): void {
+    if (blockId === nextBlockId) throw new Error('Cannot merge a block with itself');
     const currentDoc = this.getDocument();
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     const nextIdx = currentDoc.blocks.findIndex((b) => b.id === nextBlockId);
