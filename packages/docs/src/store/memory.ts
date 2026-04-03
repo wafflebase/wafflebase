@@ -1,6 +1,7 @@
-import type { Block, Document, PageSetup, TableRow, TableCell } from '../model/types.js';
+import type { Block, Document, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
+import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper, applySplitBlock, applyMergeBlocks } from './block-helpers.js';
 
 /**
  * Deep clone a document for snapshot-based undo/redo.
@@ -135,6 +136,41 @@ export class MemDocStore implements DocStore {
     if (attrs.rowHeights !== undefined) {
       block.tableData!.rowHeights = [...attrs.rowHeights];
     }
+  }
+
+  insertText(blockId: string, offset: number, text: string): void {
+    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
+    if (index === -1) throw new Error(`Block not found: ${blockId}`);
+    this.doc.blocks[index] = applyInsertText(this.doc.blocks[index], offset, text);
+  }
+
+  deleteText(blockId: string, offset: number, length: number): void {
+    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
+    if (index === -1) throw new Error(`Block not found: ${blockId}`);
+    this.doc.blocks[index] = applyDeleteText(this.doc.blocks[index], offset, length);
+  }
+
+  applyStyle(blockId: string, fromOffset: number, toOffset: number, style: Partial<InlineStyle>): void {
+    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
+    if (index === -1) throw new Error(`Block not found: ${blockId}`);
+    this.doc.blocks[index] = applyInlineStyleHelper(this.doc.blocks[index], fromOffset, toOffset, style);
+  }
+
+  splitBlock(blockId: string, offset: number, newBlockId: string, newBlockType: BlockType): void {
+    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
+    if (index === -1) throw new Error(`Block not found: ${blockId}`);
+    const [before, after] = applySplitBlock(this.doc.blocks[index], offset, newBlockId, newBlockType);
+    this.doc.blocks[index] = before;
+    this.doc.blocks.splice(index + 1, 0, after);
+  }
+
+  mergeBlock(blockId: string, nextBlockId: string): void {
+    if (blockId === nextBlockId) throw new Error('Cannot merge a block with itself');
+    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
+    const nextIndex = this.doc.blocks.findIndex((b) => b.id === nextBlockId);
+    if (index === -1 || nextIndex === -1) throw new Error('Block not found');
+    this.doc.blocks[index] = applyMergeBlocks(this.doc.blocks[index], this.doc.blocks[nextIndex]);
+    this.doc.blocks.splice(nextIndex, 1);
   }
 
   private findBlock(id: string): Block {

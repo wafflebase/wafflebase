@@ -6,6 +6,7 @@ import type {
   DocStore,
   Document,
   Block,
+  BlockType,
   Inline,
   BlockStyle,
   InlineStyle,
@@ -19,6 +20,13 @@ import {
   resolvePageSetup,
   normalizeBlockStyle,
   DEFAULT_BLOCK_STYLE,
+  resolveOffset,
+  resolveDeleteRange,
+  applyInsertText,
+  applyDeleteText,
+  applyInlineStyleHelper,
+  applySplitBlock,
+  applyMergeBlocks,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -446,6 +454,105 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
+  insertText(blockId: string, offset: number, text: string): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
+    const block = currentDoc.blocks[blockIdx];
+
+    const { inlineIndex, charOffset } = resolveOffset(block, offset);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.editByPath(
+        [blockIdx, inlineIndex, charOffset],
+        [blockIdx, inlineIndex, charOffset],
+        { type: 'text', value: text },
+      );
+    });
+
+    // Update cache in-place (same pattern as updateBlock)
+    currentDoc.blocks[blockIdx] = applyInsertText(block, offset, text);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  deleteText(blockId: string, offset: number, length: number): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
+    const block = currentDoc.blocks[blockIdx];
+
+    const segments = resolveDeleteRange(block, offset, length);
+
+    // Identify inlines that will become completely empty after deletion
+    const emptyInlineIndices: number[] = [];
+    for (const seg of segments) {
+      const inline = block.inlines[seg.inlineIndex];
+      if (seg.charFrom === 0 && seg.charTo === inline.text.length) {
+        emptyInlineIndices.push(seg.inlineIndex);
+      }
+    }
+    // Keep at least one inline in the block
+    if (emptyInlineIndices.length >= block.inlines.length) {
+      emptyInlineIndices.pop();
+    }
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      // 1. Character-level deletes (reverse order to preserve indices)
+      for (let i = segments.length - 1; i >= 0; i--) {
+        const seg = segments[i];
+        tree.editByPath(
+          [blockIdx, seg.inlineIndex, seg.charFrom],
+          [blockIdx, seg.inlineIndex, seg.charTo],
+        );
+      }
+
+      // 2. Remove empty inline nodes (reverse order to preserve indices)
+      for (let i = emptyInlineIndices.length - 1; i >= 0; i--) {
+        const idx = emptyInlineIndices[i];
+        tree.editByPath([blockIdx, idx], [blockIdx, idx + 1]);
+      }
+    });
+
+    // Update cache in-place
+    currentDoc.blocks[blockIdx] = applyDeleteText(block, offset, length);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  applyStyle(
+    blockId: string,
+    fromOffset: number,
+    toOffset: number,
+    style: Partial<InlineStyle>,
+  ): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
+    const block = currentDoc.blocks[blockIdx];
+
+    const updated = applyInlineStyleHelper(block, fromOffset, toOffset, style);
+
+    // styleByPath targets element attributes, not text ranges.
+    // Use block replacement via editByPath until Yorkie supports
+    // text-range style operations.
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(updated));
+    });
+
+    // Update cache in-place
+    currentDoc.blocks[blockIdx] = updated;
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
   insertBlock(index: number, block: Block): void {
     this.doc.update((root) => {
       const tree = root.content;
@@ -482,6 +589,64 @@ export class YorkieDocStore implements DocStore {
     // Update cache in-place
     const currentDoc = this.getDocument();
     currentDoc.blocks.splice(index, 1);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  splitBlock(
+    blockId: string,
+    offset: number,
+    newBlockId: string,
+    newBlockType: BlockType,
+  ): void {
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
+    const block = currentDoc.blocks[blockIdx];
+
+    const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Replace original block with the "before" part
+      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(before));
+      // Insert the "after" part as a new block
+      tree.editByPath([blockIdx + 1], [blockIdx + 1], buildBlockNode(after));
+    });
+
+    // Update cache in-place
+    currentDoc.blocks[blockIdx] = before;
+    currentDoc.blocks.splice(blockIdx + 1, 0, after);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  mergeBlock(blockId: string, nextBlockId: string): void {
+    if (blockId === nextBlockId) throw new Error('Cannot merge a block with itself');
+    const currentDoc = this.getDocument();
+    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
+    const nextIdx = currentDoc.blocks.findIndex((b) => b.id === nextBlockId);
+    if (blockIdx === -1 || nextIdx === -1) throw new Error('Block not found');
+
+    const merged = applyMergeBlocks(
+      currentDoc.blocks[blockIdx],
+      currentDoc.blocks[nextIdx],
+    );
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Replace first block with merged content
+      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(merged));
+      // Delete second block
+      const deleteIdx = nextIdx > blockIdx ? nextIdx : nextIdx;
+      tree.editByPath([deleteIdx], [deleteIdx + 1]);
+    });
+
+    // Update cache in-place
+    currentDoc.blocks[blockIdx] = merged;
+    currentDoc.blocks.splice(nextIdx, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }

@@ -27,6 +27,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
+import { applyDeleteText } from '../store/block-helpers.js';
 
 /**
  * Document manipulation logic.
@@ -113,12 +114,18 @@ export class Doc {
    * Insert text at a document position.
    */
   insertText(pos: DocPosition, text: string): void {
-    const block = this.getBlock(pos.blockId);
-    const { inlineIndex, charOffset } = this.resolveOffset(block, pos.offset);
-    const inline = block.inlines[inlineIndex];
-    inline.text =
-      inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
-    this.updateBlockInStore(pos.blockId, block);
+    const cellInfo = this._blockParentMap.get(pos.blockId);
+    if (cellInfo) {
+      // Table cell path — keep existing behavior for now (Phase 4)
+      const block = this.getBlock(pos.blockId);
+      const { inlineIndex, charOffset } = this.resolveOffset(block, pos.offset);
+      const inline = block.inlines[inlineIndex];
+      inline.text =
+        inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
+      this.updateBlockInStore(pos.blockId, block);
+    } else {
+      this.store.insertText(pos.blockId, pos.offset, text);
+    }
     this.refresh();
   }
 
@@ -126,34 +133,16 @@ export class Doc {
    * Delete `length` characters forward from position.
    */
   deleteText(pos: DocPosition, length: number): void {
-    const block = this.getBlock(pos.blockId);
-    const blockLen = getBlockTextLength(block);
-    let remaining = Math.min(length, blockLen - pos.offset);
-    if (remaining <= 0) return;
-
-    let offset = pos.offset;
-
-    while (remaining > 0) {
-      const { inlineIndex, charOffset } = this.resolveOffset(block, offset);
-      const inline = block.inlines[inlineIndex];
-      const available = inline.text.length - charOffset;
-      if (available <= 0) break;
-      const toDelete = Math.min(remaining, available);
-
-      inline.text =
-        inline.text.slice(0, charOffset) +
-        inline.text.slice(charOffset + toDelete);
-
-      remaining -= toDelete;
-
-      // Remove empty inlines (but keep at least one)
-      if (inline.text.length === 0 && block.inlines.length > 1) {
-        block.inlines.splice(inlineIndex, 1);
-      }
+    const cellInfo = this._blockParentMap.get(pos.blockId);
+    if (cellInfo) {
+      // Table cell path — use shared helper for correct cross-inline deletion
+      const block = this.getBlock(pos.blockId);
+      const updated = applyDeleteText(block, pos.offset, length);
+      block.inlines = updated.inlines;
+      this.updateBlockInStore(pos.blockId, block);
+    } else {
+      this.store.deleteText(pos.blockId, pos.offset, length);
     }
-
-    this.normalizeInlines(block);
-    this.updateBlockInStore(pos.blockId, block);
     this.refresh();
   }
 
@@ -222,46 +211,16 @@ export class Doc {
       return newBlock.id;
     }
 
-    // Build inlines for the first block (before split)
-    const beforeInlines = this.buildInlinesFromSplit(block, 0, offset);
-    // Build inlines for the new block (after split)
-    const afterInlines = this.buildInlinesFromSplit(
-      block,
-      offset,
-      blockText.length,
-    );
-
-    // Update current block
-    block.inlines =
-      beforeInlines.length > 0
-        ? beforeInlines
-        : [{ text: '', style: this.getStyleAtOffset(block, offset) }];
-
     // Determine new block type
     let newType: BlockType = 'paragraph';
-    const extra: Partial<Block> = {};
     if (block.type === 'list-item') {
       newType = 'list-item';
-      extra.listKind = block.listKind;
-      extra.listLevel = block.listLevel;
     }
 
-    // Create new block
-    const newBlock: Block = {
-      id: generateBlockId(),
-      type: newType,
-      inlines:
-        afterInlines.length > 0
-          ? afterInlines
-          : [{ text: '', style: this.getStyleAtOffset(block, offset) }],
-      style: { ...block.style },
-      ...extra,
-    };
-
-    this.store.updateBlock(blockId, block);
-    this.store.insertBlock(blockIndex + 1, newBlock);
+    const newBlockId = generateBlockId();
+    this.store.splitBlock(blockId, offset, newBlockId, newType);
     this.refresh();
-    return newBlock.id;
+    return newBlockId;
   }
 
   /**
@@ -285,14 +244,7 @@ export class Doc {
       return;
     }
 
-    const block = this.getBlock(blockId);
-    const nextBlock = this.getBlock(nextBlockId);
-
-    block.inlines = [...block.inlines, ...nextBlock.inlines];
-    this.normalizeInlines(block);
-
-    this.store.updateBlock(blockId, block);
-    this.store.deleteBlock(nextBlockId);
+    this.store.mergeBlock(blockId, nextBlockId);
     this.refresh();
   }
 
@@ -303,15 +255,21 @@ export class Doc {
     const anchorCellInfo = this._blockParentMap.get(range.anchor.blockId);
     const focusCellInfo = this._blockParentMap.get(range.focus.blockId);
 
-    // Same block (cell or top-level)
+    // Same block
     if (range.anchor.blockId === range.focus.blockId) {
       const block = this.getBlock(range.anchor.blockId);
       const [start, end] = range.anchor.offset <= range.focus.offset
         ? [range.anchor.offset, range.focus.offset]
         : [range.focus.offset, range.anchor.offset];
       if (start < end) {
-        this.applyStyleToBlock(block, start, end, style);
-        this.updateBlockInStore(block.id, block);
+        const cellInfo = this._blockParentMap.get(range.anchor.blockId);
+        if (cellInfo) {
+          // Table cell path — keep existing behavior (Phase 4)
+          this.applyStyleToBlock(block, start, end, style);
+          this.updateBlockInStore(block.id, block);
+        } else {
+          this.store.applyStyle(block.id, start, end, style);
+        }
       }
       this.refresh();
       return;

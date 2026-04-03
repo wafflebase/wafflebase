@@ -53,6 +53,18 @@ export { Doc } from './model/document.js';
 // Store
 export type { DocStore } from './store/store.js';
 export { MemDocStore } from './store/memory.js';
+export {
+  resolveOffset,
+  resolveDeleteRange,
+  resolveStyleRange,
+  normalizeInlines,
+  applyInsertText,
+  applyDeleteText,
+  applyInlineStyle as applyInlineStyleHelper,
+  applySplitBlock,
+  applyMergeBlocks,
+} from './store/block-helpers.js';
+export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
 
 // View
 export { initialize, type EditorAPI } from './view/editor.js';
