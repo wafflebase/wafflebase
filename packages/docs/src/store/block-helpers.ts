@@ -130,6 +130,14 @@ export function resolveStyleRange(
 }
 
 /**
+ * Get the inline style at a split point so empty sides preserve formatting.
+ */
+function getSplitPointStyle(inlines: Inline[], offset: number): InlineStyle {
+  const { inlineIndex } = resolveOffset({ inlines } as Block, offset);
+  return { ...inlines[inlineIndex].style };
+}
+
+/**
  * Split a block at offset. Returns [beforeBlock, afterBlock].
  * The afterBlock gets the new id and type.
  */
@@ -169,8 +177,10 @@ export function applySplitBlock(
     pos = inlineEnd;
   }
 
-  before.inlines = normalizeInlines(beforeInlines);
-  after.inlines = normalizeInlines(afterInlines);
+  // Preserve the style at the split point for empty sides
+  const splitStyle = getSplitPointStyle(block.inlines, offset);
+  before.inlines = normalizeInlines(beforeInlines.length > 0 ? beforeInlines : [{ text: '', style: splitStyle }]);
+  after.inlines = normalizeInlines(afterInlines.length > 0 ? afterInlines : [{ text: '', style: splitStyle }]);
 
   // Remove block-specific attrs from after block
   delete after.tableData;

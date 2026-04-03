@@ -231,11 +231,28 @@ describe('applySplitBlock', () => {
     expect(after.inlines[0].text).toBe('Hello');
   });
 
-  it('splits at end — second block empty', () => {
+  it('splits at end — second block empty, preserves style', () => {
     const block = makeBlock({ text: 'Hello' });
     const [before, after] = applySplitBlock(block, 5, 'b2', 'paragraph');
     expect(before.inlines[0].text).toBe('Hello');
     expect(after.inlines[0].text).toBe('');
+  });
+
+  it('preserves bold style when splitting at end of bold text', () => {
+    const block = makeBlock({ text: 'Hello', style: { bold: true } });
+    const [before, after] = applySplitBlock(block, 5, 'b2', 'paragraph');
+    expect(before.inlines[0].style).toEqual({ bold: true });
+    expect(after.inlines[0].text).toBe('');
+    expect(after.inlines[0].style).toEqual({ bold: true });
+  });
+
+  it('preserves style when splitting at start of styled text', () => {
+    const block = makeBlock({ text: 'Hello', style: { italic: true } });
+    const [before, after] = applySplitBlock(block, 0, 'b2', 'paragraph');
+    expect(before.inlines[0].text).toBe('');
+    expect(before.inlines[0].style).toEqual({ italic: true });
+    expect(after.inlines[0].text).toBe('Hello');
+    expect(after.inlines[0].style).toEqual({ italic: true });
   });
 
   it('preserves inline styles across split', () => {
