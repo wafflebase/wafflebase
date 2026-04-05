@@ -15,18 +15,18 @@ Design doc: [docs-wordprocessor-roadmap.md](../../design/docs-wordprocessor-road
 - [x] 1.9 Keyboard shortcuts — align (⌘⇧L/E/R/J), indent (⌘]/[), lists (⌘⇧7/8), headings (⌘⌥0-6)
 - [x] 1.10 Shortcut hints in toolbar tooltips and dropdown items
 
-## Phase 2: Inline Extensions & Clipboard
+## Phase 2: Inline Extensions & Clipboard ✅
 
-- [ ] 2.1 Hyperlink — href, popover, Ctrl+K, URL auto-detect
+- [x] 2.1 Hyperlink — href, popover, Ctrl+K, URL auto-detect
 - [x] 2.2 Background Color (Highlight) — *completed in Phase 1*
-- [ ] 2.3 Superscript / Subscript — font scaling, baseline offset
-- [ ] 2.4 Clipboard — internal formatted copy/paste, external HTML parsing, format painting
-- [ ] 2.5 Find & Replace — search bar, match highlight, replace
+- [x] 2.3 Superscript / Subscript — font scaling, baseline offset
+- [x] 2.4 Clipboard — internal formatted copy/paste, external HTML parsing, format painting
+- [x] 2.5 Find & Replace — search bar, match highlight, replace
 
 ## Phase 3: Complex Blocks
 
-- [ ] 3.1 Image — insert, resize, alignment, backend storage
-- [ ] 3.2 Table — data model, cell editing, row/column CRUD, cell merge
+- [x] 3.1 Image — insert, resize, alignment, backend storage
+- [x] 3.2 Table — data model, cell editing, row/column CRUD, cell merge
 - [ ] 3.3 Code Block — monospace, background color, ``` auto-convert
 
 ## Phase 4: Page Features
