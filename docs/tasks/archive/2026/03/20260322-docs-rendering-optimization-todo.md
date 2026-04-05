@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Canvas API, Vitest
 
-**Spec:** `docs/design/docs-rendering-optimization.md`
+**Spec:** `docs/design/docs/docs-rendering-optimization.md`
 
 ---
 

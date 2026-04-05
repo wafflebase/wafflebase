@@ -4,7 +4,7 @@
 
 **Status:** IN_PROGRESS
 
-**Design:** [docs/design/docs.md](../../design/docs.md)
+**Design:** [docs/design/docs/docs.md](../../design/docs/docs.md)
 
 **Note:** Package is `@wafflebase/document` (`packages/docs/`).
 

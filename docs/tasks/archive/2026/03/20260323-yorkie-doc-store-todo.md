@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Yorkie SDK (`@yorkie-js/sdk` Tree API), `@yorkie-js/react` (DocumentProvider, useDocument), Vitest
 
-**Spec:** `docs/design/docs-collaboration.md`
+**Spec:** `docs/design/docs/docs-collaboration.md`
 
 ---
 

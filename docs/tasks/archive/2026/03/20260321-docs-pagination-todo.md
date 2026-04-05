@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Canvas 2D API, Vitest
 
-**Spec:** `docs/design/docs-pagination.md`
+**Spec:** `docs/design/docs/docs-pagination.md`
 
 ---
 

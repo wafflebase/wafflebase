@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Yorkie JS SDK (Tree CRDT, `editByPath`), Vitest (docs package), Node test runner (frontend package)
 
-**Design doc:** `docs/design/docs-table-crdt.md` — Phase C section
+**Design doc:** `docs/design/docs/docs-table-crdt.md` — Phase C section
 
 ---
 

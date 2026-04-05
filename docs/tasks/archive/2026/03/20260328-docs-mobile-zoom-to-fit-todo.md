@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Canvas 2D API, Vitest
 
-**Spec:** `docs/design/docs-mobile-zoom-to-fit.md`
+**Spec:** `docs/design/docs/docs-mobile-zoom-to-fit.md`
 
 ---
 
@@ -550,6 +550,6 @@ Expected: PASS
 - [x] **Step 7: Final commit with design doc**
 
 ```bash
-git add docs/design/docs-mobile-zoom-to-fit.md docs/tasks/active/20260328-docs-mobile-zoom-to-fit-todo.md
+git add docs/design/docs/docs-mobile-zoom-to-fit.md docs/tasks/active/20260328-docs-mobile-zoom-to-fit-todo.md
 git commit -m "Add docs mobile zoom-to-fit design doc and task plan"
 ```

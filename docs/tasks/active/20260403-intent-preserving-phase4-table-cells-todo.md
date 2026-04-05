@@ -3,7 +3,7 @@
 **Goal:** Extend Phase 1-3's character-level editing to table cell blocks via
 deeper Yorkie Tree paths.
 
-**Design doc:** `docs/design/docs-intent-preserving-edits.md`
+**Design doc:** `docs/design/docs/docs-intent-preserving-edits.md`
 
 **Depends on:** Phase 1-3 (completed)
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Canvas 2D, Vitest
 
-**Spec:** `docs/design/docs-table-resize.md`
+**Spec:** `docs/design/docs/docs-table-resize.md`
 
 ---
 
@@ -939,6 +939,6 @@ In `docs/design/README.md`, add a row to the table after the `docs-table-ui.md` 
 - [x] **Step 2: Commit**
 
 ```bash
-git add docs/design/README.md docs/design/docs-table-resize.md
+git add docs/design/README.md docs/design/docs/docs-table-resize.md
 git commit -m "Add table resize design doc to design index"
 ```

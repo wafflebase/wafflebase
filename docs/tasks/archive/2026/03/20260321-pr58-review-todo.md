@@ -7,8 +7,8 @@ created: 2026-03-21
 # PR #58 CodeRabbit Review — Fix All Comments
 
 ## Docs/Config
-- [x] 1. docs/design/docs.md: IME non-goal → already reflects implementation
-- [x] 2. docs/design/docs.md: packages/docs → packages/document rename in doc
+- [x] 1. docs/design/docs/docs.md: IME non-goal → already reflects implementation
+- [x] 2. docs/design/docs/docs.md: packages/docs → packages/document rename in doc
 - [x] 3. docs/tasks/active/20260320-docs-package-todo.md: status → IN_PROGRESS (smoke test unchecked)
 - [x] 4. docs/design/README.md: duplicate docs-site.md row → already fixed in prior commit
 
