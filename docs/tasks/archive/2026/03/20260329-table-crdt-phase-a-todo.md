@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Vitest, Yorkie Tree CRDT
 
-**Spec:** [docs/design/docs/docs-table-crdt.md](../../design/docs/docs-table-crdt.md)
+**Spec:** [docs/design/docs/docs-table-crdt.md](../../../../design/docs/docs-table-crdt.md)
 
 **Prerequisites:** Merge current `feat/docs-table-support` PR first. Start this work on a new branch.
 

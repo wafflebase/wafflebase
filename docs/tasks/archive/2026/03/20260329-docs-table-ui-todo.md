@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 19, Radix UI (DropdownMenu, ContextMenu), @tabler/icons-react, TypeScript
 
-**Spec:** [docs/design/docs/docs-table-ui.md](../../design/docs/docs-table-ui.md)
+**Spec:** [docs/design/docs/docs-table-ui.md](../../../../design/docs/docs-table-ui.md)
 
 ---
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Vitest, Canvas layout
 
-**Spec:** [docs/design/docs/docs-table-crdt.md](../../design/docs/docs-table-crdt.md) — Phase B section
+**Spec:** [docs/design/docs/docs-table-crdt.md](../../../../design/docs/docs-table-crdt.md) — Phase B section
 
 ---
 
