@@ -6,7 +6,7 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 114
+Total archived tasks: 115
 
 ## 2026/04 (1 tasks)
 
@@ -14,7 +14,7 @@ Total archived tasks: 114
 |---|---|---|
 | intent preserving phase1 3 (2026-04-02) | [20260402-intent-preserving-phase1-3-todo.md](./20260402-intent-preserving-phase1-3-todo.md) | [20260402-intent-preserving-phase1-3-lessons.md](./20260402-intent-preserving-phase1-3-lessons.md) |
 
-## 2026/03 (76 tasks)
+## 2026/03 (77 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -28,6 +28,7 @@ Total archived tasks: 114
 | docs mobile zoom to fit (2026-03-28) | [20260328-docs-mobile-zoom-to-fit-todo.md](./2026/03/20260328-docs-mobile-zoom-to-fit-todo.md) | [20260328-docs-mobile-zoom-to-fit-lessons.md](./2026/03/20260328-docs-mobile-zoom-to-fit-lessons.md) |
 | docs phase2 (2026-03-26) | [20260326-docs-phase2-todo.md](./2026/03/20260326-docs-phase2-todo.md) | [20260326-docs-phase2-lessons.md](./2026/03/20260326-docs-phase2-lessons.md) |
 | number autofill ols (2026-03-26) | [20260326-number-autofill-ols-todo.md](./2026/03/20260326-number-autofill-ols-todo.md) | - |
+| docs arrow pixel accuracy (2026-03-25) | [20260325-docs-arrow-pixel-accuracy-todo.md](./2026/03/20260325-docs-arrow-pixel-accuracy-todo.md) | - |
 | docs editor improvements (2026-03-25) | [20260325-docs-editor-improvements-todo.md](./2026/03/20260325-docs-editor-improvements-todo.md) | - |
 | docs documentation update (2026-03-24) | [20260324-docs-documentation-update-todo.md](./2026/03/20260324-docs-documentation-update-todo.md) | - |
 | docs remote cursor (2026-03-24) | [20260324-docs-remote-cursor-todo.md](./2026/03/20260324-docs-remote-cursor-todo.md) | - |
