@@ -66,6 +66,8 @@ export interface LayoutRun {
   inlineIndex: number;
   charStart: number;
   charEnd: number;
+  /** Cumulative pixel widths: charOffsets[i] = width of text.slice(0, i+1). Length === text.length. */
+  charOffsets: number[];
 }
 
 /**
@@ -119,6 +121,7 @@ interface MeasuredSegment {
   inlineIndex: number;
   charStart: number;
   charEnd: number;
+  font: string;
 }
 
 /**
@@ -231,6 +234,24 @@ export function computeLayout(
 }
 
 /**
+ * Compute cumulative character pixel offsets for a run.
+ * charOffsets[i] = width of text.slice(0, i + 1).
+ */
+export function computeCharOffsets(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  font: string,
+): number[] {
+  if (text.length === 0) return [];
+  ctx.font = font;
+  const offsets = new Array<number>(text.length);
+  for (let i = 0; i < text.length; i++) {
+    offsets[i] = ctx.measureText(text.slice(0, i + 1)).width;
+  }
+  return offsets;
+}
+
+/**
  * Layout a single block into wrapped lines.
  */
 function layoutBlock(
@@ -305,14 +326,16 @@ function layoutBlock(
           flushLine();
           continue; // Re-measure from charIdx on fresh line
         }
+        const sliceText = seg.text.slice(charIdx, endIdx);
         currentRuns.push({
           inline: inlines[seg.inlineIndex],
-          text: seg.text.slice(charIdx, endIdx),
+          text: sliceText,
           x: lineStartX + lineWidth,
           width: runWidth,
           inlineIndex: seg.inlineIndex,
           charStart: seg.charStart + charIdx,
           charEnd: seg.charStart + endIdx,
+          charOffsets: computeCharOffsets(ctx, sliceText, seg.font),
         });
         lineWidth += runWidth;
         charIdx = endIdx;
@@ -331,6 +354,7 @@ function layoutBlock(
       inlineIndex: seg.inlineIndex,
       charStart: seg.charStart,
       charEnd: seg.charEnd,
+      charOffsets: computeCharOffsets(ctx, seg.text, seg.font),
     });
     lineWidth += seg.width;
   }
@@ -384,6 +408,7 @@ function measureSegments(
         inlineIndex: i,
         charStart: charPos,
         charEnd: charPos + word.length,
+        font,
       });
       charPos += word.length;
     }

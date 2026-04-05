@@ -16,6 +16,7 @@ function mockRun(text: string, x: number, width: number, charStart: number): Lay
     inlineIndex: 0,
     charStart,
     charEnd: charStart + text.length,
+    charOffsets: Array.from({ length: text.length }, (_, i) => (width / text.length) * (i + 1)),
   };
 }
 
