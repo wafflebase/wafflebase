@@ -7,10 +7,30 @@ import {
   paginatedPixelToPosition,
 } from '../../src/view/pagination.js';
 import { DEFAULT_PAGE_SETUP } from '../../src/model/types.js';
-import type { DocumentLayout, LayoutBlock, LayoutLine } from '../../src/view/layout.js';
+import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../../src/view/layout.js';
 
 function mockLine(height: number): LayoutLine {
   return { runs: [], y: 0, height, width: 100 };
+}
+
+function mockRun(text: string, x: number, charOffsets: number[], charStart = 0): LayoutRun {
+  return {
+    inline: { text, style: {} },
+    text,
+    x,
+    width: charOffsets.length > 0 ? charOffsets[charOffsets.length - 1] : 0,
+    inlineIndex: 0,
+    charStart,
+    charEnd: charStart + text.length,
+    charOffsets,
+  };
+}
+
+function mockLineWithRuns(runs: LayoutRun[], height = 24): LayoutLine {
+  const width = runs.length > 0
+    ? runs[runs.length - 1].x + runs[runs.length - 1].width
+    : 0;
+  return { runs, y: 0, height, width };
 }
 
 function mockBlock(
@@ -186,5 +206,73 @@ describe('paginatedPixelToPosition', () => {
     const result = paginatedPixelToPosition(paginated, layout, 400, 10, 816);
     expect(result).toBeDefined();
     expect(result!.blockId).toBe('b1');
+  });
+});
+
+describe('paginatedPixelToPosition — charOffsets', () => {
+  const setup = DEFAULT_PAGE_SETUP;
+  // margins.left = 96, pageXOffset for canvasWidth=816 is 0
+
+  it('snaps to correct character with proportional widths', () => {
+    // "Wii": W=14px, i=4px, i=4px → charOffsets=[14, 18, 22]
+    const run = mockRun('Wii', 0, [14, 18, 22]);
+    const line = mockLineWithRuns([run]);
+    const block = mockBlock('b1', [line]);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24, blockParentMap: new Map() };
+    const paginated = paginateLayout(layout, setup);
+
+    // Click at x=96+5 → inside 'W' (0-14px range), should be offset 0 (closer to 0 than 14)
+    const r1 = paginatedPixelToPosition(paginated, layout, 96 + 5, 136, 816);
+    expect(r1!.offset).toBe(0);
+
+    // Click at x=96+10 → inside 'W' (0-14px range), should be offset 1 (closer to 14 than 0)
+    const r2 = paginatedPixelToPosition(paginated, layout, 96 + 10, 136, 816);
+    expect(r2!.offset).toBe(1);
+
+    // Click at x=96+15 → inside first 'i' (14-18px range), should be offset 1 (closer to 14 than 18)
+    const r3 = paginatedPixelToPosition(paginated, layout, 96 + 15, 136, 816);
+    expect(r3!.offset).toBe(1);
+
+    // Click at x=96+17 → inside first 'i' (14-18px range), should be offset 2 (closer to 18 than 14)
+    const r4 = paginatedPixelToPosition(paginated, layout, 96 + 17, 136, 816);
+    expect(r4!.offset).toBe(2);
+  });
+
+  it('clicking past end of run returns end offset', () => {
+    const run = mockRun('ab', 0, [10, 20]);
+    const line = mockLineWithRuns([run]);
+    const block = mockBlock('b1', [line]);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24, blockParentMap: new Map() };
+    const paginated = paginateLayout(layout, setup);
+
+    // Click past the run width → falls through to "past end of line" path
+    const r = paginatedPixelToPosition(paginated, layout, 96 + 25, 136, 816);
+    expect(r!.offset).toBe(2);
+  });
+
+  it('clicking at x=0 in run returns offset 0', () => {
+    const run = mockRun('abc', 0, [8, 16, 24]);
+    const line = mockLineWithRuns([run]);
+    const block = mockBlock('b1', [line]);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24, blockParentMap: new Map() };
+    const paginated = paginateLayout(layout, setup);
+
+    const r = paginatedPixelToPosition(paginated, layout, 96, 136, 816);
+    expect(r!.offset).toBe(0);
+  });
+
+  it('handles multi-run lines correctly', () => {
+    // "He" (bold, 20px) + "llo" (normal, 15px)
+    const run1 = mockRun('He', 0, [12, 20], 0);
+    const run2 = mockRun('llo', 20, [5, 10, 15], 2);
+    const line = mockLineWithRuns([run1, run2]);
+    const block = mockBlock('b1', [line]);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 24, blockParentMap: new Map() };
+    const paginated = paginateLayout(layout, setup);
+
+    // Click at x=96+22 → inside run2 at localRunX=2, charOffsets=[5,10,15]
+    // Closest to 0 (prev of index 0), so offset = 0 in run2 → global offset 2
+    const r = paginatedPixelToPosition(paginated, layout, 96 + 22, 136, 816);
+    expect(r!.offset).toBe(2);
   });
 });
