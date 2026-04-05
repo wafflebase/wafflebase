@@ -231,7 +231,7 @@ export function modFunc(
     return divisor;
   }
   if (divisor.v === 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#DIV/0!' };
   }
 
   const remainder = dividend.v - divisor.v * Math.floor(dividend.v / divisor.v);
@@ -262,7 +262,7 @@ export function sqrtFunc(
     return value;
   }
   if (value.v < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   return { t: 'num', v: Math.sqrt(value.v) };
@@ -299,7 +299,7 @@ export function powerFunc(
 
   const result = Math.pow(base.v, exponent.v);
   if (!isFinite(result)) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   return { t: 'num', v: result };
@@ -488,7 +488,7 @@ export function lnFunc(
     return num;
   }
   if (num.v <= 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   return { t: 'num', v: Math.log(num.v) };
@@ -517,7 +517,7 @@ export function logFunc(
     return num;
   }
   if (num.v <= 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   let base = 10;
@@ -526,8 +526,11 @@ export function logFunc(
     if (baseNode.t === 'err') {
       return baseNode;
     }
-    if (baseNode.v <= 0 || baseNode.v === 1) {
-      return { t: 'err', v: '#VALUE!' };
+    if (baseNode.v <= 0) {
+      return { t: 'err', v: '#NUM!' };
+    }
+    if (baseNode.v === 1) {
+      return { t: 'err', v: '#DIV/0!' };
     }
     base = baseNode.v;
   }
@@ -636,7 +639,7 @@ export function asinFunc(
     return num;
   }
   if (num.v < -1 || num.v > 1) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   return { t: 'num', v: Math.asin(num.v) };
@@ -665,7 +668,7 @@ export function acosFunc(
     return num;
   }
   if (num.v < -1 || num.v > 1) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   return { t: 'num', v: Math.acos(num.v) };
@@ -1203,7 +1206,7 @@ export function combinFunc(
   const n = Math.trunc(nNode.v);
   const k = Math.trunc(kNode.v);
   if (n < 0 || k < 0 || k > n) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   let result = 1;
@@ -1233,7 +1236,7 @@ export function combinaFunc(
   if (k.t === 'err') return k;
   const ni = Math.trunc(n.v);
   const ki = Math.trunc(k.v);
-  if (ni < 0 || ki < 0) return { t: 'err', v: '#VALUE!' };
+  if (ni < 0 || ki < 0) return { t: 'err', v: '#NUM!' };
   if (ki === 0) return { t: 'num', v: 1 };
   // C(ni+ki-1, ki)
   let result = 1;
@@ -1268,7 +1271,7 @@ export function factFunc(
 
   const n = Math.trunc(num.v);
   if (n < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   let result = 1;
@@ -1294,7 +1297,7 @@ export function factdoubleFunc(
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   const n = Math.trunc(num.v);
-  if (n < -1) return { t: 'err', v: '#VALUE!' };
+  if (n < -1) return { t: 'err', v: '#NUM!' };
   if (n <= 0) return { t: 'num', v: 1 };
   let result = 1;
   for (let i = n; i > 0; i -= 2) {
@@ -1332,7 +1335,7 @@ export function quotientFunc(
   }
 
   if (denominator.v === 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#DIV/0!' };
   }
 
   return { t: 'num', v: Math.trunc(numerator.v / denominator.v) };
@@ -1355,7 +1358,7 @@ export function baseFunc(
   const base = NumberArgs.map(visit(exprs[1]), grid);
   if (base.t === 'err') return base;
   const b = Math.trunc(base.v);
-  if (b < 2 || b > 36) return { t: 'err', v: '#VALUE!' };
+  if (b < 2 || b > 36) return { t: 'err', v: '#NUM!' };
   let result = Math.trunc(num.v).toString(b).toUpperCase();
   if (exprs.length === 3) {
     const minLen = NumberArgs.map(visit(exprs[2]), grid);
@@ -1382,7 +1385,7 @@ export function decimalFunc(
   const base = NumberArgs.map(visit(exprs[1]), grid);
   if (base.t === 'err') return base;
   const b = Math.trunc(base.v);
-  if (b < 2 || b > 36) return { t: 'err', v: '#VALUE!' };
+  if (b < 2 || b > 36) return { t: 'err', v: '#NUM!' };
   const num = parseInt(str.v, b);
   if (isNaN(num)) return { t: 'err', v: '#VALUE!' };
   return { t: 'num', v: num };
@@ -1402,7 +1405,7 @@ export function sqrtpiFunc(
   if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  if (num.v < 0) return { t: 'err', v: '#VALUE!' };
+  if (num.v < 0) return { t: 'err', v: '#NUM!' };
   return { t: 'num', v: Math.sqrt(num.v * Math.PI) };
 }
 
@@ -1488,7 +1491,7 @@ export function acoshFunc(
   if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  if (num.v < 1) return { t: 'err', v: '#VALUE!' };
+  if (num.v < 1) return { t: 'err', v: '#NUM!' };
   return { t: 'num', v: Math.acosh(num.v) };
 }
 
@@ -1506,7 +1509,7 @@ export function atanhFunc(
   if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  if (num.v <= -1 || num.v >= 1) return { t: 'err', v: '#VALUE!' };
+  if (num.v <= -1 || num.v >= 1) return { t: 'err', v: '#NUM!' };
   return { t: 'num', v: Math.atanh(num.v) };
 }
 
@@ -1598,7 +1601,7 @@ export function cschFunc(
   if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (n.v === 0) return { t: 'err', v: '#VALUE!' };
+  if (n.v === 0) return { t: 'err', v: '#DIV/0!' };
   return { t: 'num', v: 1 / Math.sinh(n.v) };
 }
 
@@ -1616,7 +1619,7 @@ export function cothFunc(
   if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (n.v === 0) return { t: 'err', v: '#VALUE!' };
+  if (n.v === 0) return { t: 'err', v: '#DIV/0!' };
   return { t: 'num', v: Math.cosh(n.v) / Math.sinh(n.v) };
 }
 
@@ -1651,7 +1654,7 @@ export function acothFunc(
   if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (Math.abs(n.v) <= 1) return { t: 'err', v: '#VALUE!' };
+  if (Math.abs(n.v) <= 1) return { t: 'err', v: '#NUM!' };
   return { t: 'num', v: 0.5 * Math.log((n.v + 1) / (n.v - 1)) };
 }
 
@@ -1672,7 +1675,7 @@ export function multinomialFunc(
     const n = NumberArgs.map(visit(expr), grid);
     if (n.t === 'err') return n;
     const val = Math.trunc(n.v);
-    if (val < 0) return { t: 'err', v: '#VALUE!' };
+    if (val < 0) return { t: 'err', v: '#NUM!' };
     sum += val;
     denomProduct *= gammaLanczos(val + 1);
   }

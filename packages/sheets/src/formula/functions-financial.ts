@@ -359,7 +359,7 @@ export function effectFunc(
   const periods = NumberArgs.map(visit(exprs[1]), grid);
   if (periods.t === 'err') return periods;
   const n = Math.trunc(periods.v);
-  if (n < 1 || nominal.v <= 0) return { t: 'err', v: '#VALUE!' };
+  if (n < 1 || nominal.v <= 0) return { t: 'err', v: '#NUM!' };
   return { t: 'num', v: Math.pow(1 + nominal.v / n, n) - 1 };
 }
 
@@ -586,7 +586,7 @@ export function nominalFunc(
   const periods = NumberArgs.map(visit(exprs[1]), grid);
   if (periods.t === 'err') return periods;
   const n = Math.trunc(periods.v);
-  if (n < 1 || effectiveRate.v <= 0) return { t: 'err', v: '#VALUE!' };
+  if (n < 1 || effectiveRate.v <= 0) return { t: 'err', v: '#NUM!' };
   return { t: 'num', v: n * (Math.pow(1 + effectiveRate.v, 1 / n) - 1) };
 }
 

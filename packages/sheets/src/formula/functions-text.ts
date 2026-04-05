@@ -782,11 +782,11 @@ export function charFunc(
   }
 
   const code = Math.trunc(num.v);
-  if (code < 1 || code > 65535) {
-    return { t: 'err', v: '#VALUE!' };
+  if (code < 1 || code > 1114111) {
+    return { t: 'err', v: '#NUM!' };
   }
 
-  return { t: 'str', v: String.fromCharCode(code) };
+  return { t: 'str', v: String.fromCodePoint(code) };
 }
 
 /**

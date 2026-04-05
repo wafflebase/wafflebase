@@ -966,7 +966,7 @@ export function quartileFunc(
 
   const quart = Math.trunc(quartNode.v);
   if (quart < 0 || quart > 4 || values.length === 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   const k = quart / 4;
@@ -1201,7 +1201,7 @@ export function percentileFunc(
 
   const k = kNode.v;
   if (k < 0 || k > 1 || values.length === 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return { t: 'err', v: '#NUM!' };
   }
 
   values.sort((a, b) => a - b);
@@ -1276,7 +1276,7 @@ export function percentrankFunc(
     const sigNode = NumberArgs.map(visit(exprs[2]), grid);
     if (sigNode.t === 'err') return sigNode;
     sig = Math.trunc(sigNode.v);
-    if (sig < 1) return { t: 'err', v: '#VALUE!' };
+    if (sig < 0) return { t: 'err', v: '#NUM!' };
   }
 
   vals.sort((a, b) => a - b);
@@ -1300,6 +1300,7 @@ export function percentrankFunc(
     rank = (smaller - 1 + (x - lower) / (upper - lower)) / (n - 1);
   }
 
+  if (sig === 0) return { t: 'num', v: rank };
   const factor = Math.pow(10, sig);
   return { t: 'num', v: Math.trunc(rank * factor) / factor };
 }
