@@ -251,7 +251,7 @@ fall inside frozen rows/columns.
 New documents are created directly in this canonical shape. Runtime support
 for the older flat `root.sheet` format has been removed. For the full
 collaboration data model and structural concurrency rationale, see
-[collaboration.md](collaboration.md).
+[collaboration.md](sheets/collaboration.md).
 
 #### YorkieStore
 
@@ -308,7 +308,7 @@ undo step. Cell mutations are buffered in an overlay `Map<Sref, Cell | null>`
 that also serves as a read-through cache for intermediate reads during formula
 recalculation. Non-cell mutations (styles, dimensions, freeze pane) are
 buffered as deferred functions. See
-[batch-transactions.md](batch-transactions.md) for the full design.
+[batch-transactions.md](sheets/batch-transactions.md) for the full design.
 
 #### CellIndex (Dirty Flag + Lazy Rebuild)
 

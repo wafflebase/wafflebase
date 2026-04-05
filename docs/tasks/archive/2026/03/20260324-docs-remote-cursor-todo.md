@@ -8,7 +8,7 @@
 
 **Tech Stack:** Yorkie CRDT (presence), Canvas 2D rendering, React (DocsView component)
 
-**Spec:** `docs/design/docs-remote-cursor.md`
+**Spec:** `docs/design/docs/docs-remote-cursor.md`
 
 ---
 

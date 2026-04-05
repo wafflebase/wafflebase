@@ -3,7 +3,7 @@
 **Goal:** Migrate from snapshot-based undo/redo to Yorkie Tree history, where
 each `doc.update()` is an undo unit.
 
-**Design doc:** `docs/design/docs-intent-preserving-edits.md`
+**Design doc:** `docs/design/docs/docs-intent-preserving-edits.md`
 
 **Depends on:** Phase 1-3 (completed), Phase 4 (recommended), SDK 0.7.3 (completed)
 

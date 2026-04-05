@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Vitest, React, Yorkie SDK, NestJS
 
-**Spec:** `docs/design/conditional-format-multi-range.md`
+**Spec:** `docs/design/sheets/conditional-format-multi-range.md`
 
 ---
 

@@ -1,6 +1,6 @@
 # Docs Frontend Integration
 
-**Spec:** `docs/design/docs-frontend-integration.md`
+**Spec:** `docs/design/docs/docs-frontend-integration.md`
 
 **Goal:** Add document type support so users can create and open docs from the document list UI.
 

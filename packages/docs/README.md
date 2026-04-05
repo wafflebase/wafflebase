@@ -105,5 +105,5 @@ pnpm --filter @wafflebase/docs typecheck    # TypeScript check
 
 ## Further Reading
 
-- [docs.md](../../docs/design/docs.md) — Full design document (data model, layout, rendering)
-- [docs-pagination.md](../../docs/design/docs-pagination.md) — Pagination design (page setup, coordinate mapping)
+- [docs.md](../../docs/design/docs/docs.md) — Full design document (data model, layout, rendering)
+- [docs-pagination.md](../../docs/design/docs/docs-pagination.md) — Pagination design (page setup, coordinate mapping)

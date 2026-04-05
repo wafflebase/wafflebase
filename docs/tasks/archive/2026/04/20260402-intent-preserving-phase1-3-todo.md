@@ -2,7 +2,7 @@
 
 **Status:** ✅ All phases shipped in PR #103
 
-**Design doc:** `docs/design/docs-intent-preserving-edits.md`
+**Design doc:** `docs/design/docs/docs-intent-preserving-edits.md`
 
 ## Phase 1: Character-Level Text Editing ✅
 

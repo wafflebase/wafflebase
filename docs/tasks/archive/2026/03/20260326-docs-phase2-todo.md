@@ -1373,7 +1373,7 @@ git commit -m "feat(docs): add find & replace with search bar UI and match highl
 ### Task 14: Update design docs and verify
 
 **Files:**
-- Modify: `docs/design/docs-wordprocessor-roadmap.md`
+- Modify: `docs/design/docs/docs-wordprocessor-roadmap.md`
 
 - [x] **Step 1: Run full verification**
 
@@ -1383,7 +1383,7 @@ pnpm verify:fast
 
 - [x] **Step 2: Update roadmap**
 
-Mark Phase 2 items as complete (✅) in `docs/design/docs-wordprocessor-roadmap.md`. Update the "Current State" table with new features.
+Mark Phase 2 items as complete (✅) in `docs/design/docs/docs-wordprocessor-roadmap.md`. Update the "Current State" table with new features.
 
 - [x] **Step 3: Update `Keyboard Shortcuts` status**
 
@@ -1392,7 +1392,7 @@ Change from "✅ Partial" to "✅" if all planned shortcuts are now implemented.
 - [x] **Step 4: Commit**
 
 ```bash
-git add docs/design/docs-wordprocessor-roadmap.md
+git add docs/design/docs/docs-wordprocessor-roadmap.md
 git commit -m "docs: mark Phase 2 complete in word processor roadmap"
 ```
 

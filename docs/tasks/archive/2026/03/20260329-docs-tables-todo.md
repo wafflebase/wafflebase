@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Canvas 2D, Vitest
 
-**Spec:** [docs/design/docs-tables.md](../../design/docs-tables.md)
+**Spec:** [docs/design/docs/docs-tables.md](../../../../design/docs/docs-tables.md)
 
 ---
 
