@@ -3,7 +3,7 @@
 # ── docs/ directory guard ──────────────────────────────────────────
 # Only docs/design/ and docs/tasks/ are allowed.
 # Other paths (e.g. docs/superpowers/) must not be committed.
-bad_docs=$(git diff --cached --diff-filter=d --name-only | grep '^docs/' | grep -v -E '^docs/(design|tasks)/')
+bad_docs=$(git diff --cached --diff-filter=d --name-only | grep '^docs/' | grep -v -E '^docs/(design|tasks)/|^docs/README\.md$')
 if [ -n "$bad_docs" ]; then
   echo ""
   echo "ERROR: Files staged under disallowed docs/ subdirectory:"
