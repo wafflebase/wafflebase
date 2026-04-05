@@ -287,10 +287,28 @@ export function paginatedPixelToPosition(
   let charsBeforeRun = 0;
   for (const run of line.runs) {
     if (localX >= run.x && localX <= run.x + run.width) {
-      const charWidth = run.width / Math.max(1, run.text.length);
+      // Binary search on pre-computed charOffsets
       const localRunX = localX - run.x;
-      const charOffset = Math.round(localRunX / charWidth);
-      const clampedOffset = Math.min(Math.max(0, charOffset), run.text.length);
+      let charOffset = 0;
+      const offsets = run.charOffsets;
+      if (offsets.length > 0 && localRunX > 0) {
+        // Binary search for the character boundary closest to localRunX
+        let lo = 0;
+        let hi = offsets.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (offsets[mid] < localRunX) {
+            lo = mid + 1;
+          } else {
+            hi = mid;
+          }
+        }
+        // lo is now the first index where offsets[lo] >= localRunX.
+        // Snap to nearest: compare midpoint between prev and current char.
+        const prev = lo > 0 ? offsets[lo - 1] : 0;
+        charOffset = (localRunX - prev < offsets[lo] - localRunX) ? lo : lo + 1;
+      }
+      const clampedOffset = Math.min(charOffset, run.text.length);
       const offset = charsBeforeLine + charsBeforeRun + clampedOffset;
       return {
         blockId: lb.block.id,

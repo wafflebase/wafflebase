@@ -7,7 +7,7 @@ import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
-import { buildFont, Theme } from './theme.js';
+import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
@@ -2929,7 +2929,6 @@ export class TextEditor {
   private getPixelForPosition(pos: DocPosition, lineAffinity: 'forward' | 'backward' = 'backward') {
     const paginatedLayout = this.getPaginatedLayout();
     const layout = this.getLayout();
-    const ctx = this.getCtx();
     const canvasWidth = this.getCanvasWidth();
     const found = findPageForPosition(paginatedLayout, pos.blockId, pos.offset, layout, lineAffinity);
     if (!found) return undefined;
@@ -2952,12 +2951,8 @@ export class TextEditor {
       const runLength = run.charEnd - run.charStart;
       if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
         const localOff = lineOffset - charCount;
-        const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
-        const measureFontSize = isSuperOrSub
-          ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
-          : run.inline.style.fontSize;
-        ctx.font = buildFont(measureFontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
-        const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+        const charX = localOff > 0 ? run.charOffsets[localOff - 1] : 0;
+        const x = pageX + pageLine.x + run.x + charX;
         return { x, y: pageY + pageLine.y, height: pageLine.line.height };
       }
       charCount += runLength;

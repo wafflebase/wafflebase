@@ -1,7 +1,7 @@
 import type { TableData, Inline, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
-import { cachedMeasureText, applyAlignment } from './layout.js';
+import { cachedMeasureText, applyAlignment, computeCharOffsets } from './layout.js';
 import { buildFont, ptToPx, Theme } from './theme.js';
 
 export interface LayoutTableCell {
@@ -92,6 +92,7 @@ function layoutCellInlines(
         inlineIndex: i,
         charStart: charPos,
         charEnd: charPos + word.length,
+        charOffsets: computeCharOffsets(ctx, word, font),
       });
       lineWidth += wordWidth;
       if (fontSizePx > lineMaxFontSize) lineMaxFontSize = fontSizePx;
