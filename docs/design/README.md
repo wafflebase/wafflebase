@@ -20,6 +20,7 @@ Spreadsheet engine — data model, formulas, rendering, collaboration.
 | [batch-transactions.md](sheets/batch-transactions.md)                | Store-level batch transactions for atomic undo/redo grouping                                       |
 | [collaboration.md](sheets/collaboration.md)                          | Yorkie collaboration — worksheet storage, structural concurrency, and test strategy              |
 | [datasource.md](sheets/datasource.md)                                | External PostgreSQL datasources, multi-tab documents, SQL editor, ReadOnlyStore                    |
+| [peer-cursor-labels.md](sheets/peer-cursor-labels.md)               | Peer cursor name labels — transient username tags on collaborative sheet cursors                  |
 
 ## Docs
 
@@ -52,7 +53,6 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [backend.md](backend.md)                               | Backend package — NestJS modules, API reference, auth system, database schema, security            |
 | [sharing.md](sharing.md)                               | URL-based token sharing with anonymous access and role-based permissions                           |
 | [context-menu.md](context-menu.md)                     | Unified context menu — Radix ContextMenu, desktop/mobile parity, menu items                       |
-| [peer-cursor-labels.md](peer-cursor-labels.md)         | Peer cursor name labels — transient username tags on collaborative cursors                        |
 | [rest-api-and-cli.md](rest-api-and-cli.md)             | REST API, API key auth, and CLI — external access, Yorkie service, Go CLI tool                     |
 | [cli-oauth-login.md](cli-oauth-login.md)               | CLI OAuth login — browser-based GitHub auth, JWT session storage, workspace context switching      |
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
