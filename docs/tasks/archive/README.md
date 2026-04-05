@@ -12,7 +12,7 @@ Total archived tasks: 115
 
 | Task | Todo | Lessons |
 |---|---|---|
-| intent preserving phase1 3 (2026-04-02) | [20260402-intent-preserving-phase1-3-todo.md](./20260402-intent-preserving-phase1-3-todo.md) | [20260402-intent-preserving-phase1-3-lessons.md](./20260402-intent-preserving-phase1-3-lessons.md) |
+| intent preserving phase1 3 (2026-04-02) | [20260402-intent-preserving-phase1-3-todo.md](./2026/04/20260402-intent-preserving-phase1-3-todo.md) | [20260402-intent-preserving-phase1-3-lessons.md](./2026/04/20260402-intent-preserving-phase1-3-lessons.md) |
 
 ## 2026/03 (77 tasks)
 
