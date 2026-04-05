@@ -38,7 +38,7 @@ Two approaches analyzed — recommend **Option 2** for long-term quality:
 
 ## Tasks
 
-- [ ] Choose approach and implement
-- [ ] Update pagination.test.ts with proportional-width test cases
-- [ ] Verify Arrow Up/Down lands on correct character
-- [ ] Verify mouse click positioning is also improved
+- [x] Choose approach and implement
+- [x] Update pagination.test.ts with proportional-width test cases
+- [x] Verify Arrow Up/Down lands on correct character
+- [x] Verify mouse click positioning is also improved
