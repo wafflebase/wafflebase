@@ -360,6 +360,46 @@ describe('Doc', () => {
     });
   });
 
+  describe('page-break', () => {
+    it('should create paragraph after page-break on splitBlock', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'page-break');
+      const newId = doc.splitBlock(blockId, 0);
+      expect(newId).not.toBe(blockId);
+      expect(doc.document.blocks[1].type).toBe('paragraph');
+    });
+
+    it('should delete page-break when backspacing from paragraph after it', () => {
+      const doc = Doc.create();
+      const firstId = doc.document.blocks[0].id;
+      doc.setBlockType(firstId, 'page-break');
+      const paraId = doc.splitBlock(firstId, 0);
+      doc.insertText({ blockId: paraId, offset: 0 }, 'Hello');
+      doc.deleteBackward({ blockId: paraId, offset: 0 });
+      expect(doc.document.blocks).toHaveLength(1);
+      expect(doc.document.blocks[0].type).toBe('paragraph');
+      expect(doc.document.blocks[0].inlines[0].text).toBe('Hello');
+    });
+
+    it('should clear inlines when converting to page-break', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'text');
+      doc.setBlockType(blockId, 'page-break');
+      expect(doc.document.blocks[0].inlines).toHaveLength(0);
+    });
+
+    it('should restore empty inline when converting page-break back to paragraph', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'page-break');
+      expect(doc.document.blocks[0].inlines).toHaveLength(0);
+      doc.setBlockType(blockId, 'paragraph');
+      expect(doc.document.blocks[0].inlines).toHaveLength(1);
+    });
+  });
+
   describe('superscript/subscript mutual exclusion', () => {
     it('should clear subscript when applying superscript', () => {
       const doc = Doc.create();

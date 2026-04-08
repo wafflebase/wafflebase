@@ -16,7 +16,7 @@ export interface Document {
 /**
  * Block type discriminator.
  */
-export type BlockType = 'paragraph' | 'title' | 'subtitle' | 'heading' | 'list-item' | 'horizontal-rule' | 'table';
+export type BlockType = 'paragraph' | 'title' | 'subtitle' | 'heading' | 'list-item' | 'horizontal-rule' | 'table' | 'page-break';
 
 /**
  * Heading levels (1–6), matching HTML h1–h6.
@@ -189,7 +189,7 @@ export function createBlock(
   const block: Block = {
     id: generateBlockId(),
     type,
-    inlines: type === 'horizontal-rule' || type === 'table' ? [] : [{ text: '', style: {} }],
+    inlines: type === 'horizontal-rule' || type === 'table' || type === 'page-break' ? [] : [{ text: '', style: {} }],
     style: { ...DEFAULT_BLOCK_STYLE },
   };
   if (type === 'heading') {

@@ -165,9 +165,9 @@ export class Doc {
     const prevBlock = this._document.blocks[blockIndex - 1];
     const currentBlock = this._document.blocks[blockIndex];
 
-    // Cannot merge into a non-text block (e.g., horizontal-rule)
-    if (prevBlock.type === 'horizontal-rule') {
-      // Delete the HR instead
+    // Cannot merge into a non-text block (e.g., horizontal-rule, page-break)
+    if (prevBlock.type === 'horizontal-rule' || prevBlock.type === 'page-break') {
+      // Delete the HR or page-break instead
       this.store.deleteBlock(prevBlock.id);
       this.refresh();
       return pos;
@@ -198,8 +198,8 @@ export class Doc {
       return blockId;
     }
 
-    // Horizontal rules should not be split — create paragraph after
-    if (block.type === 'horizontal-rule') {
+    // Horizontal rules and page-breaks should not be split — create paragraph after
+    if (block.type === 'horizontal-rule' || block.type === 'page-break') {
       const newBlock: Block = {
         id: generateBlockId(),
         type: 'paragraph',
@@ -391,7 +391,7 @@ export class Doc {
       block.listLevel = opts?.listLevel ?? 0;
     }
     // Normalize inlines for block type invariant
-    if (type === 'horizontal-rule') {
+    if (type === 'horizontal-rule' || type === 'page-break') {
       block.inlines = [];
     } else if (block.inlines.length === 0) {
       block.inlines = [{ text: '', style: {} }];
@@ -803,8 +803,8 @@ export class Doc {
       return blockId;
     }
 
-    // Horizontal rules should not be split — create paragraph after
-    if (targetBlock.type === 'horizontal-rule') {
+    // Horizontal rules and page-breaks should not be split — create paragraph after
+    if (targetBlock.type === 'horizontal-rule' || targetBlock.type === 'page-break') {
       const newBlock: Block = {
         id: generateBlockId(),
         type: 'paragraph',

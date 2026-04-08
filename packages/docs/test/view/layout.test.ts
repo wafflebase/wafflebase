@@ -71,6 +71,17 @@ describe('horizontal-rule layout', () => {
   });
 });
 
+describe('page-break layout', () => {
+  it('should have fixed height with no text runs', () => {
+    const block = createBlock('page-break');
+    const { layout } = computeLayout([block], mockCtx(), 600);
+    const pbBlock = layout.blocks[0];
+    expect(pbBlock.lines).toHaveLength(1);
+    expect(pbBlock.lines[0].runs).toHaveLength(0);
+    expect(pbBlock.lines[0].height).toBe(20);
+  });
+});
+
 describe('superscript/subscript layout', () => {
   it('should use reduced font size for width measurement', () => {
     // Use a mock that respects the font property to detect size changes

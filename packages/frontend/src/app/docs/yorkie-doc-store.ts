@@ -289,7 +289,7 @@ function treeNodeToBlock(node: TreeNode): Block {
     type: blockType,
     inlines: inlines.length > 0
       ? inlines
-      : blockType === 'horizontal-rule'
+      : blockType === 'horizontal-rule' || blockType === 'page-break'
         ? []
         : [{ text: '', style: {} }],
     style: parseBlockStyle(attrs),

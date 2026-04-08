@@ -101,10 +101,15 @@ export function paginateLayout(
         isPageTop = false;
       }
 
+      // Page-break: force next content onto a new page
+      if (block.type === 'page-break') {
+        startNewPage();
+      }
+
       // Apply marginBottom after the block's last line.
       // When a block splits across pages, startNewPage() resets currentY,
       // so marginBottom is naturally applied only on the final page.
-      if (lb.lines.length > 0) {
+      if (lb.lines.length > 0 && block.type !== 'page-break') {
         currentY += block.style.marginBottom;
       }
     }

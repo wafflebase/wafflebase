@@ -32,7 +32,7 @@ minimal.
 
 - Page setup UI (modal dialog, side panel) — deferred to frontend integration.
 - Headers, footers, and page numbers — future extension.
-- Manual page breaks and section breaks — future extension.
+- Section breaks — future extension.
 - Horizontal scroll for narrow viewports.
 
 ## Data Model
@@ -328,6 +328,72 @@ setPageSetup(setup: PageSetup): void;
 | `packages/docs/src/view/cursor.ts` | Minimal — `positionToPixel` returns page-aware coordinates |
 | `packages/docs/src/store/store.ts` | `getPageSetup()`, `setPageSetup()` |
 | `packages/docs/src/store/memory.ts` | Implement pageSetup in `MemDocStore` |
+
+## Manual Page Break
+
+### Data Model
+
+`Block.type = 'page-break'` — a content-free block (empty `inlines`, same
+pattern as `horizontal-rule`). No additional fields required.
+
+```typescript
+type BlockType = '...' | 'page-break';
+```
+
+`createBlock('page-break')` produces `{ id, type: 'page-break', inlines: [], style }`.
+
+### Pagination Behavior
+
+When `paginateLayout()` encounters a `page-break` block:
+
+1. Add the page-break block's line to the current page (for rendering the
+   visual indicator on the page where the break was inserted).
+2. Call `startNewPage()` immediately after — the next block starts on a fresh
+   page.
+
+If the page-break is at the very top of a page (nothing before it), it still
+occupies one line on that page and the next block goes to the following page.
+
+### Layout
+
+`computeLayout()` treats `page-break` like `horizontal-rule`: a single
+fixed-height line with no runs.
+
+```
+const PAGE_BREAK_HEIGHT = 20;
+lines = [{ runs: [], y: 0, height: PAGE_BREAK_HEIGHT, width: availableWidth }];
+```
+
+### Rendering
+
+Google Docs style — gray dashed line with centered "Page break" label:
+
+- Dashed line: `setLineDash([4, 4])`, color `#ccc`, spanning content width.
+- Center label: `"Page break"` in 9px gray text above the dashed line.
+- Rendered in `doc-canvas.ts` alongside the `horizontal-rule` branch.
+
+### Input
+
+- **Ctrl+Enter** (⌘+Enter on Mac): split the current block at cursor, insert a
+  `page-break` block between the two halves.
+- **Backspace on page-break**: delete the page-break block (same as
+  `horizontal-rule`).
+- **Text input blocked**: non-editable block, cursor skips to adjacent block.
+- **Arrow keys**: up/down through page-break selects it; further navigation
+  moves to the neighboring block.
+
+### Document Model
+
+Reuses the `horizontal-rule` non-editable pattern in `document.ts`:
+
+- `deleteBackward`: if current block is `page-break`, delete it.
+- `setBlockType`: switching to `page-break` clears inlines.
+- Merge prevention: cannot merge into or out of a `page-break` block.
+
+### Yorkie Serialization
+
+Block type attribute `'page-break'` stored in the Yorkie Tree node, following
+the existing pattern for `horizontal-rule` and `table`.
 
 ## Risks and Mitigation
 
