@@ -1,5 +1,6 @@
 import type { PageSetup } from '../model/types.js';
 import { getEffectiveDimensions } from '../model/types.js';
+import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import { Theme } from './theme.js';
 
@@ -374,4 +375,36 @@ export function paginatedPixelToPosition(
     offset: endOffset,
     lineAffinity: 'backward',
   };
+}
+
+/**
+ * Determine whether a click at absolute (px, py) targets the header, footer, or body.
+ */
+export function resolveClickTarget(
+  paginatedLayout: PaginatedLayout,
+  px: number,
+  py: number,
+  canvasWidth: number,
+  hasHeader: boolean,
+  hasFooter: boolean,
+): EditContext {
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+
+  for (const page of paginatedLayout.pages) {
+    const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+    if (py < pageY || py > pageY + page.height) continue;
+    if (px < pageX || px > pageX + page.width) continue;
+
+    const localY = py - pageY;
+
+    if (hasHeader && localY < margins.top) {
+      return 'header';
+    }
+    if (hasFooter && localY > page.height - margins.bottom) {
+      return 'footer';
+    }
+    return 'body';
+  }
+  return 'body';
 }

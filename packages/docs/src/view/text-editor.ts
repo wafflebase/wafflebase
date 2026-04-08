@@ -1,12 +1,12 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock } from '../model/types.js';
-import { Doc } from '../model/document.js';
+import { Doc, type EditContext } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
-import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
+import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, resolveClickTarget } from './pagination.js';
 import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
@@ -76,6 +76,8 @@ export class TextEditor {
   private handleBlur: (() => void) | null = null;
   /** Track shift key state for paste handler (ClipboardEvent lacks shiftKey). */
   private shiftHeld = false;
+  /** Current editing context: body, header, or footer. */
+  private editContext: EditContext = 'body';
 
   private container: HTMLElement;
   private doc: Doc;
@@ -108,6 +110,15 @@ export class TextEditor {
 
   getBorderDragState(): BorderDragState | null {
     return this.borderDragState;
+  }
+
+  getEditContext(): EditContext {
+    return this.editContext;
+  }
+
+  setEditContext(context: EditContext): void {
+    this.editContext = context;
+    this.doc.editContext = context;
   }
 
   private setCanvasCursor(cursor: string): void {
@@ -338,6 +349,20 @@ export class TextEditor {
       }
     }
 
+    // Escape exits header/footer editing
+    if (key === 'Escape' && this.editContext !== 'body') {
+      this.setEditContext('body');
+      const bodyBlocks = this.doc.document.blocks;
+      if (bodyBlocks.length > 0) {
+        this.cursor.moveTo({ blockId: bodyBlocks[0].id, offset: 0 });
+      }
+      this.selection.setRange(null);
+      this.invalidateLayout();
+      this.requestRender();
+      e.preventDefault();
+      return;
+    }
+
     switch (key) {
       case 'Backspace':
         e.preventDefault();
@@ -360,6 +385,7 @@ export class TextEditor {
       case 'Enter':
         e.preventDefault();
         if (e.ctrlKey || e.metaKey) {
+          if (this.editContext !== 'body') break; // No page breaks in header/footer
           this.handlePageBreak();
         } else {
           this.handleEnter();
@@ -779,6 +805,49 @@ export class TextEditor {
     this.lastClickTime = now;
     this.lastClickX = e.clientX;
     this.lastClickY = e.clientY;
+
+    // Header/footer context switching via click target detection
+    {
+      const rect = this.container.getBoundingClientRect();
+      const s = this.getScaleFactor();
+      const canvasX = (e.clientX - rect.left + this.container.scrollLeft) / s;
+      const canvasY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
+      const paginatedLayout = this.getPaginatedLayout();
+      const target = resolveClickTarget(
+        paginatedLayout, canvasX, canvasY, this.getCanvasWidth(),
+        this.doc.document.header !== undefined,
+        this.doc.document.footer !== undefined,
+      );
+
+      if (this.clickCount >= 2 && (target === 'header' || target === 'footer')) {
+        // Double-click on header/footer: enter edit mode
+        if (target === 'header') {
+          this.doc.ensureHeader();
+          this.setEditContext('header');
+          const blocks = this.doc.document.header!.blocks;
+          this.cursor.moveTo({ blockId: blocks[0].id, offset: 0 });
+        } else {
+          this.doc.ensureFooter();
+          this.setEditContext('footer');
+          const blocks = this.doc.document.footer!.blocks;
+          this.cursor.moveTo({ blockId: blocks[0].id, offset: 0 });
+        }
+        this.selection.setRange(null);
+        this.invalidateLayout();
+        this.requestRender();
+        return;
+      }
+
+      if (target === 'body' && this.editContext !== 'body') {
+        // Click on body exits header/footer editing
+        this.setEditContext('body');
+      }
+
+      if (target !== 'body' && target !== this.editContext) {
+        // Single-click on inactive header/footer region: ignore
+        return;
+      }
+    }
 
     const result = this.getPositionFromMouse(e);
     if (!result) return;
