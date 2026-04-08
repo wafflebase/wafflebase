@@ -1,5 +1,5 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
@@ -250,7 +250,7 @@ export class TextEditor {
 
     // Horizontal rules have no text content — block all input
     const currentBlock = this.doc.getBlock(this.cursor.position.blockId);
-    if (currentBlock.type === 'horizontal-rule') return;
+    if (currentBlock.type === 'horizontal-rule' || currentBlock.type === 'page-break') return;
 
     if (this.composition.active) {
       // Browser IME path: read textarea.value which contains the current
@@ -357,7 +357,11 @@ export class TextEditor {
         break;
       case 'Enter':
         e.preventDefault();
-        this.handleEnter();
+        if (e.ctrlKey || e.metaKey) {
+          this.handlePageBreak();
+        } else {
+          this.handleEnter();
+        }
         break;
       case 'Tab':
         e.preventDefault();
@@ -1312,6 +1316,31 @@ export class TextEditor {
     this.requestRender();
   }
 
+  private handlePageBreak(): void {
+    // Cannot insert page-break inside table cell
+    const cellInfo = this.getCellInfo(this.cursor.position.blockId);
+    if (cellInfo) return;
+
+    this.saveSnapshot();
+    this.deleteSelection();
+    this.invalidateLayout();
+
+    const pos = this.cursor.position;
+    // Split at cursor position first
+    const newBlockId = this.doc.splitBlock(pos.blockId, pos.offset);
+
+    // Insert a page-break block between the two halves
+    const blocks = this.doc.document.blocks;
+    const splitIndex = blocks.findIndex((b) => b.id === newBlockId);
+    const pageBreakBlock = createBlock('page-break');
+    this.doc.insertBlockAt(splitIndex, pageBreakBlock);
+
+    // Move cursor to the block after the page-break
+    this.cursor.moveTo({ blockId: newBlockId, offset: 0 });
+    this.selection.setRange(null);
+    this.requestRender();
+  }
+
   private handleTab(shift: boolean): void {
     // Table cell Tab/Shift+Tab navigation
     if (this.isInCell(this.cursor.position.blockId)) {
@@ -2142,7 +2171,7 @@ export class TextEditor {
    */
   private ensureEditableBlock(): void {
     const block = this.doc.getBlock(this.cursor.position.blockId);
-    if (block.type === 'horizontal-rule') {
+    if (block.type === 'horizontal-rule' || block.type === 'page-break') {
       this.invalidateLayout();
       const newId = this.doc.splitBlock(this.cursor.position.blockId, 0);
       this.cursor.moveTo({ blockId: newId, offset: 0 });
