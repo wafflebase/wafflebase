@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemDocStore } from '../../src/store/memory.js';
 import { generateBlockId, PAPER_SIZES, DEFAULT_PAGE_SETUP } from '../../src/model/types.js';
+import type { HeaderFooter } from '../../src/model/types.js';
 
 describe('MemDocStore', () => {
   function makeBlock(text: string) {
@@ -313,6 +314,133 @@ describe('MemDocStore', () => {
       const doc = store.getDocument();
       expect(doc.blocks).toHaveLength(1);
       expect(doc.blocks[0].inlines[0].text).toBe('Hello World');
+    });
+  });
+
+  describe('header/footer', () => {
+    function makeHeaderFooter(text: string): HeaderFooter {
+      return {
+        blocks: [makeBlock(text)],
+        marginFromEdge: 48,
+      };
+    }
+
+    it('getHeader returns undefined when not set', () => {
+      const store = new MemDocStore();
+      expect(store.getHeader()).toBeUndefined();
+    });
+
+    it('getFooter returns undefined when not set', () => {
+      const store = new MemDocStore();
+      expect(store.getFooter()).toBeUndefined();
+    });
+
+    it('setHeader/getHeader roundtrip', () => {
+      const store = new MemDocStore();
+      const header = makeHeaderFooter('Header text');
+      store.setHeader(header);
+      const got = store.getHeader();
+      expect(got).toBeDefined();
+      expect(got!.blocks[0].inlines[0].text).toBe('Header text');
+      expect(got!.marginFromEdge).toBe(48);
+    });
+
+    it('setFooter/getFooter roundtrip', () => {
+      const store = new MemDocStore();
+      const footer = makeHeaderFooter('Footer text');
+      store.setFooter(footer);
+      const got = store.getFooter();
+      expect(got).toBeDefined();
+      expect(got!.blocks[0].inlines[0].text).toBe('Footer text');
+    });
+
+    it('setHeader with undefined removes header', () => {
+      const store = new MemDocStore();
+      store.setHeader(makeHeaderFooter('Header'));
+      expect(store.getHeader()).toBeDefined();
+      store.setHeader(undefined);
+      expect(store.getHeader()).toBeUndefined();
+    });
+
+    it('setFooter with undefined removes footer', () => {
+      const store = new MemDocStore();
+      store.setFooter(makeHeaderFooter('Footer'));
+      expect(store.getFooter()).toBeDefined();
+      store.setFooter(undefined);
+      expect(store.getFooter()).toBeUndefined();
+    });
+
+    it('insertText works on header blocks', () => {
+      const hBlock = makeBlock('Head');
+      const store = new MemDocStore({
+        blocks: [],
+        header: { blocks: [hBlock], marginFromEdge: 48 },
+      });
+      store.insertText(hBlock.id, 4, 'er');
+      expect(store.getBlock(hBlock.id)?.inlines[0].text).toBe('Header');
+    });
+
+    it('splitBlock works on header blocks', () => {
+      const hBlock = makeBlock('Hello World');
+      const store = new MemDocStore({
+        blocks: [],
+        header: { blocks: [hBlock], marginFromEdge: 48 },
+      });
+      store.splitBlock(hBlock.id, 5, 'hb2', 'paragraph');
+      const header = store.getHeader()!;
+      expect(header.blocks).toHaveLength(2);
+      expect(header.blocks[0].inlines[0].text).toBe('Hello');
+      expect(header.blocks[1].id).toBe('hb2');
+      expect(header.blocks[1].inlines[0].text).toBe(' World');
+    });
+
+    it('mergeBlock works on header blocks', () => {
+      const hb1 = makeBlock('Hello');
+      const hb2 = makeBlock(' World');
+      const store = new MemDocStore({
+        blocks: [],
+        header: { blocks: [hb1, hb2], marginFromEdge: 48 },
+      });
+      store.mergeBlock(hb1.id, hb2.id);
+      const header = store.getHeader()!;
+      expect(header.blocks).toHaveLength(1);
+      expect(header.blocks[0].inlines[0].text).toBe('Hello World');
+    });
+
+    it('mergeBlock throws when blocks are in different regions', () => {
+      const bodyBlock = makeBlock('Body');
+      const hBlock = makeBlock('Header');
+      const store = new MemDocStore({
+        blocks: [bodyBlock],
+        header: { blocks: [hBlock], marginFromEdge: 48 },
+      });
+      expect(() => store.mergeBlock(bodyBlock.id, hBlock.id)).toThrow('different regions');
+    });
+
+    it('undo/redo preserves header/footer', () => {
+      const store = new MemDocStore();
+      store.snapshot();
+      store.setHeader(makeHeaderFooter('Original header'));
+      expect(store.getHeader()?.blocks[0].inlines[0].text).toBe('Original header');
+
+      store.undo();
+      expect(store.getHeader()).toBeUndefined();
+
+      store.redo();
+      expect(store.getHeader()?.blocks[0].inlines[0].text).toBe('Original header');
+    });
+
+    it('getDocument clones header/footer (mutation isolation)', () => {
+      const store = new MemDocStore({
+        blocks: [],
+        header: { blocks: [makeBlock('Header')], marginFromEdge: 48 },
+        footer: { blocks: [makeBlock('Footer')], marginFromEdge: 48 },
+      });
+      const doc = store.getDocument();
+      doc.header!.blocks[0].inlines[0].text = 'Mutated header';
+      doc.footer!.blocks[0].inlines[0].text = 'Mutated footer';
+      expect(store.getHeader()?.blocks[0].inlines[0].text).toBe('Header');
+      expect(store.getFooter()?.blocks[0].inlines[0].text).toBe('Footer');
     });
   });
 });
