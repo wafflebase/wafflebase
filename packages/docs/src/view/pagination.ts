@@ -159,6 +159,32 @@ export function getPageXOffset(
 }
 
 /**
+ * Get the absolute Y start position for the header on a given page.
+ */
+export function getHeaderYStart(
+  paginatedLayout: PaginatedLayout,
+  pageIndex: number,
+  marginFromEdge: number,
+): number {
+  const pageY = getPageYOffset(paginatedLayout, pageIndex);
+  return pageY + marginFromEdge;
+}
+
+/**
+ * Get the absolute Y start position for the footer on a given page.
+ */
+export function getFooterYStart(
+  paginatedLayout: PaginatedLayout,
+  pageIndex: number,
+  footerHeight: number,
+  marginFromEdge: number,
+): number {
+  const pageY = getPageYOffset(paginatedLayout, pageIndex);
+  const pageHeight = paginatedLayout.pages[pageIndex]?.height ?? 0;
+  return pageY + pageHeight - marginFromEdge - footerHeight;
+}
+
+/**
  * Find which page a given blockId + offset falls on.
  */
 export function findPageForPosition(
