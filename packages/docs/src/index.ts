@@ -21,6 +21,7 @@ export type {
   CellRange,
   BlockCellInfo,
   TableCellRange,
+  HeaderFooter,
 } from './model/types.js';
 export {
   DEFAULT_BLOCK_STYLE,
@@ -47,8 +48,10 @@ export {
   createTableBlock,
   createTableCell,
   getCellText,
+  DEFAULT_HEADER_MARGIN_FROM_EDGE,
 } from './model/types.js';
 export { Doc } from './model/document.js';
+export type { EditContext } from './model/document.js';
 
 // Store
 export type { DocStore } from './store/store.js';

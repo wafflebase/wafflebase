@@ -11,6 +11,7 @@ import type {
   BlockStyle,
   InlineStyle,
   PageSetup,
+  HeaderFooter,
   TableRow,
   TableCell,
   CellStyle,
@@ -57,6 +58,7 @@ function serializeInlineStyle(style: InlineStyle): Record<string, string> {
   if (style.color !== undefined) attrs.color = style.color;
   if (style.backgroundColor !== undefined) attrs.backgroundColor = style.backgroundColor;
   if (style.href !== undefined) attrs.href = style.href;
+  setIfDefined(attrs, 'pageNumber', style.pageNumber);
   return attrs;
 }
 
@@ -74,6 +76,7 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   if ('color' in attrs) style.color = attrs.color;
   if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
   if (attrs.href !== undefined) style.href = attrs.href;
+  if (attrs.pageNumber !== undefined) style.pageNumber = attrs.pageNumber === 'true';
   return style;
 }
 
@@ -308,10 +311,25 @@ function treeNodeToBlock(node: TreeNode): Block {
 
 function treeToDocument(root: TreeNode): Document {
   const el = root as ElementNode;
-  const blocks = (el.children ?? [])
-    .filter((c) => c.type === 'block')
-    .map(treeNodeToBlock);
-  return { blocks };
+  const doc: Document = { blocks: [] };
+  for (const child of el.children ?? []) {
+    if (child.type === 'header') {
+      const attrs = (child as ElementNode).attributes ?? {};
+      doc.header = {
+        blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
+        marginFromEdge: Number(attrs.marginFromEdge ?? '48'),
+      };
+    } else if (child.type === 'footer') {
+      const attrs = (child as ElementNode).attributes ?? {};
+      doc.footer = {
+        blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
+        marginFromEdge: Number(attrs.marginFromEdge ?? '48'),
+      };
+    } else if (child.type === 'block') {
+      doc.blocks.push(treeNodeToBlock(child));
+    }
+  }
+  return doc;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +431,33 @@ export class YorkieDocStore implements DocStore {
     return resolvePageSetup(
       root.pageSetup ? readPageSetup(root.pageSetup) : undefined,
     );
+  }
+
+  getHeader(): HeaderFooter | undefined {
+    const doc = this.getDocument();
+    return doc.header;
+  }
+
+  getFooter(): HeaderFooter | undefined {
+    const doc = this.getDocument();
+    return doc.footer;
+  }
+
+  setHeader(header: HeaderFooter | undefined): void {
+    // Rewrite the full document to include/remove header
+    const doc = this.getDocument();
+    doc.header = header;
+    this.writeFullDocument(doc);
+    this.cachedDoc = cloneDocument(doc);
+    this.dirty = false;
+  }
+
+  setFooter(footer: HeaderFooter | undefined): void {
+    const doc = this.getDocument();
+    doc.footer = footer;
+    this.writeFullDocument(doc);
+    this.cachedDoc = cloneDocument(doc);
+    this.dirty = false;
   }
 
   // -----------------------------------------------------------------------
@@ -816,12 +861,33 @@ export class YorkieDocStore implements DocStore {
     this.doc.update((root) => {
       const tree = root.content;
 
+      // Build the full list of children: header?, block*, footer?
+      const buildTreeChildren = (): ElementNode[] => {
+        const children: ElementNode[] = [];
+        if (document.header) {
+          children.push({
+            type: 'header',
+            attributes: { marginFromEdge: String(document.header.marginFromEdge) },
+            children: document.header.blocks.map(buildBlockNode),
+          });
+        }
+        children.push(...document.blocks.map(buildBlockNode));
+        if (document.footer) {
+          children.push({
+            type: 'footer',
+            attributes: { marginFromEdge: String(document.footer.marginFromEdge) },
+            children: document.footer.blocks.map(buildBlockNode),
+          });
+        }
+        return children;
+      };
+
       // If tree isn't a Tree CRDT yet, create one with the document content.
       if (!tree || typeof tree.getRootTreeNode !== 'function') {
-        const blockNodes = document.blocks.map(buildBlockNode);
+        const children = buildTreeChildren();
         root.content = new Tree({
           type: 'doc',
-          children: blockNodes.length > 0 ? blockNodes : [],
+          children: children.length > 0 ? children : [],
         });
 
         if (document.pageSetup) {
@@ -835,19 +901,17 @@ export class YorkieDocStore implements DocStore {
       }
 
       const treeRoot = tree.getRootTreeNode() as ElementNode;
-      const blockCount = (treeRoot.children ?? []).filter(
-        (c) => c.type === 'block',
-      ).length;
+      const childCount = (treeRoot.children ?? []).length;
 
-      // Delete all existing blocks
-      if (blockCount > 0) {
-        tree.editByPath([0], [blockCount]);
+      // Delete all existing children (header, blocks, footer)
+      if (childCount > 0) {
+        tree.editByPath([0], [childCount]);
       }
 
-      // Insert all new blocks
-      if (document.blocks.length > 0) {
-        const blockNodes = document.blocks.map(buildBlockNode);
-        tree.editBulkByPath([0], [0], blockNodes);
+      // Insert all new children
+      const children = buildTreeChildren();
+      if (children.length > 0) {
+        tree.editBulkByPath([0], [0], children);
       }
 
       // Update pageSetup outside the tree
