@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Doc } from '../../src/model/document.js';
-import { getBlockText } from '../../src/model/types.js';
+import { createEmptyBlock, getBlockText } from '../../src/model/types.js';
+import { MemDocStore } from '../../src/store/memory.js';
 
 describe('Doc', () => {
   describe('create', () => {
@@ -546,5 +547,109 @@ describe('Doc', () => {
       expect(doc.document.blocks[0].style.marginLeft).toBe(36);
       expect(doc.document.blocks[1].style.marginLeft).toBe(36);
     });
+  });
+});
+
+describe('Doc editContext', () => {
+  it('should default to body context', () => {
+    const doc = Doc.create();
+    expect(doc.editContext).toBe('body');
+  });
+
+  it('should find header blocks via getBlock', () => {
+    const store = new MemDocStore();
+    const headerBlock = createEmptyBlock();
+    store.setDocument({
+      blocks: [createEmptyBlock()],
+      header: { blocks: [headerBlock], marginFromEdge: 48 },
+    });
+    const doc = new Doc(store);
+    const found = doc.getBlock(headerBlock.id);
+    expect(found.id).toBe(headerBlock.id);
+  });
+
+  it('should use context blocks for getBlockIndex', () => {
+    const store = new MemDocStore();
+    const bodyBlock = createEmptyBlock();
+    const headerBlock = createEmptyBlock();
+    store.setDocument({
+      blocks: [bodyBlock],
+      header: { blocks: [headerBlock], marginFromEdge: 48 },
+    });
+    const doc = new Doc(store);
+    expect(doc.getBlockIndex(headerBlock.id)).toBe(-1);
+    doc.editContext = 'header';
+    expect(doc.getBlockIndex(headerBlock.id)).toBe(0);
+  });
+
+  it('should return context blocks via getContextBlocks', () => {
+    const store = new MemDocStore();
+    const bodyBlock = createEmptyBlock();
+    const headerBlock = createEmptyBlock();
+    const footerBlock = createEmptyBlock();
+    store.setDocument({
+      blocks: [bodyBlock],
+      header: { blocks: [headerBlock], marginFromEdge: 48 },
+      footer: { blocks: [footerBlock], marginFromEdge: 48 },
+    });
+    const doc = new Doc(store);
+    expect(doc.getContextBlocks()).toHaveLength(1);
+    expect(doc.getContextBlocks()[0].id).toBe(bodyBlock.id);
+    doc.editContext = 'header';
+    expect(doc.getContextBlocks()[0].id).toBe(headerBlock.id);
+    doc.editContext = 'footer';
+    expect(doc.getContextBlocks()[0].id).toBe(footerBlock.id);
+  });
+
+  it('should ensureHeader create header with empty paragraph', () => {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [createEmptyBlock()] });
+    const doc = new Doc(store);
+    expect(doc.document.header).toBeUndefined();
+    doc.ensureHeader();
+    expect(doc.document.header).toBeDefined();
+    expect(doc.document.header!.blocks).toHaveLength(1);
+    expect(doc.document.header!.blocks[0].type).toBe('paragraph');
+  });
+
+  it('should ensureFooter create footer with empty paragraph', () => {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [createEmptyBlock()] });
+    const doc = new Doc(store);
+    doc.ensureFooter();
+    expect(doc.document.footer).toBeDefined();
+    expect(doc.document.footer!.blocks).toHaveLength(1);
+  });
+
+  it('should insertText in header context', () => {
+    const store = new MemDocStore();
+    const headerBlock = createEmptyBlock();
+    store.setDocument({
+      blocks: [createEmptyBlock()],
+      header: { blocks: [headerBlock], marginFromEdge: 48 },
+    });
+    const doc = new Doc(store);
+    doc.editContext = 'header';
+    doc.insertText({ blockId: headerBlock.id, offset: 0 }, 'Hello');
+    expect(doc.document.header!.blocks[0].inlines[0].text).toBe('Hello');
+  });
+
+  it('should deleteBackward merge header blocks', () => {
+    const store = new MemDocStore();
+    const b1 = createEmptyBlock();
+    const b2 = createEmptyBlock();
+    store.setDocument({
+      blocks: [createEmptyBlock()],
+      header: { blocks: [b1, b2], marginFromEdge: 48 },
+    });
+    const doc = new Doc(store);
+    doc.editContext = 'header';
+    store.insertText(b1.id, 0, 'A');
+    store.insertText(b2.id, 0, 'B');
+    doc.refresh();
+    const newPos = doc.deleteBackward({ blockId: b2.id, offset: 0 });
+    expect(newPos.blockId).toBe(b1.id);
+    expect(newPos.offset).toBe(1);
+    expect(doc.document.header!.blocks).toHaveLength(1);
   });
 });

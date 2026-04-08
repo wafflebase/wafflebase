@@ -20,6 +20,7 @@ import {
   createTableCell,
   getCellText,
   DEFAULT_BLOCK_STYLE,
+  DEFAULT_HEADER_MARGIN_FROM_EDGE,
   getBlockText,
   getBlockTextLength,
   inlineStylesEqual,
@@ -28,6 +29,11 @@ import {
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { applyDeleteText } from '../store/block-helpers.js';
+
+/**
+ * The current editing context for header/footer routing.
+ */
+export type EditContext = 'body' | 'header' | 'footer';
 
 /**
  * Document manipulation logic.
@@ -39,6 +45,7 @@ export class Doc {
   private store: DocStore;
   private _document: Document;
   private _blockParentMap: Map<string, BlockCellInfo> = new Map();
+  editContext: EditContext = 'body';
 
   constructor(store: DocStore) {
     this.store = store;
@@ -65,6 +72,41 @@ export class Doc {
   }
 
   /**
+   * Get blocks for the current editing context (body, header, or footer).
+   */
+  getContextBlocks(): Block[] {
+    if (this.editContext === 'header') return this._document.header?.blocks ?? [];
+    if (this.editContext === 'footer') return this._document.footer?.blocks ?? [];
+    return this._document.blocks;
+  }
+
+  /**
+   * Ensure a header region exists, creating one with an empty block if needed.
+   */
+  ensureHeader(): void {
+    if (!this._document.header) {
+      this.store.setHeader({
+        blocks: [createEmptyBlock()],
+        marginFromEdge: DEFAULT_HEADER_MARGIN_FROM_EDGE,
+      });
+      this.refresh();
+    }
+  }
+
+  /**
+   * Ensure a footer region exists, creating one with an empty block if needed.
+   */
+  ensureFooter(): void {
+    if (!this._document.footer) {
+      this.store.setFooter({
+        blocks: [createEmptyBlock()],
+        marginFromEdge: DEFAULT_HEADER_MARGIN_FROM_EDGE,
+      });
+      this.refresh();
+    }
+  }
+
+  /**
    * Create a new Doc with a single empty paragraph.
    */
   static create(): Doc {
@@ -80,6 +122,12 @@ export class Doc {
     const block = this._document.blocks.find((b) => b.id === blockId);
     if (block) return block;
 
+    // Search header/footer blocks
+    const hBlock = this._document.header?.blocks.find((b) => b.id === blockId);
+    if (hBlock) return hBlock;
+    const fBlock = this._document.footer?.blocks.find((b) => b.id === blockId);
+    if (fBlock) return fBlock;
+
     const cellInfo = this._blockParentMap.get(blockId);
     if (cellInfo) {
       const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
@@ -94,10 +142,10 @@ export class Doc {
   }
 
   /**
-   * Find block index by ID. Returns -1 if not found.
+   * Find block index by ID within the current context. Returns -1 if not found.
    */
   getBlockIndex(blockId: string): number {
-    return this._document.blocks.findIndex((b) => b.id === blockId);
+    return this.getContextBlocks().findIndex((b) => b.id === blockId);
   }
 
   /**
@@ -159,11 +207,12 @@ export class Doc {
     }
 
     // At start of block — merge with previous
+    const blocks = this.getContextBlocks();
     const blockIndex = this.getBlockIndex(pos.blockId);
     if (blockIndex <= 0) return pos;
 
-    const prevBlock = this._document.blocks[blockIndex - 1];
-    const currentBlock = this._document.blocks[blockIndex];
+    const prevBlock = blocks[blockIndex - 1];
+    const currentBlock = blocks[blockIndex];
 
     // Cannot merge into a non-text block (e.g., horizontal-rule, page-break)
     if (prevBlock.type === 'horizontal-rule' || prevBlock.type === 'page-break') {
@@ -189,7 +238,7 @@ export class Doc {
     }
 
     const blockIndex = this.getBlockIndex(blockId);
-    const block = this._document.blocks[blockIndex];
+    const block = this.getContextBlocks()[blockIndex];
     const blockText = getBlockText(block);
 
     // Empty list-item: exit list by converting to paragraph
