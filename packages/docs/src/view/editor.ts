@@ -96,6 +96,10 @@ export interface EditorAPI {
   isInTable(): boolean;
   /** Get the current cell address (if in table) */
   getCellAddress(): CellAddress | undefined;
+  /** Insert a page number token at cursor in header/footer */
+  insertPageNumber(): void;
+  /** Get the current edit context */
+  getEditContext(): 'body' | 'header' | 'footer';
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -149,6 +153,8 @@ export function initialize(
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
   let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
+  let headerLayout: DocumentLayout | null = null;
+  let footerLayout: DocumentLayout | null = null;
   let layoutCache: LayoutCache | undefined;
   let dirtyBlockIds: Set<string> | undefined;
   let needsScrollIntoView = false;
@@ -207,6 +213,26 @@ export function initialize(
     dirtyBlockIds = undefined;
     doc.setBlockParentMap(layout.blockParentMap);
     paginatedLayout = paginateLayout(layout, pageSetup);
+
+    // Header/footer layouts
+    if (doc.document.header) {
+      headerLayout = computeLayout(
+        doc.document.header.blocks,
+        docCanvas.getContext(),
+        contentWidth,
+      ).layout;
+    } else {
+      headerLayout = null;
+    }
+    if (doc.document.footer) {
+      footerLayout = computeLayout(
+        doc.document.footer.blocks,
+        docCanvas.getContext(),
+        contentWidth,
+      ).layout;
+    } else {
+      footerLayout = null;
+    }
   };
 
   const markDirty = (blockId: string) => {
@@ -478,7 +504,22 @@ export function initialize(
       );
     }
 
-    docCanvas.render(paginatedLayout, scrollY, logicalCanvasWidth, canvasHeight, cursorPixel ?? undefined, selectionRects, focused, resolvedPeers, peerSelections, layout, searchHighlightRects, activeMatchIndex, scaleFactor);
+    const editCtx = textEditor?.getEditContext() ?? 'body';
+    docCanvas.render(
+      paginatedLayout, scrollY, logicalCanvasWidth, canvasHeight,
+      editCtx === 'body' ? (cursorPixel ?? undefined) : undefined,
+      editCtx === 'body' ? selectionRects : undefined,
+      focused, resolvedPeers, peerSelections, layout,
+      searchHighlightRects, activeMatchIndex, scaleFactor,
+      headerLayout, footerLayout,
+      {
+        header: doc.document.header ? { marginFromEdge: doc.document.header.marginFromEdge } : undefined,
+        footer: doc.document.footer ? { marginFromEdge: doc.document.footer.marginFromEdge } : undefined,
+      },
+      editCtx,
+      undefined, // headerCursor — TODO: compute in future iteration
+      undefined, // footerCursor — TODO: compute in future iteration
+    );
 
     // Draw drag guideline if active
     if (dragGuideline) {
@@ -1147,6 +1188,24 @@ export function initialize(
       markDirty(cellInfo.tableBlockId);
       render();
     },
+    insertPageNumber: () => {
+      if (!textEditor) return;
+      const ctx = textEditor.getEditContext();
+      if (ctx !== 'header' && ctx !== 'footer') return;
+      docStore.snapshot();
+      doc.insertText(cursor.position, '#');
+      doc.applyInlineStyle(
+        {
+          anchor: { blockId: cursor.position.blockId, offset: cursor.position.offset },
+          focus: { blockId: cursor.position.blockId, offset: cursor.position.offset + 1 },
+        },
+        { pageNumber: true },
+      );
+      cursor.moveTo({ blockId: cursor.position.blockId, offset: cursor.position.offset + 1 });
+      needsScrollIntoView = true;
+      render();
+    },
+    getEditContext: () => textEditor?.getEditContext() ?? 'body',
     focus: () => textEditor?.focus(),
     dispose: () => {
       peerCursors = [];
