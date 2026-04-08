@@ -34,6 +34,10 @@ export interface DocTheme {
   rulerMarginBackground: string;
   rulerContentBackground: string;
   rulerTickColor: string;
+
+  /** Header/Footer */
+  headerFooterBorderColor: string;
+  headerFooterDimAlpha: number;
 }
 
 const LightTheme: DocTheme = {
@@ -59,6 +63,9 @@ const LightTheme: DocTheme = {
   rulerMarginBackground: '#e8e8e8',
   rulerContentBackground: '#ffffff',
   rulerTickColor: '#666666',
+
+  headerFooterBorderColor: '#cccccc',
+  headerFooterDimAlpha: 0.4,
 };
 
 const DarkTheme: DocTheme = {
@@ -84,6 +91,9 @@ const DarkTheme: DocTheme = {
   rulerMarginBackground: '#333333',
   rulerContentBackground: '#2b2b2b',
   rulerTickColor: '#999999',
+
+  headerFooterBorderColor: '#555555',
+  headerFooterDimAlpha: 0.4,
 };
 
 /**
