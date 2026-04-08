@@ -209,6 +209,76 @@ describe('paginatedPixelToPosition', () => {
   });
 });
 
+function mockPageBreakBlock(id: string): LayoutBlock {
+  return {
+    block: {
+      id,
+      type: 'page-break',
+      inlines: [],
+      style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 0, textIndent: 0, marginLeft: 0 },
+    },
+    x: 0,
+    y: 0,
+    width: 624,
+    height: 20,
+    lines: [{ runs: [], y: 0, height: 20, width: 624 }],
+  };
+}
+
+describe('paginateLayout — page-break', () => {
+  const setup = DEFAULT_PAGE_SETUP;
+
+  it('page-break forces content after it onto next page', () => {
+    const b1 = mockBlock('b1', [mockLine(24)]);
+    const pb = mockPageBreakBlock('pb');
+    const b2 = mockBlock('b2', [mockLine(24)]);
+    const layout: DocumentLayout = {
+      blocks: [b1, pb, b2],
+      totalHeight: 68,
+      blockParentMap: new Map(),
+    };
+    const result = paginateLayout(layout, setup);
+    expect(result.pages).toHaveLength(2);
+    // Page 1: b1 line + page-break line
+    expect(result.pages[0].lines).toHaveLength(2);
+    expect(result.pages[0].lines[0].blockIndex).toBe(0);
+    expect(result.pages[0].lines[1].blockIndex).toBe(1);
+    // Page 2: b2 line
+    expect(result.pages[1].lines).toHaveLength(1);
+    expect(result.pages[1].lines[0].blockIndex).toBe(2);
+  });
+
+  it('page-break at start of document creates empty first page with only the break', () => {
+    const pb = mockPageBreakBlock('pb');
+    const b1 = mockBlock('b1', [mockLine(24)]);
+    const layout: DocumentLayout = {
+      blocks: [pb, b1],
+      totalHeight: 44,
+      blockParentMap: new Map(),
+    };
+    const result = paginateLayout(layout, setup);
+    expect(result.pages).toHaveLength(2);
+    expect(result.pages[0].lines).toHaveLength(1); // page-break line
+    expect(result.pages[1].lines).toHaveLength(1); // b1
+  });
+
+  it('consecutive page-breaks create one page per break', () => {
+    const pb1 = mockPageBreakBlock('pb1');
+    const pb2 = mockPageBreakBlock('pb2');
+    const b1 = mockBlock('b1', [mockLine(24)]);
+    const layout: DocumentLayout = {
+      blocks: [pb1, pb2, b1],
+      totalHeight: 64,
+      blockParentMap: new Map(),
+    };
+    const result = paginateLayout(layout, setup);
+    expect(result.pages).toHaveLength(3);
+    expect(result.pages[0].lines).toHaveLength(1); // pb1
+    expect(result.pages[1].lines).toHaveLength(1); // pb2
+    expect(result.pages[2].lines).toHaveLength(1); // b1
+  });
+});
+
 describe('paginatedPixelToPosition — charOffsets', () => {
   const setup = DEFAULT_PAGE_SETUP;
   // margins.left = 96, pageXOffset for canvasWidth=816 is 0
