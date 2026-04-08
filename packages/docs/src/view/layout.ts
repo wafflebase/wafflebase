@@ -188,7 +188,7 @@ export function computeLayout(
       continue;
     }
 
-    if (block.type === 'horizontal-rule') {
+    if (block.type === 'horizontal-rule' || block.type === 'page-break') {
       const HR_HEIGHT = 20;
       lines = [{ runs: [], y: 0, height: HR_HEIGHT, width: availableWidth }];
     } else if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
