@@ -167,6 +167,30 @@ export class DocCanvas {
             continue;
           }
 
+          if (block && block.type === 'page-break') {
+            const lineY = Math.round(pageY + pl.y + pl.line.height / 2);
+            // Draw "Page break" label centered
+            this.ctx.font = '9px Arial';
+            this.ctx.fillStyle = '#aaa';
+            this.ctx.textAlign = 'center';
+            const centerX = pageX + page.width / 2;
+            this.ctx.fillText('Page break', centerX, lineY - 2);
+            // Draw dashed line on both sides of the label
+            const labelWidth = this.ctx.measureText('Page break').width + 16;
+            this.ctx.beginPath();
+            this.ctx.strokeStyle = '#ccc';
+            this.ctx.lineWidth = 1;
+            this.ctx.setLineDash([4, 4]);
+            this.ctx.moveTo(pageX + margins.left, lineY);
+            this.ctx.lineTo(centerX - labelWidth / 2, lineY);
+            this.ctx.moveTo(centerX + labelWidth / 2, lineY);
+            this.ctx.lineTo(pageX + page.width - margins.right, lineY);
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+            this.ctx.textAlign = 'left';
+            continue;
+          }
+
           const lb = layout.blocks[pl.blockIndex];
           if (lb && lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
             // Collect contiguous table rows on this page for this block
