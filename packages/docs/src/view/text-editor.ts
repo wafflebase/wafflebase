@@ -248,9 +248,11 @@ export class TextEditor {
     // Ignore all input events fired synchronously after compositionend
     if (this.ignoreInputUntilNextTick) return;
 
-    // Horizontal rules have no text content — block all input
+    // Non-editable blocks: create a paragraph and continue input there
     const currentBlock = this.doc.getBlock(this.cursor.position.blockId);
-    if (currentBlock.type === 'horizontal-rule' || currentBlock.type === 'page-break') return;
+    if (currentBlock.type === 'horizontal-rule' || currentBlock.type === 'page-break') {
+      this.ensureEditableBlock();
+    }
 
     if (this.composition.active) {
       // Browser IME path: read textarea.value which contains the current
