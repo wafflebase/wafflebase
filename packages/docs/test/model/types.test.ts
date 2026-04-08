@@ -83,6 +83,12 @@ describe('createBlock', () => {
     expect(block.inlines).toHaveLength(0);
   });
 
+  it('creates a page-break block with empty inlines', () => {
+    const block = createBlock('page-break');
+    expect(block.type).toBe('page-break');
+    expect(block.inlines).toHaveLength(0);
+  });
+
   it('defaults to paragraph when called with no arguments', () => {
     const block = createBlock();
     expect(block.type).toBe('paragraph');
