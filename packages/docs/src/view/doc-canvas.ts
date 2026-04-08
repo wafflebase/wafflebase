@@ -173,8 +173,9 @@ export class DocCanvas {
             this.ctx.font = '9px Arial';
             this.ctx.fillStyle = '#aaa';
             this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
             const centerX = pageX + page.width / 2;
-            this.ctx.fillText('Page break', centerX, lineY - 2);
+            this.ctx.fillText('Page break', centerX, lineY);
             // Draw dashed line on both sides of the label
             const labelWidth = this.ctx.measureText('Page break').width + 16;
             this.ctx.beginPath();
@@ -188,6 +189,7 @@ export class DocCanvas {
             this.ctx.stroke();
             this.ctx.setLineDash([]);
             this.ctx.textAlign = 'left';
+            this.ctx.textBaseline = 'alphabetic';
             continue;
           }
 
