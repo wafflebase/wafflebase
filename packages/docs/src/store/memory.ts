@@ -198,9 +198,8 @@ export class MemDocStore implements DocStore {
   }
 
   private findBlock(id: string): Block {
-    const block = this.doc.blocks.find((b) => b.id === id);
-    if (!block) throw new Error(`Block not found: ${id}`);
-    return block;
+    const { blocks, index } = this.findBlockInAnyArray(id);
+    return blocks[index];
   }
 
   private findBlockInAnyArray(id: string): { blocks: Block[]; index: number } {

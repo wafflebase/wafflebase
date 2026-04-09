@@ -2926,9 +2926,13 @@ export class TextEditor {
       }
     }
 
-    // Fallback: last block, end of text
-    const lastBlock = hfLayout.blocks[hfLayout.blocks.length - 1];
-    if (lastBlock) {
+    // Fallback: clamp to start or end based on localY
+    const firstBlock = hfLayout.blocks[0];
+    if (firstBlock) {
+      if (localY < firstBlock.y) {
+        return { blockId: firstBlock.block.id, offset: 0, lineAffinity: 'forward' as const };
+      }
+      const lastBlock = hfLayout.blocks[hfLayout.blocks.length - 1];
       let totalChars = 0;
       for (const line of lastBlock.lines) {
         for (const run of line.runs) totalChars += run.text.length;
