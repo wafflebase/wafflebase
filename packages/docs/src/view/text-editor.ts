@@ -813,10 +813,11 @@ export class TextEditor {
       const canvasX = (e.clientX - rect.left + this.container.scrollLeft) / s;
       const canvasY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
       const paginatedLayout = this.getPaginatedLayout();
+      // Always detect margin areas so double-click can create header/footer
       const target = resolveClickTarget(
         paginatedLayout, canvasX, canvasY, this.getCanvasWidth(),
-        this.doc.document.header !== undefined,
-        this.doc.document.footer !== undefined,
+        true,
+        true,
       );
 
       if (this.clickCount >= 2 && (target === 'header' || target === 'footer')) {
