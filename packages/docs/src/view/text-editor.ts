@@ -1845,7 +1845,7 @@ export class TextEditor {
       this.cursor.moveTo(newPos, isVertical ? this.cursor.lineAffinity : hAffinity);
     } else if (this.selection.hasSelection() && this.selection.range) {
       // Collapse selection to the appropriate boundary
-      const layout = this.getLayout();
+      const layout = this.getActiveLayout();
       const normalized = this.selection.getNormalizedRange(layout);
       if (normalized) {
         const collapsePos = (direction === 'left' || direction === 'up')
@@ -2507,8 +2507,9 @@ export class TextEditor {
     }
     // Move to end of previous block
     const idx = this.doc.getBlockIndex(pos.blockId);
+    const blocks = this.doc.getContextBlocks();
     if (idx > 0) {
-      const prevBlock = this.doc.document.blocks[idx - 1];
+      const prevBlock = blocks[idx - 1];
       // If previous block is a table, enter its last cell
       if (prevBlock.type === 'table' && prevBlock.tableData) {
         const td = prevBlock.tableData;
@@ -2546,8 +2547,9 @@ export class TextEditor {
     }
     // Move to start of next block
     const idx = this.doc.getBlockIndex(pos.blockId);
-    if (idx < this.doc.document.blocks.length - 1) {
-      const nextBlock = this.doc.document.blocks[idx + 1];
+    const blocks = this.doc.getContextBlocks();
+    if (idx < blocks.length - 1) {
+      const nextBlock = blocks[idx + 1];
       // If next block is a table, enter its first cell
       if (nextBlock.type === 'table' && nextBlock.tableData) {
         return { blockId: nextBlock.tableData.rows[0].cells[0].blocks[0].id, offset: 0 };
@@ -2563,9 +2565,10 @@ export class TextEditor {
       return { blockId: pos.blockId, offset: findPrevWordBoundary(text, pos.offset) };
     }
     // At start of block — move to end of previous block
+    const blocks = this.doc.getContextBlocks();
     const idx = this.doc.getBlockIndex(pos.blockId);
     if (idx > 0) {
-      const prevBlock = this.doc.document.blocks[idx - 1];
+      const prevBlock = blocks[idx - 1];
       return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
     }
     return pos;
@@ -2579,9 +2582,10 @@ export class TextEditor {
       return { blockId: pos.blockId, offset: findNextWordBoundary(text, pos.offset) };
     }
     // At end of block — move to start of next block
+    const blocks = this.doc.getContextBlocks();
     const idx = this.doc.getBlockIndex(pos.blockId);
-    if (idx < this.doc.document.blocks.length - 1) {
-      return { blockId: this.doc.document.blocks[idx + 1].id, offset: 0 };
+    if (idx < blocks.length - 1) {
+      return { blockId: blocks[idx + 1].id, offset: 0 };
     }
     return pos;
   }
@@ -2590,8 +2594,14 @@ export class TextEditor {
    * Find the visual line containing the given position and return
    * the character offset range [start, end] within the block.
    */
+  private getActiveLayout(): DocumentLayout {
+    if (this.editContext === 'header') return this.getHeaderLayout() ?? this.getLayout();
+    if (this.editContext === 'footer') return this.getFooterLayout() ?? this.getLayout();
+    return this.getLayout();
+  }
+
   private getVisualLineRange(pos: DocPosition): [number, number] {
-    const layout = this.getLayout();
+    const layout = this.getActiveLayout();
 
     // Cell block: find lines from the table layout
     const cellInfo = this.getCellInfo(pos.blockId);
@@ -2680,6 +2690,9 @@ export class TextEditor {
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
+    // Header/footer: up/down not supported (typically 1-2 lines, use Home/End)
+    if (this.editContext !== 'body') return pos;
+
     const pixel = this.getPixelForPosition(pos, this.cursor.lineAffinity);
     if (!pixel) return pos;
 
