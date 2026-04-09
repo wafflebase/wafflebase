@@ -865,6 +865,7 @@ export class TextEditor {
       if (target === 'body' && this.editContext !== 'body') {
         // Click on body exits header/footer editing
         this.setEditContext('body');
+        this.selection.setRange(null);
       }
 
       if (target !== 'body' && target !== this.editContext) {
@@ -2169,7 +2170,13 @@ export class TextEditor {
         const blocks = this.doc.getContextBlocks();
         const aIdx = blocks.findIndex((b) => b.id === a.blockId);
         const fIdx = blocks.findIndex((b) => b.id === f.blockId);
-        cursorTarget = aIdx <= fIdx ? { blockId: a.blockId, offset: a.offset } : { blockId: f.blockId, offset: f.offset };
+        if (fIdx === -1) {
+          cursorTarget = { blockId: a.blockId, offset: a.offset };
+        } else if (aIdx === -1) {
+          cursorTarget = { blockId: f.blockId, offset: f.offset };
+        } else {
+          cursorTarget = aIdx <= fIdx ? { blockId: a.blockId, offset: a.offset } : { blockId: f.blockId, offset: f.offset };
+        }
       }
       this.cursor.moveTo(cursorTarget);
       this.selection.setRange(null);
