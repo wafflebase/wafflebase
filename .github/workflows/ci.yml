@@ -40,6 +40,30 @@ jobs:
       - name: Verify Self-Contained Lane
         run: pnpm verify:self
 
+      - name: Collect coverage (sheets)
+        run: pnpm --filter @wafflebase/sheets exec vitest run --coverage
+
+      - name: Collect coverage (cli)
+        run: pnpm --filter @wafflebase/cli exec vitest run --coverage
+
+      - name: Collect coverage (docs)
+        run: pnpm --filter @wafflebase/docs exec vitest run --coverage
+
+      - name: Collect coverage (backend)
+        run: pnpm --filter @wafflebase/backend test:cov
+        continue-on-error: true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: >-
+            packages/sheets/coverage/lcov.info,
+            packages/cli/coverage/lcov.info,
+            packages/docs/coverage/lcov.info,
+            packages/backend/coverage/lcov.info
+          flags: sheets,cli,docs,backend
+          token: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Upload harness reports
         if: always()
         uses: actions/upload-artifact@v4
