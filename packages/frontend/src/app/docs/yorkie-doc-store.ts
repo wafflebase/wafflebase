@@ -423,7 +423,10 @@ export class YorkieDocStore implements DocStore {
   getBlock(id: string): Block | undefined {
     const document = this.getDocument();
     const block = document.blocks.find((b) => b.id === id);
-    return block;
+    if (block) return block;
+    const hBlock = document.header?.blocks.find((b) => b.id === id);
+    if (hBlock) return hBlock;
+    return document.footer?.blocks.find((b) => b.id === id);
   }
 
   getPageSetup(): PageSetup {

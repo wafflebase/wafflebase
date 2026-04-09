@@ -369,8 +369,9 @@ export class Doc {
     const fromBlockIdx = this.getBlockIndex(fromTopId);
     const toBlockIdx = this.getBlockIndex(toTopId);
 
+    const contextBlocks = this.getContextBlocks();
     for (let i = fromBlockIdx; i <= toBlockIdx; i++) {
-      const block = this._document.blocks[i];
+      const block = contextBlocks[i];
 
       // Table block in the middle of a cross-block selection:
       // apply style to every block in every cell.

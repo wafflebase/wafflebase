@@ -475,8 +475,9 @@ export function initialize(
       if (startIdx >= 0 && endIdx >= 0) {
         const lo = Math.min(startIdx, endIdx);
         const hi = Math.max(startIdx, endIdx);
+        const contextBlocks = doc.getContextBlocks();
         for (let i = lo; i <= hi; i++) {
-          const b = doc.document.blocks[i];
+          const b = contextBlocks[i];
           if (b.type === 'table' && b.tableData) {
             for (const row of b.tableData.rows) {
               for (const cell of row.cells) {
@@ -812,6 +813,7 @@ export function initialize(
     if (docStore.canUndo()) {
       docStore.undo();
       doc.refresh();
+      textEditor?.setEditContext('body');
       layoutCache = undefined;
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
@@ -824,6 +826,7 @@ export function initialize(
     if (docStore.canRedo()) {
       docStore.redo();
       doc.refresh();
+      textEditor?.setEditContext('body');
       layoutCache = undefined;
       if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });

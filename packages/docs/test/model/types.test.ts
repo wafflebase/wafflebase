@@ -208,6 +208,7 @@ describe('HeaderFooter', () => {
     expect(doc.header!.marginFromEdge).toBe(48);
     expect(doc.footer).toBeDefined();
     expect(doc.footer!.blocks).toHaveLength(1);
+    expect(doc.footer!.marginFromEdge).toBe(48);
   });
 
   it('should support pageNumber in InlineStyle', () => {

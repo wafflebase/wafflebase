@@ -610,6 +610,7 @@ describe('Doc editContext', () => {
     expect(doc.document.header).toBeDefined();
     expect(doc.document.header!.blocks).toHaveLength(1);
     expect(doc.document.header!.blocks[0].type).toBe('paragraph');
+    expect(doc.document.header!.marginFromEdge).toBe(48);
   });
 
   it('should ensureFooter create footer with empty paragraph', () => {
@@ -619,6 +620,7 @@ describe('Doc editContext', () => {
     doc.ensureFooter();
     expect(doc.document.footer).toBeDefined();
     expect(doc.document.footer!.blocks).toHaveLength(1);
+    expect(doc.document.footer!.marginFromEdge).toBe(48);
   });
 
   it('should insertText in header context', () => {

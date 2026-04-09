@@ -1888,7 +1888,7 @@ export class TextEditor {
   }
 
   private handleDocStart(shiftKey: boolean): void {
-    const blocks = this.doc.document.blocks;
+    const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const newPos: DocPosition = { blockId: blocks[0].id, offset: 0 };
     if (shiftKey) {
@@ -1902,7 +1902,7 @@ export class TextEditor {
   }
 
   private handleDocEnd(shiftKey: boolean): void {
-    const blocks = this.doc.document.blocks;
+    const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const lastBlock = blocks[blocks.length - 1];
     const newPos: DocPosition = { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
@@ -1941,7 +1941,7 @@ export class TextEditor {
   }
 
   private selectAll(): void {
-    const blocks = this.doc.document.blocks;
+    const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const firstBlock = blocks[0];
     const lastBlock = blocks[blocks.length - 1];
