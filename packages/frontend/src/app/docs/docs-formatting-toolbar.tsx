@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { BlockType, EditorAPI, HeadingLevel } from "@wafflebase/docs";
+import type { BlockType, EditorAPI, EditContext, HeadingLevel } from "@wafflebase/docs";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -34,6 +34,7 @@ import {
   IconIndentIncrease,
   IconLink,
   IconTable,
+  IconHash,
 } from "@tabler/icons-react";
 import { TableGridPicker } from "./table-grid-picker";
 
@@ -99,9 +100,10 @@ function TableDropdown({ editor }: { editor: EditorAPI | null }) {
 
 interface DocsFormattingToolbarProps {
   editor: EditorAPI | null;
+  editContext?: EditContext;
 }
 
-export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
+export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsFormattingToolbarProps) {
   const handleUndo = useCallback(() => editor?.undo(), [editor]);
   const handleRedo = useCallback(() => editor?.redo(), [editor]);
 
@@ -159,6 +161,150 @@ export function DocsFormattingToolbar({ editor }: DocsFormattingToolbarProps) {
     },
     [editor],
   );
+
+  const handleInsertPageNumber = useCallback(() => {
+    editor?.insertPageNumber();
+    editor?.focus();
+  }, [editor]);
+
+  const isHeaderFooter = editContext === 'header' || editContext === 'footer';
+  const contextLabel = editContext === 'header' ? 'Header' : 'Footer';
+
+  if (isHeaderFooter) {
+    return (
+      <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap">
+        <span className="mr-2 text-xs text-muted-foreground">{contextLabel}</span>
+
+        <Separator orientation="vertical" className="mx-1 h-6" />
+
+        {/* ── Font Styles ── */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle size="sm" onPressedChange={toggleBold} className="h-7 w-7 cursor-pointer" aria-label="Bold">
+              <IconBold size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Bold ({modKey}+B)</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle size="sm" onPressedChange={toggleItalic} className="h-7 w-7 cursor-pointer" aria-label="Italic">
+              <IconItalic size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Italic ({modKey}+I)</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle size="sm" onPressedChange={toggleUnderline} className="h-7 w-7 cursor-pointer" aria-label="Underline">
+              <IconUnderline size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Underline ({modKey}+U)</TooltipContent>
+        </Tooltip>
+
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="Text color">
+                  <IconTypography size={16} />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Text color</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent className="w-auto p-2">
+            <button className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted" onClick={() => handleTextColor("")}>
+              <IconDropletOff size={14} /> Reset
+            </button>
+            <div className="grid grid-cols-5 gap-1">
+              {TEXT_COLORS.map((color) => (
+                <button key={color} className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform" style={{ backgroundColor: color }} onClick={() => handleTextColor(color)} />
+              ))}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="Highlight color">
+                  <IconHighlight size={16} />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Highlight color</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent className="w-auto p-2">
+            <button className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted" onClick={() => handleHighlightColor("")}>
+              <IconDropletOff size={14} /> Reset
+            </button>
+            <div className="grid grid-cols-5 gap-1">
+              {BG_COLORS.map((color) => (
+                <button key={color} className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform" style={{ backgroundColor: color }} onClick={() => handleHighlightColor(color)} />
+              ))}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Separator orientation="vertical" className="mx-1 h-6" />
+
+        {/* ── Alignment ── */}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
+                  <IconAlignLeft size={16} />
+                  <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Text alignment</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent className="w-[200px]">
+            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
+              <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
+              <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
+              <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
+              <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
+              <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
+              <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
+              <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
+              <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Separator orientation="vertical" className="mx-1 h-6" />
+
+        {/* ── Page Number ── */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="inline-flex h-7 cursor-pointer items-center justify-center gap-1 rounded-md px-2 text-xs hover:bg-muted"
+              onClick={handleInsertPageNumber}
+              aria-label="Insert page number"
+            >
+              <IconHash size={16} />
+              <span>Page number</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Insert page number</TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap">

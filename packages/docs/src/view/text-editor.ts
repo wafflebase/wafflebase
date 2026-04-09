@@ -112,6 +112,9 @@ export class TextEditor {
   /** Callback to update the drag guideline overlay in the editor paint loop. */
   onDragGuideline?: (pos: { x?: number; y?: number } | null) => void;
 
+  /** Callback invoked when edit context changes (body/header/footer). */
+  private editContextChangeCallback?: (context: EditContext) => void;
+
   getBorderDragState(): BorderDragState | null {
     return this.borderDragState;
   }
@@ -125,8 +128,14 @@ export class TextEditor {
   }
 
   setEditContext(context: EditContext): void {
+    const prev = this.editContext;
     this.editContext = context;
     this.doc.editContext = context;
+    if (prev !== context) this.editContextChangeCallback?.(context);
+  }
+
+  onEditContextChange(cb: (context: EditContext) => void): void {
+    this.editContextChangeCallback = cb;
   }
 
   private setCanvasCursor(cursor: string): void {
