@@ -101,6 +101,8 @@ export interface EditorAPI {
   insertPageNumber(): void;
   /** Get the current edit context */
   getEditContext(): 'body' | 'header' | 'footer';
+  /** Register a callback for edit context changes (body/header/footer) */
+  onEditContextChange(cb: (context: 'body' | 'header' | 'footer') => void): void;
   /** Focus the editor */
   focus(): void;
   /** Clean up */
@@ -1420,6 +1422,9 @@ export function initialize(
       render();
     },
     getEditContext: () => textEditor?.getEditContext() ?? 'body',
+    onEditContextChange: (cb: (context: 'body' | 'header' | 'footer') => void) => {
+      textEditor?.onEditContextChange(cb);
+    },
     focus: () => textEditor?.focus(),
     dispose: () => {
       peerCursors = [];

@@ -14,6 +14,7 @@ import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import type { YorkieDocsRoot } from "@/types/docs-document";
+import type { EditContext } from "@wafflebase/docs";
 import { DocsView, type EditorAPI } from "./docs-view";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 
@@ -34,6 +35,13 @@ function initialDocsRoot(): Partial<YorkieDocsRoot> {
 function DocsLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<EditorAPI | null>(null);
+  const [editContext, setEditContext] = useState<EditContext>('body');
+
+  // Track edit context changes from the editor
+  useEffect(() => {
+    if (!editor) return;
+    editor.onEditContextChange(setEditContext);
+  }, [editor]);
 
   // Clean up stale pointer-events on body left by Radix Sheet from a
   // previous route (e.g. Layout's mobile sidebar unmounting mid-animation).
@@ -133,7 +141,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <DocsFormattingToolbar editor={editor} />
+          <DocsFormattingToolbar editor={editor} editContext={editContext} />
           <DocsView onEditorReady={setEditor} />
         </div>
       </SidebarInset>
