@@ -5,8 +5,12 @@ import {
   getTotalHeight,
   findPageForPosition,
   paginatedPixelToPosition,
+  getHeaderYStart,
+  getFooterYStart,
+  type PaginatedLayout,
+  type LayoutPage,
 } from '../../src/view/pagination.js';
-import { DEFAULT_PAGE_SETUP } from '../../src/model/types.js';
+import { DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../../src/model/types.js';
 import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../../src/view/layout.js';
 
 function mockLine(height: number): LayoutLine {
@@ -344,5 +348,40 @@ describe('paginatedPixelToPosition — charOffsets', () => {
     // Closest to 0 (prev of index 0), so offset = 0 in run2 → global offset 2
     const r = paginatedPixelToPosition(paginated, layout, 96 + 22, 136, 816);
     expect(r!.offset).toBe(2);
+  });
+});
+
+function buildPaginatedLayout(pageCount: number): PaginatedLayout {
+  const pageSetup = DEFAULT_PAGE_SETUP;
+  const dims = getEffectiveDimensions(pageSetup);
+  const pages: LayoutPage[] = [];
+  for (let i = 0; i < pageCount; i++) {
+    pages.push({ pageIndex: i, lines: [], width: dims.width, height: dims.height });
+  }
+  return { pages, pageSetup };
+}
+
+describe('header/footer positioning', () => {
+  it('should return header Y start within top margin', () => {
+    const pl = buildPaginatedLayout(1);
+    const y = getHeaderYStart(pl, 0, 48);
+    const pageY = getPageYOffset(pl, 0);
+    expect(y).toBe(pageY + 48);
+  });
+
+  it('should return footer Y start within bottom margin', () => {
+    const pl = buildPaginatedLayout(1);
+    const pageY = getPageYOffset(pl, 0);
+    const pageHeight = pl.pages[0].height;
+    const footerHeight = 20;
+    const y = getFooterYStart(pl, 0, footerHeight, 48);
+    expect(y).toBe(pageY + pageHeight - 48 - footerHeight);
+  });
+
+  it('should work for second page', () => {
+    const pl = buildPaginatedLayout(2);
+    const pageY1 = getPageYOffset(pl, 1);
+    const y = getHeaderYStart(pl, 1, 48);
+    expect(y).toBe(pageY1 + 48);
   });
 });

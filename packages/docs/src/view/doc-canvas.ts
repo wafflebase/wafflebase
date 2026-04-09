@@ -1,7 +1,8 @@
 import type { Block } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { PaginatedLayout } from './pagination.js';
-import { getPageYOffset, getPageXOffset } from './pagination.js';
+import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart } from './pagination.js';
+import type { EditContext } from '../model/document.js';
 import type { DocumentLayout } from './layout.js';
 import type { LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
@@ -64,6 +65,13 @@ export class DocCanvas {
     searchHighlightRects?: Array<Array<{ x: number; y: number; width: number; height: number }>>,
     activeSearchIndex?: number,
     scaleFactor: number = 1,
+    headerLayout?: DocumentLayout | null,
+    footerLayout?: DocumentLayout | null,
+    headerFooter?: { header?: { marginFromEdge: number }; footer?: { marginFromEdge: number } },
+    editContext?: EditContext,
+    headerCursor?: { x: number; y: number; height: number; visible: boolean },
+    footerCursor?: { x: number; y: number; height: number; visible: boolean },
+    hfSelectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -105,13 +113,125 @@ export class DocCanvas {
       this.ctx.fillRect(pageX, pageY, page.width, page.height);
       this.ctx.restore();
 
-      // Clip to content area
+      // Content area dimensions
       const contentX = pageX + margins.left;
       const contentY = pageY + margins.top;
       const contentWidth = page.width - margins.left - margins.right;
       const contentHeight = page.height - margins.top - margins.bottom;
 
+      // Draw header
+      if (headerLayout && headerFooter?.header) {
+        const hfMargin = headerFooter.header.marginFromEdge;
+        const headerY = getHeaderYStart(paginatedLayout, page.pageIndex, hfMargin);
+        const headerClipHeight = margins.top - hfMargin;
+
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(contentX, pageY + hfMargin, contentWidth, headerClipHeight);
+        this.ctx.clip();
+
+        // Draw header selection highlights
+        if (editContext === 'header' && hfSelectionRects) {
+          this.ctx.fillStyle = Theme.selectionColor;
+          for (const rect of hfSelectionRects) {
+            if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+              this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            }
+          }
+        }
+
+        for (const lb of headerLayout.blocks) {
+          for (const line of lb.lines) {
+            for (const run of line.runs) {
+              this.renderRunWithPageNumber(
+                run, contentX, headerY + lb.y + line.y, line.height,
+                page.pageIndex + 1,
+              );
+            }
+          }
+        }
+
+        if (editContext === 'header' && headerCursor?.visible) {
+          this.ctx.fillStyle = Theme.cursorColor;
+          this.ctx.fillRect(headerCursor.x, headerCursor.y, Theme.cursorWidth, headerCursor.height);
+        }
+
+        this.ctx.restore();
+
+        if (editContext === 'header') {
+          // Draw separator line between header and body
+          const lineY = pageY + margins.top;
+          this.ctx.save();
+          this.ctx.strokeStyle = Theme.headerFooterBorderColor;
+          this.ctx.lineWidth = 1;
+          this.ctx.beginPath();
+          this.ctx.moveTo(pageX, lineY);
+          this.ctx.lineTo(pageX + page.width, lineY);
+          this.ctx.stroke();
+          this.ctx.restore();
+        }
+      }
+
+      // Draw footer
+      if (footerLayout && headerFooter?.footer) {
+        const fMargin = headerFooter.footer.marginFromEdge;
+        const footerTotalH = footerLayout.totalHeight;
+        const footerY = getFooterYStart(paginatedLayout, page.pageIndex, footerTotalH, fMargin);
+        const footerClipY = pageY + page.height - margins.bottom;
+        const footerClipHeight = margins.bottom - fMargin;
+
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(contentX, footerClipY, contentWidth, footerClipHeight);
+        this.ctx.clip();
+
+        // Draw footer selection highlights
+        if (editContext === 'footer' && hfSelectionRects) {
+          this.ctx.fillStyle = Theme.selectionColor;
+          for (const rect of hfSelectionRects) {
+            if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+              this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            }
+          }
+        }
+
+        for (const lb of footerLayout.blocks) {
+          for (const line of lb.lines) {
+            for (const run of line.runs) {
+              this.renderRunWithPageNumber(
+                run, contentX, footerY + lb.y + line.y, line.height,
+                page.pageIndex + 1,
+              );
+            }
+          }
+        }
+
+        if (editContext === 'footer' && footerCursor?.visible) {
+          this.ctx.fillStyle = Theme.cursorColor;
+          this.ctx.fillRect(footerCursor.x, footerCursor.y, Theme.cursorWidth, footerCursor.height);
+        }
+
+        this.ctx.restore();
+
+        if (editContext === 'footer') {
+          // Draw separator line between body and footer
+          const lineY = pageY + page.height - margins.bottom;
+          this.ctx.save();
+          this.ctx.strokeStyle = Theme.headerFooterBorderColor;
+          this.ctx.lineWidth = 1;
+          this.ctx.beginPath();
+          this.ctx.moveTo(pageX, lineY);
+          this.ctx.lineTo(pageX + page.width, lineY);
+          this.ctx.stroke();
+          this.ctx.restore();
+        }
+      }
+
+      // Clip to content area
       this.ctx.save();
+      if (editContext === 'header' || editContext === 'footer') {
+        this.ctx.globalAlpha = Theme.headerFooterDimAlpha;
+      }
       this.ctx.beginPath();
       this.ctx.rect(contentX, contentY, contentWidth, contentHeight);
       this.ctx.clip();
@@ -298,6 +418,28 @@ export class DocCanvas {
 
     // Restore the scrollY translation
     this.ctx.restore();
+  }
+
+  /**
+   * Render a run, substituting page number token if applicable.
+   */
+  private renderRunWithPageNumber(
+    run: LayoutRun,
+    lineX: number,
+    lineY: number,
+    lineHeight: number,
+    pageNumber: number,
+  ): void {
+    if (run.inline.style.pageNumber) {
+      const substituted = {
+        ...run,
+        text: String(pageNumber),
+        inline: { ...run.inline, text: String(pageNumber) },
+      };
+      this.renderRun(substituted, lineX, lineY, lineHeight);
+    } else {
+      this.renderRun(run, lineX, lineY, lineHeight);
+    }
   }
 
   /**

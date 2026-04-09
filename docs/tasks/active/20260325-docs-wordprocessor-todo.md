@@ -31,7 +31,7 @@ Design doc: [docs-wordprocessor-roadmap.md](../../design/docs-wordprocessor-road
 
 ## Phase 4: Page Features
 
-- [ ] 4.1 Header / Footer — fixed regions, page numbers
+- [x] 4.1 Header / Footer — fixed regions, page numbers
 - [x] 4.2 Page Break — Ctrl+Enter, forced split
 - [ ] 4.3 Section Break — per-section PageSetup
 - [ ] 4.4 Table of Contents — heading-based auto-generation, outline sidebar

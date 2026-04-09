@@ -1,5 +1,6 @@
 import type { PageSetup } from '../model/types.js';
 import { getEffectiveDimensions } from '../model/types.js';
+import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import { Theme } from './theme.js';
 
@@ -156,6 +157,32 @@ export function getPageXOffset(
 ): number {
   const pageWidth = paginatedLayout.pages[0]?.width ?? 0;
   return Math.max(0, (canvasWidth - pageWidth) / 2);
+}
+
+/**
+ * Get the absolute Y start position for the header on a given page.
+ */
+export function getHeaderYStart(
+  paginatedLayout: PaginatedLayout,
+  pageIndex: number,
+  marginFromEdge: number,
+): number {
+  const pageY = getPageYOffset(paginatedLayout, pageIndex);
+  return pageY + marginFromEdge;
+}
+
+/**
+ * Get the absolute Y start position for the footer on a given page.
+ */
+export function getFooterYStart(
+  paginatedLayout: PaginatedLayout,
+  pageIndex: number,
+  footerHeight: number,
+  marginFromEdge: number,
+): number {
+  const pageY = getPageYOffset(paginatedLayout, pageIndex);
+  const pageHeight = paginatedLayout.pages[pageIndex]?.height ?? 0;
+  return pageY + pageHeight - marginFromEdge - footerHeight;
 }
 
 /**
@@ -348,4 +375,36 @@ export function paginatedPixelToPosition(
     offset: endOffset,
     lineAffinity: 'backward',
   };
+}
+
+/**
+ * Determine whether a click at absolute (px, py) targets the header, footer, or body.
+ */
+export function resolveClickTarget(
+  paginatedLayout: PaginatedLayout,
+  px: number,
+  py: number,
+  canvasWidth: number,
+  hasHeader: boolean,
+  hasFooter: boolean,
+): EditContext {
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+
+  for (const page of paginatedLayout.pages) {
+    const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+    if (py < pageY || py > pageY + page.height) continue;
+    if (px < pageX || px > pageX + page.width) continue;
+
+    const localY = py - pageY;
+
+    if (hasHeader && localY < margins.top) {
+      return 'header';
+    }
+    if (hasFooter && localY > page.height - margins.bottom) {
+      return 'footer';
+    }
+    return 'body';
+  }
+  return 'body';
 }

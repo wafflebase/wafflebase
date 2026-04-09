@@ -1,4 +1,4 @@
-import type { Block, Document, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, Document, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -25,6 +25,10 @@ export interface DocStore {
   deleteBlockByIndex(index: number): void;
   getPageSetup(): PageSetup;
   setPageSetup(setup: PageSetup): void;
+  getHeader(): HeaderFooter | undefined;
+  getFooter(): HeaderFooter | undefined;
+  setHeader(header: HeaderFooter | undefined): void;
+  setFooter(footer: HeaderFooter | undefined): void;
   /** Save current state to the undo stack before a group of mutations. */
   snapshot(): void;
   undo(): void;

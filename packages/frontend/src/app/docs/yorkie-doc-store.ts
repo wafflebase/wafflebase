@@ -11,6 +11,7 @@ import type {
   BlockStyle,
   InlineStyle,
   PageSetup,
+  HeaderFooter,
   TableRow,
   TableCell,
   CellStyle,
@@ -57,6 +58,7 @@ function serializeInlineStyle(style: InlineStyle): Record<string, string> {
   if (style.color !== undefined) attrs.color = style.color;
   if (style.backgroundColor !== undefined) attrs.backgroundColor = style.backgroundColor;
   if (style.href !== undefined) attrs.href = style.href;
+  setIfDefined(attrs, 'pageNumber', style.pageNumber);
   return attrs;
 }
 
@@ -74,6 +76,7 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   if ('color' in attrs) style.color = attrs.color;
   if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
   if (attrs.href !== undefined) style.href = attrs.href;
+  if (attrs.pageNumber !== undefined) style.pageNumber = attrs.pageNumber === 'true';
   return style;
 }
 
@@ -308,10 +311,25 @@ function treeNodeToBlock(node: TreeNode): Block {
 
 function treeToDocument(root: TreeNode): Document {
   const el = root as ElementNode;
-  const blocks = (el.children ?? [])
-    .filter((c) => c.type === 'block')
-    .map(treeNodeToBlock);
-  return { blocks };
+  const doc: Document = { blocks: [] };
+  for (const child of el.children ?? []) {
+    if (child.type === 'header') {
+      const attrs = (child as ElementNode).attributes ?? {};
+      doc.header = {
+        blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
+        marginFromEdge: Number(attrs.marginFromEdge ?? '48'),
+      };
+    } else if (child.type === 'footer') {
+      const attrs = (child as ElementNode).attributes ?? {};
+      doc.footer = {
+        blocks: ((child as ElementNode).children ?? []).map(treeNodeToBlock),
+        marginFromEdge: Number(attrs.marginFromEdge ?? '48'),
+      };
+    } else if (child.type === 'block') {
+      doc.blocks.push(treeNodeToBlock(child));
+    }
+  }
+  return doc;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +423,10 @@ export class YorkieDocStore implements DocStore {
   getBlock(id: string): Block | undefined {
     const document = this.getDocument();
     const block = document.blocks.find((b) => b.id === id);
-    return block;
+    if (block) return block;
+    const hBlock = document.header?.blocks.find((b) => b.id === id);
+    if (hBlock) return hBlock;
+    return document.footer?.blocks.find((b) => b.id === id);
   }
 
   getPageSetup(): PageSetup {
@@ -413,6 +434,33 @@ export class YorkieDocStore implements DocStore {
     return resolvePageSetup(
       root.pageSetup ? readPageSetup(root.pageSetup) : undefined,
     );
+  }
+
+  getHeader(): HeaderFooter | undefined {
+    const doc = this.getDocument();
+    return doc.header;
+  }
+
+  getFooter(): HeaderFooter | undefined {
+    const doc = this.getDocument();
+    return doc.footer;
+  }
+
+  setHeader(header: HeaderFooter | undefined): void {
+    // Rewrite the full document to include/remove header
+    const doc = this.getDocument();
+    doc.header = header;
+    this.writeFullDocument(doc);
+    this.cachedDoc = cloneDocument(doc);
+    this.dirty = false;
+  }
+
+  setFooter(footer: HeaderFooter | undefined): void {
+    const doc = this.getDocument();
+    doc.footer = footer;
+    this.writeFullDocument(doc);
+    this.cachedDoc = cloneDocument(doc);
+    this.dirty = false;
   }
 
   // -----------------------------------------------------------------------
@@ -436,17 +484,57 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
+  /**
+   * Tree child offset for body blocks.
+   * When a header container exists as tree child [0], body blocks start at [1].
+   */
+  private bodyTreeOffset(doc: Document): number {
+    return doc.header ? 1 : 0;
+  }
+
+  /**
+   * Check if a block lives in header or footer.
+   */
+  private findHeaderFooterBlock(blockId: string, doc: Document): { region: 'header' | 'footer'; blocks: Block[]; index: number } | null {
+    if (doc.header) {
+      const idx = doc.header.blocks.findIndex((b) => b.id === blockId);
+      if (idx !== -1) return { region: 'header', blocks: doc.header.blocks, index: idx };
+    }
+    if (doc.footer) {
+      const idx = doc.footer.blocks.findIndex((b) => b.id === blockId);
+      if (idx !== -1) return { region: 'footer', blocks: doc.footer.blocks, index: idx };
+    }
+    return null;
+  }
+
+  /**
+   * For header/footer mutations, apply the change and rewrite the full tree.
+   */
+  private commitHeaderFooterChange(doc: Document): void {
+    this.writeFullDocument(doc);
+    this.cachedDoc = doc;
+    this.dirty = false;
+  }
+
   updateBlock(id: string, block: Block): void {
     const currentDoc = this.getDocument();
+    const hf = this.findHeaderFooterBlock(id, currentDoc);
+    if (hf) {
+      hf.blocks[hf.index] = block;
+      this.commitHeaderFooterChange(currentDoc);
+      return;
+    }
+
     const index = currentDoc.blocks.findIndex((b) => b.id === id);
     if (index === -1) {
       throw new Error(`Block not found: ${id}`);
     }
 
+    const off = this.bodyTreeOffset(currentDoc);
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([index], [index + 1], buildBlockNode(block));
+      tree.editByPath([index + off], [index + off + 1], buildBlockNode(block));
     });
     // Update cache in-place instead of clearing
     currentDoc.blocks[index] = block;
@@ -456,18 +544,26 @@ export class YorkieDocStore implements DocStore {
 
   insertText(blockId: string, offset: number, text: string): void {
     const currentDoc = this.getDocument();
+    const hf = this.findHeaderFooterBlock(blockId, currentDoc);
+    if (hf) {
+      hf.blocks[hf.index] = applyInsertText(hf.blocks[hf.index], offset, text);
+      this.commitHeaderFooterChange(currentDoc);
+      return;
+    }
+
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
 
     const { inlineIndex, charOffset } = resolveOffset(block, offset);
+    const off = this.bodyTreeOffset(currentDoc);
 
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath(
-        [blockIdx, inlineIndex, charOffset],
-        [blockIdx, inlineIndex, charOffset],
+        [blockIdx + off, inlineIndex, charOffset],
+        [blockIdx + off, inlineIndex, charOffset],
         { type: 'text', value: text },
       );
     });
@@ -480,6 +576,13 @@ export class YorkieDocStore implements DocStore {
 
   deleteText(blockId: string, offset: number, length: number): void {
     const currentDoc = this.getDocument();
+    const hf = this.findHeaderFooterBlock(blockId, currentDoc);
+    if (hf) {
+      hf.blocks[hf.index] = applyDeleteText(hf.blocks[hf.index], offset, length);
+      this.commitHeaderFooterChange(currentDoc);
+      return;
+    }
+
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
@@ -499,6 +602,7 @@ export class YorkieDocStore implements DocStore {
       emptyInlineIndices.pop();
     }
 
+    const off = this.bodyTreeOffset(currentDoc);
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
@@ -507,15 +611,15 @@ export class YorkieDocStore implements DocStore {
       for (let i = segments.length - 1; i >= 0; i--) {
         const seg = segments[i];
         tree.editByPath(
-          [blockIdx, seg.inlineIndex, seg.charFrom],
-          [blockIdx, seg.inlineIndex, seg.charTo],
+          [blockIdx + off, seg.inlineIndex, seg.charFrom],
+          [blockIdx + off, seg.inlineIndex, seg.charTo],
         );
       }
 
       // 2. Remove empty inline nodes (reverse order to preserve indices)
       for (let i = emptyInlineIndices.length - 1; i >= 0; i--) {
         const idx = emptyInlineIndices[i];
-        tree.editByPath([blockIdx, idx], [blockIdx, idx + 1]);
+        tree.editByPath([blockIdx + off, idx], [blockIdx + off, idx + 1]);
       }
     });
 
@@ -532,6 +636,13 @@ export class YorkieDocStore implements DocStore {
     style: Partial<InlineStyle>,
   ): void {
     const currentDoc = this.getDocument();
+    const hf = this.findHeaderFooterBlock(blockId, currentDoc);
+    if (hf) {
+      hf.blocks[hf.index] = applyInlineStyleHelper(hf.blocks[hf.index], fromOffset, toOffset, style);
+      this.commitHeaderFooterChange(currentDoc);
+      return;
+    }
+
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
@@ -541,10 +652,11 @@ export class YorkieDocStore implements DocStore {
     // styleByPath targets element attributes, not text ranges.
     // Use block replacement via editByPath until Yorkie supports
     // text-range style operations.
+    const off = this.bodyTreeOffset(currentDoc);
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(updated));
+      tree.editByPath([blockIdx + off], [blockIdx + off + 1], buildBlockNode(updated));
     });
 
     // Update cache in-place
@@ -554,13 +666,14 @@ export class YorkieDocStore implements DocStore {
   }
 
   insertBlock(index: number, block: Block): void {
+    const currentDoc = this.getDocument();
+    const off = this.bodyTreeOffset(currentDoc);
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([index], [index], buildBlockNode(block));
+      tree.editByPath([index + off], [index + off], buildBlockNode(block));
     });
     // Update cache in-place
-    const currentDoc = this.getDocument();
     currentDoc.blocks.splice(index, 0, block);
     this.cachedDoc = currentDoc;
     this.dirty = false;
@@ -568,6 +681,13 @@ export class YorkieDocStore implements DocStore {
 
   deleteBlock(id: string): void {
     const currentDoc = this.getDocument();
+    const hf = this.findHeaderFooterBlock(id, currentDoc);
+    if (hf) {
+      hf.blocks.splice(hf.index, 1);
+      this.commitHeaderFooterChange(currentDoc);
+      return;
+    }
+
     const index = currentDoc.blocks.findIndex((b) => b.id === id);
     if (index === -1) {
       throw new Error(`Block not found: ${id}`);
@@ -576,18 +696,14 @@ export class YorkieDocStore implements DocStore {
   }
 
   deleteBlockByIndex(index: number): void {
+    const currentDoc = this.getDocument();
+    const off = this.bodyTreeOffset(currentDoc);
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      const treeRoot = tree.getRootTreeNode();
-      const childCount = treeRoot.children?.length ?? 0;
-      if (index < 0 || index >= childCount) {
-        throw new Error(`Block index out of bounds: ${index}`);
-      }
-      tree.editByPath([index], [index + 1]);
+      tree.editByPath([index + off], [index + off + 1]);
     });
     // Update cache in-place
-    const currentDoc = this.getDocument();
     currentDoc.blocks.splice(index, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
@@ -600,19 +716,29 @@ export class YorkieDocStore implements DocStore {
     newBlockType: BlockType,
   ): void {
     const currentDoc = this.getDocument();
+    const hf = this.findHeaderFooterBlock(blockId, currentDoc);
+    if (hf) {
+      const [before, after] = applySplitBlock(hf.blocks[hf.index], offset, newBlockId, newBlockType);
+      hf.blocks[hf.index] = before;
+      hf.blocks.splice(hf.index + 1, 0, after);
+      this.commitHeaderFooterChange(currentDoc);
+      return;
+    }
+
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
 
     const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
+    const off = this.bodyTreeOffset(currentDoc);
 
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       // Replace original block with the "before" part
-      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(before));
+      tree.editByPath([blockIdx + off], [blockIdx + off + 1], buildBlockNode(before));
       // Insert the "after" part as a new block
-      tree.editByPath([blockIdx + 1], [blockIdx + 1], buildBlockNode(after));
+      tree.editByPath([blockIdx + off + 1], [blockIdx + off + 1], buildBlockNode(after));
     });
 
     // Update cache in-place
@@ -625,6 +751,16 @@ export class YorkieDocStore implements DocStore {
   mergeBlock(blockId: string, nextBlockId: string): void {
     if (blockId === nextBlockId) throw new Error('Cannot merge a block with itself');
     const currentDoc = this.getDocument();
+    const hf1 = this.findHeaderFooterBlock(blockId, currentDoc);
+    const hf2 = this.findHeaderFooterBlock(nextBlockId, currentDoc);
+    if (hf1 && hf2 && hf1.region === hf2.region) {
+      const merged = applyMergeBlocks(hf1.blocks[hf1.index], hf2.blocks[hf2.index]);
+      hf1.blocks[hf1.index] = merged;
+      hf1.blocks.splice(hf2.index, 1);
+      this.commitHeaderFooterChange(currentDoc);
+      return;
+    }
+
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     const nextIdx = currentDoc.blocks.findIndex((b) => b.id === nextBlockId);
     if (blockIdx === -1 || nextIdx === -1) throw new Error('Block not found');
@@ -634,14 +770,15 @@ export class YorkieDocStore implements DocStore {
       currentDoc.blocks[nextIdx],
     );
 
+    const off = this.bodyTreeOffset(currentDoc);
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       // Replace first block with merged content
-      tree.editByPath([blockIdx], [blockIdx + 1], buildBlockNode(merged));
+      tree.editByPath([blockIdx + off], [blockIdx + off + 1], buildBlockNode(merged));
       // Delete second block
       const deleteIdx = nextIdx > blockIdx ? nextIdx : nextIdx;
-      tree.editByPath([deleteIdx], [deleteIdx + 1]);
+      tree.editByPath([deleteIdx + off], [deleteIdx + off + 1]);
     });
 
     // Update cache in-place
@@ -655,46 +792,47 @@ export class YorkieDocStore implements DocStore {
   // Table granular updates
   // -----------------------------------------------------------------------
 
-  private findTableIndex(tableBlockId: string): number {
+  /** Returns body array index and tree-adjusted index for a table block. */
+  private findTableIndex(tableBlockId: string): { bodyIdx: number; treeIdx: number } {
     const currentDoc = this.getDocument();
     const index = currentDoc.blocks.findIndex((b) => b.id === tableBlockId);
     if (index === -1) throw new Error(`Table block not found: ${tableBlockId}`);
-    return index;
+    return { bodyIdx: index, treeIdx: index + this.bodyTreeOffset(currentDoc) };
   }
 
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
-    const tIdx = this.findTableIndex(tableBlockId);
+    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
     const rowNode = buildRowNode(row);
     this.doc.update((root) => {
-      root.content.editByPath([tIdx, atIndex], [tIdx, atIndex], rowNode);
+      root.content.editByPath([treeIdx, atIndex], [treeIdx, atIndex], rowNode);
     });
     const currentDoc = this.getDocument();
-    currentDoc.blocks[tIdx].tableData!.rows.splice(atIndex, 0, row);
+    currentDoc.blocks[bodyIdx].tableData!.rows.splice(atIndex, 0, row);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   deleteTableRow(tableBlockId: string, rowIndex: number): void {
-    const tIdx = this.findTableIndex(tableBlockId);
+    const { treeIdx, bodyIdx } = this.findTableIndex(tableBlockId);
     this.doc.update((root) => {
-      root.content.editByPath([tIdx, rowIndex], [tIdx, rowIndex + 1]);
+      root.content.editByPath([treeIdx, rowIndex], [treeIdx, rowIndex + 1]);
     });
     const currentDoc = this.getDocument();
-    currentDoc.blocks[tIdx].tableData!.rows.splice(rowIndex, 1);
+    currentDoc.blocks[bodyIdx].tableData!.rows.splice(rowIndex, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
-    const tIdx = this.findTableIndex(tableBlockId);
+    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
     this.doc.update((root) => {
       const tree = root.content;
       for (let r = 0; r < cells.length; r++) {
-        tree.editByPath([tIdx, r, atIndex], [tIdx, r, atIndex], buildCellNode(cells[r]));
+        tree.editByPath([treeIdx, r, atIndex], [treeIdx, r, atIndex], buildCellNode(cells[r]));
       }
     });
     const currentDoc = this.getDocument();
-    const td = currentDoc.blocks[tIdx].tableData!;
+    const td = currentDoc.blocks[bodyIdx].tableData!;
     td.rows.forEach((row, i) => {
       row.cells.splice(atIndex, 0, cells[i]);
     });
@@ -703,16 +841,16 @@ export class YorkieDocStore implements DocStore {
   }
 
   deleteTableColumn(tableBlockId: string, colIndex: number): void {
-    const tIdx = this.findTableIndex(tableBlockId);
+    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
     const currentDoc = this.getDocument();
-    const rowCount = currentDoc.blocks[tIdx].tableData!.rows.length;
+    const rowCount = currentDoc.blocks[bodyIdx].tableData!.rows.length;
     this.doc.update((root) => {
       const tree = root.content;
       for (let r = 0; r < rowCount; r++) {
-        tree.editByPath([tIdx, r, colIndex], [tIdx, r, colIndex + 1]);
+        tree.editByPath([treeIdx, r, colIndex], [treeIdx, r, colIndex + 1]);
       }
     });
-    currentDoc.blocks[tIdx].tableData!.rows.forEach((row) => {
+    currentDoc.blocks[bodyIdx].tableData!.rows.forEach((row) => {
       row.cells.splice(colIndex, 1);
     });
     this.cachedDoc = currentDoc;
@@ -722,25 +860,25 @@ export class YorkieDocStore implements DocStore {
   updateTableCell(
     tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
   ): void {
-    const tIdx = this.findTableIndex(tableBlockId);
+    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
     const cellNode = buildCellNode(cell);
     this.doc.update((root) => {
       root.content.editByPath(
-        [tIdx, rowIndex, colIndex],
-        [tIdx, rowIndex, colIndex + 1],
+        [treeIdx, rowIndex, colIndex],
+        [treeIdx, rowIndex, colIndex + 1],
         cellNode,
       );
     });
     const currentDoc = this.getDocument();
-    currentDoc.blocks[tIdx].tableData!.rows[rowIndex].cells[colIndex] = cell;
+    currentDoc.blocks[bodyIdx].tableData!.rows[rowIndex].cells[colIndex] = cell;
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: (number | undefined)[] }): void {
-    const tIdx = this.findTableIndex(tableBlockId);
+    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
     const currentDoc = this.getDocument();
-    const block = currentDoc.blocks[tIdx];
+    const block = currentDoc.blocks[bodyIdx];
     block.tableData!.columnWidths = attrs.cols;
     if (attrs.rowHeights !== undefined) {
       block.tableData!.rowHeights = attrs.rowHeights;
@@ -748,7 +886,7 @@ export class YorkieDocStore implements DocStore {
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([tIdx], [tIdx + 1], buildBlockNode(block));
+      tree.editByPath([treeIdx], [treeIdx + 1], buildBlockNode(block));
     });
     this.cachedDoc = currentDoc;
     this.dirty = false;
@@ -816,12 +954,33 @@ export class YorkieDocStore implements DocStore {
     this.doc.update((root) => {
       const tree = root.content;
 
+      // Build the full list of children: header?, block*, footer?
+      const buildTreeChildren = (): ElementNode[] => {
+        const children: ElementNode[] = [];
+        if (document.header) {
+          children.push({
+            type: 'header',
+            attributes: { marginFromEdge: String(document.header.marginFromEdge) },
+            children: document.header.blocks.map(buildBlockNode),
+          });
+        }
+        children.push(...document.blocks.map(buildBlockNode));
+        if (document.footer) {
+          children.push({
+            type: 'footer',
+            attributes: { marginFromEdge: String(document.footer.marginFromEdge) },
+            children: document.footer.blocks.map(buildBlockNode),
+          });
+        }
+        return children;
+      };
+
       // If tree isn't a Tree CRDT yet, create one with the document content.
       if (!tree || typeof tree.getRootTreeNode !== 'function') {
-        const blockNodes = document.blocks.map(buildBlockNode);
+        const children = buildTreeChildren();
         root.content = new Tree({
           type: 'doc',
-          children: blockNodes.length > 0 ? blockNodes : [],
+          children: children.length > 0 ? children : [],
         });
 
         if (document.pageSetup) {
@@ -835,19 +994,17 @@ export class YorkieDocStore implements DocStore {
       }
 
       const treeRoot = tree.getRootTreeNode() as ElementNode;
-      const blockCount = (treeRoot.children ?? []).filter(
-        (c) => c.type === 'block',
-      ).length;
+      const childCount = (treeRoot.children ?? []).length;
 
-      // Delete all existing blocks
-      if (blockCount > 0) {
-        tree.editByPath([0], [blockCount]);
+      // Delete all existing children (header, blocks, footer)
+      if (childCount > 0) {
+        tree.editByPath([0], [childCount]);
       }
 
-      // Insert all new blocks
-      if (document.blocks.length > 0) {
-        const blockNodes = document.blocks.map(buildBlockNode);
-        tree.editBulkByPath([0], [0], blockNodes);
+      // Insert all new children
+      const children = buildTreeChildren();
+      if (children.length > 0) {
+        tree.editBulkByPath([0], [0], children);
       }
 
       // Update pageSetup outside the tree

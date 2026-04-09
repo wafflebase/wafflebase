@@ -1,12 +1,12 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock } from '../model/types.js';
-import { Doc } from '../model/document.js';
+import { Doc, type EditContext } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
-import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
+import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, resolveClickTarget } from './pagination.js';
 import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
@@ -76,6 +76,10 @@ export class TextEditor {
   private handleBlur: (() => void) | null = null;
   /** Track shift key state for paste handler (ClipboardEvent lacks shiftKey). */
   private shiftHeld = false;
+  /** Current editing context: body, header, or footer. */
+  private editContext: EditContext = 'body';
+  /** Which page the header/footer editing is active on. */
+  private hfActivePageIndex = 0;
 
   private container: HTMLElement;
   private doc: Doc;
@@ -93,6 +97,8 @@ export class TextEditor {
   private redoAction: () => void;
   private markDirty: (blockId: string) => void;
   private invalidateLayout: () => void;
+  private getHeaderLayout: () => DocumentLayout | null;
+  private getFooterLayout: () => DocumentLayout | null;
 
   /** Callback invoked when Cmd/Ctrl+K is pressed to request link insertion. */
   onLinkRequest?: () => void;
@@ -108,6 +114,19 @@ export class TextEditor {
 
   getBorderDragState(): BorderDragState | null {
     return this.borderDragState;
+  }
+
+  getEditContext(): EditContext {
+    return this.editContext;
+  }
+
+  getHFActivePageIndex(): number {
+    return this.hfActivePageIndex;
+  }
+
+  setEditContext(context: EditContext): void {
+    this.editContext = context;
+    this.doc.editContext = context;
   }
 
   private setCanvasCursor(cursor: string): void {
@@ -132,6 +151,8 @@ export class TextEditor {
     redoAction: () => void,
     markDirty: (blockId: string) => void,
     invalidateLayout: () => void,
+    getHeaderLayout?: () => DocumentLayout | null,
+    getFooterLayout?: () => DocumentLayout | null,
   ) {
     this.container = container;
     this.doc = doc;
@@ -149,6 +170,8 @@ export class TextEditor {
     this.redoAction = redoAction;
     this.markDirty = markDirty;
     this.invalidateLayout = invalidateLayout;
+    this.getHeaderLayout = getHeaderLayout ?? (() => null);
+    this.getFooterLayout = getFooterLayout ?? (() => null);
     this.textarea = document.createElement('textarea');
     // Keep textarea within the viewport (not off-screen) so iOS IME works
     // correctly. font-size:16px prevents iOS auto-zoom on focus.
@@ -338,6 +361,20 @@ export class TextEditor {
       }
     }
 
+    // Escape exits header/footer editing
+    if (key === 'Escape' && this.editContext !== 'body') {
+      this.setEditContext('body');
+      const bodyBlocks = this.doc.document.blocks;
+      if (bodyBlocks.length > 0) {
+        this.cursor.moveTo({ blockId: bodyBlocks[0].id, offset: 0 });
+      }
+      this.selection.setRange(null);
+      this.invalidateLayout();
+      this.requestRender();
+      e.preventDefault();
+      return;
+    }
+
     switch (key) {
       case 'Backspace':
         e.preventDefault();
@@ -360,6 +397,7 @@ export class TextEditor {
       case 'Enter':
         e.preventDefault();
         if (e.ctrlKey || e.metaKey) {
+          if (this.editContext !== 'body') break; // No page breaks in header/footer
           this.handlePageBreak();
         } else {
           this.handleEnter();
@@ -780,6 +818,62 @@ export class TextEditor {
     this.lastClickX = e.clientX;
     this.lastClickY = e.clientY;
 
+    // Header/footer context switching via click target detection
+    {
+      const rect = this.container.getBoundingClientRect();
+      const s = this.getScaleFactor();
+      const canvasX = (e.clientX - rect.left + this.container.scrollLeft) / s;
+      const canvasY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
+      const paginatedLayout = this.getPaginatedLayout();
+      // Always detect margin areas so double-click can create header/footer
+      const target = resolveClickTarget(
+        paginatedLayout, canvasX, canvasY, this.getCanvasWidth(),
+        true,
+        true,
+      );
+
+      // Determine which page was clicked
+      let clickedPageIndex = 0;
+      for (const page of paginatedLayout.pages) {
+        const py = getPageYOffset(paginatedLayout, page.pageIndex);
+        if (canvasY >= py && canvasY <= py + page.height) {
+          clickedPageIndex = page.pageIndex;
+          break;
+        }
+      }
+
+      if (this.clickCount >= 2 && (target === 'header' || target === 'footer') && target !== this.editContext) {
+        // Double-click on header/footer: enter edit mode (only if not already in it)
+        this.hfActivePageIndex = clickedPageIndex;
+        if (target === 'header') {
+          this.doc.ensureHeader();
+          this.setEditContext('header');
+          const blocks = this.doc.document.header!.blocks;
+          this.cursor.moveTo({ blockId: blocks[0].id, offset: 0 });
+        } else {
+          this.doc.ensureFooter();
+          this.setEditContext('footer');
+          const blocks = this.doc.document.footer!.blocks;
+          this.cursor.moveTo({ blockId: blocks[0].id, offset: 0 });
+        }
+        this.selection.setRange(null);
+        this.invalidateLayout();
+        this.requestRender();
+        return;
+      }
+
+      if (target === 'body' && this.editContext !== 'body') {
+        // Click on body exits header/footer editing
+        this.setEditContext('body');
+        this.selection.setRange(null);
+      }
+
+      if (target !== 'body' && target !== this.editContext) {
+        // Single-click on inactive header/footer region: ignore
+        return;
+      }
+    }
+
     const result = this.getPositionFromMouse(e);
     if (!result) return;
 
@@ -993,6 +1087,19 @@ export class TextEditor {
   }
 
   private updateDragSelection(clientX: number, clientY: number): void {
+    // Header/footer drag selection
+    if (this.editContext !== 'body') {
+      const fakeEvent = { clientX, clientY, target: this.container } as unknown as MouseEvent;
+      const result = this.getHFPositionFromMouse(fakeEvent);
+      if (result && this.selection.range) {
+        const pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+        this.selection.setRange({ anchor: this.selection.range.anchor, focus: pos });
+        this.cursor.moveTo(pos);
+        this.requestRender();
+      }
+      return;
+    }
+
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
     const x = (clientX - rect.left + this.container.scrollLeft) / s;
@@ -1756,7 +1863,7 @@ export class TextEditor {
       this.cursor.moveTo(newPos, isVertical ? this.cursor.lineAffinity : hAffinity);
     } else if (this.selection.hasSelection() && this.selection.range) {
       // Collapse selection to the appropriate boundary
-      const layout = this.getLayout();
+      const layout = this.getActiveLayout();
       const normalized = this.selection.getNormalizedRange(layout);
       if (normalized) {
         const collapsePos = (direction === 'left' || direction === 'up')
@@ -1799,7 +1906,7 @@ export class TextEditor {
   }
 
   private handleDocStart(shiftKey: boolean): void {
-    const blocks = this.doc.document.blocks;
+    const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const newPos: DocPosition = { blockId: blocks[0].id, offset: 0 };
     if (shiftKey) {
@@ -1813,7 +1920,7 @@ export class TextEditor {
   }
 
   private handleDocEnd(shiftKey: boolean): void {
-    const blocks = this.doc.document.blocks;
+    const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const lastBlock = blocks[blocks.length - 1];
     const newPos: DocPosition = { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
@@ -1852,7 +1959,7 @@ export class TextEditor {
   }
 
   private selectAll(): void {
-    const blocks = this.doc.document.blocks;
+    const blocks = this.doc.getContextBlocks();
     if (blocks.length === 0) return;
     const firstBlock = blocks[0];
     const lastBlock = blocks[blocks.length - 1];
@@ -2006,6 +2113,76 @@ export class TextEditor {
    */
   private deleteSelection(): boolean {
     if (!this.selection.hasSelection()) return false;
+
+    // Header/footer: handle directly without layout-based normalization
+    if (this.editContext !== 'body' && this.selection.range) {
+      const range = this.selection.range;
+      const anchor = range.anchor;
+      const focus = range.focus;
+
+      if (anchor.blockId === focus.blockId) {
+        // Same block — simple text deletion
+        const start = Math.min(anchor.offset, focus.offset);
+        const end = Math.max(anchor.offset, focus.offset);
+        if (start !== end) {
+          this.doc.deleteText({ blockId: anchor.blockId, offset: start }, end - start);
+          this.markDirty(anchor.blockId);
+        }
+      } else {
+        // Multi-block deletion in header/footer
+        this.invalidateLayout();
+        const blocks = this.doc.getContextBlocks();
+        const anchorIdx = blocks.findIndex((b) => b.id === anchor.blockId);
+        const focusIdx = blocks.findIndex((b) => b.id === focus.blockId);
+        const startIdx = Math.min(anchorIdx, focusIdx);
+        const endIdx = Math.max(anchorIdx, focusIdx);
+        const startPos = anchorIdx <= focusIdx ? anchor : focus;
+        const endPos = anchorIdx <= focusIdx ? focus : anchor;
+
+        // Delete from start offset to end of first block
+        const firstBlock = this.doc.getBlock(startPos.blockId);
+        const firstLen = getBlockTextLength(firstBlock);
+        if (startPos.offset < firstLen) {
+          this.doc.deleteText(startPos, firstLen - startPos.offset);
+        }
+        // Delete from beginning of last block to end offset
+        if (endPos.offset > 0) {
+          this.doc.deleteText({ blockId: endPos.blockId, offset: 0 }, endPos.offset);
+        }
+        // Remove middle blocks (reverse order)
+        for (let i = endIdx - 1; i > startIdx; i--) {
+          this.doc.deleteBlock(blocks[i].id);
+        }
+        // Merge first and last
+        const updatedBlocks = this.doc.getContextBlocks();
+        if (startIdx + 1 < updatedBlocks.length) {
+          this.doc.mergeBlocks(updatedBlocks[startIdx].id, updatedBlocks[startIdx + 1].id);
+        }
+      }
+
+      // Move cursor to selection start
+      const a = this.selection.range.anchor;
+      const f = this.selection.range.focus;
+      let cursorTarget: DocPosition;
+      if (a.blockId === f.blockId) {
+        cursorTarget = { blockId: a.blockId, offset: Math.min(a.offset, f.offset) };
+      } else {
+        const blocks = this.doc.getContextBlocks();
+        const aIdx = blocks.findIndex((b) => b.id === a.blockId);
+        const fIdx = blocks.findIndex((b) => b.id === f.blockId);
+        if (fIdx === -1) {
+          cursorTarget = { blockId: a.blockId, offset: a.offset };
+        } else if (aIdx === -1) {
+          cursorTarget = { blockId: f.blockId, offset: f.offset };
+        } else {
+          cursorTarget = aIdx <= fIdx ? { blockId: a.blockId, offset: a.offset } : { blockId: f.blockId, offset: f.offset };
+        }
+      }
+      this.cursor.moveTo(cursorTarget);
+      this.selection.setRange(null);
+      this.requestRender();
+      return true;
+    }
 
     const layout = this.getLayout();
     const normalized = this.selection.getNormalizedRange(layout);
@@ -2354,8 +2531,9 @@ export class TextEditor {
     }
     // Move to end of previous block
     const idx = this.doc.getBlockIndex(pos.blockId);
+    const blocks = this.doc.getContextBlocks();
     if (idx > 0) {
-      const prevBlock = this.doc.document.blocks[idx - 1];
+      const prevBlock = blocks[idx - 1];
       // If previous block is a table, enter its last cell
       if (prevBlock.type === 'table' && prevBlock.tableData) {
         const td = prevBlock.tableData;
@@ -2393,8 +2571,9 @@ export class TextEditor {
     }
     // Move to start of next block
     const idx = this.doc.getBlockIndex(pos.blockId);
-    if (idx < this.doc.document.blocks.length - 1) {
-      const nextBlock = this.doc.document.blocks[idx + 1];
+    const blocks = this.doc.getContextBlocks();
+    if (idx < blocks.length - 1) {
+      const nextBlock = blocks[idx + 1];
       // If next block is a table, enter its first cell
       if (nextBlock.type === 'table' && nextBlock.tableData) {
         return { blockId: nextBlock.tableData.rows[0].cells[0].blocks[0].id, offset: 0 };
@@ -2410,9 +2589,10 @@ export class TextEditor {
       return { blockId: pos.blockId, offset: findPrevWordBoundary(text, pos.offset) };
     }
     // At start of block — move to end of previous block
+    const blocks = this.doc.getContextBlocks();
     const idx = this.doc.getBlockIndex(pos.blockId);
     if (idx > 0) {
-      const prevBlock = this.doc.document.blocks[idx - 1];
+      const prevBlock = blocks[idx - 1];
       return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
     }
     return pos;
@@ -2426,9 +2606,10 @@ export class TextEditor {
       return { blockId: pos.blockId, offset: findNextWordBoundary(text, pos.offset) };
     }
     // At end of block — move to start of next block
+    const blocks = this.doc.getContextBlocks();
     const idx = this.doc.getBlockIndex(pos.blockId);
-    if (idx < this.doc.document.blocks.length - 1) {
-      return { blockId: this.doc.document.blocks[idx + 1].id, offset: 0 };
+    if (idx < blocks.length - 1) {
+      return { blockId: blocks[idx + 1].id, offset: 0 };
     }
     return pos;
   }
@@ -2437,8 +2618,14 @@ export class TextEditor {
    * Find the visual line containing the given position and return
    * the character offset range [start, end] within the block.
    */
+  private getActiveLayout(): DocumentLayout {
+    if (this.editContext === 'header') return this.getHeaderLayout() ?? this.getLayout();
+    if (this.editContext === 'footer') return this.getFooterLayout() ?? this.getLayout();
+    return this.getLayout();
+  }
+
   private getVisualLineRange(pos: DocPosition): [number, number] {
-    const layout = this.getLayout();
+    const layout = this.getActiveLayout();
 
     // Cell block: find lines from the table layout
     const cellInfo = this.getCellInfo(pos.blockId);
@@ -2527,6 +2714,9 @@ export class TextEditor {
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
+    // Header/footer: up/down not supported (typically 1-2 lines, use Home/End)
+    if (this.editContext !== 'body') return pos;
+
     const pixel = this.getPixelForPosition(pos, this.cursor.lineAffinity);
     if (!pixel) return pos;
 
@@ -2688,6 +2878,10 @@ export class TextEditor {
   }
 
   private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
+    // Header/footer: resolve within the flat layout
+    if (this.editContext !== 'body') {
+      return this.getHFPositionFromMouse(e);
+    }
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
     const x = (e.clientX - rect.left + this.container.scrollLeft) / s;
@@ -2696,6 +2890,93 @@ export class TextEditor {
     return paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );
+  }
+
+  /**
+   * Resolve mouse position to a DocPosition within header/footer layout.
+   */
+  private getHFPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
+    const hfLayout = this.editContext === 'header' ? this.getHeaderLayout() : this.getFooterLayout();
+    if (!hfLayout) return undefined;
+    const hf = this.editContext === 'header' ? this.doc.document.header : this.doc.document.footer;
+    if (!hf) return undefined;
+
+    const rect = this.container.getBoundingClientRect();
+    const s = this.getScaleFactor();
+    const canvasX = (e.clientX - rect.left + this.container.scrollLeft) / s;
+    const canvasY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
+
+    const paginatedLayout = this.getPaginatedLayout();
+    const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+    const { margins } = paginatedLayout.pageSetup;
+
+    // Find which page was clicked to get the base Y
+    let baseY = 0;
+    for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+      if (canvasY >= pageY && canvasY <= pageY + page.height) {
+        if (this.editContext === 'header') {
+          baseY = getHeaderYStart(paginatedLayout, page.pageIndex, hf.marginFromEdge);
+        } else {
+          baseY = getFooterYStart(paginatedLayout, page.pageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+        }
+        break;
+      }
+    }
+
+    // Convert to layout-local coordinates
+    const localX = canvasX - pageX - margins.left;
+    const localY = canvasY - baseY;
+    const ctx = this.getCtx();
+
+    // Find the closest block and line
+    for (const lb of hfLayout.blocks) {
+      for (let li = 0; li < lb.lines.length; li++) {
+        const line = lb.lines[li];
+        const lineTop = lb.y + line.y;
+        const lineBottom = lineTop + line.height;
+
+        if (localY >= lineTop && localY < lineBottom) {
+          // Find character offset within this line
+          let charsBefore = 0;
+          for (let k = 0; k < li; k++) {
+            for (const r of lb.lines[k].runs) charsBefore += r.text.length;
+          }
+          for (const run of line.runs) {
+            const runEnd = run.x + run.width;
+            if (localX <= runEnd) {
+              // Binary search within run for exact character
+              ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+              let bestOffset = 0;
+              for (let c = 0; c <= run.text.length; c++) {
+                const w = ctx.measureText(run.text.slice(0, c)).width;
+                if (run.x + w > localX) break;
+                bestOffset = c;
+              }
+              return { blockId: lb.block.id, offset: charsBefore + bestOffset, lineAffinity: 'backward' as const };
+            }
+            charsBefore += run.text.length;
+          }
+          // Past end of line
+          return { blockId: lb.block.id, offset: charsBefore, lineAffinity: 'backward' as const };
+        }
+      }
+    }
+
+    // Fallback: clamp to start or end based on localY
+    const firstBlock = hfLayout.blocks[0];
+    if (firstBlock) {
+      if (localY < firstBlock.y) {
+        return { blockId: firstBlock.block.id, offset: 0, lineAffinity: 'forward' as const };
+      }
+      const lastBlock = hfLayout.blocks[hfLayout.blocks.length - 1];
+      let totalChars = 0;
+      for (const line of lastBlock.lines) {
+        for (const run of line.runs) totalChars += run.text.length;
+      }
+      return { blockId: lastBlock.block.id, offset: totalChars, lineAffinity: 'backward' as const };
+    }
+    return undefined;
   }
 
   /**

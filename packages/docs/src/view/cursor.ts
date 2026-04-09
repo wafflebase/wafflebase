@@ -30,6 +30,10 @@ export class Cursor {
     this.resetBlink();
   }
 
+  isVisible(): boolean {
+    return this.visible;
+  }
+
   /**
    * Get pixel coordinates of the cursor for rendering (paginated).
    */

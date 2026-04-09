@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { HeadingLevel } from '../../src/model/types.js';
+import type { HeadingLevel, Document, Inline } from '../../src/model/types.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
@@ -8,6 +8,7 @@ import {
   resolvePageSetup,
   getEffectiveDimensions,
   createBlock,
+  createEmptyBlock,
   getHeadingDefaults,
   inlineStylesEqual,
   createTableCell,
@@ -186,5 +187,41 @@ describe('createTableBlock rowHeights', () => {
   it('should not include rowHeights by default', () => {
     const block = createTableBlock(2, 3);
     expect(block.tableData!.rowHeights).toBeUndefined();
+  });
+});
+
+describe('HeaderFooter', () => {
+  it('should include header and footer in Document type', () => {
+    const doc: Document = {
+      blocks: [createEmptyBlock()],
+      header: {
+        blocks: [createEmptyBlock()],
+        marginFromEdge: 48,
+      },
+      footer: {
+        blocks: [createEmptyBlock()],
+        marginFromEdge: 48,
+      },
+    };
+    expect(doc.header).toBeDefined();
+    expect(doc.header!.blocks).toHaveLength(1);
+    expect(doc.header!.marginFromEdge).toBe(48);
+    expect(doc.footer).toBeDefined();
+    expect(doc.footer!.blocks).toHaveLength(1);
+    expect(doc.footer!.marginFromEdge).toBe(48);
+  });
+
+  it('should support pageNumber in InlineStyle', () => {
+    const inline: Inline = {
+      text: '#',
+      style: { pageNumber: true },
+    };
+    expect(inline.style.pageNumber).toBe(true);
+  });
+
+  it('should allow Document without header/footer', () => {
+    const doc: Document = { blocks: [createEmptyBlock()] };
+    expect(doc.header).toBeUndefined();
+    expect(doc.footer).toBeUndefined();
   });
 });

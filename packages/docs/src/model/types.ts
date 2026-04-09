@@ -11,6 +11,16 @@
 export interface Document {
   blocks: Block[];
   pageSetup?: PageSetup;
+  header?: HeaderFooter;
+  footer?: HeaderFooter;
+}
+
+/**
+ * Header or footer region containing editable blocks.
+ */
+export interface HeaderFooter {
+  blocks: Block[];
+  marginFromEdge: number;
 }
 
 /**
@@ -74,6 +84,7 @@ export interface InlineStyle {
   superscript?: boolean;
   subscript?: boolean;
   href?: string;
+  pageNumber?: boolean;
 }
 
 /**
@@ -231,7 +242,8 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.backgroundColor === b.backgroundColor &&
     a.superscript === b.superscript &&
     a.subscript === b.subscript &&
-    a.href === b.href
+    a.href === b.href &&
+    a.pageNumber === b.pageNumber
   );
 }
 
@@ -387,6 +399,8 @@ export const PAPER_SIZES = {
   A4: { name: 'A4', width: 794, height: 1123 } as PaperSize,
   LEGAL: { name: 'Legal', width: 816, height: 1344 } as PaperSize,
 } as const;
+
+export const DEFAULT_HEADER_MARGIN_FROM_EDGE = 48;
 
 export const DEFAULT_PAGE_SETUP: PageSetup = {
   paperSize: PAPER_SIZES.LETTER,

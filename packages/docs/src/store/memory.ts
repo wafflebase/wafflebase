@@ -1,4 +1,4 @@
-import type { Block, Document, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, Document, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
 import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper, applySplitBlock, applyMergeBlocks } from './block-helpers.js';
@@ -10,6 +10,16 @@ function cloneDocument(doc: Document): Document {
   const cloned: Document = JSON.parse(JSON.stringify(doc));
   for (const block of cloned.blocks) {
     block.style = normalizeBlockStyle(block.style);
+  }
+  if (cloned.header) {
+    for (const block of cloned.header.blocks) {
+      block.style = normalizeBlockStyle(block.style);
+    }
+  }
+  if (cloned.footer) {
+    for (const block of cloned.footer.blocks) {
+      block.style = normalizeBlockStyle(block.style);
+    }
   }
   return cloned;
 }
@@ -39,14 +49,17 @@ export class MemDocStore implements DocStore {
   }
 
   getBlock(id: string): Block | undefined {
-    const block = this.doc.blocks.find((b) => b.id === id);
-    return block ? JSON.parse(JSON.stringify(block)) : undefined;
+    try {
+      const { blocks, index } = this.findBlockInAnyArray(id);
+      return JSON.parse(JSON.stringify(blocks[index]));
+    } catch {
+      return undefined;
+    }
   }
 
   updateBlock(id: string, block: Block): void {
-    const index = this.doc.blocks.findIndex((b) => b.id === id);
-    if (index === -1) throw new Error(`Block not found: ${id}`);
-    this.doc.blocks[index] = JSON.parse(JSON.stringify(block));
+    const { blocks, index } = this.findBlockInAnyArray(id);
+    blocks[index] = JSON.parse(JSON.stringify(block));
   }
 
   insertBlock(index: number, block: Block): void {
@@ -54,9 +67,8 @@ export class MemDocStore implements DocStore {
   }
 
   deleteBlock(id: string): void {
-    const index = this.doc.blocks.findIndex((b) => b.id === id);
-    if (index === -1) throw new Error(`Block not found: ${id}`);
-    this.doc.blocks.splice(index, 1);
+    const { blocks, index } = this.findBlockInAnyArray(id);
+    blocks.splice(index, 1);
   }
 
   deleteBlockByIndex(index: number): void {
@@ -72,6 +84,22 @@ export class MemDocStore implements DocStore {
 
   setPageSetup(setup: PageSetup): void {
     this.doc.pageSetup = JSON.parse(JSON.stringify(setup));
+  }
+
+  getHeader(): HeaderFooter | undefined {
+    return this.doc.header ? JSON.parse(JSON.stringify(this.doc.header)) : undefined;
+  }
+
+  getFooter(): HeaderFooter | undefined {
+    return this.doc.footer ? JSON.parse(JSON.stringify(this.doc.footer)) : undefined;
+  }
+
+  setHeader(header: HeaderFooter | undefined): void {
+    this.doc.header = header ? JSON.parse(JSON.stringify(header)) : undefined;
+  }
+
+  setFooter(footer: HeaderFooter | undefined): void {
+    this.doc.footer = footer ? JSON.parse(JSON.stringify(footer)) : undefined;
   }
 
   undo(): void {
@@ -139,44 +167,53 @@ export class MemDocStore implements DocStore {
   }
 
   insertText(blockId: string, offset: number, text: string): void {
-    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
-    if (index === -1) throw new Error(`Block not found: ${blockId}`);
-    this.doc.blocks[index] = applyInsertText(this.doc.blocks[index], offset, text);
+    const { blocks, index } = this.findBlockInAnyArray(blockId);
+    blocks[index] = applyInsertText(blocks[index], offset, text);
   }
 
   deleteText(blockId: string, offset: number, length: number): void {
-    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
-    if (index === -1) throw new Error(`Block not found: ${blockId}`);
-    this.doc.blocks[index] = applyDeleteText(this.doc.blocks[index], offset, length);
+    const { blocks, index } = this.findBlockInAnyArray(blockId);
+    blocks[index] = applyDeleteText(blocks[index], offset, length);
   }
 
   applyStyle(blockId: string, fromOffset: number, toOffset: number, style: Partial<InlineStyle>): void {
-    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
-    if (index === -1) throw new Error(`Block not found: ${blockId}`);
-    this.doc.blocks[index] = applyInlineStyleHelper(this.doc.blocks[index], fromOffset, toOffset, style);
+    const { blocks, index } = this.findBlockInAnyArray(blockId);
+    blocks[index] = applyInlineStyleHelper(blocks[index], fromOffset, toOffset, style);
   }
 
   splitBlock(blockId: string, offset: number, newBlockId: string, newBlockType: BlockType): void {
-    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
-    if (index === -1) throw new Error(`Block not found: ${blockId}`);
-    const [before, after] = applySplitBlock(this.doc.blocks[index], offset, newBlockId, newBlockType);
-    this.doc.blocks[index] = before;
-    this.doc.blocks.splice(index + 1, 0, after);
+    const { blocks, index } = this.findBlockInAnyArray(blockId);
+    const [before, after] = applySplitBlock(blocks[index], offset, newBlockId, newBlockType);
+    blocks[index] = before;
+    blocks.splice(index + 1, 0, after);
   }
 
   mergeBlock(blockId: string, nextBlockId: string): void {
     if (blockId === nextBlockId) throw new Error('Cannot merge a block with itself');
-    const index = this.doc.blocks.findIndex((b) => b.id === blockId);
-    const nextIndex = this.doc.blocks.findIndex((b) => b.id === nextBlockId);
-    if (index === -1 || nextIndex === -1) throw new Error('Block not found');
-    this.doc.blocks[index] = applyMergeBlocks(this.doc.blocks[index], this.doc.blocks[nextIndex]);
-    this.doc.blocks.splice(nextIndex, 1);
+    const { blocks: arr1, index: idx1 } = this.findBlockInAnyArray(blockId);
+    const { blocks: arr2, index: idx2 } = this.findBlockInAnyArray(nextBlockId);
+    if (arr1 !== arr2) throw new Error('Cannot merge blocks from different regions');
+    arr1[idx1] = applyMergeBlocks(arr1[idx1], arr2[idx2]);
+    arr2.splice(idx2, 1);
   }
 
   private findBlock(id: string): Block {
-    const block = this.doc.blocks.find((b) => b.id === id);
-    if (!block) throw new Error(`Block not found: ${id}`);
-    return block;
+    const { blocks, index } = this.findBlockInAnyArray(id);
+    return blocks[index];
+  }
+
+  private findBlockInAnyArray(id: string): { blocks: Block[]; index: number } {
+    const bodyIdx = this.doc.blocks.findIndex((b) => b.id === id);
+    if (bodyIdx !== -1) return { blocks: this.doc.blocks, index: bodyIdx };
+    if (this.doc.header) {
+      const hIdx = this.doc.header.blocks.findIndex((b) => b.id === id);
+      if (hIdx !== -1) return { blocks: this.doc.header.blocks, index: hIdx };
+    }
+    if (this.doc.footer) {
+      const fIdx = this.doc.footer.blocks.findIndex((b) => b.id === id);
+      if (fIdx !== -1) return { blocks: this.doc.footer.blocks, index: fIdx };
+    }
+    throw new Error(`Block not found: ${id}`);
   }
 
   private pushUndo(): void {
