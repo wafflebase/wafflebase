@@ -78,6 +78,8 @@ export class TextEditor {
   private shiftHeld = false;
   /** Current editing context: body, header, or footer. */
   private editContext: EditContext = 'body';
+  /** Which page the header/footer editing is active on. */
+  private hfActivePageIndex = 0;
 
   private container: HTMLElement;
   private doc: Doc;
@@ -116,6 +118,10 @@ export class TextEditor {
 
   getEditContext(): EditContext {
     return this.editContext;
+  }
+
+  getHFActivePageIndex(): number {
+    return this.hfActivePageIndex;
   }
 
   setEditContext(context: EditContext): void {
@@ -826,8 +832,19 @@ export class TextEditor {
         true,
       );
 
+      // Determine which page was clicked
+      let clickedPageIndex = 0;
+      for (const page of paginatedLayout.pages) {
+        const py = getPageYOffset(paginatedLayout, page.pageIndex);
+        if (canvasY >= py && canvasY <= py + page.height) {
+          clickedPageIndex = page.pageIndex;
+          break;
+        }
+      }
+
       if (this.clickCount >= 2 && (target === 'header' || target === 'footer') && target !== this.editContext) {
         // Double-click on header/footer: enter edit mode (only if not already in it)
+        this.hfActivePageIndex = clickedPageIndex;
         if (target === 'header') {
           this.doc.ensureHeader();
           this.setEditContext('header');

@@ -8,7 +8,7 @@ import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
-import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, type PaginatedLayout } from './pagination.js';
+import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getHeaderYStart, getFooterYStart, type PaginatedLayout } from './pagination.js';
 import type { DocPosition, HeaderFooter } from '../model/types.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
 import { computeScaleFactor } from './scale.js';
@@ -118,8 +118,7 @@ function computeHFCursorPixel(
   paginatedLayout: PaginatedLayout,
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
-  scrollY: number,
-  viewportHeight: number,
+  activePageIndex: number,
   cursorVisible: boolean,
 ): { x: number; y: number; height: number; visible: boolean } | undefined {
   const lb = hfLayout.blocks.find((b) => b.block.id === position.blockId);
@@ -159,18 +158,14 @@ function computeHFCursorPixel(
     offsetRemaining -= lineChars;
   }
 
-  // Find the first visible page to show cursor on
-  const visibleTop = scrollY;
-  const visibleBottom = scrollY + viewportHeight;
-  for (const page of paginatedLayout.pages) {
-    const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-    if (pageY + page.height < visibleTop || pageY > visibleBottom) continue;
-
+  // Render cursor on the active page
+  const targetPage = paginatedLayout.pages[activePageIndex];
+  if (targetPage) {
     let baseY: number;
     if (region === 'header') {
-      baseY = getHeaderYStart(paginatedLayout, page.pageIndex, hf.marginFromEdge);
+      baseY = getHeaderYStart(paginatedLayout, activePageIndex, hf.marginFromEdge);
     } else {
-      baseY = getFooterYStart(paginatedLayout, page.pageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+      baseY = getFooterYStart(paginatedLayout, activePageIndex, hfLayout.totalHeight, hf.marginFromEdge);
     }
 
     return {
@@ -194,6 +189,7 @@ function computeHFSelectionRects(
   paginatedLayout: PaginatedLayout,
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
+  activePageIndex: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
@@ -262,13 +258,13 @@ function computeHFSelectionRects(
     }
   }
 
-  // Map layout rects to each page
-  for (const page of paginatedLayout.pages) {
+  // Map layout rects to the active page only
+  {
     let baseY: number;
     if (region === 'header') {
-      baseY = getHeaderYStart(paginatedLayout, page.pageIndex, hf.marginFromEdge);
+      baseY = getHeaderYStart(paginatedLayout, activePageIndex, hf.marginFromEdge);
     } else {
-      baseY = getFooterYStart(paginatedLayout, page.pageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+      baseY = getFooterYStart(paginatedLayout, activePageIndex, hfLayout.totalHeight, hf.marginFromEdge);
     }
     for (const r of layoutRects) {
       rects.push({
@@ -690,28 +686,30 @@ export function initialize(
     let hfSelectionRects: Array<{ x: number; y: number; width: number; height: number }> | undefined;
 
     if (editCtx === 'header' && headerLayout && doc.document.header) {
+      const hfPage = textEditor?.getHFActivePageIndex() ?? 0;
       hfCursorHeader = computeHFCursorPixel(
         cursor.position, headerLayout, doc.document.header, 'header',
         paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
-        scrollY, canvasHeight, cursor.isVisible(),
+        hfPage, cursor.isVisible(),
       );
       if (selection.hasSelection() && selection.range) {
         hfSelectionRects = computeHFSelectionRects(
           selection.range, headerLayout, doc.document.header, 'header',
-          paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
+          paginatedLayout, docCanvas.getContext(), logicalCanvasWidth, hfPage,
         );
       }
     }
     if (editCtx === 'footer' && footerLayout && doc.document.footer) {
+      const hfPageF = textEditor?.getHFActivePageIndex() ?? 0;
       hfCursorFooter = computeHFCursorPixel(
         cursor.position, footerLayout, doc.document.footer, 'footer',
         paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
-        scrollY, canvasHeight, cursor.isVisible(),
+        hfPageF, cursor.isVisible(),
       );
       if (selection.hasSelection() && selection.range) {
         hfSelectionRects = computeHFSelectionRects(
           selection.range, footerLayout, doc.document.footer, 'footer',
-          paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
+          paginatedLayout, docCanvas.getContext(), logicalCanvasWidth, hfPageF,
         );
       }
     }
