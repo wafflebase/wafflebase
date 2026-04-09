@@ -8,10 +8,11 @@ import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
-import { paginateLayout, getTotalHeight, findPageForPosition, type PaginatedLayout } from './pagination.js';
+import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, type PaginatedLayout } from './pagination.js';
+import type { DocPosition, HeaderFooter } from '../model/types.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
 import { computeScaleFactor } from './scale.js';
-import { setThemeMode, type ThemeMode } from './theme.js';
+import { buildFont, setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 
 /**
@@ -104,6 +105,182 @@ export interface EditorAPI {
   focus(): void;
   /** Clean up */
   dispose(): void;
+}
+
+/**
+ * Compute cursor pixel position within a header/footer layout for a visible page.
+ */
+function computeHFCursorPixel(
+  position: DocPosition,
+  hfLayout: DocumentLayout,
+  hf: HeaderFooter,
+  region: 'header' | 'footer',
+  paginatedLayout: PaginatedLayout,
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+  scrollY: number,
+  viewportHeight: number,
+  cursorVisible: boolean,
+): { x: number; y: number; height: number; visible: boolean } | undefined {
+  const lb = hfLayout.blocks.find((b) => b.block.id === position.blockId);
+  if (!lb) return undefined;
+
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+
+  // Find cursor x and line y within header/footer layout
+  let cursorX = 0;
+  let cursorLineY = 0;
+  let lineHeight = lb.lines[0]?.height ?? 14;
+  let offsetRemaining = position.offset;
+
+  for (const line of lb.lines) {
+    let lineChars = 0;
+    for (const run of line.runs) lineChars += run.text.length;
+    if (offsetRemaining <= lineChars) {
+      lineHeight = line.height;
+      cursorLineY = line.y;
+      let chars = 0;
+      for (const run of line.runs) {
+        if (offsetRemaining <= chars + run.text.length) {
+          const localOff = offsetRemaining - chars;
+          const textBefore = run.text.slice(0, localOff);
+          ctx.font = buildFont(
+            run.inline.style.fontSize, run.inline.style.fontFamily,
+            run.inline.style.bold, run.inline.style.italic,
+          );
+          cursorX = run.x + ctx.measureText(textBefore).width;
+          break;
+        }
+        chars += run.text.length;
+      }
+      break;
+    }
+    offsetRemaining -= lineChars;
+  }
+
+  // Find the first visible page to show cursor on
+  const visibleTop = scrollY;
+  const visibleBottom = scrollY + viewportHeight;
+  for (const page of paginatedLayout.pages) {
+    const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+    if (pageY + page.height < visibleTop || pageY > visibleBottom) continue;
+
+    let baseY: number;
+    if (region === 'header') {
+      baseY = getHeaderYStart(paginatedLayout, page.pageIndex, hf.marginFromEdge);
+    } else {
+      baseY = getFooterYStart(paginatedLayout, page.pageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+    }
+
+    return {
+      x: pageX + margins.left + cursorX,
+      y: baseY + lb.y + cursorLineY,
+      height: lineHeight,
+      visible: cursorVisible,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Compute selection rects within a header/footer layout for all visible pages.
+ */
+function computeHFSelectionRects(
+  selectionRange: { anchor: DocPosition; focus: DocPosition },
+  hfLayout: DocumentLayout,
+  hf: HeaderFooter,
+  region: 'header' | 'footer',
+  paginatedLayout: PaginatedLayout,
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+): Array<{ x: number; y: number; width: number; height: number }> {
+  const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+  const { margins } = paginatedLayout.pageSetup;
+
+  // Find start/end offsets across header/footer blocks
+  let startBlockIdx = -1, endBlockIdx = -1;
+  let startOffset = 0, endOffset = 0;
+  for (let i = 0; i < hfLayout.blocks.length; i++) {
+    if (hfLayout.blocks[i].block.id === selectionRange.anchor.blockId) {
+      startBlockIdx = i;
+      startOffset = selectionRange.anchor.offset;
+    }
+    if (hfLayout.blocks[i].block.id === selectionRange.focus.blockId) {
+      endBlockIdx = i;
+      endOffset = selectionRange.focus.offset;
+    }
+  }
+  if (startBlockIdx === -1 || endBlockIdx === -1) return rects;
+
+  // Normalize direction
+  if (startBlockIdx > endBlockIdx || (startBlockIdx === endBlockIdx && startOffset > endOffset)) {
+    [startBlockIdx, endBlockIdx] = [endBlockIdx, startBlockIdx];
+    [startOffset, endOffset] = [endOffset, startOffset];
+  }
+
+  // Build rects for each line in the selection range (layout-relative)
+  const layoutRects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
+    const lb = hfLayout.blocks[bi];
+    let blockCharsSoFar = 0;
+    for (const line of lb.lines) {
+      let lineChars = 0;
+      for (const run of line.runs) lineChars += run.text.length;
+      const lineStart = blockCharsSoFar;
+      const lineEnd = blockCharsSoFar + lineChars;
+
+      const selStart = bi === startBlockIdx ? startOffset : 0;
+      const selEnd = bi === endBlockIdx ? endOffset : getBlockTextLength(lb.block);
+
+      if (selEnd > lineStart && selStart < lineEnd) {
+        // This line is in the selection
+        let x0 = 0, x1 = line.width;
+        // Compute x0 from selStart within this line
+        const lineSelStart = Math.max(0, selStart - lineStart);
+        const lineSelEnd = Math.min(lineChars, selEnd - lineStart);
+        let chars = 0;
+        for (const run of line.runs) {
+          const runLen = run.text.length;
+          if (chars + runLen > lineSelStart && x0 === 0 && lineSelStart > 0) {
+            const localOff = lineSelStart - chars;
+            ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+            x0 = run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+          }
+          if (chars + runLen >= lineSelEnd) {
+            const localOff = lineSelEnd - chars;
+            ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+            x1 = run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+            break;
+          }
+          chars += runLen;
+        }
+        layoutRects.push({ x: x0, y: lb.y + line.y, width: x1 - x0, height: line.height });
+      }
+      blockCharsSoFar += lineChars;
+    }
+  }
+
+  // Map layout rects to each page
+  for (const page of paginatedLayout.pages) {
+    let baseY: number;
+    if (region === 'header') {
+      baseY = getHeaderYStart(paginatedLayout, page.pageIndex, hf.marginFromEdge);
+    } else {
+      baseY = getFooterYStart(paginatedLayout, page.pageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+    }
+    for (const r of layoutRects) {
+      rects.push({
+        x: pageX + margins.left + r.x,
+        y: baseY + r.y,
+        width: r.width,
+        height: r.height,
+      });
+    }
+  }
+
+  return rects;
 }
 
 /**
@@ -505,6 +682,39 @@ export function initialize(
     }
 
     const editCtx = textEditor?.getEditContext() ?? 'body';
+
+    // Compute header/footer cursor and selection
+    let hfCursorHeader: { x: number; y: number; height: number; visible: boolean } | undefined;
+    let hfCursorFooter: { x: number; y: number; height: number; visible: boolean } | undefined;
+    let hfSelectionRects: Array<{ x: number; y: number; width: number; height: number }> | undefined;
+
+    if (editCtx === 'header' && headerLayout && doc.document.header) {
+      hfCursorHeader = computeHFCursorPixel(
+        cursor.position, headerLayout, doc.document.header, 'header',
+        paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
+        scrollY, canvasHeight, cursor.isVisible(),
+      );
+      if (selection.hasSelection() && selection.range) {
+        hfSelectionRects = computeHFSelectionRects(
+          selection.range, headerLayout, doc.document.header, 'header',
+          paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
+        );
+      }
+    }
+    if (editCtx === 'footer' && footerLayout && doc.document.footer) {
+      hfCursorFooter = computeHFCursorPixel(
+        cursor.position, footerLayout, doc.document.footer, 'footer',
+        paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
+        scrollY, canvasHeight, cursor.isVisible(),
+      );
+      if (selection.hasSelection() && selection.range) {
+        hfSelectionRects = computeHFSelectionRects(
+          selection.range, footerLayout, doc.document.footer, 'footer',
+          paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
+        );
+      }
+    }
+
     docCanvas.render(
       paginatedLayout, scrollY, logicalCanvasWidth, canvasHeight,
       editCtx === 'body' ? (cursorPixel ?? undefined) : undefined,
@@ -517,8 +727,9 @@ export function initialize(
         footer: doc.document.footer ? { marginFromEdge: doc.document.footer.marginFromEdge } : undefined,
       },
       editCtx,
-      undefined, // headerCursor — TODO: compute in future iteration
-      undefined, // footerCursor — TODO: compute in future iteration
+      hfCursorHeader,
+      hfCursorFooter,
+      hfSelectionRects,
     );
 
     // Draw drag guideline if active
@@ -683,6 +894,8 @@ export function initialize(
     redoFn,
     markDirty,
     invalidateLayout,
+    () => headerLayout,
+    () => footerLayout,
   );
   textEditorRef = textEditor;
 

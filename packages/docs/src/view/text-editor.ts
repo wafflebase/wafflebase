@@ -6,7 +6,7 @@ import { Cursor } from './cursor.js';
 import { Selection } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
-import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, resolveClickTarget } from './pagination.js';
+import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, resolveClickTarget } from './pagination.js';
 import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
@@ -95,6 +95,8 @@ export class TextEditor {
   private redoAction: () => void;
   private markDirty: (blockId: string) => void;
   private invalidateLayout: () => void;
+  private getHeaderLayout: () => DocumentLayout | null;
+  private getFooterLayout: () => DocumentLayout | null;
 
   /** Callback invoked when Cmd/Ctrl+K is pressed to request link insertion. */
   onLinkRequest?: () => void;
@@ -143,6 +145,8 @@ export class TextEditor {
     redoAction: () => void,
     markDirty: (blockId: string) => void,
     invalidateLayout: () => void,
+    getHeaderLayout?: () => DocumentLayout | null,
+    getFooterLayout?: () => DocumentLayout | null,
   ) {
     this.container = container;
     this.doc = doc;
@@ -160,6 +164,8 @@ export class TextEditor {
     this.redoAction = redoAction;
     this.markDirty = markDirty;
     this.invalidateLayout = invalidateLayout;
+    this.getHeaderLayout = getHeaderLayout ?? (() => null);
+    this.getFooterLayout = getFooterLayout ?? (() => null);
     this.textarea = document.createElement('textarea');
     // Keep textarea within the viewport (not off-screen) so iOS IME works
     // correctly. font-size:16px prevents iOS auto-zoom on focus.
@@ -820,8 +826,8 @@ export class TextEditor {
         true,
       );
 
-      if (this.clickCount >= 2 && (target === 'header' || target === 'footer')) {
-        // Double-click on header/footer: enter edit mode
+      if (this.clickCount >= 2 && (target === 'header' || target === 'footer') && target !== this.editContext) {
+        // Double-click on header/footer: enter edit mode (only if not already in it)
         if (target === 'header') {
           this.doc.ensureHeader();
           this.setEditContext('header');
@@ -1063,6 +1069,19 @@ export class TextEditor {
   }
 
   private updateDragSelection(clientX: number, clientY: number): void {
+    // Header/footer drag selection
+    if (this.editContext !== 'body') {
+      const fakeEvent = { clientX, clientY, target: this.container } as unknown as MouseEvent;
+      const result = this.getHFPositionFromMouse(fakeEvent);
+      if (result && this.selection.range) {
+        const pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+        this.selection.setRange({ anchor: this.selection.range.anchor, focus: pos });
+        this.cursor.moveTo(pos);
+        this.requestRender();
+      }
+      return;
+    }
+
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
     const x = (clientX - rect.left + this.container.scrollLeft) / s;
@@ -2077,6 +2096,70 @@ export class TextEditor {
   private deleteSelection(): boolean {
     if (!this.selection.hasSelection()) return false;
 
+    // Header/footer: handle directly without layout-based normalization
+    if (this.editContext !== 'body' && this.selection.range) {
+      const range = this.selection.range;
+      const anchor = range.anchor;
+      const focus = range.focus;
+
+      if (anchor.blockId === focus.blockId) {
+        // Same block — simple text deletion
+        const start = Math.min(anchor.offset, focus.offset);
+        const end = Math.max(anchor.offset, focus.offset);
+        if (start !== end) {
+          this.doc.deleteText({ blockId: anchor.blockId, offset: start }, end - start);
+          this.markDirty(anchor.blockId);
+        }
+      } else {
+        // Multi-block deletion in header/footer
+        this.invalidateLayout();
+        const blocks = this.doc.getContextBlocks();
+        const anchorIdx = blocks.findIndex((b) => b.id === anchor.blockId);
+        const focusIdx = blocks.findIndex((b) => b.id === focus.blockId);
+        const startIdx = Math.min(anchorIdx, focusIdx);
+        const endIdx = Math.max(anchorIdx, focusIdx);
+        const startPos = anchorIdx <= focusIdx ? anchor : focus;
+        const endPos = anchorIdx <= focusIdx ? focus : anchor;
+
+        // Delete from start offset to end of first block
+        const firstBlock = this.doc.getBlock(startPos.blockId);
+        const firstLen = getBlockTextLength(firstBlock);
+        if (startPos.offset < firstLen) {
+          this.doc.deleteText(startPos, firstLen - startPos.offset);
+        }
+        // Delete from beginning of last block to end offset
+        if (endPos.offset > 0) {
+          this.doc.deleteText({ blockId: endPos.blockId, offset: 0 }, endPos.offset);
+        }
+        // Remove middle blocks (reverse order)
+        for (let i = endIdx - 1; i > startIdx; i--) {
+          this.doc.deleteBlock(blocks[i].id);
+        }
+        // Merge first and last
+        const updatedBlocks = this.doc.getContextBlocks();
+        if (startIdx + 1 < updatedBlocks.length) {
+          this.doc.mergeBlocks(updatedBlocks[startIdx].id, updatedBlocks[startIdx + 1].id);
+        }
+      }
+
+      // Move cursor to selection start
+      const a = this.selection.range.anchor;
+      const f = this.selection.range.focus;
+      let cursorTarget: DocPosition;
+      if (a.blockId === f.blockId) {
+        cursorTarget = { blockId: a.blockId, offset: Math.min(a.offset, f.offset) };
+      } else {
+        const blocks = this.doc.getContextBlocks();
+        const aIdx = blocks.findIndex((b) => b.id === a.blockId);
+        const fIdx = blocks.findIndex((b) => b.id === f.blockId);
+        cursorTarget = aIdx <= fIdx ? { blockId: a.blockId, offset: a.offset } : { blockId: f.blockId, offset: f.offset };
+      }
+      this.cursor.moveTo(cursorTarget);
+      this.selection.setRange(null);
+      this.requestRender();
+      return true;
+    }
+
     const layout = this.getLayout();
     const normalized = this.selection.getNormalizedRange(layout);
     if (!normalized) return false;
@@ -2758,6 +2841,10 @@ export class TextEditor {
   }
 
   private getPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
+    // Header/footer: resolve within the flat layout
+    if (this.editContext !== 'body') {
+      return this.getHFPositionFromMouse(e);
+    }
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
     const x = (e.clientX - rect.left + this.container.scrollLeft) / s;
@@ -2766,6 +2853,89 @@ export class TextEditor {
     return paginatedPixelToPosition(
       this.getPaginatedLayout(), this.getLayout(), x, y + scrollY, this.getCanvasWidth(),
     );
+  }
+
+  /**
+   * Resolve mouse position to a DocPosition within header/footer layout.
+   */
+  private getHFPositionFromMouse(e: MouseEvent): (DocPosition & { lineAffinity: 'forward' | 'backward' }) | undefined {
+    const hfLayout = this.editContext === 'header' ? this.getHeaderLayout() : this.getFooterLayout();
+    if (!hfLayout) return undefined;
+    const hf = this.editContext === 'header' ? this.doc.document.header : this.doc.document.footer;
+    if (!hf) return undefined;
+
+    const rect = this.container.getBoundingClientRect();
+    const s = this.getScaleFactor();
+    const canvasX = (e.clientX - rect.left + this.container.scrollLeft) / s;
+    const canvasY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
+
+    const paginatedLayout = this.getPaginatedLayout();
+    const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+    const { margins } = paginatedLayout.pageSetup;
+
+    // Find which page was clicked to get the base Y
+    let baseY = 0;
+    for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+      if (canvasY >= pageY && canvasY <= pageY + page.height) {
+        if (this.editContext === 'header') {
+          baseY = getHeaderYStart(paginatedLayout, page.pageIndex, hf.marginFromEdge);
+        } else {
+          baseY = getFooterYStart(paginatedLayout, page.pageIndex, hfLayout.totalHeight, hf.marginFromEdge);
+        }
+        break;
+      }
+    }
+
+    // Convert to layout-local coordinates
+    const localX = canvasX - pageX - margins.left;
+    const localY = canvasY - baseY;
+    const ctx = this.getCtx();
+
+    // Find the closest block and line
+    for (const lb of hfLayout.blocks) {
+      for (let li = 0; li < lb.lines.length; li++) {
+        const line = lb.lines[li];
+        const lineTop = lb.y + line.y;
+        const lineBottom = lineTop + line.height;
+
+        if (localY >= lineTop && localY < lineBottom) {
+          // Find character offset within this line
+          let charsBefore = 0;
+          for (let k = 0; k < li; k++) {
+            for (const r of lb.lines[k].runs) charsBefore += r.text.length;
+          }
+          for (const run of line.runs) {
+            const runEnd = run.x + run.width;
+            if (localX <= runEnd) {
+              // Binary search within run for exact character
+              ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+              let bestOffset = 0;
+              for (let c = 0; c <= run.text.length; c++) {
+                const w = ctx.measureText(run.text.slice(0, c)).width;
+                if (run.x + w > localX) break;
+                bestOffset = c;
+              }
+              return { blockId: lb.block.id, offset: charsBefore + bestOffset, lineAffinity: 'backward' as const };
+            }
+            charsBefore += run.text.length;
+          }
+          // Past end of line
+          return { blockId: lb.block.id, offset: charsBefore, lineAffinity: 'backward' as const };
+        }
+      }
+    }
+
+    // Fallback: last block, end of text
+    const lastBlock = hfLayout.blocks[hfLayout.blocks.length - 1];
+    if (lastBlock) {
+      let totalChars = 0;
+      for (const line of lastBlock.lines) {
+        for (const run of line.runs) totalChars += run.text.length;
+      }
+      return { blockId: lastBlock.block.id, offset: totalChars, lineAffinity: 'backward' as const };
+    }
+    return undefined;
   }
 
   /**

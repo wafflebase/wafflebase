@@ -33,6 +33,10 @@ export class Cursor {
   /**
    * Get pixel coordinates of the cursor for rendering (paginated).
    */
+  isVisible(): boolean {
+    return this.visible;
+  }
+
   getPixelPosition(
     paginatedLayout: PaginatedLayout,
     layout: DocumentLayout,

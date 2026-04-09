@@ -71,6 +71,7 @@ export class DocCanvas {
     editContext?: EditContext,
     headerCursor?: { x: number; y: number; height: number; visible: boolean },
     footerCursor?: { x: number; y: number; height: number; visible: boolean },
+    hfSelectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -129,11 +130,21 @@ export class DocCanvas {
         this.ctx.rect(contentX, pageY + hfMargin, contentWidth, headerClipHeight);
         this.ctx.clip();
 
+        // Draw header selection highlights
+        if (editContext === 'header' && hfSelectionRects) {
+          this.ctx.fillStyle = Theme.selectionColor;
+          for (const rect of hfSelectionRects) {
+            if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+              this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            }
+          }
+        }
+
         for (const lb of headerLayout.blocks) {
           for (const line of lb.lines) {
             for (const run of line.runs) {
               this.renderRunWithPageNumber(
-                run, contentX + run.x, headerY + lb.y + line.y, line.height,
+                run, contentX, headerY + lb.y + line.y, line.height,
                 page.pageIndex + 1,
               );
             }
@@ -148,12 +159,15 @@ export class DocCanvas {
         this.ctx.restore();
 
         if (editContext === 'header') {
+          // Draw separator line between header and body
+          const lineY = pageY + margins.top;
           this.ctx.save();
           this.ctx.strokeStyle = Theme.headerFooterBorderColor;
           this.ctx.lineWidth = 1;
-          this.ctx.setLineDash([4, 4]);
-          this.ctx.strokeRect(contentX, pageY + hfMargin, contentWidth, headerClipHeight);
-          this.ctx.setLineDash([]);
+          this.ctx.beginPath();
+          this.ctx.moveTo(pageX, lineY);
+          this.ctx.lineTo(pageX + page.width, lineY);
+          this.ctx.stroke();
           this.ctx.restore();
         }
       }
@@ -171,11 +185,21 @@ export class DocCanvas {
         this.ctx.rect(contentX, footerClipY, contentWidth, footerClipHeight);
         this.ctx.clip();
 
+        // Draw footer selection highlights
+        if (editContext === 'footer' && hfSelectionRects) {
+          this.ctx.fillStyle = Theme.selectionColor;
+          for (const rect of hfSelectionRects) {
+            if (rect.y + rect.height > pageY && rect.y < pageY + page.height) {
+              this.ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+            }
+          }
+        }
+
         for (const lb of footerLayout.blocks) {
           for (const line of lb.lines) {
             for (const run of line.runs) {
               this.renderRunWithPageNumber(
-                run, contentX + run.x, footerY + lb.y + line.y, line.height,
+                run, contentX, footerY + lb.y + line.y, line.height,
                 page.pageIndex + 1,
               );
             }
@@ -190,12 +214,15 @@ export class DocCanvas {
         this.ctx.restore();
 
         if (editContext === 'footer') {
+          // Draw separator line between body and footer
+          const lineY = pageY + page.height - margins.bottom;
           this.ctx.save();
           this.ctx.strokeStyle = Theme.headerFooterBorderColor;
           this.ctx.lineWidth = 1;
-          this.ctx.setLineDash([4, 4]);
-          this.ctx.strokeRect(contentX, footerClipY, contentWidth, footerClipHeight);
-          this.ctx.setLineDash([]);
+          this.ctx.beginPath();
+          this.ctx.moveTo(pageX, lineY);
+          this.ctx.lineTo(pageX + page.width, lineY);
+          this.ctx.stroke();
           this.ctx.restore();
         }
       }
