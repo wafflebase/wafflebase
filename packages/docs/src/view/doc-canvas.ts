@@ -11,6 +11,34 @@ import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 import { renderTable } from './table-renderer.js';
 
 /**
+ * Shared cache of loaded inline images, keyed by src URL. Populated lazily
+ * on first render and reused across all DocCanvas instances so that
+ * navigating between documents does not re-fetch images.
+ */
+const imageCache = new Map<string, HTMLImageElement>();
+
+/**
+ * Return a loaded HTMLImageElement for the given src, or null if it is
+ * still loading. On first encounter, kicks off an async load and invokes
+ * `onLoad` once the image is ready so the caller can trigger a re-render.
+ */
+function getOrLoadImage(
+  src: string,
+  onLoad: () => void,
+): HTMLImageElement | null {
+  const cached = imageCache.get(src);
+  if (cached) {
+    return cached.complete && cached.naturalWidth > 0 ? cached : null;
+  }
+  const img = new Image();
+  img.onload = onLoad;
+  img.onerror = onLoad;
+  img.src = src;
+  imageCache.set(src, img);
+  return null;
+}
+
+/**
  * Convert a peer cursor color (hex) to a translucent selection fill.
  */
 function peerColorToSelectionColor(hex: string): string {
@@ -27,6 +55,12 @@ function peerColorToSelectionColor(hex: string): string {
 export class DocCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  /**
+   * Optional re-render trigger invoked after async resources (e.g. inline
+   * images) finish loading. Set by the owning editor via
+   * {@link setRequestRender}. Null while not wired (tests, headless use).
+   */
+  private requestRender: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -37,6 +71,14 @@ export class DocCanvas {
 
   getContext(): CanvasRenderingContext2D {
     return this.ctx;
+  }
+
+  /**
+   * Register a callback used to trigger a re-render when asynchronous
+   * resources (currently inline images) finish loading.
+   */
+  setRequestRender(cb: () => void): void {
+    this.requestRender = cb;
   }
 
   /**
@@ -452,6 +494,25 @@ export class DocCanvas {
     lineHeight: number,
   ): void {
     const style = run.inline.style;
+
+    // Image inlines are rendered via drawImage, not fillText. The run's
+    // width/imageHeight were set by layoutBlock (scaled to fit if needed);
+    // we align the image to the line's baseline area.
+    if (style.image) {
+      const x = Math.round(lineX + run.x);
+      const drawHeight = run.imageHeight ?? lineHeight;
+      // Bottom-align the image so it sits on the text baseline row.
+      const y = Math.round(lineY + lineHeight - drawHeight);
+      const img = getOrLoadImage(style.image.src, () => {
+        // Trigger a re-render when the image finishes loading.
+        this.requestRender?.();
+      });
+      if (img) {
+        this.ctx.drawImage(img, x, y, run.width, drawHeight);
+      }
+      return;
+    }
+
     const originalFontSizePx = ptToPx(style.fontSize ?? Theme.defaultFontSize);
 
     // Superscript/subscript: reduce font size to 60% and shift baseline

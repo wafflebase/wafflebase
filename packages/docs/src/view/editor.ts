@@ -785,6 +785,11 @@ export function initialize(
     paint();
   };
 
+  // Allow the canvas to request a paint-only re-render once async resources
+  // (inline images) finish loading. Layout already reserved space using the
+  // known image dimensions, so no relayout is needed.
+  docCanvas.setRequestRender(() => renderPaintOnly());
+
   // Wire ruler callbacks
   ruler.onMarginChange((margins) => {
     docStore.snapshot();

@@ -68,6 +68,11 @@ export interface LayoutRun {
   charEnd: number;
   /** Cumulative pixel widths: charOffsets[i] = width of text.slice(0, i+1). Length === text.length. */
   charOffsets: number[];
+  /**
+   * For image inlines, the pixel height of the (possibly scaled) image.
+   * Line height must grow to accommodate this. Undefined for text runs.
+   */
+  imageHeight?: number;
 }
 
 /**
@@ -122,6 +127,12 @@ interface MeasuredSegment {
   charStart: number;
   charEnd: number;
   font: string;
+  /**
+   * Intrinsic image dimensions for image inlines. When present, this segment
+   * is treated as unbreakable and rendered as an image run. Width is the
+   * intrinsic pixel width (pre-scale); rendering may scale down to fit.
+   */
+  image?: { width: number; height: number };
 }
 
 /**
@@ -200,7 +211,14 @@ export function computeLayout(
       let blockY = 0;
       for (const line of lines) {
         const maxFontSize = getLineMaxFontSizePx(line, effectiveBlock);
-        const lineHeight = lineHeightMultiplier * maxFontSize;
+        let lineHeight = lineHeightMultiplier * maxFontSize;
+        // Any image runs on this line force the line height to accommodate
+        // the tallest image.
+        for (const run of line.runs) {
+          if (run.imageHeight !== undefined && run.imageHeight > lineHeight) {
+            lineHeight = run.imageHeight;
+          }
+        }
         line.y = blockY;
         line.height = lineHeight;
         blockY += lineHeight;
@@ -293,6 +311,36 @@ function layoutBlock(
   };
 
   for (const seg of segments) {
+    // Image segments are unbreakable. Scale down to fit the effective line
+    // width if necessary, then emit a single run carrying the image height.
+    if (seg.image) {
+      let displayWidth = seg.image.width;
+      let displayHeight = seg.image.height;
+      if (effectiveWidth > 0 && displayWidth > effectiveWidth) {
+        const scale = effectiveWidth / displayWidth;
+        displayWidth = effectiveWidth;
+        displayHeight = seg.image.height * scale;
+      }
+      // Wrap to next line if the scaled image won't fit next to existing runs.
+      if (lineWidth + displayWidth > effectiveWidth && currentRuns.length > 0) {
+        flushLine();
+      }
+      currentRuns.push({
+        inline: inlines[seg.inlineIndex],
+        text: seg.text,
+        x: lineStartX + lineWidth,
+        width: displayWidth,
+        inlineIndex: seg.inlineIndex,
+        charStart: seg.charStart,
+        charEnd: seg.charEnd,
+        // Single-character placeholder: charOffsets has one entry equal to width.
+        charOffsets: seg.text.length > 0 ? [displayWidth] : [],
+        imageHeight: displayHeight,
+      });
+      lineWidth += displayWidth;
+      continue;
+    }
+
     // If adding this segment exceeds effective width and line is not empty,
     // wrap to next line
     if (lineWidth + seg.width > effectiveWidth && currentRuns.length > 0) {
@@ -394,6 +442,25 @@ function measureSegments(
       inline.style.bold,
       inline.style.italic,
     );
+
+    // Image inlines are a single unbreakable segment spanning the entire
+    // inline text (the Object Replacement Character placeholder). Width
+    // comes from the image metadata rather than text measurement; any
+    // scale-to-fit is applied later in layoutBlock.
+    if (inline.style.image) {
+      const image = inline.style.image;
+      segments.push({
+        text: inline.text,
+        style: inline.style,
+        width: image.width,
+        inlineIndex: i,
+        charStart: 0,
+        charEnd: inline.text.length,
+        font,
+        image: { width: image.width, height: image.height },
+      });
+      continue;
+    }
 
     // Split on word boundaries (keep spaces attached to preceding word)
     const words = splitWords(inline.text);
