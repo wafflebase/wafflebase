@@ -15,6 +15,9 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ImageService } from './image.service';
 import type { Response } from 'express';
 
+const VALID_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpe?g|gif|webp)$/i;
+
 @Controller('images')
 export class ImageController {
   constructor(private readonly imageService: ImageService) {}
@@ -37,6 +40,9 @@ export class ImageController {
 
   @Get(':id')
   async get(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    if (!VALID_ID_PATTERN.test(id)) {
+      throw new BadRequestException('Invalid image id');
+    }
     const { body, contentType } = await this.imageService.getObject(id);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
@@ -46,6 +52,9 @@ export class ImageController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   async delete(@Param('id') id: string): Promise<{ deleted: boolean }> {
+    if (!VALID_ID_PATTERN.test(id)) {
+      throw new BadRequestException('Invalid image id');
+    }
     await this.imageService.delete(id);
     return { deleted: true };
   }
