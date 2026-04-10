@@ -10,6 +10,20 @@ import {
 } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 
+/**
+ * Map from validated MIME type → canonical storage extension. Deriving the
+ * extension from the MIME type (rather than the client-provided filename)
+ * ensures that the object key matches its true content, so retrieval
+ * validation (`VALID_ID_PATTERN`) does not reject correctly uploaded files
+ * when the client sent a mismatched filename (e.g. `foo.bmp` for a PNG).
+ */
+const MIME_TO_EXT: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+};
+
 @Injectable()
 export class ImageService implements OnModuleInit {
   private s3: S3Client;
@@ -55,7 +69,7 @@ export class ImageService implements OnModuleInit {
   async upload(
     file: Buffer,
     mimeType: string,
-    originalName: string,
+    _originalName: string,
   ): Promise<{ id: string; url: string }> {
     if (!this.allowedMimeTypes.includes(mimeType)) {
       throw new BadRequestException(`Unsupported file type: ${mimeType}`);
@@ -66,7 +80,14 @@ export class ImageService implements OnModuleInit {
       );
     }
 
-    const ext = originalName.split('.').pop() || 'bin';
+    // Derive the stored extension from the validated MIME type rather than
+    // the client-provided filename. A PNG sent as `foo.bmp` would otherwise
+    // be stored with a `.bmp` suffix and later fail ID-pattern validation
+    // on retrieval.
+    const ext = MIME_TO_EXT[mimeType];
+    if (!ext) {
+      throw new BadRequestException(`Unsupported file type: ${mimeType}`);
+    }
     const id = randomUUID();
     const key = `${id}.${ext}`;
 
