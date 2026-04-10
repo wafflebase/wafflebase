@@ -8,6 +8,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
 import { ApiKeyModule } from './api-key/api-key.module';
 import { YorkieModule } from './yorkie/yorkie.module';
 import { ApiV1Module } from './api/v1/api-v1.module';
+import { ImageModule } from './image/image.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ApiV1Module } from './api/v1/api-v1.module';
     ApiKeyModule,
     YorkieModule,
     ApiV1Module,
+    ImageModule,
   ],
   controllers: [],
   providers: [],
