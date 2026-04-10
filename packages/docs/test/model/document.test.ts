@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Doc } from '../../src/model/document.js';
-import { createEmptyBlock, getBlockText } from '../../src/model/types.js';
+import { type Inline, createEmptyBlock, getBlockText } from '../../src/model/types.js';
 import { MemDocStore } from '../../src/store/memory.js';
 
 describe('Doc', () => {
@@ -653,5 +653,41 @@ describe('Doc editContext', () => {
     expect(newPos.blockId).toBe(b1.id);
     expect(newPos.offset).toBe(1);
     expect(doc.document.header!.blocks).toHaveLength(1);
+  });
+});
+
+describe('image inlines', () => {
+  it('should insert an image inline into a block', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    doc.insertText({ blockId, offset: 0 }, 'Hello');
+
+    const imageInline: Inline = {
+      text: '\uFFFC',
+      style: {
+        image: { src: '/images/test.png', width: 200, height: 100 },
+      },
+    };
+    doc.insertImageInline(blockId, 5, imageInline);
+
+    const block = doc.document.blocks[0];
+    expect(getBlockText(block)).toBe('Hello\uFFFC');
+    expect(block.inlines[block.inlines.length - 1].style.image?.src).toBe('/images/test.png');
+  });
+
+  it('should delete an image inline with backspace', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    const imageInline: Inline = {
+      text: '\uFFFC',
+      style: {
+        image: { src: '/images/test.png', width: 200, height: 100 },
+      },
+    };
+    doc.insertImageInline(blockId, 0, imageInline);
+    expect(getBlockText(doc.document.blocks[0])).toBe('\uFFFC');
+
+    doc.deleteText({ blockId, offset: 0 }, 1);
+    expect(getBlockText(doc.document.blocks[0])).toBe('');
   });
 });

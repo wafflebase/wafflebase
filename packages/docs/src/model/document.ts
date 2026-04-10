@@ -28,7 +28,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
-import { applyDeleteText } from '../store/block-helpers.js';
+import { applyDeleteText, cloneBlock } from '../store/block-helpers.js';
 
 /**
  * The current editing context for header/footer routing.
@@ -174,6 +174,37 @@ export class Doc {
     } else {
       this.store.insertText(pos.blockId, pos.offset, text);
     }
+    this.refresh();
+  }
+
+  /**
+   * Insert an image inline at the given offset within a block.
+   * The image inline uses \uFFFC as its text character.
+   */
+  insertImageInline(blockId: string, offset: number, imageInline: Inline): void {
+    this.store.snapshot();
+    const block = this.getBlock(blockId);
+    const cloned = cloneBlock(block);
+
+    // Split inlines at offset, insert the image inline in between
+    const before: Inline[] = [];
+    const after: Inline[] = [];
+    let remaining = offset;
+    for (const inline of cloned.inlines) {
+      if (remaining >= inline.text.length) {
+        before.push(inline);
+        remaining -= inline.text.length;
+      } else if (remaining > 0) {
+        before.push({ text: inline.text.slice(0, remaining), style: { ...inline.style } });
+        after.push({ text: inline.text.slice(remaining), style: { ...inline.style } });
+        remaining = 0;
+      } else {
+        after.push(inline);
+      }
+    }
+
+    cloned.inlines = [...before, imageInline, ...after];
+    this.store.updateBlock(blockId, cloned);
     this.refresh();
   }
 
