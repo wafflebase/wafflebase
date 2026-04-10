@@ -10,6 +10,7 @@ import type {
   Inline,
   BlockStyle,
   InlineStyle,
+  ImageData,
   PageSetup,
   HeaderFooter,
   TableRow,
@@ -59,6 +60,14 @@ function serializeInlineStyle(style: InlineStyle): Record<string, string> {
   if (style.backgroundColor !== undefined) attrs.backgroundColor = style.backgroundColor;
   if (style.href !== undefined) attrs.href = style.href;
   setIfDefined(attrs, 'pageNumber', style.pageNumber);
+  if (style.image !== undefined) {
+    attrs['image.src'] = style.image.src;
+    attrs['image.width'] = String(style.image.width);
+    attrs['image.height'] = String(style.image.height);
+    if (style.image.alt !== undefined) {
+      attrs['image.alt'] = style.image.alt;
+    }
+  }
   return attrs;
 }
 
@@ -77,6 +86,29 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
   if (attrs.href !== undefined) style.href = attrs.href;
   if (attrs.pageNumber !== undefined) style.pageNumber = attrs.pageNumber === 'true';
+  if ('image.src' in attrs) {
+    // Guard against NaN / non-positive sizes from missing or malformed
+    // attributes so that invalid image data is dropped instead of being
+    // materialised into the in-memory document (and persisted back).
+    const width = Number(attrs['image.width']);
+    const height = Number(attrs['image.height']);
+    if (
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      width > 0 &&
+      height > 0
+    ) {
+      const image: ImageData = {
+        src: attrs['image.src'],
+        width,
+        height,
+      };
+      if ('image.alt' in attrs) {
+        image.alt = attrs['image.alt'];
+      }
+      style.image = image;
+    }
+  }
   return style;
 }
 

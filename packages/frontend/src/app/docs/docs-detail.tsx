@@ -141,8 +141,12 @@ function DocsLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <DocsFormattingToolbar editor={editor} editContext={editContext} />
-          <DocsView onEditorReady={setEditor} />
+          <DocsFormattingToolbar
+            editor={editor}
+            editContext={editContext}
+            documentTitle={documentData?.title}
+          />
+          <DocsView onEditorReady={setEditor} documentId={documentId} />
         </div>
       </SidebarInset>
     </SidebarProvider>

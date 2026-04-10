@@ -51,6 +51,25 @@ function layoutCellInlines(
   let currentRuns: LayoutLine['runs'] = [];
   let lineWidth = 0;
   let lineMaxFontSize = 0;
+  // Tallest image on the current line, in pixels. Tracked separately from
+  // lineMaxFontSize so it is not multiplied by the 1.5 text line-height
+  // factor — the final line height is max(textHeight, imageHeight).
+  let lineMaxImageHeight = 0;
+
+  const flushCurrentLine = (fallbackFontSizePx: number) => {
+    const textLineHeight = (lineMaxFontSize || fallbackFontSizePx) * 1.5;
+    const lineHeight = Math.max(textLineHeight, lineMaxImageHeight);
+    lines.push({
+      runs: currentRuns,
+      y: 0,
+      height: lineHeight,
+      width: lineWidth,
+    });
+    currentRuns = [];
+    lineWidth = 0;
+    lineMaxFontSize = 0;
+    lineMaxImageHeight = 0;
+  };
 
   for (let i = 0; i < inlines.length; i++) {
     const inline = inlines[i];
@@ -63,6 +82,39 @@ function layoutCellInlines(
       inline.style.italic,
     );
 
+    // Image inlines are a single unbreakable run. Scale down to fit the
+    // cell width if necessary, and force line height to accommodate the
+    // image. Mirrors the image path in layoutBlock / measureSegments.
+    if (inline.style.image) {
+      const image = inline.style.image;
+      let displayWidth = image.width;
+      let displayHeight = image.height;
+      if (maxWidth > 0 && displayWidth > maxWidth) {
+        const scale = maxWidth / displayWidth;
+        displayWidth = maxWidth;
+        displayHeight = image.height * scale;
+      }
+      // Wrap to next line if the scaled image won't fit next to existing runs.
+      if (lineWidth + displayWidth > maxWidth && currentRuns.length > 0) {
+        flushCurrentLine(fontSizePx);
+      }
+      currentRuns.push({
+        inline,
+        text: inline.text,
+        x: lineWidth,
+        width: displayWidth,
+        inlineIndex: i,
+        charStart: 0,
+        charEnd: inline.text.length,
+        // Single-character placeholder: charOffsets has one entry equal to width.
+        charOffsets: inline.text.length > 0 ? [displayWidth] : [],
+        imageHeight: displayHeight,
+      });
+      lineWidth += displayWidth;
+      if (displayHeight > lineMaxImageHeight) lineMaxImageHeight = displayHeight;
+      continue;
+    }
+
     // Split text into words (keep trailing spaces with preceding word)
     const words = splitWords(inline.text);
     let charPos = 0;
@@ -72,16 +124,7 @@ function layoutCellInlines(
 
       // Wrap if adding this word exceeds maxWidth and line is not empty
       if (lineWidth + wordWidth > maxWidth && currentRuns.length > 0) {
-        const lineHeight = (lineMaxFontSize || fontSizePx) * 1.5;
-        lines.push({
-          runs: currentRuns,
-          y: 0,
-          height: lineHeight,
-          width: lineWidth,
-        });
-        currentRuns = [];
-        lineWidth = 0;
-        lineMaxFontSize = 0;
+        flushCurrentLine(fontSizePx);
       }
 
       currentRuns.push({
@@ -102,14 +145,7 @@ function layoutCellInlines(
 
   // Flush remaining runs
   if (currentRuns.length > 0) {
-    const defaultFontSizePx = ptToPx(Theme.defaultFontSize);
-    const lineHeight = (lineMaxFontSize || defaultFontSizePx) * 1.5;
-    lines.push({
-      runs: currentRuns,
-      y: 0,
-      height: lineHeight,
-      width: lineWidth,
-    });
+    flushCurrentLine(ptToPx(Theme.defaultFontSize));
   }
 
   // Set cumulative y offsets

@@ -105,6 +105,12 @@ export interface EditorAPI {
   onEditContextChange(cb: (context: 'body' | 'header' | 'footer') => void): void;
   /** Focus the editor */
   focus(): void;
+  /**
+   * Reset editor state after the underlying document was replaced externally
+   * (e.g. via `store.setDocument()`). Refreshes the cached document, resets
+   * the cursor to the first block, invalidates layout caches, and repaints.
+   */
+  resetAfterDocumentReplace(): void;
   /** Clean up */
   dispose(): void;
 }
@@ -785,6 +791,11 @@ export function initialize(
     paint();
   };
 
+  // Allow the canvas to request a paint-only re-render once async resources
+  // (inline images) finish loading. Layout already reserved space using the
+  // known image dimensions, so no relayout is needed.
+  docCanvas.setRequestRender(() => renderPaintOnly());
+
   // Wire ruler callbacks
   ruler.onMarginChange((margins) => {
     docStore.snapshot();
@@ -1426,6 +1437,18 @@ export function initialize(
       textEditor?.onEditContextChange(cb);
     },
     focus: () => textEditor?.focus(),
+    resetAfterDocumentReplace: () => {
+      doc.refresh();
+      textEditor?.setEditContext('body');
+      layoutCache = undefined;
+      const firstBlock = doc.document.blocks[0];
+      if (firstBlock) {
+        cursor.moveTo({ blockId: firstBlock.id, offset: 0 });
+      }
+      selection.setRange(null);
+      needsScrollIntoView = true;
+      render();
+    },
     dispose: () => {
       peerCursors = [];
       cursorMoveCallback = null;

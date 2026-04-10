@@ -1,6 +1,6 @@
 ---
 title: docs-header-footer
-target-version: 0.4.0
+target-version: 0.3.2
 ---
 
 # Document Header & Footer

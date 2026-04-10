@@ -11,6 +11,80 @@ import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 import { renderTable } from './table-renderer.js';
 
 /**
+ * Shared cache of loaded inline images, keyed by src URL. Populated lazily
+ * on first render and reused across all DocCanvas instances so that
+ * navigating between documents does not re-fetch images.
+ */
+const imageCache = new Map<string, HTMLImageElement>();
+
+/**
+ * Callbacks waiting on in-flight image loads, keyed by src. When an image
+ * load kicks off from one DocCanvas render, any subsequent call from a
+ * different DocCanvas instance (or the same instance on a re-render)
+ * subscribes here so that every interested caller gets notified when the
+ * load resolves. Without this, the second caller's onLoad would be
+ * silently dropped and its canvas would never repaint with the image.
+ */
+const pendingImageCallbacks = new Map<string, Set<() => void>>();
+
+/**
+ * Return a loaded HTMLImageElement for the given src, or null if it is
+ * still loading. On first encounter, kicks off an async load and invokes
+ * `onLoad` once the image is ready so the caller can trigger a re-render.
+ * When the image is already loading from a previous call, the caller is
+ * subscribed to the in-flight load so its onLoad still fires.
+ */
+function getOrLoadImage(
+  src: string,
+  onLoad: () => void,
+): HTMLImageElement | null {
+  const cached = imageCache.get(src);
+  if (cached) {
+    if (cached.complete && cached.naturalWidth > 0) return cached;
+    // Still loading (or failed with naturalWidth === 0). Subscribe only
+    // while the image is not yet complete so that in-flight loads notify
+    // every waiting callback.
+    if (!cached.complete) {
+      let callbacks = pendingImageCallbacks.get(src);
+      if (!callbacks) {
+        callbacks = new Set();
+        pendingImageCallbacks.set(src, callbacks);
+      }
+      callbacks.add(onLoad);
+    }
+    return null;
+  }
+
+  const img = new Image();
+  imageCache.set(src, img);
+  const callbacks = new Set<() => void>([onLoad]);
+  pendingImageCallbacks.set(src, callbacks);
+
+  img.onload = () => {
+    const waiting = pendingImageCallbacks.get(src);
+    pendingImageCallbacks.delete(src);
+    if (waiting) {
+      for (const cb of waiting) {
+        try {
+          cb();
+        } catch {
+          // Ignore listener errors so that one failing subscriber does
+          // not block notifications for the rest.
+        }
+      }
+    }
+  };
+  img.onerror = () => {
+    // Broken image is now cached; subsequent draws will skip it via the
+    // `naturalWidth > 0` guard above. Drop any pending callbacks so they
+    // are not retained forever.
+    pendingImageCallbacks.delete(src);
+  };
+  img.src = src;
+  return null;
+}
+
+/**
  * Convert a peer cursor color (hex) to a translucent selection fill.
  */
 function peerColorToSelectionColor(hex: string): string {
@@ -27,6 +101,12 @@ function peerColorToSelectionColor(hex: string): string {
 export class DocCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  /**
+   * Optional re-render trigger invoked after async resources (e.g. inline
+   * images) finish loading. Set by the owning editor via
+   * {@link setRequestRender}. Null while not wired (tests, headless use).
+   */
+  private requestRender: (() => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -37,6 +117,14 @@ export class DocCanvas {
 
   getContext(): CanvasRenderingContext2D {
     return this.ctx;
+  }
+
+  /**
+   * Register a callback used to trigger a re-render when asynchronous
+   * resources (currently inline images) finish loading.
+   */
+  setRequestRender(cb: () => void): void {
+    this.requestRender = cb;
   }
 
   /**
@@ -452,6 +540,25 @@ export class DocCanvas {
     lineHeight: number,
   ): void {
     const style = run.inline.style;
+
+    // Image inlines are rendered via drawImage, not fillText. The run's
+    // width/imageHeight were set by layoutBlock (scaled to fit if needed);
+    // we align the image to the line's baseline area.
+    if (style.image) {
+      const x = Math.round(lineX + run.x);
+      const drawHeight = run.imageHeight ?? lineHeight;
+      // Bottom-align the image so it sits on the text baseline row.
+      const y = Math.round(lineY + lineHeight - drawHeight);
+      const img = getOrLoadImage(style.image.src, () => {
+        // Trigger a re-render when the image finishes loading.
+        this.requestRender?.();
+      });
+      if (img) {
+        this.ctx.drawImage(img, x, y, run.width, drawHeight);
+      }
+      return;
+    }
+
     const originalFontSizePx = ptToPx(style.fontSize ?? Theme.defaultFontSize);
 
     // Superscript/subscript: reduce font size to 60% and shift baseline

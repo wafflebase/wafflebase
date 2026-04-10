@@ -28,7 +28,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
-import { applyDeleteText } from '../store/block-helpers.js';
+import { applyDeleteText, applyInsertInline } from '../store/block-helpers.js';
 
 /**
  * The current editing context for header/footer routing.
@@ -174,6 +174,18 @@ export class Doc {
     } else {
       this.store.insertText(pos.blockId, pos.offset, text);
     }
+    this.refresh();
+  }
+
+  /**
+   * Insert an image inline at the given offset within a block.
+   * The image inline uses \uFFFC as its text character.
+   */
+  insertImageInline(blockId: string, offset: number, imageInline: Inline): void {
+    this.store.snapshot();
+    const block = this.getBlock(blockId);
+    const updated = applyInsertInline(block, offset, imageInline);
+    this.updateBlockInStore(blockId, updated);
     this.refresh();
   }
 
@@ -820,6 +832,11 @@ export class Doc {
       const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
       if (tableBlock) {
         const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+        // Replace the block within the cell with the updated one (handles pure-function callers)
+        const blockIndex = cell.blocks.findIndex((b) => b.id === blockId);
+        if (blockIndex !== -1) {
+          cell.blocks[blockIndex] = block;
+        }
         this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       }
     } else {

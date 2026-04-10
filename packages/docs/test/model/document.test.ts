@@ -1,7 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import { Doc } from '../../src/model/document.js';
-import { createEmptyBlock, getBlockText } from '../../src/model/types.js';
+import { type BlockCellInfo, type Inline, createEmptyBlock, getBlockText } from '../../src/model/types.js';
 import { MemDocStore } from '../../src/store/memory.js';
+
+function buildParentMap(doc: Doc, tableBlockId: string): Map<string, BlockCellInfo> {
+  const map = new Map<string, BlockCellInfo>();
+  const block = doc.getBlock(tableBlockId);
+  if (!block.tableData) return map;
+  for (let r = 0; r < block.tableData.rows.length; r++) {
+    for (let c = 0; c < block.tableData.rows[r].cells.length; c++) {
+      const cell = block.tableData.rows[r].cells[c];
+      for (const b of cell.blocks) {
+        map.set(b.id, { tableBlockId, rowIndex: r, colIndex: c });
+      }
+    }
+  }
+  return map;
+}
 
 describe('Doc', () => {
   describe('create', () => {
@@ -653,5 +668,81 @@ describe('Doc editContext', () => {
     expect(newPos.blockId).toBe(b1.id);
     expect(newPos.offset).toBe(1);
     expect(doc.document.header!.blocks).toHaveLength(1);
+  });
+});
+
+describe('image inlines', () => {
+  it('should insert an image inline into a block', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    doc.insertText({ blockId, offset: 0 }, 'Hello');
+
+    const imageInline: Inline = {
+      text: '\uFFFC',
+      style: {
+        image: { src: '/images/test.png', width: 200, height: 100 },
+      },
+    };
+    doc.insertImageInline(blockId, 5, imageInline);
+
+    const block = doc.document.blocks[0];
+    expect(getBlockText(block)).toBe('Hello\uFFFC');
+    expect(block.inlines[block.inlines.length - 1].style.image?.src).toBe('/images/test.png');
+  });
+
+  it('should delete an image inline with backspace', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    const imageInline: Inline = {
+      text: '\uFFFC',
+      style: {
+        image: { src: '/images/test.png', width: 200, height: 100 },
+      },
+    };
+    doc.insertImageInline(blockId, 0, imageInline);
+    expect(getBlockText(doc.document.blocks[0])).toBe('\uFFFC');
+
+    doc.deleteText({ blockId, offset: 0 }, 1);
+    expect(getBlockText(doc.document.blocks[0])).toBe('');
+  });
+
+  it('should insert an image inline in the middle of a block', () => {
+    const doc = Doc.create();
+    const blockId = doc.document.blocks[0].id;
+    doc.insertText({ blockId, offset: 0 }, 'Hello');
+
+    const imageInline: Inline = {
+      text: '\uFFFC',
+      style: {
+        image: { src: '/images/test.png', width: 200, height: 100 },
+      },
+    };
+    doc.insertImageInline(blockId, 2, imageInline);
+
+    const block = doc.document.blocks[0];
+    expect(getBlockText(block)).toBe('He\uFFFCllo');
+    // Verify inline structure: 'He' | image | 'llo'
+    const imageIdx = block.inlines.findIndex(i => i.style.image);
+    expect(imageIdx).toBeGreaterThan(0);
+    expect(imageIdx).toBeLessThan(block.inlines.length - 1);
+  });
+
+  it('should insert an image inline into a table cell block', () => {
+    const doc = Doc.create();
+    const tableBlockId = doc.insertTable(1, 2, 2);
+    doc.setBlockParentMap(buildParentMap(doc, tableBlockId));
+    const tableBlock = doc.getBlock(tableBlockId);
+    const cellBlockId = tableBlock.tableData!.rows[0].cells[0].blocks[0].id;
+
+    const imageInline: Inline = {
+      text: '\uFFFC',
+      style: {
+        image: { src: '/images/cell.png', width: 100, height: 50 },
+      },
+    };
+    doc.insertImageInline(cellBlockId, 0, imageInline);
+
+    const cellBlock = doc.getBlock(cellBlockId);
+    expect(cellBlock.inlines.some(i => i.style.image?.src === '/images/cell.png')).toBe(true);
   });
 });
