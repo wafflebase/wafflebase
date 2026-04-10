@@ -205,6 +205,34 @@ export function applyMergeBlocks(block: Block, nextBlock: Block): Block {
 }
 
 /**
+ * Insert an inline element at a block-level character offset.
+ * Splits inlines at offset, inserts the new inline in between,
+ * and normalizes the result. Returns a new Block (pure function).
+ */
+export function applyInsertInline(block: Block, offset: number, inline: Inline): Block {
+  const newBlock = cloneBlock(block);
+  const before: Inline[] = [];
+  const after: Inline[] = [];
+  let remaining = offset;
+
+  for (const existing of newBlock.inlines) {
+    if (remaining >= existing.text.length) {
+      before.push(existing);
+      remaining -= existing.text.length;
+    } else if (remaining > 0) {
+      before.push({ text: existing.text.slice(0, remaining), style: { ...existing.style } });
+      after.push({ text: existing.text.slice(remaining), style: { ...existing.style } });
+      remaining = 0;
+    } else {
+      after.push(existing);
+    }
+  }
+
+  newBlock.inlines = normalizeInlines([...before, { ...inline }, ...after]);
+  return newBlock;
+}
+
+/**
  * Apply inline style to a range within a block. Returns new Block.
  * Splits inlines as needed and normalizes the result.
  */

@@ -28,7 +28,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
-import { applyDeleteText, cloneBlock } from '../store/block-helpers.js';
+import { applyDeleteText, applyInsertInline } from '../store/block-helpers.js';
 
 /**
  * The current editing context for header/footer routing.
@@ -184,27 +184,8 @@ export class Doc {
   insertImageInline(blockId: string, offset: number, imageInline: Inline): void {
     this.store.snapshot();
     const block = this.getBlock(blockId);
-    const cloned = cloneBlock(block);
-
-    // Split inlines at offset, insert the image inline in between
-    const before: Inline[] = [];
-    const after: Inline[] = [];
-    let remaining = offset;
-    for (const inline of cloned.inlines) {
-      if (remaining >= inline.text.length) {
-        before.push(inline);
-        remaining -= inline.text.length;
-      } else if (remaining > 0) {
-        before.push({ text: inline.text.slice(0, remaining), style: { ...inline.style } });
-        after.push({ text: inline.text.slice(remaining), style: { ...inline.style } });
-        remaining = 0;
-      } else {
-        after.push(inline);
-      }
-    }
-
-    cloned.inlines = [...before, imageInline, ...after];
-    this.store.updateBlock(blockId, cloned);
+    const updated = applyInsertInline(block, offset, imageInline);
+    this.updateBlockInStore(blockId, updated);
     this.refresh();
   }
 
@@ -851,6 +832,11 @@ export class Doc {
       const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
       if (tableBlock) {
         const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+        // Replace the block within the cell with the updated one (handles pure-function callers)
+        const blockIndex = cell.blocks.findIndex((b) => b.id === blockId);
+        if (blockIndex !== -1) {
+          cell.blocks[blockIndex] = block;
+        }
         this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
       }
     } else {
