@@ -10,6 +10,7 @@ import type {
   Inline,
   BlockStyle,
   InlineStyle,
+  ImageData,
   PageSetup,
   HeaderFooter,
   TableRow,
@@ -59,6 +60,14 @@ function serializeInlineStyle(style: InlineStyle): Record<string, string> {
   if (style.backgroundColor !== undefined) attrs.backgroundColor = style.backgroundColor;
   if (style.href !== undefined) attrs.href = style.href;
   setIfDefined(attrs, 'pageNumber', style.pageNumber);
+  if (style.image !== undefined) {
+    attrs['image.src'] = style.image.src;
+    attrs['image.width'] = String(style.image.width);
+    attrs['image.height'] = String(style.image.height);
+    if (style.image.alt !== undefined) {
+      attrs['image.alt'] = style.image.alt;
+    }
+  }
   return attrs;
 }
 
@@ -77,6 +86,17 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   if ('backgroundColor' in attrs) style.backgroundColor = attrs.backgroundColor;
   if (attrs.href !== undefined) style.href = attrs.href;
   if (attrs.pageNumber !== undefined) style.pageNumber = attrs.pageNumber === 'true';
+  if ('image.src' in attrs) {
+    const image: ImageData = {
+      src: attrs['image.src'],
+      width: Number(attrs['image.width']),
+      height: Number(attrs['image.height']),
+    };
+    if ('image.alt' in attrs) {
+      image.alt = attrs['image.alt'];
+    }
+    style.image = image;
+  }
   return style;
 }
 
