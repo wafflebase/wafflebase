@@ -207,14 +207,16 @@ export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps)
     onEditorReady?.(editor);
 
     // If a DOCX import was staged for this document before navigation,
-    // apply it now that the store and editor are ready.
+    // apply it now that the store and editor are ready. The editor's
+    // cursor currently points to the initial empty-doc block id which
+    // no longer exists after setDocument; resetAfterDocumentReplace
+    // resets the cursor, clears the selection, and invalidates layout.
     if (documentId) {
       const pending = takePendingImport(documentId);
       if (pending) {
         try {
           store.setDocument(pending);
-          editor.getDoc().refresh();
-          editor.render();
+          editor.resetAfterDocumentReplace();
         } catch (err) {
           console.error("Failed to apply pending DOCX import", err);
         }
