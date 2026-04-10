@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "ignore": [
-    "scripts/**"
+    "scripts/**",
+    ".claude/**"
   ],
   "workspaces": {
     "packages/sheets": {
