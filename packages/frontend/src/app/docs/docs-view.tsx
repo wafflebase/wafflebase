@@ -220,10 +220,16 @@ export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps)
       if (pending) {
         try {
           store.setDocument(pending);
-          editor.resetAfterDocumentReplace();
+          // setDocument succeeded; the document is now persisted. Clear pending
+          // immediately so a subsequent reset failure doesn't cause re-apply.
           clearPendingImport(documentId);
+          editor.resetAfterDocumentReplace();
         } catch (err) {
           console.error("Failed to apply pending DOCX import", err);
+          // If setDocument itself threw, pending is still in peek state and
+          // will be retried on next mount. If reset threw, it was already
+          // cleared above — just the editor state is stale, which the user
+          // can recover from with a reload.
         }
       }
     }

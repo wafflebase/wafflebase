@@ -16,6 +16,15 @@ const FONT_MAP: Record<string, string> = {
 const SERIF_FONTS = new Set(['바탕', 'Batang', 'Noto Serif KR', 'Times New Roman', 'Georgia']);
 
 /**
+ * Escape a font family name for use in a CSS single-quoted string.
+ * The CSS spec requires backslashes and single quotes to be escaped.
+ */
+function escapeFontFamily(family: string): string {
+  // Escape backslashes first, then single quotes.
+  return family.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+/**
  * Resolve a font family name to a CSS fallback chain string.
  */
 export function resolveFontFamily(family: string): string {
@@ -23,7 +32,7 @@ export function resolveFontFamily(family: string): string {
   if (mapped) return mapped;
 
   const generic = SERIF_FONTS.has(family) ? 'serif' : 'sans-serif';
-  return `'${family}', ${generic}`;
+  return `'${escapeFontFamily(family)}', ${generic}`;
 }
 
 type FontStatus = 'pending' | 'loading' | 'loaded' | 'error';
@@ -53,14 +62,17 @@ export class FontRegistry {
     const current = this.status.get(key);
     if (current === 'loaded' || current === 'loading') return;
 
-    if (document.fonts.check(`12px "${family}"`)) {
+    // Use JSON.stringify to produce a correctly quoted font name for the
+    // Font Loading API, handling embedded quotes and special characters.
+    const fontSpec = `12px ${JSON.stringify(family)}`;
+    if (document.fonts.check(fontSpec)) {
       this.status.set(key, 'loaded');
       return;
     }
 
     this.status.set(key, 'loading');
     try {
-      await document.fonts.load(`12px "${family}"`);
+      await document.fonts.load(fontSpec);
       this.status.set(key, 'loaded');
     } catch {
       this.status.set(key, 'error');

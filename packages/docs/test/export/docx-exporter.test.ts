@@ -103,6 +103,58 @@ describe('DocxExporter', () => {
     expect(zip.file('_rels/.rels')).not.toBeNull();
   });
 
+  it('should throw when image inline has no matching media entry (no imageFetcher)', async () => {
+    // Issue 1: When a document contains an image inline but no imageFetcher is
+    // provided (so no media entries are collected), the exporter must throw a
+    // descriptive error rather than silently falling through to a text run.
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          { text: '\uFFFC', style: { image: { src: 'https://example.com/photo.jpg', width: 100, height: 80 } } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+
+    await expect(DocxExporter.export(doc)).rejects.toThrow(
+      'DOCX export: image inline references https://example.com/photo.jpg but no matching media entry was collected.',
+    );
+  });
+
+  it('should derive media extension from blob MIME type, not URL', async () => {
+    // Issue 2: Extension must come from blob.type so that JPEG bytes served
+    // under a .png URL (or an extensionless URL) are packaged correctly.
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          // URL has no extension — previously would fall back to 'png'
+          { text: '\uFFFC', style: { image: { src: 'https://cdn.example.com/images/abcdef', width: 100, height: 80 } } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+
+    // Return a JPEG blob despite the URL having no extension
+    const fetcher = async (_url: string): Promise<Blob> =>
+      new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], { type: 'image/jpeg' });
+
+    const blob = await DocxExporter.export(doc, fetcher);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+
+    // The media file should be stored as .jpg, not .png or 'abcdef'
+    const mediaFiles: string[] = [];
+    zip.forEach((path, entry) => {
+      if (path.startsWith('word/media/') && !entry.dir) mediaFiles.push(path);
+    });
+    expect(mediaFiles).toHaveLength(1);
+    expect(mediaFiles[0]).toMatch(/\.jpg$/);
+  });
+
   it('should package header/footer images with part-scoped rels', async () => {
     // Header/footer blocks with image inlines must be accompanied by
     // media files in the zip AND their own part-scoped .rels files

@@ -26,4 +26,20 @@ describe('FontRegistry', () => {
     const registry = new FontRegistry();
     expect(registry.getFontStatus('Arial')).toBe('pending');
   });
+
+  it('should escape single quotes in unknown font family names', () => {
+    // Issue 3: A font name containing a single quote (e.g. from a DOCX file)
+    // must produce valid CSS — the quote must be escaped so it does not break
+    // out of the surrounding single-quoted string.
+    const result = resolveFontFamily("O'Connor Sans");
+    expect(result).toBe("'O\\'Connor Sans', sans-serif");
+    // Ensure the raw string is valid: it must not contain an unescaped ' that
+    // would terminate the CSS quoted string prematurely.
+    expect(result.indexOf("'O'")).toBe(-1);
+  });
+
+  it('should escape backslashes in unknown font family names', () => {
+    const result = resolveFontFamily('Font\\Name');
+    expect(result).toBe("'Font\\\\Name', sans-serif");
+  });
 });

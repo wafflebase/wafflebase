@@ -9,9 +9,27 @@ export type ImageFetcher = (url: string) => Promise<Blob>;
 
 type ImageEntry = { rId: string; path: string; ext: string; src: string };
 
+const MIME_TO_EXT: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/bmp': 'bmp',
+};
+
+function deriveExt(blob: Blob): string {
+  const mime = blob.type.toLowerCase();
+  return MIME_TO_EXT[mime] || 'bin';
+}
+
 export class DocxExporter {
   /**
    * Export a Document to a .docx Blob.
+   *
+   * @param doc - The document to export.
+   * @param imageFetcher - Required when the document contains image inlines.
+   *   Called once per unique image src to fetch the raw image Blob. If omitted
+   *   and the document contains image inlines, export will throw.
    */
   static async export(
     doc: Document,
@@ -150,10 +168,15 @@ ${bodyXml}
     // Image inline
     if (inline.style.image) {
       const entry = imageEntries.find((e) => e.src === inline.style.image!.src);
-      if (entry) {
-        const cx = pxToEmus(inline.style.image.width);
-        const cy = pxToEmus(inline.style.image.height);
-        return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
+      if (!entry) {
+        throw new Error(
+          `DOCX export: image inline references ${inline.style.image.src} but no matching media entry was collected. ` +
+          `Did you forget to pass an imageFetcher to DocxExporter.export()?`,
+        );
+      }
+      const cx = pxToEmus(inline.style.image.width);
+      const cy = pxToEmus(inline.style.image.height);
+      return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
           <wp:extent cx="${cx}" cy="${cy}"/>
           <wp:docPr id="1" name="Image"/>
           <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
@@ -162,7 +185,6 @@ ${bodyXml}
             <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>
             <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>
           </a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
-      }
     }
 
     // Regular text run
@@ -281,7 +303,7 @@ ${rels}
         // Skip if this src was already fetched for the same part (dedupe).
         if (entries.some((e) => e.src === src)) continue;
         const blob = await fetcher(src);
-        const ext = (src.split('.').pop() || 'png').toLowerCase().split('?')[0];
+        const ext = deriveExt(blob);
         const rId = nextRId();
         const path = nextMediaName(ext);
         zip.file(`word/${path}`, blob);

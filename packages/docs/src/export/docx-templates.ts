@@ -11,6 +11,8 @@ export const CONTENT_TYPES = (extras: string) => `<?xml version="1.0" encoding="
   <Default Extension="jpeg" ContentType="image/jpeg"/>
   <Default Extension="gif" ContentType="image/gif"/>
   <Default Extension="webp" ContentType="image/webp"/>
+  <Default Extension="bmp" ContentType="image/bmp"/>
+  <Default Extension="bin" ContentType="application/octet-stream"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 ${extras}</Types>`;
