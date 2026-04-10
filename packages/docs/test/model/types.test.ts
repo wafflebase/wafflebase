@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { HeadingLevel, Document, Inline } from '../../src/model/types.js';
+import type { HeadingLevel, Document, Inline, InlineStyle } from '../../src/model/types.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
@@ -223,5 +223,40 @@ describe('HeaderFooter', () => {
     const doc: Document = { blocks: [createEmptyBlock()] };
     expect(doc.header).toBeUndefined();
     expect(doc.footer).toBeUndefined();
+  });
+});
+
+describe('ImageData on InlineStyle', () => {
+  it('should allow creating an inline with image data', () => {
+    const inline: Inline = {
+      text: '\uFFFC',
+      style: {
+        image: {
+          src: 'https://example.com/image.png',
+          width: 200,
+          height: 150,
+          alt: 'Test image',
+        },
+      },
+    };
+    expect(inline.style.image).toBeDefined();
+    expect(inline.style.image!.src).toBe('https://example.com/image.png');
+    expect(inline.style.image!.width).toBe(200);
+    expect(inline.style.image!.height).toBe(150);
+    expect(inline.style.image!.alt).toBe('Test image');
+  });
+
+  it('should compare inline styles with image data', () => {
+    const a: InlineStyle = {
+      image: { src: 'a.png', width: 100, height: 100 },
+    };
+    const b: InlineStyle = {
+      image: { src: 'a.png', width: 100, height: 100 },
+    };
+    const c: InlineStyle = {
+      image: { src: 'b.png', width: 100, height: 100 },
+    };
+    expect(inlineStylesEqual(a, b)).toBe(true);
+    expect(inlineStylesEqual(a, c)).toBe(false);
   });
 });

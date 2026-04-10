@@ -69,6 +69,17 @@ export interface BlockStyle {
 }
 
 /**
+ * Image metadata for an inline image element.
+ * Used when an Inline has text '\uFFFC' (Object Replacement Character).
+ */
+export interface ImageData {
+  src: string;
+  width: number;
+  height: number;
+  alt?: string;
+}
+
+/**
  * Character-level formatting applied to an Inline.
  * All properties are optional; undefined means "inherit default".
  */
@@ -85,6 +96,7 @@ export interface InlineStyle {
   subscript?: boolean;
   href?: string;
   pageNumber?: boolean;
+  image?: ImageData;
 }
 
 /**
@@ -227,6 +239,12 @@ export function getBlockText(block: Block): string {
   return block.inlines.map((inline) => inline.text).join('');
 }
 
+function imageDataEqual(a: ImageData | undefined, b: ImageData | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.src === b.src && a.width === b.width && a.height === b.height && a.alt === b.alt;
+}
+
 /**
  * Check if two inline styles are equal.
  */
@@ -243,7 +261,8 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.superscript === b.superscript &&
     a.subscript === b.subscript &&
     a.href === b.href &&
-    a.pageNumber === b.pageNumber
+    a.pageNumber === b.pageNumber &&
+    imageDataEqual(a.image, b.image)
   );
 }
 

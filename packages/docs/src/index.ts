@@ -7,6 +7,7 @@ export type {
   Inline,
   BlockStyle,
   InlineStyle,
+  ImageData,
   DocPosition,
   DocRange,
   PageSetup,
