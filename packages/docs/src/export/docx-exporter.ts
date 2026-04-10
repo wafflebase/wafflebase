@@ -18,39 +18,80 @@ export class DocxExporter {
     imageFetcher?: ImageFetcher,
   ): Promise<Blob> {
     const zip = new JSZip();
-    const imageEntries: ImageEntry[] = [];
-    let rIdCounter = 10; // Start after reserved IDs
+    // rIds are scoped per .rels file in OOXML, so give each part its own
+    // counter and entry list. Header and footer images live in separate
+    // `.rels` documents from the main document's image relationships.
+    // The media filename counter is shared across parts so that header
+    // and footer media do not collide with main-document media in the
+    // `word/media/` directory.
+    const docImageEntries: ImageEntry[] = [];
+    const headerImageEntries: ImageEntry[] = [];
+    const footerImageEntries: ImageEntry[] = [];
+    const makeCounter = () => {
+      let n = 10; // Start after reserved IDs
+      return () => `rId${n++}`;
+    };
+    const nextDocRId = makeCounter();
+    const nextHeaderRId = makeCounter();
+    const nextFooterRId = makeCounter();
+    let mediaSeq = 0;
+    const nextMediaName = (ext: string) => `media/image_${++mediaSeq}.${ext}`;
 
-    // Collect and fetch images
+    // Collect and fetch images referenced from the main document body.
     if (imageFetcher) {
       for (const block of doc.blocks) {
-        await DocxExporter.collectImages(block, imageFetcher, zip, imageEntries, () => `rId${rIdCounter++}`);
+        await DocxExporter.collectImages(block, imageFetcher, zip, docImageEntries, nextDocRId, nextMediaName);
       }
     }
 
-    // Build header/footer
-    const hfRels: string[] = [];
+    // Build header/footer. Each part's rels file uses rIds for the
+    // header/footer parts as well as any image relationships referenced
+    // from within that part.
     const hfContentTypes: string[] = [];
     let headerRId: string | undefined;
     let footerRId: string | undefined;
 
     if (doc.header && doc.header.blocks.length > 0) {
-      headerRId = `rId${rIdCounter++}`;
-      const headerXml = DocxExporter.buildHeaderFooterXml(doc.header, 'header');
+      headerRId = nextDocRId();
+      if (imageFetcher) {
+        for (const block of doc.header.blocks) {
+          await DocxExporter.collectImages(block, imageFetcher, zip, headerImageEntries, nextHeaderRId, nextMediaName);
+        }
+      }
+      const headerXml = DocxExporter.buildHeaderFooterXml(doc.header, 'header', headerImageEntries);
       zip.file('word/header1.xml', headerXml);
-      hfRels.push(`  <Relationship Id="${headerRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`);
+      zip.file('word/_rels/header1.xml.rels', DocxExporter.buildPartRelsXml(headerImageEntries));
       hfContentTypes.push(`  <Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>`);
     }
     if (doc.footer && doc.footer.blocks.length > 0) {
-      footerRId = `rId${rIdCounter++}`;
-      const footerXml = DocxExporter.buildHeaderFooterXml(doc.footer, 'footer');
+      footerRId = nextDocRId();
+      if (imageFetcher) {
+        for (const block of doc.footer.blocks) {
+          await DocxExporter.collectImages(block, imageFetcher, zip, footerImageEntries, nextFooterRId, nextMediaName);
+        }
+      }
+      const footerXml = DocxExporter.buildHeaderFooterXml(doc.footer, 'footer', footerImageEntries);
       zip.file('word/footer1.xml', footerXml);
-      hfRels.push(`  <Relationship Id="${footerRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>`);
+      zip.file('word/_rels/footer1.xml.rels', DocxExporter.buildPartRelsXml(footerImageEntries));
       hfContentTypes.push(`  <Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>`);
     }
 
+    // Assemble document.xml.rels: image relationships for the main body
+    // plus any header/footer part relationships (header/footer image
+    // rels live in their own .rels files, not here).
+    const docRels: string[] = [];
+    for (const e of docImageEntries) {
+      docRels.push(`  <Relationship Id="${e.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${e.path}"/>`);
+    }
+    if (headerRId) {
+      docRels.push(`  <Relationship Id="${headerRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>`);
+    }
+    if (footerRId) {
+      docRels.push(`  <Relationship Id="${footerRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>`);
+    }
+
     // Build document.xml
-    const bodyXml = doc.blocks.map((b) => DocxExporter.blockToXml(b, imageEntries)).join('\n');
+    const bodyXml = doc.blocks.map((b) => DocxExporter.blockToXml(b, docImageEntries)).join('\n');
     const sectPr = DocxExporter.buildSectPrXml(doc.pageSetup ?? DEFAULT_PAGE_SETUP, headerRId, footerRId);
     const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -67,11 +108,7 @@ ${bodyXml}
     zip.file('word/document.xml', documentXml);
     zip.file('word/styles.xml', STYLES);
 
-    // Relationships
-    const imageRels = imageEntries.map((e) =>
-      `  <Relationship Id="${e.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${e.path}"/>`
-    );
-    zip.file('word/_rels/document.xml.rels', DOC_RELS([...imageRels, ...hfRels].join('\n')));
+    zip.file('word/_rels/document.xml.rels', DOC_RELS(docRels.join('\n')));
     zip.file('_rels/.rels', ROOT_RELS);
     zip.file('[Content_Types].xml', CONTENT_TYPES(hfContentTypes.join('\n')));
 
@@ -192,14 +229,42 @@ ${bodyXml}
     return `<w:sectPr>${refs.join('')}${pgSz}${pgMar}</w:sectPr>`;
   }
 
-  private static buildHeaderFooterXml(hf: HeaderFooter, type: 'header' | 'footer'): string {
+  private static buildHeaderFooterXml(
+    hf: HeaderFooter,
+    type: 'header' | 'footer',
+    imageEntries: ImageEntry[],
+  ): string {
     const tag = type === 'header' ? 'hdr' : 'ftr';
-    const blocks = hf.blocks.map((b) => DocxExporter.blockToXml(b, [])).join('\n');
+    const blocks = hf.blocks.map((b) => DocxExporter.blockToXml(b, imageEntries)).join('\n');
+    // Include the drawing-related namespaces so that any embedded
+    // <w:drawing> emitted by inlineToXml resolves correctly.
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:${tag} xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+          xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
 ${blocks}
 </w:${tag}>`;
+  }
+
+  /**
+   * Build a part-scoped .rels file containing the given image
+   * relationships. Used for `word/_rels/header1.xml.rels` and
+   * `word/_rels/footer1.xml.rels` so that images referenced from header
+   * or footer parts resolve correctly when opened in Word.
+   */
+  private static buildPartRelsXml(imageEntries: ImageEntry[]): string {
+    const rels = imageEntries
+      .map(
+        (e) =>
+          `  <Relationship Id="${e.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${e.path}"/>`,
+      )
+      .join('\n');
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${rels}
+</Relationships>`;
   }
 
   private static async collectImages(
@@ -208,16 +273,17 @@ ${blocks}
     zip: JSZip,
     entries: ImageEntry[],
     nextRId: () => string,
+    nextMediaName: (ext: string) => string,
   ): Promise<void> {
     for (const inline of block.inlines) {
       if (inline.style.image) {
         const src = inline.style.image.src;
-        // Skip if this src was already fetched (dedupe).
+        // Skip if this src was already fetched for the same part (dedupe).
         if (entries.some((e) => e.src === src)) continue;
         const blob = await fetcher(src);
         const ext = (src.split('.').pop() || 'png').toLowerCase().split('?')[0];
         const rId = nextRId();
-        const path = `media/image_${rId}.${ext}`;
+        const path = nextMediaName(ext);
         zip.file(`word/${path}`, blob);
         entries.push({ rId, path, ext, src });
       }
@@ -227,7 +293,7 @@ ${blocks}
       for (const row of block.tableData.rows) {
         for (const cell of row.cells) {
           for (const cellBlock of cell.blocks) {
-            await DocxExporter.collectImages(cellBlock, fetcher, zip, entries, nextRId);
+            await DocxExporter.collectImages(cellBlock, fetcher, zip, entries, nextRId, nextMediaName);
           }
         }
       }

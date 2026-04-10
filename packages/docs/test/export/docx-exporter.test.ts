@@ -102,4 +102,78 @@ describe('DocxExporter', () => {
     expect(zip.file('[Content_Types].xml')).not.toBeNull();
     expect(zip.file('_rels/.rels')).not.toBeNull();
   });
+
+  it('should package header/footer images with part-scoped rels', async () => {
+    // Header/footer blocks with image inlines must be accompanied by
+    // media files in the zip AND their own part-scoped .rels files
+    // (word/_rels/header1.xml.rels, word/_rels/footer1.xml.rels).
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'Body', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+      header: {
+        blocks: [{
+          id: generateBlockId(),
+          type: 'paragraph',
+          inlines: [
+            { text: '\uFFFC', style: { image: { src: 'https://example.com/logo.png', width: 80, height: 20 } } },
+          ],
+          style: { ...DEFAULT_BLOCK_STYLE },
+        }],
+        marginFromEdge: 48,
+      },
+      footer: {
+        blocks: [{
+          id: generateBlockId(),
+          type: 'paragraph',
+          inlines: [
+            { text: '\uFFFC', style: { image: { src: 'https://example.com/stamp.png', width: 40, height: 40 } } },
+          ],
+          style: { ...DEFAULT_BLOCK_STYLE },
+        }],
+        marginFromEdge: 48,
+      },
+    };
+
+    const fetches: string[] = [];
+    const fakeFetcher = async (url: string): Promise<Blob> => {
+      fetches.push(url);
+      return new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' });
+    };
+
+    const blob = await DocxExporter.export(doc, fakeFetcher);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+
+    // Both header and footer images should be fetched and packaged.
+    expect(fetches).toContain('https://example.com/logo.png');
+    expect(fetches).toContain('https://example.com/stamp.png');
+
+    // Header and footer rels files must exist and reference image relationships.
+    const headerRels = await zip.file('word/_rels/header1.xml.rels')?.async('string');
+    const footerRels = await zip.file('word/_rels/footer1.xml.rels')?.async('string');
+    expect(headerRels).toBeDefined();
+    expect(footerRels).toBeDefined();
+    expect(headerRels!).toContain('relationships/image');
+    expect(footerRels!).toContain('relationships/image');
+
+    // Header xml should reference the image via a:blip r:embed.
+    const headerXml = await zip.file('word/header1.xml')?.async('string');
+    const footerXml = await zip.file('word/footer1.xml')?.async('string');
+    expect(headerXml!).toContain('a:blip');
+    expect(footerXml!).toContain('a:blip');
+
+    // Media files from header and footer should not collide in word/media/.
+    const mediaFiles: string[] = [];
+    zip.forEach((path, entry) => {
+      if (path.startsWith('word/media/') && !entry.dir) {
+        mediaFiles.push(path);
+      }
+    });
+    expect(mediaFiles.length).toBe(2);
+    expect(new Set(mediaFiles).size).toBe(2);
+  });
 });
