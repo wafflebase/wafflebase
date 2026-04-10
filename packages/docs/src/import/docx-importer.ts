@@ -3,6 +3,7 @@ import type { Document, Block, TableData, TableRow, TableCell, HeaderFooter, Pag
 import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_CELL_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE } from '../model/types.js';
 import { parseRelationships, parseParagraph, parsePageSetup, type RelEntry } from './docx-parser.js';
 import { mapTableCellProperties } from './docx-style-map.js';
+import { emusToPx } from './units.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -68,17 +69,26 @@ export class DocxImporter {
     pEl: Element,
     imageUrls: Map<string, ResolvedImage>,
   ): Block {
-    const { inlines, blockStyle, blockType, headingLevel } = parseParagraph(pEl);
+    const { inlines, blockStyle, blockType, headingLevel, imageRefs } = parseParagraph(pEl);
 
-    // Resolve pending image references
+    // Resolve pending image references. Each pending placeholder inline is
+    // matched in order against imageRefs from the same paragraph so that the
+    // EMU extent parsed from <w:drawing> is preserved as CSS pixel dimensions.
+    let refIdx = 0;
     const resolvedInlines = inlines.map((inline) => {
       if (inline.style.image?.src.startsWith('__pending__:')) {
         const rId = inline.style.image.src.replace('__pending__:', '');
-        const img = imageUrls.get(rId);
-        if (img) {
+        const uploaded = imageUrls.get(rId);
+        const ref = imageRefs[refIdx++];
+        if (uploaded) {
+          const width = ref && ref.cx > 0 ? Math.round(emusToPx(ref.cx)) : uploaded.width;
+          const height = ref && ref.cy > 0 ? Math.round(emusToPx(ref.cy)) : uploaded.height;
           return {
             text: inline.text,
-            style: { ...inline.style, image: img },
+            style: {
+              ...inline.style,
+              image: { src: uploaded.src, width, height },
+            },
           };
         }
       }
@@ -100,16 +110,20 @@ export class DocxImporter {
     imageUrls: Map<string, ResolvedImage>,
     isNested: boolean,
   ): Block {
-    // If nested, flatten to a paragraph with text content
+    // If nested, flatten to a paragraph with text content. Walk only direct
+    // child <w:tr> / <w:tc> so that deeply nested tables don't bleed their
+    // rows/cells into the outer flattened text.
     if (isNested) {
       const texts: string[] = [];
-      const trs = tblEl.getElementsByTagNameNS(W, 'tr');
-      for (let r = 0; r < trs.length; r++) {
+      for (let i = 0; i < tblEl.childNodes.length; i++) {
+        const trNode = tblEl.childNodes[i];
+        if (trNode.nodeType !== 1 || (trNode as Element).localName !== 'tr') continue;
+        const trEl = trNode as Element;
         const rowTexts: string[] = [];
-        const tcs = trs[r].getElementsByTagNameNS(W, 'tc');
-        for (let c = 0; c < tcs.length; c++) {
-          const cellText = DocxImporter.extractText(tcs[c]);
-          rowTexts.push(cellText);
+        for (let j = 0; j < trEl.childNodes.length; j++) {
+          const tcNode = trEl.childNodes[j];
+          if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
+          rowTexts.push(DocxImporter.extractText(tcNode as Element));
         }
         texts.push(rowTexts.join(' | '));
       }
@@ -133,7 +147,21 @@ export class DocxImporter {
 
     // Parse rows — only direct child <w:tr> elements
     const rows: TableRow[] = [];
+    // Track the currently-open vMerge group per column. Each group is
+    // resolved (its rowSpan written) either when the column starts a new
+    // group or at the end after all rows are walked. This handles multiple
+    // stacked vMerge groups in the same column without overwriting earlier
+    // trackers.
     const vMergeTracker: Map<number, { startRow: number; count: number }> = new Map();
+    const resolveVMergeGroup = (
+      colIdx: number,
+      tracker: { startRow: number; count: number },
+    ) => {
+      if (tracker.count > 1 && rows[tracker.startRow]) {
+        const cell = rows[tracker.startRow].cells[colIdx];
+        if (cell) cell.rowSpan = tracker.count;
+      }
+    };
 
     for (let i = 0; i < tblEl.childNodes.length; i++) {
       const node = tblEl.childNodes[i];
@@ -160,6 +188,10 @@ export class DocxImporter {
 
         // Handle vertical merge tracking
         if (vMerge === 'restart') {
+          // If a previous group is still open for this column, close it
+          // before starting a new one.
+          const existing = vMergeTracker.get(colIdx);
+          if (existing) resolveVMergeGroup(colIdx, existing);
           vMergeTracker.set(colIdx, { startRow: rows.length, count: 1 });
         } else if (vMerge === 'continue') {
           const tracker = vMergeTracker.get(colIdx);
@@ -213,12 +245,9 @@ export class DocxImporter {
       rows.push({ cells });
     }
 
-    // Resolve vMerge rowSpan values
+    // Resolve any still-open vMerge groups at end of table.
     for (const [colIdx, tracker] of vMergeTracker) {
-      if (tracker.count > 1 && rows[tracker.startRow]) {
-        const cell = rows[tracker.startRow].cells[colIdx];
-        if (cell) cell.rowSpan = tracker.count;
-      }
+      resolveVMergeGroup(colIdx, tracker);
     }
 
     const tableData: TableData = { rows, columnWidths };
@@ -258,7 +287,8 @@ export class DocxImporter {
       const filename = `${rId}.${ext}`;
       const url = await uploader(data, filename);
 
-      // We'll set dimensions later when resolving
+      // Dimensions are filled per-reference in convertParagraph using the
+      // <wp:extent> cx/cy values returned by parseParagraph.
       imageUrls.set(rId, { src: url, width: 0, height: 0 });
     }
   }
