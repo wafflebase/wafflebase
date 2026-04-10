@@ -62,9 +62,22 @@ export class FontRegistry {
     try {
       await document.fonts.load(`12px "${family}"`);
       this.status.set(key, 'loaded');
-      this.listeners.forEach((cb) => cb());
     } catch {
       this.status.set(key, 'error');
+      return;
+    }
+
+    // Listeners are invoked after the status is settled so that a
+    // listener throwing cannot flip the font into 'error' via the
+    // surrounding catch block. Each callback is wrapped individually so
+    // one failing subscriber does not block notifications for the rest.
+    for (const cb of this.listeners) {
+      try {
+        cb();
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('FontRegistry listener threw:', e);
+      }
     }
   }
 
