@@ -32,7 +32,10 @@ function getOrLoadImage(
   }
   const img = new Image();
   img.onload = onLoad;
-  img.onerror = onLoad;
+  img.onerror = () => {
+    // Broken image is now cached; subsequent draws will skip it via the
+    // `naturalWidth > 0` guard above. No re-render needed.
+  };
   img.src = src;
   imageCache.set(src, img);
   return null;
