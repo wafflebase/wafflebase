@@ -54,14 +54,14 @@ export function buildParagraphPropertiesXml(
   }
 
   const spacingParts: string[] = [];
-  if (style.marginTop > 0) spacingParts.push(`w:before="${Math.round(pxToTwips(style.marginTop))}"`);
-  if (style.marginBottom > 0) spacingParts.push(`w:after="${Math.round(pxToTwips(style.marginBottom))}"`);
+  if (style.marginTop > 0) spacingParts.push(`w:before="${pxToTwips(style.marginTop)}"`);
+  if (style.marginBottom > 0) spacingParts.push(`w:after="${pxToTwips(style.marginBottom)}"`);
   if (style.lineHeight !== 1.5) spacingParts.push(`w:line="${Math.round(style.lineHeight * 240)}"`);
   if (spacingParts.length > 0) parts.push(`<w:spacing ${spacingParts.join(' ')}/>`);
 
   const indParts: string[] = [];
-  if (style.textIndent > 0) indParts.push(`w:firstLine="${Math.round(pxToTwips(style.textIndent))}"`);
-  if (style.marginLeft > 0) indParts.push(`w:left="${Math.round(pxToTwips(style.marginLeft))}"`);
+  if (style.textIndent > 0) indParts.push(`w:firstLine="${pxToTwips(style.textIndent)}"`);
+  if (style.marginLeft > 0) indParts.push(`w:left="${pxToTwips(style.marginLeft)}"`);
   if (indParts.length > 0) parts.push(`<w:ind ${indParts.join(' ')}/>`);
 
   if (parts.length === 0) return '';

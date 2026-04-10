@@ -117,12 +117,12 @@ ${bodyXml}
         const cx = pxToEmus(inline.style.image.width);
         const cy = pxToEmus(inline.style.image.height);
         return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
-          <wp:extent cx="${Math.round(cx)}" cy="${Math.round(cy)}"/>
+          <wp:extent cx="${cx}" cy="${cy}"/>
           <wp:docPr id="1" name="Image"/>
           <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
             <pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="Image"/><pic:cNvPicPr/></pic:nvPicPr>
             <pic:blipFill><a:blip r:embed="${entry.rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
-            <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${Math.round(cx)}" cy="${Math.round(cy)}"/></a:xfrm>
+            <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>
             <a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>
           </a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
       }
@@ -179,11 +179,11 @@ ${bodyXml}
     headerRId?: string,
     footerRId?: string,
   ): string {
-    const w = Math.round(pxToTwips(setup.paperSize.width));
-    const h = Math.round(pxToTwips(setup.paperSize.height));
+    const w = pxToTwips(setup.paperSize.width);
+    const h = pxToTwips(setup.paperSize.height);
     const orient = setup.orientation === 'landscape' ? ' w:orient="landscape"' : '';
     const pgSz = `<w:pgSz w:w="${w}" w:h="${h}"${orient}/>`;
-    const pgMar = `<w:pgMar w:top="${Math.round(pxToTwips(setup.margins.top))}" w:right="${Math.round(pxToTwips(setup.margins.right))}" w:bottom="${Math.round(pxToTwips(setup.margins.bottom))}" w:left="${Math.round(pxToTwips(setup.margins.left))}" w:header="720" w:footer="720"/>`;
+    const pgMar = `<w:pgMar w:top="${pxToTwips(setup.margins.top)}" w:right="${pxToTwips(setup.margins.right)}" w:bottom="${pxToTwips(setup.margins.bottom)}" w:left="${pxToTwips(setup.margins.left)}" w:header="720" w:footer="720"/>`;
 
     const refs: string[] = [];
     if (headerRId) refs.push(`<w:headerReference w:type="default" r:id="${headerRId}"/>`);
