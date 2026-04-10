@@ -23,8 +23,24 @@ export function setPendingImport(docId: string, doc: DocsDocument): void {
   pendingImports.set(docId, doc);
 }
 
+/**
+ * Read a pending import without consuming it. Callers should prefer this
+ * over `takePendingImport` when the apply step can fail, so the entry
+ * can be retried (or explicitly dropped) after the failure is handled.
+ */
+export function peekPendingImport(docId: string): DocsDocument | undefined {
+  return pendingImports.get(docId);
+}
+
 export function takePendingImport(docId: string): DocsDocument | undefined {
   const doc = pendingImports.get(docId);
   if (doc) pendingImports.delete(docId);
   return doc;
+}
+
+/**
+ * Explicitly drop a pending import after it has been successfully applied.
+ */
+export function clearPendingImport(docId: string): void {
+  pendingImports.delete(docId);
 }

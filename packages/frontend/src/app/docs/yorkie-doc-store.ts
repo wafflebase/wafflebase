@@ -87,15 +87,27 @@ function parseInlineStyle(attrs: Record<string, string> | undefined): InlineStyl
   if (attrs.href !== undefined) style.href = attrs.href;
   if (attrs.pageNumber !== undefined) style.pageNumber = attrs.pageNumber === 'true';
   if ('image.src' in attrs) {
-    const image: ImageData = {
-      src: attrs['image.src'],
-      width: Number(attrs['image.width']),
-      height: Number(attrs['image.height']),
-    };
-    if ('image.alt' in attrs) {
-      image.alt = attrs['image.alt'];
+    // Guard against NaN / non-positive sizes from missing or malformed
+    // attributes so that invalid image data is dropped instead of being
+    // materialised into the in-memory document (and persisted back).
+    const width = Number(attrs['image.width']);
+    const height = Number(attrs['image.height']);
+    if (
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      width > 0 &&
+      height > 0
+    ) {
+      const image: ImageData = {
+        src: attrs['image.src'],
+        width,
+        height,
+      };
+      if ('image.alt' in attrs) {
+        image.alt = attrs['image.alt'];
+      }
+      style.image = image;
     }
-    style.image = image;
   }
   return style;
 }

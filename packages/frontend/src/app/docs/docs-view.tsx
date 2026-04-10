@@ -14,7 +14,7 @@ import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
-import { takePendingImport } from "./pending-imports";
+import { clearPendingImport, peekPendingImport } from "./pending-imports";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -211,12 +211,17 @@ export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps)
     // cursor currently points to the initial empty-doc block id which
     // no longer exists after setDocument; resetAfterDocumentReplace
     // resets the cursor, clears the selection, and invalidates layout.
+    //
+    // Peek (rather than take) the pending entry so that a failing apply
+    // leaves the import in the registry. It will be retried on the next
+    // mount (e.g. after an HMR reload) instead of being silently lost.
     if (documentId) {
-      const pending = takePendingImport(documentId);
+      const pending = peekPendingImport(documentId);
       if (pending) {
         try {
           store.setDocument(pending);
           editor.resetAfterDocumentReplace();
+          clearPendingImport(documentId);
         } catch (err) {
           console.error("Failed to apply pending DOCX import", err);
         }
