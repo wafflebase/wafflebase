@@ -1,15 +1,28 @@
 import JSZip from 'jszip';
-import type { Document, Block, TableData, TableRow, TableCell, HeaderFooter, PageSetup } from '../model/types.js';
+import type { Document, Block, Inline, TableData, TableRow, TableCell, HeaderFooter, PageSetup } from '../model/types.js';
 import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_CELL_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE } from '../model/types.js';
 import { parseRelationships, parseParagraph, parsePageSetup, type RelEntry } from './docx-parser.js';
 import { mapTableCellProperties } from './docx-style-map.js';
 import { emusToPx } from './units.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
 export type ImageUploader = (blob: Blob, filename: string) => Promise<string>;
 
 type ResolvedImage = { src: string; width: number; height: number };
+
+/**
+ * Directory for a .rels file. Relationship targets are resolved relative to
+ * the parent directory of the file the rels belong to:
+ *   - word/_rels/document.xml.rels → word/
+ *   - word/_rels/header1.xml.rels  → word/
+ * Pre-computing this makes it easier to read image bytes from the zip.
+ */
+function relsDirFor(partPath: string): string {
+  const idx = partPath.lastIndexOf('/');
+  return idx >= 0 ? partPath.slice(0, idx + 1) : '';
+}
 
 export class DocxImporter {
   /**
@@ -25,7 +38,7 @@ export class DocxImporter {
   ): Promise<Document> {
     const zip = await JSZip.loadAsync(buffer);
 
-    // Parse relationships
+    // Parse document.xml.rels (scoped to the document part).
     const relsXml = await zip.file('word/_rels/document.xml.rels')?.async('string');
     const rels = relsXml ? parseRelationships(relsXml) : new Map<string, RelEntry>();
 
@@ -36,15 +49,17 @@ export class DocxImporter {
     const body = xmlDoc.getElementsByTagNameNS(W, 'body')[0];
     if (!body) throw new Error('Invalid .docx: missing w:body');
 
-    // Upload images
+    // Upload images referenced from the document part. Image rIds are
+    // scoped per rels file, so header/footer parts keep their own maps.
     const imageUrls = new Map<string, ResolvedImage>();
     if (imageUploader) {
-      await DocxImporter.uploadImages(zip, rels, imageUploader, imageUrls);
+      await DocxImporter.uploadImages(zip, rels, 'word/', imageUploader, imageUrls);
     }
 
     // Walk body children
     const blocks: Block[] = [];
     let pageSetup: PageSetup | undefined;
+    let sectPrEl: Element | undefined;
     for (let i = 0; i < body.childNodes.length; i++) {
       const node = body.childNodes[i];
       if (node.nodeType !== 1) continue;
@@ -55,14 +70,61 @@ export class DocxImporter {
         blocks.push(DocxImporter.convertTable(el, imageUrls, false));
       } else if (el.localName === 'sectPr') {
         pageSetup = parsePageSetup(el);
+        sectPrEl = el;
       }
     }
 
-    // Parse headers and footers
-    const header = await DocxImporter.parseHeaderFooter(zip, rels, 'header', imageUrls);
-    const footer = await DocxImporter.parseHeaderFooter(zip, rels, 'footer', imageUrls);
+    // Resolve the active header/footer parts via the sectPr references
+    // rather than picking the first matching rel in iteration order.
+    const headerTarget = sectPrEl
+      ? DocxImporter.resolveHeaderFooterTarget(sectPrEl, rels, 'header')
+      : undefined;
+    const footerTarget = sectPrEl
+      ? DocxImporter.resolveHeaderFooterTarget(sectPrEl, rels, 'footer')
+      : undefined;
+
+    const header = await DocxImporter.parseHeaderFooter(
+      zip, 'header', headerTarget, imageUploader,
+    );
+    const footer = await DocxImporter.parseHeaderFooter(
+      zip, 'footer', footerTarget, imageUploader,
+    );
 
     return { blocks, pageSetup, header, footer };
+  }
+
+  /**
+   * Look up the default header/footer part target referenced from a
+   * <w:sectPr>. Prefers w:type="default", then falls back to the first
+   * reference of the requested kind. Returns the zip-relative target path
+   * (e.g. "word/header1.xml") or undefined when none is referenced.
+   */
+  private static resolveHeaderFooterTarget(
+    sectPr: Element,
+    rels: Map<string, RelEntry>,
+    type: 'header' | 'footer',
+  ): string | undefined {
+    const refTag = type === 'header' ? 'headerReference' : 'footerReference';
+    const refs = sectPr.getElementsByTagNameNS(W, refTag);
+    if (refs.length === 0) return undefined;
+
+    const pickRef = (): Element | undefined => {
+      for (let i = 0; i < refs.length; i++) {
+        const ref = refs[i];
+        const t = ref.getAttributeNS(W, 'type') || ref.getAttribute('w:type');
+        if (t === 'default') return ref;
+      }
+      return refs[0];
+    };
+
+    const ref = pickRef();
+    if (!ref) return undefined;
+    const rId = ref.getAttributeNS(R_NS, 'id') || ref.getAttribute('r:id');
+    if (!rId) return undefined;
+    const rel = rels.get(rId);
+    if (!rel || rel.type !== type) return undefined;
+    // document.xml's rels are scoped to word/, so header1.xml lives at word/header1.xml.
+    return `word/${rel.target}`;
   }
 
   private static convertParagraph(
@@ -74,8 +136,12 @@ export class DocxImporter {
     // Resolve pending image references. Each pending placeholder inline is
     // matched in order against imageRefs from the same paragraph so that the
     // EMU extent parsed from <w:drawing> is preserved as CSS pixel dimensions.
+    // Unresolved placeholders (e.g. when no uploader was supplied or when
+    // the image belongs to a rels file we didn't walk) are dropped to avoid
+    // leaving `__pending__:*` sources in the returned document.
     let refIdx = 0;
-    const resolvedInlines = inlines.map((inline) => {
+    const resolvedInlines: Inline[] = [];
+    for (const inline of inlines) {
       if (inline.style.image?.src.startsWith('__pending__:')) {
         const rId = inline.style.image.src.replace('__pending__:', '');
         const uploaded = imageUrls.get(rId);
@@ -83,18 +149,25 @@ export class DocxImporter {
         if (uploaded) {
           const width = ref && ref.cx > 0 ? Math.round(emusToPx(ref.cx)) : uploaded.width;
           const height = ref && ref.cy > 0 ? Math.round(emusToPx(ref.cy)) : uploaded.height;
-          return {
+          resolvedInlines.push({
             text: inline.text,
             style: {
               ...inline.style,
               image: { src: uploaded.src, width, height },
             },
-          };
+          });
         }
+        // else: drop the pending inline (no uploader or rId not in scope).
+        continue;
       }
-      return inline;
-    });
+      resolvedInlines.push(inline);
+    }
 
+    // Ensure the paragraph always has at least one inline so downstream
+    // layout/rendering can assume a non-empty inlines array.
+    if (resolvedInlines.length === 0) {
+      resolvedInlines.push({ text: '', style: {} });
+    }
     const block: Block = {
       id: generateBlockId(),
       type: blockType as Block['type'],
@@ -270,15 +343,26 @@ export class DocxImporter {
     return texts.join('');
   }
 
+  /**
+   * Walk the image relationships of a single .rels file and upload each
+   * referenced image via the caller-supplied uploader. Image relationship
+   * targets are resolved relative to the parent directory of the owning
+   * part (e.g. word/_rels/header1.xml.rels → word/media/image1.png).
+   *
+   * imageUrls is a map scoped to the same rels file because OOXML rIds
+   * are only unique within a given .rels document; collisions between
+   * document.xml.rels and header1.xml.rels are legal.
+   */
   private static async uploadImages(
     zip: JSZip,
     rels: Map<string, RelEntry>,
+    baseDir: string,
     uploader: ImageUploader,
     imageUrls: Map<string, ResolvedImage>,
   ): Promise<void> {
     for (const [rId, rel] of rels) {
       if (rel.type !== 'image') continue;
-      const path = `word/${rel.target}`;
+      const path = `${baseDir}${rel.target}`;
       const file = zip.file(path);
       if (!file) continue;
 
@@ -293,24 +377,41 @@ export class DocxImporter {
     }
   }
 
+  /**
+   * Parse a specific header/footer part and return its blocks. The caller
+   * resolves the part path from the active <w:sectPr> so that real Word
+   * documents — which may have multiple unused header/footer rels — land
+   * on the actual referenced part rather than the first match in
+   * iteration order.
+   *
+   * This also parses the part-local .rels file and uploads any images
+   * referenced from the header/footer into a scoped imageUrls map so that
+   * rId collisions with document.xml.rels do not bleed across parts.
+   */
   private static async parseHeaderFooter(
     zip: JSZip,
-    rels: Map<string, RelEntry>,
     type: 'header' | 'footer',
-    imageUrls: Map<string, ResolvedImage>,
+    targetFile: string | undefined,
+    imageUploader: ImageUploader | undefined,
   ): Promise<HeaderFooter | undefined> {
-    // Find the default (type 2, "default") header/footer relationship
-    let targetFile: string | undefined;
-    for (const [, rel] of rels) {
-      if (rel.type === type) {
-        targetFile = rel.target;
-        break;
-      }
-    }
     if (!targetFile) return undefined;
 
-    const xml = await zip.file(`word/${targetFile}`)?.async('string');
+    const xml = await zip.file(targetFile)?.async('string');
     if (!xml) return undefined;
+
+    // Load the part-scoped rels file and upload any referenced images.
+    // Example: targetFile = "word/header1.xml" →
+    //          relsPath   = "word/_rels/header1.xml.rels"
+    const baseDir = relsDirFor(targetFile);
+    const partFilename = targetFile.slice(baseDir.length);
+    const relsPath = `${baseDir}_rels/${partFilename}.rels`;
+    const relsXml = await zip.file(relsPath)?.async('string');
+    const partRels = relsXml ? parseRelationships(relsXml) : new Map<string, RelEntry>();
+
+    const partImageUrls = new Map<string, ResolvedImage>();
+    if (imageUploader) {
+      await DocxImporter.uploadImages(zip, partRels, baseDir, imageUploader, partImageUrls);
+    }
 
     const xmlDoc = new DOMParser().parseFromString(xml, 'text/xml');
     const rootTag = type === 'header' ? 'hdr' : 'ftr';
@@ -323,7 +424,7 @@ export class DocxImporter {
       if (node.nodeType !== 1) continue;
       const el = node as Element;
       if (el.localName === 'p') {
-        blocks.push(DocxImporter.convertParagraph(el, imageUrls));
+        blocks.push(DocxImporter.convertParagraph(el, partImageUrls));
       }
     }
 

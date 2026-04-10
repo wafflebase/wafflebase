@@ -245,6 +245,155 @@ describe('DocxImporter', () => {
     expect(occurrences).toBe(1);
   });
 
+  it('should drop pending image inlines when no uploader is supplied', async () => {
+    // Parser inserts a pending placeholder for every <w:drawing>. Without
+    // an uploader, convertParagraph must drop it instead of leaving an
+    // `__pending__:*` src in the final document.
+    const drawingXml = `
+      <w:r>
+        <w:drawing>
+          <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+            <wp:extent cx="914400" cy="457200"/>
+            <wp:docPr id="1" name="Picture 1"/>
+            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                  <pic:blipFill>
+                    <a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId5"/>
+                  </pic:blipFill>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>`;
+    const buffer = await createMinimalDocx(
+      `<w:p>${drawingXml}<w:r><w:t>Fallback</w:t></w:r></w:p>`,
+    );
+    // Intentionally omit the imageUploader argument.
+    const doc = await DocxImporter.import(buffer);
+    for (const inline of doc.blocks[0].inlines) {
+      expect(inline.style.image?.src?.startsWith('__pending__')).toBeFalsy();
+    }
+    const allText = doc.blocks[0].inlines.map((i) => i.text).join('');
+    expect(allText).toContain('Fallback');
+  });
+
+  it('should pick the default header referenced from sectPr, not first rel', async () => {
+    // Two header relationships exist in the rels map; only header2 is
+    // referenced from the sectPr as the default. The importer must pick
+    // header2 rather than the first rel in iteration order.
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId10" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+        <Relationship Id="rId11" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header2.xml"/>
+      </Relationships>`;
+    const header1Xml = `<?xml version="1.0" encoding="UTF-8"?>
+      <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:p><w:r><w:t>First header (unused)</w:t></w:r></w:p>
+      </w:hdr>`;
+    const header2Xml = `<?xml version="1.0" encoding="UTF-8"?>
+      <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+        <w:p><w:r><w:t>Active header</w:t></w:r></w:p>
+      </w:hdr>`;
+    const buffer = await createMinimalDocx(
+      `<w:p><w:r><w:t>Body</w:t></w:r></w:p>
+       <w:sectPr xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+         <w:headerReference w:type="default" r:id="rId11"/>
+         <w:pgSz w:w="11906" w:h="16838"/>
+         <w:pgMar w:top="1440" w:right="1080" w:bottom="1440" w:left="1080"/>
+       </w:sectPr>`,
+      {
+        relsXml,
+        extraFiles: {
+          'word/header1.xml': header1Xml,
+          'word/header2.xml': header2Xml,
+        },
+      },
+    );
+    const doc = await DocxImporter.import(buffer);
+    expect(doc.header).toBeDefined();
+    const headerText = doc.header!.blocks
+      .map((b) => b.inlines.map((i) => i.text).join(''))
+      .join('');
+    expect(headerText).toBe('Active header');
+  });
+
+  it('should upload images referenced only from a header .rels file', async () => {
+    // Image rId "rId3" belongs to header1.xml.rels and has no counterpart
+    // in document.xml.rels. Without per-part rels walking, the header
+    // image would resolve to a __pending__:* src. With the fix, the
+    // uploader is called with the header-local image.
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId20" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+      </Relationships>`;
+    const header1Rels = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/header-image.png"/>
+      </Relationships>`;
+    const header1Xml = `<?xml version="1.0" encoding="UTF-8"?>
+      <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+             xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+             xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+             xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+        <w:p>
+          <w:r>
+            <w:drawing>
+              <wp:inline>
+                <wp:extent cx="914400" cy="457200"/>
+                <wp:docPr id="1" name="Picture 1"/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                    <pic:pic>
+                      <pic:blipFill><a:blip r:embed="rId3"/></pic:blipFill>
+                    </pic:pic>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:inline>
+            </w:drawing>
+          </w:r>
+        </w:p>
+      </w:hdr>`;
+    const pngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+    const buffer = await createMinimalDocx(
+      `<w:p><w:r><w:t>Body</w:t></w:r></w:p>
+       <w:sectPr xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+         <w:headerReference w:type="default" r:id="rId20"/>
+         <w:pgSz w:w="11906" w:h="16838"/>
+         <w:pgMar w:top="1440" w:right="1080" w:bottom="1440" w:left="1080"/>
+       </w:sectPr>`,
+      {
+        relsXml,
+        extraFiles: {
+          'word/header1.xml': header1Xml,
+          'word/_rels/header1.xml.rels': header1Rels,
+          'word/media/header-image.png': pngBytes,
+        },
+      },
+    );
+    const uploaded: string[] = [];
+    const doc = await DocxImporter.import(buffer, async (_blob, filename) => {
+      uploaded.push(filename);
+      return `https://example.com/${filename}`;
+    });
+    expect(uploaded.length).toBe(1);
+    expect(doc.header).toBeDefined();
+    const headerBlock = doc.header!.blocks[0];
+    const headerInline = headerBlock.inlines.find((i) => !!i.style.image);
+    expect(headerInline).toBeDefined();
+    expect(headerInline!.style.image!.src).toContain('https://example.com/');
+    expect(headerInline!.style.image!.src.startsWith('__pending__')).toBe(false);
+  });
+
   it('should flatten nested tables to text', async () => {
     const buffer = await createMinimalDocx(`
       <w:tbl>
