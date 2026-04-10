@@ -24,8 +24,11 @@ export function mapRunProperties(rPr: Element): InlineStyle {
 
   const u = getW(rPr, 'u');
   if (u) {
+    // A bare <w:u/> without a w:val attribute is valid OOXML and means
+    // "underline enabled" (defaults to single). Only the explicit "none"
+    // value should suppress the underline.
     const val = getWAttr(u, 'val');
-    if (val && val !== 'none') style.underline = true;
+    if (val !== 'none') style.underline = true;
   }
 
   const sz = getW(rPr, 'sz');
@@ -49,7 +52,9 @@ export function mapRunProperties(rPr: Element): InlineStyle {
   const highlight = getW(rPr, 'highlight');
   if (highlight) {
     const val = getWAttr(highlight, 'val');
-    if (val) style.backgroundColor = mapHighlightColor(val);
+    // Skip "none" so that the mapHighlightColor fallback does not
+    // incorrectly apply yellow to explicitly cleared highlights.
+    if (val && val !== 'none') style.backgroundColor = mapHighlightColor(val);
   }
 
   const shd = getW(rPr, 'shd');

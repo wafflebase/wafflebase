@@ -46,6 +46,30 @@ describe('mapRunProperties', () => {
     const style = mapRunProperties(el);
     expect(style.superscript).toBe(true);
   });
+
+  it('should enable underline for bare <w:u/> without w:val', () => {
+    // A bare <w:u/> is valid OOXML shorthand for "underline enabled".
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:u/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.underline).toBe(true);
+  });
+
+  it('should leave underline unset for <w:u w:val="none"/>', () => {
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:u w:val="none"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.underline).toBeUndefined();
+  });
+
+  it('should not apply yellow highlight for <w:highlight w:val="none"/>', () => {
+    // Regression: mapHighlightColor falls back to yellow for unknown names,
+    // so "none" must short-circuit before the lookup.
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:highlight w:val="none"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.backgroundColor).toBeUndefined();
+  });
 });
 
 describe('mapParagraphProperties', () => {

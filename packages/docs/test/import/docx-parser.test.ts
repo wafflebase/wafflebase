@@ -37,6 +37,37 @@ describe('parseParagraph', () => {
     expect(result.inlines).toHaveLength(1);
     expect(result.inlines[0].text).toBe('');
   });
+
+  it('should preserve document order of text, tabs, and breaks within a run', () => {
+    // Regression: previously the parser appended all tabs/breaks after all
+    // text, turning "A<w:tab/>B<w:br/>C" into "ABC\t\n" instead of "A\tB\nC".
+    const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:r>
+        <w:t>A</w:t><w:tab/><w:t>B</w:t><w:br/><w:t>C</w:t>
+      </w:r>
+    </w:p>`;
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = parseParagraph(el);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('A\tB\nC');
+  });
+
+  it('should skip runs nested inside structures like w:sdt', () => {
+    // A run whose parent is neither the paragraph nor a hyperlink must be
+    // skipped so it does not leak into the inline list of the outer
+    // paragraph. Without the guard, nested w:sdt content bled through.
+    const xml = `<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+      <w:r><w:t>Outer</w:t></w:r>
+      <w:sdt>
+        <w:sdtContent>
+          <w:r><w:t>Nested</w:t></w:r>
+        </w:sdtContent>
+      </w:sdt>
+    </w:p>`;
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const result = parseParagraph(el);
+    expect(result.inlines.map((i) => i.text)).toEqual(['Outer']);
+  });
 });
 
 describe('parsePageSetup', () => {

@@ -60,10 +60,11 @@ export function parseParagraph(pEl: Element): {
   const runs = pEl.getElementsByTagNameNS(W, 'r');
   for (let i = 0; i < runs.length; i++) {
     const r = runs[i];
-    // Check if this run is a direct child (not inside a nested element like hyperlink)
-    // by verifying its parent is either the paragraph or a hyperlink
+    // Skip runs that are not a direct child of the paragraph or a hyperlink.
+    // Without this guard, runs inside nested structures we don't handle
+    // (e.g. w:sdt) leak into the surrounding paragraph's inline list.
     if (r.parentElement !== pEl && r.parentElement?.localName !== 'hyperlink') {
-      // Skip runs inside nested structures we don't handle
+      continue;
     }
 
     let style: InlineStyle = {};
@@ -96,18 +97,24 @@ export function parseParagraph(pEl: Element): {
       continue;
     }
 
-    // Regular text
-    const textEls = r.getElementsByTagNameNS(W, 't');
+    // Walk direct children in document order so that a run like
+    // "A<w:tab/>B<w:br/>C" produces "A\tB\nC" rather than collapsing all
+    // text into "ABC\t\n".
     let text = '';
-    for (let j = 0; j < textEls.length; j++) {
-      text += textEls[j].textContent || '';
+    for (let j = 0; j < r.childNodes.length; j++) {
+      const child = r.childNodes[j];
+      if (child.nodeType !== 1) continue;
+      const childEl = child as Element;
+      if (childEl.namespaceURI !== W) continue;
+      const local = childEl.localName;
+      if (local === 't') {
+        text += childEl.textContent || '';
+      } else if (local === 'tab') {
+        text += '\t';
+      } else if (local === 'br') {
+        text += '\n';
+      }
     }
-
-    // Tab and break elements
-    const tabs = r.getElementsByTagNameNS(W, 'tab');
-    if (tabs.length > 0) text += '\t';
-    const brs = r.getElementsByTagNameNS(W, 'br');
-    if (brs.length > 0) text += '\n';
 
     if (text) {
       inlines.push({ text, style });
