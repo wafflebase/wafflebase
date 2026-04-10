@@ -35,8 +35,11 @@ import {
   IconLink,
   IconTable,
   IconHash,
+  IconFileDownload,
 } from "@tabler/icons-react";
 import { TableGridPicker } from "./table-grid-picker";
+import { exportDocxAndDownload } from "./docx-actions";
+import { toast } from "sonner";
 
 /** Style option for the block-type dropdown (Google Docs style). */
 interface StyleOption {
@@ -101,9 +104,28 @@ function TableDropdown({ editor }: { editor: EditorAPI | null }) {
 interface DocsFormattingToolbarProps {
   editor: EditorAPI | null;
   editContext?: EditContext;
+  documentTitle?: string;
 }
 
-export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsFormattingToolbarProps) {
+export function DocsFormattingToolbar({ editor, editContext = 'body', documentTitle }: DocsFormattingToolbarProps) {
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportDocx = useCallback(async () => {
+    if (!editor || exporting) return;
+    setExporting(true);
+    try {
+      const doc = editor.getStore().getDocument();
+      await exportDocxAndDownload(doc, documentTitle ?? "document");
+    } catch (err) {
+      console.error("DOCX export failed", err);
+      toast.error(
+        err instanceof Error ? `Export failed: ${err.message}` : "Export failed",
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [editor, documentTitle, exporting]);
+
   const handleUndo = useCallback(() => editor?.undo(), [editor]);
   const handleRedo = useCallback(() => editor?.redo(), [editor]);
 
@@ -596,6 +618,23 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
           </button>
         </TooltipTrigger>
         <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
+      </Tooltip>
+
+      <Separator orientation="vertical" className="mx-1 h-6" />
+
+      {/* ── Export DOCX ── */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:opacity-50"
+            onClick={handleExportDocx}
+            disabled={!editor || exporting}
+            aria-label="Export as DOCX"
+          >
+            <IconFileDownload size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Export as DOCX</TooltipContent>
       </Tooltip>
 
     </div>

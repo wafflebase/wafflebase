@@ -110,3 +110,9 @@ export type { SearchMatch, SearchOptions } from './model/types.js';
 export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
 export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';
+
+// Import / Export (DOCX)
+export { DocxImporter } from './import/docx-importer.js';
+export type { ImageUploader } from './import/docx-importer.js';
+export { DocxExporter } from './export/docx-exporter.js';
+export type { ImageFetcher } from './export/docx-exporter.js';

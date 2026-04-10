@@ -16,6 +16,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import {
+  FileDown,
   FileText,
   FolderOutput,
   MoreHorizontal,
@@ -70,6 +71,8 @@ import {
   fetchWorkspaces,
   type Workspace,
 } from "@/api/workspaces";
+import { pickAndImportDocx } from "@/app/docs/docx-actions";
+import { setPendingImport } from "@/app/docs/pending-imports";
 
 function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
   return doc.type === "doc" ? `/d/${doc.id}` : `/s/${doc.id}`;
@@ -209,6 +212,33 @@ export function DocumentList({
     onSuccess: (doc) => navigate(getDocumentPath(doc)),
   });
 
+  const [importing, setImporting] = useState(false);
+
+  const handleImportDocx = async () => {
+    if (importing) return;
+    setImporting(true);
+    try {
+      const result = await pickAndImportDocx();
+      if (!result) return;
+
+      const title = result.fileName.replace(/\.docx$/i, "") || "Imported Document";
+      const created = workspaceId
+        ? await createWorkspaceDocument(workspaceId, { title, type: "doc" })
+        : await createDocument({ title, type: "doc" });
+
+      setPendingImport(String(created.id), result.doc);
+      toast.success(`Imported "${title}"`);
+      navigate(getDocumentPath(created));
+    } catch (err) {
+      console.error("DOCX import failed", err);
+      toast.error(
+        err instanceof Error ? `Import failed: ${err.message}` : "Import failed",
+      );
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const deleteDocumentMutation = useMutation({
     mutationFn: async (id: string) => await deleteDocument(id),
     onSuccess: () => {
@@ -319,6 +349,13 @@ export function DocumentList({
               <FileText className="mr-2 h-4 w-4 text-blue-500" />
               New Document
             </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={importing}
+              onClick={handleImportDocx}
+            >
+              <FileDown className="mr-2 h-4 w-4 text-blue-500" />
+              Import DOCX
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -403,6 +440,13 @@ export function DocumentList({
                         >
                           <FileText className="mr-2 h-4 w-4 text-blue-500" />
                           New Document
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={importing}
+                          onClick={handleImportDocx}
+                        >
+                          <FileDown className="mr-2 h-4 w-4 text-blue-500" />
+                          Import DOCX
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

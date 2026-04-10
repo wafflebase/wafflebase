@@ -2508,7 +2508,7 @@ git commit -m $'Implement DocxExporter for Document to .docx conversion\n\nSuppo
 
 This task wires the DocxImporter into the frontend UI. The exact component locations depend on the current toolbar structure.
 
-- [ ] **Step 1: Add import handler function**
+- [x] **Step 1: Add import handler function**
 
 Create an import handler that:
 1. Opens a file picker filtered to `.docx`
@@ -2544,7 +2544,7 @@ async function handleImportDocx() {
 }
 ```
 
-- [ ] **Step 2: Add export handler function**
+- [x] **Step 2: Add export handler function**
 
 ```typescript
 async function handleExportDocx(store: DocStore) {
@@ -2562,16 +2562,16 @@ async function handleExportDocx(store: DocStore) {
 }
 ```
 
-- [ ] **Step 3: Add UI buttons**
+- [x] **Step 3: Add UI buttons**
 
 Add "Import DOCX" and "Export as DOCX" buttons to the appropriate toolbar or menu. Follow existing button patterns in the codebase.
 
-- [ ] **Step 4: Run typecheck and verify**
+- [x] **Step 4: Run typecheck and verify**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/

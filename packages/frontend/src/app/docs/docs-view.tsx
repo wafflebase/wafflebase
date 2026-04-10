@@ -14,6 +14,7 @@ import { YorkieDocStore } from "./yorkie-doc-store";
 import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
+import { takePendingImport } from "./pending-imports";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -68,6 +69,13 @@ const HOVER_RADIUS = 10;
 interface DocsViewProps {
   onEditorReady?: (editor: EditorAPI | null) => void;
   readOnly?: boolean;
+  /**
+   * Optional document id used to consume any pending DOCX import that
+   * was staged before navigation (see `pending-imports.ts`). When set,
+   * the imported `Document` is applied via `store.setDocument()` once
+   * the editor finishes mounting.
+   */
+  documentId?: string;
 }
 
 /**
@@ -77,7 +85,7 @@ interface DocsViewProps {
  * It also subscribes to presence changes for peer cursors with label visibility
  * and hover detection.
  */
-export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
+export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
@@ -197,6 +205,21 @@ export function DocsView({ onEditorReady, readOnly }: DocsViewProps) {
     editorRef.current = editor;
     setMountedEditor(editor);
     onEditorReady?.(editor);
+
+    // If a DOCX import was staged for this document before navigation,
+    // apply it now that the store and editor are ready.
+    if (documentId) {
+      const pending = takePendingImport(documentId);
+      if (pending) {
+        try {
+          store.setDocument(pending);
+          editor.getDoc().refresh();
+          editor.render();
+        } catch (err) {
+          console.error("Failed to apply pending DOCX import", err);
+        }
+      }
+    }
 
     if (import.meta.env.DEV) {
       (window as Record<string, unknown>).__docsEditor = editor;
