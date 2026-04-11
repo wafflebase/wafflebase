@@ -21,9 +21,10 @@
       restart 당시 gridSpan을 tracker 에 기록하고, continue 에서 더 작으면 그만큼 강제로
       늘려서 row 가 정사각형을 유지하게 한다.
       → tracker 에 `colSpan` 추가, continue 에서 `Math.max(cellSpan, owner.colSpan)` 적용.
-- [ ] **3. 고아 vMerge continue** — tracker 가 없는 상태에서 `vMerge=continue` 가 오면
+- [x] **3. 고아 vMerge continue** — tracker 가 없는 상태에서 `vMerge=continue` 가 오면
       (일부 파일에서 발견) 해당 tc를 standalone owner 로 승격. 조용히 unreachable
       covered cell을 만들지 않는다.
+      → tracker 없으면 continue 블록에서 fall-through 해서 owner 경로로 처리.
 - [ ] **4. gridSpan 경계 초과 clamp** — `colSpan` 이 남은 컬럼 수를 넘으면
       `Math.min(colSpan, numCols - colIdx)` 로 잘라서 `colIdx` 가 `numCols` 를 넘지
       못하게 한다. `numCols === 0` (tblGrid 누락) 인 경우 row 의 실제 tc 개수로 폴백.

@@ -211,6 +211,36 @@ describe('DocxImporter', () => {
     expect(td.rows[1].cells[3].colSpan).toBe(0);
   });
 
+  it('should promote an orphan vMerge continue to a standalone owner', async () => {
+    // Some DOCX writers emit vMerge="continue" for a column that never
+    // opened a restart — typically when an author deletes the anchor row
+    // but leaves the continuation behind. Without a tracker entry, the
+    // importer would silently push placeholders with no owner, leaving
+    // those grid positions unreachable. Treat the first continue as a
+    // standalone owner instead.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:vMerge/></w:tcPr>
+            <w:p><w:r><w:t>Orphan</w:t></w:r></w:p>
+          </w:tc>
+          <w:tc><w:p><w:r><w:t>X</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(2);
+    // Cell 0 must be a real owner with its content preserved, not a
+    // covered placeholder.
+    expect(row.cells[0].colSpan).toBeUndefined();
+    expect(row.cells[0].rowSpan).toBeUndefined();
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('Orphan');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('X');
+  });
+
   it('should backfill row shape when vMerge continue has smaller gridSpan than the restart', async () => {
     // Row 0 opens the vertical merge at col 1 with gridSpan=3. Row 1
     // continues the merge but declares gridSpan=1 — a mismatch Word can

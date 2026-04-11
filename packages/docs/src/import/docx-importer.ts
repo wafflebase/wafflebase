@@ -323,21 +323,29 @@ export class DocxImporter {
           });
         } else if (vMerge === 'continue') {
           const tracker = vMergeTracker.get(colIdx);
-          if (tracker) tracker.count++;
-          // Mark as covered cells. A vMerge=continue tc can also have
-          // gridSpan > 1, in which case every grid column it covers must
-          // get its own placeholder so the row's cells array stays
-          // aligned with numCols. If the continue cell disagrees with
-          // the owner's span (Word can emit this when the author edits a
-          // merged range without touching the continuation), widen the
-          // placeholder count to the owner's colSpan so the row still
-          // covers every merged grid position.
-          const effectiveSpan = Math.max(colSpan, tracker ? tracker.colSpan : 1);
-          for (let s = 0; s < effectiveSpan; s++) {
-            cells.push(makeCoveredCell());
+          if (tracker) {
+            tracker.count++;
+            // Mark as covered cells. A vMerge=continue tc can also have
+            // gridSpan > 1, in which case every grid column it covers
+            // must get its own placeholder so the row's cells array
+            // stays aligned with numCols. If the continue cell
+            // disagrees with the owner's span (Word can emit this when
+            // the author edits a merged range without touching the
+            // continuation), widen the placeholder count to the
+            // owner's colSpan so the row still covers every merged
+            // grid position.
+            const effectiveSpan = Math.max(colSpan, tracker.colSpan);
+            for (let s = 0; s < effectiveSpan; s++) {
+              cells.push(makeCoveredCell());
+            }
+            colIdx += effectiveSpan;
+            continue;
           }
-          colIdx += effectiveSpan;
-          continue;
+          // Orphan continue: the column never saw a restart. Some
+          // writers leave continuation cells behind when the anchor row
+          // is deleted; fall through and treat the tc as a standalone
+          // owner so its grid positions stay reachable instead of
+          // becoming unclaimed covered placeholders.
         }
 
         // Parse cell content blocks
