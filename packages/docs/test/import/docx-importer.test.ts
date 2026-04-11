@@ -125,6 +125,92 @@ describe('DocxImporter', () => {
     expect(td.columnWidths[2]).toBeCloseTo(3 / 6, 5);
   });
 
+  it('should pad horizontal merge placeholders so cells.length matches numCols', async () => {
+    // 5-column row with [A, B(gridSpan=4)]. Downstream layout, rendering,
+    // and click handling all index `rows[r].cells[c]` by grid column and
+    // treat `colSpan === 0` as "covered". The importer must therefore
+    // emit 5 cells per row: the owner plus four placeholders. Without
+    // this, clicking the right part of the merged cell returns an
+    // undefined data cell and the cursor cannot land inside it.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="4"/></w:tcPr>
+            <w:p><w:r><w:t>B</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    // Five grid columns → five entries in the cells array.
+    expect(row.cells).toHaveLength(5);
+    // Cell 0 is the unmerged single-column owner "A".
+    expect(row.cells[0].colSpan).toBeUndefined();
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    // Cell 1 is the merged owner "B" spanning 4 grid columns.
+    expect(row.cells[1].colSpan).toBe(4);
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+    // Cells 2..4 are placeholders for the covered grid positions.
+    expect(row.cells[2].colSpan).toBe(0);
+    expect(row.cells[3].colSpan).toBe(0);
+    expect(row.cells[4].colSpan).toBe(0);
+  });
+
+  it('should pad placeholders for a gridSpan combined with vMerge continue', async () => {
+    // Two-row table where row 0 has [A, B(gridSpan=3)] and row 1 has
+    // [C, (gridSpan=3 + vMerge continue)]. The vertical merge tc itself
+    // has gridSpan=3, so three placeholders must be pushed for that
+    // position, not one.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="3"/><w:vMerge w:val="restart"/></w:tcPr>
+            <w:p><w:r><w:t>B</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="3"/><w:vMerge/></w:tcPr>
+            <w:p/>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    // Both rows must be 4 cells long.
+    expect(td.rows[0].cells).toHaveLength(4);
+    expect(td.rows[1].cells).toHaveLength(4);
+    // Row 0 owner + 2 covered placeholders for the gridSpan.
+    expect(td.rows[0].cells[1].colSpan).toBe(3);
+    expect(td.rows[0].cells[2].colSpan).toBe(0);
+    expect(td.rows[0].cells[3].colSpan).toBe(0);
+    // Row 1: the vMerge continue at col 1 is also gridSpanned across
+    // 3 grid positions, so all of cells[1..3] are covered.
+    expect(td.rows[1].cells[1].colSpan).toBe(0);
+    expect(td.rows[1].cells[2].colSpan).toBe(0);
+    expect(td.rows[1].cells[3].colSpan).toBe(0);
+  });
+
   it('should ignore gridCol elements from nested tables when computing outer widths', async () => {
     // Regression for v0.3.2: getElementsByTagNameNS('gridCol') is recursive
     // and would pick up the nested 5-col grid, collapsing the outer 1-col

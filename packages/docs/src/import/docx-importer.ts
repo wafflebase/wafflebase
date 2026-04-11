@@ -24,6 +24,25 @@ function relsDirFor(partPath: string): string {
   return idx >= 0 ? partPath.slice(0, idx + 1) : '';
 }
 
+/**
+ * Build a placeholder "covered" cell for a grid position absorbed by a
+ * horizontal or vertical merge. Downstream code expects the row's cells
+ * array to be aligned with the table's grid column count and uses
+ * `colSpan === 0` to distinguish placeholders from real owners.
+ */
+function makeCoveredCell(): TableCell {
+  return {
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: '', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+    style: { ...DEFAULT_CELL_STYLE },
+    colSpan: 0,
+  };
+}
+
 export class DocxImporter {
   /**
    * Import a .docx ArrayBuffer into a Document.
@@ -280,12 +299,13 @@ export class DocxImporter {
         } else if (vMerge === 'continue') {
           const tracker = vMergeTracker.get(colIdx);
           if (tracker) tracker.count++;
-          // Mark as covered cell
-          cells.push({
-            blocks: [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
-            style: { ...DEFAULT_CELL_STYLE },
-            colSpan: 0, // Covered
-          });
+          // Mark as covered cells. A vMerge=continue tc can also have
+          // gridSpan > 1, in which case every grid column it covers must
+          // get its own placeholder so the row's cells array stays
+          // aligned with numCols.
+          for (let s = 0; s < colSpan; s++) {
+            cells.push(makeCoveredCell());
+          }
           colIdx += colSpan;
           continue;
         }
@@ -324,6 +344,15 @@ export class DocxImporter {
           },
           colSpan: colSpan > 1 ? colSpan : undefined,
         });
+        // Pad placeholders for horizontal merge so cells.length === numCols.
+        // Downstream layout, rendering, and click handling all index
+        // row.cells[c] by grid column and rely on `colSpan === 0` to mark
+        // covered positions; without this, clicks on the right part of a
+        // merged cell resolve to an undefined entry and the cursor cannot
+        // land inside the merged cell.
+        for (let s = 1; s < colSpan; s++) {
+          cells.push(makeCoveredCell());
+        }
         colIdx += colSpan;
       }
       rows.push({ cells });
