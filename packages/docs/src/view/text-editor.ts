@@ -724,6 +724,8 @@ export class TextEditor {
     layout: import('./table-layout.js').LayoutTable;
     tableOriginX: number;
     tableOriginY: number;
+    pageFirstRow: number;
+    pageLastRow: number;
   } | null {
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
@@ -734,30 +736,50 @@ export class TextEditor {
     const paginatedLayout = this.getPaginatedLayout();
     const { margins } = paginatedLayout.pageSetup;
     const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+    const tableOriginX = pageX + margins.left;
 
+    // Multi-page tables need per-page hit testing: a table splits into
+    // separate row bands across pages, so we can only map mouseY to a
+    // valid table-logical Y relative to the page the cursor is actually
+    // over. Walk each page's row bands for every table block and only
+    // resolve when mouseY falls inside one.
     for (const lb of layout.blocks) {
       if (lb.block.type !== 'table' || !lb.layoutTable) continue;
       const tl = lb.layoutTable;
       const blockIndex = layout.blocks.indexOf(lb);
 
-      let tablePageY = 0;
+      if (mouseX < tableOriginX || mouseX > tableOriginX + tl.totalWidth) continue;
+
       for (const page of paginatedLayout.pages) {
+        const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+        let firstPl: import('./pagination.js').PageLine | undefined;
+        let lastPl: import('./pagination.js').PageLine | undefined;
         for (const pl of page.lines) {
-          if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
-            tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
-            break;
-          }
+          if (pl.blockIndex !== blockIndex) continue;
+          if (!firstPl) firstPl = pl;
+          lastPl = pl;
         }
-        if (tablePageY !== 0) break;
-      }
+        if (!firstPl || !lastPl) continue;
 
-      const tableOriginX = pageX + margins.left;
-      const tableOriginY = tablePageY;
-      const localX = mouseX - tableOriginX;
-      const localY = mouseY - tableOriginY;
+        const bandTop = pageY + firstPl.y;
+        const bandBottom = pageY + lastPl.y + lastPl.line.height;
+        if (mouseY < bandTop || mouseY > bandBottom) continue;
 
-      if (localX >= 0 && localX <= tl.totalWidth && localY >= 0 && localY <= tl.totalHeight) {
-        return { tableBlockId: lb.block.id, localX, localY, layout: tl, tableOriginX, tableOriginY };
+        // Convert mouseY to table-logical Y based on the first row in
+        // this band. The virtual tableOriginY is reconstructed so
+        // `localY = mouseY - tableOriginY` lands inside rowYOffsets of a
+        // row physically on this page.
+        const tableOriginY = bandTop - tl.rowYOffsets[firstPl.lineIndex];
+        return {
+          tableBlockId: lb.block.id,
+          localX: mouseX - tableOriginX,
+          localY: mouseY - tableOriginY,
+          layout: tl,
+          tableOriginX,
+          tableOriginY,
+          pageFirstRow: firstPl.lineIndex,
+          pageLastRow: lastPl.lineIndex,
+        };
       }
     }
     return null;
@@ -794,6 +816,8 @@ export class TextEditor {
         tableInfo.localX,
         tableInfo.localY,
         tableData,
+        tableInfo.pageFirstRow,
+        tableInfo.pageLastRow,
       );
       if (hit) {
         const pixel = hit.type === 'column'
@@ -1019,6 +1043,8 @@ export class TextEditor {
         tableInfo.localX,
         tableInfo.localY,
         tableData,
+        tableInfo.pageFirstRow,
+        tableInfo.pageLastRow,
       );
       if (hit) {
         this.setCanvasCursor(hit.type === 'column' ? 'col-resize' : 'row-resize');

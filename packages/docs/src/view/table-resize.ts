@@ -41,15 +41,21 @@ export function detectTableBorder(
   localX: number,
   localY: number,
   tableData?: TableData,
+  pageFirstRow?: number,
+  pageLastRow?: number,
 ): BorderHit | null {
   const { columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = layout;
   const numCols = columnPixelWidths.length;
   const numRows = rowHeights.length;
+  const firstRow = pageFirstRow ?? 0;
+  const lastRow = pageLastRow ?? numRows - 1;
 
   // Locate the row and column the cursor is currently over so we can tell
-  // whether a nearby border segment is swallowed by a merged cell.
+  // whether a nearby border segment is swallowed by a merged cell. Only
+  // consider rows physically on the current page so pagination gaps do
+  // not expose resize handles belonging to rows on another page.
   let hoverRow = -1;
-  for (let r = 0; r < numRows; r++) {
+  for (let r = firstRow; r <= lastRow; r++) {
     const top = rowYOffsets[r];
     const bottom = top + rowHeights[r];
     if (localY >= top && localY <= bottom) {
@@ -82,8 +88,8 @@ export function detectTableBorder(
     }
   }
 
-  // Check row borders (skip first top edge; include last bottom edge)
-  for (let r = 0; r < numRows; r++) {
+  // Check row borders — only for rows physically on this page.
+  for (let r = firstRow; r <= lastRow; r++) {
     const borderY = rowYOffsets[r] + rowHeights[r];
     if (Math.abs(localY - borderY) <= BORDER_THRESHOLD) {
       if (
