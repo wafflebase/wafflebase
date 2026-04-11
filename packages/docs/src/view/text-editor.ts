@@ -13,6 +13,7 @@ import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
 import { findVisualLine } from './visual-line.js';
 import { detectTableBorder, createDragState, type BorderDragState } from './table-resize.js';
+import { computeMergedCellLineLayouts } from './table-renderer.js';
 
 /**
  * Composition (IME) state tracker.
@@ -3132,30 +3133,46 @@ export class TextEditor {
     const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
     const dataCell = lb.block.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex];
     const cellPadding = dataCell?.style.padding ?? 4;
+    const rowSpan = dataCell?.rowSpan ?? 1;
     const cellOriginX = pageX + margins.left + tl.columnXOffsets[cellAddr.colIndex] + cellPadding;
     const localX = logicalX - cellOriginX;
 
-    // Determine which line was clicked using Y coordinate
+    // Determine which line was clicked using Y coordinate. For merged
+    // cells each line lives on a different row (and possibly a
+    // different page), so we compute each line's absolute rendered Y
+    // via the same helper the renderer uses instead of relying on a
+    // single continuous cell Y axis.
     let targetLineIdx = cell.lines.length - 1; // default: last line
-    if (logicalY !== undefined) {
-      // Find the paginated row's page position to compute cell Y origin
+    if (logicalY !== undefined && cell.lines.length > 0) {
+      const lineLayouts = computeMergedCellLineLayouts(
+        cell.lines,
+        cellAddr.rowIndex,
+        rowSpan,
+        cellPadding,
+        tl.rowYOffsets,
+        tl.rowHeights,
+      );
       const blockIndex = layout.blocks.indexOf(lb);
-      let cellPageY = 0;
+
+      // Cache ownerRow → page Y + pl.y so we avoid an O(pages*lines)
+      // lookup per click.
+      const rowPageInfo = new Map<number, { pageY: number; plY: number }>();
       for (const page of paginatedLayout.pages) {
+        const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
         for (const pl of page.lines) {
-          if (pl.blockIndex === blockIndex && pl.lineIndex === cellAddr.rowIndex) {
-            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-            cellPageY = pageY + pl.y - tl.rowYOffsets[cellAddr.rowIndex] + cellPadding;
-            break;
-          }
+          if (pl.blockIndex !== blockIndex) continue;
+          rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y });
         }
-        if (cellPageY !== 0) break;
       }
 
-      const localY = logicalY - cellPageY;
       targetLineIdx = cell.lines.length - 1;
       for (let li = 0; li < cell.lines.length; li++) {
-        if (localY < cell.lines[li].y + cell.lines[li].height) {
+        const ll = lineLayouts[li];
+        const info = rowPageInfo.get(ll.ownerRow);
+        if (!info) continue;
+        const lineAbsY =
+          info.pageY + info.plY + (ll.runLineY - tl.rowYOffsets[ll.ownerRow]);
+        if (logicalY < lineAbsY + cell.lines[li].height) {
           targetLineIdx = li;
           break;
         }
