@@ -1,4 +1,6 @@
 import type { LayoutTable } from './table-layout.js';
+import type { TableData } from '../model/types.js';
+import { findMergeTopLeft } from './selection.js';
 
 const BORDER_THRESHOLD = 4;
 const MIN_COLUMN_WIDTH = 30;
@@ -19,27 +21,85 @@ export interface BorderDragState {
   maxPixel: number;
 }
 
+/**
+ * Return true if the two cell positions belong to the same merged cell.
+ * Plain cells have themselves as their own "top-left" so this also returns
+ * false for any two different plain cells.
+ */
+function cellsShareMerge(
+  table: TableData,
+  r1: number, c1: number,
+  r2: number, c2: number,
+): boolean {
+  const a = findMergeTopLeft(table, r1, c1);
+  const b = findMergeTopLeft(table, r2, c2);
+  return a.rowIndex === b.rowIndex && a.colIndex === b.colIndex;
+}
+
 export function detectTableBorder(
   layout: LayoutTable,
   localX: number,
   localY: number,
+  tableData?: TableData,
+  pageFirstRow?: number,
+  pageLastRow?: number,
 ): BorderHit | null {
   const { columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = layout;
   const numCols = columnPixelWidths.length;
   const numRows = rowHeights.length;
+  const firstRow = pageFirstRow ?? 0;
+  const lastRow = pageLastRow ?? numRows - 1;
+
+  // Locate the row and column the cursor is currently over so we can tell
+  // whether a nearby border segment is swallowed by a merged cell. Only
+  // consider rows physically on the current page so pagination gaps do
+  // not expose resize handles belonging to rows on another page.
+  let hoverRow = -1;
+  for (let r = firstRow; r <= lastRow; r++) {
+    const top = rowYOffsets[r];
+    const bottom = top + rowHeights[r];
+    if (localY >= top && localY <= bottom) {
+      hoverRow = r;
+      break;
+    }
+  }
+  let hoverCol = -1;
+  for (let c = 0; c < numCols; c++) {
+    const left = columnXOffsets[c];
+    const right = left + columnPixelWidths[c];
+    if (localX >= left && localX <= right) {
+      hoverCol = c;
+      break;
+    }
+  }
 
   // Check column borders (skip first left edge and last right edge)
   for (let c = 0; c < numCols - 1; c++) {
     const borderX = columnXOffsets[c] + columnPixelWidths[c];
     if (Math.abs(localX - borderX) <= BORDER_THRESHOLD) {
+      if (
+        tableData &&
+        hoverRow >= 0 &&
+        cellsShareMerge(tableData, hoverRow, c, hoverRow, c + 1)
+      ) {
+        continue;
+      }
       return { type: 'column', index: c };
     }
   }
 
-  // Check row borders (skip first top edge; include last bottom edge)
-  for (let r = 0; r < numRows; r++) {
+  // Check row borders — only for rows physically on this page.
+  for (let r = firstRow; r <= lastRow; r++) {
     const borderY = rowYOffsets[r] + rowHeights[r];
     if (Math.abs(localY - borderY) <= BORDER_THRESHOLD) {
+      if (
+        tableData &&
+        hoverCol >= 0 &&
+        r + 1 < numRows &&
+        cellsShareMerge(tableData, r, hoverCol, r + 1, hoverCol)
+      ) {
+        continue;
+      }
       return { type: 'row', index: r };
     }
   }

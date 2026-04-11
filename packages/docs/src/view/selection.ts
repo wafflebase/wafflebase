@@ -1,9 +1,10 @@
-import type { DocPosition, DocRange, TableCellRange } from '../model/types.js';
+import type { DocPosition, DocRange, TableCellRange, TableData, CellAddress } from '../model/types.js';
 import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import { resolvePositionPixel } from './peer-cursor.js';
+import { computeMergedCellLineLayouts } from './table-renderer.js';
 import { buildFont, Theme } from './theme.js';
 
 // --- Free helpers (used by both Selection class and computeSelectionRects) ---
@@ -14,12 +15,99 @@ export interface NormalizedRange {
   tableCellRange?: TableCellRange;
 }
 
-function normalizeCellRange(cr: TableCellRange): TableCellRange {
-  const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
-  const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
-  const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
-  const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
-  return { blockId: cr.blockId, start: { rowIndex: minRow, colIndex: minCol }, end: { rowIndex: maxRow, colIndex: maxCol } };
+/**
+ * Walk back from `(r, c)` to the top-left of the merged cell that covers it.
+ * Returns `(r, c)` itself if the cell is plain or already a merge top-left.
+ *
+ * The data model has no back-pointer, so we scan upward and leftward looking
+ * for a cell whose `colSpan`/`rowSpan` reaches `(r, c)`. Tables are small in
+ * practice; the cost is bounded by the table area.
+ */
+export function findMergeTopLeft(table: TableData, r: number, c: number): CellAddress {
+  const cell = table.rows[r]?.cells[c];
+  if (!cell) return { rowIndex: r, colIndex: c };
+  if (cell.colSpan !== 0) return { rowIndex: r, colIndex: c };
+
+  for (let rr = r; rr >= 0; rr--) {
+    for (let cc = c; cc >= 0; cc--) {
+      const candidate = table.rows[rr]?.cells[cc];
+      if (!candidate) continue;
+      const span = candidate.colSpan ?? 1;
+      const rspan = candidate.rowSpan ?? 1;
+      if (span > 1 || rspan > 1) {
+        if (rr + rspan - 1 >= r && cc + span - 1 >= c) {
+          return { rowIndex: rr, colIndex: cc };
+        }
+      }
+    }
+  }
+  return { rowIndex: r, colIndex: c };
+}
+
+/**
+ * Expand a cell range to a bounding rectangle that fully contains every
+ * merged cell it touches. Runs a fixed-point loop because expanding for one
+ * merge can pull a previously-out-of-range merge into the rect.
+ *
+ * Caller may pass an unordered range — this helper orders start/end first.
+ */
+export function expandCellRangeForMerges(
+  cr: TableCellRange,
+  table: TableData,
+): TableCellRange {
+  let rowStart = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+  let rowEnd = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+  let colStart = Math.min(cr.start.colIndex, cr.end.colIndex);
+  let colEnd = Math.max(cr.start.colIndex, cr.end.colIndex);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let r = rowStart; r <= rowEnd; r++) {
+      for (let c = colStart; c <= colEnd; c++) {
+        const cell = table.rows[r]?.cells[c];
+        if (!cell) continue;
+        const span = cell.colSpan ?? 1;
+        const rspan = cell.rowSpan ?? 1;
+
+        // Top-left of a merge whose span extends past current rect.
+        if (span > 1 || rspan > 1) {
+          const r2 = r + rspan - 1;
+          const c2 = c + span - 1;
+          if (r2 > rowEnd) { rowEnd = r2; changed = true; }
+          if (c2 > colEnd) { colEnd = c2; changed = true; }
+        }
+
+        // Covered cell whose top-left is outside current rect.
+        if (cell.colSpan === 0) {
+          const tl = findMergeTopLeft(table, r, c);
+          if (tl.rowIndex < rowStart) { rowStart = tl.rowIndex; changed = true; }
+          if (tl.colIndex < colStart) { colStart = tl.colIndex; changed = true; }
+        }
+      }
+    }
+  }
+
+  return {
+    blockId: cr.blockId,
+    start: { rowIndex: rowStart, colIndex: colStart },
+    end: { rowIndex: rowEnd, colIndex: colEnd },
+  };
+}
+
+function normalizeCellRange(cr: TableCellRange, table?: TableData): TableCellRange {
+  const ordered: TableCellRange = {
+    blockId: cr.blockId,
+    start: {
+      rowIndex: Math.min(cr.start.rowIndex, cr.end.rowIndex),
+      colIndex: Math.min(cr.start.colIndex, cr.end.colIndex),
+    },
+    end: {
+      rowIndex: Math.max(cr.start.rowIndex, cr.end.rowIndex),
+      colIndex: Math.max(cr.start.colIndex, cr.end.colIndex),
+    },
+  };
+  return table ? expandCellRangeForMerges(ordered, table) : ordered;
 }
 
 function normalizeRange(
@@ -28,10 +116,12 @@ function normalizeRange(
 ): NormalizedRange | null {
   // Cell-range mode: tableCellRange is set
   if (range.tableCellRange) {
+    const lb = layout.blocks.find((b) => b.block.id === range.tableCellRange!.blockId);
+    const table = lb?.block.tableData;
     return {
       start: range.anchor,
       end: range.focus,
-      tableCellRange: normalizeCellRange(range.tableCellRange),
+      tableCellRange: normalizeCellRange(range.tableCellRange, table),
     };
   }
 
@@ -168,11 +258,16 @@ function buildRects(
       }];
     }
 
-    // Multi-line cell selection: find cell bounds for full-width lines
+    // Multi-line cell selection: walk the cell's lines from start to end
+    // and emit one rect per line. Each line's absolute Y is derived from
+    // computeMergedCellLineLayouts so per-row distribution (merged cells
+    // split across pages) stays consistent with the renderer. The old
+    // "advance midY by line height" path stepped linearly through the
+    // cell's Y axis and painted into the empty space below row 0 when a
+    // merged cell's line actually lived on the next page.
     const lb = layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId);
     const tl = lb?.layoutTable;
-    if (!tl) {
-      // Fallback: rect from start to end
+    if (!lb || !tl) {
       return [{
         x: startPixel.x,
         y: startPixel.y,
@@ -181,36 +276,117 @@ function buildRects(
       }];
     }
     const { rowIndex, colIndex } = startCellInfo;
-    const cellPadding = lb!.block.tableData?.rows[rowIndex]?.cells[colIndex]?.style.padding ?? 4;
-    const cellLeftX = startPixel.x - (startPixel.x - (getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + cellPadding));
-    const cellRightX = getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + tl.columnPixelWidths[colIndex] - cellPadding;
+    const layoutCell = tl.cells[rowIndex]?.[colIndex];
+    const cellData = lb.block.tableData?.rows[rowIndex]?.cells[colIndex];
+    if (!layoutCell || layoutCell.merged || !cellData) {
+      return [{
+        x: startPixel.x,
+        y: startPixel.y,
+        width: endPixel.x - startPixel.x,
+        height: endPixel.y + endPixel.height - startPixel.y,
+      }];
+    }
+    const cellPadding = cellData.style?.padding ?? 4;
+    const rowSpan = cellData.rowSpan ?? 1;
+
+    const pageXOffset = getPageXOffset(paginatedLayout, canvasWidth);
+    const { margins } = paginatedLayout.pageSetup;
+    const cellLeftX = pageXOffset + margins.left + tl.columnXOffsets[colIndex] + cellPadding;
+    const cellRightX =
+      pageXOffset + margins.left + tl.columnXOffsets[colIndex] + layoutCell.width - cellPadding;
+
+    // Locate the cell's block containing the start/end positions and the
+    // corresponding line indices within cell.lines.
+    const startCbi = cellData.blocks.findIndex((b) => b.id === start.blockId);
+    const endCbi = cellData.blocks.findIndex((b) => b.id === end.blockId);
+    const startCbiEff = startCbi >= 0 ? startCbi : 0;
+    const endCbiEff = endCbi >= 0 ? endCbi : 0;
+
+    // Find the cell-internal line index for a given offset. At a visual
+    // wrap boundary (offset === cumulative chars) forward affinity
+    // belongs to the next line (matching how `resolvePositionPixel` uses
+    // 'forward' for `start`), while backward affinity stays on the
+    // current line (matching `end`). Without this bias a wrapped cell
+    // selection can render an extra rect on the previous line or miss
+    // the first rect on the next one.
+    const lineIdxForOffset = (
+      cbiEff: number,
+      offset: number,
+      affinity: 'forward' | 'backward',
+    ): number => {
+      const lineStart = layoutCell.blockBoundaries[cbiEff] ?? 0;
+      const lineEnd =
+        layoutCell.blockBoundaries[cbiEff + 1] ?? layoutCell.lines.length;
+      let remaining = offset;
+      for (let li = lineStart; li < lineEnd; li++) {
+        let lineChars = 0;
+        for (const run of layoutCell.lines[li].runs) lineChars += run.text.length;
+        if (remaining <= lineChars) {
+          if (
+            affinity === 'forward' &&
+            remaining === lineChars &&
+            li < lineEnd - 1
+          ) {
+            remaining = 0;
+            continue;
+          }
+          return li;
+        }
+        remaining -= lineChars;
+      }
+      return Math.max(lineStart, lineEnd - 1);
+    };
+
+    const startLineIdx = lineIdxForOffset(startCbiEff, start.offset, 'forward');
+    const endLineIdx = lineIdxForOffset(endCbiEff, end.offset, 'backward');
+
+    const lineLayouts = computeMergedCellLineLayouts(
+      layoutCell.lines,
+      rowIndex,
+      rowSpan,
+      cellPadding,
+      tl.rowYOffsets,
+      tl.rowHeights,
+    );
+
+    const blockIndex = layout.blocks.indexOf(lb);
+    const resolveLineAbsoluteY = (ownerRow: number, runLineY: number): number | undefined => {
+      for (const page of paginatedLayout.pages) {
+        for (const pl of page.lines) {
+          if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
+            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+            return pageY + pl.y + (runLineY - tl.rowYOffsets[ownerRow]);
+          }
+        }
+      }
+      return undefined;
+    };
 
     const cellRects: Array<{ x: number; y: number; width: number; height: number }> = [];
-    // First line: from start to cell right edge
-    cellRects.push({
-      x: startPixel.x,
-      y: startPixel.y,
-      width: cellRightX - startPixel.x,
-      height: startPixel.height,
-    });
-    // Middle lines: full cell width
-    let midY = startPixel.y + startPixel.height;
-    while (midY < endPixel.y) {
-      cellRects.push({
-        x: cellLeftX,
-        y: midY,
-        width: cellRightX - cellLeftX,
-        height: startPixel.height, // approximate line height
-      });
-      midY += startPixel.height;
+    for (let li = startLineIdx; li <= endLineIdx; li++) {
+      const line = layoutCell.lines[li];
+      const ll = lineLayouts[li];
+      if (!ll) continue;
+      const lineY = resolveLineAbsoluteY(ll.ownerRow, ll.runLineY);
+      if (lineY === undefined) continue;
+
+      let lineX: number;
+      let lineWidth: number;
+      if (li === startLineIdx && li === endLineIdx) {
+        lineX = startPixel.x;
+        lineWidth = endPixel.x - startPixel.x;
+      } else if (li === startLineIdx) {
+        lineX = startPixel.x;
+        lineWidth = cellRightX - startPixel.x;
+      } else if (li === endLineIdx) {
+        lineX = cellLeftX;
+        lineWidth = endPixel.x - cellLeftX;
+      } else {
+        lineX = cellLeftX;
+        lineWidth = cellRightX - cellLeftX;
+      }
+      cellRects.push({ x: lineX, y: lineY, width: lineWidth, height: line.height });
     }
-    // Last line: from cell left edge to end
-    cellRects.push({
-      x: cellLeftX,
-      y: endPixel.y,
-      width: endPixel.x - cellLeftX,
-      height: endPixel.height,
-    });
     return cellRects;
   }
 
@@ -333,6 +509,11 @@ export function computeSelectionRects(
 
 /**
  * Build highlight rectangles for a cell-range selection.
+ *
+ * Row Y positions are read from the paginated layout (one `PageLine` per
+ * table row) so the highlight sits on the same pixel band as the rendered
+ * rows even when the table spans multiple pages. `tl.rowYOffsets` is a
+ * contiguous table-logical coordinate and cannot be used directly.
  */
 function buildCellRangeRects(
   cellRange: TableCellRange,
@@ -348,36 +529,57 @@ function buildCellRangeRects(
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const { margins } = paginatedLayout.pageSetup;
 
-  // Find the page Y offset for this table's first row
-  let tablePageY = 0;
-  let tableRowBaseY = 0;
-  let foundTablePage = false;
+  // Build a row → absolute Y map from the paginated layout.
+  const rowYMap = new Map<number, number>();
   for (const page of paginatedLayout.pages) {
+    const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
     for (const pl of page.lines) {
-      if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
-        tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
-        tableRowBaseY = tl.rowYOffsets[0];
-        foundTablePage = true;
-        break;
-      }
+      if (pl.blockIndex !== blockIndex) continue;
+      rowYMap.set(pl.lineIndex, pageY + pl.y);
     }
-    if (foundTablePage) break;
   }
-  const tableOriginY = tablePageY - tableRowBaseY;
 
   const { start, end } = cellRange;
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+  const tableData = lb.block.tableData;
 
   for (let r = start.rowIndex; r <= end.rowIndex; r++) {
     for (let c = start.colIndex; c <= end.colIndex; c++) {
       const cell = tl.cells[r]?.[c];
       if (!cell || cell.merged) continue;
-      rects.push({
-        x: pageX + margins.left + tl.columnXOffsets[c],
-        y: tableOriginY + tl.rowYOffsets[r],
-        width: tl.columnPixelWidths[c],
-        height: tl.rowHeights[r],
-      });
+
+      // For merge top-left cells, highlight the full colSpan × rowSpan
+      // footprint. LayoutTableCell.width already sums spanned columns.
+      // Row coverage is split into one rect per contiguous page segment:
+      // when the next spanned row lives on a different page (its
+      // absolute Y is not the running segment's expected bottom), flush
+      // the current rect and start a new one anchored at the new row's
+      // page Y. This keeps merged-cell highlights aligned with the row
+      // bands on each page instead of bleeding into empty space below
+      // the first row.
+      const srcCell = tableData?.rows[r]?.cells[c];
+      const rowSpan = srcCell?.rowSpan ?? 1;
+      const x = pageX + margins.left + tl.columnXOffsets[c];
+      const width = cell.width;
+
+      const spanEnd = Math.min(r + rowSpan, tl.rowHeights.length);
+      let segmentTop: number | undefined;
+      let segmentHeight = 0;
+      for (let rr = r; rr < spanEnd; rr++) {
+        const rrY = rowYMap.get(rr);
+        if (rrY === undefined) continue;
+        if (segmentTop === undefined) {
+          segmentTop = rrY;
+        } else if (Math.abs(rrY - (segmentTop + segmentHeight)) > 0.5) {
+          rects.push({ x, y: segmentTop, width, height: segmentHeight });
+          segmentTop = rrY;
+          segmentHeight = 0;
+        }
+        segmentHeight += tl.rowHeights[rr];
+      }
+      if (segmentTop !== undefined && segmentHeight > 0) {
+        rects.push({ x, y: segmentTop, width, height: segmentHeight });
+      }
     }
   }
   return rects;

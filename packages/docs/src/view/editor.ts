@@ -8,12 +8,13 @@ import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
-import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getHeaderYStart, getFooterYStart, type PaginatedLayout } from './pagination.js';
+import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, type PaginatedLayout } from './pagination.js';
 import type { DocPosition, HeaderFooter } from '../model/types.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
 import { computeScaleFactor } from './scale.js';
 import { buildFont, setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
+import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 
 /**
  * Public API returned by initialize().
@@ -89,6 +90,8 @@ export interface EditorAPI {
   mergeTableCells(range: CellRange): void;
   /** Split the current cell */
   splitTableCell(): void;
+  /** Compute the merge/unmerge state for the menu (current cursor + selection) */
+  getTableMergeContext(): TableMergeContext;
   /** Apply style to current cell */
   applyTableCellStyle(style: Partial<CellStyle>): void;
   /** Delete the table the cursor is currently in */
@@ -761,13 +764,33 @@ export function initialize(
       ctx.restore();
     }
 
-    // Render rulers — target the page where the cursor is
-    const cursorBlock = doc.document.blocks.find(
-      (b) => b.id === cursor.position.blockId,
-    );
-    const cursorPageInfo = findPageForPosition(
-      paginatedLayout, cursor.position.blockId, cursor.position.offset, layout,
-    );
+    // Render rulers — target the page where the cursor is. For cells
+    // inside a table, the cursor's blockId is not a top-level block so
+    // findPageForPosition can't resolve it; fall back to the pixel
+    // position (which already knows which row and page the cursor lives
+    // on via resolvePositionPixel's per-row lookup).
+    const cursorCellInfo = layout.blockParentMap.get(cursor.position.blockId);
+    const cursorBlockId = cursorCellInfo
+      ? cursorCellInfo.tableBlockId
+      : cursor.position.blockId;
+    const cursorBlock = doc.document.blocks.find((b) => b.id === cursorBlockId);
+
+    let cursorPageIndex = 0;
+    if (cursorPixel) {
+      for (const page of paginatedLayout.pages) {
+        const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+        if (cursorPixel.y >= pageY && cursorPixel.y < pageY + page.height) {
+          cursorPageIndex = page.pageIndex;
+          break;
+        }
+      }
+    } else {
+      const pageInfo = findPageForPosition(
+        paginatedLayout, cursor.position.blockId, cursor.position.offset, layout,
+      );
+      if (pageInfo) cursorPageIndex = pageInfo.pageIndex;
+    }
+
     if (scaleFactor >= 1) {
       ruler.render(
         paginatedLayout,
@@ -775,7 +798,7 @@ export function initialize(
         logicalCanvasWidth,
         canvasHeight,
         cursorBlock?.style ?? null,
-        cursorPageInfo?.pageIndex ?? 0,
+        cursorPageIndex,
       );
     }
   };
@@ -1390,6 +1413,8 @@ export function initialize(
       invalidateLayout();
       render();
     },
+    getTableMergeContext: () =>
+      computeTableMergeContext(doc, layout.blockParentMap, cursor.position, selection.range),
     applyTableCellStyle: (style: Partial<CellStyle>) => {
       docStore.snapshot();
       // Cell-range selection: apply to all cells in range

@@ -4,6 +4,7 @@ import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
 import { buildFont, Theme } from './theme.js';
+import { computeMergedCellLineLayouts } from './table-renderer.js';
 
 /**
  * Represents a remote peer's cursor for collaborative editing.
@@ -50,34 +51,23 @@ export function resolvePositionPixel(
     const cell = tl.cells[rowIndex]?.[colIndex];
     if (!cell || cell.merged) return undefined;
 
-    const cellPadding = lb.block.tableData?.rows[rowIndex]?.cells[colIndex]?.style.padding ?? 4;
+    const cellData = lb.block.tableData?.rows[rowIndex]?.cells[colIndex];
+    const cellPadding = cellData?.style.padding ?? 4;
+    const rowSpan = cellData?.rowSpan ?? 1;
 
-    // Find which paginated page contains this row
-    const blockIndex = layout.blocks.indexOf(lb);
-    let pageLine: import('./pagination.js').PageLine | undefined;
-    let pageIndex = 0;
-    for (const page of paginatedLayout.pages) {
-      for (const pl of page.lines) {
-        if (pl.blockIndex === blockIndex && pl.lineIndex === rowIndex) {
-          pageLine = pl;
-          pageIndex = page.pageIndex;
-          break;
-        }
-      }
-      if (pageLine) break;
-    }
-    if (!pageLine) return undefined;
-
-    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
-    const pageY = getPageYOffset(paginatedLayout, pageIndex);
-    const { margins } = paginatedLayout.pageSetup;
-
-    // Cell origin within table
-    const cellX = tl.columnXOffsets[colIndex] + cellPadding;
-    const cellY = tl.rowYOffsets[rowIndex] + cellPadding;
+    // Per-line layouts (distributes merged-cell lines across spanned
+    // rows). For rowSpan === 1 this collapses to the old
+    // `padding + line.y` positioning.
+    const lineLayouts = computeMergedCellLineLayouts(
+      cell.lines,
+      rowIndex,
+      rowSpan,
+      cellPadding,
+      tl.rowYOffsets,
+      tl.rowHeights,
+    );
 
     // Determine which lines belong to the target cell block
-    const cellData = lb.block.tableData?.rows[rowIndex]?.cells[colIndex];
     const cbi = cellData ? cellData.blocks.findIndex((b) => b.id === position.blockId) : 0;
     const effectiveCbi = cbi >= 0 ? cbi : 0;
     const startLine = cell.blockBoundaries[effectiveCbi] ?? 0;
@@ -85,7 +75,7 @@ export function resolvePositionPixel(
 
     // Measure text offset within the target block's lines
     let cursorX = 0;
-    let cursorLineY = 0;
+    let targetLineIdx = -1;
     let lineHeight = tl.rowHeights[rowIndex] ?? 20;
     let offsetRemaining = position.offset;
 
@@ -96,9 +86,8 @@ export function resolvePositionPixel(
         lineChars += run.text.length;
       }
       if (offsetRemaining <= lineChars) {
-        // Cursor is on this line
+        targetLineIdx = li;
         lineHeight = line.height;
-        cursorLineY = line.y;
         let chars = 0;
         for (const run of line.runs) {
           if (offsetRemaining <= chars + run.text.length) {
@@ -116,12 +105,54 @@ export function resolvePositionPixel(
         break;
       }
       offsetRemaining -= lineChars;
-      cursorLineY = line.y + line.height;
     }
+
+    // Cursor past end-of-content: place at the tail of the last line in
+    // the target block so Arrow-End still resolves.
+    if (targetLineIdx < 0) {
+      targetLineIdx = Math.max(startLine, endLine - 1);
+      const tailLine = cell.lines[targetLineIdx];
+      if (tailLine) {
+        lineHeight = tailLine.height;
+        const lastRun = tailLine.runs[tailLine.runs.length - 1];
+        cursorX = lastRun ? lastRun.x + lastRun.width : 0;
+      }
+    }
+
+    const targetLayout = lineLayouts[targetLineIdx];
+    if (!targetLayout) return undefined;
+    const ownerRow = targetLayout.ownerRow;
+
+    // Find the PageLine for the owner row.
+    const blockIndex = layout.blocks.indexOf(lb);
+    let pageLine: import('./pagination.js').PageLine | undefined;
+    let pageIndex = 0;
+    for (const page of paginatedLayout.pages) {
+      for (const pl of page.lines) {
+        if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
+          pageLine = pl;
+          pageIndex = page.pageIndex;
+          break;
+        }
+      }
+      if (pageLine) break;
+    }
+    if (!pageLine) return undefined;
+
+    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+    const pageY = getPageYOffset(paginatedLayout, pageIndex);
+    const { margins } = paginatedLayout.pageSetup;
+
+    const cellX = tl.columnXOffsets[colIndex] + cellPadding;
+    // targetLayout.runLineY is table-logical. The cursor's absolute Y
+    // on the owner row's page is pageY + pageLine.y + (runLineY -
+    // rowYOffsets[ownerRow]), i.e. the row-local offset of the line.
+    const cursorYOnPage =
+      pageY + pageLine.y + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
 
     return {
       x: pageX + margins.left + cellX + cursorX,
-      y: pageY + pageLine.y - tl.rowYOffsets[rowIndex] + cellY + cursorLineY,
+      y: cursorYOnPage,
       height: lineHeight,
     };
   }

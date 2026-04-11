@@ -1,7 +1,63 @@
-import type { LayoutTable } from './table-layout.js';
+import type { LayoutTable, LayoutTableCell } from './table-layout.js';
 import type { TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
+
+/**
+ * Per-line placement for a merged cell: which spanned row the line
+ * belongs to and the line's absolute Y in table-logical coordinates.
+ */
+export interface MergedCellLineLayout {
+  ownerRow: number;
+  runLineY: number;
+}
+
+/**
+ * Distribute a merged cell's lines across the rows it spans, using a
+ * content-flow model: a line occupies the next free slot in the current
+ * row; if it does not fit, advance to the next row and start from that
+ * row's top padding. This lines up well with a user's expectation that
+ * N lines merged into N rows show one line per row, and cleanly answers
+ * "which page does this line belong to" even when `rowHeights` have slack
+ * (previously the center-in-range heuristic collapsed late lines into
+ * an earlier row whenever the rows were taller than the lines).
+ *
+ * Returned positions are in table-logical Y (relative to the table's
+ * top-left). Callers add their page origin to draw or to anchor a cursor.
+ * For `rowSpan <= 1` the result matches the old `cellY + padding + line.y`
+ * formula so non-merged cells render unchanged.
+ */
+export function computeMergedCellLineLayouts(
+  cellLines: LayoutTableCell['lines'],
+  cellTopRow: number,
+  rowSpan: number,
+  cellPadding: number,
+  rowYOffsets: number[],
+  rowHeights: number[],
+): MergedCellLineLayout[] {
+  const numRows = rowYOffsets.length;
+  const spanEnd = Math.min(cellTopRow + rowSpan, numRows);
+  const result: MergedCellLineLayout[] = [];
+  let currentRow = cellTopRow;
+  let yInRow = cellPadding;
+
+  for (const line of cellLines) {
+    if (
+      rowSpan > 1 &&
+      currentRow + 1 < spanEnd &&
+      yInRow + line.height > rowHeights[currentRow] - cellPadding
+    ) {
+      currentRow++;
+      yInRow = cellPadding;
+    }
+    result.push({
+      ownerRow: currentRow,
+      runLineY: rowYOffsets[currentRow] + yInRow,
+    });
+    yInRow += line.height;
+  }
+  return result;
+}
 
 /**
  * Render a table on the Canvas using pre-computed layout data.
@@ -40,6 +96,7 @@ export function renderTableBackgrounds(
   tableY: number,
   startRow = 0,
   endRow?: number,
+  pageStartRow?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -47,6 +104,7 @@ export function renderTableBackgrounds(
   const numRows = cells.length;
   const numCols = columnPixelWidths.length;
   const rowEnd = endRow ?? numRows;
+  const pageStart = pageStartRow ?? startRow;
 
   for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
@@ -59,22 +117,29 @@ export function renderTableBackgrounds(
       const colSpan = cell.colSpan ?? 1;
       const rowSpan = cell.rowSpan ?? 1;
 
+      // Clip the cell to the rows physically rendered on this page so a
+      // merged cell split across pages shows its background on each page
+      // as if it were a standalone cell.
+      const visibleStart = Math.max(r, pageStart);
+      const visibleEnd = Math.min(r + rowSpan, rowEnd, numRows);
+      if (visibleStart >= visibleEnd) continue;
+
       let cellWidth = 0;
       for (let s = 0; s < colSpan && c + s < numCols; s++) {
         cellWidth += columnPixelWidths[c + s];
       }
 
-      let cellHeight = 0;
-      for (let s = 0; s < rowSpan && r + s < numRows; s++) {
-        cellHeight += rowHeights[r + s];
+      let visibleHeight = 0;
+      for (let rr = visibleStart; rr < visibleEnd; rr++) {
+        visibleHeight += rowHeights[rr];
       }
 
       ctx.fillStyle = cell.style.backgroundColor;
       ctx.fillRect(
         tableX + columnXOffsets[c],
-        tableY + rowYOffsets[r],
+        tableY + rowYOffsets[visibleStart],
         cellWidth,
-        cellHeight,
+        visibleHeight,
       );
     }
   }
@@ -86,6 +151,14 @@ export function renderTableBackgrounds(
  * `renderTableBackgrounds` has already run for the same row range, and
  * that any selection highlight the editor wants under the text has
  * been drawn in between.
+ *
+ * `pageStartRow` is the first row physically laid out on the current
+ * page (normally equal to `startRow`). It differs only for merged cells
+ * that span a page break: the caller sweeps `startRow` back to the
+ * merge's top-left so the cell gets visited here, but only the lines
+ * whose vertical position lies within `[pageStartRow, endRow)` should
+ * actually be drawn. Without that filter, merged-cell text is rendered
+ * twice (once on each page) and lines near the break appear on both.
  */
 export function renderTableContent(
   ctx: CanvasRenderingContext2D,
@@ -95,6 +168,7 @@ export function renderTableContent(
   tableY: number,
   startRow = 0,
   endRow?: number,
+  pageStartRow?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -102,6 +176,7 @@ export function renderTableContent(
   const numRows = cells.length;
   const numCols = columnPixelWidths.length;
   const rowEnd = endRow ?? numRows;
+  const pageStart = pageStartRow ?? startRow;
 
   // 2. Cell text
   for (let r = startRow; r < rowEnd; r++) {
@@ -115,6 +190,11 @@ export function renderTableContent(
       const padding = cell.style?.padding ?? 4;
       const colSpan = cell.colSpan ?? 1;
       const rowSpan = cell.rowSpan ?? 1;
+
+      // A non-merged cell on a swept-back row (r < pageStart) belongs to
+      // an earlier page — it was already rendered there, skip it here so
+      // the canvas state isn't wasted on clipped draws.
+      if (rowSpan === 1 && r < pageStart) continue;
 
       let cellWidth = 0;
       for (let s = 0; s < colSpan && c + s < numCols; s++) {
@@ -143,8 +223,37 @@ export function renderTableContent(
         textYOffset = padding;
       }
 
+      // For top-aligned merged cells, distribute lines across the
+      // spanned rows so each row gets its own top padding and content
+      // flows into the next row when one fills up. Non-merged cells, or
+      // merged cells with middle/bottom alignment, stay on the
+      // `textYOffset + line.y` path so the vertical alignment math in
+      // renderTableContent keeps working. (Pagination of middle/
+      // bottom-aligned merged cells is a pre-existing limitation — the
+      // semantics of "align-middle across two pages" is undefined.)
+      const mergedLineLayouts =
+        rowSpan > 1 && verticalAlign === 'top'
+          ? computeMergedCellLineLayouts(
+              layoutCell.lines,
+              r,
+              rowSpan,
+              padding,
+              rowYOffsets,
+              rowHeights,
+            )
+          : undefined;
+
       // Render each line's runs
-      for (const line of layoutCell.lines) {
+      for (let li = 0; li < layoutCell.lines.length; li++) {
+        const line = layoutCell.lines[li];
+        let lineAbsoluteY: number;
+        if (mergedLineLayouts) {
+          const ll = mergedLineLayouts[li];
+          if (ll.ownerRow < pageStart || ll.ownerRow >= rowEnd) continue;
+          lineAbsoluteY = tableY + ll.runLineY;
+        } else {
+          lineAbsoluteY = cellY + textYOffset + line.y;
+        }
         for (const run of line.runs) {
           const style = run.inline.style;
           const fontSize = style.fontSize ?? Theme.defaultFontSize;
@@ -156,11 +265,11 @@ export function renderTableContent(
             style.bold,
             style.italic,
           );
-          ctx.fillStyle = style.color ?? Theme.defaultColor;
+          ctx.fillStyle = style.color || Theme.defaultColor;
           ctx.textBaseline = 'alphabetic';
 
           const runX = cellX + padding + run.x;
-          const runLineY = cellY + textYOffset + line.y;
+          const runLineY = lineAbsoluteY;
           const baselineY = runLineY + line.height * 0.75;
 
           // Text background highlight
@@ -169,7 +278,7 @@ export function renderTableContent(
             ctx.fillStyle = style.backgroundColor;
             ctx.fillRect(runX, runLineY, run.width, line.height);
             ctx.restore();
-            ctx.fillStyle = style.color ?? Theme.defaultColor;
+            ctx.fillStyle = style.color || Theme.defaultColor;
           }
 
           ctx.fillText(run.text, runX, baselineY);
@@ -178,7 +287,7 @@ export function renderTableContent(
           if (style.underline) {
             const underlineY = baselineY + 2;
             ctx.beginPath();
-            ctx.strokeStyle = style.color ?? Theme.defaultColor;
+            ctx.strokeStyle = style.color || Theme.defaultColor;
             ctx.lineWidth = 1;
             ctx.moveTo(runX, underlineY);
             ctx.lineTo(runX + run.width, underlineY);
@@ -189,7 +298,7 @@ export function renderTableContent(
           if (style.strikethrough) {
             const strikeY = baselineY - fontSizePx * 0.25;
             ctx.beginPath();
-            ctx.strokeStyle = style.color ?? Theme.defaultColor;
+            ctx.strokeStyle = style.color || Theme.defaultColor;
             ctx.lineWidth = 1;
             ctx.moveTo(runX, strikeY);
             ctx.lineTo(runX + run.width, strikeY);
@@ -228,9 +337,20 @@ export function renderTableContent(
           if (firstLineIdx === undefined || firstLineIdx >= layoutCell.lines.length) continue;
           const firstLine = layoutCell.lines[firstLineIdx];
 
+          // Keep the marker on whichever page actually renders the
+          // first line of this list-item block, and anchor it to the
+          // same Y used by the text run above.
+          let markerLineY: number;
+          if (mergedLineLayouts) {
+            const ll = mergedLineLayouts[firstLineIdx];
+            if (ll.ownerRow < pageStart || ll.ownerRow >= rowEnd) continue;
+            markerLineY = tableY + ll.runLineY;
+          } else {
+            markerLineY = cellY + textYOffset + firstLine.y;
+          }
+
           const markerIndent = LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
           const markerX = cellX + padding + markerIndent;
-          const markerLineY = cellY + textYOffset + firstLine.y;
 
           const marker = cellBlock.listKind === 'unordered'
             ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
@@ -240,14 +360,16 @@ export function renderTableContent(
           const fontSizePx = ptToPx(fontSize);
           const baselineY = Math.round(markerLineY + (firstLine.height + fontSizePx * 0.8) / 2);
           ctx.font = buildFont(fontSize, cellBlock.inlines[0]?.style.fontFamily, false, false);
-          ctx.fillStyle = cellBlock.inlines[0]?.style.color ?? Theme.defaultColor;
+          ctx.fillStyle = cellBlock.inlines[0]?.style.color || Theme.defaultColor;
           ctx.fillText(marker, markerX, baselineY);
         }
       }
     }
   }
 
-  // 3. Borders
+  // 3. Borders. Clip each cell to the rows physically rendered on this
+  // page so a merged cell split by a page break draws a full 4-sided
+  // rectangle on each page instead of one half-open shape per page.
   for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
       const layoutCell = cells[r][c];
@@ -259,25 +381,29 @@ export function renderTableContent(
       const colSpan = cell.colSpan ?? 1;
       const rowSpan = cell.rowSpan ?? 1;
 
+      const visibleStart = Math.max(r, pageStart);
+      const visibleEnd = Math.min(r + rowSpan, rowEnd, numRows);
+      if (visibleStart >= visibleEnd) continue;
+
       let cellWidth = 0;
       for (let s = 0; s < colSpan && c + s < numCols; s++) {
         cellWidth += columnPixelWidths[c + s];
       }
 
-      let cellHeight = 0;
-      for (let s = 0; s < rowSpan && r + s < numRows; s++) {
-        cellHeight += rowHeights[r + s];
+      let visibleHeight = 0;
+      for (let rr = visibleStart; rr < visibleEnd; rr++) {
+        visibleHeight += rowHeights[rr];
       }
 
       const x = tableX + columnXOffsets[c];
-      const y = tableY + rowYOffsets[r];
+      const y = tableY + rowYOffsets[visibleStart];
 
       // Use theme-aware default border color so borders adapt to dark mode
       const themeBorder: BorderStyle = { ...DEFAULT_BORDER_STYLE, color: Theme.defaultColor };
       drawBorder(ctx, cell.style?.borderTop ?? themeBorder, x, y, x + cellWidth, y);
-      drawBorder(ctx, cell.style?.borderBottom ?? themeBorder, x, y + cellHeight, x + cellWidth, y + cellHeight);
-      drawBorder(ctx, cell.style?.borderLeft ?? themeBorder, x, y, x, y + cellHeight);
-      drawBorder(ctx, cell.style?.borderRight ?? themeBorder, x + cellWidth, y, x + cellWidth, y + cellHeight);
+      drawBorder(ctx, cell.style?.borderBottom ?? themeBorder, x, y + visibleHeight, x + cellWidth, y + visibleHeight);
+      drawBorder(ctx, cell.style?.borderLeft ?? themeBorder, x, y, x, y + visibleHeight);
+      drawBorder(ctx, cell.style?.borderRight ?? themeBorder, x + cellWidth, y, x + cellWidth, y + visibleHeight);
     }
   }
 }

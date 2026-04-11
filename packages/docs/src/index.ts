@@ -72,6 +72,7 @@ export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
 
 // View
 export { initialize, type EditorAPI } from './view/editor.js';
+export type { TableMergeContext } from './view/table-merge-context.js';
 export { computeLayout, computeListCounters } from './view/layout.js';
 export type {
   DocumentLayout,

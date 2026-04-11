@@ -3,7 +3,7 @@ import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE,
 import { Doc, type EditContext } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
-import { Selection } from './selection.js';
+import { Selection, expandCellRangeForMerges } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, resolveClickTarget } from './pagination.js';
@@ -13,6 +13,7 @@ import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
 import { findVisualLine } from './visual-line.js';
 import { detectTableBorder, createDragState, type BorderDragState } from './table-resize.js';
+import { computeMergedCellLineLayouts } from './table-renderer.js';
 
 /**
  * Composition (IME) state tracker.
@@ -724,6 +725,8 @@ export class TextEditor {
     layout: import('./table-layout.js').LayoutTable;
     tableOriginX: number;
     tableOriginY: number;
+    pageFirstRow: number;
+    pageLastRow: number;
   } | null {
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
@@ -734,30 +737,50 @@ export class TextEditor {
     const paginatedLayout = this.getPaginatedLayout();
     const { margins } = paginatedLayout.pageSetup;
     const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+    const tableOriginX = pageX + margins.left;
 
+    // Multi-page tables need per-page hit testing: a table splits into
+    // separate row bands across pages, so we can only map mouseY to a
+    // valid table-logical Y relative to the page the cursor is actually
+    // over. Walk each page's row bands for every table block and only
+    // resolve when mouseY falls inside one.
     for (const lb of layout.blocks) {
       if (lb.block.type !== 'table' || !lb.layoutTable) continue;
       const tl = lb.layoutTable;
       const blockIndex = layout.blocks.indexOf(lb);
 
-      let tablePageY = 0;
+      if (mouseX < tableOriginX || mouseX > tableOriginX + tl.totalWidth) continue;
+
       for (const page of paginatedLayout.pages) {
+        const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+        let firstPl: import('./pagination.js').PageLine | undefined;
+        let lastPl: import('./pagination.js').PageLine | undefined;
         for (const pl of page.lines) {
-          if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
-            tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
-            break;
-          }
+          if (pl.blockIndex !== blockIndex) continue;
+          if (!firstPl) firstPl = pl;
+          lastPl = pl;
         }
-        if (tablePageY !== 0) break;
-      }
+        if (!firstPl || !lastPl) continue;
 
-      const tableOriginX = pageX + margins.left;
-      const tableOriginY = tablePageY;
-      const localX = mouseX - tableOriginX;
-      const localY = mouseY - tableOriginY;
+        const bandTop = pageY + firstPl.y;
+        const bandBottom = pageY + lastPl.y + lastPl.line.height;
+        if (mouseY < bandTop || mouseY > bandBottom) continue;
 
-      if (localX >= 0 && localX <= tl.totalWidth && localY >= 0 && localY <= tl.totalHeight) {
-        return { tableBlockId: lb.block.id, localX, localY, layout: tl, tableOriginX, tableOriginY };
+        // Convert mouseY to table-logical Y based on the first row in
+        // this band. The virtual tableOriginY is reconstructed so
+        // `localY = mouseY - tableOriginY` lands inside rowYOffsets of a
+        // row physically on this page.
+        const tableOriginY = bandTop - tl.rowYOffsets[firstPl.lineIndex];
+        return {
+          tableBlockId: lb.block.id,
+          localX: mouseX - tableOriginX,
+          localY: mouseY - tableOriginY,
+          layout: tl,
+          tableOriginX,
+          tableOriginY,
+          pageFirstRow: firstPl.lineIndex,
+          pageLastRow: lastPl.lineIndex,
+        };
       }
     }
     return null;
@@ -788,7 +811,15 @@ export class TextEditor {
     // Check for border resize drag
     const tableInfo = this.resolveTableFromMouse(e);
     if (tableInfo) {
-      const hit = detectTableBorder(tableInfo.layout, tableInfo.localX, tableInfo.localY);
+      const tableData = this.doc.getBlock(tableInfo.tableBlockId).tableData;
+      const hit = detectTableBorder(
+        tableInfo.layout,
+        tableInfo.localX,
+        tableInfo.localY,
+        tableData,
+        tableInfo.pageFirstRow,
+        tableInfo.pageLastRow,
+      );
       if (hit) {
         const pixel = hit.type === 'column'
           ? tableInfo.tableOriginX + tableInfo.layout.columnXOffsets[hit.index] + tableInfo.layout.columnPixelWidths[hit.index]
@@ -893,7 +924,6 @@ export class TextEditor {
     const clickedBlock = this.doc.document.blocks.find((b) => b.id === pos.blockId);
     if (clickedBlock?.type === 'table' && clickedBlock.tableData) {
       const layout = this.getLayout();
-      const paginatedLayout = this.getPaginatedLayout();
       const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
       if (lb?.layoutTable) {
         const rect = this.container.getBoundingClientRect();
@@ -901,27 +931,7 @@ export class TextEditor {
         const mouseX = (e.clientX - rect.left + this.container.scrollLeft) / s;
         const mouseY = (e.clientY - rect.top - this.getCanvasOffsetTop()) / s + this.container.scrollTop / s;
 
-        // Find which page the table block is on to compute correct local coordinates
-        const blockIndex = layout.blocks.indexOf(lb);
-        const { margins } = paginatedLayout.pageSetup;
-        let tablePageY = 0;
-        let tablePageLineY = 0;
-        for (const page of paginatedLayout.pages) {
-          for (const pl of page.lines) {
-            if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
-              tablePageY = getPageYOffset(paginatedLayout, page.pageIndex);
-              tablePageLineY = pl.y;
-              break;
-            }
-          }
-          if (tablePageY > 0) break;
-        }
-
-        const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
-        const localX = mouseX - pageX - margins.left;
-        const localY = mouseY - tablePageY - tablePageLineY;
-
-        const cellAddr = this.resolveTableCellClick(pos.blockId, localX, localY);
+        const cellAddr = this.resolveTableCellClick(pos.blockId, mouseX, mouseY);
         if (cellAddr) {
           const tableBlock = this.doc.getBlock(pos.blockId);
           const cell = tableBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex];
@@ -1028,7 +1038,15 @@ export class TextEditor {
     // Cursor style: check for border proximity
     const tableInfo = this.resolveTableFromMouse(e);
     if (tableInfo) {
-      const hit = detectTableBorder(tableInfo.layout, tableInfo.localX, tableInfo.localY);
+      const tableData = this.doc.getBlock(tableInfo.tableBlockId).tableData;
+      const hit = detectTableBorder(
+        tableInfo.layout,
+        tableInfo.localX,
+        tableInfo.localY,
+        tableData,
+        tableInfo.pageFirstRow,
+        tableInfo.pageLastRow,
+      );
       if (hit) {
         this.setCanvasCursor(hit.type === 'column' ? 'col-resize' : 'row-resize');
       } else {
@@ -1132,24 +1150,7 @@ export class TextEditor {
           const layout = this.getLayout();
           const lb = layout.blocks.find((b) => b.block.id === tableBlockId);
           if (lb?.layoutTable) {
-            const paginatedLayout = this.getPaginatedLayout();
-            const { margins } = paginatedLayout.pageSetup;
-            const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
-            // Find table page position for localX/Y
-            const blockIndex = layout.blocks.indexOf(lb);
-            let tablePageY = 0;
-            for (const page of paginatedLayout.pages) {
-              for (const pl of page.lines) {
-                if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
-                  tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
-                  break;
-                }
-              }
-              if (tablePageY !== 0) break;
-            }
-            const localX = x - pageX - margins.left;
-            const localY = (y + scrollY) - tablePageY;
-            const currentCA = this.resolveTableCellClick(tableBlockId, localX, localY);
+            const currentCA = this.resolveTableCellClick(tableBlockId, x, y + scrollY);
 
             if (currentCA &&
                 currentCA.rowIndex === anchorCA.rowIndex &&
@@ -1162,12 +1163,21 @@ export class TextEditor {
               };
             } else if (currentCA) {
               // Different cell — cell-range mode
-              tableCellRange = {
-                blockId: tableBlockId,
-                start: anchorCA,
-                end: currentCA,
-              };
-              const targetCell = this.doc.getBlock(tableBlockId).tableData!.rows[currentCA.rowIndex].cells[currentCA.colIndex];
+              const tableData = this.doc.getBlock(tableBlockId).tableData!;
+              tableCellRange = expandCellRangeForMerges(
+                {
+                  blockId: tableBlockId,
+                  start: anchorCA,
+                  end: currentCA,
+                },
+                tableData,
+              );
+              // Cursor lands on the cell the user actually dragged to
+              // (resolveTableCellClick guarantees currentCA is a visible
+              // top-left, never a covered cell). The expanded range is for
+              // selection/highlighting only.
+              const targetCell = tableData.rows[currentCA.rowIndex]
+                .cells[currentCA.colIndex];
               pos = {
                 blockId: targetCell.blocks[0].id,
                 offset: 0,
@@ -1823,14 +1833,17 @@ export class TextEditor {
               anchorCI.tableBlockId === newPosCI.tableBlockId &&
               (anchorCI.rowIndex !== newPosCI.rowIndex ||
                anchorCI.colIndex !== newPosCI.colIndex)) {
-            // Cross-cell: use tableCellRange
+            // Cross-cell: use tableCellRange, expanded to cover any merges it touches
             this.selection.setRange({
               anchor, focus: newPos,
-              tableCellRange: {
-                blockId: anchorCI.tableBlockId,
-                start: { rowIndex: anchorCI.rowIndex, colIndex: anchorCI.colIndex },
-                end: { rowIndex: newPosCI.rowIndex, colIndex: newPosCI.colIndex },
-              },
+              tableCellRange: expandCellRangeForMerges(
+                {
+                  blockId: anchorCI.tableBlockId,
+                  start: { rowIndex: anchorCI.rowIndex, colIndex: anchorCI.colIndex },
+                  end: { rowIndex: newPosCI.rowIndex, colIndex: newPosCI.colIndex },
+                },
+                this.doc.getBlock(anchorCI.tableBlockId).tableData!,
+              ),
             });
           } else if (anchorCI && !newPosCI) {
             // Exiting table: block-range with anchor at table boundary
@@ -2992,27 +3005,71 @@ export class TextEditor {
    * Resolve which table cell was clicked given coordinates local to the
    * table block's top-left corner.
    */
+  /**
+   * Resolve a mouse position (canvas-logical, scroll-adjusted coordinates)
+   * to the table cell under the cursor.
+   *
+   * Row resolution iterates the paginated layout's `PageLine`s instead of
+   * reading `tl.rowYOffsets` directly. Each row of a paginated table is
+   * recorded as a `PageLine` whose `lineIndex` is the row index and whose
+   * absolute Y we can reconstruct from `getPageYOffset` + `pl.y`. This is
+   * the only correct mapping when the table spans multiple pages — the
+   * table's own `rowYOffsets` are contiguous in table-logical space and
+   * do not account for the gap between pages.
+   */
   private resolveTableCellClick(
     blockId: string,
-    localX: number,
-    localY: number,
+    mouseX: number,
+    mouseY: number,
   ): CellAddress | undefined {
     const block = this.doc.document.blocks.find((b) => b.id === blockId);
     if (!block || block.type !== 'table' || !block.tableData) return undefined;
     const layout = this.getLayout();
+    const paginatedLayout = this.getPaginatedLayout();
     const lb = layout.blocks.find((b) => b.block.id === blockId);
     if (!lb?.layoutTable) return undefined;
     const tl = lb.layoutTable;
+    const blockIndex = layout.blocks.indexOf(lb);
 
-    // Find row
-    let rowIndex = tl.rowHeights.length - 1;
-    for (let r = 0; r < tl.rowYOffsets.length; r++) {
-      if (localY < tl.rowYOffsets[r] + tl.rowHeights[r]) {
-        rowIndex = r;
-        break;
+    // Find the row by walking the paginated layout's lines for this table.
+    let rowIndex = -1;
+    let firstRowTop = Number.POSITIVE_INFINITY;
+    let lastRowBottom = Number.NEGATIVE_INFINITY;
+    let lastRowIndex = -1;
+    outer: for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+      for (const pl of page.lines) {
+        if (pl.blockIndex !== blockIndex) continue;
+        const top = pageY + pl.y;
+        const bottom = top + pl.line.height;
+        if (top < firstRowTop) firstRowTop = top;
+        if (bottom > lastRowBottom) {
+          lastRowBottom = bottom;
+          lastRowIndex = pl.lineIndex;
+        }
+        if (mouseY >= top && mouseY < bottom) {
+          rowIndex = pl.lineIndex;
+          break outer;
+        }
       }
     }
-    // Find column
+
+    // Click above/below the table: clamp to the nearest row so drags that
+    // leave the table vertically still land on a valid cell.
+    if (rowIndex < 0) {
+      if (mouseY < firstRowTop) {
+        rowIndex = 0;
+      } else if (lastRowIndex >= 0) {
+        rowIndex = lastRowIndex;
+      } else {
+        return undefined;
+      }
+    }
+
+    // Find the column using table-logical X.
+    const { margins } = paginatedLayout.pageSetup;
+    const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
+    const localX = mouseX - pageX - margins.left;
     let colIndex = tl.columnPixelWidths.length - 1;
     for (let c = 0; c < tl.columnXOffsets.length; c++) {
       if (localX < tl.columnXOffsets[c] + tl.columnPixelWidths[c]) {
@@ -3020,7 +3077,8 @@ export class TextEditor {
         break;
       }
     }
-    // Skip merged cells — find owner
+
+    // Resolve a covered cell to its merge top-left.
     const cell = block.tableData.rows[rowIndex]?.cells[colIndex];
     if (cell?.colSpan === 0) {
       for (let r = rowIndex; r >= 0; r--) {
@@ -3075,30 +3133,46 @@ export class TextEditor {
     const pageX = getPageXOffset(paginatedLayout, this.getCanvasWidth());
     const dataCell = lb.block.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex];
     const cellPadding = dataCell?.style.padding ?? 4;
+    const rowSpan = dataCell?.rowSpan ?? 1;
     const cellOriginX = pageX + margins.left + tl.columnXOffsets[cellAddr.colIndex] + cellPadding;
     const localX = logicalX - cellOriginX;
 
-    // Determine which line was clicked using Y coordinate
+    // Determine which line was clicked using Y coordinate. For merged
+    // cells each line lives on a different row (and possibly a
+    // different page), so we compute each line's absolute rendered Y
+    // via the same helper the renderer uses instead of relying on a
+    // single continuous cell Y axis.
     let targetLineIdx = cell.lines.length - 1; // default: last line
-    if (logicalY !== undefined) {
-      // Find the paginated row's page position to compute cell Y origin
+    if (logicalY !== undefined && cell.lines.length > 0) {
+      const lineLayouts = computeMergedCellLineLayouts(
+        cell.lines,
+        cellAddr.rowIndex,
+        rowSpan,
+        cellPadding,
+        tl.rowYOffsets,
+        tl.rowHeights,
+      );
       const blockIndex = layout.blocks.indexOf(lb);
-      let cellPageY = 0;
+
+      // Cache ownerRow → page Y + pl.y so we avoid an O(pages*lines)
+      // lookup per click.
+      const rowPageInfo = new Map<number, { pageY: number; plY: number }>();
       for (const page of paginatedLayout.pages) {
+        const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
         for (const pl of page.lines) {
-          if (pl.blockIndex === blockIndex && pl.lineIndex === cellAddr.rowIndex) {
-            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-            cellPageY = pageY + pl.y - tl.rowYOffsets[cellAddr.rowIndex] + cellPadding;
-            break;
-          }
+          if (pl.blockIndex !== blockIndex) continue;
+          rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y });
         }
-        if (cellPageY !== 0) break;
       }
 
-      const localY = logicalY - cellPageY;
       targetLineIdx = cell.lines.length - 1;
       for (let li = 0; li < cell.lines.length; li++) {
-        if (localY < cell.lines[li].y + cell.lines[li].height) {
+        const ll = lineLayouts[li];
+        const info = rowPageInfo.get(ll.ownerRow);
+        if (!info) continue;
+        const lineAbsY =
+          info.pageY + info.plY + (ll.runLineY - tl.rowYOffsets[ll.ownerRow]);
+        if (logicalY < lineAbsY + cell.lines[li].height) {
           targetLineIdx = li;
           break;
         }

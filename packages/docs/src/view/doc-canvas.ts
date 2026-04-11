@@ -98,6 +98,7 @@ interface TableRenderRange {
   layoutBlock: LayoutBlock;
   tableX: number;
   tableOriginY: number;
+  pageStartRow: number;
   renderStartRow: number;
   endRowIndex: number;
 }
@@ -120,9 +121,9 @@ function computeTableRangeForPageLine(
   layoutBlock: LayoutBlock,
   pl: PageLine,
   plIndex: number,
-): { renderStartRow: number; endRowIndex: number } {
-  const startRowIndex = pl.lineIndex;
-  let endRowIndex = startRowIndex + 1;
+): { pageStartRow: number; renderStartRow: number; endRowIndex: number } {
+  const pageStartRow = pl.lineIndex;
+  let endRowIndex = pageStartRow + 1;
   for (let k = plIndex + 1; k < page.lines.length; k++) {
     const nextPl = page.lines[k];
     if (nextPl.blockIndex === pl.blockIndex) {
@@ -131,20 +132,20 @@ function computeTableRangeForPageLine(
       break;
     }
   }
-  let renderStartRow = startRowIndex;
+  let renderStartRow = pageStartRow;
   const tableData = layoutBlock.block.tableData;
   if (tableData) {
-    for (let r = 0; r < startRowIndex; r++) {
+    for (let r = 0; r < pageStartRow; r++) {
       for (let c = 0; c < tableData.rows[r].cells.length; c++) {
         const cell = tableData.rows[r].cells[c];
         const rs = cell.rowSpan ?? 1;
-        if (rs > 1 && r + rs > startRowIndex) {
+        if (rs > 1 && r + rs > pageStartRow) {
           renderStartRow = Math.min(renderStartRow, r);
         }
       }
     }
   }
-  return { renderStartRow, endRowIndex };
+  return { pageStartRow, renderStartRow, endRowIndex };
 }
 
 /**
@@ -178,6 +179,7 @@ function collectTableRenderRanges(
       layoutBlock: lb,
       tableX: pageX + margins.left,
       tableOriginY,
+      pageStartRow: range.pageStartRow,
       renderStartRow: range.renderStartRow,
       endRowIndex: range.endRowIndex,
     });
@@ -432,6 +434,7 @@ export class DocCanvas {
             tr.tableOriginY,
             tr.renderStartRow,
             tr.endRowIndex,
+            tr.pageStartRow,
           );
         }
       }
@@ -535,6 +538,7 @@ export class DocCanvas {
                 tableOriginY,
                 range.renderStartRow,
                 range.endRowIndex,
+                range.pageStartRow,
               );
             }
             continue;

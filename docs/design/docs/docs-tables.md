@@ -312,6 +312,79 @@ class Doc {
   covered cells is concatenated into the top-left cell.
 - `splitCell(cell)`: Reset `colSpan`/`rowSpan` to 1. Restore covered cells
   with default `inlines: [{ text: '', style: {} }]`.
+- The input range to `mergeCells` is assumed to be rectangular and to fully
+  contain any merged cells it touches. This invariant is enforced upstream
+  by [Cell Range Normalization](#cell-range-normalization), which expands
+  the user's drag selection so it never partially overlaps an existing
+  merged cell.
+
+## Cell Range Normalization
+
+`expandCellRangeForMerges` in `selection.ts` is a fixed-point loop that
+grows a cell range's bounding rectangle until no merged cell crosses its
+boundary:
+
+1. Order `start`/`end` so that `rowStart ≤ rowEnd` and `colStart ≤ colEnd`.
+2. For every cell `(r, c)` inside the current bounding rect:
+   - If the cell is a merge **top-left** (`colSpan > 1` or `rowSpan > 1`)
+     and its span extends past `rowEnd`/`colEnd`, expand the bounding rect.
+   - If the cell is **covered** (`colSpan === 0`), walk back (←, ↑) to find
+     its merge top-left and expand the bounding rect to include that
+     position.
+3. Repeat step 2 until no expansion happens (typically 1–2 passes).
+
+`findMergeTopLeft(table, r, c)` is a small helper that scans backwards to
+locate the merge anchor for a covered cell. The current data model has no
+back-pointer; the scan is bounded by table size and is acceptable because
+tables are small.
+
+Normalization is applied in two places:
+
+- **Write-time** — the drag handler in `text-editor.ts` and the Shift+Arrow
+  cross-cell branch call `expandCellRangeForMerges` before storing the
+  range on the selection, so `selection.range.tableCellRange` already
+  contains the expanded rectangle. This is what drives the drag-time hover
+  highlight, which therefore previews the exact area that will be merged.
+- **Read-time** — `normalizeRange` in `selection.ts` re-applies the
+  expansion when a consumer reads the selection (rendering, copy, peer
+  cursor projection, `computeTableMergeContext`). This is a defensive pass
+  for programmatic writers: `Selection.setRange()` itself does not mutate
+  the supplied range, so callers that bypass the write-time handlers still
+  get a normalized view.
+
+## Cell Merge UX
+
+Merge and unmerge are exposed through a single context-menu slot whose
+label, icon, and enabled state follow the cursor and selection.
+
+| State | Trigger | Label | Enabled |
+|-------|---------|-------|---------|
+| `none` | In a single non-merged cell, no cell range | "Merge cells" | ❌ |
+| `canMerge` | Cell range with area ≥ 2 (post-normalization) | "Merge cells" | ✅ |
+| `canUnmerge` | Cursor in a merged cell, no cell range | "Unmerge cells" | ✅ |
+
+When the cursor is inside a merged cell **and** a cell range is also active,
+`canMerge` wins — the user's intent is to grow the existing merge into a
+larger one.
+
+The frontend reads this through a new editor API:
+
+```typescript
+type TableMergeContext =
+  | { state: 'none' }
+  | { state: 'canMerge'; tableBlockId: string; range: CellRange }
+  | { state: 'canUnmerge'; tableBlockId: string; cell: CellAddress };
+
+interface EditorAPI {
+  getTableMergeContext(): TableMergeContext;
+}
+```
+
+The context menu (`docs-table-context-menu.tsx`) calls
+`getTableMergeContext()` once when opening, caches the result for the
+lifetime of the popup, and renders a single slot whose label/icon/disabled
+state follow the table above. Out-of-scope for this iteration: keyboard
+shortcuts, top menu integration, floating table toolbar.
 
 ## Extensibility Path
 
