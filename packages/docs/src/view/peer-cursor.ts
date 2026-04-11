@@ -4,6 +4,10 @@ import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
 import { buildFont, Theme } from './theme.js';
+import {
+  computeMergedCellLineShift,
+  findMergedCellOwnerRow,
+} from './table-renderer.js';
 
 /**
  * Represents a remote peer's cursor for collaborative editing.
@@ -100,25 +104,18 @@ export function resolvePositionPixel(
     // coordinates). The cursor must anchor to that row's PageLine so it
     // renders on the page where the line is drawn, not on the cell's
     // top-left page.
-    let ownerRow = rowIndex;
-    if (rowSpan > 1) {
-      const lineCenterInTable =
-        tl.rowYOffsets[rowIndex] + cellPadding + cursorLineY + lineHeight / 2;
-      for (let rr = rowIndex; rr < rowIndex + rowSpan && rr < tl.rowHeights.length; rr++) {
-        const top = tl.rowYOffsets[rr];
-        const bottom = top + tl.rowHeights[rr];
-        if (lineCenterInTable >= top && lineCenterInTable < bottom) {
-          ownerRow = rr;
-          break;
-        }
-      }
-      // Overflow past the spanned rows → clamp to last row.
-      const lastSpannedRow = Math.min(rowIndex + rowSpan - 1, tl.rowHeights.length - 1);
-      const lastRowBottom = tl.rowYOffsets[lastSpannedRow] + tl.rowHeights[lastSpannedRow];
-      if (ownerRow === rowIndex && lineCenterInTable >= lastRowBottom) {
-        ownerRow = lastSpannedRow;
-      }
-    }
+    const ownerRow =
+      rowSpan > 1
+        ? findMergedCellOwnerRow(
+            rowIndex,
+            rowSpan,
+            cellPadding,
+            cursorLineY,
+            lineHeight,
+            tl.rowYOffsets,
+            tl.rowHeights,
+          )
+        : rowIndex;
 
     // Find the PageLine for the owner row.
     const blockIndex = layout.blocks.indexOf(lb);
@@ -136,14 +133,50 @@ export function resolvePositionPixel(
     }
     if (!pageLine) return undefined;
 
+    // Match the renderer's continuation-page shift so the cursor sits on
+    // the same pixel band as the text. Without this, merged-cell cursor
+    // positions on page 2+ stay anchored to the cell's virtual top-left
+    // row, even though the text has been shifted to give the continuation
+    // fresh top padding.
+    const ownerPage = paginatedLayout.pages[pageIndex];
+    let cellFirstRowOnPage = ownerRow;
+    for (const pl of ownerPage.lines) {
+      if (
+        pl.blockIndex === blockIndex &&
+        pl.lineIndex >= rowIndex &&
+        pl.lineIndex < rowIndex + rowSpan
+      ) {
+        cellFirstRowOnPage = pl.lineIndex;
+        break;
+      }
+    }
+    const lineYShift = computeMergedCellLineShift(
+      cell.lines,
+      rowIndex,
+      rowSpan,
+      cellPadding,
+      tl.rowYOffsets,
+      tl.rowHeights,
+      cellFirstRowOnPage,
+    );
+
     const pageX = getPageXOffset(paginatedLayout, canvasWidth);
     const pageY = getPageYOffset(paginatedLayout, pageIndex);
     const { margins } = paginatedLayout.pageSetup;
 
     const cellX = tl.columnXOffsets[colIndex] + cellPadding;
-    const lineVirtualY = tl.rowYOffsets[rowIndex] + cellPadding + cursorLineY;
+    // Rendered line Y =
+    //   pageY + pageLine(ownerRow).y + (rowYOffsets[rowIndex] - rowYOffsets[ownerRow])
+    //   + cellPadding + cursorLineY + lineYShift
+    // This mirrors renderTableContent's (cellY + textYOffset + line.y + shift)
+    // once the page origin is factored in.
     const cursorYOnPage =
-      pageY + pageLine.y + (lineVirtualY - tl.rowYOffsets[ownerRow]);
+      pageY +
+      pageLine.y +
+      (tl.rowYOffsets[rowIndex] - tl.rowYOffsets[ownerRow]) +
+      cellPadding +
+      cursorLineY +
+      lineYShift;
 
     return {
       x: pageX + margins.left + cellX + cursorX,
