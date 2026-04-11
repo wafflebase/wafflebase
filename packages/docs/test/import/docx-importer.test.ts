@@ -101,6 +101,72 @@ describe('DocxImporter', () => {
     expect(doc.blocks[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('A1');
   });
 
+  it('should derive column widths from the outer tblGrid ratios', async () => {
+    // Outer table: 3 cols with widths 1000/2000/3000 (1/6, 2/6, 3/6 of total).
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="1000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="3000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.columnWidths).toHaveLength(3);
+    expect(td.columnWidths[0]).toBeCloseTo(1 / 6, 5);
+    expect(td.columnWidths[1]).toBeCloseTo(2 / 6, 5);
+    expect(td.columnWidths[2]).toBeCloseTo(3 / 6, 5);
+  });
+
+  it('should ignore gridCol elements from nested tables when computing outer widths', async () => {
+    // Regression for v0.3.2: getElementsByTagNameNS('gridCol') is recursive
+    // and would pick up the nested 5-col grid, collapsing the outer 1-col
+    // table to ~1/6 of its width. The row walk already uses direct-child
+    // traversal so the real-world form.docx "별첨 인적사항" tables became
+    // ~8%-wide strips on later pages. The outer columnWidths must come
+    // from the outer tblGrid alone.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="9000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tbl>
+              <w:tblGrid>
+                <w:gridCol w:w="1800"/>
+                <w:gridCol w:w="1800"/>
+                <w:gridCol w:w="1800"/>
+                <w:gridCol w:w="1800"/>
+                <w:gridCol w:w="1800"/>
+              </w:tblGrid>
+              <w:tr>
+                <w:tc><w:p><w:r><w:t>n1</w:t></w:r></w:p></w:tc>
+                <w:tc><w:p><w:r><w:t>n2</w:t></w:r></w:p></w:tc>
+                <w:tc><w:p><w:r><w:t>n3</w:t></w:r></w:p></w:tc>
+                <w:tc><w:p><w:r><w:t>n4</w:t></w:r></w:p></w:tc>
+                <w:tc><w:p><w:r><w:t>n5</w:t></w:r></w:p></w:tc>
+              </w:tr>
+            </w:tbl>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    // Outer table: a single column, rendered at the full content width.
+    expect(td.columnWidths).toEqual([1]);
+    // And the outer table still has exactly one row with one cell, because
+    // the nested row walk is also direct-child only.
+    expect(td.rows).toHaveLength(1);
+    expect(td.rows[0].cells).toHaveLength(1);
+  });
+
   it('should import page setup from sectPr', async () => {
     const buffer = await createMinimalDocx(`
       <w:p><w:r><w:t>Content</w:t></w:r></w:p>

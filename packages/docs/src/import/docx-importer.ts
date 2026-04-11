@@ -208,12 +208,23 @@ export class DocxImporter {
       };
     }
 
-    // Parse grid columns for widths
-    const gridCols = tblEl.getElementsByTagNameNS(W, 'gridCol');
+    // Parse grid columns for widths. The walk is direct-child only:
+    // getElementsByTagNameNS recurses into nested tables, which used to
+    // inflate the outer column count with the nested grids (a 1-col
+    // outer table wrapping a 5-col nested table would have collapsed
+    // to 1/6 of the content width in the real-world form.docx case).
+    // The row walk below is also direct-child only, so keeping the
+    // grid lookup symmetric avoids that class of leak.
     const colWidthsRaw: number[] = [];
-    for (let i = 0; i < gridCols.length; i++) {
-      const w = gridCols[i].getAttributeNS(W, 'w') || gridCols[i].getAttribute('w:w');
-      colWidthsRaw.push(w ? parseInt(w, 10) : 1);
+    const tblGrid = DocxImporter.findDirectChild(tblEl, 'tblGrid');
+    if (tblGrid) {
+      for (let i = 0; i < tblGrid.childNodes.length; i++) {
+        const n = tblGrid.childNodes[i];
+        if (n.nodeType !== 1 || (n as Element).localName !== 'gridCol') continue;
+        const el = n as Element;
+        const w = el.getAttributeNS(W, 'w') || el.getAttribute('w:w');
+        colWidthsRaw.push(w ? parseInt(w, 10) : 1);
+      }
     }
     const totalWidth = colWidthsRaw.reduce((a, b) => a + b, 0) || 1;
     const columnWidths = colWidthsRaw.map((w) => w / totalWidth);
@@ -332,6 +343,22 @@ export class DocxImporter {
       style: { ...DEFAULT_BLOCK_STYLE },
       tableData,
     };
+  }
+
+  /**
+   * Return the first direct-child element with the given local name, or
+   * null. Unlike getElementsByTagNameNS this does not recurse, which is
+   * what we want for table structure lookups where nested tables must
+   * stay fully scoped to their own walk.
+   */
+  private static findDirectChild(parent: Element, localName: string): Element | null {
+    for (let i = 0; i < parent.childNodes.length; i++) {
+      const n = parent.childNodes[i];
+      if (n.nodeType === 1 && (n as Element).localName === localName) {
+        return n as Element;
+      }
+    }
+    return null;
   }
 
   private static extractText(el: Element): string {
