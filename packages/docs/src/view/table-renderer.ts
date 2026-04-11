@@ -261,7 +261,7 @@ export function renderTableContent(
             style.bold,
             style.italic,
           );
-          ctx.fillStyle = style.color ?? Theme.defaultColor;
+          ctx.fillStyle = style.color || Theme.defaultColor;
           ctx.textBaseline = 'alphabetic';
 
           const runX = cellX + padding + run.x;
@@ -274,7 +274,7 @@ export function renderTableContent(
             ctx.fillStyle = style.backgroundColor;
             ctx.fillRect(runX, runLineY, run.width, line.height);
             ctx.restore();
-            ctx.fillStyle = style.color ?? Theme.defaultColor;
+            ctx.fillStyle = style.color || Theme.defaultColor;
           }
 
           ctx.fillText(run.text, runX, baselineY);
@@ -283,7 +283,7 @@ export function renderTableContent(
           if (style.underline) {
             const underlineY = baselineY + 2;
             ctx.beginPath();
-            ctx.strokeStyle = style.color ?? Theme.defaultColor;
+            ctx.strokeStyle = style.color || Theme.defaultColor;
             ctx.lineWidth = 1;
             ctx.moveTo(runX, underlineY);
             ctx.lineTo(runX + run.width, underlineY);
@@ -294,7 +294,7 @@ export function renderTableContent(
           if (style.strikethrough) {
             const strikeY = baselineY - fontSizePx * 0.25;
             ctx.beginPath();
-            ctx.strokeStyle = style.color ?? Theme.defaultColor;
+            ctx.strokeStyle = style.color || Theme.defaultColor;
             ctx.lineWidth = 1;
             ctx.moveTo(runX, strikeY);
             ctx.lineTo(runX + run.width, strikeY);
@@ -356,7 +356,7 @@ export function renderTableContent(
           const fontSizePx = ptToPx(fontSize);
           const baselineY = Math.round(markerLineY + (firstLine.height + fontSizePx * 0.8) / 2);
           ctx.font = buildFont(fontSize, cellBlock.inlines[0]?.style.fontFamily, false, false);
-          ctx.fillStyle = cellBlock.inlines[0]?.style.color ?? Theme.defaultColor;
+          ctx.fillStyle = cellBlock.inlines[0]?.style.color || Theme.defaultColor;
           ctx.fillText(marker, markerX, baselineY);
         }
       }
