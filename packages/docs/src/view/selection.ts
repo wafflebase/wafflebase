@@ -1,4 +1,4 @@
-import type { DocPosition, DocRange, TableCellRange } from '../model/types.js';
+import type { DocPosition, DocRange, TableCellRange, TableData, CellAddress } from '../model/types.js';
 import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
@@ -12,6 +12,86 @@ export interface NormalizedRange {
   start: DocPosition;
   end: DocPosition;
   tableCellRange?: TableCellRange;
+}
+
+/**
+ * Walk back from `(r, c)` to the top-left of the merged cell that covers it.
+ * Returns `(r, c)` itself if the cell is plain or already a merge top-left.
+ *
+ * The data model has no back-pointer, so we scan upward and leftward looking
+ * for a cell whose `colSpan`/`rowSpan` reaches `(r, c)`. Tables are small in
+ * practice; the cost is bounded by the table area.
+ */
+export function findMergeTopLeft(table: TableData, r: number, c: number): CellAddress {
+  const cell = table.rows[r]?.cells[c];
+  if (!cell) return { rowIndex: r, colIndex: c };
+  if (cell.colSpan !== 0) return { rowIndex: r, colIndex: c };
+
+  for (let rr = r; rr >= 0; rr--) {
+    for (let cc = c; cc >= 0; cc--) {
+      const candidate = table.rows[rr]?.cells[cc];
+      if (!candidate) continue;
+      const span = candidate.colSpan ?? 1;
+      const rspan = candidate.rowSpan ?? 1;
+      if (span > 1 || rspan > 1) {
+        if (rr + rspan - 1 >= r && cc + span - 1 >= c) {
+          return { rowIndex: rr, colIndex: cc };
+        }
+      }
+    }
+  }
+  return { rowIndex: r, colIndex: c };
+}
+
+/**
+ * Expand a cell range to a bounding rectangle that fully contains every
+ * merged cell it touches. Runs a fixed-point loop because expanding for one
+ * merge can pull a previously-out-of-range merge into the rect.
+ *
+ * Caller may pass an unordered range — this helper orders start/end first.
+ */
+export function expandCellRangeForMerges(
+  cr: TableCellRange,
+  table: TableData,
+): TableCellRange {
+  let rowStart = Math.min(cr.start.rowIndex, cr.end.rowIndex);
+  let rowEnd = Math.max(cr.start.rowIndex, cr.end.rowIndex);
+  let colStart = Math.min(cr.start.colIndex, cr.end.colIndex);
+  let colEnd = Math.max(cr.start.colIndex, cr.end.colIndex);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let r = rowStart; r <= rowEnd; r++) {
+      for (let c = colStart; c <= colEnd; c++) {
+        const cell = table.rows[r]?.cells[c];
+        if (!cell) continue;
+        const span = cell.colSpan ?? 1;
+        const rspan = cell.rowSpan ?? 1;
+
+        // Top-left of a merge whose span extends past current rect.
+        if (span > 1 || rspan > 1) {
+          const r2 = r + rspan - 1;
+          const c2 = c + span - 1;
+          if (r2 > rowEnd) { rowEnd = r2; changed = true; }
+          if (c2 > colEnd) { colEnd = c2; changed = true; }
+        }
+
+        // Covered cell whose top-left is outside current rect.
+        if (cell.colSpan === 0) {
+          const tl = findMergeTopLeft(table, r, c);
+          if (tl.rowIndex < rowStart) { rowStart = tl.rowIndex; changed = true; }
+          if (tl.colIndex < colStart) { colStart = tl.colIndex; changed = true; }
+        }
+      }
+    }
+  }
+
+  return {
+    blockId: cr.blockId,
+    start: { rowIndex: rowStart, colIndex: colStart },
+    end: { rowIndex: rowEnd, colIndex: colEnd },
+  };
 }
 
 function normalizeCellRange(cr: TableCellRange): TableCellRange {
