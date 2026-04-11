@@ -40,6 +40,7 @@ export function renderTableBackgrounds(
   tableY: number,
   startRow = 0,
   endRow?: number,
+  pageStartRow?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -47,6 +48,7 @@ export function renderTableBackgrounds(
   const numRows = cells.length;
   const numCols = columnPixelWidths.length;
   const rowEnd = endRow ?? numRows;
+  const pageStart = pageStartRow ?? startRow;
 
   for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
@@ -59,22 +61,29 @@ export function renderTableBackgrounds(
       const colSpan = cell.colSpan ?? 1;
       const rowSpan = cell.rowSpan ?? 1;
 
+      // Clip the cell to the rows physically rendered on this page so a
+      // merged cell split across pages shows its background on each page
+      // as if it were a standalone cell.
+      const visibleStart = Math.max(r, pageStart);
+      const visibleEnd = Math.min(r + rowSpan, rowEnd, numRows);
+      if (visibleStart >= visibleEnd) continue;
+
       let cellWidth = 0;
       for (let s = 0; s < colSpan && c + s < numCols; s++) {
         cellWidth += columnPixelWidths[c + s];
       }
 
-      let cellHeight = 0;
-      for (let s = 0; s < rowSpan && r + s < numRows; s++) {
-        cellHeight += rowHeights[r + s];
+      let visibleHeight = 0;
+      for (let rr = visibleStart; rr < visibleEnd; rr++) {
+        visibleHeight += rowHeights[rr];
       }
 
       ctx.fillStyle = cell.style.backgroundColor;
       ctx.fillRect(
         tableX + columnXOffsets[c],
-        tableY + rowYOffsets[r],
+        tableY + rowYOffsets[visibleStart],
         cellWidth,
-        cellHeight,
+        visibleHeight,
       );
     }
   }
@@ -299,7 +308,9 @@ export function renderTableContent(
     }
   }
 
-  // 3. Borders
+  // 3. Borders. Clip each cell to the rows physically rendered on this
+  // page so a merged cell split by a page break draws a full 4-sided
+  // rectangle on each page instead of one half-open shape per page.
   for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
       const layoutCell = cells[r][c];
@@ -311,25 +322,29 @@ export function renderTableContent(
       const colSpan = cell.colSpan ?? 1;
       const rowSpan = cell.rowSpan ?? 1;
 
+      const visibleStart = Math.max(r, pageStart);
+      const visibleEnd = Math.min(r + rowSpan, rowEnd, numRows);
+      if (visibleStart >= visibleEnd) continue;
+
       let cellWidth = 0;
       for (let s = 0; s < colSpan && c + s < numCols; s++) {
         cellWidth += columnPixelWidths[c + s];
       }
 
-      let cellHeight = 0;
-      for (let s = 0; s < rowSpan && r + s < numRows; s++) {
-        cellHeight += rowHeights[r + s];
+      let visibleHeight = 0;
+      for (let rr = visibleStart; rr < visibleEnd; rr++) {
+        visibleHeight += rowHeights[rr];
       }
 
       const x = tableX + columnXOffsets[c];
-      const y = tableY + rowYOffsets[r];
+      const y = tableY + rowYOffsets[visibleStart];
 
       // Use theme-aware default border color so borders adapt to dark mode
       const themeBorder: BorderStyle = { ...DEFAULT_BORDER_STYLE, color: Theme.defaultColor };
       drawBorder(ctx, cell.style?.borderTop ?? themeBorder, x, y, x + cellWidth, y);
-      drawBorder(ctx, cell.style?.borderBottom ?? themeBorder, x, y + cellHeight, x + cellWidth, y + cellHeight);
-      drawBorder(ctx, cell.style?.borderLeft ?? themeBorder, x, y, x, y + cellHeight);
-      drawBorder(ctx, cell.style?.borderRight ?? themeBorder, x + cellWidth, y, x + cellWidth, y + cellHeight);
+      drawBorder(ctx, cell.style?.borderBottom ?? themeBorder, x, y + visibleHeight, x + cellWidth, y + visibleHeight);
+      drawBorder(ctx, cell.style?.borderLeft ?? themeBorder, x, y, x, y + visibleHeight);
+      drawBorder(ctx, cell.style?.borderRight ?? themeBorder, x + cellWidth, y, x + cellWidth, y + visibleHeight);
     }
   }
 }

@@ -434,6 +434,7 @@ export class DocCanvas {
             tr.tableOriginY,
             tr.renderStartRow,
             tr.endRowIndex,
+            tr.pageStartRow,
           );
         }
       }
