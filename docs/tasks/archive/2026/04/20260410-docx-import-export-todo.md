@@ -20,7 +20,7 @@
 - Modify: `packages/docs/src/model/types.ts`
 - Test: `packages/docs/test/model/types.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `packages/docs/test/model/types.test.ts`:
 
@@ -61,12 +61,12 @@ describe('ImageData on InlineStyle', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/model/types.test.ts`
 Expected: FAIL — `image` property does not exist on `InlineStyle`
 
-- [ ] **Step 3: Add ImageData type and image field**
+- [x] **Step 3: Add ImageData type and image field**
 
 In `packages/docs/src/model/types.ts`, add after the `InlineStyle` interface:
 
@@ -120,17 +120,17 @@ function imageDataEqual(a: ImageData | undefined, b: ImageData | undefined): boo
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/model/types.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Run full typecheck**
+- [x] **Step 5: Run full typecheck**
 
 Run: `cd packages/docs && pnpm typecheck`
 Expected: PASS — no existing code breaks
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/model/types.ts packages/docs/test/model/types.test.ts
@@ -145,7 +145,7 @@ git commit -m "Add ImageData type and image field to InlineStyle"
 - Modify: `packages/docs/src/model/document.ts`
 - Test: `packages/docs/test/model/document.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `packages/docs/test/model/document.test.ts`:
 
@@ -187,12 +187,12 @@ describe('image inlines', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/model/document.test.ts`
 Expected: FAIL — `insertImageInline` does not exist on `Doc`
 
-- [ ] **Step 3: Implement insertImageInline on Doc**
+- [x] **Step 3: Implement insertImageInline on Doc**
 
 Add to `packages/docs/src/model/document.ts`:
 
@@ -231,12 +231,12 @@ insertImageInline(blockId: string, offset: number, imageInline: Inline): void {
 
 Import `cloneBlock` from `../store/block-helpers.js` and `Inline` from `../model/types.js` if not already imported.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/model/document.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts packages/docs/test/model/document.test.ts
@@ -250,7 +250,7 @@ git commit -m "Add insertImageInline method to Doc model"
 **Files:**
 - Modify: `packages/frontend/src/app/docs/yorkie-doc-store.ts`
 
-- [ ] **Step 1: Add image serialization to serializeInlineStyle**
+- [x] **Step 1: Add image serialization to serializeInlineStyle**
 
 In the `serializeInlineStyle` function, add:
 
@@ -263,7 +263,7 @@ if (style.image) {
 }
 ```
 
-- [ ] **Step 2: Add image deserialization to parseInlineStyle**
+- [x] **Step 2: Add image deserialization to parseInlineStyle**
 
 In the `parseInlineStyle` function, add:
 
@@ -278,12 +278,12 @@ if ('image.src' in attrs) {
 }
 ```
 
-- [ ] **Step 3: Run typecheck**
+- [x] **Step 3: Run typecheck**
 
 Run: `pnpm frontend typecheck`
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/yorkie-doc-store.ts
@@ -301,7 +301,7 @@ git commit -m "Add image data serialization to Yorkie doc store"
 
 This task modifies the view layer which uses Canvas 2D and doesn't have unit-testable functions for image rendering (requires a browser DOM). It will be verified via manual testing and the existing visual test infrastructure.
 
-- [ ] **Step 1: Add image measurement to layout.ts**
+- [x] **Step 1: Add image measurement to layout.ts**
 
 In the word-wrap logic inside `computeLayout` (or the inline measurement function), add image handling before `measureText`:
 
@@ -320,7 +320,7 @@ if (inline.style.image) {
 
 The exact insertion point depends on the word-wrap loop structure. The key principle: an image inline produces a single `LayoutRun` that cannot be word-broken, with width and height taken from `image.width`/`image.height` (scaled down if wider than content area).
 
-- [ ] **Step 2: Add ImageCache and image drawing to doc-canvas.ts**
+- [x] **Step 2: Add ImageCache and image drawing to doc-canvas.ts**
 
 Add at module level in `doc-canvas.ts`:
 
@@ -358,11 +358,11 @@ if (run.inline.style.image) {
 }
 ```
 
-- [ ] **Step 3: Wire re-render callback in editor.ts**
+- [x] **Step 3: Wire re-render callback in editor.ts**
 
 Ensure the editor's render method is accessible for the image onload callback. The `DocCanvas` already has access to the render pipeline through the editor. Store a `requestRender` callback that the canvas can invoke.
 
-- [ ] **Step 4: Run typecheck and verify**
+- [x] **Step 4: Run typecheck and verify**
 
 Run: `cd packages/docs && pnpm typecheck`
 Expected: PASS
@@ -370,7 +370,7 @@ Expected: PASS
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/layout.ts packages/docs/src/view/doc-canvas.ts packages/docs/src/view/editor.ts
@@ -390,7 +390,7 @@ git commit -m "Add image inline rendering to layout and canvas"
 - Modify: `packages/backend/src/app.module.ts`
 - Test: `packages/backend/test/image.service.spec.ts`
 
-- [ ] **Step 1: Add MinIO service to docker-compose.yaml**
+- [x] **Step 1: Add MinIO service to docker-compose.yaml**
 
 Append to `docker-compose.yaml`:
 
@@ -411,7 +411,7 @@ volumes:
   minio-data:
 ```
 
-- [ ] **Step 2: Create image.config.ts**
+- [x] **Step 2: Create image.config.ts**
 
 Create `packages/backend/src/image/image.config.ts`:
 
@@ -429,7 +429,7 @@ export const imageConfig = registerAs('image', () => ({
 }));
 ```
 
-- [ ] **Step 3: Create image.service.ts**
+- [x] **Step 3: Create image.service.ts**
 
 Create `packages/backend/src/image/image.service.ts`:
 
@@ -524,7 +524,7 @@ export class ImageService implements OnModuleInit {
 }
 ```
 
-- [ ] **Step 4: Create image.controller.ts**
+- [x] **Step 4: Create image.controller.ts**
 
 Create `packages/backend/src/image/image.controller.ts`:
 
@@ -589,7 +589,7 @@ export class ImageController {
 }
 ```
 
-- [ ] **Step 5: Create image.module.ts**
+- [x] **Step 5: Create image.module.ts**
 
 Create `packages/backend/src/image/image.module.ts`:
 
@@ -609,7 +609,7 @@ import { imageConfig } from './image.config';
 export class ImageModule {}
 ```
 
-- [ ] **Step 6: Register ImageModule in AppModule**
+- [x] **Step 6: Register ImageModule in AppModule**
 
 In `packages/backend/src/app.module.ts`, add import and register:
 
@@ -625,11 +625,11 @@ import { ImageModule } from './image/image.module';
 export class AppModule {}
 ```
 
-- [ ] **Step 7: Install @aws-sdk/client-s3 dependency**
+- [x] **Step 7: Install @aws-sdk/client-s3 dependency**
 
 Run: `cd packages/backend && pnpm add @aws-sdk/client-s3`
 
-- [ ] **Step 8: Run backend typecheck and tests**
+- [x] **Step 8: Run backend typecheck and tests**
 
 Run: `pnpm backend test`
 Expected: PASS (existing tests still pass)
@@ -637,7 +637,7 @@ Expected: PASS (existing tests still pass)
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add docker-compose.yaml packages/backend/src/image/ packages/backend/src/app.module.ts packages/backend/package.json pnpm-lock.yaml
@@ -652,7 +652,7 @@ git commit -m $'Add ImageModule with S3-compatible storage backend\n\nMinIO for 
 - Create: `packages/docs/src/view/fonts.ts`
 - Test: `packages/docs/test/view/fonts.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/docs/test/view/fonts.test.ts`:
 
@@ -683,12 +683,12 @@ describe('FontRegistry', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/view/fonts.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement font registry**
+- [x] **Step 3: Implement font registry**
 
 Create `packages/docs/src/view/fonts.ts`:
 
@@ -769,12 +769,12 @@ export class FontRegistry {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/view/fonts.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/fonts.ts packages/docs/test/view/fonts.test.ts
@@ -791,7 +791,7 @@ git commit -m "Add font registry with Korean font fallback chains"
 - Create: `packages/docs/src/import/units.ts`
 - Test: `packages/docs/test/import/units.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/docs/test/import/units.test.ts`:
 
@@ -829,12 +829,12 @@ describe('OOXML unit conversions', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/import/units.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement unit conversions**
+- [x] **Step 3: Implement unit conversions**
 
 Create `packages/docs/src/import/units.ts`:
 
@@ -876,12 +876,12 @@ export function pointsToHalfPoints(pts: number): number {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/import/units.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/import/units.ts packages/docs/test/import/units.test.ts
@@ -896,7 +896,7 @@ git commit -m "Add OOXML unit conversion utilities"
 - Create: `packages/docs/src/import/docx-style-map.ts`
 - Test: `packages/docs/test/import/docx-style-map.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/docs/test/import/docx-style-map.test.ts`:
 
@@ -983,12 +983,12 @@ describe('mapHighlightColor', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/import/docx-style-map.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement style mapping**
+- [x] **Step 3: Implement style mapping**
 
 Create `packages/docs/src/import/docx-style-map.ts`:
 
@@ -1204,12 +1204,12 @@ export function mapHighlightColor(name: string): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/import/docx-style-map.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/import/docx-style-map.ts packages/docs/test/import/docx-style-map.test.ts
@@ -1224,7 +1224,7 @@ git commit -m "Add DOCX-to-Docs style mapping functions"
 - Create: `packages/docs/src/import/docx-parser.ts`
 - Test: `packages/docs/test/import/docx-parser.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/docs/test/import/docx-parser.test.ts`:
 
@@ -1286,12 +1286,12 @@ describe('parsePageSetup', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/import/docx-parser.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement parser utilities**
+- [x] **Step 3: Implement parser utilities**
 
 Create `packages/docs/src/import/docx-parser.ts`:
 
@@ -1459,12 +1459,12 @@ export function parsePageSetup(sectPr: Element): PageSetup {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/import/docx-parser.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/import/docx-parser.ts packages/docs/test/import/docx-parser.test.ts
@@ -1480,11 +1480,11 @@ git commit -m "Add DOCX XML parser utilities for paragraphs, rels, and page setu
 - Test: `packages/docs/test/import/docx-importer.test.ts`
 - Dependencies: `jszip` (add to packages/docs)
 
-- [ ] **Step 1: Install JSZip**
+- [x] **Step 1: Install JSZip**
 
 Run: `cd packages/docs && pnpm add jszip`
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `packages/docs/test/import/docx-importer.test.ts`:
 
@@ -1609,12 +1609,12 @@ describe('DocxImporter', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/import/docx-importer.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 4: Implement DocxImporter**
+- [x] **Step 4: Implement DocxImporter**
 
 Create `packages/docs/src/import/docx-importer.ts`:
 
@@ -1925,17 +1925,17 @@ export class DocxImporter {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/import/docx-importer.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/import/ packages/docs/test/import/ packages/docs/package.json pnpm-lock.yaml
@@ -1952,7 +1952,7 @@ git commit -m $'Implement DocxImporter for .docx to Document conversion\n\nSuppo
 - Create: `packages/docs/src/export/docx-style-map.ts`
 - Test: `packages/docs/test/export/docx-style-map.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/docs/test/export/docx-style-map.test.ts`:
 
@@ -2001,12 +2001,12 @@ describe('buildParagraphPropertiesXml', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/export/docx-style-map.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement export style mapping**
+- [x] **Step 3: Implement export style mapping**
 
 Create `packages/docs/src/export/docx-style-map.ts`:
 
@@ -2082,12 +2082,12 @@ export function buildParagraphPropertiesXml(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/export/docx-style-map.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/export/docx-style-map.ts packages/docs/test/export/docx-style-map.test.ts
@@ -2103,7 +2103,7 @@ git commit -m "Add Docs-to-OOXML style mapping for export"
 - Create: `packages/docs/src/export/docx-templates.ts`
 - Test: `packages/docs/test/export/docx-exporter.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `packages/docs/test/export/docx-exporter.test.ts`:
 
@@ -2201,12 +2201,12 @@ describe('DocxExporter', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && pnpm test -- --run test/export/docx-exporter.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Create XML template strings**
+- [x] **Step 3: Create XML template strings**
 
 Create `packages/docs/src/export/docx-templates.ts`:
 
@@ -2247,7 +2247,7 @@ export const DOC_RELS = (extras: string) => `<?xml version="1.0" encoding="UTF-8
 ${extras}</Relationships>`;
 ```
 
-- [ ] **Step 4: Implement DocxExporter**
+- [x] **Step 4: Implement DocxExporter**
 
 Create `packages/docs/src/export/docx-exporter.ts`:
 
@@ -2479,17 +2479,17 @@ ${blocks}
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd packages/docs && pnpm test -- --run test/export/docx-exporter.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/export/ packages/docs/test/export/

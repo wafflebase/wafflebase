@@ -24,6 +24,25 @@ function relsDirFor(partPath: string): string {
   return idx >= 0 ? partPath.slice(0, idx + 1) : '';
 }
 
+/**
+ * Build a placeholder "covered" cell for a grid position absorbed by a
+ * horizontal or vertical merge. Downstream code expects the row's cells
+ * array to be aligned with the table's grid column count and uses
+ * `colSpan === 0` to distinguish placeholders from real owners.
+ */
+function makeCoveredCell(): TableCell {
+  return {
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: '', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+    style: { ...DEFAULT_CELL_STYLE },
+    colSpan: 0,
+  };
+}
+
 export class DocxImporter {
   /**
    * Import a .docx ArrayBuffer into a Document.
@@ -208,12 +227,28 @@ export class DocxImporter {
       };
     }
 
-    // Parse grid columns for widths
-    const gridCols = tblEl.getElementsByTagNameNS(W, 'gridCol');
+    // Parse grid columns for widths. The walk is direct-child only:
+    // getElementsByTagNameNS recurses into nested tables, which used to
+    // inflate the outer column count with the nested grids (a 1-col
+    // outer table wrapping a 5-col nested table would have collapsed
+    // to 1/6 of the content width in the real-world form.docx case).
+    // The row walk below is also direct-child only, so keeping the
+    // grid lookup symmetric avoids that class of leak.
     const colWidthsRaw: number[] = [];
-    for (let i = 0; i < gridCols.length; i++) {
-      const w = gridCols[i].getAttributeNS(W, 'w') || gridCols[i].getAttribute('w:w');
-      colWidthsRaw.push(w ? parseInt(w, 10) : 1);
+    const tblGrid = DocxImporter.findDirectChild(tblEl, 'tblGrid');
+    if (tblGrid) {
+      for (let i = 0; i < tblGrid.childNodes.length; i++) {
+        const n = tblGrid.childNodes[i];
+        if (n.nodeType !== 1 || (n as Element).localName !== 'gridCol') continue;
+        const el = n as Element;
+        const w = el.getAttributeNS(W, 'w') || el.getAttribute('w:w');
+        // Guard against missing or non-numeric w:w (parseInt('') / parseInt('auto')
+        // return NaN, which would then propagate into columnWidths and silently
+        // collapse the layout). Fall back to a unit weight so the column still
+        // renders at the even share and malformed input degrades gracefully.
+        const parsed = w ? parseInt(w, 10) : NaN;
+        colWidthsRaw.push(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
+      }
     }
     const totalWidth = colWidthsRaw.reduce((a, b) => a + b, 0) || 1;
     const columnWidths = colWidthsRaw.map((w) => w / totalWidth);
@@ -269,12 +304,13 @@ export class DocxImporter {
         } else if (vMerge === 'continue') {
           const tracker = vMergeTracker.get(colIdx);
           if (tracker) tracker.count++;
-          // Mark as covered cell
-          cells.push({
-            blocks: [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
-            style: { ...DEFAULT_CELL_STYLE },
-            colSpan: 0, // Covered
-          });
+          // Mark as covered cells. A vMerge=continue tc can also have
+          // gridSpan > 1, in which case every grid column it covers must
+          // get its own placeholder so the row's cells array stays
+          // aligned with numCols.
+          for (let s = 0; s < colSpan; s++) {
+            cells.push(makeCoveredCell());
+          }
           colIdx += colSpan;
           continue;
         }
@@ -313,6 +349,15 @@ export class DocxImporter {
           },
           colSpan: colSpan > 1 ? colSpan : undefined,
         });
+        // Pad placeholders for horizontal merge so cells.length === numCols.
+        // Downstream layout, rendering, and click handling all index
+        // row.cells[c] by grid column and rely on `colSpan === 0` to mark
+        // covered positions; without this, clicks on the right part of a
+        // merged cell resolve to an undefined entry and the cursor cannot
+        // land inside the merged cell.
+        for (let s = 1; s < colSpan; s++) {
+          cells.push(makeCoveredCell());
+        }
         colIdx += colSpan;
       }
       rows.push({ cells });
@@ -332,6 +377,22 @@ export class DocxImporter {
       style: { ...DEFAULT_BLOCK_STYLE },
       tableData,
     };
+  }
+
+  /**
+   * Return the first direct-child element with the given local name, or
+   * null. Unlike getElementsByTagNameNS this does not recurse, which is
+   * what we want for table structure lookups where nested tables must
+   * stay fully scoped to their own walk.
+   */
+  private static findDirectChild(parent: Element, localName: string): Element | null {
+    for (let i = 0; i < parent.childNodes.length; i++) {
+      const n = parent.childNodes[i];
+      if (n.nodeType === 1 && (n as Element).localName === localName) {
+        return n as Element;
+      }
+    }
+    return null;
   }
 
   private static extractText(el: Element): string {

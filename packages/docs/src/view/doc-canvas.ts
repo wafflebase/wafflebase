@@ -1,14 +1,14 @@
 import type { Block } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
-import type { PaginatedLayout } from './pagination.js';
+import type { PaginatedLayout, LayoutPage, PageLine } from './pagination.js';
 import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart } from './pagination.js';
 import type { EditContext } from '../model/document.js';
-import type { DocumentLayout } from './layout.js';
+import type { DocumentLayout, LayoutBlock } from './layout.js';
 import type { LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
-import { renderTable } from './table-renderer.js';
+import { renderTableBackgrounds, renderTableContent } from './table-renderer.js';
 
 /**
  * Shared cache of loaded inline images, keyed by src URL. Populated lazily
@@ -92,6 +92,97 @@ function peerColorToSelectionColor(hex: string): string {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r}, ${g}, ${b}, 0.2)`;
+}
+
+interface TableRenderRange {
+  layoutBlock: LayoutBlock;
+  tableX: number;
+  tableOriginY: number;
+  renderStartRow: number;
+  endRowIndex: number;
+}
+
+/**
+ * Compute the row range + origin for a table block rooted at a given
+ * PageLine on a page. Used by both the background pre-pass and the
+ * content pass so their row-range logic stays in lockstep.
+ *
+ * - `endRowIndex` extends forward over every consecutive PageLine that
+ *   belongs to the same table block on this page (a single page can
+ *   host any number of rows from the same table).
+ * - `renderStartRow` extends backward over rowSpan owners whose
+ *   logical top row started on a previous page — the owner must be
+ *   visited even though its PageLine is off-page, so the merged cell
+ *   gets drawn on the current page.
+ */
+function computeTableRangeForPageLine(
+  page: LayoutPage,
+  layoutBlock: LayoutBlock,
+  pl: PageLine,
+  plIndex: number,
+): { renderStartRow: number; endRowIndex: number } {
+  const startRowIndex = pl.lineIndex;
+  let endRowIndex = startRowIndex + 1;
+  for (let k = plIndex + 1; k < page.lines.length; k++) {
+    const nextPl = page.lines[k];
+    if (nextPl.blockIndex === pl.blockIndex) {
+      endRowIndex = nextPl.lineIndex + 1;
+    } else {
+      break;
+    }
+  }
+  let renderStartRow = startRowIndex;
+  const tableData = layoutBlock.block.tableData;
+  if (tableData) {
+    for (let r = 0; r < startRowIndex; r++) {
+      for (let c = 0; c < tableData.rows[r].cells.length; c++) {
+        const cell = tableData.rows[r].cells[c];
+        const rs = cell.rowSpan ?? 1;
+        if (rs > 1 && r + rs > startRowIndex) {
+          renderStartRow = Math.min(renderStartRow, r);
+        }
+      }
+    }
+  }
+  return { renderStartRow, endRowIndex };
+}
+
+/**
+ * Collect render args for every table block that has at least one row
+ * on this page. Returns one entry per table (deduped across PageLines)
+ * so the background pre-pass touches each table once per page.
+ */
+function collectTableRenderRanges(
+  page: LayoutPage,
+  layout: DocumentLayout,
+  pageX: number,
+  pageY: number,
+  margins: { left: number; right: number; top: number; bottom: number },
+): TableRenderRange[] {
+  const ranges: TableRenderRange[] = [];
+  for (let plIndex = 0; plIndex < page.lines.length; plIndex++) {
+    const pl = page.lines[plIndex];
+    // Only act on the first PageLine of a block on this page — the
+    // range computation sweeps forward from there, so subsequent rows
+    // of the same block are handled by the sweep.
+    if (plIndex > 0 && page.lines[plIndex - 1]?.blockIndex === pl.blockIndex) {
+      continue;
+    }
+    const lb = layout.blocks[pl.blockIndex];
+    if (!lb || lb.block.type !== 'table' || !lb.layoutTable || !lb.block.tableData) {
+      continue;
+    }
+    const range = computeTableRangeForPageLine(page, lb, pl, plIndex);
+    const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex];
+    ranges.push({
+      layoutBlock: lb,
+      tableX: pageX + margins.left,
+      tableOriginY,
+      renderStartRow: range.renderStartRow,
+      endRowIndex: range.endRowIndex,
+    });
+  }
+  return ranges;
 }
 
 /**
@@ -324,6 +415,27 @@ export class DocCanvas {
       this.ctx.rect(contentX, contentY, contentWidth, contentHeight);
       this.ctx.clip();
 
+      // Draw table cell backgrounds FIRST, before any highlight layer.
+      // Cell backgrounds are opaque fillRects that would otherwise cover
+      // the translucent selection highlight and hide it inside colored
+      // cells. Splitting the table render into a background pass here
+      // plus a content pass in the text loop below keeps the selection
+      // overlay visible.
+      if (layout) {
+        const tableRanges = collectTableRenderRanges(page, layout, pageX, pageY, margins);
+        for (const tr of tableRanges) {
+          renderTableBackgrounds(
+            this.ctx,
+            tr.layoutBlock.block.tableData!,
+            tr.layoutBlock.layoutTable!,
+            tr.tableX,
+            tr.tableOriginY,
+            tr.renderStartRow,
+            tr.endRowIndex,
+          );
+        }
+      }
+
       // Draw search match highlights for this page (behind all selections)
       if (searchHighlightRects) {
         for (let mi = 0; mi < searchHighlightRects.length; mi++) {
@@ -359,8 +471,12 @@ export class DocCanvas {
         }
       }
 
-      // Draw text
-      for (const pl of page.lines) {
+      // Draw text. Iterate via index rather than for-of so the table
+      // branch below can reuse the loop index instead of calling
+      // page.lines.indexOf(pl), which would turn this hot render path
+      // into O(n^2) on pages with many table rows.
+      for (let plIndex = 0; plIndex < page.lines.length; plIndex++) {
+        const pl = page.lines[plIndex];
         // Render horizontal-rule blocks as a thin line
         if (layout) {
           const block = layout.blocks[pl.blockIndex]?.block;
@@ -403,41 +519,22 @@ export class DocCanvas {
 
           const lb = layout.blocks[pl.blockIndex];
           if (lb && lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
-            // Collect contiguous table rows on this page for this block
-            const startRowIndex = pl.lineIndex;
-            let endRowIndex = startRowIndex + 1;
-            // Peek ahead: find last consecutive row for this block on this page
-            const plIndex = page.lines.indexOf(pl);
-            for (let k = plIndex + 1; k < page.lines.length; k++) {
-              const nextPl = page.lines[k];
-              if (nextPl.blockIndex === pl.blockIndex) {
-                endRowIndex = nextPl.lineIndex + 1;
-              } else {
-                break;
-              }
-            }
-            // Render only on the first row PageLine; skip subsequent rows
+            // Only render on the first row PageLine of this table block,
+            // so we touch each table once per page. The row range was
+            // already computed in the background pre-pass — recompute it
+            // here instead of threading the data through so both passes
+            // keep their logic self-contained and readable.
             if (plIndex === 0 || page.lines[plIndex - 1]?.blockIndex !== pl.blockIndex) {
-              // Extend startRow backwards to include rowSpan owners from previous pages
-              let renderStartRow = startRowIndex;
-              for (let r = 0; r < startRowIndex; r++) {
-                for (let c = 0; c < lb.block.tableData.rows[r].cells.length; c++) {
-                  const cell = lb.block.tableData.rows[r].cells[c];
-                  const rs = cell.rowSpan ?? 1;
-                  if (rs > 1 && r + rs > startRowIndex) {
-                    renderStartRow = Math.min(renderStartRow, r);
-                  }
-                }
-              }
-              const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[startRowIndex];
-              renderTable(
+              const range = computeTableRangeForPageLine(page, lb, pl, plIndex);
+              const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex];
+              renderTableContent(
                 this.ctx,
                 lb.block.tableData,
                 lb.layoutTable,
                 pageX + margins.left,
                 tableOriginY,
-                renderStartRow,
-                endRowIndex,
+                range.renderStartRow,
+                range.endRowIndex,
               );
             }
             continue;

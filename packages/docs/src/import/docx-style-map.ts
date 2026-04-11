@@ -13,14 +13,27 @@ function getWAttr(el: Element, attr: string): string | null {
 }
 
 /**
+ * True when an OOXML on/off toggle element is on. A missing w:val
+ * defaults to on (this is how Word serializes a bare "enable"), while
+ * "0" and "false" explicitly clear an inherited style. Used by b/i/
+ * strike where a <w:b w:val="0"/> override is how paragraph defaults
+ * get reset per-run.
+ */
+function isToggleOn(el: Element | null): boolean {
+  if (!el) return false;
+  const val = getWAttr(el, 'val');
+  return val !== '0' && val !== 'false';
+}
+
+/**
  * Map <w:rPr> element to InlineStyle.
  */
 export function mapRunProperties(rPr: Element): InlineStyle {
   const style: InlineStyle = {};
 
-  if (getW(rPr, 'b')) style.bold = true;
-  if (getW(rPr, 'i')) style.italic = true;
-  if (getW(rPr, 'strike')) style.strikethrough = true;
+  if (isToggleOn(getW(rPr, 'b'))) style.bold = true;
+  if (isToggleOn(getW(rPr, 'i'))) style.italic = true;
+  if (isToggleOn(getW(rPr, 'strike'))) style.strikethrough = true;
 
   const u = getW(rPr, 'u');
   if (u) {

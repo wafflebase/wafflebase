@@ -1,0 +1,26 @@
+# Codecov configuration
+#
+# Coverage is tracked and reported on every PR, but the status check is
+# advisory — it never blocks a merge. Coverage is a trailing indicator of
+# test discipline, not a gate. When a PR legitimately drops coverage (for
+# example, refactoring a file by splitting it into untested helpers) we
+# want reviewers to notice via the PR comment, not via a red check that
+# forces a separate "raise coverage" commit.
+#
+# If we later decide to hard-gate on coverage for a specific subset of
+# packages, we can add per-flag `project` / `patch` entries and drop the
+# `informational: true` on only those flags.
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false

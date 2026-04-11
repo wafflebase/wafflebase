@@ -6,9 +6,33 @@ import { Theme, buildFont, ptToPx } from './theme.js';
 /**
  * Render a table on the Canvas using pre-computed layout data.
  *
- * Rendering order: cell backgrounds, cell text, borders.
+ * Rendering order: cell backgrounds, cell text, borders. This is a
+ * convenience facade for tests and single-pass callers — the real
+ * editor pipeline uses `renderTableBackgrounds` and
+ * `renderTableContent` separately so that the local selection
+ * highlight can land between the two passes (otherwise opaque cell
+ * backgrounds would cover the translucent selection overlay).
  */
 export function renderTable(
+  ctx: CanvasRenderingContext2D,
+  tableData: TableData,
+  tableLayout: LayoutTable,
+  tableX: number,
+  tableY: number,
+  startRow = 0,
+  endRow?: number,
+): void {
+  renderTableBackgrounds(ctx, tableData, tableLayout, tableX, tableY, startRow, endRow);
+  renderTableContent(ctx, tableData, tableLayout, tableX, tableY, startRow, endRow);
+}
+
+/**
+ * First pass of the table render pipeline: fill each cell's background
+ * color (if any). Called before the editor draws its selection
+ * highlight so the highlight overlays the background instead of being
+ * hidden underneath it.
+ */
+export function renderTableBackgrounds(
   ctx: CanvasRenderingContext2D,
   tableData: TableData,
   tableLayout: LayoutTable,
@@ -24,7 +48,6 @@ export function renderTable(
   const numCols = columnPixelWidths.length;
   const rowEnd = endRow ?? numRows;
 
-  // 1. Cell backgrounds
   for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
       const layoutCell = cells[r][c];
@@ -55,6 +78,30 @@ export function renderTable(
       );
     }
   }
+}
+
+/**
+ * Second pass of the table render pipeline: draw cell text (including
+ * inline run backgrounds), list markers, and borders. Assumes
+ * `renderTableBackgrounds` has already run for the same row range, and
+ * that any selection highlight the editor wants under the text has
+ * been drawn in between.
+ */
+export function renderTableContent(
+  ctx: CanvasRenderingContext2D,
+  tableData: TableData,
+  tableLayout: LayoutTable,
+  tableX: number,
+  tableY: number,
+  startRow = 0,
+  endRow?: number,
+): void {
+  const { rows } = tableData;
+  const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
+
+  const numRows = cells.length;
+  const numCols = columnPixelWidths.length;
+  const rowEnd = endRow ?? numRows;
 
   // 2. Cell text
   for (let r = startRow; r < rowEnd; r++) {
