@@ -4,6 +4,7 @@ import type { DocumentLayout, LayoutLine } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import { resolvePositionPixel } from './peer-cursor.js';
+import { computeMergedCellLineLayouts } from './table-renderer.js';
 import { buildFont, Theme } from './theme.js';
 
 // --- Free helpers (used by both Selection class and computeSelectionRects) ---
@@ -257,11 +258,16 @@ function buildRects(
       }];
     }
 
-    // Multi-line cell selection: find cell bounds for full-width lines
+    // Multi-line cell selection: walk the cell's lines from start to end
+    // and emit one rect per line. Each line's absolute Y is derived from
+    // computeMergedCellLineLayouts so per-row distribution (merged cells
+    // split across pages) stays consistent with the renderer. The old
+    // "advance midY by line height" path stepped linearly through the
+    // cell's Y axis and painted into the empty space below row 0 when a
+    // merged cell's line actually lived on the next page.
     const lb = layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId);
     const tl = lb?.layoutTable;
-    if (!tl) {
-      // Fallback: rect from start to end
+    if (!lb || !tl) {
       return [{
         x: startPixel.x,
         y: startPixel.y,
@@ -270,36 +276,96 @@ function buildRects(
       }];
     }
     const { rowIndex, colIndex } = startCellInfo;
-    const cellPadding = lb!.block.tableData?.rows[rowIndex]?.cells[colIndex]?.style.padding ?? 4;
-    const cellLeftX = startPixel.x - (startPixel.x - (getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + cellPadding));
-    const cellRightX = getPageXOffset(paginatedLayout, canvasWidth) + paginatedLayout.pageSetup.margins.left + tl.columnXOffsets[colIndex] + tl.columnPixelWidths[colIndex] - cellPadding;
+    const layoutCell = tl.cells[rowIndex]?.[colIndex];
+    const cellData = lb.block.tableData?.rows[rowIndex]?.cells[colIndex];
+    if (!layoutCell || layoutCell.merged || !cellData) {
+      return [{
+        x: startPixel.x,
+        y: startPixel.y,
+        width: endPixel.x - startPixel.x,
+        height: endPixel.y + endPixel.height - startPixel.y,
+      }];
+    }
+    const cellPadding = cellData.style?.padding ?? 4;
+    const rowSpan = cellData.rowSpan ?? 1;
+
+    const pageXOffset = getPageXOffset(paginatedLayout, canvasWidth);
+    const { margins } = paginatedLayout.pageSetup;
+    const cellLeftX = pageXOffset + margins.left + tl.columnXOffsets[colIndex] + cellPadding;
+    const cellRightX =
+      pageXOffset + margins.left + tl.columnXOffsets[colIndex] + layoutCell.width - cellPadding;
+
+    // Locate the cell's block containing the start/end positions and the
+    // corresponding line indices within cell.lines.
+    const startCbi = cellData.blocks.findIndex((b) => b.id === start.blockId);
+    const endCbi = cellData.blocks.findIndex((b) => b.id === end.blockId);
+    const startCbiEff = startCbi >= 0 ? startCbi : 0;
+    const endCbiEff = endCbi >= 0 ? endCbi : 0;
+
+    const lineIdxForOffset = (cbiEff: number, offset: number): number => {
+      const lineStart = layoutCell.blockBoundaries[cbiEff] ?? 0;
+      const lineEnd =
+        layoutCell.blockBoundaries[cbiEff + 1] ?? layoutCell.lines.length;
+      let remaining = offset;
+      for (let li = lineStart; li < lineEnd; li++) {
+        let lineChars = 0;
+        for (const run of layoutCell.lines[li].runs) lineChars += run.text.length;
+        if (remaining <= lineChars) return li;
+        remaining -= lineChars;
+      }
+      return Math.max(lineStart, lineEnd - 1);
+    };
+
+    const startLineIdx = lineIdxForOffset(startCbiEff, start.offset);
+    const endLineIdx = lineIdxForOffset(endCbiEff, end.offset);
+
+    const lineLayouts = computeMergedCellLineLayouts(
+      layoutCell.lines,
+      rowIndex,
+      rowSpan,
+      cellPadding,
+      tl.rowYOffsets,
+      tl.rowHeights,
+    );
+
+    const blockIndex = layout.blocks.indexOf(lb);
+    const resolveLineAbsoluteY = (ownerRow: number, runLineY: number): number | undefined => {
+      for (const page of paginatedLayout.pages) {
+        for (const pl of page.lines) {
+          if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
+            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+            return pageY + pl.y + (runLineY - tl.rowYOffsets[ownerRow]);
+          }
+        }
+      }
+      return undefined;
+    };
 
     const cellRects: Array<{ x: number; y: number; width: number; height: number }> = [];
-    // First line: from start to cell right edge
-    cellRects.push({
-      x: startPixel.x,
-      y: startPixel.y,
-      width: cellRightX - startPixel.x,
-      height: startPixel.height,
-    });
-    // Middle lines: full cell width
-    let midY = startPixel.y + startPixel.height;
-    while (midY < endPixel.y) {
-      cellRects.push({
-        x: cellLeftX,
-        y: midY,
-        width: cellRightX - cellLeftX,
-        height: startPixel.height, // approximate line height
-      });
-      midY += startPixel.height;
+    for (let li = startLineIdx; li <= endLineIdx; li++) {
+      const line = layoutCell.lines[li];
+      const ll = lineLayouts[li];
+      if (!ll) continue;
+      const lineY = resolveLineAbsoluteY(ll.ownerRow, ll.runLineY);
+      if (lineY === undefined) continue;
+
+      let lineX: number;
+      let lineWidth: number;
+      if (li === startLineIdx && li === endLineIdx) {
+        lineX = startPixel.x;
+        lineWidth = endPixel.x - startPixel.x;
+      } else if (li === startLineIdx) {
+        lineX = startPixel.x;
+        lineWidth = cellRightX - startPixel.x;
+      } else if (li === endLineIdx) {
+        lineX = cellLeftX;
+        lineWidth = endPixel.x - cellLeftX;
+      } else {
+        lineX = cellLeftX;
+        lineWidth = cellRightX - cellLeftX;
+      }
+      cellRects.push({ x: lineX, y: lineY, width: lineWidth, height: line.height });
     }
-    // Last line: from cell left edge to end
-    cellRects.push({
-      x: cellLeftX,
-      y: endPixel.y,
-      width: endPixel.x - cellLeftX,
-      height: endPixel.height,
-    });
     return cellRects;
   }
 
