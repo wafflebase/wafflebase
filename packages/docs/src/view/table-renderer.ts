@@ -4,76 +4,59 @@ import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../mode
 import { Theme, buildFont, ptToPx } from './theme.js';
 
 /**
- * Find the row a single line of a merged cell visually belongs to, based
- * on its center Y in table-logical coordinates. Used by both the line
- * filter (skip lines that belong to another page) and the shift math
- * below (line up the first page-visible line with fresh top padding).
+ * Per-line placement for a merged cell: which spanned row the line
+ * belongs to and the line's absolute Y in table-logical coordinates.
  */
-export function findMergedCellOwnerRow(
-  cellTopRow: number,
-  rowSpan: number,
-  cellPadding: number,
-  lineY: number,
-  lineHeight: number,
-  rowYOffsets: number[],
-  rowHeights: number[],
-): number {
-  const numRows = rowYOffsets.length;
-  const spanEnd = Math.min(cellTopRow + rowSpan, numRows);
-  const lineCenter = rowYOffsets[cellTopRow] + cellPadding + lineY + lineHeight / 2;
-  for (let rr = cellTopRow; rr < spanEnd; rr++) {
-    const top = rowYOffsets[rr];
-    const bottom = top + rowHeights[rr];
-    if (lineCenter >= top && lineCenter < bottom) {
-      return rr;
-    }
-  }
-  // Overflow past the spanned rows → clamp to the last row.
-  return Math.min(cellTopRow + rowSpan - 1, numRows - 1);
+export interface MergedCellLineLayout {
+  ownerRow: number;
+  runLineY: number;
 }
 
 /**
- * Compute the Y shift that makes a merged cell's continuation on a new
- * page start with fresh top padding from the page's visible cell area.
+ * Distribute a merged cell's lines across the rows it spans, using a
+ * content-flow model: a line occupies the next free slot in the current
+ * row; if it does not fit, advance to the next row and start from that
+ * row's top padding. This lines up well with a user's expectation that
+ * N lines merged into N rows show one line per row, and cleanly answers
+ * "which page does this line belong to" even when `rowHeights` have slack
+ * (previously the center-in-range heuristic collapsed late lines into
+ * an earlier row whenever the rows were taller than the lines).
  *
- * Without the shift, lines keep their virtual Y anchored to the cell's
- * original top-left row, so a line that logically belongs to row 1 can
- * land flush against (or even above) row 1's top border when
- * `rowHeights[0]` is larger than the line height — i.e. when the merged
- * cell has slack space its content never actually uses.
- *
- * Returns 0 when no shift is needed (cell isn't a continuation on this
- * page, or no line on this page to anchor to).
+ * Returned positions are in table-logical Y (relative to the table's
+ * top-left). Callers add their page origin to draw or to anchor a cursor.
+ * For `rowSpan <= 1` the result matches the old `cellY + padding + line.y`
+ * formula so non-merged cells render unchanged.
  */
-export function computeMergedCellLineShift(
+export function computeMergedCellLineLayouts(
   cellLines: LayoutTableCell['lines'],
   cellTopRow: number,
   rowSpan: number,
   cellPadding: number,
   rowYOffsets: number[],
   rowHeights: number[],
-  cellFirstRowOnPage: number,
-): number {
-  if (rowSpan <= 1 || cellFirstRowOnPage <= cellTopRow) return 0;
+): MergedCellLineLayout[] {
+  const numRows = rowYOffsets.length;
+  const spanEnd = Math.min(cellTopRow + rowSpan, numRows);
+  const result: MergedCellLineLayout[] = [];
+  let currentRow = cellTopRow;
+  let yInRow = cellPadding;
 
   for (const line of cellLines) {
-    const owner = findMergedCellOwnerRow(
-      cellTopRow,
-      rowSpan,
-      cellPadding,
-      line.y,
-      line.height,
-      rowYOffsets,
-      rowHeights,
-    );
-    if (owner >= cellFirstRowOnPage) {
-      // Place this first-on-page line at (visible row top + padding):
-      // desiredRelY = rowYOffsets[cellFirstRowOnPage] + cellPadding
-      // originalRelY = rowYOffsets[cellTopRow] + cellPadding + line.y
-      return rowYOffsets[cellFirstRowOnPage] - rowYOffsets[cellTopRow] - line.y;
+    if (
+      rowSpan > 1 &&
+      currentRow + 1 < spanEnd &&
+      yInRow + line.height > rowHeights[currentRow] - cellPadding
+    ) {
+      currentRow++;
+      yInRow = cellPadding;
     }
+    result.push({
+      ownerRow: currentRow,
+      runLineY: rowYOffsets[currentRow] + yInRow,
+    });
+    yInRow += line.height;
   }
-  return 0;
+  return result;
 }
 
 /**
@@ -195,27 +178,6 @@ export function renderTableContent(
   const rowEnd = endRow ?? numRows;
   const pageStart = pageStartRow ?? startRow;
 
-  // Shortcut wrapper around findMergedCellOwnerRow bound to this layout.
-  // The `textYOffset` argument is kept so existing call sites do not need
-  // to know that the helper ignores it (it uses padding from the layout
-  // directly via the passed cellPadding in the underlying function).
-  const findOwnerRow = (
-    r: number,
-    rowSpan: number,
-    cellPadding: number,
-    lineYInCell: number,
-    lineHeight: number,
-  ): number =>
-    findMergedCellOwnerRow(
-      r,
-      rowSpan,
-      cellPadding,
-      lineYInCell,
-      lineHeight,
-      rowYOffsets,
-      rowHeights,
-    );
-
   // 2. Cell text
   for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
@@ -261,27 +223,32 @@ export function renderTableContent(
         textYOffset = padding;
       }
 
-      // When a merged cell is split across pages, reset the text baseline
-      // for the continuation so the first line drawn on this page gets
-      // fresh top padding relative to the page's visible cell area,
-      // instead of inheriting the virtual offset from the cell's original
-      // top-left row (which can land lines flush against the page's top
-      // border when the first row is shorter than the merged content).
-      const lineYShift = computeMergedCellLineShift(
-        layoutCell.lines,
-        r,
-        rowSpan,
-        padding,
-        rowYOffsets,
-        rowHeights,
-        Math.max(r, pageStart),
-      );
+      // For merged cells, distribute lines across the spanned rows so
+      // each row gets its own top padding and content flows into the next
+      // row when one fills up. Non-merged cells keep the old text offset
+      // (which still honours vertical alignment).
+      const mergedLineLayouts =
+        rowSpan > 1
+          ? computeMergedCellLineLayouts(
+              layoutCell.lines,
+              r,
+              rowSpan,
+              padding,
+              rowYOffsets,
+              rowHeights,
+            )
+          : undefined;
 
       // Render each line's runs
-      for (const line of layoutCell.lines) {
-        if (rowSpan > 1) {
-          const ownerRow = findOwnerRow(r, rowSpan, padding, line.y, line.height);
-          if (ownerRow < pageStart || ownerRow >= rowEnd) continue;
+      for (let li = 0; li < layoutCell.lines.length; li++) {
+        const line = layoutCell.lines[li];
+        let lineAbsoluteY: number;
+        if (mergedLineLayouts) {
+          const ll = mergedLineLayouts[li];
+          if (ll.ownerRow < pageStart || ll.ownerRow >= rowEnd) continue;
+          lineAbsoluteY = tableY + ll.runLineY;
+        } else {
+          lineAbsoluteY = cellY + textYOffset + line.y;
         }
         for (const run of line.runs) {
           const style = run.inline.style;
@@ -298,7 +265,7 @@ export function renderTableContent(
           ctx.textBaseline = 'alphabetic';
 
           const runX = cellX + padding + run.x;
-          const runLineY = cellY + textYOffset + line.y + lineYShift;
+          const runLineY = lineAbsoluteY;
           const baselineY = runLineY + line.height * 0.75;
 
           // Text background highlight
@@ -367,15 +334,19 @@ export function renderTableContent(
           const firstLine = layoutCell.lines[firstLineIdx];
 
           // Keep the marker on whichever page actually renders the
-          // first line of this list-item block.
-          if (rowSpan > 1) {
-            const ownerRow = findOwnerRow(r, rowSpan, padding, firstLine.y, firstLine.height);
-            if (ownerRow < pageStart || ownerRow >= rowEnd) continue;
+          // first line of this list-item block, and anchor it to the
+          // same Y used by the text run above.
+          let markerLineY: number;
+          if (mergedLineLayouts) {
+            const ll = mergedLineLayouts[firstLineIdx];
+            if (ll.ownerRow < pageStart || ll.ownerRow >= rowEnd) continue;
+            markerLineY = tableY + ll.runLineY;
+          } else {
+            markerLineY = cellY + textYOffset + firstLine.y;
           }
 
           const markerIndent = LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
           const markerX = cellX + padding + markerIndent;
-          const markerLineY = cellY + textYOffset + firstLine.y + lineYShift;
 
           const marker = cellBlock.listKind === 'unordered'
             ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
