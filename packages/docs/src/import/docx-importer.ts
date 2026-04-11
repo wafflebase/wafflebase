@@ -8,6 +8,19 @@ import { emusToPx } from './units.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
+/**
+ * MIME types the backend image endpoint accepts, keyed by the lowercase
+ * file extension recorded in a .docx .rels target. Used by `uploadImages`
+ * to repackage JSZip's untyped blob before posting to `/images`.
+ */
+const EXT_TO_IMAGE_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+};
+
 export type ImageUploader = (blob: Blob, filename: string) => Promise<string>;
 
 type ResolvedImage = { src: string; width: number; height: number };
@@ -511,8 +524,15 @@ export class DocxImporter {
       const file = zip.file(path);
       if (!file) continue;
 
-      const data = await file.async('blob');
-      const ext = rel.target.split('.').pop() || 'png';
+      // JSZip returns a Blob with an empty `type`. When posted via FormData
+      // the multipart Content-Type defaults to application/octet-stream,
+      // which the backend image endpoint rejects with 400. Repackage the
+      // bytes with a MIME derived from the .rels target extension so the
+      // upload carries a concrete image/* type.
+      const raw = await file.async('blob');
+      const ext = (rel.target.split('.').pop() || 'png').toLowerCase();
+      const mime = EXT_TO_IMAGE_MIME[ext];
+      const data = mime ? new Blob([raw], { type: mime }) : raw;
       const filename = `${rId}.${ext}`;
       const url = await uploader(data, filename);
 
