@@ -86,6 +86,14 @@ export function renderTableBackgrounds(
  * `renderTableBackgrounds` has already run for the same row range, and
  * that any selection highlight the editor wants under the text has
  * been drawn in between.
+ *
+ * `pageStartRow` is the first row physically laid out on the current
+ * page (normally equal to `startRow`). It differs only for merged cells
+ * that span a page break: the caller sweeps `startRow` back to the
+ * merge's top-left so the cell gets visited here, but only the lines
+ * whose vertical position lies within `[pageStartRow, endRow)` should
+ * actually be drawn. Without that filter, merged-cell text is rendered
+ * twice (once on each page) and lines near the break appear on both.
  */
 export function renderTableContent(
   ctx: CanvasRenderingContext2D,
@@ -95,6 +103,7 @@ export function renderTableContent(
   tableY: number,
   startRow = 0,
   endRow?: number,
+  pageStartRow?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -102,6 +111,33 @@ export function renderTableContent(
   const numRows = cells.length;
   const numCols = columnPixelWidths.length;
   const rowEnd = endRow ?? numRows;
+  const pageStart = pageStartRow ?? startRow;
+
+  // Map a line to the row it visually belongs to. Used to filter lines
+  // of merged cells that cross a page break so each line is drawn on
+  // exactly one page.
+  const findOwnerRow = (
+    r: number,
+    rowSpan: number,
+    textYOffset: number,
+    lineYInCell: number,
+    lineHeight: number,
+  ): number => {
+    const lineCenterInTable =
+      rowYOffsets[r] + textYOffset + lineYInCell + lineHeight / 2;
+    for (let rr = r; rr < r + rowSpan && rr < numRows; rr++) {
+      const top = rowYOffsets[rr];
+      const bottom = top + rowHeights[rr];
+      if (lineCenterInTable >= top && lineCenterInTable < bottom) {
+        return rr;
+      }
+    }
+    // Line center falls past the spanned rows (overflow from a merged
+    // cell whose content is taller than its row budget). Attribute it
+    // to the last row of the span so it renders on the last page the
+    // cell touches.
+    return Math.min(r + rowSpan - 1, numRows - 1);
+  };
 
   // 2. Cell text
   for (let r = startRow; r < rowEnd; r++) {
@@ -115,6 +151,11 @@ export function renderTableContent(
       const padding = cell.style?.padding ?? 4;
       const colSpan = cell.colSpan ?? 1;
       const rowSpan = cell.rowSpan ?? 1;
+
+      // A non-merged cell on a swept-back row (r < pageStart) belongs to
+      // an earlier page — it was already rendered there, skip it here so
+      // the canvas state isn't wasted on clipped draws.
+      if (rowSpan === 1 && r < pageStart) continue;
 
       let cellWidth = 0;
       for (let s = 0; s < colSpan && c + s < numCols; s++) {
@@ -145,6 +186,10 @@ export function renderTableContent(
 
       // Render each line's runs
       for (const line of layoutCell.lines) {
+        if (rowSpan > 1) {
+          const ownerRow = findOwnerRow(r, rowSpan, textYOffset, line.y, line.height);
+          if (ownerRow < pageStart || ownerRow >= rowEnd) continue;
+        }
         for (const run of line.runs) {
           const style = run.inline.style;
           const fontSize = style.fontSize ?? Theme.defaultFontSize;
@@ -227,6 +272,13 @@ export function renderTableContent(
           const firstLineIdx = blockBoundaries[bi];
           if (firstLineIdx === undefined || firstLineIdx >= layoutCell.lines.length) continue;
           const firstLine = layoutCell.lines[firstLineIdx];
+
+          // Keep the marker on whichever page actually renders the
+          // first line of this list-item block.
+          if (rowSpan > 1) {
+            const ownerRow = findOwnerRow(r, rowSpan, textYOffset, firstLine.y, firstLine.height);
+            if (ownerRow < pageStart || ownerRow >= rowEnd) continue;
+          }
 
           const markerIndent = LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
           const markerX = cellX + padding + markerIndent;
