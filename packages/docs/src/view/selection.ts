@@ -457,29 +457,42 @@ function buildCellRangeRects(
   const tableData = lb.block.tableData;
 
   for (let r = start.rowIndex; r <= end.rowIndex; r++) {
-    const rowAbsY = rowYMap.get(r);
-    if (rowAbsY === undefined) continue;
     for (let c = start.colIndex; c <= end.colIndex; c++) {
       const cell = tl.cells[r]?.[c];
       if (!cell || cell.merged) continue;
 
-      // For merge top-left cells, the highlight must cover the full
-      // colSpan × rowSpan footprint, not just the anchor column/row.
-      // LayoutTableCell.width already sums spanned columns; for rows we
-      // sum rowHeights over the span explicitly.
+      // For merge top-left cells, highlight the full colSpan × rowSpan
+      // footprint. LayoutTableCell.width already sums spanned columns.
+      // Row coverage is split into one rect per contiguous page segment:
+      // when the next spanned row lives on a different page (its
+      // absolute Y is not the running segment's expected bottom), flush
+      // the current rect and start a new one anchored at the new row's
+      // page Y. This keeps merged-cell highlights aligned with the row
+      // bands on each page instead of bleeding into empty space below
+      // the first row.
       const srcCell = tableData?.rows[r]?.cells[c];
       const rowSpan = srcCell?.rowSpan ?? 1;
-      let height = 0;
-      for (let rr = r; rr < r + rowSpan && rr < tl.rowHeights.length; rr++) {
-        height += tl.rowHeights[rr];
-      }
+      const x = pageX + margins.left + tl.columnXOffsets[c];
+      const width = cell.width;
 
-      rects.push({
-        x: pageX + margins.left + tl.columnXOffsets[c],
-        y: rowAbsY,
-        width: cell.width,
-        height,
-      });
+      const spanEnd = Math.min(r + rowSpan, tl.rowHeights.length);
+      let segmentTop: number | undefined;
+      let segmentHeight = 0;
+      for (let rr = r; rr < spanEnd; rr++) {
+        const rrY = rowYMap.get(rr);
+        if (rrY === undefined) continue;
+        if (segmentTop === undefined) {
+          segmentTop = rrY;
+        } else if (Math.abs(rrY - (segmentTop + segmentHeight)) > 0.5) {
+          rects.push({ x, y: segmentTop, width, height: segmentHeight });
+          segmentTop = rrY;
+          segmentHeight = 0;
+        }
+        segmentHeight += tl.rowHeights[rr];
+      }
+      if (segmentTop !== undefined && segmentHeight > 0) {
+        rects.push({ x, y: segmentTop, width, height: segmentHeight });
+      }
     }
   }
   return rects;
