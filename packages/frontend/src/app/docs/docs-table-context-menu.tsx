@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EditorAPI } from "@wafflebase/docs";
+import type { EditorAPI, TableMergeContext } from "@wafflebase/docs";
 import { BG_COLORS } from "@/components/formatting-colors";
 import {
   IconRowInsertTop,
@@ -8,6 +8,7 @@ import {
   IconColumnInsertRight,
   IconRowRemove,
   IconColumnRemove,
+  IconArrowsJoin,
   IconArrowsSplit,
   IconDropletOff,
   IconPalette,
@@ -36,6 +37,7 @@ export function DocsTableContextMenu({
 }: DocsTableContextMenuProps) {
   const [position, setPosition] = useState<MenuPosition | null>(null);
   const [showColors, setShowColors] = useState(false);
+  const [mergeCtx, setMergeCtx] = useState<TableMergeContext>({ state: 'none' });
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleContextMenu = useCallback(
@@ -43,6 +45,7 @@ export function DocsTableContextMenu({
       if (!editor?.isInTable()) return;
       e.preventDefault();
       setPosition({ x: e.clientX, y: e.clientY });
+      setMergeCtx(editor.getTableMergeContext());
       setShowColors(false);
     },
     [editor],
@@ -132,11 +135,26 @@ export function DocsTableContextMenu({
 
       <div className={sep} />
 
-      {/* Cell */}
-      <button className={item} onClick={act(() => editor.splitTableCell())}>
-        <IconArrowsSplit size={iconSize} className="text-muted-foreground" />
-        Split cell
-      </button>
+      {/* Cell merge / unmerge — single hybrid slot */}
+      {mergeCtx.state === 'canUnmerge' ? (
+        <button className={item} onClick={act(() => editor.splitTableCell())}>
+          <IconArrowsSplit size={iconSize} className="text-muted-foreground" />
+          Unmerge cells
+        </button>
+      ) : (
+        <button
+          className={`${item} disabled:opacity-50 disabled:pointer-events-none`}
+          disabled={mergeCtx.state !== 'canMerge'}
+          onClick={
+            mergeCtx.state === 'canMerge'
+              ? act(() => editor.mergeTableCells(mergeCtx.range))
+              : undefined
+          }
+        >
+          <IconArrowsJoin size={iconSize} className="text-muted-foreground" />
+          Merge cells
+        </button>
+      )}
       <button
         className={item}
         onClick={(e) => {
