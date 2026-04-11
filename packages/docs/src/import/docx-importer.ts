@@ -291,9 +291,18 @@ export class DocxImporter {
       // with cells.length < numCols and click/layout would misalign. The
       // absorbed positions must be emitted as covered placeholders so every
       // row still has one entry per grid column.
+      //
+      // The skip markers are only meaningful when we know the grid
+      // width: without a <w:tblGrid> (numCols === 0) we have no target
+      // length to align to, and injecting covered cells from the skip
+      // markers alone would change the row shape for the legacy
+      // gridless path. Gate parsing on numCols > 0 to stay consistent
+      // with the clamp and the final normalize below.
       const trPr = DocxImporter.findDirectChild(trEl, 'trPr');
-      const gridBefore = trPr ? DocxImporter.readGridSkip(trPr, 'gridBefore') : 0;
-      const gridAfter = trPr ? DocxImporter.readGridSkip(trPr, 'gridAfter') : 0;
+      const gridBefore =
+        numCols > 0 && trPr ? DocxImporter.readGridSkip(trPr, 'gridBefore') : 0;
+      const gridAfter =
+        numCols > 0 && trPr ? DocxImporter.readGridSkip(trPr, 'gridAfter') : 0;
 
       const cells: TableCell[] = [];
       for (let s = 0; s < gridBefore; s++) cells.push(makeCoveredCell());

@@ -68,6 +68,23 @@ Fix them one item at a time with a regression test per change.
       `tblBorders` when a cell has no `tcBorders` of its own
 - [ ] **9. `w:trHeight`** → map to `TableData.rowHeights`
 
+## Exporter hardening (separate, pre-existing)
+
+- [ ] **E1. Exporter treats every `colSpan === 0` cell as
+      `<w:vMerge/>`** — `docx-exporter.ts:211-214` maps any covered
+      placeholder to a vertical-merge continuation. The importer
+      (and `Doc.mergeCells`) uses `colSpan: 0` for *all* covered
+      positions, so horizontal merges already round-trip as bogus
+      vMerge markup today. Fix the exporter to disambiguate:
+      - a covered position already absorbed by a prior `gridSpan`
+        in the same row should not emit a tc at all;
+      - a covered position whose owner lives in an earlier row
+        (real vertical merge) should emit `<w:vMerge/>`;
+      - `gridBefore` / `gridAfter` should be emitted via `trPr`
+        skip markers rather than synthetic tcs.
+      Not in scope for PR #118 (import-side only), but should land
+      before we ship any round-trip story.
+
 ## Revisit later
 
 - [ ] **10. `w:tblW` / `w:tcW`** — currently only the `tblGrid`
@@ -98,3 +115,7 @@ Fix them one item at a time with a regression test per change.
   clamped on both owner and continue paths.
 - Item 5 (`3f817087`): final pad-or-truncate pass enforces
   `cells.length === numCols` as a safety net.
+- PR #118 review pass: gated `gridBefore`/`gridAfter` padding on
+  `numCols > 0` to match the rest of the hardening, plus matching
+  gridless regression fixtures. Added exporter disambiguation (E1)
+  as a separate follow-up item.
