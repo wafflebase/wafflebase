@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 120
+Total archived tasks: 121
 
-## 2026/04 (6 tasks)
+## 2026/04 (7 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs table merge ux (2026-04-11) | [20260411-docs-table-merge-ux-todo.md](./2026/04/20260411-docs-table-merge-ux-todo.md) | [20260411-docs-table-merge-ux-lessons.md](./2026/04/20260411-docs-table-merge-ux-lessons.md) |
 | release v0.3.2 (2026-04-11) | [20260411-release-v0.3.2-todo.md](./2026/04/20260411-release-v0.3.2-todo.md) | - |
 | v0.3.2 smoke test fixes (2026-04-11) | [20260411-v0.3.2-smoke-test-fixes-todo.md](./2026/04/20260411-v0.3.2-smoke-test-fixes-todo.md) | [20260411-v0.3.2-smoke-test-fixes-lessons.md](./2026/04/20260411-v0.3.2-smoke-test-fixes-lessons.md) |
 | docx import export (2026-04-10) | [20260410-docx-import-export-todo.md](./2026/04/20260410-docx-import-export-todo.md) | - |

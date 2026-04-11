@@ -45,7 +45,7 @@ These two helpers are pure functions over `TableData` and a
 `TableCellRange`. They have no dependency on layout, DOM, or
 `DocumentLayout`. Tests can construct `TableData` directly.
 
-- [ ] **Step 1: Write the failing test file**
+- [x] **Step 1: Write the failing test file**
 
 Create `packages/docs/test/view/cell-range-expand.test.ts`:
 
@@ -167,7 +167,7 @@ describe('expandCellRangeForMerges', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run test/view/cell-range-expand.test.ts
@@ -176,7 +176,7 @@ pnpm --filter @wafflebase/docs test --run test/view/cell-range-expand.test.ts
 Expected: failure with "expandCellRangeForMerges is not exported from
 '../../src/view/selection.js'" (or equivalent).
 
-- [ ] **Step 3: Implement the helpers in `selection.ts`**
+- [x] **Step 3: Implement the helpers in `selection.ts`**
 
 In `packages/docs/src/view/selection.ts`, immediately after the imports
 (before the `NormalizedRange` interface), add:
@@ -274,7 +274,7 @@ export function expandCellRangeForMerges(
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run test/view/cell-range-expand.test.ts
@@ -282,7 +282,7 @@ pnpm --filter @wafflebase/docs test --run test/view/cell-range-expand.test.ts
 
 Expected: all 9 tests pass.
 
-- [ ] **Step 5: Run the full docs test suite to confirm nothing else broke**
+- [x] **Step 5: Run the full docs test suite to confirm nothing else broke**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run
@@ -290,7 +290,7 @@ pnpm --filter @wafflebase/docs test --run
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/selection.ts packages/docs/test/view/cell-range-expand.test.ts
@@ -321,7 +321,7 @@ table block from there and pass its `tableData` into `normalizeCellRange`.
 This protects read paths (peer cursor rendering, programmatic ranges) even
 if the write-time path (Task 3) misses an edge case.
 
-- [ ] **Step 1: Write a regression test against `Selection.getNormalizedRange`**
+- [x] **Step 1: Write a regression test against `Selection.getNormalizedRange`**
 
 Append to `packages/docs/test/view/cell-range-expand.test.ts`:
 
@@ -364,7 +364,7 @@ describe('Selection.getNormalizedRange — cell range expansion at read time', (
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run test/view/cell-range-expand.test.ts
@@ -373,7 +373,7 @@ pnpm --filter @wafflebase/docs test --run test/view/cell-range-expand.test.ts
 Expected: the new test fails — current `normalizeCellRange` only orders,
 does not expand.
 
-- [ ] **Step 3: Update `normalizeCellRange` and `normalizeRange`**
+- [x] **Step 3: Update `normalizeCellRange` and `normalizeRange`**
 
 In `packages/docs/src/view/selection.ts`, replace the existing
 `normalizeCellRange` (line 17) with:
@@ -411,7 +411,7 @@ In the same file, update the cell-range branch of `normalizeRange`
   }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run test/view/cell-range-expand.test.ts
@@ -419,7 +419,7 @@ pnpm --filter @wafflebase/docs test --run test/view/cell-range-expand.test.ts
 
 Expected: all tests pass, including the new read-time test.
 
-- [ ] **Step 5: Run the full docs suite**
+- [x] **Step 5: Run the full docs suite**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run
@@ -428,7 +428,7 @@ pnpm --filter @wafflebase/docs test --run
 Expected: pass. If `table-selection.test.ts` or any other selection-related
 test fails, investigate before continuing.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/selection.ts packages/docs/test/view/cell-range-expand.test.ts
@@ -461,7 +461,7 @@ Otherwise the highlight reflects the raw drag rect on the cell-range path
 that bypasses `normalizeRange` (e.g. `applyTableCellStyle` reads
 `selection.range.tableCellRange` directly).
 
-- [ ] **Step 1: Add the import for the expander**
+- [x] **Step 1: Add the import for the expander**
 
 At the top of `packages/docs/src/view/text-editor.ts`, find the existing
 import from `'./selection.js'`. If one exists, add `expandCellRangeForMerges`
@@ -473,7 +473,7 @@ import { expandCellRangeForMerges } from './selection.js';
 
 (Check existing imports first to avoid duplicates.)
 
-- [ ] **Step 2: Expand the drag-selection cell-range write**
+- [x] **Step 2: Expand the drag-selection cell-range write**
 
 Replace the cell-range branch around line 1156 in `updateDragSelection`:
 
@@ -506,7 +506,7 @@ review fix commit) keeps `pos` derived from the raw `currentCA`, which
 range is still the one stored on `selection.range.tableCellRange` for
 highlighting — only the cursor target stays at the raw hit-test cell.
 
-- [ ] **Step 3: Expand the Shift+Arrow cell-range write**
+- [x] **Step 3: Expand the Shift+Arrow cell-range write**
 
 Find the second `tableCellRange:` write at line ~1820 (in the Shift+Arrow
 cross-cell branch). The current shape is:
@@ -536,7 +536,7 @@ literal:
 guess. Read lines 1810–1830 first, identify the variables, then make the
 edit.)
 
-- [ ] **Step 4: Build the docs package to catch type errors**
+- [x] **Step 4: Build the docs package to catch type errors**
 
 ```bash
 pnpm --filter @wafflebase/docs build
@@ -544,7 +544,7 @@ pnpm --filter @wafflebase/docs build
 
 Expected: clean build.
 
-- [ ] **Step 5: Run the docs test suite**
+- [x] **Step 5: Run the docs test suite**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run
@@ -552,7 +552,7 @@ pnpm --filter @wafflebase/docs test --run
 
 Expected: pass. If selection or table tests fail, investigate.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/text-editor.ts
@@ -581,7 +581,7 @@ A pure function that, given the doc, the cursor, and the current selection
 range, returns the state the menu needs. Pure = no DOM, no editor instance,
 trivially testable.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `packages/docs/test/view/table-merge-context.test.ts`:
 
@@ -693,7 +693,7 @@ describe('computeTableMergeContext', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run test/view/table-merge-context.test.ts
@@ -701,7 +701,7 @@ pnpm --filter @wafflebase/docs test --run test/view/table-merge-context.test.ts
 
 Expected: failure — module does not exist.
 
-- [ ] **Step 3: Implement `table-merge-context.ts`**
+- [x] **Step 3: Implement `table-merge-context.ts`**
 
 Create `packages/docs/src/view/table-merge-context.ts`:
 
@@ -779,7 +779,7 @@ export function computeTableMergeContext(
 }
 ```
 
-- [ ] **Step 4: Run the new tests**
+- [x] **Step 4: Run the new tests**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run test/view/table-merge-context.test.ts
@@ -787,7 +787,7 @@ pnpm --filter @wafflebase/docs test --run test/view/table-merge-context.test.ts
 
 Expected: all 6 tests pass.
 
-- [ ] **Step 5: Run the full docs suite**
+- [x] **Step 5: Run the full docs suite**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run
@@ -795,7 +795,7 @@ pnpm --filter @wafflebase/docs test --run
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/table-merge-context.ts packages/docs/test/view/table-merge-context.test.ts
@@ -822,7 +822,7 @@ EOF
   `packages/docs/src/view/editor.ts:293` (the `initialize` factory body)
 - Modify: `packages/docs/src/index.ts` (re-export `TableMergeContext`)
 
-- [ ] **Step 1: Add the type re-export**
+- [x] **Step 1: Add the type re-export**
 
 Open `packages/docs/src/index.ts`. Find the existing exports. Add:
 
@@ -833,7 +833,7 @@ export type { TableMergeContext } from './view/table-merge-context.js';
 If `index.ts` already re-exports types via `export type { ... } from './view/...'`,
 follow the existing pattern.
 
-- [ ] **Step 2: Add the API method to the `EditorAPI` interface**
+- [x] **Step 2: Add the API method to the `EditorAPI` interface**
 
 In `packages/docs/src/view/editor.ts`, add an import at the top:
 
@@ -848,7 +848,7 @@ In the `EditorAPI` interface (around line 87, near `mergeTableCells`), add:
   getTableMergeContext(): TableMergeContext;
 ```
 
-- [ ] **Step 3: Implement the method in the factory return object**
+- [x] **Step 3: Implement the method in the factory return object**
 
 In the same file, find the section returning the EditorAPI object (the
 block containing `mergeTableCells: ...` at line 1359 and `splitTableCell: ...`
@@ -859,7 +859,7 @@ at line 1372). Add a new entry directly after `splitTableCell`:
       computeTableMergeContext(doc, layout.blockParentMap, cursor.position, selection.range),
 ```
 
-- [ ] **Step 4: Build to catch type errors**
+- [x] **Step 4: Build to catch type errors**
 
 ```bash
 pnpm --filter @wafflebase/docs build
@@ -867,7 +867,7 @@ pnpm --filter @wafflebase/docs build
 
 Expected: clean build.
 
-- [ ] **Step 5: Run all docs tests**
+- [x] **Step 5: Run all docs tests**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run
@@ -875,7 +875,7 @@ pnpm --filter @wafflebase/docs test --run
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/editor.ts packages/docs/src/index.ts
@@ -905,7 +905,7 @@ Auto-expansion (Tasks 1–3) will routinely produce ranges that contain an
 already-merged cell. We need to verify the algorithm handles that, and add
 a regression test.
 
-- [ ] **Step 1: Write the regression test**
+- [x] **Step 1: Write the regression test**
 
 Append to `packages/docs/test/model/table.test.ts` inside the existing
 `describe('mergeCells', ...)` block:
@@ -949,7 +949,7 @@ Append to `packages/docs/test/model/table.test.ts` inside the existing
     });
 ```
 
-- [ ] **Step 2: Run the test**
+- [x] **Step 2: Run the test**
 
 ```bash
 pnpm --filter @wafflebase/docs test --run test/model/table.test.ts
@@ -959,7 +959,7 @@ Expected outcome: most likely **passes** (the existing algorithm already
 handles this — see `document.ts:678`–`705`). If it fails, that is a real
 bug surfaced by the new test and must be fixed before continuing.
 
-- [ ] **Step 3: If the test passed, commit it as a regression guard**
+- [x] **Step 3: If the test passed, commit it as a regression guard**
 
 ```bash
 git add packages/docs/test/model/table.test.ts
@@ -987,7 +987,7 @@ an explanatory message.
 **Files:**
 - Modify: `packages/frontend/src/app/docs/docs-table-context-menu.tsx`
 
-- [ ] **Step 1: Add the new icon and type imports**
+- [x] **Step 1: Add the new icon and type imports**
 
 At the top of `packages/frontend/src/app/docs/docs-table-context-menu.tsx`,
 add `IconArrowsJoin` to the existing `@tabler/icons-react` import:
@@ -1014,7 +1014,7 @@ Add the type import next to the existing `EditorAPI` import:
 import type { EditorAPI, TableMergeContext } from "@wafflebase/docs";
 ```
 
-- [ ] **Step 2: Cache the merge context in component state**
+- [x] **Step 2: Cache the merge context in component state**
 
 Add a new state hook alongside the existing ones (after `useState<MenuPosition | null>`):
 
@@ -1037,7 +1037,7 @@ In `handleContextMenu`, capture the merge context when the menu opens:
   );
 ```
 
-- [ ] **Step 3: Replace the unconditional "Split cell" button with the hybrid slot**
+- [x] **Step 3: Replace the unconditional "Split cell" button with the hybrid slot**
 
 Find the existing block (around line 135–139):
 
@@ -1073,7 +1073,7 @@ Replace it with:
       )}
 ```
 
-- [ ] **Step 4: Build the frontend to catch type errors**
+- [x] **Step 4: Build the frontend to catch type errors**
 
 ```bash
 pnpm --filter @wafflebase/frontend build
@@ -1082,7 +1082,7 @@ pnpm --filter @wafflebase/frontend build
 Expected: clean build. If `TableMergeContext` is not found, double-check
 Task 5 Step 1 (the `index.ts` re-export).
 
-- [ ] **Step 5: Lint**
+- [x] **Step 5: Lint**
 
 ```bash
 pnpm --filter @wafflebase/frontend lint
@@ -1090,7 +1090,7 @@ pnpm --filter @wafflebase/frontend lint
 
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/docs-table-context-menu.tsx
@@ -1113,7 +1113,7 @@ EOF
 
 ## Task 8 — Verification: `pnpm verify:fast` and manual smoke
 
-- [ ] **Step 1: Run the pre-commit gate**
+- [x] **Step 1: Run the pre-commit gate**
 
 ```bash
 pnpm verify:fast
@@ -1121,7 +1121,7 @@ pnpm verify:fast
 
 Expected: pass. Investigate any failure before continuing.
 
-- [ ] **Step 2: Manual smoke test in dev**
+- [x] **Step 2: Manual smoke test in dev**
 
 In a separate terminal:
 
@@ -1148,7 +1148,7 @@ Open the docs editor in a new doc and verify:
 If any step misbehaves, capture the failure in the lessons file before
 fixing.
 
-- [ ] **Step 3: Stop dev**
+- [x] **Step 3: Stop dev**
 
 ```bash
 # Ctrl+C the dev server when done
@@ -1159,20 +1159,20 @@ docker compose down
 
 ## Task 9 — Wrap up
 
-- [ ] **Step 1: Capture any non-obvious lessons**
+- [x] **Step 1: Capture any non-obvious lessons**
 
 If the implementation surfaced surprises (corrections, near-misses,
 non-obvious gotchas), append them to
 `docs/tasks/active/20260411-docs-table-merge-ux-lessons.md` under
 "Patterns to keep" or "Mistakes to avoid".
 
-- [ ] **Step 2: Archive and reindex tasks**
+- [x] **Step 2: Archive and reindex tasks**
 
 ```bash
 pnpm tasks:archive && pnpm tasks:index
 ```
 
-- [ ] **Step 3: Verify the worktree status is clean**
+- [x] **Step 3: Verify the worktree status is clean**
 
 ```bash
 git status
