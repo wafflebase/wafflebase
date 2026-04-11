@@ -457,15 +457,28 @@ function buildCellRangeRects(
   const { start, end } = cellRange;
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
 
+  const tableData = lb.block.tableData;
   for (let r = start.rowIndex; r <= end.rowIndex; r++) {
     for (let c = start.colIndex; c <= end.colIndex; c++) {
       const cell = tl.cells[r]?.[c];
       if (!cell || cell.merged) continue;
+
+      // For merge top-left cells, the highlight must cover the full
+      // colSpan × rowSpan footprint, not just the anchor column/row.
+      // LayoutTableCell.width already sums spanned columns; for rows we
+      // sum rowHeights over the span explicitly.
+      const srcCell = tableData?.rows[r]?.cells[c];
+      const rowSpan = srcCell?.rowSpan ?? 1;
+      let height = 0;
+      for (let rr = r; rr < r + rowSpan && rr < tl.rowHeights.length; rr++) {
+        height += tl.rowHeights[rr];
+      }
+
       rects.push({
         x: pageX + margins.left + tl.columnXOffsets[c],
         y: tableOriginY + tl.rowYOffsets[r],
-        width: tl.columnPixelWidths[c],
-        height: tl.rowHeights[r],
+        width: cell.width,
+        height,
       });
     }
   }
