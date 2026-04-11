@@ -242,7 +242,12 @@ export class DocxImporter {
         if (n.nodeType !== 1 || (n as Element).localName !== 'gridCol') continue;
         const el = n as Element;
         const w = el.getAttributeNS(W, 'w') || el.getAttribute('w:w');
-        colWidthsRaw.push(w ? parseInt(w, 10) : 1);
+        // Guard against missing or non-numeric w:w (parseInt('') / parseInt('auto')
+        // return NaN, which would then propagate into columnWidths and silently
+        // collapse the layout). Fall back to a unit weight so the column still
+        // renders at the even share and malformed input degrades gracefully.
+        const parsed = w ? parseInt(w, 10) : NaN;
+        colWidthsRaw.push(Number.isFinite(parsed) && parsed > 0 ? parsed : 1);
       }
     }
     const totalWidth = colWidthsRaw.reduce((a, b) => a + b, 0) || 1;

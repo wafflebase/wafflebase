@@ -471,8 +471,12 @@ export class DocCanvas {
         }
       }
 
-      // Draw text
-      for (const pl of page.lines) {
+      // Draw text. Iterate via index rather than for-of so the table
+      // branch below can reuse the loop index instead of calling
+      // page.lines.indexOf(pl), which would turn this hot render path
+      // into O(n^2) on pages with many table rows.
+      for (let plIndex = 0; plIndex < page.lines.length; plIndex++) {
+        const pl = page.lines[plIndex];
         // Render horizontal-rule blocks as a thin line
         if (layout) {
           const block = layout.blocks[pl.blockIndex]?.block;
@@ -520,7 +524,6 @@ export class DocCanvas {
             // already computed in the background pre-pass — recompute it
             // here instead of threading the data through so both passes
             // keep their logic self-contained and readable.
-            const plIndex = page.lines.indexOf(pl);
             if (plIndex === 0 || page.lines[plIndex - 1]?.blockIndex !== pl.blockIndex) {
               const range = computeTableRangeForPageLine(page, lb, pl, plIndex);
               const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex];

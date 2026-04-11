@@ -94,6 +94,13 @@ describe('mapRunProperties', () => {
     expect(style.italic).toBeUndefined();
   });
 
+  it('should treat <w:i w:val="false"/> as italic off', () => {
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:i w:val="false"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.italic).toBeUndefined();
+  });
+
   it('should treat <w:strike w:val="0"/> as strikethrough off', () => {
     const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:strike w:val="0"/></w:rPr>';
     const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;

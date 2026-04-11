@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import {
   renderTable,
@@ -7,6 +10,8 @@ import {
 import type { TableData } from '../../src/model/types.js';
 import { DEFAULT_BLOCK_STYLE, DEFAULT_CELL_STYLE } from '../../src/model/types.js';
 import type { LayoutTable } from '../../src/view/table-layout.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Minimal canvas stub that records method calls in the order they
@@ -155,6 +160,30 @@ describe('renderTableContent', () => {
     // backgrounds would also be fillRects — this test uses plain runs
     // without backgrounds, so fillRect should stay at zero.
     expect(fillRect).not.toHaveBeenCalled();
+  });
+});
+
+describe('DocCanvas ↔ table-renderer wiring', () => {
+  // A full DocCanvas.render() test would need an HTMLCanvasElement, a
+  // paginated layout, a selection object, and a request-render callback —
+  // too much setup for a regression guard. The class of bug we're
+  // protecting against is doc-canvas.ts drifting back to calling the
+  // single-pass renderTable() facade (which would cover the selection
+  // highlight again). A static import scan catches that drift cheaply.
+  it('doc-canvas imports only the two-pass renderers, not the single-pass facade', () => {
+    const docCanvasPath = path.resolve(
+      __dirname,
+      '../../src/view/doc-canvas.ts',
+    );
+    const src = readFileSync(docCanvasPath, 'utf8');
+    const importMatch = src.match(
+      /import\s*\{([^}]+)\}\s*from\s*['"]\.\/table-renderer(?:\.js)?['"]/,
+    );
+    expect(importMatch, 'doc-canvas must import from ./table-renderer').not.toBeNull();
+    const imports = importMatch![1].split(',').map((s) => s.trim());
+    expect(imports).toContain('renderTableBackgrounds');
+    expect(imports).toContain('renderTableContent');
+    expect(imports).not.toContain('renderTable');
   });
 });
 
