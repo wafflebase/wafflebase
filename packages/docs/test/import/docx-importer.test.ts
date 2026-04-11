@@ -211,6 +211,262 @@ describe('DocxImporter', () => {
     expect(td.rows[1].cells[3].colSpan).toBe(0);
   });
 
+  it('should pad a row whose tc count falls short of the tblGrid', async () => {
+    // A 3-column grid with a row that only ships 2 tcs and no gridAfter
+    // marker. Real docs sometimes ship these when a column is removed
+    // from one row but the grid stays wide. The final cells array must
+    // still have 3 entries so downstream indexing stays aligned.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(3);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+    // Trailing grid column is absorbed by a covered placeholder.
+    expect(row.cells[2].colSpan).toBe(0);
+  });
+
+  it('should truncate a row whose tc count exceeds the tblGrid', async () => {
+    // A 2-column grid with a row shipping 3 unmerged tcs. The extra
+    // tc has no grid position to land on; drop it so cells.length
+    // stays equal to numCols. Layout assumes a rectangular grid.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>Extra</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(2);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+  });
+
+  it('should clamp a gridSpan that overruns the remaining grid columns', async () => {
+    // Table has a 2-column tblGrid, but the second tc declares
+    // gridSpan=5. A malformed fixture or a docx that lost a gridCol
+    // during editing could produce this. The importer must clamp the
+    // colSpan to the remaining room so the row stays aligned with
+    // numCols — owner + 1 trailing placeholder, not owner + 4.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="5"/></w:tcPr>
+            <w:p><w:r><w:t>B</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    // Row stays the same length as the grid: the out-of-range span is
+    // clamped to the one remaining column.
+    expect(row.cells).toHaveLength(2);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    // The owner keeps its content but its recorded span is clamped
+    // to 1 — otherwise downstream code would think the owner covers
+    // non-existent grid columns.
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+    expect(row.cells[1].colSpan).toBeUndefined();
+  });
+
+  it('should promote an orphan vMerge continue to a standalone owner', async () => {
+    // Some DOCX writers emit vMerge="continue" for a column that never
+    // opened a restart — typically when an author deletes the anchor row
+    // but leaves the continuation behind. Without a tracker entry, the
+    // importer would silently push placeholders with no owner, leaving
+    // those grid positions unreachable. Treat the first continue as a
+    // standalone owner instead.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid>
+        <w:tr>
+          <w:tc>
+            <w:tcPr><w:vMerge/></w:tcPr>
+            <w:p><w:r><w:t>Orphan</w:t></w:r></w:p>
+          </w:tc>
+          <w:tc><w:p><w:r><w:t>X</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(2);
+    // Cell 0 must be a real owner with its content preserved, not a
+    // covered placeholder.
+    expect(row.cells[0].colSpan).toBeUndefined();
+    expect(row.cells[0].rowSpan).toBeUndefined();
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('Orphan');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('X');
+  });
+
+  it('should backfill row shape when vMerge continue has smaller gridSpan than the restart', async () => {
+    // Row 0 opens the vertical merge at col 1 with gridSpan=3. Row 1
+    // continues the merge but declares gridSpan=1 — a mismatch Word can
+    // write when the author edits a merged range without fixing up the
+    // inner continuation cells. The importer must still pad the covered
+    // positions so row 1 keeps one cell per grid column; otherwise the
+    // row would have only 2 entries and downstream indexing breaks.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="3"/><w:vMerge w:val="restart"/></w:tcPr>
+            <w:p><w:r><w:t>B</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:vMerge/></w:tcPr>
+            <w:p/>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.rows[1].cells).toHaveLength(4);
+    // All three grid positions 1..3 must be covered by the merge, not
+    // just the leftmost column the continue tc declared.
+    expect(td.rows[1].cells[1].colSpan).toBe(0);
+    expect(td.rows[1].cells[2].colSpan).toBe(0);
+    expect(td.rows[1].cells[3].colSpan).toBe(0);
+    // The owner at row 0 col 1 still reports rowSpan=2 for the group.
+    expect(td.rows[0].cells[1].rowSpan).toBe(2);
+  });
+
+  it('should pad leading placeholders for w:gridBefore', async () => {
+    // A 4-column table whose row starts with <w:gridBefore w:val="2"/>.
+    // The first real tc belongs to grid column 2, so cells[0..1] must be
+    // placeholders and cells[2..3] must be the two real owners "C" and "D".
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:trPr><w:gridBefore w:val="2"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>D</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(4);
+    expect(row.cells[0].colSpan).toBe(0);
+    expect(row.cells[1].colSpan).toBe(0);
+    expect(row.cells[2].blocks[0].inlines[0].text).toBe('C');
+    expect(row.cells[3].blocks[0].inlines[0].text).toBe('D');
+  });
+
+  it('should pad trailing placeholders for w:gridAfter', async () => {
+    // A 4-column table whose row has two real tcs followed by
+    // <w:gridAfter w:val="2"/>. The last two grid positions must be
+    // placeholders so cells.length stays at 4.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:trPr><w:gridAfter w:val="2"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(4);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+    expect(row.cells[2].colSpan).toBe(0);
+    expect(row.cells[3].colSpan).toBe(0);
+  });
+
+  it('should not inject gridBefore placeholders when the table has no tblGrid', async () => {
+    // Without a w:tblGrid we cannot know the true grid width, so the
+    // shape-hardening logic (gridSpan clamp, final normalize) is
+    // explicitly disabled. gridBefore / gridAfter padding must follow
+    // the same gate — otherwise a gridless row picks up synthetic
+    // covered cells that change its length relative to every other
+    // row in the same table.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tr>
+          <w:trPr><w:gridBefore w:val="2"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>D</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    // Exactly the two tcs from the source, no synthetic placeholders.
+    expect(row.cells).toHaveLength(2);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('C');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('D');
+  });
+
+  it('should not inject gridAfter placeholders when the table has no tblGrid', async () => {
+    // Same gate as above, trailing skip edition.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tr>
+          <w:trPr><w:gridAfter w:val="2"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(2);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+  });
+
   it('should ignore gridCol elements from nested tables when computing outer widths', async () => {
     // Regression for v0.3.2: getElementsByTagNameNS('gridCol') is recursive
     // and would pick up the nested 5-col grid, collapsing the outer 1-col

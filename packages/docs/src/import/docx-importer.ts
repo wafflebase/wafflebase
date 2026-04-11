@@ -252,6 +252,10 @@ export class DocxImporter {
     }
     const totalWidth = colWidthsRaw.reduce((a, b) => a + b, 0) || 1;
     const columnWidths = colWidthsRaw.map((w) => w / totalWidth);
+    // Row-cell clamp target. When tblGrid is missing we cannot clamp
+    // (we do not yet know how many columns exist), so numCols stays 0
+    // and the clamp is effectively disabled.
+    const numCols = columnWidths.length;
 
     // Parse rows — only direct child <w:tr> elements
     const rows: TableRow[] = [];
@@ -259,11 +263,16 @@ export class DocxImporter {
     // resolved (its rowSpan written) either when the column starts a new
     // group or at the end after all rows are walked. This handles multiple
     // stacked vMerge groups in the same column without overwriting earlier
-    // trackers.
-    const vMergeTracker: Map<number, { startRow: number; count: number }> = new Map();
+    // trackers. `colSpan` records the owner's horizontal span so that a
+    // subsequent continue cell whose gridSpan disagrees with the owner
+    // still covers the full merged range.
+    const vMergeTracker: Map<
+      number,
+      { startRow: number; count: number; colSpan: number }
+    > = new Map();
     const resolveVMergeGroup = (
       colIdx: number,
-      tracker: { startRow: number; count: number },
+      tracker: { startRow: number; count: number; colSpan: number },
     ) => {
       if (tracker.count > 1 && rows[tracker.startRow]) {
         const cell = rows[tracker.startRow].cells[colIdx];
@@ -276,8 +285,28 @@ export class DocxImporter {
       if (node.nodeType !== 1 || (node as Element).localName !== 'tr') continue;
       const trEl = node as Element;
 
+      // <w:trPr> can declare w:gridBefore / w:gridAfter to leave N leading or
+      // trailing grid columns empty. These rows ship fewer <w:tc> children
+      // than the table has grid columns; without padding we would end up
+      // with cells.length < numCols and click/layout would misalign. The
+      // absorbed positions must be emitted as covered placeholders so every
+      // row still has one entry per grid column.
+      //
+      // The skip markers are only meaningful when we know the grid
+      // width: without a <w:tblGrid> (numCols === 0) we have no target
+      // length to align to, and injecting covered cells from the skip
+      // markers alone would change the row shape for the legacy
+      // gridless path. Gate parsing on numCols > 0 to stay consistent
+      // with the clamp and the final normalize below.
+      const trPr = DocxImporter.findDirectChild(trEl, 'trPr');
+      const gridBefore =
+        numCols > 0 && trPr ? DocxImporter.readGridSkip(trPr, 'gridBefore') : 0;
+      const gridAfter =
+        numCols > 0 && trPr ? DocxImporter.readGridSkip(trPr, 'gridAfter') : 0;
+
       const cells: TableCell[] = [];
-      let colIdx = 0;
+      for (let s = 0; s < gridBefore; s++) cells.push(makeCoveredCell());
+      let colIdx = gridBefore;
       for (let j = 0; j < trEl.childNodes.length; j++) {
         const tcNode = trEl.childNodes[j];
         if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
@@ -294,25 +323,54 @@ export class DocxImporter {
           vMerge = cellProps.vMerge;
         }
 
+        // Clamp colSpan to the remaining grid room. A malformed or
+        // partially-edited docx can declare a gridSpan that overruns
+        // numCols; without clamping, colIdx walks past the grid and
+        // the row ends up longer than every other row. When tblGrid
+        // is missing numCols is 0 and we leave the span alone.
+        if (numCols > 0 && colIdx + colSpan > numCols) {
+          colSpan = Math.max(1, numCols - colIdx);
+        }
+
         // Handle vertical merge tracking
         if (vMerge === 'restart') {
           // If a previous group is still open for this column, close it
           // before starting a new one.
           const existing = vMergeTracker.get(colIdx);
           if (existing) resolveVMergeGroup(colIdx, existing);
-          vMergeTracker.set(colIdx, { startRow: rows.length, count: 1 });
+          vMergeTracker.set(colIdx, {
+            startRow: rows.length,
+            count: 1,
+            colSpan,
+          });
         } else if (vMerge === 'continue') {
           const tracker = vMergeTracker.get(colIdx);
-          if (tracker) tracker.count++;
-          // Mark as covered cells. A vMerge=continue tc can also have
-          // gridSpan > 1, in which case every grid column it covers must
-          // get its own placeholder so the row's cells array stays
-          // aligned with numCols.
-          for (let s = 0; s < colSpan; s++) {
-            cells.push(makeCoveredCell());
+          if (tracker) {
+            tracker.count++;
+            // Mark as covered cells. A vMerge=continue tc can also have
+            // gridSpan > 1, in which case every grid column it covers
+            // must get its own placeholder so the row's cells array
+            // stays aligned with numCols. If the continue cell
+            // disagrees with the owner's span (Word can emit this when
+            // the author edits a merged range without touching the
+            // continuation), widen the placeholder count to the
+            // owner's colSpan so the row still covers every merged
+            // grid position — then clamp to the remaining grid room.
+            let effectiveSpan = Math.max(colSpan, tracker.colSpan);
+            if (numCols > 0 && colIdx + effectiveSpan > numCols) {
+              effectiveSpan = Math.max(1, numCols - colIdx);
+            }
+            for (let s = 0; s < effectiveSpan; s++) {
+              cells.push(makeCoveredCell());
+            }
+            colIdx += effectiveSpan;
+            continue;
           }
-          colIdx += colSpan;
-          continue;
+          // Orphan continue: the column never saw a restart. Some
+          // writers leave continuation cells behind when the anchor row
+          // is deleted; fall through and treat the tc as a standalone
+          // owner so its grid positions stay reachable instead of
+          // becoming unclaimed covered placeholders.
         }
 
         // Parse cell content blocks
@@ -360,6 +418,17 @@ export class DocxImporter {
         }
         colIdx += colSpan;
       }
+      for (let s = 0; s < gridAfter; s++) cells.push(makeCoveredCell());
+      // Safety net: after honoring gridBefore/gridAfter and clamping
+      // each owner span, the row should already be numCols long. If
+      // upstream markup disagrees (short row with no gridAfter, extra
+      // tcs that ran off the end, partially-edited fixtures), force
+      // the row back to numCols so downstream layout and rendering
+      // can trust cells.length === columnWidths.length.
+      if (numCols > 0) {
+        while (cells.length < numCols) cells.push(makeCoveredCell());
+        if (cells.length > numCols) cells.length = numCols;
+      }
       rows.push({ cells });
     }
 
@@ -377,6 +446,21 @@ export class DocxImporter {
       style: { ...DEFAULT_BLOCK_STYLE },
       tableData,
     };
+  }
+
+  /**
+   * Read the integer value of a <w:trPr> skip marker such as
+   * <w:gridBefore w:val="2"/> or <w:gridAfter w:val="2"/>. A missing
+   * element, missing w:val, or non-positive parse returns 0 so callers
+   * can add the result unconditionally to the cells array length.
+   */
+  private static readGridSkip(trPr: Element, localName: string): number {
+    const el = DocxImporter.findDirectChild(trPr, localName);
+    if (!el) return 0;
+    const val = el.getAttributeNS(W, 'val') || el.getAttribute('w:val');
+    if (!val) return 0;
+    const parsed = parseInt(val, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
 
   /**
