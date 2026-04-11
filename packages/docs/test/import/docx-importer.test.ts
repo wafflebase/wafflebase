@@ -211,6 +211,62 @@ describe('DocxImporter', () => {
     expect(td.rows[1].cells[3].colSpan).toBe(0);
   });
 
+  it('should pad leading placeholders for w:gridBefore', async () => {
+    // A 4-column table whose row starts with <w:gridBefore w:val="2"/>.
+    // The first real tc belongs to grid column 2, so cells[0..1] must be
+    // placeholders and cells[2..3] must be the two real owners "C" and "D".
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:trPr><w:gridBefore w:val="2"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>D</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(4);
+    expect(row.cells[0].colSpan).toBe(0);
+    expect(row.cells[1].colSpan).toBe(0);
+    expect(row.cells[2].blocks[0].inlines[0].text).toBe('C');
+    expect(row.cells[3].blocks[0].inlines[0].text).toBe('D');
+  });
+
+  it('should pad trailing placeholders for w:gridAfter', async () => {
+    // A 4-column table whose row has two real tcs followed by
+    // <w:gridAfter w:val="2"/>. The last two grid positions must be
+    // placeholders so cells.length stays at 4.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:trPr><w:gridAfter w:val="2"/></w:trPr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(4);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+    expect(row.cells[2].colSpan).toBe(0);
+    expect(row.cells[3].colSpan).toBe(0);
+  });
+
   it('should ignore gridCol elements from nested tables when computing outer widths', async () => {
     // Regression for v0.3.2: getElementsByTagNameNS('gridCol') is recursive
     // and would pick up the nested 5-col grid, collapsing the outer 1-col

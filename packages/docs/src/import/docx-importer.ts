@@ -276,8 +276,19 @@ export class DocxImporter {
       if (node.nodeType !== 1 || (node as Element).localName !== 'tr') continue;
       const trEl = node as Element;
 
+      // <w:trPr> can declare w:gridBefore / w:gridAfter to leave N leading or
+      // trailing grid columns empty. These rows ship fewer <w:tc> children
+      // than the table has grid columns; without padding we would end up
+      // with cells.length < numCols and click/layout would misalign. The
+      // absorbed positions must be emitted as covered placeholders so every
+      // row still has one entry per grid column.
+      const trPr = DocxImporter.findDirectChild(trEl, 'trPr');
+      const gridBefore = trPr ? DocxImporter.readGridSkip(trPr, 'gridBefore') : 0;
+      const gridAfter = trPr ? DocxImporter.readGridSkip(trPr, 'gridAfter') : 0;
+
       const cells: TableCell[] = [];
-      let colIdx = 0;
+      for (let s = 0; s < gridBefore; s++) cells.push(makeCoveredCell());
+      let colIdx = gridBefore;
       for (let j = 0; j < trEl.childNodes.length; j++) {
         const tcNode = trEl.childNodes[j];
         if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
@@ -360,6 +371,7 @@ export class DocxImporter {
         }
         colIdx += colSpan;
       }
+      for (let s = 0; s < gridAfter; s++) cells.push(makeCoveredCell());
       rows.push({ cells });
     }
 
@@ -377,6 +389,21 @@ export class DocxImporter {
       style: { ...DEFAULT_BLOCK_STYLE },
       tableData,
     };
+  }
+
+  /**
+   * Read the integer value of a <w:trPr> skip marker such as
+   * <w:gridBefore w:val="2"/> or <w:gridAfter w:val="2"/>. A missing
+   * element, missing w:val, or non-positive parse returns 0 so callers
+   * can add the result unconditionally to the cells array length.
+   */
+  private static readGridSkip(trPr: Element, localName: string): number {
+    const el = DocxImporter.findDirectChild(trPr, localName);
+    if (!el) return 0;
+    const val = el.getAttributeNS(W, 'val') || el.getAttribute('w:val');
+    if (!val) return 0;
+    const parsed = parseInt(val, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
 
   /**
