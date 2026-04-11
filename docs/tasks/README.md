@@ -18,13 +18,15 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.3.2 (2026-04-11) | [20260411-release-v0.3.2-todo.md](./active/20260411-release-v0.3.2-todo.md) | - |
+| v0.3.2 smoke test fixes (2026-04-11) | [20260411-v0.3.2-smoke-test-fixes-todo.md](./active/20260411-v0.3.2-smoke-test-fixes-todo.md) | [20260411-v0.3.2-smoke-test-fixes-lessons.md](./active/20260411-v0.3.2-smoke-test-fixes-lessons.md) |
 | intent preserving phase4 table cells (2026-04-03) | [20260403-intent-preserving-phase4-table-cells-todo.md](./active/20260403-intent-preserving-phase4-table-cells-todo.md) | - |
 | intent preserving phase5 undo redo (2026-04-03) | [20260403-intent-preserving-phase5-undo-redo-todo.md](./active/20260403-intent-preserving-phase5-undo-redo-todo.md) | - |
 | docs wordprocessor (2026-03-25) | [20260325-docs-wordprocessor-todo.md](./active/20260325-docs-wordprocessor-todo.md) | [20260325-docs-wordprocessor-lessons.md](./active/20260325-docs-wordprocessor-lessons.md) |
 
 ## Archive
 
-- Archived task count: 115
+- Archived task count: 118
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: intent preserving phase4 table cells (2026-04-03)
+Latest active task: release v0.3.2 (2026-04-11)

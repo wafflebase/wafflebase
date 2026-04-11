@@ -6,12 +6,15 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 115
+Total archived tasks: 118
 
-## 2026/04 (1 tasks)
+## 2026/04 (4 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docx import export (2026-04-10) | [20260410-docx-import-export-todo.md](./2026/04/20260410-docx-import-export-todo.md) | - |
+| header footer (2026-04-08) | [20260408-header-footer-todo.md](./2026/04/20260408-header-footer-todo.md) | - |
+| page break (2026-04-08) | [20260408-page-break-todo.md](./2026/04/20260408-page-break-todo.md) | - |
 | intent preserving phase1 3 (2026-04-02) | [20260402-intent-preserving-phase1-3-todo.md](./2026/04/20260402-intent-preserving-phase1-3-todo.md) | [20260402-intent-preserving-phase1-3-lessons.md](./2026/04/20260402-intent-preserving-phase1-3-lessons.md) |
 
 ## 2026/03 (77 tasks)
