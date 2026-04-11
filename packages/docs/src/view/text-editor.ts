@@ -788,7 +788,13 @@ export class TextEditor {
     // Check for border resize drag
     const tableInfo = this.resolveTableFromMouse(e);
     if (tableInfo) {
-      const hit = detectTableBorder(tableInfo.layout, tableInfo.localX, tableInfo.localY);
+      const tableData = this.doc.getBlock(tableInfo.tableBlockId).tableData;
+      const hit = detectTableBorder(
+        tableInfo.layout,
+        tableInfo.localX,
+        tableInfo.localY,
+        tableData,
+      );
       if (hit) {
         const pixel = hit.type === 'column'
           ? tableInfo.tableOriginX + tableInfo.layout.columnXOffsets[hit.index] + tableInfo.layout.columnPixelWidths[hit.index]
@@ -1028,7 +1034,13 @@ export class TextEditor {
     // Cursor style: check for border proximity
     const tableInfo = this.resolveTableFromMouse(e);
     if (tableInfo) {
-      const hit = detectTableBorder(tableInfo.layout, tableInfo.localX, tableInfo.localY);
+      const tableData = this.doc.getBlock(tableInfo.tableBlockId).tableData;
+      const hit = detectTableBorder(
+        tableInfo.layout,
+        tableInfo.localX,
+        tableInfo.localY,
+        tableData,
+      );
       if (hit) {
         this.setCanvasCursor(hit.type === 'column' ? 'col-resize' : 'row-resize');
       } else {
