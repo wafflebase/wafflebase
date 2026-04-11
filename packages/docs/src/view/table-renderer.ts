@@ -223,12 +223,16 @@ export function renderTableContent(
         textYOffset = padding;
       }
 
-      // For merged cells, distribute lines across the spanned rows so
-      // each row gets its own top padding and content flows into the next
-      // row when one fills up. Non-merged cells keep the old text offset
-      // (which still honours vertical alignment).
+      // For top-aligned merged cells, distribute lines across the
+      // spanned rows so each row gets its own top padding and content
+      // flows into the next row when one fills up. Non-merged cells, or
+      // merged cells with middle/bottom alignment, stay on the
+      // `textYOffset + line.y` path so the vertical alignment math in
+      // renderTableContent keeps working. (Pagination of middle/
+      // bottom-aligned merged cells is a pre-existing limitation — the
+      // semantics of "align-middle across two pages" is undefined.)
       const mergedLineLayouts =
-        rowSpan > 1
+        rowSpan > 1 && verticalAlign === 'top'
           ? computeMergedCellLineLayouts(
               layoutCell.lines,
               r,

@@ -320,9 +320,9 @@ class Doc {
 
 ## Cell Range Normalization
 
-`tableCellRange` is normalized in `selection.ts` whenever it changes (drag,
-shift+arrow, programmatic update). The normalizer is a fixed-point loop that
-expands the bounding rectangle until no merged cell crosses its boundary:
+`expandCellRangeForMerges` in `selection.ts` is a fixed-point loop that
+grows a cell range's bounding rectangle until no merged cell crosses its
+boundary:
 
 1. Order `start`/`end` so that `rowStart ≤ rowEnd` and `colStart ≤ colEnd`.
 2. For every cell `(r, c)` inside the current bounding rect:
@@ -338,10 +338,19 @@ locate the merge anchor for a covered cell. The current data model has no
 back-pointer; the scan is bounded by table size and is acceptable because
 tables are small.
 
-The normalized range is stored in `selection.range.tableCellRange`, so all
-downstream consumers (selection rendering, copy, batch cell-style apply,
-merge) see the expanded rectangle automatically. Drag-time hover highlights
-therefore preview the exact area that will be merged.
+Normalization is applied in two places:
+
+- **Write-time** — the drag handler in `text-editor.ts` and the Shift+Arrow
+  cross-cell branch call `expandCellRangeForMerges` before storing the
+  range on the selection, so `selection.range.tableCellRange` already
+  contains the expanded rectangle. This is what drives the drag-time hover
+  highlight, which therefore previews the exact area that will be merged.
+- **Read-time** — `normalizeRange` in `selection.ts` re-applies the
+  expansion when a consumer reads the selection (rendering, copy, peer
+  cursor projection, `computeTableMergeContext`). This is a defensive pass
+  for programmatic writers: `Selection.setRange()` itself does not mutate
+  the supplied range, so callers that bypass the write-time handlers still
+  get a normalized view.
 
 ## Cell Merge UX
 

@@ -302,7 +302,18 @@ function buildRects(
     const startCbiEff = startCbi >= 0 ? startCbi : 0;
     const endCbiEff = endCbi >= 0 ? endCbi : 0;
 
-    const lineIdxForOffset = (cbiEff: number, offset: number): number => {
+    // Find the cell-internal line index for a given offset. At a visual
+    // wrap boundary (offset === cumulative chars) forward affinity
+    // belongs to the next line (matching how `resolvePositionPixel` uses
+    // 'forward' for `start`), while backward affinity stays on the
+    // current line (matching `end`). Without this bias a wrapped cell
+    // selection can render an extra rect on the previous line or miss
+    // the first rect on the next one.
+    const lineIdxForOffset = (
+      cbiEff: number,
+      offset: number,
+      affinity: 'forward' | 'backward',
+    ): number => {
       const lineStart = layoutCell.blockBoundaries[cbiEff] ?? 0;
       const lineEnd =
         layoutCell.blockBoundaries[cbiEff + 1] ?? layoutCell.lines.length;
@@ -310,14 +321,24 @@ function buildRects(
       for (let li = lineStart; li < lineEnd; li++) {
         let lineChars = 0;
         for (const run of layoutCell.lines[li].runs) lineChars += run.text.length;
-        if (remaining <= lineChars) return li;
+        if (remaining <= lineChars) {
+          if (
+            affinity === 'forward' &&
+            remaining === lineChars &&
+            li < lineEnd - 1
+          ) {
+            remaining = 0;
+            continue;
+          }
+          return li;
+        }
         remaining -= lineChars;
       }
       return Math.max(lineStart, lineEnd - 1);
     };
 
-    const startLineIdx = lineIdxForOffset(startCbiEff, start.offset);
-    const endLineIdx = lineIdxForOffset(endCbiEff, end.offset);
+    const startLineIdx = lineIdxForOffset(startCbiEff, start.offset, 'forward');
+    const endLineIdx = lineIdxForOffset(endCbiEff, end.offset, 'backward');
 
     const lineLayouts = computeMergedCellLineLayouts(
       layoutCell.lines,

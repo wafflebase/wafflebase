@@ -498,9 +498,13 @@ Replace the cell-range branch around line 1156 in `updateDragSelection`:
             }
 ```
 
-Note: `pos` (cursor target) now follows the expanded `end` instead of the
-raw `currentCA`, so the cursor lands on the bottom-right of the visible
-selection.
+Note: this initial draft of the step moved `pos` to the expanded `end`, but
+that lands the cursor on a covered cell (`colSpan === 0`) whenever the
+expansion extends rightward into a merge. The implemented code (see code
+review fix commit) keeps `pos` derived from the raw `currentCA`, which
+`resolveTableCellClick` guarantees is a visible top-left. The expanded
+range is still the one stored on `selection.range.tableCellRange` for
+highlighting — only the cursor target stays at the raw hit-test cell.
 
 - [ ] **Step 3: Expand the Shift+Arrow cell-range write**
 

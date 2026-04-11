@@ -6,6 +6,7 @@ import type {
   DocPosition,
   DocRange,
 } from '../model/types.js';
+import { expandCellRangeForMerges } from './selection.js';
 
 export type TableMergeContext =
   | { state: 'none' }
@@ -17,10 +18,17 @@ export type TableMergeContext =
  *
  * Rules:
  *  - Cursor outside a table → none.
- *  - Active cell range covering ≥ 2 cells → canMerge (range from selection).
+ *  - Active cell range covering ≥ 2 cells → canMerge (range from selection,
+ *    expanded so any merged cell it touches is fully contained).
  *    Wins over canUnmerge so a user can grow an existing merge.
  *  - Cursor in a cell with `colSpan > 1` or `rowSpan > 1` → canUnmerge.
  *  - Otherwise → none.
+ *
+ * The selection range is expanded here as a defensive measure. The drag and
+ * Shift+Arrow handlers already call `expandCellRangeForMerges` at write
+ * time, but programmatic `Selection.setRange()` callers are not required
+ * to; this read-path expansion keeps the menu state consistent even when a
+ * raw range partially overlaps a merged cell.
  *
  * Pure: no DOM, no editor reference. Reads only `doc`, the parent map, the
  * cursor position, and the selection range.
@@ -35,29 +43,25 @@ export function computeTableMergeContext(
   if (!cellInfo) return { state: 'none' };
 
   const tableBlockId = cellInfo.tableBlockId;
+  const tableData = doc.getBlock(tableBlockId).tableData;
   const cr = selectionRange?.tableCellRange;
-  if (cr && cr.blockId === tableBlockId) {
-    const rowSpan = Math.abs(cr.end.rowIndex - cr.start.rowIndex) + 1;
-    const colSpan = Math.abs(cr.end.colIndex - cr.start.colIndex) + 1;
-    if (rowSpan * colSpan >= 2) {
+  if (cr && cr.blockId === tableBlockId && tableData) {
+    // Expand the range so any merged cell it touches is fully contained.
+    // `expandCellRangeForMerges` also orders start/end and skips over
+    // covered cells, so downstream consumers can treat the returned
+    // rectangle as canonical.
+    const expanded = expandCellRangeForMerges(cr, tableData);
+    const rows = expanded.end.rowIndex - expanded.start.rowIndex + 1;
+    const cols = expanded.end.colIndex - expanded.start.colIndex + 1;
+    if (rows * cols >= 2) {
       return {
         state: 'canMerge',
         tableBlockId,
-        range: {
-          start: {
-            rowIndex: Math.min(cr.start.rowIndex, cr.end.rowIndex),
-            colIndex: Math.min(cr.start.colIndex, cr.end.colIndex),
-          },
-          end: {
-            rowIndex: Math.max(cr.start.rowIndex, cr.end.rowIndex),
-            colIndex: Math.max(cr.start.colIndex, cr.end.colIndex),
-          },
-        },
+        range: { start: expanded.start, end: expanded.end },
       };
     }
   }
 
-  const tableData = doc.getBlock(tableBlockId).tableData;
   const cell = tableData?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
   if (cell && ((cell.colSpan ?? 1) > 1 || (cell.rowSpan ?? 1) > 1)) {
     return {
