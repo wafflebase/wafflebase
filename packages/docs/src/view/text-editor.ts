@@ -3,7 +3,7 @@ import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE,
 import { Doc, type EditContext } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
-import { Selection } from './selection.js';
+import { Selection, expandCellRangeForMerges } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, resolveClickTarget } from './pagination.js';
@@ -1162,12 +1162,21 @@ export class TextEditor {
               };
             } else if (currentCA) {
               // Different cell — cell-range mode
-              tableCellRange = {
-                blockId: tableBlockId,
-                start: anchorCA,
-                end: currentCA,
-              };
-              const targetCell = this.doc.getBlock(tableBlockId).tableData!.rows[currentCA.rowIndex].cells[currentCA.colIndex];
+              const tableData = this.doc.getBlock(tableBlockId).tableData!;
+              tableCellRange = expandCellRangeForMerges(
+                {
+                  blockId: tableBlockId,
+                  start: anchorCA,
+                  end: currentCA,
+                },
+                tableData,
+              );
+              // Cursor lands on the cell the user actually dragged to
+              // (resolveTableCellClick guarantees currentCA is a visible
+              // top-left, never a covered cell). The expanded range is for
+              // selection/highlighting only.
+              const targetCell = tableData.rows[currentCA.rowIndex]
+                .cells[currentCA.colIndex];
               pos = {
                 blockId: targetCell.blocks[0].id,
                 offset: 0,
@@ -1823,14 +1832,17 @@ export class TextEditor {
               anchorCI.tableBlockId === newPosCI.tableBlockId &&
               (anchorCI.rowIndex !== newPosCI.rowIndex ||
                anchorCI.colIndex !== newPosCI.colIndex)) {
-            // Cross-cell: use tableCellRange
+            // Cross-cell: use tableCellRange, expanded to cover any merges it touches
             this.selection.setRange({
               anchor, focus: newPos,
-              tableCellRange: {
-                blockId: anchorCI.tableBlockId,
-                start: { rowIndex: anchorCI.rowIndex, colIndex: anchorCI.colIndex },
-                end: { rowIndex: newPosCI.rowIndex, colIndex: newPosCI.colIndex },
-              },
+              tableCellRange: expandCellRangeForMerges(
+                {
+                  blockId: anchorCI.tableBlockId,
+                  start: { rowIndex: anchorCI.rowIndex, colIndex: anchorCI.colIndex },
+                  end: { rowIndex: newPosCI.rowIndex, colIndex: newPosCI.colIndex },
+                },
+                this.doc.getBlock(anchorCI.tableBlockId).tableData!,
+              ),
             });
           } else if (anchorCI && !newPosCI) {
             // Exiting table: block-range with anchor at table boundary
