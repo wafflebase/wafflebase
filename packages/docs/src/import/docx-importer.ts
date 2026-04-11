@@ -252,6 +252,10 @@ export class DocxImporter {
     }
     const totalWidth = colWidthsRaw.reduce((a, b) => a + b, 0) || 1;
     const columnWidths = colWidthsRaw.map((w) => w / totalWidth);
+    // Row-cell clamp target. When tblGrid is missing we cannot clamp
+    // (we do not yet know how many columns exist), so numCols stays 0
+    // and the clamp is effectively disabled.
+    const numCols = columnWidths.length;
 
     // Parse rows — only direct child <w:tr> elements
     const rows: TableRow[] = [];
@@ -310,6 +314,15 @@ export class DocxImporter {
           vMerge = cellProps.vMerge;
         }
 
+        // Clamp colSpan to the remaining grid room. A malformed or
+        // partially-edited docx can declare a gridSpan that overruns
+        // numCols; without clamping, colIdx walks past the grid and
+        // the row ends up longer than every other row. When tblGrid
+        // is missing numCols is 0 and we leave the span alone.
+        if (numCols > 0 && colIdx + colSpan > numCols) {
+          colSpan = Math.max(1, numCols - colIdx);
+        }
+
         // Handle vertical merge tracking
         if (vMerge === 'restart') {
           // If a previous group is still open for this column, close it
@@ -333,8 +346,11 @@ export class DocxImporter {
             // the author edits a merged range without touching the
             // continuation), widen the placeholder count to the
             // owner's colSpan so the row still covers every merged
-            // grid position.
-            const effectiveSpan = Math.max(colSpan, tracker.colSpan);
+            // grid position — then clamp to the remaining grid room.
+            let effectiveSpan = Math.max(colSpan, tracker.colSpan);
+            if (numCols > 0 && colIdx + effectiveSpan > numCols) {
+              effectiveSpan = Math.max(1, numCols - colIdx);
+            }
             for (let s = 0; s < effectiveSpan; s++) {
               cells.push(makeCoveredCell());
             }

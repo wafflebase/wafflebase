@@ -211,6 +211,40 @@ describe('DocxImporter', () => {
     expect(td.rows[1].cells[3].colSpan).toBe(0);
   });
 
+  it('should clamp a gridSpan that overruns the remaining grid columns', async () => {
+    // Table has a 2-column tblGrid, but the second tc declares
+    // gridSpan=5. A malformed fixture or a docx that lost a gridCol
+    // during editing could produce this. The importer must clamp the
+    // colSpan to the remaining room so the row stays aligned with
+    // numCols — owner + 1 trailing placeholder, not owner + 4.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="5"/></w:tcPr>
+            <w:p><w:r><w:t>B</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    // Row stays the same length as the grid: the out-of-range span is
+    // clamped to the one remaining column.
+    expect(row.cells).toHaveLength(2);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    // The owner keeps its content but its recorded span is clamped
+    // to 1 — otherwise downstream code would think the owner covers
+    // non-existent grid columns.
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+    expect(row.cells[1].colSpan).toBeUndefined();
+  });
+
   it('should promote an orphan vMerge continue to a standalone owner', async () => {
     // Some DOCX writers emit vMerge="continue" for a column that never
     // opened a restart — typically when an author deletes the anchor row

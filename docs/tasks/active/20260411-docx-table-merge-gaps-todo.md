@@ -25,9 +25,10 @@
       (일부 파일에서 발견) 해당 tc를 standalone owner 로 승격. 조용히 unreachable
       covered cell을 만들지 않는다.
       → tracker 없으면 continue 블록에서 fall-through 해서 owner 경로로 처리.
-- [ ] **4. gridSpan 경계 초과 clamp** — `colSpan` 이 남은 컬럼 수를 넘으면
+- [x] **4. gridSpan 경계 초과 clamp** — `colSpan` 이 남은 컬럼 수를 넘으면
       `Math.min(colSpan, numCols - colIdx)` 로 잘라서 `colIdx` 가 `numCols` 를 넘지
       못하게 한다. `numCols === 0` (tblGrid 누락) 인 경우 row 의 실제 tc 개수로 폴백.
+      → numCols > 0 일 때만 clamp. tblGrid 없으면 기존 동작 유지. continue 경로도 동일 clamp.
 - [ ] **5. 최종 row shape normalize** — row 끝에서 `cells.length < numCols` 면 꼬리에
       placeholder 를 패딩하고, `> numCols` 면 잘라낸다. 위 1~4가 누락해도 downstream
       계약을 지키는 안전망.
