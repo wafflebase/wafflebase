@@ -14,6 +14,7 @@ import { Ruler, RULER_SIZE } from './ruler.js';
 import { computeScaleFactor } from './scale.js';
 import { buildFont, setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
+import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 
 /**
  * Public API returned by initialize().
@@ -89,6 +90,8 @@ export interface EditorAPI {
   mergeTableCells(range: CellRange): void;
   /** Split the current cell */
   splitTableCell(): void;
+  /** Compute the merge/unmerge state for the menu (current cursor + selection) */
+  getTableMergeContext(): TableMergeContext;
   /** Apply style to current cell */
   applyTableCellStyle(style: Partial<CellStyle>): void;
   /** Delete the table the cursor is currently in */
@@ -1390,6 +1393,8 @@ export function initialize(
       invalidateLayout();
       render();
     },
+    getTableMergeContext: () =>
+      computeTableMergeContext(doc, layout.blockParentMap, cursor.position, selection.range),
     applyTableCellStyle: (style: Partial<CellStyle>) => {
       docStore.snapshot();
       // Cell-range selection: apply to all cells in range
