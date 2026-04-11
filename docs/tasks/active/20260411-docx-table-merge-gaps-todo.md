@@ -16,10 +16,11 @@
       처리해서 row 시작/끝에 `colSpan=0` placeholder N개를 채운다. 없으면 해당 row는
       `cells.length < numCols` 가 되어 click/layout 이 어긋남. 한국 공공문서에 흔함.
       → `readGridSkip` 헬퍼로 trPr 스킵 값을 읽고 row 시작/끝에 covered cell 삽입.
-- [ ] **2. vMerge 모양 불일치 방어** — row N의 `vMerge=restart` 가 `gridSpan=3` 인데
+- [x] **2. vMerge 모양 불일치 방어** — row N의 `vMerge=restart` 가 `gridSpan=3` 인데
       후속 row 의 `vMerge=continue` 가 `gridSpan=1` 이면 placeholder 수가 어긋남.
       restart 당시 gridSpan을 tracker 에 기록하고, continue 에서 더 작으면 그만큼 강제로
       늘려서 row 가 정사각형을 유지하게 한다.
+      → tracker 에 `colSpan` 추가, continue 에서 `Math.max(cellSpan, owner.colSpan)` 적용.
 - [ ] **3. 고아 vMerge continue** — tracker 가 없는 상태에서 `vMerge=continue` 가 오면
       (일부 파일에서 발견) 해당 tc를 standalone owner 로 승격. 조용히 unreachable
       covered cell을 만들지 않는다.

@@ -211,6 +211,49 @@ describe('DocxImporter', () => {
     expect(td.rows[1].cells[3].colSpan).toBe(0);
   });
 
+  it('should backfill row shape when vMerge continue has smaller gridSpan than the restart', async () => {
+    // Row 0 opens the vertical merge at col 1 with gridSpan=3. Row 1
+    // continues the merge but declares gridSpan=1 — a mismatch Word can
+    // write when the author edits a merged range without fixing up the
+    // inner continuation cells. The importer must still pad the covered
+    // positions so row 1 keeps one cell per grid column; otherwise the
+    // row would have only 2 entries and downstream indexing breaks.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:gridSpan w:val="3"/><w:vMerge w:val="restart"/></w:tcPr>
+            <w:p><w:r><w:t>B</w:t></w:r></w:p>
+          </w:tc>
+        </w:tr>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>C</w:t></w:r></w:p></w:tc>
+          <w:tc>
+            <w:tcPr><w:vMerge/></w:tcPr>
+            <w:p/>
+          </w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const td = doc.blocks[0].tableData!;
+    expect(td.rows[1].cells).toHaveLength(4);
+    // All three grid positions 1..3 must be covered by the merge, not
+    // just the leftmost column the continue tc declared.
+    expect(td.rows[1].cells[1].colSpan).toBe(0);
+    expect(td.rows[1].cells[2].colSpan).toBe(0);
+    expect(td.rows[1].cells[3].colSpan).toBe(0);
+    // The owner at row 0 col 1 still reports rowSpan=2 for the group.
+    expect(td.rows[0].cells[1].rowSpan).toBe(2);
+  });
+
   it('should pad leading placeholders for w:gridBefore', async () => {
     // A 4-column table whose row starts with <w:gridBefore w:val="2"/>.
     // The first real tc belongs to grid column 2, so cells[0..1] must be

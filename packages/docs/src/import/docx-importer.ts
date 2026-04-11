@@ -259,11 +259,16 @@ export class DocxImporter {
     // resolved (its rowSpan written) either when the column starts a new
     // group or at the end after all rows are walked. This handles multiple
     // stacked vMerge groups in the same column without overwriting earlier
-    // trackers.
-    const vMergeTracker: Map<number, { startRow: number; count: number }> = new Map();
+    // trackers. `colSpan` records the owner's horizontal span so that a
+    // subsequent continue cell whose gridSpan disagrees with the owner
+    // still covers the full merged range.
+    const vMergeTracker: Map<
+      number,
+      { startRow: number; count: number; colSpan: number }
+    > = new Map();
     const resolveVMergeGroup = (
       colIdx: number,
-      tracker: { startRow: number; count: number },
+      tracker: { startRow: number; count: number; colSpan: number },
     ) => {
       if (tracker.count > 1 && rows[tracker.startRow]) {
         const cell = rows[tracker.startRow].cells[colIdx];
@@ -311,18 +316,27 @@ export class DocxImporter {
           // before starting a new one.
           const existing = vMergeTracker.get(colIdx);
           if (existing) resolveVMergeGroup(colIdx, existing);
-          vMergeTracker.set(colIdx, { startRow: rows.length, count: 1 });
+          vMergeTracker.set(colIdx, {
+            startRow: rows.length,
+            count: 1,
+            colSpan,
+          });
         } else if (vMerge === 'continue') {
           const tracker = vMergeTracker.get(colIdx);
           if (tracker) tracker.count++;
           // Mark as covered cells. A vMerge=continue tc can also have
           // gridSpan > 1, in which case every grid column it covers must
           // get its own placeholder so the row's cells array stays
-          // aligned with numCols.
-          for (let s = 0; s < colSpan; s++) {
+          // aligned with numCols. If the continue cell disagrees with
+          // the owner's span (Word can emit this when the author edits a
+          // merged range without touching the continuation), widen the
+          // placeholder count to the owner's colSpan so the row still
+          // covers every merged grid position.
+          const effectiveSpan = Math.max(colSpan, tracker ? tracker.colSpan : 1);
+          for (let s = 0; s < effectiveSpan; s++) {
             cells.push(makeCoveredCell());
           }
-          colIdx += colSpan;
+          colIdx += effectiveSpan;
           continue;
         }
 
