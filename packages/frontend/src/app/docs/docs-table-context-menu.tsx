@@ -90,20 +90,27 @@ export function DocsTableContextMenu({
   // Keep the menu inside the viewport. Measures after render and shifts
   // left/up if the menu would overflow the right/bottom edges. Re-runs
   // when `showColors` toggles because that changes the menu's height.
+  //
+  // Uses offsetWidth/offsetHeight (not getBoundingClientRect) because the
+  // menu has a zoom-in CSS animation — during the animation the bounding
+  // rect reports the scaled size, which would leave the bottom clipped
+  // after the animation finishes.
   useLayoutEffect(() => {
-    if (!position || !menuRef.current) return;
-    const rect = menuRef.current.getBoundingClientRect();
+    const el = menuRef.current;
+    if (!position || !el) return;
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
     const vpW = window.innerWidth;
     const vpH = window.innerHeight;
-    const PAD = 4;
+    const PAD = 8;
 
     let x = position.x;
     let y = position.y;
-    if (x + rect.width + PAD > vpW) {
-      x = Math.max(PAD, vpW - rect.width - PAD);
+    if (x + width + PAD > vpW) {
+      x = Math.max(PAD, vpW - width - PAD);
     }
-    if (y + rect.height + PAD > vpH) {
-      y = Math.max(PAD, vpH - rect.height - PAD);
+    if (y + height + PAD > vpH) {
+      y = Math.max(PAD, vpH - height - PAD);
     }
     if (x !== position.x || y !== position.y) {
       setPosition({ x, y });
