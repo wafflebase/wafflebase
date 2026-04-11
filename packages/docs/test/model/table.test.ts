@@ -144,6 +144,43 @@ describe('Doc table operations', () => {
       expect(block.tableData!.rows[1].cells[0].colSpan).toBe(0);
       expect(block.tableData!.rows[1].cells[1].colSpan).toBe(0);
     });
+
+    it('absorbs an existing merged cell when the new range contains it', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 4, 4);
+      doc.setBlockParentMap(buildParentMap(doc, tableId));
+
+      // Pre-merge (1,1)..(2,2) with text "M"
+      const cellBlock11 = getCellBlock(doc, tableId, { rowIndex: 1, colIndex: 1 });
+      doc.insertText({ blockId: cellBlock11.id, offset: 0 }, 'M');
+      doc.mergeCells(tableId, { start: { rowIndex: 1, colIndex: 1 }, end: { rowIndex: 2, colIndex: 2 } });
+
+      // Add some text outside the merge
+      const cellBlock00 = getCellBlock(doc, tableId, { rowIndex: 0, colIndex: 0 });
+      doc.insertText({ blockId: cellBlock00.id, offset: 0 }, 'X');
+
+      // Now merge a 4x4 range containing the existing merge
+      doc.mergeCells(tableId, { start: { rowIndex: 0, colIndex: 0 }, end: { rowIndex: 3, colIndex: 3 } });
+
+      const block = doc.getBlock(tableId);
+      const tl = block.tableData!.rows[0].cells[0];
+      expect(tl.colSpan).toBe(4);
+      expect(tl.rowSpan).toBe(4);
+
+      // The text from the inner merge should be preserved in the outer top-left
+      const allText = tl.blocks.flatMap(b => b.inlines).map(i => i.text).join('');
+      expect(allText).toContain('X');
+      expect(allText).toContain('M');
+
+      // Every other cell should be covered
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          if (r === 0 && c === 0) continue;
+          const cell = block.tableData!.rows[r].cells[c];
+          expect(cell.colSpan).toBe(0);
+        }
+      }
+    });
   });
 
   describe('splitCell', () => {
