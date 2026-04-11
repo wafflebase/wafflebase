@@ -62,6 +62,52 @@ describe('mapRunProperties', () => {
     expect(style.underline).toBeUndefined();
   });
 
+  // OOXML uses <w:b w:val="0"/> (and the equivalent "false") to explicitly
+  // clear an inherited bold. Missing val means on. form.docx relies on this
+  // to reset style from paragraph defaults, so treating "0" as on forces
+  // bold/italic/strikethrough across most runs.
+  it('should treat <w:b w:val="0"/> as bold off', () => {
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:b w:val="0"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.bold).toBeUndefined();
+  });
+
+  it('should treat <w:b w:val="false"/> as bold off', () => {
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:b w:val="false"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.bold).toBeUndefined();
+  });
+
+  it('should treat <w:b w:val="1"/> as bold on', () => {
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:b w:val="1"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.bold).toBe(true);
+  });
+
+  it('should treat <w:i w:val="0"/> as italic off', () => {
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:i w:val="0"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.italic).toBeUndefined();
+  });
+
+  it('should treat <w:strike w:val="0"/> as strikethrough off', () => {
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:strike w:val="0"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.strikethrough).toBeUndefined();
+  });
+
+  it('should treat <w:strike w:val="false"/> as strikethrough off', () => {
+    const xml = '<w:rPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:strike w:val="false"/></w:rPr>';
+    const el = new DOMParser().parseFromString(xml, 'text/xml').documentElement;
+    const style = mapRunProperties(el);
+    expect(style.strikethrough).toBeUndefined();
+  });
+
   it('should not apply yellow highlight for <w:highlight w:val="none"/>', () => {
     // Regression: mapHighlightColor falls back to yellow for unknown names,
     // so "none" must short-circuit before the lookup.
