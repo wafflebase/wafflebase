@@ -410,6 +410,16 @@ export class DocxImporter {
         colIdx += colSpan;
       }
       for (let s = 0; s < gridAfter; s++) cells.push(makeCoveredCell());
+      // Safety net: after honoring gridBefore/gridAfter and clamping
+      // each owner span, the row should already be numCols long. If
+      // upstream markup disagrees (short row with no gridAfter, extra
+      // tcs that ran off the end, partially-edited fixtures), force
+      // the row back to numCols so downstream layout and rendering
+      // can trust cells.length === columnWidths.length.
+      if (numCols > 0) {
+        while (cells.length < numCols) cells.push(makeCoveredCell());
+        if (cells.length > numCols) cells.length = numCols;
+      }
       rows.push({ cells });
     }
 

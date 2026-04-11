@@ -211,6 +211,57 @@ describe('DocxImporter', () => {
     expect(td.rows[1].cells[3].colSpan).toBe(0);
   });
 
+  it('should pad a row whose tc count falls short of the tblGrid', async () => {
+    // A 3-column grid with a row that only ships 2 tcs and no gridAfter
+    // marker. Real docs sometimes ship these when a column is removed
+    // from one row but the grid stays wide. The final cells array must
+    // still have 3 entries so downstream indexing stays aligned.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(3);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+    // Trailing grid column is absorbed by a covered placeholder.
+    expect(row.cells[2].colSpan).toBe(0);
+  });
+
+  it('should truncate a row whose tc count exceeds the tblGrid', async () => {
+    // A 2-column grid with a row shipping 3 unmerged tcs. The extra
+    // tc has no grid position to land on; drop it so cells.length
+    // stays equal to numCols. Layout assumes a rectangular grid.
+    const buffer = await createMinimalDocx(`
+      <w:tbl>
+        <w:tblGrid>
+          <w:gridCol w:w="2000"/>
+          <w:gridCol w:w="2000"/>
+        </w:tblGrid>
+        <w:tr>
+          <w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc>
+          <w:tc><w:p><w:r><w:t>Extra</w:t></w:r></w:p></w:tc>
+        </w:tr>
+      </w:tbl>
+    `);
+    const doc = await DocxImporter.import(buffer);
+    const row = doc.blocks[0].tableData!.rows[0];
+    expect(row.cells).toHaveLength(2);
+    expect(row.cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(row.cells[1].blocks[0].inlines[0].text).toBe('B');
+  });
+
   it('should clamp a gridSpan that overruns the remaining grid columns', async () => {
     // Table has a 2-column tblGrid, but the second tc declares
     // gridSpan=5. A malformed fixture or a docx that lost a gridCol
