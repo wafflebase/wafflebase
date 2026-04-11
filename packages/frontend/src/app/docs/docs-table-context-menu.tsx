@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { EditorAPI, TableMergeContext } from "@wafflebase/docs";
 import { BG_COLORS } from "@/components/formatting-colors";
 import {
@@ -80,6 +86,29 @@ export function DocsTableContextMenu({
       document.removeEventListener("keydown", handleKey);
     };
   }, [position, close]);
+
+  // Keep the menu inside the viewport. Measures after render and shifts
+  // left/up if the menu would overflow the right/bottom edges. Re-runs
+  // when `showColors` toggles because that changes the menu's height.
+  useLayoutEffect(() => {
+    if (!position || !menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const vpW = window.innerWidth;
+    const vpH = window.innerHeight;
+    const PAD = 4;
+
+    let x = position.x;
+    let y = position.y;
+    if (x + rect.width + PAD > vpW) {
+      x = Math.max(PAD, vpW - rect.width - PAD);
+    }
+    if (y + rect.height + PAD > vpH) {
+      y = Math.max(PAD, vpH - rect.height - PAD);
+    }
+    if (x !== position.x || y !== position.y) {
+      setPosition({ x, y });
+    }
+  }, [position, showColors]);
 
   if (!position || !editor) return null;
 
