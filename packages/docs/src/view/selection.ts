@@ -422,6 +422,11 @@ export function computeSelectionRects(
 
 /**
  * Build highlight rectangles for a cell-range selection.
+ *
+ * Row Y positions are read from the paginated layout (one `PageLine` per
+ * table row) so the highlight sits on the same pixel band as the rendered
+ * rows even when the table spans multiple pages. `tl.rowYOffsets` is a
+ * contiguous table-logical coordinate and cannot be used directly.
  */
 function buildCellRangeRects(
   cellRange: TableCellRange,
@@ -437,28 +442,23 @@ function buildCellRangeRects(
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const { margins } = paginatedLayout.pageSetup;
 
-  // Find the page Y offset for this table's first row
-  let tablePageY = 0;
-  let tableRowBaseY = 0;
-  let foundTablePage = false;
+  // Build a row → absolute Y map from the paginated layout.
+  const rowYMap = new Map<number, number>();
   for (const page of paginatedLayout.pages) {
+    const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
     for (const pl of page.lines) {
-      if (pl.blockIndex === blockIndex && pl.lineIndex === 0) {
-        tablePageY = getPageYOffset(paginatedLayout, page.pageIndex) + pl.y;
-        tableRowBaseY = tl.rowYOffsets[0];
-        foundTablePage = true;
-        break;
-      }
+      if (pl.blockIndex !== blockIndex) continue;
+      rowYMap.set(pl.lineIndex, pageY + pl.y);
     }
-    if (foundTablePage) break;
   }
-  const tableOriginY = tablePageY - tableRowBaseY;
 
   const { start, end } = cellRange;
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
-
   const tableData = lb.block.tableData;
+
   for (let r = start.rowIndex; r <= end.rowIndex; r++) {
+    const rowAbsY = rowYMap.get(r);
+    if (rowAbsY === undefined) continue;
     for (let c = start.colIndex; c <= end.colIndex; c++) {
       const cell = tl.cells[r]?.[c];
       if (!cell || cell.merged) continue;
@@ -476,7 +476,7 @@ function buildCellRangeRects(
 
       rects.push({
         x: pageX + margins.left + tl.columnXOffsets[c],
-        y: tableOriginY + tl.rowYOffsets[r],
+        y: rowAbsY,
         width: cell.width,
         height,
       });
