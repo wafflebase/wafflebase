@@ -8,7 +8,7 @@ import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
 import { computeLayout, type DocumentLayout, type LayoutCache } from './layout.js';
-import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getHeaderYStart, getFooterYStart, type PaginatedLayout } from './pagination.js';
+import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, type PaginatedLayout } from './pagination.js';
 import type { DocPosition, HeaderFooter } from '../model/types.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
 import { computeScaleFactor } from './scale.js';
@@ -764,13 +764,33 @@ export function initialize(
       ctx.restore();
     }
 
-    // Render rulers — target the page where the cursor is
-    const cursorBlock = doc.document.blocks.find(
-      (b) => b.id === cursor.position.blockId,
-    );
-    const cursorPageInfo = findPageForPosition(
-      paginatedLayout, cursor.position.blockId, cursor.position.offset, layout,
-    );
+    // Render rulers — target the page where the cursor is. For cells
+    // inside a table, the cursor's blockId is not a top-level block so
+    // findPageForPosition can't resolve it; fall back to the pixel
+    // position (which already knows which row and page the cursor lives
+    // on via resolvePositionPixel's per-row lookup).
+    const cursorCellInfo = layout.blockParentMap.get(cursor.position.blockId);
+    const cursorBlockId = cursorCellInfo
+      ? cursorCellInfo.tableBlockId
+      : cursor.position.blockId;
+    const cursorBlock = doc.document.blocks.find((b) => b.id === cursorBlockId);
+
+    let cursorPageIndex = 0;
+    if (cursorPixel) {
+      for (const page of paginatedLayout.pages) {
+        const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+        if (cursorPixel.y >= pageY && cursorPixel.y < pageY + page.height) {
+          cursorPageIndex = page.pageIndex;
+          break;
+        }
+      }
+    } else {
+      const pageInfo = findPageForPosition(
+        paginatedLayout, cursor.position.blockId, cursor.position.offset, layout,
+      );
+      if (pageInfo) cursorPageIndex = pageInfo.pageIndex;
+    }
+
     if (scaleFactor >= 1) {
       ruler.render(
         paginatedLayout,
@@ -778,7 +798,7 @@ export function initialize(
         logicalCanvasWidth,
         canvasHeight,
         cursorBlock?.style ?? null,
-        cursorPageInfo?.pageIndex ?? 0,
+        cursorPageIndex,
       );
     }
   };
