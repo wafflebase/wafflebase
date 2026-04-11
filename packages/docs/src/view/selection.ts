@@ -94,12 +94,19 @@ export function expandCellRangeForMerges(
   };
 }
 
-function normalizeCellRange(cr: TableCellRange): TableCellRange {
-  const minRow = Math.min(cr.start.rowIndex, cr.end.rowIndex);
-  const maxRow = Math.max(cr.start.rowIndex, cr.end.rowIndex);
-  const minCol = Math.min(cr.start.colIndex, cr.end.colIndex);
-  const maxCol = Math.max(cr.start.colIndex, cr.end.colIndex);
-  return { blockId: cr.blockId, start: { rowIndex: minRow, colIndex: minCol }, end: { rowIndex: maxRow, colIndex: maxCol } };
+function normalizeCellRange(cr: TableCellRange, table?: TableData): TableCellRange {
+  const ordered: TableCellRange = {
+    blockId: cr.blockId,
+    start: {
+      rowIndex: Math.min(cr.start.rowIndex, cr.end.rowIndex),
+      colIndex: Math.min(cr.start.colIndex, cr.end.colIndex),
+    },
+    end: {
+      rowIndex: Math.max(cr.start.rowIndex, cr.end.rowIndex),
+      colIndex: Math.max(cr.start.colIndex, cr.end.colIndex),
+    },
+  };
+  return table ? expandCellRangeForMerges(ordered, table) : ordered;
 }
 
 function normalizeRange(
@@ -108,10 +115,12 @@ function normalizeRange(
 ): NormalizedRange | null {
   // Cell-range mode: tableCellRange is set
   if (range.tableCellRange) {
+    const lb = layout.blocks.find((b) => b.block.id === range.tableCellRange!.blockId);
+    const table = lb?.block.tableData;
     return {
       start: range.anchor,
       end: range.focus,
-      tableCellRange: normalizeCellRange(range.tableCellRange),
+      tableCellRange: normalizeCellRange(range.tableCellRange, table),
     };
   }
 

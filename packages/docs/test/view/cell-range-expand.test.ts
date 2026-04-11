@@ -113,3 +113,40 @@ describe('expandCellRangeForMerges', () => {
     expect(expandCellRangeForMerges(r, t).blockId).toBe('my-table');
   });
 });
+
+import { Selection } from '../../src/view/selection.js';
+import type { DocumentLayout, LayoutBlock } from '../../src/view/layout.js';
+
+describe('Selection.getNormalizedRange — cell range expansion at read time', () => {
+  it('expands a partially-overlapping cell range using layout TableData', () => {
+    // Build a minimal fake DocumentLayout with one table block
+    const t = makeTable(4, 4, {
+      '1,1': mergedTopLeft(2, 2), '1,2': coveredCell(),
+      '2,1': coveredCell(), '2,2': coveredCell(),
+    });
+    const tableBlock: any = {
+      id: 't', type: 'table', inlines: [], style: {},
+      tableData: t,
+    };
+    const lb: LayoutBlock = {
+      block: tableBlock,
+      lines: [],
+      width: 0, height: 0, top: 0,
+    } as unknown as LayoutBlock;
+    const layout: DocumentLayout = {
+      blocks: [lb],
+      blockParentMap: new Map(),
+    } as unknown as DocumentLayout;
+
+    const sel = new Selection();
+    sel.setRange({
+      anchor: { blockId: 'anchor', offset: 0 },
+      focus: { blockId: 'focus', offset: 0 },
+      tableCellRange: rect(0, 0, 1, 1),
+    });
+
+    const normalized = sel.getNormalizedRange(layout);
+    expect(normalized?.tableCellRange?.start).toEqual({ rowIndex: 0, colIndex: 0 });
+    expect(normalized?.tableCellRange?.end).toEqual({ rowIndex: 2, colIndex: 2 });
+  });
+});
