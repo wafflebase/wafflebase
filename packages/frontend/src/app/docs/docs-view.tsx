@@ -244,6 +244,7 @@ export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps)
     // render() repaints the canvas with the latest content.
     store.onRemoteChange = () => {
       editor.getDoc().refresh();
+      editor.validateCursorPosition();
       editor.render();
     };
 

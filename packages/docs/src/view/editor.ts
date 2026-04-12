@@ -162,6 +162,11 @@ export interface EditorAPI {
   /** Focus the editor */
   focus(): void;
   /**
+   * Ensure the cursor points to a block that still exists after a remote
+   * change may have deleted the block it was on.
+   */
+  validateCursorPosition(): void;
+  /**
    * Reset editor state after the underlying document was replaced externally
    * (e.g. via `store.setDocument()`). Refreshes the cached document, resets
    * the cursor to the first block, invalidates layout caches, and repaints.
@@ -408,6 +413,20 @@ export function initialize(
   let dirtyBlockIds: Set<string> | undefined;
   let needsScrollIntoView = false;
   let focused = !readOnly;
+
+  /**
+   * Ensure the cursor points to a block that still exists in the document.
+   * After a remote change deletes the block the cursor is on, relocate it
+   * to the first block so subsequent reads don't throw.
+   */
+  const validateCursorPosition = (): void => {
+    if (doc.findBlock(cursor.position.blockId)) return;
+    const firstBlock = doc.getContextBlocks()[0] ?? doc.document.blocks[0];
+    if (firstBlock) {
+      cursor.moveTo({ blockId: firstBlock.id, offset: 0 });
+      selection.setRange(null);
+    }
+  };
 
   /** Apply inline style to all blocks in all cells within a cell range. */
   function applyStyleToCellRange(
@@ -2090,6 +2109,7 @@ export function initialize(
       textEditor?.onEditContextChange(cb);
     },
     focus: () => textEditor?.focus(),
+    validateCursorPosition,
     resetAfterDocumentReplace: () => {
       doc.refresh();
       textEditor?.setEditContext('body');
