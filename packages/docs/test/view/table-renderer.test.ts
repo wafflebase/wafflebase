@@ -252,10 +252,13 @@ describe('renderTableContent image inlines', () => {
     }
   });
 
-  it('invokes requestRender once while the image is still loading', () => {
-    // Under jsdom the image never finishes loading synchronously, so
-    // drawImage stays uncalled and the renderer schedules a re-render so
-    // the canvas can repaint once the Image fires onload.
+  it('does not synchronously draw or call requestRender while the image is loading', () => {
+    // Under jsdom the image never finishes loading during the render
+    // call, so drawImage stays uncalled and requestRender is only
+    // invoked later from the Image's onload. Synchronously during the
+    // renderTableContent call, neither should fire — and the absence of
+    // a fillText(ORC) call in the test above guarantees the image
+    // branch was actually taken rather than falling through to text.
     const { ctx, drawImage } = makeRecordingCtx();
     const { tableData, layout } = makeImageCellTable();
     const requestRender = vi.fn();
@@ -270,10 +273,8 @@ describe('renderTableContent image inlines', () => {
       undefined,
       requestRender,
     );
-    // The image never loads in this environment, so drawImage must stay
-    // at zero — but the cache must have been consulted, which is the
-    // entry point that replaces the buggy fillText path.
     expect(drawImage).not.toHaveBeenCalled();
+    expect(requestRender).not.toHaveBeenCalled();
   });
 });
 

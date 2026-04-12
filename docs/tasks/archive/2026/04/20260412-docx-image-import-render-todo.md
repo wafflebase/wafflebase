@@ -8,7 +8,7 @@ Two distinct bugs surfaced while importing `~/Downloads/form2.docx` on the
 local dev server:
 
 1. **HTTP 400 from `/images` on every embedded image.**
-   ```
+   ```text
    Unsupported file type: application/octet-stream
    ```
 2. **Images imported via the pending-import path were missing from the
