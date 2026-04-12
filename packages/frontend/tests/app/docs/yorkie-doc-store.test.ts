@@ -427,4 +427,40 @@ describe('YorkieDocStore', () => {
       assert.throws(() => store.mergeBlock(block.id, block.id), /Cannot merge/);
     });
   });
+
+  describe('split then merge round-trip', () => {
+    it('should produce the original text after split then merge', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'paragraph');
+      const afterSplit = store.getDocument();
+      assert.equal(afterSplit.blocks.length, 2);
+
+      store.mergeBlock(afterSplit.blocks[0].id, afterSplit.blocks[1].id);
+      const afterMerge = store.getDocument();
+      assert.equal(afterMerge.blocks.length, 1);
+      assert.equal(afterMerge.blocks[0].inlines[0].text, 'HelloWorld');
+    });
+  });
+
+  describe('splitBlock with styled inlines', () => {
+    it('should preserve inline styles across split', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          { text: 'Bold', style: { bold: true } },
+          { text: 'Normal', style: {} },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      // Split at offset 4 (end of "Bold")
+      store.splitBlock(block.id, 4, 'new-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks[0].inlines[0].text, 'Bold');
+      assert.equal(result.blocks[0].inlines[0].style.bold, true);
+      assert.equal(result.blocks[1].inlines[0].text, 'Normal');
+    });
+  });
 });
