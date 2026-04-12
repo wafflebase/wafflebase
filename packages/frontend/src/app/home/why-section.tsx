@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 function LimitedBadge() {
   return (
     <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-      <Minus className="size-3" />
+      <Minus className="size-3" aria-hidden="true" />
       Limited
     </span>
   );

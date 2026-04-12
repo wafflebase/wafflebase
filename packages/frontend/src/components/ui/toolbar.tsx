@@ -32,13 +32,15 @@ function Toolbar({
  */
 function ToolbarSeparator({
   className,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  orientation,
   ...props
 }: React.ComponentProps<typeof Separator>) {
   return (
     <Separator
+      {...props}
       orientation="vertical"
       className={cn("mx-2 h-5", className)}
-      {...props}
     />
   );
 }
@@ -49,10 +51,12 @@ function ToolbarSeparator({
  */
 function ToolbarButton({
   className,
+  type = "button",
   ...props
 }: React.ComponentProps<"button">) {
   return (
     <button
+      type={type}
       className={cn(
         "inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted",
         className,

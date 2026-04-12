@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Grid2x2PlusIcon } from "lucide-react";
 
 import { LoginForm } from "@/components/login-form";
@@ -18,12 +19,12 @@ export default function LoginPage() {
     <div className="grid min-h-svh">
       <div className="flex flex-col gap-4 p-6 md:p-10">
         <div className="flex justify-center gap-2 md:justify-start">
-          <a href="/" className="flex items-center gap-2 font-medium">
+          <Link to="/" className="flex items-center gap-2 font-medium">
             <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <Grid2x2PlusIcon className="!size-5" />
             </div>
             Wafflebase
-          </a>
+          </Link>
         </div>
         <div className="flex flex-1 items-center justify-center">
           <div className="flex w-full max-w-sm flex-col gap-4">
@@ -51,12 +52,12 @@ export default function LoginPage() {
                 GitHub
               </a>
               <span className="mx-2 text-muted-foreground/50">·</span>
-              <a
-                href="/docs"
+              <Link
+                to="/docs"
                 className="hover:text-foreground transition-colors"
               >
                 Docs
-              </a>
+              </Link>
             </p>
           </div>
         </div>
