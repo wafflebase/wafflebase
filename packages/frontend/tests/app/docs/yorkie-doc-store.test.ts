@@ -346,4 +346,85 @@ describe('YorkieDocStore', () => {
       assert.equal(result.blocks[2].inlines[0].text, 'after');
     });
   });
+
+  describe('splitBlock', () => {
+    it('should split a block at offset into two blocks', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-block-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 2);
+      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
+      assert.equal(result.blocks[1].inlines[0].text, 'World');
+      assert.equal(result.blocks[1].id, 'new-block-id');
+      assert.equal(result.blocks[1].type, 'paragraph');
+    });
+
+    it('should split at start — first block gets empty inline', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 0, 'new-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 2);
+      assert.equal(result.blocks[0].inlines[0].text, '');
+      assert.equal(result.blocks[1].inlines[0].text, 'Hello');
+    });
+
+    it('should split at end — second block gets empty inline', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 2);
+      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
+      assert.equal(result.blocks[1].inlines[0].text, '');
+    });
+
+    it('should preserve surrounding blocks', () => {
+      const b1 = makeBlock('Before');
+      const b2 = makeBlock('SplitMe');
+      const b3 = makeBlock('After');
+      store.setDocument({ blocks: [b1, b2, b3] });
+      store.splitBlock(b2.id, 5, 'new-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 4);
+      assert.equal(result.blocks[0].inlines[0].text, 'Before');
+      assert.equal(result.blocks[1].inlines[0].text, 'Split');
+      assert.equal(result.blocks[2].inlines[0].text, 'Me');
+      assert.equal(result.blocks[3].inlines[0].text, 'After');
+    });
+  });
+
+  describe('mergeBlock', () => {
+    it('should merge two adjacent blocks into one', () => {
+      const b1 = makeBlock('Hello');
+      const b2 = makeBlock(' World');
+      store.setDocument({ blocks: [b1, b2] });
+      store.mergeBlock(b1.id, b2.id);
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 1);
+      assert.equal(result.blocks[0].inlines[0].text, 'Hello World');
+      assert.equal(result.blocks[0].id, b1.id);
+    });
+
+    it('should preserve surrounding blocks', () => {
+      const b1 = makeBlock('Before');
+      const b2 = makeBlock('Hello');
+      const b3 = makeBlock(' World');
+      const b4 = makeBlock('After');
+      store.setDocument({ blocks: [b1, b2, b3, b4] });
+      store.mergeBlock(b2.id, b3.id);
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 3);
+      assert.equal(result.blocks[0].inlines[0].text, 'Before');
+      assert.equal(result.blocks[1].inlines[0].text, 'Hello World');
+      assert.equal(result.blocks[2].inlines[0].text, 'After');
+    });
+
+    it('should throw when merging a block with itself', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      assert.throws(() => store.mergeBlock(block.id, block.id), /Cannot merge/);
+    });
+  });
 });
