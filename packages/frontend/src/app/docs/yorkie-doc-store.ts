@@ -846,21 +846,22 @@ export class YorkieDocStore implements DocStore {
     const nextIdx = currentDoc.blocks.findIndex((b) => b.id === nextBlockId);
     if (blockIdx === -1 || nextIdx === -1) throw new Error('Block not found');
 
+    const off = this.bodyTreeOffset(currentDoc);
+    const firstBlock = currentDoc.blocks[blockIdx];
+    const firstBlockInlineCount = firstBlock.inlines.length;
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Delete the boundary between the two blocks. This range starts just
+      // past the last inline of the first block and ends just before the
+      // first inline of the next block, causing Yorkie Tree to merge them.
+      tree.editByPath([blockIdx + off, firstBlockInlineCount], [nextIdx + off, 0]);
+    });
+
     const merged = applyMergeBlocks(
       currentDoc.blocks[blockIdx],
       currentDoc.blocks[nextIdx],
     );
-
-    const off = this.bodyTreeOffset(currentDoc);
-    this.doc.update((root) => {
-      const tree = root.content;
-      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      // Replace first block with merged content
-      tree.editByPath([blockIdx + off], [blockIdx + off + 1], buildBlockNode(merged));
-      // Delete second block
-      const deleteIdx = nextIdx > blockIdx ? nextIdx : nextIdx;
-      tree.editByPath([deleteIdx + off], [deleteIdx + off + 1]);
-    });
 
     // Update cache in-place
     currentDoc.blocks[blockIdx] = merged;
