@@ -81,13 +81,20 @@ interface EditorAPI {
   // ... existing ...
 
   /**
-   * Insert an image inline at the current selection focus. Replaces
-   * any non-collapsed selection. `src` may be any value that a plain
-   * <img> element can load (data: URL, absolute URL, /images/:id).
-   * The caller is responsible for uploading file bytes and resolving
-   * to a URL before calling this.
+   * Insert an image inline at the current caret position. Width is
+   * auto-clamped to the page's content width so oversized screenshots
+   * don't overflow. `src` may be any value a plain <img> element can
+   * load (data: URL, absolute URL, /images/:id). The caller is
+   * responsible for uploading file bytes and resolving to a URL
+   * before calling this. Non-collapsed selection replacement is not
+   * yet implemented — the image inserts at the focus offset and the
+   * selection is left as-is.
    */
-  insertImage(src: string, naturalWidth: number, naturalHeight: number, alt?: string): void;
+  insertImage(src: string, width: number, height: number, opts?: {
+    alt?: string;
+    originalWidth?: number;
+    originalHeight?: number;
+  }): void;
 
   /** Mutate the selected image's ImageData. No-op if no image selected. */
   updateSelectedImage(patch: Partial<ImageData>): void;
@@ -145,7 +152,7 @@ short-circuit the text hit-test and enter resize mode.
 | Delete / Backspace | Delete the image              |
 | Esc                | Deselect, return to text mode |
 
-## Floating Context Bar
+## Floating Context Bar *(Planned — Milestone 5)*
 
 A small React overlay (positioned absolutely above the canvas, anchored
 to the image's screen-space top) with four buttons:
@@ -158,7 +165,7 @@ to the image's screen-space top) with four buttons:
 The bar reuses existing `@/components/ui` primitives (Tooltip, Button)
 to match the formatting toolbar's visual language.
 
-## Image Options Side Panel
+## Image Options Side Panel *(Planned — Milestone 6)*
 
 Opened from the context bar or from a new `Format → Image options`
 menu item. The panel mounts on the right side of `docs-detail.tsx`,
@@ -248,6 +255,7 @@ accept it for Phase 1.
 
 Phase 1 ships in a single PR branch `docs-image-editing-phase1` and
 delivers the toolbar button, upload/URL/DnD/paste, selection handles,
-resize, context bar, and Image Options panel (size + rotation + alt +
-reset + crop). Text-wrap and filters are explicitly tracked as
-follow-ups in a separate design doc update.
+and resize. The floating context bar (Milestone 5), Image Options
+side panel (Milestone 6), rotation & crop rendering (Milestone 7),
+and crop mode (Milestone 8) are planned as follow-up PRs. Text-wrap
+and filters are tracked separately beyond Phase 1.

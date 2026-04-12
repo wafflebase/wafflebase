@@ -2095,6 +2095,9 @@ export function initialize(
       peerCursors = [];
       cursorMoveCallback = null;
       lastPeerPixels = [];
+      selectedImage = null;
+      imageResizeDrag = null;
+      imageFileDropCallback = null;
       ruler.dispose();
       cursor.dispose();
       textEditor?.dispose();

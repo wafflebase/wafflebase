@@ -147,9 +147,13 @@ function InsertImageDropdown({ editor }: { editor: EditorAPI | null }) {
   const handleUrlSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editor) return;
-    const url = urlInput;
-    closeAndReset();
-    await insertImageFromUrl(editor, url);
+    const inserted = await insertImageFromUrl(editor, urlInput);
+    // Only close the dropdown when the image was successfully
+    // inserted. On validation / load failure the form stays open so
+    // the user can correct the URL instead of retyping it.
+    if (inserted) {
+      closeAndReset();
+    }
   };
 
   return (

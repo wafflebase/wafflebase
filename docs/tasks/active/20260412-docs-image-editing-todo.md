@@ -128,15 +128,23 @@ be paused and resumed cleanly.
       `editor.insertImage`. Errors surface as sonner toasts.
 - [x] **4c. By-URL path** — `insertImageFromUrl(editor, url)` in the
       same module. Validates the `http[s]://` prefix, preflight-loads
-      the URL with `crossOrigin="anonymous"`, and calls
-      `editor.insertImage` with the natural dimensions.
+      the URL **without** `crossOrigin` (removed to support non-CORS
+      image hosts — canvas becomes tainted but `drawImage` still
+      works), and calls `editor.insertImage` with the natural
+      dimensions. Returns `true`/`false` so the toolbar can keep the
+      URL form open on failure instead of discarding the user's input.
+      Note: the URL is stored as-is (hotlinked); uploading to
+      first-party storage requires a backend `POST /images/from-url`
+      endpoint (tracked as Phase 2 follow-up).
 - [x] **4d. Drag and drop** — `handleImageDragOver` /
       `handleImageDrop` installed on the editor container. `dragover`
-      checks `dataTransfer.files` for an `image/*` entry and
-      `preventDefault`s so the drop fires; `drop` moves the caret to
-      the drop position via `paginatedPixelToPosition`, then invokes
-      the host-supplied `onImageFileDrop` callback. Non-image drops
-      fall through to the browser default.
+      checks `dataTransfer.items` (not `.files`, which is empty during
+      `dragover` for browser security) for an `image/*` entry and
+      `preventDefault`s so the drop fires; `drop` extracts the `File`
+      from `.files`, moves the caret to the drop position via
+      `paginatedPixelToPosition`, then invokes the host-supplied
+      `onImageFileDrop` callback. Non-image drops fall through to
+      the browser default.
 - [x] **4e. Clipboard paste** — `TextEditor.imageFilePasteHandler`
       new field. `handlePaste` iterates `clipboardData.items`,
       extracts the first `image/*` file, and routes it through the

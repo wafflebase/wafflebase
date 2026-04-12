@@ -276,7 +276,7 @@ export function clampImageToWidth(
   height: number,
   maxWidth: number,
 ): { width: number; height: number } {
-  if (width <= maxWidth || width <= 0) {
+  if (width <= maxWidth || width <= 0 || maxWidth <= 0) {
     return { width, height };
   }
   const scale = maxWidth / width;

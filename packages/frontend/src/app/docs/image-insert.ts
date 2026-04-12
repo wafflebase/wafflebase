@@ -80,18 +80,25 @@ export async function insertImageFromFile(
  * Unlike `insertImageFromFile`, this skips the upload step — the URL
  * is inserted as-is so external images (e.g. `https://...` referenced
  * from another host) do not get re-uploaded. The preflight load still
- * happens so we capture the natural dimensions and fail early on 404 /
- * CORS errors.
+ * happens so we capture the natural dimensions and fail early on 404.
+ *
+ * Returns `true` on success so the caller can close the UI, or `false`
+ * on validation / load failure so the caller can keep the input open
+ * for the user to fix the URL instead of losing their typed text.
+ *
+ * NOTE: the URL is stored as a direct hotlink. Uploading external
+ * images to first-party storage requires a backend endpoint
+ * (`POST /images/from-url`) and is tracked as a Phase 2 follow-up.
  */
 export async function insertImageFromUrl(
   editor: EditorAPI,
   url: string,
-): Promise<void> {
+): Promise<boolean> {
   const trimmed = url.trim();
-  if (!trimmed) return;
+  if (!trimmed) return false;
   if (!/^https?:\/\//i.test(trimmed)) {
     toast.error("Image URL must start with http:// or https://");
-    return;
+    return false;
   }
   try {
     const { width, height } = await loadImageDimensions(trimmed);
@@ -100,6 +107,7 @@ export async function insertImageFromUrl(
       originalHeight: height,
     });
     editor.focus();
+    return true;
   } catch (err) {
     console.error("Image URL insert failed", err);
     toast.error(
@@ -107,5 +115,6 @@ export async function insertImageFromUrl(
         ? `Couldn't load image: ${err.message}`
         : "Couldn't load image",
     );
+    return false;
   }
 }
