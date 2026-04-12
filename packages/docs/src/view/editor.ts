@@ -1378,8 +1378,26 @@ export function initialize(
    * registered callback. Non-image drops fall through to the
    * browser's default (no-op on a canvas).
    */
-  const hasImageFile = (dt: DataTransfer | null): File | null => {
-    if (!dt || !dt.files || dt.files.length === 0) return null;
+  /**
+   * Check `dataTransfer.items` for an image file entry. Usable in
+   * both `dragover` and `drop` — unlike `dt.files`, which the browser
+   * leaves **empty during `dragover`** for security, `dt.items`
+   * exposes each entry's MIME type at drag time so we can accept or
+   * reject the drop before the user releases the mouse. Without this
+   * the `dragover` handler never calls `preventDefault()` and the
+   * browser navigates to the dropped image URL (its default behavior).
+   */
+  const hasImageItem = (dt: DataTransfer | null): boolean => {
+    if (!dt?.items) return false;
+    for (const item of dt.items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) return true;
+    }
+    return false;
+  };
+
+  /** Extract the first image `File` from the drop. Only works on `drop`. */
+  const getImageFile = (dt: DataTransfer | null): File | null => {
+    if (!dt?.files) return null;
     for (const file of dt.files) {
       if (file.type.startsWith('image/')) return file;
     }
@@ -1388,15 +1406,14 @@ export function initialize(
 
   const handleImageDragOver = (e: DragEvent) => {
     if (!imageFileDropCallback) return;
-    const file = hasImageFile(e.dataTransfer);
-    if (!file) return;
+    if (!hasImageItem(e.dataTransfer)) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
   };
 
   const handleImageDrop = (e: DragEvent) => {
     if (!imageFileDropCallback) return;
-    const file = hasImageFile(e.dataTransfer);
+    const file = getImageFile(e.dataTransfer);
     if (!file) return;
     e.preventDefault();
     e.stopPropagation();
