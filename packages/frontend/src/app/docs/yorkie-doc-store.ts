@@ -787,19 +787,42 @@ export class YorkieDocStore implements DocStore {
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
 
-    const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
+    // Resolve block-level character offset to inline-level path
+    const { inlineIndex, charOffset } = resolveOffset(block, offset);
     const off = this.bodyTreeOffset(currentDoc);
 
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      // Replace original block with the "before" part
-      tree.editByPath([blockIdx + off], [blockIdx + off + 1], buildBlockNode(before));
-      // Insert the "after" part as a new block
-      tree.editByPath([blockIdx + off + 1], [blockIdx + off + 1], buildBlockNode(after));
+
+      // Native CRDT split: single atomic operation at splitLevel=2.
+      // splitLevel=2 because the text position is 2 levels below block:
+      //   doc → block → inline → text(charOffset)
+      // Two splits are needed: text→inline split + inline→block split.
+      tree.editByPath(
+        [blockIdx + off, inlineIndex, charOffset],
+        [blockIdx + off, inlineIndex, charOffset],
+        undefined,
+        2,
+      );
+
+      // The split duplicated all attributes. Update the "after" block.
+      const afterAttrs: Record<string, string> = {
+        id: newBlockId,
+        type: newBlockType,
+        ...serializeBlockStyle(block.style),
+      };
+      if (newBlockType === 'list-item' && block.listKind !== undefined) {
+        afterAttrs.listKind = block.listKind;
+        if (block.listLevel !== undefined) {
+          afterAttrs.listLevel = String(block.listLevel);
+        }
+      }
+      tree.styleByPath([blockIdx + off + 1], afterAttrs);
     });
 
-    // Update cache in-place
+    // Update cache in-place using the pure-function result
+    const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
     currentDoc.blocks[blockIdx] = before;
     currentDoc.blocks.splice(blockIdx + 1, 0, after);
     this.cachedDoc = currentDoc;
