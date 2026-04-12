@@ -3,13 +3,13 @@ import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { PaginatedLayout, LayoutPage, PageLine } from './pagination.js';
 import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart } from './pagination.js';
 import type { EditContext } from '../model/document.js';
-import type { DocumentLayout, LayoutBlock } from './layout.js';
-import type { LayoutRun } from './layout.js';
+import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 import { renderTableBackgrounds, renderTableContent } from './table-renderer.js';
 import { getOrLoadImage } from './image-cache.js';
+import { drawImageSelection, drawResizeHud, type ImageRect } from './image-selection-overlay.js';
 
 /**
  * Convert a peer cursor color (hex) to a translucent selection fill.
@@ -180,6 +180,18 @@ export class DocCanvas {
     headerCursor?: { x: number; y: number; height: number; visible: boolean },
     footerCursor?: { x: number; y: number; height: number; visible: boolean },
     hfSelectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
+    imageSelectionRect?: ImageRect,
+    imageResizeHudText?: string,
+    /**
+     * When an image resize drag is active, the caller passes the
+     * LayoutRun of the image being dragged. The normal content pass
+     * skips drawing it at its committed (pre-drag) size, and a final
+     * shadow-lift pass draws it at `imageSelectionRect` (which is the
+     * preview rect during drag). The result feels like the image is
+     * being physically scaled under the cursor instead of the
+     * overlay floating off the committed image.
+     */
+    dragImageRun?: LayoutRun,
   ): void {
     const dpr = window.devicePixelRatio || 1;
     const logicalWidth = this.canvas.width / dpr;
@@ -467,6 +479,7 @@ export class DocCanvas {
                 range.endRowIndex,
                 range.pageStartRow,
                 this.requestRender ?? undefined,
+                dragImageRun,
               );
             }
             continue;
@@ -474,6 +487,11 @@ export class DocCanvas {
         }
 
         for (const run of pl.line.runs) {
+          // Skip the image run that's currently being resized — it's
+          // drawn in a later pass at the preview rect with a lift
+          // shadow, so that the overlay handles and the image stay in
+          // lockstep instead of visually diverging during the drag.
+          if (dragImageRun && run === dragImageRun) continue;
           this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height);
         }
 
@@ -491,8 +509,12 @@ export class DocCanvas {
         }
       }
 
-      // Draw cursor if on this page (only when focused)
-      if (focused && cursor?.visible) {
+      // Draw cursor if on this page (only when focused).
+      // When an image is selected the text caret is suppressed — the
+      // selection overlay stands in for the caret and showing both
+      // would read as "insertion point is inside the image" which is
+      // misleading.
+      if (focused && cursor?.visible && !imageSelectionRect) {
         if (cursor.y >= pageY + margins.top &&
             cursor.y < pageY + margins.top + contentHeight) {
           this.ctx.fillStyle = Theme.cursorColor;
@@ -530,6 +552,47 @@ export class DocCanvas {
             }
           }
         }
+      }
+    }
+
+    // Drag-lift pass: if the user is resizing an image, render it at
+    // the preview rect with a soft drop shadow so it feels lifted
+    // off the page. Drawn before the selection rect so the overlay
+    // and handles paint on top of both the image and its shadow.
+    if (dragImageRun && imageSelectionRect) {
+      const imgStyle = dragImageRun.inline.style.image;
+      if (imgStyle) {
+        const img = getOrLoadImage(imgStyle.src, () => {
+          this.requestRender?.();
+        });
+        if (img) {
+          this.ctx.save();
+          this.ctx.shadowColor = 'rgba(0, 0, 0, 0.30)';
+          this.ctx.shadowBlur = 16;
+          this.ctx.shadowOffsetX = 0;
+          this.ctx.shadowOffsetY = 4;
+          this.ctx.drawImage(
+            img,
+            imageSelectionRect.x,
+            imageSelectionRect.y,
+            imageSelectionRect.width,
+            imageSelectionRect.height,
+          );
+          this.ctx.restore();
+        }
+      }
+    }
+
+    // Image selection overlay — drawn after every page's content so it
+    // sits on top of whichever image run is currently selected.
+    // `imageSelectionRect` is already in document-layout coordinates,
+    // matching the translation that's still active on the context.
+    // The optional HUD renders after the handles so the pill sits
+    // above the se handle instead of getting clipped by it.
+    if (imageSelectionRect) {
+      drawImageSelection(this.ctx, imageSelectionRect);
+      if (imageResizeHudText) {
+        drawResizeHud(this.ctx, imageSelectionRect, imageResizeHudText);
       }
     }
 

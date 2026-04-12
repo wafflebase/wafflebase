@@ -1,4 +1,5 @@
 import type { LayoutTable, LayoutTableCell } from './table-layout.js';
+import type { LayoutRun } from './layout.js';
 import type { TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
@@ -171,6 +172,14 @@ export function renderTableContent(
   endRow?: number,
   pageStartRow?: number,
   requestRender?: () => void,
+  /**
+   * Optional: a LayoutRun that is currently being resized. When
+   * supplied, the content pass skips drawing that specific image run
+   * so the editor's drag-lift pass can draw the image at the
+   * preview rect with a drop shadow instead. Exactly mirrors the
+   * same skip in `DocCanvas.render`'s body loop.
+   */
+  dragImageRun?: LayoutRun,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -257,6 +266,11 @@ export function renderTableContent(
           lineAbsoluteY = cellY + textYOffset + line.y;
         }
         for (const run of line.runs) {
+          // Drag-lift: skip the image currently being resized so the
+          // editor's separate shadow pass can draw it at the preview
+          // rect instead. Symmetric with the body-block path in
+          // `DocCanvas.render`.
+          if (dragImageRun && run === dragImageRun) continue;
           const style = run.inline.style;
           const fontSize = style.fontSize ?? Theme.defaultFontSize;
           const fontSizePx = ptToPx(fontSize);

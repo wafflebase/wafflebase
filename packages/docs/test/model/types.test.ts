@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { HeadingLevel, Document, Inline, InlineStyle } from '../../src/model/types.js';
+import type { HeadingLevel, Document, Inline, InlineStyle, Block } from '../../src/model/types.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
@@ -13,6 +13,8 @@ import {
   inlineStylesEqual,
   createTableCell,
   createTableBlock,
+  findImageAtOffset,
+  clampImageToWidth,
 } from '../../src/model/types.js';
 
 describe('BlockStyle', () => {
@@ -258,5 +260,123 @@ describe('ImageData on InlineStyle', () => {
     };
     expect(inlineStylesEqual(a, b)).toBe(true);
     expect(inlineStylesEqual(a, c)).toBe(false);
+  });
+
+  it('imageDataEqual distinguishes rotation', () => {
+    const a: InlineStyle = {
+      image: { src: 'x.png', width: 10, height: 10, rotation: 90 },
+    };
+    const b: InlineStyle = {
+      image: { src: 'x.png', width: 10, height: 10, rotation: 180 },
+    };
+    expect(inlineStylesEqual(a, b)).toBe(false);
+  });
+
+  it('imageDataEqual distinguishes each crop edge independently', () => {
+    const base = { src: 'x.png', width: 10, height: 10 };
+    const fields = ['cropLeft', 'cropRight', 'cropTop', 'cropBottom'] as const;
+    for (const field of fields) {
+      const a: InlineStyle = { image: { ...base } };
+      const b: InlineStyle = { image: { ...base, [field]: 0.25 } };
+      expect(
+        inlineStylesEqual(a, b),
+        `expected change in ${field} to be detected`,
+      ).toBe(false);
+    }
+  });
+
+  it('imageDataEqual distinguishes originalWidth/Height', () => {
+    const a: InlineStyle = {
+      image: { src: 'x.png', width: 10, height: 10, originalWidth: 100, originalHeight: 80 },
+    };
+    const b: InlineStyle = {
+      image: { src: 'x.png', width: 10, height: 10, originalWidth: 200, originalHeight: 80 },
+    };
+    expect(inlineStylesEqual(a, b)).toBe(false);
+  });
+
+  it('imageDataEqual treats undefined rotation as distinct from 0', () => {
+    // Kept as a guard against accidentally normalizing `rotation: 0` into
+    // `undefined` at equality time — stored documents should round-trip
+    // exactly what was written, not what would have rendered identically.
+    const a: InlineStyle = { image: { src: 'x.png', width: 10, height: 10 } };
+    const b: InlineStyle = {
+      image: { src: 'x.png', width: 10, height: 10, rotation: 0 },
+    };
+    expect(inlineStylesEqual(a, b)).toBe(false);
+  });
+});
+
+describe('clampImageToWidth', () => {
+  it('returns the image unchanged when it already fits', () => {
+    expect(clampImageToWidth(100, 50, 800)).toEqual({ width: 100, height: 50 });
+  });
+
+  it('scales width down to maxWidth and height proportionally', () => {
+    // 4000×2000 source (2:1) → max 800 → 800×400.
+    expect(clampImageToWidth(4000, 2000, 800)).toEqual({ width: 800, height: 400 });
+  });
+
+  it('rounds the scaled height to the nearest pixel', () => {
+    // 300×151 source → max 200 → scale 200/300 ≈ 0.6667 → h = 151 * 0.6667 ≈ 100.67 → 101.
+    expect(clampImageToWidth(300, 151, 200)).toEqual({ width: 200, height: 101 });
+  });
+
+  it('clamps degenerate very-short images to height >= 1', () => {
+    // A 10000×1 banner scaling to 100: height = round(0.01) = 0 → clamped to 1.
+    expect(clampImageToWidth(10000, 1, 100)).toEqual({ width: 100, height: 1 });
+  });
+
+  it('returns the input unchanged when width is zero', () => {
+    expect(clampImageToWidth(0, 50, 200)).toEqual({ width: 0, height: 50 });
+  });
+
+  it('returns the input unchanged when width is negative', () => {
+    expect(clampImageToWidth(-10, 50, 200)).toEqual({ width: -10, height: 50 });
+  });
+
+  it('handles exact-fit width as a no-op', () => {
+    expect(clampImageToWidth(200, 100, 200)).toEqual({ width: 200, height: 100 });
+  });
+});
+
+describe('findImageAtOffset', () => {
+  function makeBlock(inlines: Inline[]): Block {
+    return { id: 'b1', type: 'paragraph', inlines, style: { ...DEFAULT_BLOCK_STYLE } };
+  }
+
+  it('returns null when the block has no image inline at the offset', () => {
+    const block = makeBlock([{ text: 'hello', style: {} }]);
+    expect(findImageAtOffset(block, 0)).toBeNull();
+    expect(findImageAtOffset(block, 2)).toBeNull();
+  });
+
+  it('returns the image data when offset falls on the image inline', () => {
+    const img = { src: 'x.png', width: 10, height: 10 };
+    const block = makeBlock([
+      { text: 'ab', style: {} },
+      { text: '\uFFFC', style: { image: img } },
+      { text: 'cd', style: {} },
+    ]);
+    expect(findImageAtOffset(block, 2)).toBe(img);
+  });
+
+  it('returns null for offsets before and after the image inline', () => {
+    const img = { src: 'x.png', width: 10, height: 10 };
+    const block = makeBlock([
+      { text: 'ab', style: {} },
+      { text: '\uFFFC', style: { image: img } },
+      { text: 'cd', style: {} },
+    ]);
+    expect(findImageAtOffset(block, 0)).toBeNull();
+    expect(findImageAtOffset(block, 1)).toBeNull();
+    // offset 3 is on the first char of 'cd', not the image.
+    expect(findImageAtOffset(block, 3)).toBeNull();
+  });
+
+  it('returns null when offset is past the end of the block', () => {
+    const img = { src: 'x.png', width: 10, height: 10 };
+    const block = makeBlock([{ text: '\uFFFC', style: { image: img } }]);
+    expect(findImageAtOffset(block, 5)).toBeNull();
   });
 });

@@ -113,6 +113,37 @@ export class TextEditor {
   /** Callback to update the drag guideline overlay in the editor paint loop. */
   onDragGuideline?: (pos: { x?: number; y?: number } | null) => void;
 
+  /**
+   * Optional pre-handler for key events. When set, called at the very
+   * top of `handleKeyDown` (after the IME guard). Returning `true` marks
+   * the event as fully consumed — the normal text-editor path is
+   * skipped. The parent editor uses this to let an active image
+   * selection absorb Delete/Backspace/Escape without routing through
+   * text editing.
+   */
+  imageKeyHandler: ((e: KeyboardEvent) => boolean) | null = null;
+
+  /**
+   * Optional handler for image files pasted from the clipboard. When
+   * set and the paste carries at least one `kind === 'file'` item
+   * with an image MIME type, the handler is invoked with the first
+   * matching file and the paste is considered fully handled — the
+   * existing rich-text paste flow is skipped. When the paste has no
+   * image file, the handler is never called and paste proceeds
+   * normally.
+   */
+  imageFilePasteHandler: ((file: File, position: { blockId: string; offset: number }) => void) | null = null;
+
+  /**
+   * Optional hover pre-handler invoked inside `handleMouseMove` right
+   * before the default `setCanvasCursor('text')` call. Returning
+   * `true` signals that the image overlay owns the cursor for this
+   * pointer position (e.g. hovering a resize handle) — the text
+   * cursor reset is skipped so the resize cursor stays visible.
+   * Returning `false` falls through to the normal text-cursor path.
+   */
+  imageHoverHandler: ((e: MouseEvent) => boolean) | null = null;
+
   /** Callback invoked when edit context changes (body/header/footer). */
   private editContextChangeCallback?: (context: EditContext) => void;
 
@@ -354,6 +385,15 @@ export class TextEditor {
     this.shiftHeld = e.shiftKey;
     // Don't intercept keys during IME composition
     if (this.composition.active || e.isComposing) return;
+
+    // Image selection consumes certain keys (Delete / Backspace / Escape)
+    // before the text-editor path sees them. For any other key, the
+    // handler clears the image selection and returns false so the event
+    // continues to the text editor — this matches Google Docs where
+    // typing while an image is selected replaces the image with text.
+    if (this.imageKeyHandler && this.imageKeyHandler(e)) {
+      return;
+    }
 
     const { ctrlKey, metaKey, shiftKey, altKey } = e;
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -676,6 +716,22 @@ export class TextEditor {
 
   private handlePaste = (e: ClipboardEvent): void => {
     e.preventDefault();
+
+    // Image file paste — takes priority over any text payload. Many
+    // screenshot tools populate both `image/png` and `text/plain` on
+    // the clipboard; the text is usually garbage ("Image") and the
+    // user expects the picture to land in the doc.
+    if (this.imageFilePasteHandler && e.clipboardData) {
+      for (const item of e.clipboardData.items) {
+        if (item.kind === 'file' && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            this.imageFilePasteHandler(file, { blockId: this.cursor.position.blockId, offset: this.cursor.position.offset });
+            return;
+          }
+        }
+      }
+    }
 
     // Try rich internal paste first
     const json = e.clipboardData?.getData(WAFFLEDOCS_MIME);
@@ -1035,7 +1091,9 @@ export class TextEditor {
       return;
     }
 
-    // Cursor style: check for border proximity
+    // Cursor style: check for border proximity first, then fall back
+    // to the image overlay hover handler (which may claim the cursor
+    // for a resize handle), and finally the default text cursor.
     const tableInfo = this.resolveTableFromMouse(e);
     if (tableInfo) {
       const tableData = this.doc.getBlock(tableInfo.tableBlockId).tableData;
@@ -1049,9 +1107,13 @@ export class TextEditor {
       );
       if (hit) {
         this.setCanvasCursor(hit.type === 'column' ? 'col-resize' : 'row-resize');
+      } else if (this.imageHoverHandler && this.imageHoverHandler(e)) {
+        // Image overlay owns the cursor for this position.
       } else {
         this.setCanvasCursor('text');
       }
+    } else if (this.imageHoverHandler && this.imageHoverHandler(e)) {
+      // Image overlay owns the cursor for this position.
     } else {
       this.setCanvasCursor('text');
     }
