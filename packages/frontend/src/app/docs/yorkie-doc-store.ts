@@ -589,15 +589,41 @@ export class YorkieDocStore implements DocStore {
 
     const { inlineIndex, charOffset } = resolveOffset(block, offset);
     const off = this.bodyTreeOffset(currentDoc);
+    const targetInline = block.inlines[inlineIndex];
 
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath(
-        [blockIdx + off, inlineIndex, charOffset],
-        [blockIdx + off, inlineIndex, charOffset],
-        { type: 'text', value: text },
-      );
+
+      if (targetInline.style.image) {
+        // Image inlines must not absorb regular text. Insert a new
+        // inline node adjacent to the image node instead of putting
+        // text inside it.
+        const { image: _, ...plainStyle } = targetInline.style;
+        void _;
+        const newNode = buildInlineNode({ text, style: plainStyle });
+        if (charOffset === 0) {
+          // Before image: insert new inline before the image node
+          tree.editByPath(
+            [blockIdx + off, inlineIndex],
+            [blockIdx + off, inlineIndex],
+            newNode,
+          );
+        } else {
+          // After image: insert new inline after the image node
+          tree.editByPath(
+            [blockIdx + off, inlineIndex + 1],
+            [blockIdx + off, inlineIndex + 1],
+            newNode,
+          );
+        }
+      } else {
+        tree.editByPath(
+          [blockIdx + off, inlineIndex, charOffset],
+          [blockIdx + off, inlineIndex, charOffset],
+          { type: 'text', value: text },
+        );
+      }
     });
 
     // Update cache in-place (same pattern as updateBlock)

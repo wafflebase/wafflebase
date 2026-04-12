@@ -28,7 +28,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
-import { applyDeleteText, applyInsertInline } from '../store/block-helpers.js';
+import { applyDeleteText, applyInsertInline, applyInsertText } from '../store/block-helpers.js';
 
 /**
  * The current editing context for header/footer routing.
@@ -162,18 +162,9 @@ export class Doc {
    * Insert text at a document position.
    */
   insertText(pos: DocPosition, text: string): void {
-    const cellInfo = this._blockParentMap.get(pos.blockId);
-    if (cellInfo) {
-      // Table cell path — keep existing behavior for now (Phase 4)
-      const block = this.getBlock(pos.blockId);
-      const { inlineIndex, charOffset } = this.resolveOffset(block, pos.offset);
-      const inline = block.inlines[inlineIndex];
-      inline.text =
-        inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
-      this.updateBlockInStore(pos.blockId, block);
-    } else {
-      this.store.insertText(pos.blockId, pos.offset, text);
-    }
+    const block = this.getBlock(pos.blockId);
+    const updated = applyInsertText(block, pos.offset, text);
+    this.updateBlockInStore(pos.blockId, updated);
     this.refresh();
   }
 
@@ -193,16 +184,9 @@ export class Doc {
    * Delete `length` characters forward from position.
    */
   deleteText(pos: DocPosition, length: number): void {
-    const cellInfo = this._blockParentMap.get(pos.blockId);
-    if (cellInfo) {
-      // Table cell path — use shared helper for correct cross-inline deletion
-      const block = this.getBlock(pos.blockId);
-      const updated = applyDeleteText(block, pos.offset, length);
-      block.inlines = updated.inlines;
-      this.updateBlockInStore(pos.blockId, block);
-    } else {
-      this.store.deleteText(pos.blockId, pos.offset, length);
-    }
+    const block = this.getBlock(pos.blockId);
+    const updated = applyDeleteText(block, pos.offset, length);
+    this.updateBlockInStore(pos.blockId, updated);
     this.refresh();
   }
 
