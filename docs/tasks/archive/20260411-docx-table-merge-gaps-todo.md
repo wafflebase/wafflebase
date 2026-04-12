@@ -1,6 +1,6 @@
 # DOCX table merge / structure import hardening
 
-**Status:** in-progress
+**Status:** done
 **Branch:** `docx-table-merge-hardening`
 **Scope:** `packages/docs/src/import/docx-importer.ts`, `packages/docs/src/import/docx-style-map.ts`
 

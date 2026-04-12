@@ -6,15 +6,17 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 122
+Total archived tasks: 124
 
-## 2026/04 (8 tasks)
+## 2026/04 (10 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | docx image import render (2026-04-12) | [20260412-docx-image-import-render-todo.md](./2026/04/20260412-docx-image-import-render-todo.md) | [20260412-docx-image-import-render-lessons.md](./2026/04/20260412-docx-image-import-render-lessons.md) |
 | docs table merge ux (2026-04-11) | [20260411-docs-table-merge-ux-todo.md](./2026/04/20260411-docs-table-merge-ux-todo.md) | [20260411-docs-table-merge-ux-lessons.md](./2026/04/20260411-docs-table-merge-ux-lessons.md) |
+| docx table merge gaps (2026-04-11) | [20260411-docx-table-merge-gaps-todo.md](./20260411-docx-table-merge-gaps-todo.md) | [20260411-docx-table-merge-gaps-lessons.md](./20260411-docx-table-merge-gaps-lessons.md) |
 | release v0.3.2 (2026-04-11) | [20260411-release-v0.3.2-todo.md](./2026/04/20260411-release-v0.3.2-todo.md) | - |
+| ui review polish (2026-04-11) | [20260411-ui-review-polish-todo.md](./2026/04/20260411-ui-review-polish-todo.md) | [20260411-ui-review-polish-lessons.md](./2026/04/20260411-ui-review-polish-lessons.md) |
 | v0.3.2 smoke test fixes (2026-04-11) | [20260411-v0.3.2-smoke-test-fixes-todo.md](./2026/04/20260411-v0.3.2-smoke-test-fixes-todo.md) | [20260411-v0.3.2-smoke-test-fixes-lessons.md](./2026/04/20260411-v0.3.2-smoke-test-fixes-lessons.md) |
 | docx import export (2026-04-10) | [20260410-docx-import-export-todo.md](./2026/04/20260410-docx-import-export-todo.md) | - |
 | header footer (2026-04-08) | [20260408-header-footer-todo.md](./2026/04/20260408-header-footer-todo.md) | - |
