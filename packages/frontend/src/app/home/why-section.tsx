@@ -1,16 +1,25 @@
-import { Check, X } from "lucide-react";
+import { Check, Minus, X } from "lucide-react";
 import type { ReactNode } from "react";
+
+function LimitedBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+      <Minus className="size-3" aria-hidden="true" />
+      Limited
+    </span>
+  );
+}
 
 const rows: { label: string; wafflebase: ReactNode; others: ReactNode }[] = [
   {
     label: "Self-hosted & own your data",
     wafflebase: <Check className="size-4 text-green-500" />,
-    others: <X className="size-4 text-muted-foreground" />,
+    others: <X className="size-4 text-red-400/70" />,
   },
   {
     label: "REST API & CLI",
     wafflebase: <Check className="size-4 text-green-500" />,
-    others: <span className="text-xs text-muted-foreground">Limited</span>,
+    others: <LimitedBadge />,
   },
   {
     label: "Real-time collaboration",
@@ -25,7 +34,7 @@ const rows: { label: string; wafflebase: ReactNode; others: ReactNode }[] = [
   {
     label: "Free & open source",
     wafflebase: <Check className="size-4 text-green-500" />,
-    others: <span className="text-xs text-muted-foreground">Limited</span>,
+    others: <LimitedBadge />,
   },
 ];
 

@@ -9,7 +9,7 @@ import type {
 } from "@wafflebase/sheets";
 import { buildLocaleFormatPreview } from "@wafflebase/sheets";
 import { Toggle } from "@/components/ui/toggle";
-import { Separator } from "@/components/ui/separator";
+import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   Tooltip,
   TooltipTrigger,
@@ -251,7 +251,7 @@ export function FormattingToolbar({
   const CurrentFormatIcon = FORMAT_ICONS[currentFormat];
 
   return (
-    <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap">
+    <Toolbar>
       {/* Undo / Redo */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -298,7 +298,7 @@ export function FormattingToolbar({
         </TooltipContent>
       </Tooltip>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      <ToolbarSeparator />
 
       {!isMobile && (
         <>
@@ -424,7 +424,7 @@ export function FormattingToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Separator orientation="vertical" className="mx-1 h-6" />
+          <ToolbarSeparator />
         </>
       )}
 
@@ -513,7 +513,7 @@ export function FormattingToolbar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      <ToolbarSeparator />
 
       {/* Background Color */}
       <DropdownMenu>
@@ -630,7 +630,7 @@ export function FormattingToolbar({
 
       {!isMobile && (
         <>
-          <Separator orientation="vertical" className="mx-1 h-6" />
+          <ToolbarSeparator />
 
           {/* Horizontal Alignment Dropdown */}
           <DropdownMenu>
@@ -690,7 +690,7 @@ export function FormattingToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Separator orientation="vertical" className="mx-1 h-6" />
+          <ToolbarSeparator />
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -754,7 +754,7 @@ export function FormattingToolbar({
 
       {isMobile && (
         <>
-          <Separator orientation="vertical" className="mx-1 h-6" />
+          <ToolbarSeparator />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted" aria-label="More formatting options">
@@ -886,6 +886,6 @@ export function FormattingToolbar({
           </DropdownMenu>
         </>
       )}
-    </div>
+    </Toolbar>
   );
 }
