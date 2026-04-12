@@ -71,12 +71,32 @@ export interface BlockStyle {
 /**
  * Image metadata for an inline image element.
  * Used when an Inline has text '\uFFFC' (Object Replacement Character).
+ *
+ * All fields beyond `src/width/height/alt` are optional — older persisted
+ * documents that lack them keep working, and absence is treated as
+ * "no rotation / no crop / reset-to-displayed-size".
  */
 export interface ImageData {
+  /** Displayed width in px (post-scale, pre-crop viewport). */
   src: string;
   width: number;
+  /** Displayed height in px. */
   height: number;
   alt?: string;
+
+  /** Clockwise rotation in degrees, normalized to [0, 360). Default 0. */
+  rotation?: number;
+  /** Fraction of natural width hidden on the left edge. 0..1. Default 0. */
+  cropLeft?: number;
+  /** Fraction of natural width hidden on the right edge. 0..1. Default 0. */
+  cropRight?: number;
+  /** Fraction of natural height hidden on the top edge. 0..1. Default 0. */
+  cropTop?: number;
+  /** Fraction of natural height hidden on the bottom edge. 0..1. Default 0. */
+  cropBottom?: number;
+  /** Intrinsic pixel size of the source image, captured at insert time. */
+  originalWidth?: number;
+  originalHeight?: number;
 }
 
 /**
@@ -239,10 +259,68 @@ export function getBlockText(block: Block): string {
   return block.inlines.map((inline) => inline.text).join('');
 }
 
+/**
+ * Scale an image's displayed dimensions down so its width does not
+ * exceed `maxWidth`, preserving the original aspect ratio. Returns
+ * the input unchanged when the image already fits or when the width
+ * is zero/negative (defensive against bogus callers).
+ *
+ * Used on every `insertImage` call so a 4000px screenshot pasted into
+ * an 8.5" page fits within the content area instead of overflowing the
+ * right margin. Height gets rounded to the nearest integer pixel and
+ * clamped to at least 1 to avoid invisible rows when a very wide +
+ * very short source scales down hard.
+ */
+export function clampImageToWidth(
+  width: number,
+  height: number,
+  maxWidth: number,
+): { width: number; height: number } {
+  if (width <= maxWidth || width <= 0) {
+    return { width, height };
+  }
+  const scale = maxWidth / width;
+  return {
+    width: maxWidth,
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+/**
+ * Return the `ImageData` of the inline whose character offset span
+ * contains `offset`, or `null` if that position is not inside an image
+ * inline. Image inlines carry exactly one character (ORC = '\uFFFC'),
+ * so the caller is expected to pass the image's start offset — this
+ * helper tolerates any offset inside the image run for convenience.
+ */
+export function findImageAtOffset(block: Block, offset: number): ImageData | null {
+  let pos = 0;
+  for (const inline of block.inlines) {
+    const inlineEnd = pos + inline.text.length;
+    if (offset >= pos && offset < inlineEnd && inline.style.image) {
+      return inline.style.image;
+    }
+    pos = inlineEnd;
+  }
+  return null;
+}
+
 function imageDataEqual(a: ImageData | undefined, b: ImageData | undefined): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.src === b.src && a.width === b.width && a.height === b.height && a.alt === b.alt;
+  return (
+    a.src === b.src &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.alt === b.alt &&
+    a.rotation === b.rotation &&
+    a.cropLeft === b.cropLeft &&
+    a.cropRight === b.cropRight &&
+    a.cropTop === b.cropTop &&
+    a.cropBottom === b.cropBottom &&
+    a.originalWidth === b.originalWidth &&
+    a.originalHeight === b.originalHeight
+  );
 }
 
 /**

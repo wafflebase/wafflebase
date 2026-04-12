@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { BlockType, EditorAPI, EditContext, HeadingLevel } from "@wafflebase/docs";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
@@ -36,9 +36,11 @@ import {
   IconTable,
   IconHash,
   IconFileDownload,
+  IconPhoto,
 } from "@tabler/icons-react";
 import { TableGridPicker } from "./table-grid-picker";
 import { exportDocxAndDownload } from "./docx-actions";
+import { insertImageFromFile, insertImageFromUrl } from "./image-insert";
 import { toast } from "sonner";
 
 /** Style option for the block-type dropdown (Google Docs style). */
@@ -98,6 +100,136 @@ function TableDropdown({ editor }: { editor: EditorAPI | null }) {
         />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function InsertImageDropdown({ editor }: { editor: EditorAPI | null }) {
+  const [open, setOpen] = useState(false);
+  const [urlMode, setUrlMode] = useState(false);
+  const [urlInput, setUrlInput] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Reset the dropdown's internal view back to the two-item menu. Used
+  // by every code path that closes the dropdown — both the Radix
+  // `onOpenChange` callback (user clicked outside / pressed Esc) and
+  // our own programmatic closes (Upload / Insert submit). Setting the
+  // controlled `open` prop to `false` does NOT re-fire `onOpenChange`,
+  // so programmatic closes used to leave `urlMode === true` behind
+  // and the dropdown reopened on the URL form next time.
+  const closeAndReset = () => {
+    setOpen(false);
+    setUrlMode(false);
+    setUrlInput("");
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      closeAndReset();
+    } else {
+      setOpen(true);
+    }
+  };
+
+  const handlePickFile = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset the input so selecting the same file twice still fires the
+    // change event next time.
+    e.target.value = "";
+    if (!file || !editor) return;
+    closeAndReset();
+    await insertImageFromFile(editor, file);
+  };
+
+  const handleUrlSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editor) return;
+    const url = urlInput;
+    closeAndReset();
+    await insertImageFromUrl(editor, url);
+  };
+
+  return (
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleFileChange}
+      />
+      <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                aria-label="Insert image"
+              >
+                <IconPhoto size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Insert image</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" sideOffset={4} className="min-w-[220px]">
+          {urlMode ? (
+            <form className="flex flex-col gap-2 p-2" onSubmit={handleUrlSubmit}>
+              <label className="text-xs text-muted-foreground" htmlFor="insert-image-url">
+                Image URL
+              </label>
+              <input
+                id="insert-image-url"
+                type="url"
+                autoFocus
+                placeholder="https://…"
+                value={urlInput}
+                onChange={(ev) => setUrlInput(ev.target.value)}
+                className="h-7 rounded border border-border bg-background px-2 text-sm outline-none focus:border-primary"
+              />
+              <div className="flex items-center justify-end gap-1">
+                <button
+                  type="button"
+                  className="cursor-pointer rounded px-2 py-1 text-xs hover:bg-muted"
+                  onClick={() => {
+                    setUrlMode(false);
+                    setUrlInput("");
+                  }}
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  className="cursor-pointer rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:opacity-90"
+                >
+                  Insert
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <DropdownMenuItem onClick={handlePickFile}>
+                Upload from computer
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(ev) => {
+                  // Keep the menu open so the URL input can render
+                  // inside it. Without preventDefault, Radix closes
+                  // the menu on `select`.
+                  ev.preventDefault();
+                  setUrlMode(true);
+                }}
+              >
+                By URL…
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 
@@ -527,6 +659,8 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         </TooltipTrigger>
         <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
       </Tooltip>
+
+      <InsertImageDropdown editor={editor} />
 
       <TableDropdown editor={editor} />
 

@@ -15,6 +15,7 @@ import { DocsLinkPopover } from "./docs-link-popover";
 import { DocsFindBar } from "./docs-find-bar";
 import { DocsTableContextMenu } from "./docs-table-context-menu";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
+import { insertImageFromFile } from "./image-insert";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -283,6 +284,14 @@ export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps)
       if (!pos) return;
       const existingHref = editor.getLinkAtCursor() ?? "";
       setLinkInputRequest({ initialUrl: existingHref, position: pos });
+    });
+
+    // Drag-and-drop + clipboard paste of image files. The docs
+    // package only knows how to intercept the raw File; upload + URL
+    // resolution + insert all live in the frontend because they
+    // depend on auth cookies and the `/images` endpoint.
+    editor.onImageFileDrop((file) => {
+      void insertImageFromFile(editor, file);
     });
 
     const handleMouseMove = (e: MouseEvent) => {
