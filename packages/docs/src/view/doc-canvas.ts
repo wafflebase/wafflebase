@@ -480,6 +480,8 @@ export class DocCanvas {
                 range.pageStartRow,
                 this.requestRender ?? undefined,
                 dragImageRun,
+                selectionRects,
+                focused,
               );
             }
             continue;
@@ -493,6 +495,26 @@ export class DocCanvas {
           // lockstep instead of visually diverging during the drag.
           if (dragImageRun && run === dragImageRun) continue;
           this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height);
+
+          // Image runs are opaque and cover the selection highlight
+          // drawn earlier. Re-draw a semi-transparent overlay on top
+          // of the image when it intersects the selection, so that
+          // selected images show a visible blue tint.
+          if (run.inline.style.image && selectionRects) {
+            const ix = Math.round(pageX + pl.x + run.x);
+            const drawH = run.imageHeight ?? pl.line.height;
+            const iy = Math.round(pageY + pl.y + pl.line.height - drawH);
+            const iw = run.width;
+            const ih = drawH;
+            for (const sr of selectionRects) {
+              if (sr.x < ix + iw && sr.x + sr.width > ix &&
+                  sr.y < iy + ih && sr.y + sr.height > iy) {
+                this.ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
+                this.ctx.fillRect(ix, iy, iw, ih);
+                break;
+              }
+            }
+          }
         }
 
         // Render list markers on the first line of each list-item block

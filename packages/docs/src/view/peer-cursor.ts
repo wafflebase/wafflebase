@@ -92,12 +92,16 @@ export function resolvePositionPixel(
         for (const run of line.runs) {
           if (offsetRemaining <= chars + run.text.length) {
             const localOff = offsetRemaining - chars;
-            const textBefore = run.text.slice(0, localOff);
-            ctx.font = buildFont(
-              run.inline.style.fontSize, run.inline.style.fontFamily,
-              run.inline.style.bold, run.inline.style.italic,
-            );
-            cursorX = run.x + ctx.measureText(textBefore).width;
+            if (run.imageHeight !== undefined) {
+              cursorX = run.x + (localOff > 0 ? run.width : 0);
+            } else {
+              const textBefore = run.text.slice(0, localOff);
+              ctx.font = buildFont(
+                run.inline.style.fontSize, run.inline.style.fontFamily,
+                run.inline.style.bold, run.inline.style.italic,
+              );
+              cursorX = run.x + ctx.measureText(textBefore).width;
+            }
             break;
           }
           chars += run.text.length;
@@ -183,16 +187,23 @@ export function resolvePositionPixel(
     const runLength = run.charEnd - run.charStart;
     if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
       const localOffset = lineOffset - charCount;
-      const textBefore = run.text.slice(0, localOffset);
-      const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
-      const measureFontSize = isSuperOrSub
-        ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
-        : run.inline.style.fontSize;
-      ctx.font = buildFont(
-        measureFontSize, run.inline.style.fontFamily,
-        run.inline.style.bold, run.inline.style.italic,
-      );
-      const x = pageX + pageLine.x + run.x + ctx.measureText(textBefore).width;
+      let xOffset: number;
+      if (run.imageHeight !== undefined) {
+        // Image run: use display width, not measureText of the placeholder char
+        xOffset = localOffset > 0 ? run.width : 0;
+      } else {
+        const textBefore = run.text.slice(0, localOffset);
+        const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
+        const measureFontSize = isSuperOrSub
+          ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
+          : run.inline.style.fontSize;
+        ctx.font = buildFont(
+          measureFontSize, run.inline.style.fontFamily,
+          run.inline.style.bold, run.inline.style.italic,
+        );
+        xOffset = ctx.measureText(textBefore).width;
+      }
+      const x = pageX + pageLine.x + run.x + xOffset;
       return { x, y: pageY + pageLine.y, height: pageLine.line.height };
     }
     charCount += runLength;

@@ -207,12 +207,16 @@ function computeHFCursorPixel(
       for (const run of line.runs) {
         if (offsetRemaining <= chars + run.text.length) {
           const localOff = offsetRemaining - chars;
-          const textBefore = run.text.slice(0, localOff);
-          ctx.font = buildFont(
-            run.inline.style.fontSize, run.inline.style.fontFamily,
-            run.inline.style.bold, run.inline.style.italic,
-          );
-          cursorX = run.x + ctx.measureText(textBefore).width;
+          if (run.imageHeight !== undefined) {
+            cursorX = run.x + (localOff > 0 ? run.width : 0);
+          } else {
+            const textBefore = run.text.slice(0, localOff);
+            ctx.font = buildFont(
+              run.inline.style.fontSize, run.inline.style.fontFamily,
+              run.inline.style.bold, run.inline.style.italic,
+            );
+            cursorX = run.x + ctx.measureText(textBefore).width;
+          }
           break;
         }
         chars += run.text.length;
@@ -305,13 +309,21 @@ function computeHFSelectionRects(
           const runLen = run.text.length;
           if (chars + runLen > lineSelStart && x0 === 0 && lineSelStart > 0) {
             const localOff = lineSelStart - chars;
-            ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
-            x0 = run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+            if (run.imageHeight !== undefined) {
+              x0 = run.x + (localOff > 0 ? run.width : 0);
+            } else {
+              ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+              x0 = run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+            }
           }
           if (chars + runLen >= lineSelEnd) {
             const localOff = lineSelEnd - chars;
-            ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
-            x1 = run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+            if (run.imageHeight !== undefined) {
+              x1 = run.x + (localOff > 0 ? run.width : 0);
+            } else {
+              ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+              x1 = run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+            }
             break;
           }
           chars += runLen;
@@ -1147,47 +1159,29 @@ export function initialize(
         render();
         return true;
       }
-      // Arrow keys nudge the image size. ArrowRight/Down grow, Arrow
-      // Left/Up shrink. Nudge is proportional so the image retains
-      // its aspect ratio — matches Google Docs' "maintain ratio on
-      // keyboard resize" behavior. Shift multiplies the step by 8.
+      // Arrow keys deselect the image and move the cursor, matching
+      // Google Docs behavior. Left places the caret before the image,
+      // Right places it after. Shift+Arrow clears the image selection
+      // and falls through to TextEditor so it can extend the text
+      // selection normally.
       if (
         key === 'ArrowLeft' || key === 'ArrowRight' ||
         key === 'ArrowUp'   || key === 'ArrowDown'
       ) {
         const { blockId, offset } = selectedImage;
-        const block = doc.getBlock(blockId);
-        if (!block) return true;
-        const current = findImageAtOffset(block, offset);
-        if (!current) return true;
+        selectedImage = null;
+        if (e.shiftKey || key === 'ArrowUp' || key === 'ArrowDown') {
+          // Fall through to TextEditor for Shift+Arrow selection
+          // and Up/Down vertical navigation
+          render();
+          return false;
+        }
         e.preventDefault();
-        const step = (e.shiftKey ? 8 : 1) *
-          (key === 'ArrowRight' || key === 'ArrowDown' ? 1 : -1);
-        const aspect = current.width / current.height;
-        const { maxWidth, maxHeight } = getResizeMax();
-        const MIN = 20;
-        let newWidth = current.width + step;
-        newWidth = Math.max(MIN, Math.min(newWidth, maxWidth));
-        let newHeight = newWidth / aspect;
-        if (newHeight < MIN) {
-          newHeight = MIN;
-          newWidth = Math.max(MIN, Math.min(newHeight * aspect, maxWidth));
+        if (key === 'ArrowRight') {
+          cursor.moveTo({ blockId, offset: offset + 1 });
+        } else if (key === 'ArrowLeft') {
+          cursor.moveTo({ blockId, offset });
         }
-        if (newHeight > maxHeight) {
-          newHeight = maxHeight;
-          newWidth = Math.max(MIN, Math.min(newHeight * aspect, maxWidth));
-        }
-        if (newWidth === current.width && newHeight === current.height) {
-          return true;
-        }
-        docStore.snapshot();
-        const merged = { ...current, width: newWidth, height: newHeight };
-        doc.applyInlineStyle(
-          { anchor: { blockId, offset }, focus: { blockId, offset: offset + 1 } },
-          { image: merged },
-        );
-        markDirty(blockId);
-        invalidateLayout();
         render();
         return true;
       }

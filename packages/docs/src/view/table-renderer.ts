@@ -180,6 +180,8 @@ export function renderTableContent(
    * same skip in `DocCanvas.render`'s body loop.
    */
   dragImageRun?: LayoutRun,
+  selectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
+  focused?: boolean,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -292,6 +294,20 @@ export function renderTableContent(
             });
             if (img) {
               ctx.drawImage(img, imgX, imgY, run.width, drawHeight);
+            }
+            // Re-draw selection overlay on top of the opaque image,
+            // mirroring the body path in DocCanvas.render.
+            if (selectionRects) {
+              const iw = run.width;
+              const ih = drawHeight;
+              for (const sr of selectionRects) {
+                if (sr.x < imgX + iw && sr.x + sr.width > imgX &&
+                    sr.y < imgY + ih && sr.y + sr.height > imgY) {
+                  ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
+                  ctx.fillRect(imgX, imgY, iw, ih);
+                  break;
+                }
+              }
             }
             continue;
           }

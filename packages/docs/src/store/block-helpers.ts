@@ -90,6 +90,22 @@ export function applyInsertText(block: Block, offset: number, text: string): Blo
   const newBlock = cloneBlock(block);
   const { inlineIndex, charOffset } = resolveOffset(newBlock, offset);
   const inline = newBlock.inlines[inlineIndex];
+
+  // Image inlines must not absorb regular text — split at the insertion
+  // point and place the new text in its own inline without image style.
+  if (inline.style.image) {
+    const { image: _img, ...plainStyle } = inline.style;
+    const before = inline.text.slice(0, charOffset);
+    const after = inline.text.slice(charOffset);
+    const spliced: Inline[] = [];
+    if (before.length > 0) spliced.push({ text: before, style: { ...inline.style } });
+    spliced.push({ text, style: plainStyle });
+    if (after.length > 0) spliced.push({ text: after, style: { ...inline.style } });
+    newBlock.inlines.splice(inlineIndex, 1, ...spliced);
+    newBlock.inlines = normalizeInlines(newBlock.inlines);
+    return newBlock;
+  }
+
   inline.text =
     inline.text.slice(0, charOffset) + text + inline.text.slice(charOffset);
   return newBlock;
@@ -134,7 +150,8 @@ export function resolveStyleRange(
  */
 function getSplitPointStyle(inlines: Inline[], offset: number): InlineStyle {
   const { inlineIndex } = resolveOffset({ inlines } as Block, offset);
-  return { ...inlines[inlineIndex].style };
+  const { image: _image, ...rest } = inlines[inlineIndex].style;
+  return rest;
 }
 
 /**

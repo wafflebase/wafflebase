@@ -196,15 +196,21 @@ function positionToPagePixel(
     const runLength = run.charEnd - run.charStart;
     if (lineOffset >= charCount && lineOffset <= charCount + runLength) {
       const localOff = lineOffset - charCount;
-      const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
-      const measureFontSize = isSuperOrSub
-        ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
-        : run.inline.style.fontSize;
-      ctx.font = buildFont(
-        measureFontSize, run.inline.style.fontFamily,
-        run.inline.style.bold, run.inline.style.italic,
-      );
-      const x = pageX + pageLine.x + run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+      let xOffset: number;
+      if (run.imageHeight !== undefined) {
+        xOffset = localOff > 0 ? run.width : 0;
+      } else {
+        const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
+        const measureFontSize = isSuperOrSub
+          ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
+          : run.inline.style.fontSize;
+        ctx.font = buildFont(
+          measureFontSize, run.inline.style.fontFamily,
+          run.inline.style.bold, run.inline.style.italic,
+        );
+        xOffset = ctx.measureText(run.text.slice(0, localOff)).width;
+      }
+      const x = pageX + pageLine.x + run.x + xOffset;
       return { x, y: pageY + pageLine.y, height: pageLine.line.height };
     }
     charCount += runLength;
