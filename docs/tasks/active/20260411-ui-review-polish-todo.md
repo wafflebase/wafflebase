@@ -19,37 +19,39 @@ work needed).
 
 ## Tasks
 
-- [ ] 1. Login 카드화 + micro-links
+- [x] 1. Login card wrapper + micro-links
   - Wrap `login-form.tsx` in shadcn `Card` at ~400px max-width
-  - Add footer row with Terms / Privacy / GitHub links (micro text)
-  - Screenshot before/after
-- [ ] 2. 랜딩 히어로 타이포 + 비교표 라벨 통일
-  - Apply `text-balance` (or max-width tweak) so hero title breaks cleanly
-  - Unify comparison table cells: single icon + short label per cell,
-    no ✓/✗ mixed with text
-- [ ] 3. Documents 리스트 타입 배지/아이콘
-  - Show Sheets vs Docs indicator on list items (`packages/frontend/src/app/workspaces/workspace-documents.tsx` and `documents/page.tsx`)
-  - Pick icon convention (Table vs FileText) and apply consistently
-- [ ] 4. 스프레드시트 포매팅 툴바 그룹 시각 구분
-  - Visually separate logical groups in `components/formatting-toolbar.tsx`
-    beyond the existing vertical `Separator` lines
-- [ ] 5. 공용 Toolbar 프리미티브 추출
-  - Introduce `components/ui/toolbar.tsx` (Toolbar, ToolbarGroup, ToolbarButton, ToolbarSeparator)
+  - Add footer row with Apache-2.0 / GitHub / Docs links (micro text)
+  - Use React Router `Link` for internal navigation
+- [x] 2. Landing hero typography + comparison table label unification
+  - Apply `text-balance` so hero title breaks cleanly into 2 lines
+  - Reorder to "Word Processor & Spreadsheet You Can Own"
+  - Unify comparison table cells: icon + themed badge for "Limited"
+- [x] 3. Documents list type badge/icon (already implemented)
+  - Sheet (green) / FileText (blue) icons already present in `document-list.tsx`
+- [x] 4. Spreadsheet formatting toolbar group visual separation
+  - Widen separator gaps (`mx-1` → `mx-2`) for clearer logical grouping
+- [x] 5. Shared Toolbar primitives extraction
+  - Introduce `components/ui/toolbar.tsx` (Toolbar, ToolbarSeparator, ToolbarButton)
   - Refactor `formatting-toolbar.tsx` and `docs-formatting-toolbar.tsx` to use it
-  - Ensure same button height / spacing tokens across Sheets + Docs
-- [ ] 6. 헤더 라우트 handle 기반 title
-  - Replace path-string matching in `app/Layout.tsx` with React Router
-    route `handle` metadata
-- [ ] 7. 랜딩 라이트 모드 지원
-  - `app/home` respects current theme (currently hard-dark)
-  - Verify homepage sections, demo iframe, footer all toggle cleanly
+  - Ensure same separator spacing tokens across Sheets + Docs
+- [x] 6. Header route-based title with matchPath
+  - Replace path-string if-else in `app/Layout.tsx` with declarative
+    `ROUTE_TITLES` array + `matchPath`
+  - Add `document.title` sync across Layout, editor pages, homepage, login
+- [x] 7. Landing light mode support
+  - CSS custom properties already supported light/dark; only `LimitedBadge`
+    needed `dark:` prefixed colors
+  - Verified all homepage sections toggle cleanly
 
 ## Verification
 
-- `pnpm verify:fast` before each commit
-- Manual screenshots per task via puppeteer harness
-- User confirms visually before moving on to next task
+- `pnpm verify:fast` passed before each commit
+- Manual screenshots per task via puppeteer
+- User confirmed visually before moving on to next task
 
 ## Review Notes
 
-(to be filled as tasks complete)
+- CodeRabbit review feedback addressed: React Router Link for internal nav,
+  ToolbarButton type="button" default, ToolbarSeparator orientation guard,
+  aria-hidden on decorative icon, lessons file added.
