@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NavBar } from "./nav-bar";
 import { HeroSection } from "./hero-section";
 import { DemoSection } from "./demo-section";
@@ -12,6 +13,10 @@ export default function HomePage({
 }: {
   workspacePath: string | null;
 }) {
+  useEffect(() => {
+    document.title = "Wafflebase — Word Processor & Spreadsheet You Can Own";
+  }, []);
+
   return (
     <main className="scroll-smooth">
       <NavBar workspacePath={workspacePath} />

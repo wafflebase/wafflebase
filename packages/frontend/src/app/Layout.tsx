@@ -1,11 +1,22 @@
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
-import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { matchPath, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { useEffect, useMemo } from "react";
+
+/** Declarative route → title mapping. First match wins. */
+const ROUTE_TITLES: Array<{ path: string; title: string }> = [
+  { path: "/w/:workspaceId/datasources", title: "Data Sources" },
+  { path: "/w/:workspaceId/settings", title: "Settings" },
+  { path: "/w/:workspaceId", title: "Documents" },
+  { path: "/datasources", title: "Data Sources" },
+  { path: "/settings", title: "Settings" },
+  { path: "/documents", title: "Documents" },
+  { path: "/", title: "Documents" },
+];
 
 /**
  * Renders the root app layout and providers.
@@ -60,24 +71,12 @@ export default function Layout() {
     };
   }, [workspaceSlug]);
 
-  let title = "";
-  if (
-    location.pathname === "/" ||
-    location.pathname === `/w/${workspaceId}` ||
-    location.pathname === "/documents"
-  ) {
-    title = "Documents";
-  } else if (
-    location.pathname === `/w/${workspaceId}/datasources` ||
-    location.pathname === "/datasources"
-  ) {
-    title = "Data Sources";
-  } else if (
-    location.pathname === `/w/${workspaceId}/settings` ||
-    location.pathname === "/settings"
-  ) {
-    title = "Settings";
-  }
+  const title =
+    ROUTE_TITLES.find((r) => matchPath(r.path, location.pathname))?.title ?? "";
+
+  useEffect(() => {
+    document.title = title ? `${title} — Wafflebase` : "Wafflebase";
+  }, [title]);
 
   // Clean up stale pointer-events style on body when Layout unmounts.
   // Radix UI Sheet (mobile sidebar) sets pointer-events: none on <body>

@@ -9,13 +9,11 @@ export function HeroSection({
 }) {
   return (
     <section className="bg-gradient-to-b from-homepage-bg to-homepage-hero-end py-12 md:py-20 px-4 md:px-12 text-center">
-      <h1 className="text-3xl md:text-5xl font-extrabold text-homepage-text mb-4 leading-tight">
-        Spreadsheet & Word Processor
-        <br />
-        You Can Own
+      <h1 className="text-3xl md:text-5xl font-extrabold text-homepage-text mb-4 leading-tight text-balance max-w-3xl mx-auto">
+        Word Processor & Spreadsheet You Can Own
       </h1>
       <p className="text-base md:text-xl text-homepage-text-secondary mb-8 max-w-xl mx-auto">
-        Self-host a collaborative spreadsheet and word processor with
+        Self-host a collaborative word processor and spreadsheet with
         real-time editing and a REST API for automation.
       </p>
       <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">

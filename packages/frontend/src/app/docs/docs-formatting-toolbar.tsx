@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { BlockType, EditorAPI, EditContext, HeadingLevel } from "@wafflebase/docs";
 import { Toggle } from "@/components/ui/toggle";
-import { Separator } from "@/components/ui/separator";
+import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
   Tooltip,
   TooltipTrigger,
@@ -330,10 +330,10 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
 
   if (isHeaderFooter) {
     return (
-      <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap">
+      <Toolbar>
         <span className="mr-2 text-xs text-muted-foreground">{contextLabel}</span>
 
-        <Separator orientation="vertical" className="mx-1 h-6" />
+        <ToolbarSeparator />
 
         {/* ── Font Styles ── */}
         <Tooltip>
@@ -409,7 +409,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Separator orientation="vertical" className="mx-1 h-6" />
+        <ToolbarSeparator />
 
         {/* ── Alignment ── */}
         <DropdownMenu>
@@ -444,7 +444,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Separator orientation="vertical" className="mx-1 h-6" />
+        <ToolbarSeparator />
 
         {/* ── Page Number ── */}
         <Tooltip>
@@ -460,12 +460,12 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           </TooltipTrigger>
           <TooltipContent>Insert page number</TooltipContent>
         </Tooltip>
-      </div>
+      </Toolbar>
     );
   }
 
   return (
-    <div className="flex items-center gap-0.5 overflow-x-auto border-b bg-background px-2 py-1 whitespace-nowrap">
+    <Toolbar>
       {/* ── Undo / Redo ── */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -495,7 +495,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         </TooltipContent>
       </Tooltip>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      <ToolbarSeparator />
 
       {/* ── Styles ── */}
       <DropdownMenu>
@@ -534,7 +534,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      <ToolbarSeparator />
 
       {/* ── Font Styles ── */}
       <Tooltip>
@@ -649,7 +649,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      <ToolbarSeparator />
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -668,7 +668,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
 
       <TableDropdown editor={editor} />
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      <ToolbarSeparator />
 
       {/* ── Block Styles ── */}
       <DropdownMenu>
@@ -758,7 +758,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
       </Tooltip>
 
-      <Separator orientation="vertical" className="mx-1 h-6" />
+      <ToolbarSeparator />
 
       {/* ── Export DOCX ── */}
       <Tooltip>
@@ -775,6 +775,6 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         <TooltipContent>Export as DOCX</TooltipContent>
       </Tooltip>
 
-    </div>
+    </Toolbar>
   );
 }

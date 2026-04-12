@@ -60,6 +60,12 @@ function DocsLayout({ documentId }: { documentId: string }) {
     queryFn: () => fetchDocument(documentId),
   });
 
+  useEffect(() => {
+    document.title = documentData?.title
+      ? `${documentData.title} — Wafflebase`
+      : "Wafflebase";
+  }, [documentData?.title]);
+
   const { data: workspaces = [] } = useQuery<Workspace[]>({
     queryKey: ["workspaces"],
     queryFn: fetchWorkspaces,
