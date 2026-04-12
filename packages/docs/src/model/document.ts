@@ -142,6 +142,31 @@ export class Doc {
   }
 
   /**
+   * Find a block by ID, returning undefined if not found (non-throwing variant of getBlock).
+   */
+  findBlock(blockId: string): Block | undefined {
+    const block = this._document.blocks.find((b) => b.id === blockId);
+    if (block) return block;
+
+    const hBlock = this._document.header?.blocks.find((b) => b.id === blockId);
+    if (hBlock) return hBlock;
+    const fBlock = this._document.footer?.blocks.find((b) => b.id === blockId);
+    if (fBlock) return fBlock;
+
+    const cellInfo = this._blockParentMap.get(blockId);
+    if (cellInfo) {
+      const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
+      if (tableBlock?.tableData) {
+        const cell = tableBlock.tableData.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+        const found = cell?.blocks.find((b) => b.id === blockId);
+        if (found) return found;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * Find block index by ID within the current context. Returns -1 if not found.
    */
   getBlockIndex(blockId: string): number {
