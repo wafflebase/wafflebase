@@ -570,6 +570,23 @@ export class Doc {
   }
 
   /**
+   * Ensure a non-table block exists after the given block index.
+   * If the block at `blockIndex` is the last block (or followed only by
+   * another table), an empty paragraph is appended after it.
+   * Returns the ID of the block immediately after `blockIndex`.
+   */
+  ensureBlockAfter(blockIndex: number): string {
+    const blocks = this.document.blocks;
+    if (blockIndex < blocks.length - 1) {
+      return blocks[blockIndex + 1].id;
+    }
+    const newBlock = createEmptyBlock();
+    this.store.insertBlock(blockIndex + 1, newBlock);
+    this.refresh();
+    return newBlock.id;
+  }
+
+  /**
    * Insert a new row at the given index.
    */
   insertRow(blockId: string, atIndex: number): void {

@@ -1835,8 +1835,23 @@ export function initialize(
     },
     insertTable: (rows: number, cols: number) => {
       docStore.snapshot();
-      const blockIndex = doc.getBlockIndex(cursor.position.blockId);
+      const pos = cursor.position;
+      const block = doc.getBlock(pos.blockId);
+      const blockLen = getBlockTextLength(block);
+
+      // Split the current block at the cursor so text after the cursor
+      // becomes a separate paragraph below the table.
+      if (pos.offset > 0 && pos.offset < blockLen) {
+        doc.splitBlock(pos.blockId, pos.offset);
+      }
+
+      const blockIndex = doc.getBlockIndex(pos.blockId);
       const tableId = doc.insertTable(blockIndex + 1, rows, cols);
+
+      // Ensure a paragraph exists after the table so the cursor can escape.
+      const tableIndex = doc.getBlockIndex(tableId);
+      doc.ensureBlockAfter(tableIndex);
+
       const tableBlock = doc.getBlock(tableId);
       const firstCellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
       cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 });

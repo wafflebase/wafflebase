@@ -1877,10 +1877,8 @@ export class TextEditor {
             };
           } else {
             const blockIndex = this.doc.getBlockIndex(tableBlockId);
-            const blocks = this.doc.document.blocks;
-            if (blockIndex < blocks.length - 1) {
-              newPos = { blockId: blocks[blockIndex + 1].id, offset: 0 };
-            }
+            const nextId = this.doc.ensureBlockAfter(blockIndex);
+            newPos = { blockId: nextId, offset: 0 };
           }
         }
       }
@@ -3332,10 +3330,8 @@ export class TextEditor {
     }
     // ArrowRight: exit table — move to the block after the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
-    const blocks = this.doc.document.blocks;
-    if (blockIndex < blocks.length - 1) {
-      this.cursor.moveTo({ blockId: blocks[blockIndex + 1].id, offset: 0 });
-    }
+    const nextId = this.doc.ensureBlockAfter(blockIndex);
+    this.cursor.moveTo({ blockId: nextId, offset: 0 });
     return true;
   }
 
