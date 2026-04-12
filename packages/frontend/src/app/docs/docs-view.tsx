@@ -290,8 +290,8 @@ export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps)
     // package only knows how to intercept the raw File; upload + URL
     // resolution + insert all live in the frontend because they
     // depend on auth cookies and the `/images` endpoint.
-    editor.onImageFileDrop((file) => {
-      void insertImageFromFile(editor, file);
+    editor.onImageFileDrop((file, pos) => {
+      void insertImageFromFile(editor, file, pos);
     });
 
     const handleMouseMove = (e: MouseEvent) => {

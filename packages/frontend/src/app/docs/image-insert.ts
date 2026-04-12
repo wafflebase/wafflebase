@@ -55,6 +55,7 @@ export function loadImageDimensions(
 export async function insertImageFromFile(
   editor: EditorAPI,
   file: File,
+  position?: { blockId: string; offset: number },
 ): Promise<void> {
   try {
     const url = await uploadImageFile(file);
@@ -63,6 +64,7 @@ export async function insertImageFromFile(
       originalWidth: width,
       originalHeight: height,
       alt: file.name,
+      position,
     });
     editor.focus();
   } catch (err) {

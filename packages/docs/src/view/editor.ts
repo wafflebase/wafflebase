@@ -122,6 +122,7 @@ export interface EditorAPI {
     alt?: string;
     originalWidth?: number;
     originalHeight?: number;
+    position?: { blockId: string; offset: number };
   }): void;
   /**
    * Programmatically mark the image at `(blockId, offset)` as the selected
@@ -151,7 +152,7 @@ export interface EditorAPI {
    * CORS, and upload endpoints. Only the most recent callback is
    * active; calling this again replaces it.
    */
-  onImageFileDrop(cb: ((file: File) => void) | null): void;
+  onImageFileDrop(cb: ((file: File, position: { blockId: string; offset: number }) => void) | null): void;
   /** Insert a page number token at cursor in header/footer */
   insertPageNumber(): void;
   /** Get the current edit context */
@@ -470,7 +471,7 @@ export function initialize(
    * receive image files from drag-and-drop + clipboard paste. The
    * editor owns the event wiring; the host owns upload + insert.
    */
-  let imageFileDropCallback: ((file: File) => void) | null = null;
+  let imageFileDropCallback: ((file: File, position: { blockId: string; offset: number }) => void) | null = null;
 
   // Compute layout helper
   const recomputeLayout = () => {
@@ -1304,6 +1305,7 @@ export function initialize(
   // click elsewhere clears the image selection and lets TextEditor
   // handle the click normally.
   const handleImageMouseDown = (e: MouseEvent) => {
+    if (readOnly) return;
     if (!layout) return;
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -1355,6 +1357,7 @@ export function initialize(
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
+      selection.setRange(null);
       selectedImage = { blockId: hit.blockId, offset: hit.offset };
       cursor.moveTo({ blockId: hit.blockId, offset: hit.offset });
       render();
@@ -1405,6 +1408,7 @@ export function initialize(
   };
 
   const handleImageDragOver = (e: DragEvent) => {
+    if (readOnly) return;
     if (!imageFileDropCallback) return;
     if (!hasImageItem(e.dataTransfer)) return;
     e.preventDefault();
@@ -1412,6 +1416,7 @@ export function initialize(
   };
 
   const handleImageDrop = (e: DragEvent) => {
+    if (readOnly) return;
     if (!imageFileDropCallback) return;
     const file = getImageFile(e.dataTransfer);
     if (!file) return;
@@ -1423,15 +1428,17 @@ export function initialize(
     // pointer position. If the drop happens outside any block the
     // caret stays where it was.
     const { x: docX, y: docY } = clientToDocCoords(e.clientX, e.clientY);
+    let dropPosition: { blockId: string; offset: number } = { blockId: cursor.position.blockId, offset: cursor.position.offset };
     if (layout) {
       const s = scaleFactor;
       const canvasWidth = canvas.getBoundingClientRect().width / s;
       const hit = paginatedPixelToPosition(paginatedLayout, layout, docX, docY, canvasWidth);
       if (hit) {
         cursor.moveTo({ blockId: hit.blockId, offset: hit.offset });
+        dropPosition = { blockId: hit.blockId, offset: hit.offset };
       }
     }
-    imageFileDropCallback(file);
+    imageFileDropCallback(file, dropPosition);
   };
   container.addEventListener('dragover', handleImageDragOver);
   container.addEventListener('drop', handleImageDrop);
@@ -1960,8 +1967,16 @@ export function initialize(
       src: string,
       width: number,
       height: number,
-      opts?: { alt?: string; originalWidth?: number; originalHeight?: number },
+      opts?: { alt?: string; originalWidth?: number; originalHeight?: number; position?: { blockId: string; offset: number } },
     ) => {
+      if (readOnly) return;
+      // If an explicit position was captured at drop/paste time, move
+      // the cursor there before inserting so an async upload that
+      // finishes after the user moved the caret still lands at the
+      // original location.
+      if (opts?.position) {
+        cursor.moveTo(opts.position);
+      }
       // Clamp the displayed width to the page's content width so a
       // 4000px screenshot pasted into an 8.5" page doesn't punch past
       // the right margin. Aspect ratio is preserved by
@@ -2005,6 +2020,7 @@ export function initialize(
       const block = doc.getBlock(blockId);
       if (!block) return;
       if (!findImageAtOffset(block, offset)) return;
+      selection.setRange(null);
       selectedImage = { blockId, offset };
       render();
     },
@@ -2026,6 +2042,7 @@ export function initialize(
       };
     },
     updateSelectedImage: (patch: Partial<ImageData>) => {
+      if (readOnly) return;
       if (!selectedImage) return;
       const block = doc.getBlock(selectedImage.blockId);
       if (!block) return;
@@ -2046,7 +2063,7 @@ export function initialize(
       invalidateLayout();
       render();
     },
-    onImageFileDrop: (cb: ((file: File) => void) | null) => {
+    onImageFileDrop: (cb: ((file: File, position: { blockId: string; offset: number }) => void) | null) => {
       imageFileDropCallback = cb;
       if (textEditor) {
         // Wire the clipboard path through TextEditor's paste handler.

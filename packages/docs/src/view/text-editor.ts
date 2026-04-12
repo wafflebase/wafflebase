@@ -132,7 +132,7 @@ export class TextEditor {
    * image file, the handler is never called and paste proceeds
    * normally.
    */
-  imageFilePasteHandler: ((file: File) => void) | null = null;
+  imageFilePasteHandler: ((file: File, position: { blockId: string; offset: number }) => void) | null = null;
 
   /**
    * Optional hover pre-handler invoked inside `handleMouseMove` right
@@ -726,7 +726,7 @@ export class TextEditor {
         if (item.kind === 'file' && item.type.startsWith('image/')) {
           const file = item.getAsFile();
           if (file) {
-            this.imageFilePasteHandler(file);
+            this.imageFilePasteHandler(file, { blockId: this.cursor.position.blockId, offset: this.cursor.position.offset });
             return;
           }
         }
