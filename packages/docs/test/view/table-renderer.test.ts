@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -23,10 +24,12 @@ function makeRecordingCtx(): {
   fillRect: ReturnType<typeof vi.fn>;
   fillText: ReturnType<typeof vi.fn>;
   stroke: ReturnType<typeof vi.fn>;
+  drawImage: ReturnType<typeof vi.fn>;
 } {
   const fillRect = vi.fn();
   const fillText = vi.fn();
   const stroke = vi.fn();
+  const drawImage = vi.fn();
   const ctx = {
     font: '',
     fillStyle: '',
@@ -43,8 +46,9 @@ function makeRecordingCtx(): {
     fillRect,
     fillText,
     stroke,
+    drawImage,
   } as unknown as CanvasRenderingContext2D;
-  return { ctx, fillRect, fillText, stroke };
+  return { ctx, fillRect, fillText, stroke, drawImage };
 }
 
 function makeTable(): { tableData: TableData; layout: LayoutTable } {
@@ -160,6 +164,117 @@ describe('renderTableContent', () => {
     // backgrounds would also be fillRects — this test uses plain runs
     // without backgrounds, so fillRect should stay at zero.
     expect(fillRect).not.toHaveBeenCalled();
+  });
+});
+
+describe('renderTableContent image inlines', () => {
+  // Regression: inline image runs inside a table cell were rendered with
+  // fillText(run.text) where `run.text` is the Object Replacement Character
+  // (U+FFFC), so the picture was never painted — only a blank placeholder
+  // glyph. Body paragraphs in doc-canvas handled this via drawImage; the
+  // table renderer must do the same.
+  const ORC = '\uFFFC';
+
+  function makeImageCellTable(): { tableData: TableData; layout: LayoutTable } {
+    const imageStyle = {
+      image: { src: 'https://example.invalid/cell-image.png', width: 60, height: 20 },
+    };
+    const tableData: TableData = {
+      rows: [
+        {
+          cells: [
+            {
+              blocks: [
+                {
+                  id: 'b1',
+                  type: 'paragraph',
+                  inlines: [{ text: ORC, style: imageStyle }],
+                  style: { ...DEFAULT_BLOCK_STYLE },
+                },
+              ],
+              style: { ...DEFAULT_CELL_STYLE },
+            },
+          ],
+        },
+      ],
+      columnWidths: [1],
+    };
+    const layout: LayoutTable = {
+      cells: [
+        [
+          {
+            lines: [
+              {
+                y: 0,
+                height: 20,
+                width: 60,
+                runs: [
+                  {
+                    inline: { text: ORC, style: imageStyle },
+                    text: ORC,
+                    x: 0,
+                    width: 60,
+                    inlineIndex: 0,
+                    charStart: 0,
+                    charEnd: 1,
+                    charOffsets: [60],
+                    imageHeight: 20,
+                  },
+                ],
+              },
+            ],
+            blockBoundaries: [0],
+            width: 60,
+            height: 20,
+            merged: false,
+          },
+        ],
+      ],
+      columnXOffsets: [0],
+      columnPixelWidths: [80],
+      rowYOffsets: [0],
+      rowHeights: [28],
+      totalWidth: 80,
+      totalHeight: 28,
+      blockParentMap: new Map(),
+    };
+    return { tableData, layout };
+  }
+
+  it('never calls fillText with the ORC placeholder for image runs', () => {
+    const { ctx, fillText } = makeRecordingCtx();
+    const { tableData, layout } = makeImageCellTable();
+    renderTableContent(ctx, tableData, layout, 0, 0);
+    // The regression: before the fix, this was exactly one fillText(ORC)
+    // call per image inline.
+    for (const call of fillText.mock.calls) {
+      expect(call[0]).not.toBe(ORC);
+    }
+  });
+
+  it('does not synchronously draw or call requestRender while the image is loading', () => {
+    // Under jsdom the image never finishes loading during the render
+    // call, so drawImage stays uncalled and requestRender is only
+    // invoked later from the Image's onload. Synchronously during the
+    // renderTableContent call, neither should fire — and the absence of
+    // a fillText(ORC) call in the test above guarantees the image
+    // branch was actually taken rather than falling through to text.
+    const { ctx, drawImage } = makeRecordingCtx();
+    const { tableData, layout } = makeImageCellTable();
+    const requestRender = vi.fn();
+    renderTableContent(
+      ctx,
+      tableData,
+      layout,
+      0,
+      0,
+      undefined,
+      undefined,
+      undefined,
+      requestRender,
+    );
+    expect(drawImage).not.toHaveBeenCalled();
+    expect(requestRender).not.toHaveBeenCalled();
   });
 });
 

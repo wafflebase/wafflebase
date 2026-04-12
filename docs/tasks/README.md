@@ -25,7 +25,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 121
+- Archived task count: 122
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: docx table merge gaps (2026-04-11)

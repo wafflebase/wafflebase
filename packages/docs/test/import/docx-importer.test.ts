@@ -571,6 +571,60 @@ describe('DocxImporter', () => {
     expect(inline!.style.image!.height).toBe(48);
   });
 
+  it('should pass a typed image Blob to the uploader', async () => {
+    // Regression for DOCX import failing with 400 from /images because the
+    // Blob returned by JSZip has an empty `type`, which FormData then sends
+    // as application/octet-stream. The importer must repackage the bytes
+    // with a MIME derived from the .rels target extension.
+    const drawingXml = `
+      <w:r>
+        <w:drawing>
+          <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
+            <wp:extent cx="914400" cy="457200"/>
+            <wp:docPr id="1" name="Picture 1"/>
+            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                  <pic:blipFill>
+                    <a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId5"/>
+                  </pic:blipFill>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>`;
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+      <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+      </Relationships>`;
+    const pngBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+      0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+      0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
+    const buffer = await createMinimalDocx(
+      `<w:p>${drawingXml}</w:p>`,
+      {
+        relsXml,
+        extraFiles: { 'word/media/image1.png': pngBytes },
+      },
+    );
+
+    const seen: Array<{ type: string; filename: string }> = [];
+    await DocxImporter.import(buffer, async (blob, filename) => {
+      seen.push({ type: blob.type, filename });
+      return 'https://example.com/image1.png';
+    });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].type).toBe('image/png');
+    expect(seen[0].filename).toBe('rId5.png');
+  });
+
   it('should resolve stacked vMerge groups in the same column', async () => {
     // Column 0: rows 0-1 merged, row 2 standalone, rows 3-4 merged.
     const buffer = await createMinimalDocx(`

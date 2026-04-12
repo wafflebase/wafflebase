@@ -2,6 +2,7 @@ import type { LayoutTable, LayoutTableCell } from './table-layout.js';
 import type { TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
+import { getOrLoadImage } from './image-cache.js';
 
 /**
  * Per-line placement for a merged cell: which spanned row the line
@@ -169,6 +170,7 @@ export function renderTableContent(
   startRow = 0,
   endRow?: number,
   pageStartRow?: number,
+  requestRender?: () => void,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -259,6 +261,27 @@ export function renderTableContent(
           const fontSize = style.fontSize ?? Theme.defaultFontSize;
           const fontSizePx = ptToPx(fontSize);
 
+          const runX = cellX + padding + run.x;
+          const runLineY = lineAbsoluteY;
+
+          // Image inlines carry the Object Replacement Character (￼) in
+          // `run.text`; drawing them via fillText would paint that glyph
+          // instead of the picture. Mirror the image path used for body
+          // paragraphs in doc-canvas: bottom-align the (possibly scaled)
+          // image to the line and call drawImage once it finishes loading.
+          if (style.image) {
+            const drawHeight = run.imageHeight ?? line.height;
+            const imgX = Math.round(runX);
+            const imgY = Math.round(runLineY + line.height - drawHeight);
+            const img = getOrLoadImage(style.image.src, () => {
+              requestRender?.();
+            });
+            if (img) {
+              ctx.drawImage(img, imgX, imgY, run.width, drawHeight);
+            }
+            continue;
+          }
+
           ctx.font = buildFont(
             style.fontSize,
             style.fontFamily,
@@ -268,8 +291,6 @@ export function renderTableContent(
           ctx.fillStyle = style.color || Theme.defaultColor;
           ctx.textBaseline = 'alphabetic';
 
-          const runX = cellX + padding + run.x;
-          const runLineY = lineAbsoluteY;
           const baselineY = runLineY + line.height * 0.75;
 
           // Text background highlight
