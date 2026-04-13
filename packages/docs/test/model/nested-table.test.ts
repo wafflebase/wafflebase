@@ -116,3 +116,40 @@ describe('Nested table block lookup', () => {
     expect(text).toBe('Nested');
   });
 });
+
+describe('Nested table navigation context', () => {
+  it('getCellInfo should return inner table cell for inner block', () => {
+    const doc = Doc.create();
+    const outerTableId = doc.insertTable(0, 2, 2);
+    const outerBlock = doc.getBlock(outerTableId);
+    const innerTable = createTableBlock(2, 2);
+    outerBlock.tableData!.rows[0].cells[0].blocks.push(innerTable);
+
+    const map = buildParentMapRecursive(doc, outerTableId);
+    doc.setBlockParentMap(map);
+
+    // Inner cell (1,1) paragraph
+    const innerCellBlock = innerTable.tableData!.rows[1].cells[1].blocks[0];
+    const info = map.get(innerCellBlock.id);
+    expect(info).toBeDefined();
+    expect(info!.tableBlockId).toBe(innerTable.id);
+    expect(info!.rowIndex).toBe(1);
+    expect(info!.colIndex).toBe(1);
+  });
+
+  it('getCellInfo for inner table block itself should return outer cell', () => {
+    const doc = Doc.create();
+    const outerTableId = doc.insertTable(0, 2, 2);
+    const outerBlock = doc.getBlock(outerTableId);
+    const innerTable = createTableBlock(2, 2);
+    outerBlock.tableData!.rows[0].cells[0].blocks.push(innerTable);
+
+    const map = buildParentMapRecursive(doc, outerTableId);
+
+    const info = map.get(innerTable.id);
+    expect(info).toBeDefined();
+    expect(info!.tableBlockId).toBe(outerTableId);
+    expect(info!.rowIndex).toBe(0);
+    expect(info!.colIndex).toBe(0);
+  });
+});
