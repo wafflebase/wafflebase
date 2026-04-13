@@ -786,20 +786,46 @@ export class YorkieDocStore implements DocStore {
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
+    if (block.type === 'table' || block.type === 'horizontal-rule' || block.type === 'page-break') {
+      throw new Error(`splitBlock does not support ${block.type} blocks`);
+    }
 
-    const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
+    // Resolve block-level character offset to inline-level path
+    const { inlineIndex, charOffset } = resolveOffset(block, offset);
     const off = this.bodyTreeOffset(currentDoc);
 
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      // Replace original block with the "before" part
-      tree.editByPath([blockIdx + off], [blockIdx + off + 1], buildBlockNode(before));
-      // Insert the "after" part as a new block
-      tree.editByPath([blockIdx + off + 1], [blockIdx + off + 1], buildBlockNode(after));
+
+      // Native CRDT split: single atomic operation at splitLevel=2.
+      // splitLevel=2 because the text position is 2 levels below block:
+      //   doc → block → inline → text(charOffset)
+      // Two splits are needed: text→inline split + inline→block split.
+      tree.editByPath(
+        [blockIdx + off, inlineIndex, charOffset],
+        [blockIdx + off, inlineIndex, charOffset],
+        undefined,
+        2,
+      );
+
+      // The split duplicated all attributes. Update the "after" block.
+      const afterAttrs: Record<string, string> = {
+        id: newBlockId,
+        type: newBlockType,
+        ...serializeBlockStyle(block.style),
+      };
+      if (newBlockType === 'list-item' && block.listKind !== undefined) {
+        afterAttrs.listKind = block.listKind;
+        if (block.listLevel !== undefined) {
+          afterAttrs.listLevel = String(block.listLevel);
+        }
+      }
+      tree.styleByPath([blockIdx + off + 1], afterAttrs);
     });
 
-    // Update cache in-place
+    // Update cache in-place using the pure-function result
+    const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
     currentDoc.blocks[blockIdx] = before;
     currentDoc.blocks.splice(blockIdx + 1, 0, after);
     this.cachedDoc = currentDoc;
@@ -822,22 +848,24 @@ export class YorkieDocStore implements DocStore {
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     const nextIdx = currentDoc.blocks.findIndex((b) => b.id === nextBlockId);
     if (blockIdx === -1 || nextIdx === -1) throw new Error('Block not found');
+    if (nextIdx !== blockIdx + 1) throw new Error('Blocks to merge must be adjacent and in order');
+
+    const off = this.bodyTreeOffset(currentDoc);
+    const firstBlock = currentDoc.blocks[blockIdx];
+    const firstBlockInlineCount = firstBlock.inlines.length;
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Delete the boundary between the two blocks. This range starts just
+      // past the last inline of the first block and ends just before the
+      // first inline of the next block, causing Yorkie Tree to merge them.
+      tree.editByPath([blockIdx + off, firstBlockInlineCount], [nextIdx + off, 0]);
+    });
 
     const merged = applyMergeBlocks(
       currentDoc.blocks[blockIdx],
       currentDoc.blocks[nextIdx],
     );
-
-    const off = this.bodyTreeOffset(currentDoc);
-    this.doc.update((root) => {
-      const tree = root.content;
-      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      // Replace first block with merged content
-      tree.editByPath([blockIdx + off], [blockIdx + off + 1], buildBlockNode(merged));
-      // Delete second block
-      const deleteIdx = nextIdx > blockIdx ? nextIdx : nextIdx;
-      tree.editByPath([deleteIdx + off], [deleteIdx + off + 1]);
-    });
 
     // Update cache in-place
     currentDoc.blocks[blockIdx] = merged;
