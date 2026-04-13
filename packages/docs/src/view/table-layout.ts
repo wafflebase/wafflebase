@@ -184,6 +184,7 @@ function layoutCellBlocks(
   blocks: Block[],
   ctx: CanvasRenderingContext2D,
   maxWidth: number,
+  blockParentMap?: Map<string, BlockCellInfo>,
 ): { lines: LayoutLine[]; blockBoundaries: number[] } {
   if (blocks.length === 0) {
     const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
@@ -198,6 +199,29 @@ function layoutCellBlocks(
 
   for (const block of blocks) {
     blockBoundaries.push(allLines.length);
+
+    // Handle nested table blocks
+    if (block.type === 'table' && block.tableData) {
+      const nestedLayout = computeTableLayout(
+        block.tableData, block.id, ctx, maxWidth,
+      );
+      // Merge inner blockParentMap into outer
+      if (blockParentMap) {
+        for (const [k, v] of nestedLayout.blockParentMap) {
+          blockParentMap.set(k, v);
+        }
+      }
+      const tableLine: LayoutLine = {
+        runs: [],
+        y: 0,
+        height: nestedLayout.totalHeight,
+        width: nestedLayout.totalWidth,
+        nestedTable: nestedLayout,
+      };
+      allLines.push(tableLine);
+      continue;
+    }
+
     // Reserve space for list marker indent
     const listIndent = block.type === 'list-item'
       ? LIST_INDENT_PX * ((block.listLevel ?? 0) + 1)
@@ -256,6 +280,7 @@ export function computeTableLayout(
   }
 
   // 3. Layout each cell
+  const blockParentMap = new Map<string, BlockCellInfo>();
   const cells: LayoutTableCell[][] = [];
   for (let r = 0; r < numRows; r++) {
     const row = rows[r];
@@ -279,7 +304,7 @@ export function computeTableLayout(
       const padding = cell?.style?.padding ?? DEFAULT_CELL_PADDING;
       const innerWidth = Math.max(cellWidth - padding * 2, 0);
 
-      const { lines, blockBoundaries } = layoutCellBlocks(cell?.blocks ?? [], ctx, innerWidth);
+      const { lines, blockBoundaries } = layoutCellBlocks(cell?.blocks ?? [], ctx, innerWidth, blockParentMap);
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 
       cellRow.push({ lines, blockBoundaries, width: cellWidth, height: cellHeight, merged: false });
@@ -347,8 +372,8 @@ export function computeTableLayout(
     yOffset += rowHeights[r];
   }
 
-  // 7. Build BlockParentMap
-  const blockParentMap = new Map<string, BlockCellInfo>();
+  // 7. Register direct-child blocks in BlockParentMap
+  // (nested table blocks are already merged by layoutCellBlocks)
   for (let r = 0; r < numRows; r++) {
     for (let c = 0; c < numCols; c++) {
       const cell = rows[r]?.cells[c];
