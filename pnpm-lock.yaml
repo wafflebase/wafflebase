@@ -351,8 +351,8 @@ importers:
         specifier: workspace:*
         version: link:../sheets
       '@yorkie-js/react':
-        specifier: 0.7.3
-        version: 0.7.3(react@19.1.0)
+        specifier: 0.7.4
+        version: 0.7.4(react@19.1.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -4079,17 +4079,13 @@ packages:
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
 
-  '@yorkie-js/react@0.7.3':
-    resolution: {integrity: sha512-xOX7Fy8bB5ter9IKpu4PHKdLO59LAEMcpvErc/Q0M1JLARbcKB1xpd7TSlduueNytLdV3qEbskE3jBbXfIO/eA==}
+  '@yorkie-js/react@0.7.4':
+    resolution: {integrity: sha512-XXzy3SEDQ7slTr6du292XRGpiws7erpsA1Tg1T6jS7N1VcyT19vgWVuYmbRocinNu+HwwstXcEfo9Rwgxgf2Ug==}
     peerDependencies:
       react: ^18 || ^19
 
   '@yorkie-js/schema@0.7.3':
     resolution: {integrity: sha512-nup7k8KzbjxSlXIpTRfl2R2N33S2UTbJnRLneQwKeqWA+cuRJl2Y3sX5jcAYWMt/OzbrM9AvdKMXLfZWgPMD7g==}
-
-  '@yorkie-js/sdk@0.7.3':
-    resolution: {integrity: sha512-F6Gx2PQAeRTrPE5OJp9neKOTSqu19/TAjcQfLg/nXRJXldEg0Ov6BczeY8NR7o1Wq8ehIntK8OiwARp/fvGMdA==}
-    engines: {node: '>=18.0.0', npm: '>=7.1.0', pnpm: '>=9.6.0'}
 
   '@yorkie-js/sdk@0.7.4':
     resolution: {integrity: sha512-Hwu0DPIUcgBovZtW5pTI5DdWGQNKkC35ZUwdw3v60Kh3ZCX/Lb8j4US24BQTrCfH1y4FBue7bEMXTvfAl9aXEw==}
@@ -11887,20 +11883,12 @@ snapshots:
 
   '@xtuc/long@4.2.2': {}
 
-  '@yorkie-js/react@0.7.3(react@19.1.0)':
+  '@yorkie-js/react@0.7.4(react@19.1.0)':
     dependencies:
-      '@yorkie-js/sdk': 0.7.3
+      '@yorkie-js/sdk': 0.7.4
       react: 19.1.0
 
   '@yorkie-js/schema@0.7.3': {}
-
-  '@yorkie-js/sdk@0.7.3':
-    dependencies:
-      '@bufbuild/protobuf': 2.11.0
-      '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.11.0)
-      '@connectrpc/connect-web': 2.1.1(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
-      '@yorkie-js/schema': 0.7.3
-      long: 5.3.2
 
   '@yorkie-js/sdk@0.7.4':
     dependencies:
