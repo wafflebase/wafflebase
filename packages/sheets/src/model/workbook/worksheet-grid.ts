@@ -15,16 +15,11 @@ function ensureAxisLength(
   minLength: number,
 ): void {
   const order = axis === 'row' ? (ws.rowOrder ??= []) : (ws.colOrder ??= []);
-  const counterKey = axis === 'row' ? 'nextRowId' : 'nextColId';
   const prefix = axis === 'row' ? 'r' : 'c';
-  let nextValue = ws[counterKey] ?? order.length + 1;
 
   while (order.length < minLength) {
-    order.push(createWorksheetAxisId(prefix, nextValue));
-    nextValue += 1;
+    order.push(createWorksheetAxisId(prefix));
   }
-
-  ws[counterKey] = nextValue;
 }
 
 function ensureWorksheetGrid(

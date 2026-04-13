@@ -12,16 +12,11 @@ function ensureAxisLength(
   minLength: number,
 ): void {
   const order = axis === "row" ? ws.rowOrder : ws.colOrder;
-  const counterKey = axis === "row" ? "nextRowId" : "nextColId";
   const prefix = axis === "row" ? "r" : "c";
-  let nextValue = ws[counterKey] ?? order.length + 1;
 
   while (order.length < minLength) {
-    order.push(createWorksheetAxisId(prefix, nextValue));
-    nextValue += 1;
+    order.push(createWorksheetAxisId(prefix));
   }
-
-  ws[counterKey] = nextValue;
 }
 
 export function insertYorkieWorksheetAxis(
@@ -33,18 +28,14 @@ export function insertYorkieWorksheetAxis(
   ensureAxisLength(ws, axis, Math.max(0, index - 1));
 
   const order = axis === "row" ? ws.rowOrder : ws.colOrder;
-  const counterKey = axis === "row" ? "nextRowId" : "nextColId";
   const prefix = axis === "row" ? "r" : "c";
-  let nextValue = ws[counterKey] ?? order.length + 1;
   const created: string[] = [];
 
   for (let i = 0; i < count; i++) {
-    created.push(createWorksheetAxisId(prefix, nextValue));
-    nextValue += 1;
+    created.push(createWorksheetAxisId(prefix));
   }
 
   order.splice(Math.max(0, index - 1), 0, ...created);
-  ws[counterKey] = nextValue;
 }
 
 export function deleteYorkieWorksheetAxis(
