@@ -12,8 +12,20 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTwoUserDocs, makeBlock } from '../../helpers/two-user-docs-yorkie.ts';
 import { generateBlockId } from '@wafflebase/docs';
+import type { Block } from '@wafflebase/docs';
 
 const shouldRun = Boolean(process.env.YORKIE_RPC_ADDR);
+
+/** Normalize blocks to a canonical shape for structural comparison. */
+function normalizeBlocks(blocks: Block[]) {
+  return blocks.map((b) => ({
+    type: b.type,
+    headingLevel: b.headingLevel,
+    listKind: b.listKind,
+    listLevel: b.listLevel,
+    text: b.inlines.map((i) => i.text).join(''),
+  }));
+}
 
 describe('YorkieDocStore concurrent split/merge', { skip: !shouldRun }, () => {
 
@@ -37,15 +49,12 @@ describe('YorkieDocStore concurrent split/merge', { skip: !shouldRun }, () => {
       const docA = ctx.storeA.getDocument();
       const docB = ctx.storeB.getDocument();
 
-      // Both clients should see the same result
-      const textA = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      const textB = docB.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      assert.equal(textA, textB, `Divergence detected: A="${textA}" B="${textB}"`);
+      // Both clients should see the same structural result
+      assert.deepEqual(normalizeBlocks(docA.blocks), normalizeBlocks(docB.blocks), 'Structural divergence');
 
-      // Both "XXX" insertion and split should be preserved.
-      console.log(`  split+insert converged text: "${textA}" (${docA.blocks.length} blocks)`);
+      // Both "XXX" insertion and split should be preserved
       assert.ok(docA.blocks.length >= 2, `Split should produce at least 2 blocks, got ${docA.blocks.length}`);
-      const fullText = textA.replace(/\|/g, '');
+      const fullText = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('');
       assert.equal(fullText.length, 'HelloWorld'.length + 'XXX'.length, `Expected 13 chars, got "${fullText}"`);
       assert.ok(fullText.includes('XXX'), `Inserted text "XXX" should be preserved, got "${fullText}"`);
     } finally {
@@ -72,13 +81,11 @@ describe('YorkieDocStore concurrent split/merge', { skip: !shouldRun }, () => {
       const docA = ctx.storeA.getDocument();
       const docB = ctx.storeB.getDocument();
 
-      const textA = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      const textB = docB.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      assert.equal(textA, textB, `Divergence detected: A="${textA}" B="${textB}"`);
+      assert.deepEqual(normalizeBlocks(docA.blocks), normalizeBlocks(docB.blocks), 'Structural divergence');
 
       // Both splits should be preserved — at least 3 blocks
       assert.ok(docA.blocks.length >= 3, `Expected ≥3 blocks, got ${docA.blocks.length}`);
-      const fullText = textA.replace(/\|/g, '');
+      const fullText = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('');
       assert.equal(fullText, 'ABCDEFGH', 'All text should be preserved');
     } finally {
       await ctx.cleanup();
@@ -105,12 +112,10 @@ describe('YorkieDocStore concurrent split/merge', { skip: !shouldRun }, () => {
       const docA = ctx.storeA.getDocument();
       const docB = ctx.storeB.getDocument();
 
-      const textA = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      const textB = docB.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      assert.equal(textA, textB, `Divergence detected: A="${textA}" B="${textB}"`);
+      assert.deepEqual(normalizeBlocks(docA.blocks), normalizeBlocks(docB.blocks), 'Structural divergence');
 
       // Both merge and insertion should be preserved
-      const fullText = textA.replace(/\|/g, '');
+      const fullText = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('');
       assert.ok(fullText.includes('Hello'), '"Hello" should be preserved');
       assert.ok(fullText.includes('World'), '"World" should be preserved');
       assert.ok(fullText.includes('XXX'), '"XXX" insertion should be preserved');
@@ -140,12 +145,10 @@ describe('YorkieDocStore concurrent split/merge', { skip: !shouldRun }, () => {
       const docA = ctx.storeA.getDocument();
       const docB = ctx.storeB.getDocument();
 
-      const textA = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      const textB = docB.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      assert.equal(textA, textB, `Divergence detected: A="${textA}" B="${textB}"`);
+      assert.deepEqual(normalizeBlocks(docA.blocks), normalizeBlocks(docB.blocks), 'Structural divergence');
 
       // All text should be preserved
-      const fullText = textA.replace(/\|/g, '');
+      const fullText = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('');
       assert.ok(fullText.includes('First'), '"First" should be preserved');
       assert.ok(fullText.includes('Second'), '"Second" should be preserved');
       assert.ok(fullText.includes('Third'), '"Third" should be preserved');
@@ -173,12 +176,10 @@ describe('YorkieDocStore concurrent split/merge', { skip: !shouldRun }, () => {
       const docA = ctx.storeA.getDocument();
       const docB = ctx.storeB.getDocument();
 
-      const textA = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      const textB = docB.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('|');
-      assert.equal(textA, textB, `Divergence detected: A="${textA}" B="${textB}"`);
+      assert.deepEqual(normalizeBlocks(docA.blocks), normalizeBlocks(docB.blocks), 'Structural divergence');
 
       // "Hello" and "ld" should survive, "Wor" should be deleted
-      const fullText = textA.replace(/\|/g, '');
+      const fullText = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('');
       assert.ok(fullText.includes('Hello'), '"Hello" should be preserved');
       assert.ok(fullText.includes('ld'), '"ld" should be preserved');
       assert.ok(!fullText.includes('Wor'), '"Wor" should be deleted');

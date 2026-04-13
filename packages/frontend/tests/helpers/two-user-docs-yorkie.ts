@@ -81,44 +81,51 @@ export async function createTwoUserDocs(
   await clientA.activate();
   await clientB.activate();
 
-  // Client A creates the initial document with a Tree
-  await clientA.attach(docA, {
-    syncMode: SyncMode.Manual,
-  });
-
-  const storeA = new YorkieDocStore(docA as never);
-  storeA.setDocument({ blocks: initialBlocks });
-
-  // Sync so client B gets the initial state
-  await clientA.sync(docA);
-  await clientB.attach(docB, { syncMode: SyncMode.Manual });
-  await syncClients([
-    { client: clientA, doc: docA },
-    { client: clientB, doc: docB },
-  ]);
-
-  const storeB = new YorkieDocStore(docB as never);
-
-  return {
-    storeA,
-    storeB,
-    async sync() {
-      await syncClients([
-        { client: clientA, doc: docA },
-        { client: clientB, doc: docB },
-      ]);
-    },
-    async cleanup() {
-      await Promise.allSettled([
-        clientA.detach(docA),
-        clientB.detach(docB),
-      ]);
-      await Promise.allSettled([
-        clientA.deactivate(),
-        clientB.deactivate(),
-      ]);
-    },
+  const cleanup = async () => {
+    await Promise.allSettled([
+      clientA.detach(docA),
+      clientB.detach(docB),
+    ]);
+    await Promise.allSettled([
+      clientA.deactivate(),
+      clientB.deactivate(),
+    ]);
   };
+
+  try {
+    // Client A creates the initial document with a Tree
+    await clientA.attach(docA, {
+      syncMode: SyncMode.Manual,
+    });
+
+    const storeA = new YorkieDocStore(docA as never);
+    storeA.setDocument({ blocks: initialBlocks });
+
+    // Sync so client B gets the initial state
+    await clientA.sync(docA);
+    await clientB.attach(docB, { syncMode: SyncMode.Manual });
+    await syncClients([
+      { client: clientA, doc: docA },
+      { client: clientB, doc: docB },
+    ]);
+
+    const storeB = new YorkieDocStore(docB as never);
+
+    return {
+      storeA,
+      storeB,
+      async sync() {
+        await syncClients([
+          { client: clientA, doc: docA },
+          { client: clientB, doc: docB },
+        ]);
+      },
+      cleanup,
+    };
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
 }
 
 export { makeBlock };

@@ -845,6 +845,7 @@ export class YorkieDocStore implements DocStore {
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     const nextIdx = currentDoc.blocks.findIndex((b) => b.id === nextBlockId);
     if (blockIdx === -1 || nextIdx === -1) throw new Error('Block not found');
+    if (nextIdx !== blockIdx + 1) throw new Error('Blocks to merge must be adjacent and in order');
 
     const off = this.bodyTreeOffset(currentDoc);
     const firstBlock = currentDoc.blocks[blockIdx];

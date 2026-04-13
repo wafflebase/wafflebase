@@ -463,4 +463,43 @@ describe('YorkieDocStore', () => {
       assert.equal(result.blocks[1].inlines[0].text, 'Normal');
     });
   });
+
+  describe('splitBlock with block-level attributes', () => {
+    it('should split heading into paragraph — heading attrs stay on first block', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'heading',
+        headingLevel: 2,
+        inlines: [{ text: 'HelloWorld', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks[0].type, 'heading');
+      assert.equal(result.blocks[0].headingLevel, 2);
+      assert.equal(result.blocks[1].type, 'paragraph');
+      assert.equal(result.blocks[1].headingLevel, undefined);
+    });
+
+    it('should split list-item into list-item — list attrs preserved on both', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'ordered',
+        listLevel: 1,
+        inlines: [{ text: 'HelloWorld', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'list-item');
+      const result = store.getDocument();
+      assert.equal(result.blocks[0].type, 'list-item');
+      assert.equal(result.blocks[0].listKind, 'ordered');
+      assert.equal(result.blocks[0].listLevel, 1);
+      assert.equal(result.blocks[1].type, 'list-item');
+      assert.equal(result.blocks[1].listKind, 'ordered');
+      assert.equal(result.blocks[1].listLevel, 1);
+    });
+  });
 });
