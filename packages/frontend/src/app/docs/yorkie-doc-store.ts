@@ -786,6 +786,9 @@ export class YorkieDocStore implements DocStore {
     const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
+    if (block.type === 'table' || block.type === 'horizontal-rule' || block.type === 'page-break') {
+      throw new Error(`splitBlock does not support ${block.type} blocks`);
+    }
 
     // Resolve block-level character offset to inline-level path
     const { inlineIndex, charOffset } = resolveOffset(block, offset);
