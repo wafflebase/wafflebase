@@ -128,15 +128,8 @@ export class Doc {
     const fBlock = this._document.footer?.blocks.find((b) => b.id === blockId);
     if (fBlock) return fBlock;
 
-    const cellInfo = this._blockParentMap.get(blockId);
-    if (cellInfo) {
-      const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
-      if (tableBlock?.tableData) {
-        const cell = tableBlock.tableData.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
-        const found = cell?.blocks.find((b) => b.id === blockId);
-        if (found) return found;
-      }
-    }
+    const cellBlock = this.findBlockInCells(blockId);
+    if (cellBlock) return cellBlock;
 
     throw new Error(`Block not found: ${blockId}`);
   }
@@ -153,16 +146,34 @@ export class Doc {
     const fBlock = this._document.footer?.blocks.find((b) => b.id === blockId);
     if (fBlock) return fBlock;
 
+    return this.findBlockInCells(blockId);
+  }
+
+  /**
+   * Recursively search for a block inside table cells using the BlockParentMap chain.
+   * Handles nested tables where the parent table is itself inside another table cell.
+   */
+  private findBlockInCells(blockId: string): Block | undefined {
     const cellInfo = this._blockParentMap.get(blockId);
-    if (cellInfo) {
-      const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
-      if (tableBlock?.tableData) {
-        const cell = tableBlock.tableData.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
-        const found = cell?.blocks.find((b) => b.id === blockId);
-        if (found) return found;
-      }
+    if (!cellInfo) return undefined;
+
+    // Find the parent table block — it may be top-level, in header/footer, or nested
+    let tableBlock: Block | undefined;
+    tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
+    if (!tableBlock) {
+      tableBlock = this._document.header?.blocks.find((b) => b.id === cellInfo.tableBlockId);
+    }
+    if (!tableBlock) {
+      tableBlock = this._document.footer?.blocks.find((b) => b.id === cellInfo.tableBlockId);
+    }
+    if (!tableBlock) {
+      tableBlock = this.findBlockInCells(cellInfo.tableBlockId);
     }
 
+    if (tableBlock?.tableData) {
+      const cell = tableBlock.tableData.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+      return cell?.blocks.find((b) => b.id === blockId);
+    }
     return undefined;
   }
 
@@ -180,7 +191,7 @@ export class Doc {
   getParentTableBlock(blockId: string): Block | undefined {
     const cellInfo = this._blockParentMap.get(blockId);
     if (!cellInfo) return undefined;
-    return this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
+    return this.findBlock(cellInfo.tableBlockId);
   }
 
   /**
@@ -855,7 +866,9 @@ export class Doc {
   private updateBlockInStore(blockId: string, block: Block): void {
     const cellInfo = this._blockParentMap.get(blockId);
     if (cellInfo) {
-      const tableBlock = this._document.blocks.find((b) => b.id === cellInfo.tableBlockId);
+      // Find the direct parent table block (may itself be nested)
+      const tableBlock = this.findBlock(cellInfo.tableBlockId);
+
       if (tableBlock) {
         const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
         // Replace the block within the cell with the updated one (handles pure-function callers)
@@ -863,11 +876,24 @@ export class Doc {
         if (blockIndex !== -1) {
           cell.blocks[blockIndex] = block;
         }
-        this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
+
+        // Walk up to find the root-level table for store persistence
+        const rootTableId = this.findRootTableId(cellInfo.tableBlockId);
+        const rootBlock = this.getBlock(rootTableId);
+        this.store.updateBlock(rootTableId, rootBlock);
       }
     } else {
       this.store.updateBlock(blockId, block);
     }
+  }
+
+  /**
+   * Walk up the BlockParentMap chain to find the root-level (top-level) table ID.
+   */
+  private findRootTableId(tableBlockId: string): string {
+    const parentInfo = this._blockParentMap.get(tableBlockId);
+    if (!parentInfo) return tableBlockId;
+    return this.findRootTableId(parentInfo.tableBlockId);
   }
 
   /**
