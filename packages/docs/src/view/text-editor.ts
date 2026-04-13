@@ -3261,6 +3261,141 @@ export class TextEditor {
     // Resolve X within the target line
     const ctx = this.getCtx();
     const targetLine = cell.lines[targetLineIdx];
+
+    // Handle nested table: resolve click into the inner table
+    if (targetLine?.nestedTable) {
+      const innerLayout = targetLine.nestedTable;
+      const innerBlock = dataBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex].blocks[currentBlockIndex];
+      if (innerBlock?.tableData) {
+        // Find inner column from local X within the inner table
+        const innerLocalX = localX;
+        let innerCol = innerLayout.columnPixelWidths.length - 1;
+        for (let c = 0; c < innerLayout.columnXOffsets.length; c++) {
+          if (innerLocalX < innerLayout.columnXOffsets[c] + innerLayout.columnPixelWidths[c]) {
+            innerCol = c;
+            break;
+          }
+        }
+
+        // Find inner row from Y within the inner table
+        let innerRow = innerLayout.rowHeights.length - 1;
+        let innerTableAbsY = 0;
+        if (logicalY !== undefined) {
+          // Compute the inner table's absolute Y origin
+          const lineLayouts = computeMergedCellLineLayouts(
+            cell.lines, cellAddr.rowIndex, dataCell?.rowSpan ?? 1,
+            cellPadding, tl.rowYOffsets, tl.rowHeights,
+          );
+          const ll = lineLayouts[targetLineIdx];
+          const blockIndex = layout.blocks.indexOf(lb);
+          for (const page of paginatedLayout.pages) {
+            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+            for (const pl of page.lines) {
+              if (pl.blockIndex === blockIndex && pl.lineIndex === ll.ownerRow) {
+                innerTableAbsY = pageY + pl.y + (ll.runLineY - tl.rowYOffsets[ll.ownerRow]);
+                break;
+              }
+            }
+          }
+          const innerLocalY = logicalY - innerTableAbsY;
+          for (let r = 0; r < innerLayout.rowYOffsets.length; r++) {
+            if (innerLocalY < innerLayout.rowYOffsets[r] + innerLayout.rowHeights[r]) {
+              innerRow = r;
+              break;
+            }
+          }
+        }
+
+        // Resolve merged cells in inner table
+        const innerDataCell = innerBlock.tableData.rows[innerRow]?.cells[innerCol];
+        if (innerDataCell?.colSpan === 0) {
+          for (let r = innerRow; r >= 0; r--) {
+            for (let c = innerCol; c >= 0; c--) {
+              const cand = innerBlock.tableData.rows[r]?.cells[c];
+              if (cand && cand.colSpan !== 0) {
+                const cs = cand.colSpan ?? 1;
+                const rs = cand.rowSpan ?? 1;
+                if (r + rs > innerRow && c + cs > innerCol) {
+                  innerRow = r;
+                  innerCol = c;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Resolve offset within the inner table cell directly using its layout
+        const innerCellLayout = innerLayout.cells[innerRow]?.[innerCol];
+        const innerCellData = innerBlock.tableData.rows[innerRow]?.cells[innerCol];
+        if (innerCellLayout && innerCellData && !innerCellLayout.merged) {
+          const innerCellPadding = innerCellData.style.padding ?? 4;
+          const innerCellX = innerLayout.columnXOffsets[innerCol] + innerCellPadding;
+          const innerCellLocalX = innerLocalX - innerCellX;
+
+          // Find target line in inner cell
+          let innerLineIdx = innerCellLayout.lines.length - 1;
+          if (logicalY !== undefined) {
+            const innerCellAbsY = innerTableAbsY + innerLayout.rowYOffsets[innerRow] + innerCellPadding;
+            const innerCellRelY = logicalY - innerCellAbsY;
+            for (let li = 0; li < innerCellLayout.lines.length; li++) {
+              const line = innerCellLayout.lines[li];
+              if (innerCellRelY < line.y + line.height) {
+                innerLineIdx = li;
+                break;
+              }
+            }
+          }
+
+          // Check for further nesting (recursive)
+          const innerTargetLine = innerCellLayout.lines[innerLineIdx];
+          if (innerTargetLine?.nestedTable) {
+            // For deeper nesting, fall through to first block of inner cell
+            return { blockId: innerCellData.blocks[0].id, offset: 0 };
+          }
+
+          // Find block index within inner cell
+          let innerBlockIdx = 0;
+          for (let bi = 0; bi < innerCellLayout.blockBoundaries.length; bi++) {
+            const nextBound = innerCellLayout.blockBoundaries[bi + 1] ?? innerCellLayout.lines.length;
+            if (innerLineIdx < nextBound) {
+              innerBlockIdx = bi;
+              break;
+            }
+          }
+
+          // Find character offset
+          let innerOffset = 0;
+          const innerBlockStart = innerCellLayout.blockBoundaries[innerBlockIdx] ?? 0;
+          for (let li = innerBlockStart; li < innerLineIdx; li++) {
+            for (const run of innerCellLayout.lines[li].runs) {
+              innerOffset += run.text.length;
+            }
+          }
+
+          if (innerTargetLine) {
+            for (const run of innerTargetLine.runs) {
+              ctx.font = buildFont(
+                run.inline.style.fontSize, run.inline.style.fontFamily,
+                run.inline.style.bold, run.inline.style.italic,
+              );
+              for (let i = 0; i <= run.text.length; i++) {
+                const w = ctx.measureText(run.text.slice(0, i)).width + run.x;
+                if (w >= innerCellLocalX) {
+                  return { blockId: innerCellData.blocks[innerBlockIdx].id, offset: innerOffset + i };
+                }
+              }
+              innerOffset += run.text.length;
+            }
+          }
+          return { blockId: innerCellData.blocks[innerBlockIdx].id, offset: innerOffset };
+        }
+
+        // Fallback: first block of inner cell
+        return { blockId: innerBlock.tableData.rows[innerRow].cells[innerCol].blocks[0].id, offset: 0 };
+      }
+    }
+
     if (targetLine) {
       for (const run of targetLine.runs) {
         ctx.font = buildFont(
