@@ -878,47 +878,126 @@ export class YorkieDocStore implements DocStore {
   // Table granular updates
   // -----------------------------------------------------------------------
 
+  /**
+   * Resolve a table block's tree path. For top-level tables, returns a
+   * single-element array with the tree-adjusted index. For nested tables
+   * (inside a cell), returns the full path segments through the tree
+   * hierarchy: [parentTableIdx, rowIdx, cellIdx, blockIdx, ...].
+   */
+  private resolveTableTreePath(tableBlockId: string): number[] {
+    const currentDoc = this.getDocument();
+
+    // Check if it's a top-level block
+    const bodyIdx = currentDoc.blocks.findIndex((b) => b.id === tableBlockId);
+    if (bodyIdx !== -1) {
+      return [bodyIdx + this.bodyTreeOffset(currentDoc)];
+    }
+
+    // Nested table — recursively search through the document structure
+    function findInBlocks(blocks: Block[], targetId: string, basePath: number[]): number[] | null {
+      for (let i = 0; i < blocks.length; i++) {
+        const block = blocks[i];
+        if (block.id === targetId) {
+          return [...basePath, i];
+        }
+        if (block.type === 'table' && block.tableData) {
+          for (let r = 0; r < block.tableData.rows.length; r++) {
+            for (let c = 0; c < block.tableData.rows[r].cells.length; c++) {
+              const cell = block.tableData.rows[r].cells[c];
+              const result = findInBlocks(cell.blocks, targetId, [...basePath, i, r, c]);
+              if (result) return result;
+            }
+          }
+        }
+      }
+      return null;
+    }
+
+    const offset = this.bodyTreeOffset(currentDoc);
+    const path = findInBlocks(currentDoc.blocks, tableBlockId, []);
+
+    if (!path) {
+      throw new Error(`Table block not found: ${tableBlockId}`);
+    }
+
+    // Add the body tree offset to the first segment
+    path[0] += offset;
+    return path;
+  }
+
   /** Returns body array index and tree-adjusted index for a table block. */
   private findTableIndex(tableBlockId: string): { bodyIdx: number; treeIdx: number } {
-    const currentDoc = this.getDocument();
-    const index = currentDoc.blocks.findIndex((b) => b.id === tableBlockId);
-    if (index === -1) throw new Error(`Table block not found: ${tableBlockId}`);
-    return { bodyIdx: index, treeIdx: index + this.bodyTreeOffset(currentDoc) };
+    const path = this.resolveTableTreePath(tableBlockId);
+    if (path.length === 1) {
+      const currentDoc = this.getDocument();
+      return { bodyIdx: path[0] - this.bodyTreeOffset(currentDoc), treeIdx: path[0] };
+    }
+    throw new Error(
+      `Cannot use findTableIndex for nested table ${tableBlockId}; use resolveTableTreePath instead`,
+    );
+  }
+
+  /**
+   * Resolve the table Block from the cached document using the tree path
+   * returned by resolveTableTreePath(). For top-level tables, this indexes
+   * into `doc.blocks`. For nested tables, it walks through the table
+   * hierarchy (row → cell → blocks).
+   */
+  private resolveTableBlock(treePath: number[], doc: Document): Block {
+    const offset = this.bodyTreeOffset(doc);
+    const bodyIdx = treePath[0] - offset;
+    let block = doc.blocks[bodyIdx];
+    // Walk deeper for nested tables: path segments after the first are
+    // [rowIdx, colIdx, blockIdx] triplets leading to the target block.
+    for (let i = 1; i < treePath.length; i += 3) {
+      const r = treePath[i];
+      const c = treePath[i + 1];
+      const b = treePath[i + 2];
+      block = block.tableData!.rows[r].cells[c].blocks[b];
+    }
+    return block;
   }
 
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
-    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
+    const tablePath = this.resolveTableTreePath(tableBlockId);
     const rowNode = buildRowNode(row);
     this.doc.update((root) => {
-      root.content.editByPath([treeIdx, atIndex], [treeIdx, atIndex], rowNode);
+      root.content.editByPath([...tablePath, atIndex], [...tablePath, atIndex], rowNode);
     });
     const currentDoc = this.getDocument();
-    currentDoc.blocks[bodyIdx].tableData!.rows.splice(atIndex, 0, row);
+    const block = this.resolveTableBlock(tablePath, currentDoc);
+    block.tableData!.rows.splice(atIndex, 0, row);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   deleteTableRow(tableBlockId: string, rowIndex: number): void {
-    const { treeIdx, bodyIdx } = this.findTableIndex(tableBlockId);
+    const tablePath = this.resolveTableTreePath(tableBlockId);
     this.doc.update((root) => {
-      root.content.editByPath([treeIdx, rowIndex], [treeIdx, rowIndex + 1]);
+      root.content.editByPath([...tablePath, rowIndex], [...tablePath, rowIndex + 1]);
     });
     const currentDoc = this.getDocument();
-    currentDoc.blocks[bodyIdx].tableData!.rows.splice(rowIndex, 1);
+    const block = this.resolveTableBlock(tablePath, currentDoc);
+    block.tableData!.rows.splice(rowIndex, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
-    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
+    const tablePath = this.resolveTableTreePath(tableBlockId);
     this.doc.update((root) => {
       const tree = root.content;
       for (let r = 0; r < cells.length; r++) {
-        tree.editByPath([treeIdx, r, atIndex], [treeIdx, r, atIndex], buildCellNode(cells[r]));
+        tree.editByPath(
+          [...tablePath, r, atIndex],
+          [...tablePath, r, atIndex],
+          buildCellNode(cells[r]),
+        );
       }
     });
     const currentDoc = this.getDocument();
-    const td = currentDoc.blocks[bodyIdx].tableData!;
+    const block = this.resolveTableBlock(tablePath, currentDoc);
+    const td = block.tableData!;
     td.rows.forEach((row, i) => {
       row.cells.splice(atIndex, 0, cells[i]);
     });
@@ -927,16 +1006,17 @@ export class YorkieDocStore implements DocStore {
   }
 
   deleteTableColumn(tableBlockId: string, colIndex: number): void {
-    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
+    const tablePath = this.resolveTableTreePath(tableBlockId);
     const currentDoc = this.getDocument();
-    const rowCount = currentDoc.blocks[bodyIdx].tableData!.rows.length;
+    const block = this.resolveTableBlock(tablePath, currentDoc);
+    const rowCount = block.tableData!.rows.length;
     this.doc.update((root) => {
       const tree = root.content;
       for (let r = 0; r < rowCount; r++) {
-        tree.editByPath([treeIdx, r, colIndex], [treeIdx, r, colIndex + 1]);
+        tree.editByPath([...tablePath, r, colIndex], [...tablePath, r, colIndex + 1]);
       }
     });
-    currentDoc.blocks[bodyIdx].tableData!.rows.forEach((row) => {
+    block.tableData!.rows.forEach((row) => {
       row.cells.splice(colIndex, 1);
     });
     this.cachedDoc = currentDoc;
@@ -946,25 +1026,26 @@ export class YorkieDocStore implements DocStore {
   updateTableCell(
     tableBlockId: string, rowIndex: number, colIndex: number, cell: TableCell,
   ): void {
-    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
+    const tablePath = this.resolveTableTreePath(tableBlockId);
     const cellNode = buildCellNode(cell);
     this.doc.update((root) => {
       root.content.editByPath(
-        [treeIdx, rowIndex, colIndex],
-        [treeIdx, rowIndex, colIndex + 1],
+        [...tablePath, rowIndex, colIndex],
+        [...tablePath, rowIndex, colIndex + 1],
         cellNode,
       );
     });
     const currentDoc = this.getDocument();
-    currentDoc.blocks[bodyIdx].tableData!.rows[rowIndex].cells[colIndex] = cell;
+    const block = this.resolveTableBlock(tablePath, currentDoc);
+    block.tableData!.rows[rowIndex].cells[colIndex] = cell;
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: (number | undefined)[] }): void {
-    const { bodyIdx, treeIdx } = this.findTableIndex(tableBlockId);
+    const tablePath = this.resolveTableTreePath(tableBlockId);
     const currentDoc = this.getDocument();
-    const block = currentDoc.blocks[bodyIdx];
+    const block = this.resolveTableBlock(tablePath, currentDoc);
     block.tableData!.columnWidths = attrs.cols;
     if (attrs.rowHeights !== undefined) {
       block.tableData!.rowHeights = attrs.rowHeights;
@@ -972,7 +1053,10 @@ export class YorkieDocStore implements DocStore {
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([treeIdx], [treeIdx + 1], buildBlockNode(block));
+      // For the replace range, increment the last path segment by 1
+      const endPath = [...tablePath];
+      endPath[endPath.length - 1] += 1;
+      tree.editByPath(tablePath, endPath, buildBlockNode(block));
     });
     this.cachedDoc = currentDoc;
     this.dirty = false;
