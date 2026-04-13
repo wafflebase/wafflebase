@@ -74,8 +74,16 @@ export function safeWorksheetRecordValues<T>(obj?: Record<string, T>): T[] {
   }
 }
 
-export function createWorksheetAxisId(prefix: 'r' | 'c', index: number): string {
-  return `${prefix}${index}`;
+const AXIS_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const AXIS_ID_LENGTH = 4;
+
+export function createWorksheetAxisId(prefix: 'r' | 'c'): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(AXIS_ID_LENGTH));
+  let id = prefix;
+  for (let i = 0; i < AXIS_ID_LENGTH; i++) {
+    id += AXIS_ID_CHARS[bytes[i] % 36];
+  }
+  return id;
 }
 
 export function createWorksheetCellKey(rowId: string, colId: string): string {
