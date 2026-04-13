@@ -1853,8 +1853,7 @@ export function initialize(
 
       if (cellInfo) {
         // Cursor is inside a table cell — insert nested table
-        const innerTableId = doc.insertTableInCell(pos.blockId, rows, cols);
-        const innerBlock = doc.getBlock(innerTableId);
+        const innerBlock = doc.insertTableInCell(pos.blockId, rows, cols);
         const firstCellBlock = innerBlock.tableData!.rows[0].cells[0].blocks[0];
         cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 });
         invalidateLayout();

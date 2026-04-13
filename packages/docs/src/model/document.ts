@@ -592,9 +592,11 @@ export class Doc {
   /**
    * Insert a table block into the cell containing `blockId`.
    * The new table is inserted after the block at `blockId`.
-   * Returns the new table block's ID.
+   * Returns the new table block (not just the ID) so callers can access
+   * its tableData without a getBlock() lookup — the BlockParentMap has
+   * not been rebuilt yet at this point.
    */
-  insertTableInCell(blockId: string, rows: number, cols: number): string {
+  insertTableInCell(blockId: string, rows: number, cols: number): Block {
     const cellInfo = this._blockParentMap.get(blockId);
     if (!cellInfo) {
       throw new Error(`Block ${blockId} is not inside a table cell`);
@@ -609,7 +611,7 @@ export class Doc {
       cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell,
     );
     this.refresh();
-    return newTable.id;
+    return newTable;
   }
 
   /**

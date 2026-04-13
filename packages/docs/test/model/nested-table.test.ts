@@ -92,15 +92,14 @@ describe('Nested table block lookup', () => {
     const map = buildParentMapRecursive(doc, outerTableId);
     doc.setBlockParentMap(map);
 
-    const innerTableId = doc.insertTableInCell(cellBlock.id, 2, 2);
+    const innerBlock = doc.insertTableInCell(cellBlock.id, 2, 2);
 
     const cell = doc.getBlock(outerTableId).tableData!.rows[0].cells[0];
     expect(cell.blocks).toHaveLength(2);
-    const innerBlock = cell.blocks.find((b) => b.id === innerTableId);
-    expect(innerBlock).toBeDefined();
-    expect(innerBlock!.type).toBe('table');
-    expect(innerBlock!.tableData!.rows).toHaveLength(2);
-    expect(innerBlock!.tableData!.rows[0].cells).toHaveLength(2);
+    expect(cell.blocks.find((b) => b.id === innerBlock.id)).toBeDefined();
+    expect(innerBlock.type).toBe('table');
+    expect(innerBlock.tableData!.rows).toHaveLength(2);
+    expect(innerBlock.tableData!.rows[0].cells).toHaveLength(2);
   });
 
   it('should insert and retrieve text in a nested table cell', () => {
@@ -165,20 +164,20 @@ describe('Nested table integration', () => {
     const cellBlock = outerBlock.tableData!.rows[0].cells[0].blocks[0];
     const map = buildParentMapRecursive(doc, outerTableId);
     doc.setBlockParentMap(map);
-    const innerTableId = doc.insertTableInCell(cellBlock.id, 2, 2);
+    const innerTable = doc.insertTableInCell(cellBlock.id, 2, 2);
 
     // Rebuild the parent map to include the inner table's blocks
     const map2 = buildParentMapRecursive(doc, outerTableId);
     doc.setBlockParentMap(map2);
 
     // Insert row in inner table
-    doc.insertRow(innerTableId, 1);
-    const updatedInner = doc.getBlock(innerTableId);
+    doc.insertRow(innerTable.id, 1);
+    const updatedInner = doc.getBlock(innerTable.id);
     expect(updatedInner.tableData!.rows).toHaveLength(3);
 
     // Insert column in inner table
-    doc.insertColumn(innerTableId, 1);
-    expect(doc.getBlock(innerTableId).tableData!.columnWidths).toHaveLength(3);
+    doc.insertColumn(innerTable.id, 1);
+    expect(doc.getBlock(innerTable.id).tableData!.columnWidths).toHaveLength(3);
   });
 
   it('should support merge/split in inner table', () => {
@@ -190,7 +189,7 @@ describe('Nested table integration', () => {
     const cellBlock = outerBlock.tableData!.rows[0].cells[0].blocks[0];
     const map = buildParentMapRecursive(doc, outerTableId);
     doc.setBlockParentMap(map);
-    const innerTableId = doc.insertTableInCell(cellBlock.id, 3, 3);
+    const innerTable = doc.insertTableInCell(cellBlock.id, 3, 3);
 
     // Rebuild the parent map
     const map2 = buildParentMapRecursive(doc, outerTableId);
@@ -201,14 +200,14 @@ describe('Nested table integration', () => {
       start: { rowIndex: 0, colIndex: 0 },
       end: { rowIndex: 1, colIndex: 1 },
     };
-    doc.mergeCells(innerTableId, mergeRange);
-    const updatedInner = doc.getBlock(innerTableId);
+    doc.mergeCells(innerTable.id, mergeRange);
+    const updatedInner = doc.getBlock(innerTable.id);
     expect(updatedInner.tableData!.rows[0].cells[0].colSpan).toBe(2);
     expect(updatedInner.tableData!.rows[0].cells[0].rowSpan).toBe(2);
 
     // Split the merged cell
-    doc.splitCell(innerTableId, { rowIndex: 0, colIndex: 0 });
-    const afterSplit = doc.getBlock(innerTableId);
+    doc.splitCell(innerTable.id, { rowIndex: 0, colIndex: 0 });
+    const afterSplit = doc.getBlock(innerTable.id);
     expect(afterSplit.tableData!.rows[0].cells[0].colSpan).toBeUndefined();
   });
 
@@ -221,24 +220,22 @@ describe('Nested table integration', () => {
     const outerCellBlock = outerBlock.tableData!.rows[0].cells[0].blocks[0];
     const map = buildParentMapRecursive(doc, outerTableId);
     doc.setBlockParentMap(map);
-    const innerTableId = doc.insertTableInCell(outerCellBlock.id, 2, 2);
+    const innerTable = doc.insertTableInCell(outerCellBlock.id, 2, 2);
 
     // Rebuild map to include inner table's blocks
     const map2 = buildParentMapRecursive(doc, outerTableId);
     doc.setBlockParentMap(map2);
 
     // Insert innermost table into inner cell (0,0)
-    const innerBlock = doc.getBlock(innerTableId);
-    const innerCellBlock = innerBlock.tableData!.rows[0].cells[0].blocks[0];
-    const innermostTableId = doc.insertTableInCell(innerCellBlock.id, 2, 2);
+    const innerCellBlock = innerTable.tableData!.rows[0].cells[0].blocks[0];
+    const innermostTable = doc.insertTableInCell(innerCellBlock.id, 2, 2);
 
     // Rebuild map again to include innermost table's blocks
     const map3 = buildParentMapRecursive(doc, outerTableId);
     doc.setBlockParentMap(map3);
 
     // Insert text in innermost cell (0,0)
-    const innermostBlock = doc.getBlock(innermostTableId);
-    const innermostCellBlock = innermostBlock.tableData!.rows[0].cells[0].blocks[0];
+    const innermostCellBlock = innermostTable.tableData!.rows[0].cells[0].blocks[0];
     doc.insertText({ blockId: innermostCellBlock.id, offset: 0 }, 'Deep!');
     const found = doc.getBlock(innermostCellBlock.id);
     expect(found.inlines.map((i) => i.text).join('')).toBe('Deep!');
