@@ -1849,6 +1849,20 @@ export function initialize(
     insertTable: (rows: number, cols: number) => {
       docStore.snapshot();
       const pos = cursor.position;
+      const cellInfo = layout.blockParentMap.get(pos.blockId);
+
+      if (cellInfo) {
+        // Cursor is inside a table cell — insert nested table
+        const innerTableId = doc.insertTableInCell(pos.blockId, rows, cols);
+        const innerBlock = doc.getBlock(innerTableId);
+        const firstCellBlock = innerBlock.tableData!.rows[0].cells[0].blocks[0];
+        cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 });
+        invalidateLayout();
+        render();
+        return;
+      }
+
+      // Top-level table insertion (existing logic)
       const block = doc.getBlock(pos.blockId);
       const blockLen = getBlockTextLength(block);
 
@@ -1874,15 +1888,25 @@ export function initialize(
     deleteTable: () => {
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      const blockId = cellInfo.tableBlockId;
-      const blockIndex = doc.getBlockIndex(blockId);
+      const tableBlockId = cellInfo.tableBlockId;
       docStore.snapshot();
-      doc.deleteBlock(blockId);
-      // Move cursor to nearest block
-      const blocks = doc.document.blocks;
-      if (blocks.length > 0) {
-        const newIndex = Math.min(blockIndex, blocks.length - 1);
-        cursor.moveTo({ blockId: blocks[newIndex].id, offset: 0 });
+
+      // Check if this table is itself nested inside a cell
+      const parentCellInfo = layout.blockParentMap.get(tableBlockId);
+      if (parentCellInfo) {
+        // Nested table — remove from parent cell's blocks
+        const cursorBlockId = doc.deleteTableInCell(tableBlockId);
+        cursor.moveTo({ blockId: cursorBlockId, offset: 0 });
+      } else {
+        // Top-level table (existing logic)
+        const blockIndex = doc.getBlockIndex(tableBlockId);
+        doc.deleteBlock(tableBlockId);
+        // Move cursor to nearest block
+        const blocks = doc.document.blocks;
+        if (blocks.length > 0) {
+          const newIndex = Math.min(blockIndex, blocks.length - 1);
+          cursor.moveTo({ blockId: blocks[newIndex].id, offset: 0 });
+        }
       }
       invalidateLayout();
       render();

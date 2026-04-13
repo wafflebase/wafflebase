@@ -590,6 +590,57 @@ export class Doc {
   }
 
   /**
+   * Insert a table block into the cell containing `blockId`.
+   * The new table is inserted after the block at `blockId`.
+   * Returns the new table block's ID.
+   */
+  insertTableInCell(blockId: string, rows: number, cols: number): string {
+    const cellInfo = this._blockParentMap.get(blockId);
+    if (!cellInfo) {
+      throw new Error(`Block ${blockId} is not inside a table cell`);
+    }
+    const tableBlock = this.getBlock(cellInfo.tableBlockId);
+    const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+    const blockIndex = cell.blocks.findIndex((b) => b.id === blockId);
+
+    const newTable = createTableBlock(rows, cols);
+    cell.blocks.splice(blockIndex + 1, 0, newTable);
+    this.store.updateTableCell(
+      cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell,
+    );
+    this.refresh();
+    return newTable.id;
+  }
+
+  /**
+   * Delete a nested table from its parent cell.
+   * Ensures the cell retains at least one empty block.
+   * Returns the ID of the block the cursor should move to.
+   */
+  deleteTableInCell(tableBlockId: string): string {
+    const parentCellInfo = this._blockParentMap.get(tableBlockId);
+    if (!parentCellInfo) {
+      throw new Error(`Block ${tableBlockId} is not inside a table cell`);
+    }
+    const parentTableBlock = this.getBlock(parentCellInfo.tableBlockId);
+    const parentCell = parentTableBlock.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+    const idx = parentCell.blocks.findIndex((b) => b.id === tableBlockId);
+    if (idx !== -1) {
+      parentCell.blocks.splice(idx, 1);
+    }
+    // Ensure cell still has at least one block
+    if (parentCell.blocks.length === 0) {
+      const emptyBlock = createTableCell().blocks[0];
+      parentCell.blocks.push(emptyBlock);
+    }
+    this.store.updateTableCell(
+      parentCellInfo.tableBlockId, parentCellInfo.rowIndex, parentCellInfo.colIndex, parentCell,
+    );
+    this.refresh();
+    return parentCell.blocks[0].id;
+  }
+
+  /**
    * Ensure a non-table block exists after the given block index.
    * If the block at `blockIndex` is the last block (or followed only by
    * another table), an empty paragraph is appended after it.

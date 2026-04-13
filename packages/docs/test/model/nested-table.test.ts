@@ -83,6 +83,25 @@ describe('Nested table block lookup', () => {
     expect(innerCellInfo!.tableBlockId).toBe(innerTableId);
   });
 
+  it('should insert a nested table into a cell via insertTableInCell', () => {
+    const doc = Doc.create();
+    const outerTableId = doc.insertTable(0, 2, 2);
+    const outerBlock = doc.getBlock(outerTableId);
+    const cellBlock = outerBlock.tableData!.rows[0].cells[0].blocks[0];
+    const map = buildParentMapRecursive(doc, outerTableId);
+    doc.setBlockParentMap(map);
+
+    const innerTableId = doc.insertTableInCell(cellBlock.id, 2, 2);
+
+    const cell = doc.getBlock(outerTableId).tableData!.rows[0].cells[0];
+    expect(cell.blocks).toHaveLength(2);
+    const innerBlock = cell.blocks.find((b) => b.id === innerTableId);
+    expect(innerBlock).toBeDefined();
+    expect(innerBlock!.type).toBe('table');
+    expect(innerBlock!.tableData!.rows).toHaveLength(2);
+    expect(innerBlock!.tableData!.rows[0].cells).toHaveLength(2);
+  });
+
   it('should insert and retrieve text in a nested table cell', () => {
     const { doc, innerTableId } = createNestedTableDoc();
 
