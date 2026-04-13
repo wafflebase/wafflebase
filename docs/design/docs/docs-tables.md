@@ -28,7 +28,9 @@ borders.
 ## Non-Goals
 
 - Nested blocks inside cells (lists, headings, images) — deferred to future
-  migration (see [Extensibility Path](#extensibility-path))
+  migration (see [Extensibility Path](#extensibility-path)) — **Note:** nested
+  tables inside cells are now supported (see
+  [docs-nested-tables.md](docs-nested-tables.md))
 - Column resize via drag handle — future enhancement
 - Table of contents auto-generation from table content
 - CSV/spreadsheet import into tables
@@ -441,7 +443,8 @@ capabilities.
 ### Trigger Criteria for Migration
 
 - User requests for lists or headings inside table cells
-- Need for nested tables (e.g., complex form layouts)
+- ~~Need for nested tables (e.g., complex form layouts)~~ — **implemented**:
+  nested tables are now supported; see [docs-nested-tables.md](docs-nested-tables.md)
 - Phase 6 work (multi-column, footnotes) that benefits from recursive
   Block structure
 

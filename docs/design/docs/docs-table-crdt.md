@@ -27,7 +27,9 @@ capabilities.
 
 ## Non-Goals
 
-- Nested tables (cells containing tables) — blocked at insertion time
+- ~~Nested tables (cells containing tables) — blocked at insertion time~~ —
+  **implemented**: nested tables are now supported; see
+  [docs-nested-tables.md](docs-nested-tables.md)
 - Cell-level images — deferred to future work
 - Yorkie-native undo/redo — remains snapshot-based (separate project)
 - Horizontal rules inside cells
@@ -326,11 +328,8 @@ sequentially within the cell bounds.
 | `paragraph` | Yes |
 | `list-item` | Yes |
 | `heading` | Yes |
-| `table` | **No** — blocked at insertion time |
+| `table` | **Yes** — nested tables are supported at any depth; `BlockParentMap` is recursive and CRDT path resolution handles arbitrarily nested `row → cell → block` chains. See [docs-nested-tables.md](docs-nested-tables.md). |
 | `horizontal-rule` | No |
-
-`insertTable` checks `BlockParentMap` — if the cursor is inside a cell,
-the insertion is rejected.
 
 ### Pagination
 
