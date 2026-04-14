@@ -143,17 +143,13 @@ Peer presence received
 When a remote peer deletes a row/column that the local user has selected:
 
 1. `anchorToRef(anchor, rowOrder, colOrder)` returns `null`.
-2. Find the **previous visual index** of the deleted axis ID. Since the ID is
-   no longer in `rowOrder`, use a cached previous-order snapshot or track the
-   deletion index from the remote change event.
-3. Clamp to `Math.min(prevIndex, rowOrder.length)` to find the nearest valid
-   row.
-4. Update `activeCell` to the new axis ID at that clamped index.
-5. Push updated presence.
+2. Active cell falls back to `{ r: 1, c: 1 }` and a new anchor is created
+   from that position.
+3. Repaired selection is republished to presence.
 
-For ranges, each endpoint is resolved independently. If an endpoint's axis ID
-is deleted, it snaps to the nearest valid position. If both endpoints are
-deleted, the range is dropped from the selection.
+For ranges, each endpoint is resolved independently. If one endpoint's axis ID
+is deleted, it snaps to the surviving endpoint. If both endpoints are deleted,
+the range is dropped from the selection.
 
 ### Sheet Engine Changes
 
@@ -192,6 +188,9 @@ interface Store {
   // Expose axis orders for conversion
   getRowOrder(): string[];
   getColOrder(): string[];
+
+  // Extend axis orders to cover selection range
+  ensureAxisOrder(minRows: number, minCols: number): void;
 }
 ```
 

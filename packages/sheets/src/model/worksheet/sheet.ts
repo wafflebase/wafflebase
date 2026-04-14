@@ -2581,8 +2581,6 @@ export class Sheet {
   }
 
   private syncSelectionToPresence(): void {
-    if (!this.activeCellAnchor) return;
-
     // Ensure axis orders cover the activeCell and the non-null axes of
     // the selection.  For column selection only cols need extending (not
     // all 100 rows); for row selection only rows.
@@ -2606,11 +2604,12 @@ export class Sheet {
     const rowOrder = this.store.getRowOrder();
     const colOrder = this.store.getColOrder();
 
-    // Re-resolve activeCell anchor after potential axis extension
+    // Resolve activeCell anchor (bootstrap on first call or after axis extension)
     const freshAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
     if (freshAnchor) {
       this.activeCellAnchor = freshAnchor;
     }
+    if (!this.activeCellAnchor) return;
 
     const rangeAnchors = this.ranges.map((range) =>
       rangeToRangeAnchor(range, rowOrder, colOrder, this.selectionType),
