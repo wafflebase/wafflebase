@@ -2646,6 +2646,15 @@ export class TextEditor {
       const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
       if (blockIdx > 0) {
         const prevBlock = cell.blocks[blockIdx - 1];
+        // If previous block is a nested table, enter its last cell
+        if (prevBlock.type === 'table' && prevBlock.tableData) {
+          const td = prevBlock.tableData;
+          const lastRow = td.rows.length - 1;
+          const lastCol = td.columnWidths.length - 1;
+          const lastCell = td.rows[lastRow].cells[lastCol];
+          const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
+          return { blockId: lastCellBlock.id, offset: getBlockTextLength(lastCellBlock) };
+        }
         return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
       }
       return pos; // Clamp at cell start
@@ -2684,7 +2693,12 @@ export class TextEditor {
       const tableCell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
       const blockIdx = tableCell.blocks.findIndex(b => b.id === pos.blockId);
       if (blockIdx + 1 < tableCell.blocks.length) {
-        return { blockId: tableCell.blocks[blockIdx + 1].id, offset: 0 };
+        const nextBlock = tableCell.blocks[blockIdx + 1];
+        // If next block is a nested table, enter its first cell
+        if (nextBlock.type === 'table' && nextBlock.tableData) {
+          return { blockId: nextBlock.tableData.rows[0].cells[0].blocks[0].id, offset: 0 };
+        }
+        return { blockId: nextBlock.id, offset: 0 };
       }
       return pos; // Clamp at cell end
     }
