@@ -331,6 +331,10 @@ export class MemStore implements Store {
     return [];
   }
 
+  ensureAxisOrder(_minRows: number, _minCols: number): void {
+    // No-op for memory store
+  }
+
   async setColumnStyle(col: number, style: CellStyle): Promise<void> {
     this.colStyles.set(col, style);
   }

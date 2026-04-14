@@ -226,6 +226,12 @@ export interface Store {
   getColOrder(): string[];
 
   /**
+   * `ensureAxisOrder` ensures the row/col axis orders have at least the
+   * given number of entries, creating new axis IDs if needed.
+   */
+  ensureAxisOrder(minRows: number, minCols: number): void;
+
+  /**
    * `setFreezePane` method sets the freeze pane position.
    */
   setFreezePane(frozenRows: number, frozenCols: number): Promise<void>;

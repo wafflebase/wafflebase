@@ -9,6 +9,7 @@ import {
   getWorksheetCell,
   getWorksheetEntries,
   getWorksheetKeys,
+  createWorksheetAxisId,
   isCrossSheetRef,
   cloneConditionalFormatRule,
   normalizeConditionalFormatRule,
@@ -618,6 +619,21 @@ export class YorkieStore implements Store {
   getColOrder(): string[] {
     const ws = this.getSheet();
     return ws.colOrder ? [...ws.colOrder] : [];
+  }
+
+  ensureAxisOrder(minRows: number, minCols: number): void {
+    this.doc.update((root) => {
+      const ws = root.sheets[this.tabId];
+      if (!ws) return;
+      const rowPrefix = "r";
+      const colPrefix = "c";
+      while (ws.rowOrder.length < minRows) {
+        ws.rowOrder.push(createWorksheetAxisId(rowPrefix));
+      }
+      while (ws.colOrder.length < minCols) {
+        ws.colOrder.push(createWorksheetAxisId(colPrefix));
+      }
+    });
   }
 
   getPresences(): Array<{ clientID: string; presence: UserPresence }> {

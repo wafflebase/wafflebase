@@ -72,6 +72,12 @@ export function rangeToRangeAnchor(
   const useRow = selectionType !== 'column' && selectionType !== 'all';
   const useCol = selectionType !== 'row' && selectionType !== 'all';
 
+  // When an index exceeds the axis order length (e.g. selecting column E
+  // when only A-B have data), use null to mean "extends to end of sheet".
+  // This is intentional: row/col selection with selectionType 'row'/'column'
+  // already sets the other axis to null, but for the selected axis we also
+  // need to handle the case where the visual grid is larger than the CRDT
+  // axis order.
   return {
     startRowId: useRow ? (rowOrder[start.r - 1] ?? null) : null,
     startColId: useCol ? (colOrder[start.c - 1] ?? null) : null,

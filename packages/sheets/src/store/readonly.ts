@@ -161,6 +161,10 @@ export class ReadOnlyStore implements Store {
     return [];
   }
 
+  ensureAxisOrder(_minRows: number, _minCols: number): void {
+    // no-op
+  }
+
   async setDimensionSize(
     _axis: Axis,
     _index: number,
