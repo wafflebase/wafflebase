@@ -601,12 +601,6 @@ export class YorkieStore implements Store {
     return result;
   }
 
-  updateActiveCell(activeCell: Ref) {
-    this.doc.update((_, p) => {
-      p.set({ activeCell: toSref(activeCell), activeTabId: this.tabId });
-    });
-  }
-
   updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]) {
     this.doc.update((_, p) => {
       p.set({

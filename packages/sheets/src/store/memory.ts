@@ -319,15 +319,6 @@ export class MemStore implements Store {
     return new Map(axis === 'row' ? this.rowHeights : this.colWidths);
   }
 
-  /**
-   * `updateActiveCell` method updates the active cell of the current user.
-   * For MemStore, this is a no-op since it's not connected to real-time collaboration.
-   * @deprecated Use `updateSelection` instead.
-   */
-  updateActiveCell(_: Ref): void {
-    // No-op for memory store
-  }
-
   updateSelection(_activeCell: CellAnchor, _ranges: RangeAnchor[]): void {
     // No-op for memory store
   }

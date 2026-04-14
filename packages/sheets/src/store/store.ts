@@ -211,12 +211,6 @@ export interface Store {
   getPivotDefinition(): Promise<PivotTableDefinition | undefined>;
 
   /**
-   * @deprecated Use `updateSelection` instead. Will be removed after migration.
-   * `updateActiveCell` method updates the active cell of the current user.
-   */
-  updateActiveCell(activeCell: Ref): void;
-
-  /**
    * `updateSelection` updates the selection of the current user in presence.
    */
   updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]): void;

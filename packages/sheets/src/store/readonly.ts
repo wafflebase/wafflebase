@@ -149,13 +149,6 @@ export class ReadOnlyStore implements Store {
     return [];
   }
 
-  /**
-   * @deprecated Use `updateSelection` instead.
-   */
-  updateActiveCell(_ref: Ref): void {
-    // no-op
-  }
-
   updateSelection(_activeCell: CellAnchor, _ranges: RangeAnchor[]): void {
     // no-op
   }
