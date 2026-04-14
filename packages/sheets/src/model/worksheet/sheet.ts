@@ -98,6 +98,14 @@ import {
   isNumericValue,
 } from './clipboard';
 import {
+  type CellAnchor,
+  type RangeAnchor,
+  refToAnchor,
+  anchorToRef,
+  rangeToRangeAnchor,
+  rangeAnchorToRange,
+} from '../workbook/anchor-conversion';
+import {
   hasCellContent,
   isEmptyCell,
   compactCell,
@@ -155,6 +163,9 @@ export class Sheet {
    * An empty array means no range is selected (only activeCell).
    */
   private ranges: Ranges = [];
+
+  private activeCellAnchor: CellAnchor | null = null;
+  private rangeAnchors: RangeAnchor[] = [];
 
   /**
    * `selectionType` indicates whether whole rows/columns or individual cells are selected.
@@ -1102,46 +1113,9 @@ export class Sheet {
     this.shiftFilterState(axis, index, count);
     this.shiftUserHiddenState(axis, index, count);
 
-    // Adjust activeCell if it's at or beyond the insertion/deletion point
-    const value = axis === 'row' ? this.activeCell.r : this.activeCell.c;
-    if (count > 0 && value >= index) {
-      // Insert: shift active cell forward
-      if (axis === 'row') {
-        this.activeCell = {
-          r: this.activeCell.r + count,
-          c: this.activeCell.c,
-        };
-      } else {
-        this.activeCell = {
-          r: this.activeCell.r,
-          c: this.activeCell.c + count,
-        };
-      }
-    } else if (count < 0) {
-      const absCount = Math.abs(count);
-      if (value >= index && value < index + absCount) {
-        // Active cell was in deleted zone, move to index (or 1 if index < 1)
-        if (axis === 'row') {
-          this.activeCell = { r: Math.max(1, index), c: this.activeCell.c };
-        } else {
-          this.activeCell = { r: this.activeCell.r, c: Math.max(1, index) };
-        }
-      } else if (value >= index + absCount) {
-        // Active cell is after deleted zone, shift back
-        if (axis === 'row') {
-          this.activeCell = {
-            r: this.activeCell.r + count,
-            c: this.activeCell.c,
-          };
-        } else {
-          this.activeCell = {
-            r: this.activeCell.r,
-            c: this.activeCell.c + count,
-          };
-        }
-      }
-    }
-    this.activeCell = this.normalizeRefToAnchor(this.activeCell);
+    // ActiveCell adjustment is handled by resolveAnchorsToRefs() via axis IDs.
+    // For local edits, re-resolve immediately since rowOrder has already changed.
+    this.resolveAnchorsToRefs();
 
     // Batch the freeze pane adjustment and formula recalculation together
     this.store.beginBatch();
@@ -2027,7 +2001,9 @@ export class Sheet {
         { r: minR, c: minC },
         { r: maxR, c: maxC },
       ]];
-      this.store.updateActiveCell(this.activeCell);
+      const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
+      if (cellAnchor) this.activeCellAnchor = cellAnchor;
+      this.syncSelectionToPresence();
     }
   }
 
@@ -2135,7 +2111,9 @@ export class Sheet {
     this.selectionType = 'cell';
     this.activeCell = destStart;
     this.ranges = [[destStart, destEnd]];
-    this.store.updateActiveCell(this.activeCell);
+    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
+    if (cellAnchor) this.activeCellAnchor = cellAnchor;
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -2596,6 +2574,17 @@ export class Sheet {
     this.crossSheetFormulaSrefs = null;
   }
 
+  private syncSelectionToPresence(): void {
+    if (!this.activeCellAnchor) return;
+    const rowOrder = this.store.getRowOrder();
+    const colOrder = this.store.getColOrder();
+    const rangeAnchors = this.ranges.map((range) =>
+      rangeToRangeAnchor(range, rowOrder, colOrder, this.selectionType),
+    );
+    this.rangeAnchors = rangeAnchors;
+    this.store.updateSelection(this.activeCellAnchor, rangeAnchors);
+  }
+
   /**
    * `getActiveCell` returns the currently selected cell.
    */
@@ -2609,7 +2598,13 @@ export class Sheet {
   public setActiveCell(ref: Ref): void {
     const anchor = this.normalizeRefToAnchor(ref);
     this.activeCell = anchor;
-    this.store.updateActiveCell(anchor);
+
+    const cellAnchor = refToAnchor(anchor, this.store.getRowOrder(), this.store.getColOrder());
+    if (cellAnchor) {
+      this.activeCellAnchor = cellAnchor;
+    }
+
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -2674,7 +2669,9 @@ export class Sheet {
       { r: row, c: 1 },
       { r: row, c: this.dimension.columns },
     ]];
-    this.store.updateActiveCell(this.activeCell);
+    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
+    if (cellAnchor) this.activeCellAnchor = cellAnchor;
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -2687,7 +2684,9 @@ export class Sheet {
       { r: 1, c: col },
       { r: this.dimension.rows, c: col },
     ]];
-    this.store.updateActiveCell(this.activeCell);
+    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
+    if (cellAnchor) this.activeCellAnchor = cellAnchor;
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -2723,7 +2722,9 @@ export class Sheet {
     this.selectionType = 'all';
     this.activeCell = { r: 1, c: 1 };
     this.ranges = [cloneRange(this.dimensionRange)];
-    this.store.updateActiveCell(this.activeCell);
+    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
+    if (cellAnchor) this.activeCellAnchor = cellAnchor;
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -3124,7 +3125,9 @@ export class Sheet {
     this.selectionType = 'cell';
     const anchor = this.normalizeRefToAnchor(ref);
     this.activeCell = anchor;
-    this.store.updateActiveCell(anchor);
+    const cellAnchor = refToAnchor(anchor, this.store.getRowOrder(), this.store.getColOrder());
+    if (cellAnchor) this.activeCellAnchor = cellAnchor;
+    this.syncSelectionToPresence();
     // Append a new collapsed range for the new selection start
     this.ranges.push([anchor, anchor]);
   }
@@ -3773,7 +3776,9 @@ export class Sheet {
         } else {
           this.ranges = [result.affectedRange];
         }
-        this.store.updateActiveCell(this.activeCell);
+        const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
+        if (cellAnchor) this.activeCellAnchor = cellAnchor;
+        this.syncSelectionToPresence();
       }
 
       this.ensureActiveCellVisibleAfterHiding();
@@ -3805,7 +3810,9 @@ export class Sheet {
         } else {
           this.ranges = [result.affectedRange];
         }
-        this.store.updateActiveCell(this.activeCell);
+        const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
+        if (cellAnchor) this.activeCellAnchor = cellAnchor;
+        this.syncSelectionToPresence();
       }
 
       this.ensureActiveCellVisibleAfterHiding();
@@ -3967,5 +3974,38 @@ export class Sheet {
 
     results.sort((a, b) => a.r !== b.r ? a.r - b.r : a.c - b.c);
     return results;
+  }
+
+  public resolveAnchorsToRefs(): void {
+    if (!this.activeCellAnchor) return;
+    const rowOrder = this.store.getRowOrder();
+    const colOrder = this.store.getColOrder();
+
+    const newRef = anchorToRef(this.activeCellAnchor, rowOrder, colOrder);
+    if (newRef) {
+      this.activeCell = this.normalizeRefToAnchor(newRef);
+    } else {
+      // Axis ID was deleted — snap to {r:1, c:1}
+      this.activeCell = { r: 1, c: 1 };
+      const newAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
+      if (newAnchor) {
+        this.activeCellAnchor = newAnchor;
+        this.syncSelectionToPresence();
+      }
+    }
+
+    // Re-resolve ranges
+    const newRanges: Range[] = [];
+    for (const anchor of this.rangeAnchors) {
+      const range = rangeAnchorToRange(anchor, rowOrder, colOrder);
+      if (range) {
+        newRanges.push(range);
+      }
+    }
+    this.ranges = newRanges;
+  }
+
+  public getStore(): Store {
+    return this.store;
   }
 }
