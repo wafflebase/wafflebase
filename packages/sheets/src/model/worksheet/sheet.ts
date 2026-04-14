@@ -4003,7 +4003,7 @@ export class Sheet {
     // Re-resolve ranges
     const newRanges: Range[] = [];
     for (const anchor of this.rangeAnchors) {
-      const range = rangeAnchorToRange(anchor, rowOrder, colOrder);
+      const range = rangeAnchorToRange(anchor, rowOrder, colOrder, this.dimension);
       if (range) {
         newRanges.push(range);
       }

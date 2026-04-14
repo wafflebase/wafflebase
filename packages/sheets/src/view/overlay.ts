@@ -170,6 +170,7 @@ export class Overlay {
     cellDragMovePreview?: Range,
     rowOrder?: string[],
     colOrder?: string[],
+    sheetDimension?: { rows: number; columns: number },
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -229,6 +230,7 @@ export class Overlay {
         visiblePeerLabels,
         rowOrder,
         colOrder,
+        sheetDimension,
       );
       this.renderFilterRangeSimple(ctx, filterRange, scroll, rowDim, colDim);
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
@@ -251,7 +253,7 @@ export class Overlay {
         if (presence.selection && rowOrder && colOrder) {
           peerRef = anchorToRef(presence.selection.activeCell, rowOrder, colOrder);
           for (const rangeAnchor of presence.selection.ranges) {
-            const range = rangeAnchorToRange(rangeAnchor, rowOrder, colOrder);
+            const range = rangeAnchorToRange(rangeAnchor, rowOrder, colOrder, sheetDimension);
             if (range) peerRanges.push(range);
           }
         } else if (presence.activeCell) {
@@ -649,6 +651,7 @@ export class Overlay {
     visiblePeerLabels?: Set<string>,
     rowOrder?: string[],
     colOrder?: string[],
+    sheetDimension?: { rows: number; columns: number },
   ): void {
     const cellPeers = new Map<string, Array<{ clientID: string; username: string; rect: BoundingRect }>>();
 
@@ -660,7 +663,7 @@ export class Overlay {
         // New format: axis ID based
         peerActiveCell = anchorToRef(presence.selection.activeCell, rowOrder, colOrder);
         for (const rangeAnchor of presence.selection.ranges) {
-          const range = rangeAnchorToRange(rangeAnchor, rowOrder, colOrder);
+          const range = rangeAnchorToRange(rangeAnchor, rowOrder, colOrder, sheetDimension);
           if (range) peerRanges.push(range);
         }
       } else if (presence.activeCell) {

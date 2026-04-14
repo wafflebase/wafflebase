@@ -43,11 +43,14 @@ export function rangeAnchorToRange(
   anchor: RangeAnchor,
   rowOrder: string[],
   colOrder: string[],
+  dimension?: { rows: number; columns: number },
 ): Range | null {
+  const maxRows = dimension?.rows ?? rowOrder.length;
+  const maxCols = dimension?.columns ?? colOrder.length;
   const startR = anchor.startRowId ? rowOrder.indexOf(anchor.startRowId) + 1 : 1;
   const startC = anchor.startColId ? colOrder.indexOf(anchor.startColId) + 1 : 1;
-  const endR = anchor.endRowId ? rowOrder.indexOf(anchor.endRowId) + 1 : rowOrder.length;
-  const endC = anchor.endColId ? colOrder.indexOf(anchor.endColId) + 1 : colOrder.length;
+  const endR = anchor.endRowId ? rowOrder.indexOf(anchor.endRowId) + 1 : maxRows;
+  const endC = anchor.endColId ? colOrder.indexOf(anchor.endColId) + 1 : maxCols;
 
   // indexOf returns -1 → +1 = 0 means deleted
   if (anchor.startRowId && startR === 0 && anchor.endRowId && endR === 0) return null;

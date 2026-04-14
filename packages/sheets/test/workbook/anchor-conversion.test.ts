@@ -138,6 +138,34 @@ describe('rangeAnchorToRange', () => {
     };
     expect(rangeAnchorToRange(anchor, rowOrder, colOrder)).toBeNull();
   });
+
+  it('uses visual dimension for null fields when provided', () => {
+    const dimension = { rows: 100, columns: 26 };
+    const anchor: RangeAnchor = {
+      startRowId: 'r2',
+      startColId: null,
+      endRowId: 'r3',
+      endColId: null,
+    };
+    expect(rangeAnchorToRange(anchor, rowOrder, colOrder, dimension)).toEqual([
+      { r: 2, c: 1 },
+      { r: 3, c: 26 },
+    ]);
+  });
+
+  it('uses visual dimension for select-all when provided', () => {
+    const dimension = { rows: 100, columns: 26 };
+    const anchor: RangeAnchor = {
+      startRowId: null,
+      startColId: null,
+      endRowId: null,
+      endColId: null,
+    };
+    expect(rangeAnchorToRange(anchor, rowOrder, colOrder, dimension)).toEqual([
+      { r: 1, c: 1 },
+      { r: 100, c: 26 },
+    ]);
+  });
 });
 
 describe('rangeToRangeAnchor', () => {

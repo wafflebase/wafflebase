@@ -4543,6 +4543,7 @@ export class Worksheet {
       this.cellDragMovePreview,
       this.sheet!.getStore().getRowOrder(),
       this.sheet!.getStore().getColOrder(),
+      this.sheet!.getDimension(),
     );
   }
 
