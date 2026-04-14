@@ -4180,6 +4180,10 @@ export class Worksheet {
     await this.sheet!.loadFilterState();
     await this.sheet!.loadHiddenState();
     await this.sheet!.loadPivotDefinition();
+
+    // Re-resolve axis-ID-based selection after structural changes
+    this.sheet!.resolveAnchorsToRefs();
+
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
     this.hiddenColumns.clear();
