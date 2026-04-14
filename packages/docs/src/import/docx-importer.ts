@@ -99,7 +99,7 @@ export class DocxImporter {
       if (el.localName === 'p') {
         blocks.push(DocxImporter.convertParagraph(el, imageUrls));
       } else if (el.localName === 'tbl') {
-        blocks.push(DocxImporter.convertTable(el, imageUrls, false));
+        blocks.push(DocxImporter.convertTable(el, imageUrls));
       } else if (el.localName === 'sectPr') {
         pageSetup = parsePageSetup(el);
         sectPrEl = el;
@@ -213,33 +213,7 @@ export class DocxImporter {
   private static convertTable(
     tblEl: Element,
     imageUrls: Map<string, ResolvedImage>,
-    isNested: boolean,
   ): Block {
-    // If nested, flatten to a paragraph with text content. Walk only direct
-    // child <w:tr> / <w:tc> so that deeply nested tables don't bleed their
-    // rows/cells into the outer flattened text.
-    if (isNested) {
-      const texts: string[] = [];
-      for (let i = 0; i < tblEl.childNodes.length; i++) {
-        const trNode = tblEl.childNodes[i];
-        if (trNode.nodeType !== 1 || (trNode as Element).localName !== 'tr') continue;
-        const trEl = trNode as Element;
-        const rowTexts: string[] = [];
-        for (let j = 0; j < trEl.childNodes.length; j++) {
-          const tcNode = trEl.childNodes[j];
-          if (tcNode.nodeType !== 1 || (tcNode as Element).localName !== 'tc') continue;
-          rowTexts.push(DocxImporter.extractText(tcNode as Element));
-        }
-        texts.push(rowTexts.join(' | '));
-      }
-      return {
-        id: generateBlockId(),
-        type: 'paragraph',
-        inlines: [{ text: texts.join('\n'), style: {} }],
-        style: { ...DEFAULT_BLOCK_STYLE },
-      };
-    }
-
     // Parse grid columns for widths. The walk is direct-child only:
     // getElementsByTagNameNS recurses into nested tables, which used to
     // inflate the outer column count with the nested grids (a 1-col
@@ -395,8 +369,7 @@ export class DocxImporter {
           if (childEl.localName === 'p') {
             cellBlocks.push(DocxImporter.convertParagraph(childEl, imageUrls));
           } else if (childEl.localName === 'tbl') {
-            // Nested table → flatten to text
-            cellBlocks.push(DocxImporter.convertTable(childEl, imageUrls, true));
+            cellBlocks.push(DocxImporter.convertTable(childEl, imageUrls));
           }
         }
         if (cellBlocks.length === 0) {
@@ -490,15 +463,6 @@ export class DocxImporter {
       }
     }
     return null;
-  }
-
-  private static extractText(el: Element): string {
-    const texts: string[] = [];
-    const tEls = el.getElementsByTagNameNS(W, 't');
-    for (let i = 0; i < tEls.length; i++) {
-      texts.push(tEls[i].textContent || '');
-    }
-    return texts.join('');
   }
 
   /**

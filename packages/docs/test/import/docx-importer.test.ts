@@ -673,9 +673,9 @@ describe('DocxImporter', () => {
     expect(group2Top.blocks[0].inlines[0].text).toBe('Group2Top');
   });
 
-  it('should not duplicate content when flattening deeply nested tables', async () => {
+  it('should import deeply nested tables preserving structure', async () => {
     // Outer table with a nested table that itself contains another nested
-    // table. The flattened outer cell should contain "DEEP" exactly once.
+    // table. Each level should be a real table block.
     const buffer = await createMinimalDocx(`
       <w:tbl>
         <w:tblGrid><w:gridCol w:w="8000"/></w:tblGrid>
@@ -697,14 +697,19 @@ describe('DocxImporter', () => {
       </w:tbl>
     `);
     const doc = await DocxImporter.import(buffer);
-    const table = doc.blocks[0];
-    expect(table.type).toBe('table');
-    const cellBlocks = table.tableData!.rows[0].cells[0].blocks;
-    const allText = cellBlocks.map((b) => b.inlines.map((i) => i.text).join('')).join('\n');
-    // "DEEP" should appear exactly once even though the inner flatten code
-    // used to recurse via getElementsByTagNameNS.
-    const occurrences = allText.split('DEEP').length - 1;
-    expect(occurrences).toBe(1);
+    const outerTable = doc.blocks[0];
+    expect(outerTable.type).toBe('table');
+    // Level 1: nested table inside outer cell
+    const level1Blocks = outerTable.tableData!.rows[0].cells[0].blocks;
+    const midTable = level1Blocks.find(b => b.type === 'table');
+    expect(midTable).toBeDefined();
+    // Level 2: nested table inside mid-level cell
+    const level2Blocks = midTable!.tableData!.rows[0].cells[0].blocks;
+    const innerTable = level2Blocks.find(b => b.type === 'table');
+    expect(innerTable).toBeDefined();
+    // Innermost cell contains "DEEP"
+    const deepText = innerTable!.tableData!.rows[0].cells[0].blocks[0].inlines[0].text;
+    expect(deepText).toBe('DEEP');
   });
 
   it('should drop pending image inlines when no uploader is supplied', async () => {
@@ -856,7 +861,7 @@ describe('DocxImporter', () => {
     expect(headerInline!.style.image!.src.startsWith('__pending__')).toBe(false);
   });
 
-  it('should flatten nested tables to text', async () => {
+  it('should import nested tables as actual table blocks', async () => {
     const buffer = await createMinimalDocx(`
       <w:tbl>
         <w:tblGrid><w:gridCol w:w="8000"/></w:tblGrid>
@@ -872,9 +877,13 @@ describe('DocxImporter', () => {
     `);
     const doc = await DocxImporter.import(buffer);
     expect(doc.blocks[0].type).toBe('table');
-    // Nested table is flattened — cell should contain a paragraph with "Nested"
+    // Nested table should be a table block inside the outer cell
     const cellBlocks = doc.blocks[0].tableData!.rows[0].cells[0].blocks;
-    const allText = cellBlocks.map(b => b.inlines.map(i => i.text).join('')).join('');
-    expect(allText).toContain('Nested');
+    const nestedTable = cellBlocks.find(b => b.type === 'table');
+    expect(nestedTable).toBeDefined();
+    expect(nestedTable!.tableData).toBeDefined();
+    expect(nestedTable!.tableData!.rows).toHaveLength(1);
+    const innerText = nestedTable!.tableData!.rows[0].cells[0].blocks[0].inlines[0].text;
+    expect(innerText).toBe('Nested');
   });
 });
