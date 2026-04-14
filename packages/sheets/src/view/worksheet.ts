@@ -4541,6 +4541,8 @@ export class Worksheet {
       this._searchCurrentIndex >= 0 ? this._searchCurrentIndex : undefined,
       this.getVisiblePeerLabels(),
       this.cellDragMovePreview,
+      this.sheet!.getStore().getRowOrder(),
+      this.sheet!.getStore().getColOrder(),
     );
   }
 
