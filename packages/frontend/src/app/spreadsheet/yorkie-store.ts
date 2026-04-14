@@ -22,6 +22,8 @@ import type {
   Grid,
   Cell,
   CellStyle,
+  CellAnchor,
+  RangeAnchor,
   FilterCondition,
   FilterState,
   HiddenState,
@@ -603,6 +605,25 @@ export class YorkieStore implements Store {
     this.doc.update((_, p) => {
       p.set({ activeCell: toSref(activeCell), activeTabId: this.tabId });
     });
+  }
+
+  updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]) {
+    this.doc.update((_, p) => {
+      p.set({
+        selection: { activeCell, ranges },
+        activeTabId: this.tabId,
+      });
+    });
+  }
+
+  getRowOrder(): string[] {
+    const ws = this.getSheet();
+    return ws.rowOrder ? [...ws.rowOrder] : [];
+  }
+
+  getColOrder(): string[] {
+    const ws = this.getSheet();
+    return ws.colOrder ? [...ws.colOrder] : [];
   }
 
   getPresences(): Array<{ clientID: string; presence: UserPresence }> {

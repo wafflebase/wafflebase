@@ -1,4 +1,4 @@
-import type { Sref } from "@wafflebase/sheets";
+import type { Sref, SelectionPresence } from "@wafflebase/sheets";
 
 export type User = {
   id: number;
@@ -9,7 +9,8 @@ export type User = {
 };
 
 export type UserPresence = {
-  activeCell?: Sref;
+  selection?: SelectionPresence;
+  activeCell?: Sref; // legacy fallback for mixed-version peers
   activeTabId?: string;
 } & User;
 
