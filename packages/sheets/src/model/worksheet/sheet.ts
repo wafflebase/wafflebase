@@ -301,6 +301,12 @@ export class Sheet {
     this.store = store;
     this.dimension = { ...Dimensions };
     this.activeCell = { r: 1, c: 1 };
+    // Initialize anchor from the default activeCell
+    const rowOrder = this.store.getRowOrder();
+    const colOrder = this.store.getColOrder();
+    if (rowOrder.length > 0 && colOrder.length > 0) {
+      this.activeCellAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
+    }
   }
 
   /**
