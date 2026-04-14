@@ -1,4 +1,6 @@
 import { MergeSpan, Ref, Range, Ranges, SelectionType } from '../model/core/types';
+import type { SelectionPresence } from '../model/workbook/anchor-conversion';
+import { anchorToRef, rangeAnchorToRange } from '../model/workbook/anchor-conversion';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { parseRef, toSref, isSameRange } from '../model/core/coordinates';
 import { Theme, ThemeKey, getThemeColor, getPeerCursorColor, getFormulaRangeColor } from './theme';
@@ -138,7 +140,11 @@ export class Overlay {
     activeCell: Ref,
     peerPresences: Array<{
       clientID: string;
-      presence: { activeCell: string; username?: string };
+      presence: {
+        selection?: SelectionPresence;
+        activeCell?: string;
+        username?: string;
+      };
     }>,
     ranges?: Ranges,
     rowDim?: DimensionIndex,
@@ -162,6 +168,9 @@ export class Overlay {
     searchCurrentIndex?: number,
     visiblePeerLabels?: Set<string>,
     cellDragMovePreview?: Range,
+    rowOrder?: string[],
+    colOrder?: string[],
+    sheetDimension?: { rows: number; columns: number },
   ) {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -219,6 +228,9 @@ export class Overlay {
         colDim,
         mergeData,
         visiblePeerLabels,
+        rowOrder,
+        colOrder,
+        sheetDimension,
       );
       this.renderFilterRangeSimple(ctx, filterRange, scroll, rowDim, colDim);
       this.renderFormulaRangesSimple(ctx, formulaRanges, scroll, rowDim, colDim);
@@ -235,8 +247,20 @@ export class Overlay {
 
       // Render peer cursors per quadrant
       for (const { clientID, presence } of peerPresences) {
-        if (!presence.activeCell) continue;
-        const peerRef = parseRef(presence.activeCell);
+        let peerRef: Ref | null = null;
+        let peerRanges: Range[] = [];
+
+        if (presence.selection && rowOrder && colOrder) {
+          peerRef = anchorToRef(presence.selection.activeCell, rowOrder, colOrder);
+          for (const rangeAnchor of presence.selection.ranges) {
+            const range = rangeAnchorToRange(rangeAnchor, rowOrder, colOrder, sheetDimension);
+            if (range) peerRanges.push(range);
+          }
+        } else if (presence.activeCell) {
+          peerRef = parseRef(presence.activeCell);
+        }
+
+        if (!peerRef) continue;
         const peerColor = getPeerCursorColor(this.theme, clientID);
 
         for (const q of quadrants) {
@@ -245,9 +269,16 @@ export class Overlay {
           ctx.rect(q.x, q.y, q.width, q.height);
           ctx.clip();
 
+          const qScroll = { left: q.scrollLeft, top: q.scrollTop };
+
+          // Draw range backgrounds
+          for (const range of peerRanges) {
+            this.renderPeerRangeBackground(ctx, range, peerColor, qScroll, rowDim, colDim);
+          }
+
           const rect = this.toCellRect(
             peerRef,
-            { left: q.scrollLeft, top: q.scrollTop },
+            qScroll,
             rowDim,
             colDim,
             mergeData,
@@ -602,7 +633,14 @@ export class Overlay {
   private renderPeerCursorsSimple(
     ctx: CanvasRenderingContext2D,
     port: BoundingRect,
-    peerPresences: Array<{ clientID: string; presence: { activeCell: string; username?: string } }>,
+    peerPresences: Array<{
+      clientID: string;
+      presence: {
+        selection?: SelectionPresence;
+        activeCell?: string;
+        username?: string;
+      };
+    }>,
     scroll: { left: number; top: number },
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,
@@ -611,31 +649,47 @@ export class Overlay {
       coverToAnchor: Map<string, string>;
     },
     visiblePeerLabels?: Set<string>,
+    rowOrder?: string[],
+    colOrder?: string[],
+    sheetDimension?: { rows: number; columns: number },
   ): void {
-    // Map from cell sref -> peers that need labels drawn there (for stacking).
     const cellPeers = new Map<string, Array<{ clientID: string; username: string; rect: BoundingRect }>>();
 
     for (const { clientID, presence } of peerPresences) {
-      if (!presence.activeCell) continue;
+      let peerActiveCell: Ref | null = null;
+      let peerRanges: Range[] = [];
 
-      const peerActiveCell = parseRef(presence.activeCell);
-      const rect = this.toCellRect(
-        peerActiveCell,
-        scroll,
-        rowDim,
-        colDim,
-        mergeData,
-      );
+      if (presence.selection && rowOrder && colOrder) {
+        // New format: axis ID based
+        peerActiveCell = anchorToRef(presence.selection.activeCell, rowOrder, colOrder);
+        for (const rangeAnchor of presence.selection.ranges) {
+          const range = rangeAnchorToRange(rangeAnchor, rowOrder, colOrder, sheetDimension);
+          if (range) peerRanges.push(range);
+        }
+      } else if (presence.activeCell) {
+        // Legacy format: Sref string
+        peerActiveCell = parseRef(presence.activeCell);
+      }
 
+      if (!peerActiveCell) continue;
+
+      const peerColor = getPeerCursorColor(this.theme, clientID);
+
+      // Draw range backgrounds
+      for (const range of peerRanges) {
+        this.renderPeerRangeBackground(ctx, range, peerColor, scroll, rowDim, colDim);
+      }
+
+      // Draw active cell border
+      const rect = this.toCellRect(peerActiveCell, scroll, rowDim, colDim, mergeData);
       if (rect.left >= -rect.width && rect.left < port.width &&
           rect.top >= -rect.height && rect.top < port.height) {
-        const peerColor = getPeerCursorColor(this.theme, clientID);
         ctx.strokeStyle = peerColor;
         ctx.lineWidth = 2;
         ctx.strokeRect(rect.left, rect.top, rect.width, rect.height);
 
         if (visiblePeerLabels?.has(clientID) && presence.username) {
-          const key = presence.activeCell;
+          const key = peerActiveCell.r + ',' + peerActiveCell.c;
           if (!cellPeers.has(key)) {
             cellPeers.set(key, []);
           }
@@ -653,6 +707,28 @@ export class Overlay {
         drawPeerLabel(ctx, username, peerColor, rect, port, i);
       }
     }
+  }
+
+  private renderPeerRangeBackground(
+    ctx: CanvasRenderingContext2D,
+    range: Range,
+    color: string,
+    scroll: { left: number; top: number },
+    rowDim?: DimensionIndex,
+    colDim?: DimensionIndex,
+  ): void {
+    const startRect = this.toCellRect(range[0], scroll, rowDim, colDim);
+    const endRect = this.toCellRect(range[1], scroll, rowDim, colDim);
+    const x = startRect.left;
+    const y = startRect.top;
+    const w = endRect.left + endRect.width - startRect.left;
+    const h = endRect.top + endRect.height - startRect.top;
+
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.1;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
   }
 
   private renderFilterRangeSimple(

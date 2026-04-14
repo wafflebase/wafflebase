@@ -14,6 +14,7 @@ import {
   Sref,
   Direction,
 } from '../model/core/types';
+import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';
 import { RangeStylePatch } from '../model/worksheet/range-styles';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
@@ -139,12 +140,28 @@ export class ReadOnlyStore implements Store {
 
   getPresences(): Array<{
     clientID: string;
-    presence: { activeCell: string; username?: string };
+    presence: {
+      selection?: SelectionPresence;
+      activeCell?: string;
+      username?: string;
+    };
   }> {
     return [];
   }
 
-  updateActiveCell(_ref: Ref): void {
+  updateSelection(_activeCell: CellAnchor, _ranges: RangeAnchor[]): void {
+    // no-op
+  }
+
+  getRowOrder(): string[] {
+    return [];
+  }
+
+  getColOrder(): string[] {
+    return [];
+  }
+
+  ensureAxisOrder(_minRows: number, _minCols: number): void {
     // no-op
   }
 

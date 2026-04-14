@@ -18,6 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| axis id selection (2026-04-14) | [20260414-axis-id-selection-todo.md](./active/20260414-axis-id-selection-todo.md) | - |
+| random axis id (2026-04-13) | [20260413-random-axis-id-todo.md](./active/20260413-random-axis-id-todo.md) | - |
 | docs image editing (2026-04-12) | [20260412-docs-image-editing-todo.md](./active/20260412-docs-image-editing-todo.md) | [20260412-docs-image-editing-lessons.md](./active/20260412-docs-image-editing-lessons.md) |
 | docx table style followup (2026-04-12) | [20260412-docx-table-style-followup-todo.md](./active/20260412-docx-table-style-followup-todo.md) | - |
 | intent preserving phase4 table cells (2026-04-03) | [20260403-intent-preserving-phase4-table-cells-todo.md](./active/20260403-intent-preserving-phase4-table-cells-todo.md) | - |
@@ -29,4 +31,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 126
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs image editing (2026-04-12)
+Latest active task: axis id selection (2026-04-14)

@@ -9,6 +9,8 @@ import {
   getWorksheetCell,
   getWorksheetEntries,
   getWorksheetKeys,
+  createWorksheetAxisId,
+  anchorToRef,
   isCrossSheetRef,
   cloneConditionalFormatRule,
   normalizeConditionalFormatRule,
@@ -22,6 +24,8 @@ import type {
   Grid,
   Cell,
   CellStyle,
+  CellAnchor,
+  RangeAnchor,
   FilterCondition,
   FilterState,
   HiddenState,
@@ -599,9 +603,42 @@ export class YorkieStore implements Store {
     return result;
   }
 
-  updateActiveCell(activeCell: Ref) {
+  updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]) {
+    // Also emit legacy activeCell string for user-presence.tsx jump feature
+    const ref = anchorToRef(activeCell, this.getRowOrder(), this.getColOrder());
     this.doc.update((_, p) => {
-      p.set({ activeCell: toSref(activeCell), activeTabId: this.tabId });
+      p.set({
+        selection: { activeCell, ranges },
+        activeCell: ref ? toSref(ref) : undefined,
+        activeTabId: this.tabId,
+      });
+    });
+  }
+
+  getRowOrder(): string[] {
+    const ws = this.getSheet();
+    return ws.rowOrder ? [...ws.rowOrder] : [];
+  }
+
+  getColOrder(): string[] {
+    const ws = this.getSheet();
+    return ws.colOrder ? [...ws.colOrder] : [];
+  }
+
+  ensureAxisOrder(minRows: number, minCols: number): void {
+    this.doc.update((root) => {
+      const ws = root.sheets[this.tabId];
+      if (!ws) return;
+      ws.rowOrder ??= [];
+      ws.colOrder ??= [];
+      const rowPrefix = "r";
+      const colPrefix = "c";
+      while (ws.rowOrder.length < minRows) {
+        ws.rowOrder.push(createWorksheetAxisId(rowPrefix));
+      }
+      while (ws.colOrder.length < minCols) {
+        ws.colOrder.push(createWorksheetAxisId(colPrefix));
+      }
     });
   }
 

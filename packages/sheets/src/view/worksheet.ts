@@ -5,6 +5,7 @@ import {
   isReferenceInsertPosition,
   findReferenceTokenAtCursor,
 } from '../formula/formula';
+import { anchorToRef } from '../model/workbook/anchor-conversion';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { Sheet } from '../model/worksheet/sheet';
 import { Theme, getThemeColor } from './theme';
@@ -2534,16 +2535,18 @@ export class Worksheet {
       const mouseRow = this.toRowFromMouse(hoverY);
       const mouseCol = this.toColFromMouse(hoverX);
       const presences = this.sheet!.getPresences();
+      const rowOrder = this.sheet!.getStore().getRowOrder();
+      const colOrder = this.sheet!.getStore().getColOrder();
       for (const { clientID, presence } of presences) {
-        if (!presence.activeCell) continue;
-        try {
-          const ref = parseRef(presence.activeCell);
-          if (ref.r === mouseRow && ref.c === mouseCol) {
-            newHoveredPeer = clientID;
-            break;
-          }
-        } catch {
-          // Skip peers with invalid activeCell references
+        let ref: { r: number; c: number } | null = null;
+        if (presence.selection) {
+          ref = anchorToRef(presence.selection.activeCell, rowOrder, colOrder);
+        } else if (presence.activeCell) {
+          try { ref = parseRef(presence.activeCell); } catch { /* skip */ }
+        }
+        if (ref && ref.r === mouseRow && ref.c === mouseCol) {
+          newHoveredPeer = clientID;
+          break;
         }
       }
     }
@@ -4180,6 +4183,10 @@ export class Worksheet {
     await this.sheet!.loadFilterState();
     await this.sheet!.loadHiddenState();
     await this.sheet!.loadPivotDefinition();
+
+    // Re-resolve axis-ID-based selection after structural changes
+    this.sheet!.resolveAnchorsToRefs();
+
     this.hiddenRows.clear();
     this.hiddenRowSizeBackup.clear();
     this.hiddenColumns.clear();
@@ -4187,6 +4194,10 @@ export class Worksheet {
     this.syncHiddenRowsFromSheet();
     this.syncHiddenColumnsFromSheet();
     this.updateFreezeState();
+
+    // Reposition the input cell after structural changes so it follows
+    // the active cell to its new visual location.
+    this.updateCellInputPosition();
   }
 
   /**
@@ -4456,12 +4467,16 @@ export class Worksheet {
     const currentPeerIDs = new Set<string>();
 
     for (const { clientID, presence } of presences) {
-      if (!presence.activeCell) continue;
+      // Derive a stable key from either the new selection or legacy activeCell
+      const cellKey = presence.selection
+        ? `${presence.selection.activeCell.rowId}|${presence.selection.activeCell.colId}`
+        : presence.activeCell;
+      if (!cellKey) continue;
       currentPeerIDs.add(clientID);
 
       const prev = this.prevPeerActiveCells.get(clientID);
-      if (prev !== presence.activeCell) {
-        this.prevPeerActiveCells.set(clientID, presence.activeCell);
+      if (prev !== cellKey) {
+        this.prevPeerActiveCells.set(clientID, cellKey);
 
         const existingTimer = this.peerLabelTimers.get(clientID);
         if (existingTimer != null) {
@@ -4537,6 +4552,9 @@ export class Worksheet {
       this._searchCurrentIndex >= 0 ? this._searchCurrentIndex : undefined,
       this.getVisiblePeerLabels(),
       this.cellDragMovePreview,
+      this.sheet!.getStore().getRowOrder(),
+      this.sheet!.getStore().getColOrder(),
+      this.sheet!.getDimension(),
     );
   }
 
