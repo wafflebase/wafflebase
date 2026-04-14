@@ -274,10 +274,21 @@ function buildRects(
     const lb = layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId);
     const tl = lb?.layoutTable;
     if (!lb || !tl) {
+      // Nested table cell — the direct parent table is not a top-level
+      // layout block. Use pixel coordinates from resolvePositionPixel
+      // (which already handles nested tables) for selection rects.
+      if (startPixel.y === endPixel.y) {
+        return [{
+          x: startPixel.x,
+          y: startPixel.y,
+          width: endPixel.x - startPixel.x,
+          height: startPixel.height,
+        }];
+      }
       return [{
-        x: startPixel.x,
+        x: Math.min(startPixel.x, endPixel.x),
         y: startPixel.y,
-        width: endPixel.x - startPixel.x,
+        width: Math.max(startPixel.x, endPixel.x) - Math.min(startPixel.x, endPixel.x),
         height: endPixel.y + endPixel.height - startPixel.y,
       }];
     }
