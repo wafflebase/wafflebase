@@ -5,6 +5,7 @@ import {
   isReferenceInsertPosition,
   findReferenceTokenAtCursor,
 } from '../formula/formula';
+import { anchorToRef } from '../model/workbook/anchor-conversion';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { Sheet } from '../model/worksheet/sheet';
 import { Theme, getThemeColor } from './theme';
@@ -2534,16 +2535,18 @@ export class Worksheet {
       const mouseRow = this.toRowFromMouse(hoverY);
       const mouseCol = this.toColFromMouse(hoverX);
       const presences = this.sheet!.getPresences();
+      const rowOrder = this.sheet!.getStore().getRowOrder();
+      const colOrder = this.sheet!.getStore().getColOrder();
       for (const { clientID, presence } of presences) {
-        if (!presence.activeCell) continue;
-        try {
-          const ref = parseRef(presence.activeCell);
-          if (ref.r === mouseRow && ref.c === mouseCol) {
-            newHoveredPeer = clientID;
-            break;
-          }
-        } catch {
-          // Skip peers with invalid activeCell references
+        let ref: { r: number; c: number } | null = null;
+        if (presence.selection) {
+          ref = anchorToRef(presence.selection.activeCell, rowOrder, colOrder);
+        } else if (presence.activeCell) {
+          try { ref = parseRef(presence.activeCell); } catch { /* skip */ }
+        }
+        if (ref && ref.r === mouseRow && ref.c === mouseCol) {
+          newHoveredPeer = clientID;
+          break;
         }
       }
     }
