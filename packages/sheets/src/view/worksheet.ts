@@ -4191,6 +4191,10 @@ export class Worksheet {
     this.syncHiddenRowsFromSheet();
     this.syncHiddenColumnsFromSheet();
     this.updateFreezeState();
+
+    // Reposition the input cell after structural changes so it follows
+    // the active cell to its new visual location.
+    this.updateCellInputPosition();
   }
 
   /**
