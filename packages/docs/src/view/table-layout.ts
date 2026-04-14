@@ -127,6 +127,51 @@ function layoutCellInlines(
         flushCurrentLine(fontSizePx);
       }
 
+      // Character-level break: if a single word is wider than maxWidth,
+      // split it into chunks that fit. This prevents text from
+      // overflowing cell boundaries (matches Google Docs behavior).
+      if (wordWidth > maxWidth && maxWidth > 0) {
+        let remaining = word;
+        let remainCharPos = charPos;
+        while (remaining.length > 0) {
+          // Find how many characters fit in the remaining line width
+          const availWidth = maxWidth - lineWidth;
+          let fitLen = 0;
+          let fitWidth = 0;
+          for (let ci = 1; ci <= remaining.length; ci++) {
+            const w = cachedMeasureText(ctx, remaining.slice(0, ci), font);
+            if (w > availWidth && fitLen > 0) break;
+            fitLen = ci;
+            fitWidth = w;
+          }
+          // At least one character per chunk to avoid infinite loop
+          if (fitLen === 0) {
+            fitLen = 1;
+            fitWidth = cachedMeasureText(ctx, remaining.slice(0, 1), font);
+          }
+          const chunk = remaining.slice(0, fitLen);
+          currentRuns.push({
+            inline,
+            text: chunk,
+            x: lineWidth,
+            width: fitWidth,
+            inlineIndex: i,
+            charStart: remainCharPos,
+            charEnd: remainCharPos + chunk.length,
+            charOffsets: computeCharOffsets(ctx, chunk, font),
+          });
+          lineWidth += fitWidth;
+          if (fontSizePx > lineMaxFontSize) lineMaxFontSize = fontSizePx;
+          remainCharPos += chunk.length;
+          remaining = remaining.slice(fitLen);
+          if (remaining.length > 0) {
+            flushCurrentLine(fontSizePx);
+          }
+        }
+        charPos = remainCharPos;
+        continue;
+      }
+
       currentRuns.push({
         inline,
         text: word,
