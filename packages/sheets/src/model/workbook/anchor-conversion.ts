@@ -56,9 +56,24 @@ export function rangeAnchorToRange(
   if (anchor.startRowId && startR === 0 && anchor.endRowId && endR === 0) return null;
   if (anchor.startColId && startC === 0 && anchor.endColId && endC === 0) return null;
 
+  // When one endpoint is deleted, snap it to the surviving endpoint
+  let finalStartR = startR;
+  let finalStartC = startC;
+  let finalEndR = endR;
+  let finalEndC = endC;
+  if (anchor.startRowId && finalStartR === 0) finalStartR = finalEndR;
+  if (anchor.endRowId && finalEndR === 0) finalEndR = finalStartR;
+  if (anchor.startColId && finalStartC === 0) finalStartC = finalEndC;
+  if (anchor.endColId && finalEndC === 0) finalEndC = finalStartC;
+
+  const r1 = Math.max(1, Math.min(finalStartR, finalEndR));
+  const c1 = Math.max(1, Math.min(finalStartC, finalEndC));
+  const r2 = Math.max(1, Math.max(finalStartR, finalEndR));
+  const c2 = Math.max(1, Math.max(finalStartC, finalEndC));
+
   return [
-    { r: Math.max(1, startR), c: Math.max(1, startC) },
-    { r: Math.max(1, endR), c: Math.max(1, endC) },
+    { r: r1, c: c1 },
+    { r: r2, c: c2 },
   ];
 }
 

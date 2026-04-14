@@ -85,7 +85,7 @@ type UserPresence = {
 Axis ID ↔ visual coordinate conversion happens **only at the Store boundary**.
 The Sheet engine keeps using `Ref` internally.
 
-```
+```text
 Presence (axis ID)  ←→  Conversion Layer  ←→  Sheet Engine (Ref)  →  Canvas
 ```
 
@@ -103,7 +103,7 @@ Four conversion functions, placed in a new module
 
 #### Local selection → Presence
 
-```
+```text
 User clicks cell / drags range
   → Sheet.setActiveCell(ref)  &  Sheet.setRanges(ranges)
   → Store.updateSelection(
@@ -115,7 +115,7 @@ User clicks cell / drags range
 
 #### Remote structural edit → Local selection correction
 
-```
+```text
 Remote peer inserts row at index 3
   → Yorkie syncs: rowOrder changes (new ID spliced in)
   → reloadDimensions() called
@@ -128,7 +128,7 @@ Remote peer inserts row at index 3
 
 #### Peer cursor rendering
 
-```
+```text
 Peer presence received
   → SelectionPresence { activeCell: CellAnchor, ranges: RangeAnchor[] }
   → anchorToRef(activeCell, rowOrder, colOrder) → Ref

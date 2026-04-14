@@ -3161,9 +3161,9 @@ export class Sheet {
     this.activeCell = anchor;
     const cellAnchor = refToAnchor(anchor, this.store.getRowOrder(), this.store.getColOrder());
     if (cellAnchor) this.activeCellAnchor = cellAnchor;
-    this.syncSelectionToPresence();
-    // Append a new collapsed range for the new selection start
+    // Append the new collapsed range before syncing so peers see it
     this.ranges.push([anchor, anchor]);
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -4028,11 +4028,10 @@ export class Sheet {
       const newAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
       if (newAnchor) {
         this.activeCellAnchor = newAnchor;
-        this.syncSelectionToPresence();
       }
     }
 
-    // Re-resolve ranges
+    // Re-resolve ranges before syncing so peers get the repaired state
     const newRanges: Range[] = [];
     for (const anchor of this.rangeAnchors) {
       const range = rangeAnchorToRange(anchor, rowOrder, colOrder, this.dimension);
@@ -4041,6 +4040,11 @@ export class Sheet {
       }
     }
     this.ranges = newRanges;
+
+    // Republish repaired selection if activeCell was deleted
+    if (!newRef) {
+      this.syncSelectionToPresence();
+    }
   }
 
   public getStore(): Store {

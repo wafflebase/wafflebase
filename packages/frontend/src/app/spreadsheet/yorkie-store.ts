@@ -10,6 +10,7 @@ import {
   getWorksheetEntries,
   getWorksheetKeys,
   createWorksheetAxisId,
+  anchorToRef,
   isCrossSheetRef,
   cloneConditionalFormatRule,
   normalizeConditionalFormatRule,
@@ -603,9 +604,12 @@ export class YorkieStore implements Store {
   }
 
   updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]) {
+    // Also emit legacy activeCell string for user-presence.tsx jump feature
+    const ref = anchorToRef(activeCell, this.getRowOrder(), this.getColOrder());
     this.doc.update((_, p) => {
       p.set({
         selection: { activeCell, ranges },
+        activeCell: ref ? toSref(ref) : undefined,
         activeTabId: this.tabId,
       });
     });
@@ -625,6 +629,8 @@ export class YorkieStore implements Store {
     this.doc.update((root) => {
       const ws = root.sheets[this.tabId];
       if (!ws) return;
+      ws.rowOrder ??= [];
+      ws.colOrder ??= [];
       const rowPrefix = "r";
       const colPrefix = "c";
       while (ws.rowOrder.length < minRows) {

@@ -139,6 +139,34 @@ describe('rangeAnchorToRange', () => {
     expect(rangeAnchorToRange(anchor, rowOrder, colOrder)).toBeNull();
   });
 
+  it('snaps deleted start endpoint to surviving end endpoint', () => {
+    const anchor: RangeAnchor = {
+      startRowId: 'deleted',
+      startColId: 'c1',
+      endRowId: 'r3',
+      endColId: 'c3',
+    };
+    const result = rangeAnchorToRange(anchor, rowOrder, colOrder);
+    expect(result).toEqual([
+      { r: 3, c: 1 },
+      { r: 3, c: 3 },
+    ]);
+  });
+
+  it('snaps deleted end endpoint to surviving start endpoint', () => {
+    const anchor: RangeAnchor = {
+      startRowId: 'r2',
+      startColId: 'c1',
+      endRowId: 'r2',
+      endColId: 'deleted',
+    };
+    const result = rangeAnchorToRange(anchor, rowOrder, colOrder);
+    expect(result).toEqual([
+      { r: 2, c: 1 },
+      { r: 2, c: 1 },
+    ]);
+  });
+
   it('uses visual dimension for null fields when provided', () => {
     const dimension = { rows: 100, columns: 26 };
     const anchor: RangeAnchor = {
@@ -209,6 +237,18 @@ describe('rangeToRangeAnchor', () => {
       startRowId: null,
       startColId: null,
       endRowId: null,
+      endColId: null,
+    });
+  });
+
+  it('uses null when index exceeds axis order length', () => {
+    // colOrder has 4 entries (c1-c4), selecting column 6 is out of bounds
+    const range: Range = [{ r: 2, c: 6 }, { r: 4, c: 6 }];
+    const result = rangeToRangeAnchor(range, rowOrder, colOrder, 'cell');
+    expect(result).toEqual({
+      startRowId: 'r2',
+      startColId: null,
+      endRowId: 'r4',
       endColId: null,
     });
   });
