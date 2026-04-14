@@ -2350,6 +2350,7 @@ export class Sheet {
 
     this.selectionType = 'cell';
     this.ranges = [fillRange];
+    this.syncSelectionToPresence();
     return true;
   }
 
@@ -2733,6 +2734,7 @@ export class Sheet {
       { r: minRow, c: 1 },
       { r: maxRow, c: this.dimension.columns },
     ]];
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -2746,6 +2748,7 @@ export class Sheet {
       { r: 1, c: minCol },
       { r: this.dimension.rows, c: maxCol },
     ]];
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -3240,10 +3243,12 @@ export class Sheet {
 
     if (isSameRange(prev, curr)) {
       this.ranges = [cloneRange(this.dimensionRange)];
+      this.syncSelectionToPresence();
       return;
     }
 
     this.ranges = [curr];
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -3423,6 +3428,7 @@ export class Sheet {
     }
 
     this.ranges = [this.expandRangeToMergedBoundaries(range)];
+    this.syncSelectionToPresence();
     return true;
   }
 
@@ -3709,8 +3715,11 @@ export class Sheet {
     }
 
     this.selectionType = 'cell';
-    this.setActiveCell(anchor);
+    this.activeCell = this.normalizeRefToAnchor(anchor);
+    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
+    if (cellAnchor) this.activeCellAnchor = cellAnchor;
     this.ranges = [toMergeRange(anchor, span)];
+    this.syncSelectionToPresence();
     return true;
   }
 
@@ -3749,6 +3758,7 @@ export class Sheet {
 
     this.selectionType = 'cell';
     this.ranges = [];
+    this.syncSelectionToPresence();
     return true;
   }
 
