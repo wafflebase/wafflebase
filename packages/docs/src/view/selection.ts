@@ -5,6 +5,7 @@ import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import { resolvePositionPixel } from './peer-cursor.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
+import { resolveNestedTableLayout } from './table-layout.js';
 import { buildFont, Theme } from './theme.js';
 
 // --- Free helpers (used by both Selection class and computeSelectionRects) ---
@@ -550,45 +551,62 @@ function buildCellRangeRects(
   layout: DocumentLayout,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
-  const lb = layout.blocks.find((b) => b.block.id === cellRange.blockId);
-  if (!lb?.layoutTable) return [];
-  const tl = lb.layoutTable;
+  // Resolve the table — may be top-level or nested
+  const resolved = resolveNestedTableLayout(cellRange.blockId, layout);
+  if (!resolved) return [];
+  const { lb, layoutTable: tl, dataBlock, xOffset: nestedXOffset, yOffset: nestedYOffset, outerRowIndex } = resolved;
 
-  const blockIndex = layout.blocks.indexOf(lb);
+  const blockIndex = lb.blockIndex;
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const { margins } = paginatedLayout.pageSetup;
 
-  // Build a row → absolute Y map from the paginated layout.
+  // For nested tables, we need the absolute Y of the outermost row that
+  // contains the nested table. For top-level tables, build the full row map.
+  let baseY = 0;
+  if (outerRowIndex >= 0) {
+    // Nested table — find the page line for the outer row
+    for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+      for (const pl of page.lines) {
+        if (pl.blockIndex === blockIndex && pl.lineIndex === outerRowIndex) {
+          baseY = pageY + pl.y + nestedYOffset;
+          break;
+        }
+      }
+    }
+  }
+
+  // Build a row → absolute Y map
   const rowYMap = new Map<number, number>();
-  for (const page of paginatedLayout.pages) {
-    const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-    for (const pl of page.lines) {
-      if (pl.blockIndex !== blockIndex) continue;
-      rowYMap.set(pl.lineIndex, pageY + pl.y);
+  if (outerRowIndex >= 0) {
+    // Nested: compute Y for each inner row from baseY + inner rowYOffsets
+    for (let r = 0; r < tl.rowYOffsets.length; r++) {
+      rowYMap.set(r, baseY + tl.rowYOffsets[r]);
+    }
+  } else {
+    // Top-level: use paginated layout
+    for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+      for (const pl of page.lines) {
+        if (pl.blockIndex !== blockIndex) continue;
+        rowYMap.set(pl.lineIndex, pageY + pl.y);
+      }
     }
   }
 
   const { start, end } = cellRange;
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
-  const tableData = lb.block.tableData;
+  const tableData = dataBlock.tableData;
+  const xBase = pageX + margins.left + nestedXOffset;
 
   for (let r = start.rowIndex; r <= end.rowIndex; r++) {
     for (let c = start.colIndex; c <= end.colIndex; c++) {
       const cell = tl.cells[r]?.[c];
       if (!cell || cell.merged) continue;
 
-      // For merge top-left cells, highlight the full colSpan × rowSpan
-      // footprint. LayoutTableCell.width already sums spanned columns.
-      // Row coverage is split into one rect per contiguous page segment:
-      // when the next spanned row lives on a different page (its
-      // absolute Y is not the running segment's expected bottom), flush
-      // the current rect and start a new one anchored at the new row's
-      // page Y. This keeps merged-cell highlights aligned with the row
-      // bands on each page instead of bleeding into empty space below
-      // the first row.
       const srcCell = tableData?.rows[r]?.cells[c];
       const rowSpan = srcCell?.rowSpan ?? 1;
-      const x = pageX + margins.left + tl.columnXOffsets[c];
+      const x = xBase + tl.columnXOffsets[c];
       const width = cell.width;
 
       const spanEnd = Math.min(r + rowSpan, tl.rowHeights.length);
