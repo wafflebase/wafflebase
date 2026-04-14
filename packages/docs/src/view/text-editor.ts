@@ -978,6 +978,7 @@ export class TextEditor {
 
     // Table cell click detection: resolve which cell was clicked
     const clickedBlock = this.doc.document.blocks.find((b) => b.id === pos.blockId);
+
     if (clickedBlock?.type === 'table' && clickedBlock.tableData) {
       const layout = this.getLayout();
       const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
@@ -1031,6 +1032,7 @@ export class TextEditor {
             // Single click — resolve character offset from mouse position
             const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
             const cellPos: DocPosition = { blockId: resolved.blockId, offset: resolved.offset };
+
             this.cursor.moveTo(cellPos);
             // Set anchor for drag selection (same as non-cell single click)
             this.selection.setRange({ anchor: cellPos, focus: cellPos });
@@ -1203,6 +1205,7 @@ export class TextEditor {
       let tableCellRange: DocRange['tableCellRange'] = undefined;
 
       const anchorCellInfo = this.getCellInfo(anchor.blockId);
+
       if (anchorCellInfo) {
         const tableBlockId = anchorCellInfo.tableBlockId;
 
@@ -1217,6 +1220,7 @@ export class TextEditor {
         }
 
         // Check if mouse is still in the same table (or its outermost ancestor)
+
         if (result.blockId === tableBlockId || result.blockId === outermostTableId) {
           // For nested tables, use the outermost table for coordinate
           // resolution since resolveTableCellClick only works with
@@ -1234,6 +1238,7 @@ export class TextEditor {
               // Check if resolved position is in the same cell as the anchor
               const resolvedCellInfo = layout.blockParentMap.get(resolved.blockId);
               const anchorTableId = anchorCellInfo.tableBlockId;
+
               if (resolvedCellInfo &&
                   resolvedCellInfo.tableBlockId === anchorTableId &&
                   resolvedCellInfo.rowIndex === anchorCellInfo.rowIndex &&

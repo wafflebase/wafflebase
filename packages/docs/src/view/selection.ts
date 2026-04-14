@@ -131,12 +131,22 @@ function normalizeRange(
   const focusCellInfo = layout.blockParentMap.get(range.focus.blockId);
 
 
-  const anchorIdx = layout.blocks.findIndex(
-    (lb) => lb.block.id === (anchorCellInfo?.tableBlockId ?? range.anchor.blockId),
-  );
-  const focusIdx = layout.blocks.findIndex(
-    (lb) => lb.block.id === (focusCellInfo?.tableBlockId ?? range.focus.blockId),
-  );
+  // For nested tables, walk up the blockParentMap chain to find the
+  // outermost table ID that exists in layout.blocks.
+  let anchorTopId = anchorCellInfo?.tableBlockId ?? range.anchor.blockId;
+  while (anchorTopId && layout.blocks.findIndex((lb) => lb.block.id === anchorTopId) === -1) {
+    const parentInfo = layout.blockParentMap.get(anchorTopId);
+    if (!parentInfo) break;
+    anchorTopId = parentInfo.tableBlockId;
+  }
+  let focusTopId = focusCellInfo?.tableBlockId ?? range.focus.blockId;
+  while (focusTopId && layout.blocks.findIndex((lb) => lb.block.id === focusTopId) === -1) {
+    const parentInfo = layout.blockParentMap.get(focusTopId);
+    if (!parentInfo) break;
+    focusTopId = parentInfo.tableBlockId;
+  }
+  const anchorIdx = layout.blocks.findIndex((lb) => lb.block.id === anchorTopId);
+  const focusIdx = layout.blocks.findIndex((lb) => lb.block.id === focusTopId);
   if (anchorIdx === -1 || focusIdx === -1) return null;
   if (anchorCellInfo || focusCellInfo) {
     // Both must be in the same cell for a valid selection
@@ -249,9 +259,11 @@ function buildRects(
   // Cell-internal selection
   const startCellInfo = layout.blockParentMap.get(start.blockId);
   const endCellInfo = layout.blockParentMap.get(end.blockId);
+
   if (startCellInfo && endCellInfo) {
     const startPixel = resolvePositionPixel(start, 'forward', paginatedLayout, layout, ctx, canvasWidth);
     const endPixel = resolvePositionPixel(end, 'backward', paginatedLayout, layout, ctx, canvasWidth);
+
     if (!startPixel || !endPixel) return [];
 
     if (startPixel.y === endPixel.y) {
