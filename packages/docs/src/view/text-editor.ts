@@ -1204,46 +1204,66 @@ export class TextEditor {
 
       const anchorCellInfo = this.getCellInfo(anchor.blockId);
       if (anchorCellInfo) {
-        const anchorCA: CellAddress = { rowIndex: anchorCellInfo.rowIndex, colIndex: anchorCellInfo.colIndex };
         const tableBlockId = anchorCellInfo.tableBlockId;
 
-        // Check if mouse is still in the same table
-        if (result.blockId === tableBlockId) {
-          const layout = this.getLayout();
-          const lb = layout.blocks.find((b) => b.block.id === tableBlockId);
-          if (lb?.layoutTable) {
-            const currentCA = this.resolveTableCellClick(tableBlockId, x, y + scrollY);
+        // Walk up the nesting chain to find the outermost table ID.
+        // For nested tables, result.blockId is always the top-level table,
+        // but tableBlockId may be an inner table.
+        let outermostTableId = tableBlockId;
+        while (true) {
+          const parentInfo = this.getLayout().blockParentMap.get(outermostTableId);
+          if (!parentInfo) break;
+          outermostTableId = parentInfo.tableBlockId;
+        }
 
-            if (currentCA &&
-                currentCA.rowIndex === anchorCA.rowIndex &&
-                currentCA.colIndex === anchorCA.colIndex) {
-              // Same cell — text selection mode
-              const resolved = this.resolveOffsetInCellAtXY(tableBlockId, anchorCA, x, y + scrollY);
-              pos = {
-                blockId: resolved.blockId,
-                offset: resolved.offset,
-              };
-            } else if (currentCA) {
-              // Different cell — cell-range mode
-              const tableData = this.doc.getBlock(tableBlockId).tableData!;
-              tableCellRange = expandCellRangeForMerges(
-                {
-                  blockId: tableBlockId,
-                  start: anchorCA,
-                  end: currentCA,
-                },
-                tableData,
-              );
-              // Cursor lands on the cell the user actually dragged to
-              // (resolveTableCellClick guarantees currentCA is a visible
-              // top-left, never a covered cell). The expanded range is for
-              // selection/highlighting only.
-              const targetCell = tableData.rows[currentCA.rowIndex]
-                .cells[currentCA.colIndex];
-              pos = {
-                blockId: targetCell.blocks[0].id,
-                offset: 0,
-              };
+        // Check if mouse is still in the same table (or its outermost ancestor)
+        if (result.blockId === tableBlockId || result.blockId === outermostTableId) {
+          // For nested tables, use the outermost table for coordinate
+          // resolution since resolveTableCellClick only works with
+          // top-level table blocks.
+          const resolveTableId = outermostTableId;
+          const layout = this.getLayout();
+          const lb = layout.blocks.find((b) => b.block.id === resolveTableId);
+          if (lb?.layoutTable) {
+            const outerCA = this.resolveTableCellClick(resolveTableId, x, y + scrollY);
+
+            if (outerCA) {
+              // Resolve the full position (handles nested tables internally)
+              const resolved = this.resolveOffsetInCellAtXY(resolveTableId, outerCA, x, y + scrollY);
+
+              // Check if resolved position is in the same cell as the anchor
+              const resolvedCellInfo = layout.blockParentMap.get(resolved.blockId);
+              const anchorTableId = anchorCellInfo.tableBlockId;
+              if (resolvedCellInfo &&
+                  resolvedCellInfo.tableBlockId === anchorTableId &&
+                  resolvedCellInfo.rowIndex === anchorCellInfo.rowIndex &&
+                  resolvedCellInfo.colIndex === anchorCellInfo.colIndex) {
+                // Same cell — text selection mode
+                pos = {
+                  blockId: resolved.blockId,
+                  offset: resolved.offset,
+                };
+              } else {
+                // Different cell — cell-range mode within the outermost table
+                const outerAnchorCA = this.findOuterCellAddress(anchor.blockId, resolveTableId);
+                if (outerAnchorCA) {
+                  const tableData = this.doc.getBlock(resolveTableId).tableData!;
+                  tableCellRange = expandCellRangeForMerges(
+                    {
+                      blockId: resolveTableId,
+                      start: outerAnchorCA,
+                      end: outerCA,
+                    },
+                    tableData,
+                  );
+                  const targetCell = tableData.rows[outerCA.rowIndex]
+                    .cells[outerCA.colIndex];
+                  pos = {
+                    blockId: targetCell.blocks[0].id,
+                    offset: 0,
+                  };
+                }
+              }
             }
           }
         } else {
@@ -2186,6 +2206,23 @@ export class TextEditor {
 
   private getCellInfo(blockId: string): BlockCellInfo | undefined {
     return this.getLayout().blockParentMap.get(blockId);
+  }
+
+  /**
+   * Walk up the blockParentMap chain from a (possibly nested) block to find
+   * its cell address within a specific outer table.
+   */
+  private findOuterCellAddress(blockId: string, outerTableId: string): CellAddress | undefined {
+    const map = this.getLayout().blockParentMap;
+    let currentId = blockId;
+    while (true) {
+      const info = map.get(currentId);
+      if (!info) return undefined;
+      if (info.tableBlockId === outerTableId) {
+        return { rowIndex: info.rowIndex, colIndex: info.colIndex };
+      }
+      currentId = info.tableBlockId;
+    }
   }
 
   // --- Helpers ---
