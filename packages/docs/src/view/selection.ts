@@ -155,9 +155,10 @@ function normalizeRange(
         anchorCellInfo.tableBlockId === focusCellInfo.tableBlockId &&
         anchorCellInfo.rowIndex === focusCellInfo.rowIndex &&
         anchorCellInfo.colIndex === focusCellInfo.colIndex) {
-      // Find cell block indices for ordering
-      const tableBlock = layout.blocks.find((b) => b.block.id === anchorCellInfo.tableBlockId);
-      const cell = tableBlock?.block.tableData?.rows[anchorCellInfo.rowIndex]?.cells[anchorCellInfo.colIndex];
+      // Find cell block indices for ordering — use resolveNestedTableLayout
+      // so nested table cells are found correctly.
+      const resolvedTable = resolveNestedTableLayout(anchorCellInfo.tableBlockId, layout);
+      const cell = resolvedTable?.dataBlock.tableData?.rows[anchorCellInfo.rowIndex]?.cells[anchorCellInfo.colIndex];
       const aCbi = cell ? cell.blocks.findIndex((b) => b.id === range.anchor.blockId) : 0;
       const fCbi = cell ? cell.blocks.findIndex((b) => b.id === range.focus.blockId) : 0;
       if (aCbi < fCbi || (aCbi === fCbi && range.anchor.offset <= range.focus.offset)) {

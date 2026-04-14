@@ -133,6 +133,15 @@ export function resolvePositionPixel(
             lineChars += run.text.length;
           }
           if (offsetRemaining <= lineChars) {
+            // At a wrap boundary, forward affinity belongs to the next line
+            if (
+              lineAffinity === 'forward' &&
+              offsetRemaining === lineChars &&
+              li < endLine - 1
+            ) {
+              offsetRemaining = 0;
+              continue;
+            }
             targetLineIdx = li;
             lineHeight = line.height;
             let chars = 0;

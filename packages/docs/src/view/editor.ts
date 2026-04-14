@@ -1853,6 +1853,14 @@ export function initialize(
       const cellInfo = layout.blockParentMap.get(pos.blockId);
 
       if (cellInfo) {
+        // Split the current block at the cursor so trailing text moves
+        // below the new table (matches the top-level insertion flow).
+        const cellBlock = doc.getBlock(pos.blockId);
+        const cellBlockLen = getBlockTextLength(cellBlock);
+        if (pos.offset > 0 && pos.offset < cellBlockLen) {
+          doc.splitBlock(pos.blockId, pos.offset);
+        }
+
         // Cursor is inside a table cell — insert nested table
         const innerBlock = doc.insertTableInCell(pos.blockId, rows, cols);
         const firstCellBlock = innerBlock.tableData!.rows[0].cells[0].blocks[0];

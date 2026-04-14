@@ -3,6 +3,7 @@ import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
 import { cachedMeasureText, applyAlignment, computeCharOffsets } from './layout.js';
 import { buildFont, ptToPx, Theme } from './theme.js';
+import { computeMergedCellLineLayouts } from './table-renderer.js';
 
 export interface LayoutTableCell {
   lines: LayoutLine[];
@@ -527,6 +528,7 @@ export function resolveNestedTableLayout(
       : path[path.indexOf(seg) + 1].tableBlockId;
 
     let nestedLine: LayoutLine | undefined;
+    let nestedLineIdx = -1;
     for (let li = 0; li < cell.lines.length; li++) {
       if (cell.lines[li].nestedTable) {
         let bi = 0;
@@ -535,14 +537,24 @@ export function resolveNestedTableLayout(
         }
         if (cellData?.blocks[bi]?.id === targetId) {
           nestedLine = cell.lines[li];
+          nestedLineIdx = li;
           break;
         }
       }
     }
-    if (!nestedLine?.nestedTable) return undefined;
+    if (!nestedLine?.nestedTable || nestedLineIdx < 0) return undefined;
+
+    // Use computeMergedCellLineLayouts for accurate Y positioning that
+    // accounts for merged-row redistribution and vertical alignment.
+    const rowSpan = cellData?.rowSpan ?? 1;
+    const lineLayouts = computeMergedCellLineLayouts(
+      cell.lines, rowIndex, rowSpan, cellPadding,
+      tl.rowYOffsets, tl.rowHeights,
+    );
+    const ll = lineLayouts[nestedLineIdx];
 
     xOffset += tl.columnXOffsets[colIndex] + cellPadding;
-    yOffset += tl.rowYOffsets[rowIndex] + cellPadding + nestedLine.y;
+    yOffset += ll ? ll.runLineY : (tl.rowYOffsets[rowIndex] + cellPadding + nestedLine.y);
 
     const nextBlock = cellData?.blocks.find((b) => b.id === targetId);
     if (!nextBlock?.tableData) return undefined;
