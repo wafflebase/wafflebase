@@ -3519,7 +3519,27 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: newCell.blocks[0].id, offset: 0 });
       return true;
     }
-    // ArrowRight: exit table — move to the block after the table
+    // Exit table — move to the block after the table.
+    // If this is a nested table, move to the next block in the parent cell
+    // or to the next cell in the outer table.
+    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    if (parentCellInfo) {
+      // Nested table — find the next block in the parent cell
+      const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
+      const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+      const idx = parentCell.blocks.findIndex(b => b.id === tableBlockId);
+      if (idx + 1 < parentCell.blocks.length) {
+        const nextBlock = parentCell.blocks[idx + 1];
+        this.cursor.moveTo({ blockId: nextBlock.id, offset: 0 });
+        return true;
+      }
+      // No more blocks in parent cell — navigate to the next cell in the
+      // outer table. Temporarily place the cursor on the first block of
+      // the parent cell so getCellInfo resolves to the outer table context.
+      this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
+      return this.moveToNextCell(addRowAtEnd);
+    }
+    // Top-level table — move to the block after the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     const nextId = this.doc.ensureBlockAfter(blockIndex);
     this.cursor.moveTo({ blockId: nextId, offset: 0 });
@@ -3560,7 +3580,25 @@ export class TextEditor {
         }
       }
     }
-    // At first cell — exit table, move to the block before the table
+    // At first cell — exit table.
+    // If nested, move to the previous block in the parent cell or
+    // to the previous cell in the outer table.
+    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    if (parentCellInfo) {
+      const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
+      const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+      const idx = parentCell.blocks.findIndex(b => b.id === tableBlockId);
+      if (idx > 0) {
+        const prevBlock = parentCell.blocks[idx - 1];
+        this.cursor.moveTo({ blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) });
+        return true;
+      }
+      // No blocks before this table in parent cell — navigate to previous
+      // cell in the outer table.
+      this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
+      return this.moveToPrevCell();
+    }
+    // Top-level table — move to the block before the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     if (blockIndex > 0) {
       const prevBlock = this.doc.document.blocks[blockIndex - 1];
