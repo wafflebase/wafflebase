@@ -15,6 +15,7 @@ import { computeScaleFactor } from './scale.js';
 import { buildFont, setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
+import { resolveNestedTableLayout } from './table-layout.js';
 import {
   collectImageRects,
   findImageAtPoint,
@@ -877,12 +878,12 @@ export function initialize(
       const dragOffset = imageResizeDrag.offset;
       const cellInfo = layout.blockParentMap.get(dragBlockId);
       if (cellInfo) {
-        const tableBlock = layout.blocks.find(
-          (b) => b.block.id === cellInfo.tableBlockId,
-        );
+        // Use resolveNestedTableLayout to find the correct LayoutTable
+        // for both top-level and nested table cells.
+        const resolved = resolveNestedTableLayout(cellInfo.tableBlockId, layout);
         const layoutCell =
-          tableBlock?.layoutTable?.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
-        const cellData = tableBlock?.block.tableData?.rows[cellInfo.rowIndex]
+          resolved?.layoutTable.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
+        const cellData = resolved?.dataBlock.tableData?.rows[cellInfo.rowIndex]
           ?.cells[cellInfo.colIndex];
         if (layoutCell && cellData) {
           const boundaries = layoutCell.blockBoundaries;

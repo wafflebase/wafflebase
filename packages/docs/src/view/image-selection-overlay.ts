@@ -353,6 +353,17 @@ function collectTableCellImageRects(
       if (!innerBlock) break;
 
       const line = layoutCell.lines[li];
+
+      // Recurse into nested tables
+      if (line.nestedTable && innerBlock?.type === 'table' && innerBlock.tableData) {
+        collectNestedTableImageRects(
+          innerBlock.tableData, line.nestedTable,
+          cellX + padding, cellY + padding + line.y,
+          out,
+        );
+        continue;
+      }
+
       for (const run of line.runs) {
         if (run.inline.style.image) {
           const drawHeight = run.imageHeight ?? line.height;
@@ -369,6 +380,73 @@ function collectTableCellImageRects(
     // lint would complain about the unused `cell.colSpan ?? 1` read
     // above without this explicit touch.
     void colSpan;
+  }
+}
+
+/**
+ * Recursively collect image rects from a nested table.
+ * Mirrors the coordinate math from `renderTableContent` for nested tables.
+ */
+function collectNestedTableImageRects(
+  tableData: import('../model/types.js').TableData,
+  layoutTable: import('./table-layout.js').LayoutTable,
+  tableX: number,
+  tableY: number,
+  out: Map<string, ImageRect>,
+): void {
+  for (let r = 0; r < layoutTable.cells.length; r++) {
+    for (let c = 0; c < layoutTable.cells[r].length; c++) {
+      const layoutCell = layoutTable.cells[r][c];
+      if (layoutCell.merged) continue;
+      const cell = tableData.rows[r]?.cells[c];
+      if (!cell) continue;
+      const rowSpan = cell.rowSpan ?? 1;
+      if (rowSpan > 1) continue;
+      const verticalAlign = cell.style?.verticalAlign ?? 'top';
+      if (verticalAlign !== 'top') continue;
+
+      const padding = cell.style?.padding ?? 4;
+      const cellX = tableX + layoutTable.columnXOffsets[c];
+      const cellY = tableY + layoutTable.rowYOffsets[r];
+
+      const boundaries = layoutCell.blockBoundaries;
+      let currentBlockIdx = 0;
+      let offsetInBlock = 0;
+      for (let li = 0; li < layoutCell.lines.length; li++) {
+        while (
+          currentBlockIdx + 1 < boundaries.length &&
+          boundaries[currentBlockIdx + 1] <= li
+        ) {
+          currentBlockIdx++;
+          offsetInBlock = 0;
+        }
+        const innerBlock = cell.blocks[currentBlockIdx];
+        if (!innerBlock) break;
+
+        const line = layoutCell.lines[li];
+
+        // Recurse into deeper nested tables
+        if (line.nestedTable && innerBlock.type === 'table' && innerBlock.tableData) {
+          collectNestedTableImageRects(
+            innerBlock.tableData, line.nestedTable,
+            cellX + padding, cellY + padding + line.y,
+            out,
+          );
+          continue;
+        }
+
+        for (const run of line.runs) {
+          if (run.inline.style.image) {
+            const drawHeight = run.imageHeight ?? line.height;
+            const x = cellX + padding + run.x;
+            const y = cellY + padding + line.y + line.height - drawHeight;
+            const key = `${innerBlock.id}:${offsetInBlock}`;
+            out.set(key, { x, y, width: run.width, height: drawHeight });
+          }
+          offsetInBlock += run.charEnd - run.charStart;
+        }
+      }
+    }
   }
 }
 
