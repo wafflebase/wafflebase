@@ -12,7 +12,10 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
 import {
   IconBold,
@@ -37,6 +40,7 @@ import {
   IconHash,
   IconFileDownload,
   IconPhoto,
+  IconDotsVertical,
 } from "@tabler/icons-react";
 import { TableGridPicker } from "./table-grid-picker";
 import { exportDocxAndDownload } from "./docx-actions";
@@ -244,6 +248,7 @@ interface DocsFormattingToolbarProps {
 }
 
 export function DocsFormattingToolbar({ editor, editContext = 'body', documentTitle }: DocsFormattingToolbarProps) {
+  const isMobile = useIsMobile();
   const [exporting, setExporting] = useState(false);
 
   const handleExportDocx = useCallback(async () => {
@@ -497,44 +502,48 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
 
       <ToolbarSeparator />
 
-      {/* ── Styles ── */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted"
-                aria-label="Text style"
-              >
-                <span className="truncate">
-                  {editor ? getBlockLabel(
-                    editor.getBlockType().type,
-                    editor.getBlockType().headingLevel,
-                  ) : "Normal text"}
-                </span>
-                <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
-              </button>
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Styles</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent className="w-[210px]">
-          {STYLE_OPTIONS.map((opt) => (
-            <DropdownMenuItem
-              key={opt.label}
-              className="flex items-center justify-between py-1"
-              onClick={() => handleBlockType(opt.type, opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined)}
-            >
-              <span className={opt.className}>{opt.label}</span>
-              {opt.shortcut && (
-                <span className="ml-4 text-[11px] text-muted-foreground">{modKey}+{opt.shortcut}</span>
-              )}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* ── Styles (desktop only) ── */}
+      {!isMobile && (
+        <>
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="inline-flex h-7 min-w-[110px] cursor-pointer items-center justify-between rounded-md px-2 text-xs hover:bg-muted"
+                    aria-label="Text style"
+                  >
+                    <span className="truncate">
+                      {editor ? getBlockLabel(
+                        editor.getBlockType().type,
+                        editor.getBlockType().headingLevel,
+                      ) : "Normal text"}
+                    </span>
+                    <IconChevronDown size={12} className="ml-1 shrink-0 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Styles</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent className="w-[210px]">
+              {STYLE_OPTIONS.map((opt) => (
+                <DropdownMenuItem
+                  key={opt.label}
+                  className="flex items-center justify-between py-1"
+                  onClick={() => handleBlockType(opt.type, opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined)}
+                >
+                  <span className={opt.className}>{opt.label}</span>
+                  {opt.shortcut && (
+                    <span className="ml-4 text-[11px] text-muted-foreground">{modKey}+{opt.shortcut}</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-      <ToolbarSeparator />
+          <ToolbarSeparator />
+        </>
+      )}
 
       {/* ── Font Styles ── */}
       <Tooltip>
@@ -649,131 +658,242 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <ToolbarSeparator />
+      {/* ── Insert / Block Styles / Export (desktop only) ── */}
+      {!isMobile && (
+        <>
+          <ToolbarSeparator />
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={handleInsertLink}
-            aria-label="Insert link"
-          >
-            <IconLink size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
-      </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={handleInsertLink}
+                aria-label="Insert link"
+              >
+                <IconLink size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Insert link ({modKey}+K)</TooltipContent>
+          </Tooltip>
 
-      <InsertImageDropdown editor={editor} />
+          <InsertImageDropdown editor={editor} />
 
-      <TableDropdown editor={editor} />
+          <TableDropdown editor={editor} />
 
-      <ToolbarSeparator />
+          <ToolbarSeparator />
 
-      {/* ── Block Styles ── */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
+          {/* ── Block Styles ── */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted"
+                    aria-label="Text alignment"
+                  >
+                    <IconAlignLeft size={16} />
+                    <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Text alignment</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent className="w-[200px]">
+              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
+                <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
+                <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
+                <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
+                <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
+                <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
+                <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
+                <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
+                <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={() => { editor?.toggleList("ordered"); editor?.focus(); }}
+                aria-label="Numbered list"
+              >
+                <IconListNumbers size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Numbered list ({modKey}+⇧7)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
+                aria-label="Bulleted list"
+              >
+                <IconList size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={() => { editor?.outdent(); editor?.focus(); }}
+                aria-label="Decrease indent"
+              >
+                <IconIndentDecrease size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Decrease indent ({modKey}+[)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={() => { editor?.indent(); editor?.focus(); }}
+                aria-label="Increase indent"
+              >
+                <IconIndentIncrease size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
+          </Tooltip>
+
+          <ToolbarSeparator />
+
+          {/* ── Export DOCX ── */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:opacity-50"
+                onClick={handleExportDocx}
+                disabled={!editor || exporting}
+                aria-label="Export as DOCX"
+              >
+                <IconFileDownload size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Export as DOCX</TooltipContent>
+          </Tooltip>
+        </>
+      )}
+
+      {/* ── Mobile overflow menu ── */}
+      {isMobile && (
+        <>
+          <ToolbarSeparator />
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted"
-                aria-label="Text alignment"
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                aria-label="More formatting options"
               >
-                <IconAlignLeft size={16} />
-                <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+                <IconDotsVertical size={16} />
               </button>
             </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Text alignment</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent className="w-[200px]">
-          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
-            <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
-            <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
-            <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
-            <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
-            <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
-            <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
-            <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
-            <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => { editor?.toggleList("ordered"); editor?.focus(); }}
-            aria-label="Numbered list"
-          >
-            <IconListNumbers size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Numbered list ({modKey}+⇧7)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}
-            aria-label="Bulleted list"
-          >
-            <IconList size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Bulleted list ({modKey}+⇧8)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => { editor?.outdent(); editor?.focus(); }}
-            aria-label="Decrease indent"
-          >
-            <IconIndentDecrease size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Decrease indent ({modKey}+[)</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
-            onClick={() => { editor?.indent(); editor?.focus(); }}
-            aria-label="Increase indent"
-          >
-            <IconIndentIncrease size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Increase indent ({modKey}+])</TooltipContent>
-      </Tooltip>
-
-      <ToolbarSeparator />
-
-      {/* ── Export DOCX ── */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:opacity-50"
-            onClick={handleExportDocx}
-            disabled={!editor || exporting}
-            aria-label="Export as DOCX"
-          >
-            <IconFileDownload size={16} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Export as DOCX</TooltipContent>
-      </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Styles</DropdownMenuLabel>
+              {STYLE_OPTIONS.map((opt) => (
+                <DropdownMenuItem
+                  key={opt.label}
+                  onClick={() =>
+                    handleBlockType(
+                      opt.type,
+                      opt.headingLevel ? { headingLevel: opt.headingLevel } : undefined,
+                    )
+                  }
+                >
+                  <span className={opt.className}>{opt.label}</span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Insert</DropdownMenuLabel>
+              <DropdownMenuItem onClick={handleInsertLink}>
+                <IconLink size={16} className="mr-2" />
+                Link
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.accept = "image/*";
+                  input.onchange = async (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (file && editor) {
+                      await insertImageFromFile(editor, file);
+                    }
+                  };
+                  input.click();
+                }}
+              >
+                <IconPhoto size={16} className="mr-2" />
+                Image
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  editor?.insertTable(3, 3);
+                  editor?.focus();
+                }}
+              >
+                <IconTable size={16} className="mr-2" />
+                Table (3×3)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Align</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => handleAlign("left")}>
+                <IconAlignLeft size={16} className="mr-2" />
+                Left
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAlign("center")}>
+                <IconAlignCenter size={16} className="mr-2" />
+                Center
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAlign("right")}>
+                <IconAlignRight size={16} className="mr-2" />
+                Right
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAlign("justify")}>
+                <IconAlignJustified size={16} className="mr-2" />
+                Justify
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>List</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => { editor?.toggleList("ordered"); editor?.focus(); }}>
+                <IconListNumbers size={16} className="mr-2" />
+                Numbered list
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { editor?.toggleList("unordered"); editor?.focus(); }}>
+                <IconList size={16} className="mr-2" />
+                Bulleted list
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { editor?.outdent(); editor?.focus(); }}>
+                <IconIndentDecrease size={16} className="mr-2" />
+                Decrease indent
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { editor?.indent(); editor?.focus(); }}>
+                <IconIndentIncrease size={16} className="mr-2" />
+                Increase indent
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleExportDocx} disabled={!editor || exporting}>
+                <IconFileDownload size={16} className="mr-2" />
+                Export as DOCX
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      )}
 
     </Toolbar>
   );
