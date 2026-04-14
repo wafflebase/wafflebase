@@ -13,6 +13,7 @@ import {
   Sref,
   Direction,
 } from '../model/core/types';
+import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';
 import { RangeStylePatch } from '../model/worksheet/range-styles';
 
 /**
@@ -73,7 +74,14 @@ export interface Store {
   /**
    * `getPresences` method gets the user presences.
    */
-  getPresences(): Array<{ clientID: string; presence: { activeCell: string; username?: string } }>;
+  getPresences(): Array<{
+    clientID: string;
+    presence: {
+      selection?: SelectionPresence;
+      activeCell?: string; // legacy fallback
+      username?: string;
+    };
+  }>;
 
   /**
    * `shiftCells` method shifts cells along the given axis.
@@ -203,9 +211,25 @@ export interface Store {
   getPivotDefinition(): Promise<PivotTableDefinition | undefined>;
 
   /**
+   * @deprecated Use `updateSelection` instead. Will be removed after migration.
    * `updateActiveCell` method updates the active cell of the current user.
    */
   updateActiveCell(activeCell: Ref): void;
+
+  /**
+   * `updateSelection` updates the selection of the current user in presence.
+   */
+  updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]): void;
+
+  /**
+   * `getRowOrder` returns the current row axis ID ordering.
+   */
+  getRowOrder(): string[];
+
+  /**
+   * `getColOrder` returns the current column axis ID ordering.
+   */
+  getColOrder(): string[];
 
   /**
    * `setFreezePane` method sets the freeze pane position.

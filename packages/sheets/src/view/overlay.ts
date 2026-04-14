@@ -138,7 +138,7 @@ export class Overlay {
     activeCell: Ref,
     peerPresences: Array<{
       clientID: string;
-      presence: { activeCell: string; username?: string };
+      presence: { activeCell?: string; username?: string };
     }>,
     ranges?: Ranges,
     rowDim?: DimensionIndex,
@@ -602,7 +602,7 @@ export class Overlay {
   private renderPeerCursorsSimple(
     ctx: CanvasRenderingContext2D,
     port: BoundingRect,
-    peerPresences: Array<{ clientID: string; presence: { activeCell: string; username?: string } }>,
+    peerPresences: Array<{ clientID: string; presence: { activeCell?: string; username?: string } }>,
     scroll: { left: number; top: number },
     rowDim?: DimensionIndex,
     colDim?: DimensionIndex,

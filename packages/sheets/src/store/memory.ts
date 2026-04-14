@@ -40,6 +40,7 @@ import {
   Direction,
   FilterState,
 } from '../model/core/types';
+import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
@@ -296,7 +297,11 @@ export class MemStore implements Store {
    */
   getPresences(): Array<{
     clientID: string;
-    presence: { activeCell: string; username?: string };
+    presence: {
+      selection?: SelectionPresence;
+      activeCell?: string;
+      username?: string;
+    };
   }> {
     return [];
   }
@@ -317,9 +322,22 @@ export class MemStore implements Store {
   /**
    * `updateActiveCell` method updates the active cell of the current user.
    * For MemStore, this is a no-op since it's not connected to real-time collaboration.
+   * @deprecated Use `updateSelection` instead.
    */
   updateActiveCell(_: Ref): void {
     // No-op for memory store
+  }
+
+  updateSelection(_activeCell: CellAnchor, _ranges: RangeAnchor[]): void {
+    // No-op for memory store
+  }
+
+  getRowOrder(): string[] {
+    return [];
+  }
+
+  getColOrder(): string[] {
+    return [];
   }
 
   async setColumnStyle(col: number, style: CellStyle): Promise<void> {

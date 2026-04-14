@@ -2634,7 +2634,11 @@ export class Sheet {
    */
   getPresences(): Array<{
     clientID: string;
-    presence: { activeCell: string; username?: string };
+    presence: {
+      selection?: import('../workbook/anchor-conversion').SelectionPresence;
+      activeCell?: string;
+      username?: string;
+    };
   }> {
     return this.store.getPresences();
   }
