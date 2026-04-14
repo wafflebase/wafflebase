@@ -132,6 +132,15 @@ import {
   createWorksheetCellKey,
   parseWorksheetCellKey,
 } from './model/workbook/worksheet-record';
+import {
+  type CellAnchor,
+  type RangeAnchor,
+  type SelectionPresence,
+  anchorToRef,
+  refToAnchor,
+  rangeAnchorToRange,
+  rangeToRangeAnchor,
+} from './model/workbook/anchor-conversion';
 import { calculatePivot, materialize } from './model/pivot/index';
 import { parseSourceData } from './model/pivot/parse';
 import { parseRange } from './model/core/coordinates';
@@ -235,6 +244,10 @@ export {
   createSpreadsheetDocument,
   initialSpreadsheetDocument,
   getPeerCursorColor,
+  anchorToRef,
+  refToAnchor,
+  rangeAnchorToRange,
+  rangeToRangeAnchor,
 };
 
 export type {
@@ -289,4 +302,7 @@ export type {
   SheetKind,
   TabMeta,
   SpreadsheetDocument,
+  CellAnchor,
+  RangeAnchor,
+  SelectionPresence,
 };
