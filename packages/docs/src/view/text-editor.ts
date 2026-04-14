@@ -2306,6 +2306,21 @@ export class TextEditor {
   }
 
   /**
+   * Get the last cursor position in a cell, entering nested tables if the
+   * last block is a table.
+   */
+  private lastPositionInCell(cell: import('../model/types.js').TableCell): DocPosition {
+    let lastBlock = cell.blocks[cell.blocks.length - 1];
+    while (lastBlock.type === 'table' && lastBlock.tableData) {
+      const td = lastBlock.tableData;
+      const lastRow = td.rows[td.rows.length - 1];
+      const lastCell = lastRow.cells[lastRow.cells.length - 1];
+      lastBlock = lastCell.blocks[lastCell.blocks.length - 1];
+    }
+    return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+  }
+
+  /**
    * Walk up the blockParentMap chain from a (possibly nested) block to find
    * its cell address within a specific outer table.
    */
@@ -3115,8 +3130,7 @@ export class TextEditor {
     for (let c = cellInfo.colIndex - 1; c >= 0; c--) {
       const cell = td.rows[cellInfo.rowIndex]?.cells[c];
       if (cell && cell.colSpan !== 0) {
-        const lastBlock = cell.blocks[cell.blocks.length - 1];
-        return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+        return this.lastPositionInCell(cell);
       }
     }
     // Try previous rows
@@ -3124,8 +3138,7 @@ export class TextEditor {
       for (let c = td.columnWidths.length - 1; c >= 0; c--) {
         const cell = td.rows[r]?.cells[c];
         if (cell && cell.colSpan !== 0) {
-          const lastBlock = cell.blocks[cell.blocks.length - 1];
-          return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+          return this.lastPositionInCell(cell);
         }
       }
     }
@@ -3681,8 +3694,7 @@ export class TextEditor {
     for (let c = colIndex - 1; c >= 0; c--) {
       const cell = td.rows[rowIndex]?.cells[c];
       if (cell && cell.colSpan !== 0) {
-        const lastBlock = cell.blocks[cell.blocks.length - 1];
-        this.cursor.moveTo({ blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) });
+        this.cursor.moveTo(this.lastPositionInCell(cell));
         return true;
       }
     }
@@ -3691,8 +3703,7 @@ export class TextEditor {
       for (let c = td.columnWidths.length - 1; c >= 0; c--) {
         const cell = td.rows[r]?.cells[c];
         if (cell && cell.colSpan !== 0) {
-          const lastBlock = cell.blocks[cell.blocks.length - 1];
-          this.cursor.moveTo({ blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) });
+          this.cursor.moveTo(this.lastPositionInCell(cell));
           return true;
         }
       }
