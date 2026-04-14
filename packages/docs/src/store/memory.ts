@@ -213,7 +213,37 @@ export class MemDocStore implements DocStore {
       const fIdx = this.doc.footer.blocks.findIndex((b) => b.id === id);
       if (fIdx !== -1) return { blocks: this.doc.footer.blocks, index: fIdx };
     }
+    // Recursively search inside table cells (supports nested tables)
+    const nested = this.findBlockInTableCells(id, this.doc.blocks);
+    if (nested) return nested;
+    if (this.doc.header) {
+      const hNested = this.findBlockInTableCells(id, this.doc.header.blocks);
+      if (hNested) return hNested;
+    }
+    if (this.doc.footer) {
+      const fNested = this.findBlockInTableCells(id, this.doc.footer.blocks);
+      if (fNested) return fNested;
+    }
     throw new Error(`Block not found: ${id}`);
+  }
+
+  private findBlockInTableCells(
+    id: string,
+    blocks: Block[],
+  ): { blocks: Block[]; index: number } | undefined {
+    for (const block of blocks) {
+      if (!block.tableData) continue;
+      for (const row of block.tableData.rows) {
+        for (const cell of row.cells) {
+          const idx = cell.blocks.findIndex((b) => b.id === id);
+          if (idx !== -1) return { blocks: cell.blocks, index: idx };
+          // Recurse into nested tables
+          const nested = this.findBlockInTableCells(id, cell.blocks);
+          if (nested) return nested;
+        }
+      }
+    }
+    return undefined;
   }
 
   private pushUndo(): void {

@@ -15,6 +15,7 @@ import { computeScaleFactor } from './scale.js';
 import { buildFont, setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
+import { resolveNestedTableLayout } from './table-layout.js';
 import {
   collectImageRects,
   findImageAtPoint,
@@ -877,12 +878,12 @@ export function initialize(
       const dragOffset = imageResizeDrag.offset;
       const cellInfo = layout.blockParentMap.get(dragBlockId);
       if (cellInfo) {
-        const tableBlock = layout.blocks.find(
-          (b) => b.block.id === cellInfo.tableBlockId,
-        );
+        // Use resolveNestedTableLayout to find the correct LayoutTable
+        // for both top-level and nested table cells.
+        const resolved = resolveNestedTableLayout(cellInfo.tableBlockId, layout);
         const layoutCell =
-          tableBlock?.layoutTable?.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
-        const cellData = tableBlock?.block.tableData?.rows[cellInfo.rowIndex]
+          resolved?.layoutTable.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
+        const cellData = resolved?.dataBlock.tableData?.rows[cellInfo.rowIndex]
           ?.cells[cellInfo.colIndex];
         if (layoutCell && cellData) {
           const boundaries = layoutCell.blockBoundaries;
@@ -1849,6 +1850,27 @@ export function initialize(
     insertTable: (rows: number, cols: number) => {
       docStore.snapshot();
       const pos = cursor.position;
+      const cellInfo = layout.blockParentMap.get(pos.blockId);
+
+      if (cellInfo) {
+        // Split the current block at the cursor so trailing text moves
+        // below the new table (matches the top-level insertion flow).
+        const cellBlock = doc.getBlock(pos.blockId);
+        const cellBlockLen = getBlockTextLength(cellBlock);
+        if (pos.offset > 0 && pos.offset < cellBlockLen) {
+          doc.splitBlock(pos.blockId, pos.offset);
+        }
+
+        // Cursor is inside a table cell — insert nested table
+        const innerBlock = doc.insertTableInCell(pos.blockId, rows, cols);
+        const firstCellBlock = innerBlock.tableData!.rows[0].cells[0].blocks[0];
+        cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 });
+        invalidateLayout();
+        render();
+        return;
+      }
+
+      // Top-level table insertion (existing logic)
       const block = doc.getBlock(pos.blockId);
       const blockLen = getBlockTextLength(block);
 
@@ -1874,15 +1896,25 @@ export function initialize(
     deleteTable: () => {
       const cellInfo = layout.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
-      const blockId = cellInfo.tableBlockId;
-      const blockIndex = doc.getBlockIndex(blockId);
+      const tableBlockId = cellInfo.tableBlockId;
       docStore.snapshot();
-      doc.deleteBlock(blockId);
-      // Move cursor to nearest block
-      const blocks = doc.document.blocks;
-      if (blocks.length > 0) {
-        const newIndex = Math.min(blockIndex, blocks.length - 1);
-        cursor.moveTo({ blockId: blocks[newIndex].id, offset: 0 });
+
+      // Check if this table is itself nested inside a cell
+      const parentCellInfo = layout.blockParentMap.get(tableBlockId);
+      if (parentCellInfo) {
+        // Nested table — remove from parent cell's blocks
+        const cursorBlockId = doc.deleteTableInCell(tableBlockId);
+        cursor.moveTo({ blockId: cursorBlockId, offset: 0 });
+      } else {
+        // Top-level table (existing logic)
+        const blockIndex = doc.getBlockIndex(tableBlockId);
+        doc.deleteBlock(tableBlockId);
+        // Move cursor to nearest block
+        const blocks = doc.document.blocks;
+        if (blocks.length > 0) {
+          const newIndex = Math.min(blockIndex, blocks.length - 1);
+          cursor.moveTo({ blockId: blocks[newIndex].id, offset: 0 });
+        }
       }
       invalidateLayout();
       render();

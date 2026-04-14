@@ -35,6 +35,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-table-ui.md](docs/docs-table-ui.md)                                        | Docs table UI — grid picker, context menu, IME cell routing                                       |
 | [docs-table-crdt.md](docs/docs-table-crdt.md)                                    | Table CRDT collaboration — Tree node structure, container cells, concurrent editing               |
 | [docs-table-resize.md](docs/docs-table-resize.md)                                | Docs table resize — column/row border drag handles, guideline rendering                           |
+| [docs-nested-tables.md](docs/docs-nested-tables.md)                              | Nested tables — recursive nesting, layout, rendering, editing, CRDT synchronization               |
 | [docs-image-editing.md](docs/docs-image-editing.md)                              | Docs image editing — toolbar insert, selection handles, resize, rotation, crop, Image Options panel |
 | [docs-frontend-integration.md](docs/docs-frontend-integration.md)                | Docs frontend integration — document type field, list UI, routing, backend API changes            |
 | [docs-collaboration.md](docs/docs-collaboration.md)                              | Docs collaboration design                                                                         |

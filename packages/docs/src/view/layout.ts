@@ -83,6 +83,7 @@ export interface LayoutLine {
   y: number;
   height: number;
   width: number;
+  nestedTable?: LayoutTable;
 }
 
 /**

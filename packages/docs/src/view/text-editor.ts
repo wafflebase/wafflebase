@@ -978,6 +978,7 @@ export class TextEditor {
 
     // Table cell click detection: resolve which cell was clicked
     const clickedBlock = this.doc.document.blocks.find((b) => b.id === pos.blockId);
+
     if (clickedBlock?.type === 'table' && clickedBlock.tableData) {
       const layout = this.getLayout();
       const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
@@ -1031,6 +1032,7 @@ export class TextEditor {
             // Single click — resolve character offset from mouse position
             const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
             const cellPos: DocPosition = { blockId: resolved.blockId, offset: resolved.offset };
+
             this.cursor.moveTo(cellPos);
             // Set anchor for drag selection (same as non-cell single click)
             this.selection.setRange({ anchor: cellPos, focus: cellPos });
@@ -1203,47 +1205,90 @@ export class TextEditor {
       let tableCellRange: DocRange['tableCellRange'] = undefined;
 
       const anchorCellInfo = this.getCellInfo(anchor.blockId);
+
       if (anchorCellInfo) {
-        const anchorCA: CellAddress = { rowIndex: anchorCellInfo.rowIndex, colIndex: anchorCellInfo.colIndex };
         const tableBlockId = anchorCellInfo.tableBlockId;
 
-        // Check if mouse is still in the same table
-        if (result.blockId === tableBlockId) {
-          const layout = this.getLayout();
-          const lb = layout.blocks.find((b) => b.block.id === tableBlockId);
-          if (lb?.layoutTable) {
-            const currentCA = this.resolveTableCellClick(tableBlockId, x, y + scrollY);
+        // Walk up the nesting chain to find the outermost table ID.
+        // For nested tables, result.blockId is always the top-level table,
+        // but tableBlockId may be an inner table.
+        let outermostTableId = tableBlockId;
+        while (true) {
+          const parentInfo = this.getLayout().blockParentMap.get(outermostTableId);
+          if (!parentInfo) break;
+          outermostTableId = parentInfo.tableBlockId;
+        }
 
-            if (currentCA &&
-                currentCA.rowIndex === anchorCA.rowIndex &&
-                currentCA.colIndex === anchorCA.colIndex) {
-              // Same cell — text selection mode
-              const resolved = this.resolveOffsetInCellAtXY(tableBlockId, anchorCA, x, y + scrollY);
-              pos = {
-                blockId: resolved.blockId,
-                offset: resolved.offset,
-              };
-            } else if (currentCA) {
-              // Different cell — cell-range mode
-              const tableData = this.doc.getBlock(tableBlockId).tableData!;
-              tableCellRange = expandCellRangeForMerges(
-                {
-                  blockId: tableBlockId,
-                  start: anchorCA,
-                  end: currentCA,
-                },
-                tableData,
-              );
-              // Cursor lands on the cell the user actually dragged to
-              // (resolveTableCellClick guarantees currentCA is a visible
-              // top-left, never a covered cell). The expanded range is for
-              // selection/highlighting only.
-              const targetCell = tableData.rows[currentCA.rowIndex]
-                .cells[currentCA.colIndex];
-              pos = {
-                blockId: targetCell.blocks[0].id,
-                offset: 0,
-              };
+        // Check if mouse is still in the same table (or its outermost ancestor)
+
+        if (result.blockId === tableBlockId || result.blockId === outermostTableId) {
+          // For nested tables, use the outermost table for coordinate
+          // resolution since resolveTableCellClick only works with
+          // top-level table blocks.
+          const resolveTableId = outermostTableId;
+          const layout = this.getLayout();
+          const lb = layout.blocks.find((b) => b.block.id === resolveTableId);
+          if (lb?.layoutTable) {
+            const outerCA = this.resolveTableCellClick(resolveTableId, x, y + scrollY);
+
+            if (outerCA) {
+              // Resolve the full position (handles nested tables internally)
+              const resolved = this.resolveOffsetInCellAtXY(resolveTableId, outerCA, x, y + scrollY);
+
+              // Check if resolved position is in the same cell as the anchor
+              const resolvedCellInfo = layout.blockParentMap.get(resolved.blockId);
+              const anchorTableId = anchorCellInfo.tableBlockId;
+
+              if (resolvedCellInfo &&
+                  resolvedCellInfo.tableBlockId === anchorTableId &&
+                  resolvedCellInfo.rowIndex === anchorCellInfo.rowIndex &&
+                  resolvedCellInfo.colIndex === anchorCellInfo.colIndex) {
+                // Same cell — text selection mode
+                pos = {
+                  blockId: resolved.blockId,
+                  offset: resolved.offset,
+                };
+              } else if (resolvedCellInfo &&
+                  resolvedCellInfo.tableBlockId === anchorTableId) {
+                // Different cell in the SAME table (e.g., inner table
+                // cell-range selection) — use that table for cell-range mode
+                const innerTableData = this.doc.getBlock(anchorTableId).tableData!;
+                tableCellRange = expandCellRangeForMerges(
+                  {
+                    blockId: anchorTableId,
+                    start: { rowIndex: anchorCellInfo.rowIndex, colIndex: anchorCellInfo.colIndex },
+                    end: { rowIndex: resolvedCellInfo.rowIndex, colIndex: resolvedCellInfo.colIndex },
+                  },
+                  innerTableData,
+                );
+                const targetCell = innerTableData.rows[resolvedCellInfo.rowIndex]
+                  .cells[resolvedCellInfo.colIndex];
+                pos = {
+                  blockId: targetCell.blocks[0].id,
+                  offset: 0,
+                };
+              } else {
+                // Different cell in different tables or outer table —
+                // cell-range mode within the outermost table
+                const outerAnchorCA = this.findOuterCellAddress(anchor.blockId, resolveTableId);
+                if (outerAnchorCA) {
+                  const tableData = this.doc.getBlock(resolveTableId).tableData!;
+                  tableCellRange = expandCellRangeForMerges(
+                    {
+                      blockId: resolveTableId,
+                      start: outerAnchorCA,
+                      end: outerCA,
+                    },
+                    tableData,
+                  );
+                  const targetCell = tableData.rows[outerCA.rowIndex]
+                    .cells[outerCA.colIndex];
+                  pos = {
+                    blockId: targetCell.blocks[0].id,
+                    offset: 0,
+                  };
+                }
+              }
             }
           }
         } else {
@@ -1828,28 +1873,75 @@ export class TextEditor {
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
         const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
         if (blockIdx > 0) {
-          // Move to previous block within the same cell
           const prevBlock = cell.blocks[blockIdx - 1];
-          const prevLen = getBlockTextLength(prevBlock);
-          newPos = {
-            blockId: prevBlock.id,
-            offset: Math.min(pos.offset, prevLen),
-          };
+          // If previous block is a nested table, enter its last row
+          if (prevBlock.type === 'table' && prevBlock.tableData) {
+            const td = prevBlock.tableData;
+            const lastRow = td.rows.length - 1;
+            const lastCell = td.rows[lastRow].cells[arrowCellInfo.colIndex < td.columnWidths.length ? arrowCellInfo.colIndex : 0];
+            const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
+            newPos = {
+              blockId: lastCellBlock.id,
+              offset: Math.min(pos.offset, getBlockTextLength(lastCellBlock)),
+            };
+          } else {
+            newPos = {
+              blockId: prevBlock.id,
+              offset: Math.min(pos.offset, getBlockTextLength(prevBlock)),
+            };
+          }
         } else {
           // At first block — move to cell above or exit table
           if (arrowCellInfo.rowIndex > 0) {
             const aboveCell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex - 1].cells[arrowCellInfo.colIndex];
             const lastBlock = aboveCell.blocks[aboveCell.blocks.length - 1];
-            const lastBlockLen = getBlockTextLength(lastBlock);
-            newPos = {
-              blockId: lastBlock.id,
-              offset: Math.min(pos.offset, lastBlockLen),
-            };
+            // If last block is a nested table, enter it
+            if (lastBlock.type === 'table' && lastBlock.tableData) {
+              const td = lastBlock.tableData;
+              const lastRow = td.rows.length - 1;
+              const col = Math.min(arrowCellInfo.colIndex, td.columnWidths.length - 1);
+              const innerCell = td.rows[lastRow].cells[col];
+              const innerBlock = innerCell.blocks[innerCell.blocks.length - 1];
+              newPos = {
+                blockId: innerBlock.id,
+                offset: Math.min(pos.offset, getBlockTextLength(innerBlock)),
+              };
+            } else {
+              newPos = {
+                blockId: lastBlock.id,
+                offset: Math.min(pos.offset, getBlockTextLength(lastBlock)),
+              };
+            }
           } else {
-            const blockIndex = this.doc.getBlockIndex(tableBlockId);
-            if (blockIndex > 0) {
-              const prevBlock = this.doc.document.blocks[blockIndex - 1];
-              newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+            // Exit table upward
+            const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+            if (parentCellInfo) {
+              // Nested table — move to the block before this table in parent cell
+              const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
+              const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+              const idx = parentCell.blocks.findIndex(b => b.id === tableBlockId);
+              if (idx > 0) {
+                const prevBlock = parentCell.blocks[idx - 1];
+                newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+              } else if (parentCellInfo.rowIndex > 0) {
+                // Move to the cell above in the outer table
+                const aboveCell = parentTable.tableData!.rows[parentCellInfo.rowIndex - 1].cells[parentCellInfo.colIndex];
+                const lastBlock = aboveCell.blocks[aboveCell.blocks.length - 1];
+                newPos = { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+              } else {
+                // Exit outer table
+                const outerIdx = this.doc.getBlockIndex(parentCellInfo.tableBlockId);
+                if (outerIdx > 0) {
+                  const prevBlock = this.doc.document.blocks[outerIdx - 1];
+                  newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+                }
+              }
+            } else {
+              const blockIndex = this.doc.getBlockIndex(tableBlockId);
+              if (blockIndex > 0) {
+                const prevBlock = this.doc.document.blocks[blockIndex - 1];
+                newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
+              }
             }
           }
         }
@@ -1858,27 +1950,72 @@ export class TextEditor {
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
         const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
         if (blockIdx < cell.blocks.length - 1) {
-          // Move to next block within the same cell
           const nextBlock = cell.blocks[blockIdx + 1];
-          const nextLen = getBlockTextLength(nextBlock);
-          newPos = {
-            blockId: nextBlock.id,
-            offset: Math.min(pos.offset, nextLen),
-          };
+          // If next block is a nested table, enter its first row
+          if (nextBlock.type === 'table' && nextBlock.tableData) {
+            const td = nextBlock.tableData;
+            const col = Math.min(arrowCellInfo.colIndex, td.columnWidths.length - 1);
+            const firstCellBlock = td.rows[0].cells[col].blocks[0];
+            newPos = {
+              blockId: firstCellBlock.id,
+              offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)),
+            };
+          } else {
+            newPos = {
+              blockId: nextBlock.id,
+              offset: Math.min(pos.offset, getBlockTextLength(nextBlock)),
+            };
+          }
         } else {
           // At last block — move to cell below or exit table
           const td = tableBlock.tableData!;
           if (arrowCellInfo.rowIndex < td.rows.length - 1) {
             const belowCell = td.rows[arrowCellInfo.rowIndex + 1].cells[arrowCellInfo.colIndex];
             const firstBlock = belowCell.blocks[0];
-            newPos = {
-              blockId: firstBlock.id,
-              offset: Math.min(pos.offset, getBlockTextLength(firstBlock)),
-            };
+            // If first block is a nested table, enter it
+            if (firstBlock.type === 'table' && firstBlock.tableData) {
+              const innerTd = firstBlock.tableData;
+              const col = Math.min(arrowCellInfo.colIndex, innerTd.columnWidths.length - 1);
+              const innerBlock = innerTd.rows[0].cells[col].blocks[0];
+              newPos = {
+                blockId: innerBlock.id,
+                offset: Math.min(pos.offset, getBlockTextLength(innerBlock)),
+              };
+            } else {
+              newPos = {
+                blockId: firstBlock.id,
+                offset: Math.min(pos.offset, getBlockTextLength(firstBlock)),
+              };
+            }
           } else {
-            const blockIndex = this.doc.getBlockIndex(tableBlockId);
-            const nextId = this.doc.ensureBlockAfter(blockIndex);
-            newPos = { blockId: nextId, offset: 0 };
+            // Exit table downward
+            const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+            if (parentCellInfo) {
+              // Nested table — move to the block after this table in parent cell
+              const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
+              const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+              const idx = parentCell.blocks.findIndex(b => b.id === tableBlockId);
+              if (idx + 1 < parentCell.blocks.length) {
+                const nextBlock = parentCell.blocks[idx + 1];
+                newPos = { blockId: nextBlock.id, offset: 0 };
+              } else {
+                // No more blocks — move to cell below in outer table
+                const outerTd = parentTable.tableData!;
+                if (parentCellInfo.rowIndex < outerTd.rows.length - 1) {
+                  const belowCell = outerTd.rows[parentCellInfo.rowIndex + 1].cells[parentCellInfo.colIndex];
+                  newPos = { blockId: belowCell.blocks[0].id, offset: 0 };
+                } else {
+                  // Exit outer table
+                  const outerIdx = this.doc.getBlockIndex(parentCellInfo.tableBlockId);
+                  const nextId = this.doc.ensureBlockAfter(outerIdx);
+                  newPos = { blockId: nextId, offset: 0 };
+                }
+              }
+            } else {
+              const blockIndex = this.doc.getBlockIndex(tableBlockId);
+              const nextId = this.doc.ensureBlockAfter(blockIndex);
+              newPos = { blockId: nextId, offset: 0 };
+            }
           }
         }
       }
@@ -2186,6 +2323,38 @@ export class TextEditor {
 
   private getCellInfo(blockId: string): BlockCellInfo | undefined {
     return this.getLayout().blockParentMap.get(blockId);
+  }
+
+  /**
+   * Get the last cursor position in a cell, entering nested tables if the
+   * last block is a table.
+   */
+  private lastPositionInCell(cell: import('../model/types.js').TableCell): DocPosition {
+    let lastBlock = cell.blocks[cell.blocks.length - 1];
+    while (lastBlock.type === 'table' && lastBlock.tableData) {
+      const td = lastBlock.tableData;
+      const lastRow = td.rows[td.rows.length - 1];
+      const lastCell = lastRow.cells[lastRow.cells.length - 1];
+      lastBlock = lastCell.blocks[lastCell.blocks.length - 1];
+    }
+    return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+  }
+
+  /**
+   * Walk up the blockParentMap chain from a (possibly nested) block to find
+   * its cell address within a specific outer table.
+   */
+  private findOuterCellAddress(blockId: string, outerTableId: string): CellAddress | undefined {
+    const map = this.getLayout().blockParentMap;
+    let currentId = blockId;
+    while (true) {
+      const info = map.get(currentId);
+      if (!info) return undefined;
+      if (info.tableBlockId === outerTableId) {
+        return { rowIndex: info.rowIndex, colIndex: info.colIndex };
+      }
+      currentId = info.tableBlockId;
+    }
   }
 
   // --- Helpers ---
@@ -2604,6 +2773,15 @@ export class TextEditor {
       const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
       if (blockIdx > 0) {
         const prevBlock = cell.blocks[blockIdx - 1];
+        // If previous block is a nested table, enter its last cell
+        if (prevBlock.type === 'table' && prevBlock.tableData) {
+          const td = prevBlock.tableData;
+          const lastRow = td.rows.length - 1;
+          const lastCol = td.columnWidths.length - 1;
+          const lastCell = td.rows[lastRow].cells[lastCol];
+          const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
+          return { blockId: lastCellBlock.id, offset: getBlockTextLength(lastCellBlock) };
+        }
         return { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
       }
       return pos; // Clamp at cell start
@@ -2642,7 +2820,12 @@ export class TextEditor {
       const tableCell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
       const blockIdx = tableCell.blocks.findIndex(b => b.id === pos.blockId);
       if (blockIdx + 1 < tableCell.blocks.length) {
-        return { blockId: tableCell.blocks[blockIdx + 1].id, offset: 0 };
+        const nextBlock = tableCell.blocks[blockIdx + 1];
+        // If next block is a nested table, enter its first cell
+        if (nextBlock.type === 'table' && nextBlock.tableData) {
+          return { blockId: nextBlock.tableData.rows[0].cells[0].blocks[0].id, offset: 0 };
+        }
+        return { blockId: nextBlock.id, offset: 0 };
       }
       return pos; // Clamp at cell end
     }
@@ -2888,6 +3071,19 @@ export class TextEditor {
   }
 
   private getPositionBeforeTable(tableBlockId: string): DocPosition | undefined {
+    // For nested tables, find the previous block in the parent cell
+    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    if (parentCellInfo) {
+      const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
+      const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+      const idx = parentCell.blocks.findIndex(b => b.id === tableBlockId);
+      if (idx > 0) {
+        const prev = parentCell.blocks[idx - 1];
+        return { blockId: prev.id, offset: getBlockTextLength(prev) };
+      }
+      // No block before — use getPrevCellLastPosition on parent table
+      return this.getPrevCellLastPosition(parentCellInfo);
+    }
     const idx = this.doc.getBlockIndex(tableBlockId);
     if (idx > 0) {
       const prev = this.doc.document.blocks[idx - 1];
@@ -2897,6 +3093,18 @@ export class TextEditor {
   }
 
   private getPositionAfterTable(tableBlockId: string): DocPosition | undefined {
+    // For nested tables, find the next block in the parent cell
+    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    if (parentCellInfo) {
+      const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
+      const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+      const idx = parentCell.blocks.findIndex(b => b.id === tableBlockId);
+      if (idx + 1 < parentCell.blocks.length) {
+        return { blockId: parentCell.blocks[idx + 1].id, offset: 0 };
+      }
+      // No block after — use getNextCellFirstPosition on parent table
+      return this.getNextCellFirstPosition(parentCellInfo);
+    }
     const idx = this.doc.getBlockIndex(tableBlockId);
     const blocks = this.doc.document.blocks;
     if (idx < blocks.length - 1) {
@@ -2942,8 +3150,7 @@ export class TextEditor {
     for (let c = cellInfo.colIndex - 1; c >= 0; c--) {
       const cell = td.rows[cellInfo.rowIndex]?.cells[c];
       if (cell && cell.colSpan !== 0) {
-        const lastBlock = cell.blocks[cell.blocks.length - 1];
-        return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+        return this.lastPositionInCell(cell);
       }
     }
     // Try previous rows
@@ -2951,8 +3158,7 @@ export class TextEditor {
       for (let c = td.columnWidths.length - 1; c >= 0; c--) {
         const cell = td.rows[r]?.cells[c];
         if (cell && cell.colSpan !== 0) {
-          const lastBlock = cell.blocks[cell.blocks.length - 1];
-          return { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
+          return this.lastPositionInCell(cell);
         }
       }
     }
@@ -3261,6 +3467,141 @@ export class TextEditor {
     // Resolve X within the target line
     const ctx = this.getCtx();
     const targetLine = cell.lines[targetLineIdx];
+
+    // Handle nested table: resolve click into the inner table
+    if (targetLine?.nestedTable) {
+      const innerLayout = targetLine.nestedTable;
+      const innerBlock = dataBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex].blocks[currentBlockIndex];
+      if (innerBlock?.tableData) {
+        // Find inner column from local X within the inner table
+        const innerLocalX = localX;
+        let innerCol = innerLayout.columnPixelWidths.length - 1;
+        for (let c = 0; c < innerLayout.columnXOffsets.length; c++) {
+          if (innerLocalX < innerLayout.columnXOffsets[c] + innerLayout.columnPixelWidths[c]) {
+            innerCol = c;
+            break;
+          }
+        }
+
+        // Find inner row from Y within the inner table
+        let innerRow = innerLayout.rowHeights.length - 1;
+        let innerTableAbsY = 0;
+        if (logicalY !== undefined) {
+          // Compute the inner table's absolute Y origin
+          const lineLayouts = computeMergedCellLineLayouts(
+            cell.lines, cellAddr.rowIndex, dataCell?.rowSpan ?? 1,
+            cellPadding, tl.rowYOffsets, tl.rowHeights,
+          );
+          const ll = lineLayouts[targetLineIdx];
+          const blockIndex = layout.blocks.indexOf(lb);
+          for (const page of paginatedLayout.pages) {
+            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+            for (const pl of page.lines) {
+              if (pl.blockIndex === blockIndex && pl.lineIndex === ll.ownerRow) {
+                innerTableAbsY = pageY + pl.y + (ll.runLineY - tl.rowYOffsets[ll.ownerRow]);
+                break;
+              }
+            }
+          }
+          const innerLocalY = logicalY - innerTableAbsY;
+          for (let r = 0; r < innerLayout.rowYOffsets.length; r++) {
+            if (innerLocalY < innerLayout.rowYOffsets[r] + innerLayout.rowHeights[r]) {
+              innerRow = r;
+              break;
+            }
+          }
+        }
+
+        // Resolve merged cells in inner table
+        const innerDataCell = innerBlock.tableData.rows[innerRow]?.cells[innerCol];
+        if (innerDataCell?.colSpan === 0) {
+          for (let r = innerRow; r >= 0; r--) {
+            for (let c = innerCol; c >= 0; c--) {
+              const cand = innerBlock.tableData.rows[r]?.cells[c];
+              if (cand && cand.colSpan !== 0) {
+                const cs = cand.colSpan ?? 1;
+                const rs = cand.rowSpan ?? 1;
+                if (r + rs > innerRow && c + cs > innerCol) {
+                  innerRow = r;
+                  innerCol = c;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Resolve offset within the inner table cell directly using its layout
+        const innerCellLayout = innerLayout.cells[innerRow]?.[innerCol];
+        const innerCellData = innerBlock.tableData.rows[innerRow]?.cells[innerCol];
+        if (innerCellLayout && innerCellData && !innerCellLayout.merged) {
+          const innerCellPadding = innerCellData.style.padding ?? 4;
+          const innerCellX = innerLayout.columnXOffsets[innerCol] + innerCellPadding;
+          const innerCellLocalX = innerLocalX - innerCellX;
+
+          // Find target line in inner cell
+          let innerLineIdx = innerCellLayout.lines.length - 1;
+          if (logicalY !== undefined) {
+            const innerCellAbsY = innerTableAbsY + innerLayout.rowYOffsets[innerRow] + innerCellPadding;
+            const innerCellRelY = logicalY - innerCellAbsY;
+            for (let li = 0; li < innerCellLayout.lines.length; li++) {
+              const line = innerCellLayout.lines[li];
+              if (innerCellRelY < line.y + line.height) {
+                innerLineIdx = li;
+                break;
+              }
+            }
+          }
+
+          // Check for further nesting (recursive)
+          const innerTargetLine = innerCellLayout.lines[innerLineIdx];
+          if (innerTargetLine?.nestedTable) {
+            // For deeper nesting, fall through to first block of inner cell
+            return { blockId: innerCellData.blocks[0].id, offset: 0 };
+          }
+
+          // Find block index within inner cell
+          let innerBlockIdx = 0;
+          for (let bi = 0; bi < innerCellLayout.blockBoundaries.length; bi++) {
+            const nextBound = innerCellLayout.blockBoundaries[bi + 1] ?? innerCellLayout.lines.length;
+            if (innerLineIdx < nextBound) {
+              innerBlockIdx = bi;
+              break;
+            }
+          }
+
+          // Find character offset
+          let innerOffset = 0;
+          const innerBlockStart = innerCellLayout.blockBoundaries[innerBlockIdx] ?? 0;
+          for (let li = innerBlockStart; li < innerLineIdx; li++) {
+            for (const run of innerCellLayout.lines[li].runs) {
+              innerOffset += run.text.length;
+            }
+          }
+
+          if (innerTargetLine) {
+            for (const run of innerTargetLine.runs) {
+              ctx.font = buildFont(
+                run.inline.style.fontSize, run.inline.style.fontFamily,
+                run.inline.style.bold, run.inline.style.italic,
+              );
+              for (let i = 0; i <= run.text.length; i++) {
+                const w = ctx.measureText(run.text.slice(0, i)).width + run.x;
+                if (w >= innerCellLocalX) {
+                  return { blockId: innerCellData.blocks[innerBlockIdx].id, offset: innerOffset + i };
+                }
+              }
+              innerOffset += run.text.length;
+            }
+          }
+          return { blockId: innerCellData.blocks[innerBlockIdx].id, offset: innerOffset };
+        }
+
+        // Fallback: first block of inner cell
+        return { blockId: innerBlock.tableData.rows[innerRow].cells[innerCol].blocks[0].id, offset: 0 };
+      }
+    }
+
     if (targetLine) {
       for (const run of targetLine.runs) {
         ctx.font = buildFont(
@@ -3328,7 +3669,27 @@ export class TextEditor {
       this.cursor.moveTo({ blockId: newCell.blocks[0].id, offset: 0 });
       return true;
     }
-    // ArrowRight: exit table — move to the block after the table
+    // Exit table — move to the block after the table.
+    // If this is a nested table, move to the next block in the parent cell
+    // or to the next cell in the outer table.
+    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    if (parentCellInfo) {
+      // Nested table — find the next block in the parent cell
+      const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
+      const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+      const idx = parentCell.blocks.findIndex(b => b.id === tableBlockId);
+      if (idx + 1 < parentCell.blocks.length) {
+        const nextBlock = parentCell.blocks[idx + 1];
+        this.cursor.moveTo({ blockId: nextBlock.id, offset: 0 });
+        return true;
+      }
+      // No more blocks in parent cell — navigate to the next cell in the
+      // outer table. Temporarily place the cursor on the first block of
+      // the parent cell so getCellInfo resolves to the outer table context.
+      this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
+      return this.moveToNextCell(addRowAtEnd);
+    }
+    // Top-level table — move to the block after the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     const nextId = this.doc.ensureBlockAfter(blockIndex);
     this.cursor.moveTo({ blockId: nextId, offset: 0 });
@@ -3353,8 +3714,7 @@ export class TextEditor {
     for (let c = colIndex - 1; c >= 0; c--) {
       const cell = td.rows[rowIndex]?.cells[c];
       if (cell && cell.colSpan !== 0) {
-        const lastBlock = cell.blocks[cell.blocks.length - 1];
-        this.cursor.moveTo({ blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) });
+        this.cursor.moveTo(this.lastPositionInCell(cell));
         return true;
       }
     }
@@ -3363,13 +3723,30 @@ export class TextEditor {
       for (let c = td.columnWidths.length - 1; c >= 0; c--) {
         const cell = td.rows[r]?.cells[c];
         if (cell && cell.colSpan !== 0) {
-          const lastBlock = cell.blocks[cell.blocks.length - 1];
-          this.cursor.moveTo({ blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) });
+          this.cursor.moveTo(this.lastPositionInCell(cell));
           return true;
         }
       }
     }
-    // At first cell — exit table, move to the block before the table
+    // At first cell — exit table.
+    // If nested, move to the previous block in the parent cell or
+    // to the previous cell in the outer table.
+    const parentCellInfo = this.getLayout().blockParentMap.get(tableBlockId);
+    if (parentCellInfo) {
+      const parentTable = this.doc.getBlock(parentCellInfo.tableBlockId);
+      const parentCell = parentTable.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+      const idx = parentCell.blocks.findIndex(b => b.id === tableBlockId);
+      if (idx > 0) {
+        const prevBlock = parentCell.blocks[idx - 1];
+        this.cursor.moveTo({ blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) });
+        return true;
+      }
+      // No blocks before this table in parent cell — navigate to previous
+      // cell in the outer table.
+      this.cursor.moveTo({ blockId: parentCell.blocks[0].id, offset: 0 });
+      return this.moveToPrevCell();
+    }
+    // Top-level table — move to the block before the table
     const blockIndex = this.doc.getBlockIndex(tableBlockId);
     if (blockIndex > 0) {
       const prevBlock = this.doc.document.blocks[blockIndex - 1];

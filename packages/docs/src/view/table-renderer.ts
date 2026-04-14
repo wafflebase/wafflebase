@@ -267,6 +267,26 @@ export function renderTableContent(
         } else {
           lineAbsoluteY = cellY + textYOffset + line.y;
         }
+        // Render nested table if this line contains one
+        if (line.nestedTable) {
+          const blockIndex = getBlockIndexForLine(layoutCell.blockBoundaries, li);
+          const nestedBlock = cell.blocks[blockIndex];
+          if (nestedBlock?.tableData) {
+            const nestedX = cellX + padding;
+            const nestedY = lineAbsoluteY;
+            renderTableBackgrounds(
+              ctx, nestedBlock.tableData, line.nestedTable,
+              nestedX, nestedY,
+            );
+            renderTableContent(
+              ctx, nestedBlock.tableData, line.nestedTable,
+              nestedX, nestedY,
+              0, undefined, undefined,
+              requestRender, dragImageRun, selectionRects, focused,
+            );
+          }
+          continue;
+        }
         for (const run of line.runs) {
           // Drag-lift: skip the image currently being resized so the
           // editor's separate shadow pass can draw it at the preview
@@ -457,6 +477,18 @@ export function renderTableContent(
       drawBorder(ctx, cell.style?.borderRight ?? themeBorder, x + cellWidth, y, x + cellWidth, y + visibleHeight);
     }
   }
+}
+
+/**
+ * Return the block index that owns the given line index, using the
+ * pre-computed `blockBoundaries` array (each entry is the first line
+ * index of the corresponding block).
+ */
+function getBlockIndexForLine(blockBoundaries: number[], lineIndex: number): number {
+  for (let bi = blockBoundaries.length - 1; bi >= 0; bi--) {
+    if (lineIndex >= blockBoundaries[bi]) return bi;
+  }
+  return 0;
 }
 
 /**

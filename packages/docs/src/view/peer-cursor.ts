@@ -44,121 +44,208 @@ export function resolvePositionPixel(
   // --- Table cell cursor ---
   const cellInfo = layout.blockParentMap.get(position.blockId);
   if (cellInfo) {
-    const lb = layout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
+    // Walk up the blockParentMap chain to find the top-level table and
+    // collect the nesting path: [{tableBlockId, rowIndex, colIndex}, ...]
+    // from outermost to innermost.
+    const nestingPath: Array<{ tableBlockId: string; rowIndex: number; colIndex: number }> = [];
+    nestingPath.push(cellInfo);
+    let currentTableId = cellInfo.tableBlockId;
+    while (true) {
+      const parentInfo = layout.blockParentMap.get(currentTableId);
+      if (!parentInfo) break; // currentTableId is a top-level block
+      nestingPath.unshift(parentInfo);
+      currentTableId = parentInfo.tableBlockId;
+    }
+
+    // currentTableId is now the top-level table block ID
+    const lb = layout.blocks.find((b) => b.block.id === currentTableId);
     if (!lb?.layoutTable) return undefined;
-    const tl = lb.layoutTable;
-    const { rowIndex, colIndex } = cellInfo;
-    const cell = tl.cells[rowIndex]?.[colIndex];
-    if (!cell || cell.merged) return undefined;
 
-    const cellData = lb.block.tableData?.rows[rowIndex]?.cells[colIndex];
-    const cellPadding = cellData?.style.padding ?? 4;
-    const rowSpan = cellData?.rowSpan ?? 1;
+    // Navigate down through nested LayoutTables to find the target cell
+    let tl = lb.layoutTable;
+    let xOffset = 0;
+    let yOffsetInTable = 0;
+    let dataBlock = lb.block;
 
-    // Per-line layouts (distributes merged-cell lines across spanned
-    // rows). For rowSpan === 1 this collapses to the old
-    // `padding + line.y` positioning.
-    const lineLayouts = computeMergedCellLineLayouts(
-      cell.lines,
-      rowIndex,
-      rowSpan,
-      cellPadding,
-      tl.rowYOffsets,
-      tl.rowHeights,
-    );
+    for (let ni = 0; ni < nestingPath.length; ni++) {
+      const seg = nestingPath[ni];
+      const { rowIndex, colIndex } = seg;
+      const cell = tl.cells[rowIndex]?.[colIndex];
+      if (!cell || cell.merged) return undefined;
 
-    // Determine which lines belong to the target cell block
-    const cbi = cellData ? cellData.blocks.findIndex((b) => b.id === position.blockId) : 0;
-    const effectiveCbi = cbi >= 0 ? cbi : 0;
-    const startLine = cell.blockBoundaries[effectiveCbi] ?? 0;
-    const endLine = cell.blockBoundaries[effectiveCbi + 1] ?? cell.lines.length;
+      const cellData = dataBlock.tableData?.rows[rowIndex]?.cells[colIndex];
+      const cellPadding = cellData?.style.padding ?? 4;
 
-    // Measure text offset within the target block's lines
-    let cursorX = 0;
-    let targetLineIdx = -1;
-    let lineHeight = tl.rowHeights[rowIndex] ?? 20;
-    let offsetRemaining = position.offset;
+      if (ni < nestingPath.length - 1) {
+        // Intermediate nesting level — find the nested table line and
+        // accumulate coordinate offsets.
+        const nextTableId = nestingPath[ni + 1].tableBlockId;
+        let nestedTableLine: import('./layout.js').LayoutLine | undefined;
+        let nestedLineIdx = -1;
+        for (let li = 0; li < cell.lines.length; li++) {
+          if (cell.lines[li].nestedTable) {
+            // Find the block index for this line
+            let blockIdx = 0;
+            for (let bi = cell.blockBoundaries.length - 1; bi >= 0; bi--) {
+              if (li >= cell.blockBoundaries[bi]) { blockIdx = bi; break; }
+            }
+            if (cellData?.blocks[blockIdx]?.id === nextTableId) {
+              nestedTableLine = cell.lines[li];
+              nestedLineIdx = li;
+              break;
+            }
+          }
+        }
+        if (!nestedTableLine?.nestedTable || nestedLineIdx < 0) return undefined;
 
-    for (let li = startLine; li < endLine; li++) {
-      const line = cell.lines[li];
-      let lineChars = 0;
-      for (const run of line.runs) {
-        lineChars += run.text.length;
-      }
-      if (offsetRemaining <= lineChars) {
-        targetLineIdx = li;
-        lineHeight = line.height;
-        let chars = 0;
-        for (const run of line.runs) {
-          if (offsetRemaining <= chars + run.text.length) {
-            const localOff = offsetRemaining - chars;
-            if (run.imageHeight !== undefined) {
-              cursorX = run.x + (localOff > 0 ? run.width : 0);
-            } else {
-              const textBefore = run.text.slice(0, localOff);
-              ctx.font = buildFont(
-                run.inline.style.fontSize, run.inline.style.fontFamily,
-                run.inline.style.bold, run.inline.style.italic,
-              );
-              cursorX = run.x + ctx.measureText(textBefore).width;
+        // Accumulate X offset: cell origin + padding
+        xOffset += tl.columnXOffsets[colIndex] + cellPadding;
+        // Accumulate Y offset: row Y + cell padding + line Y within cell
+        yOffsetInTable += tl.rowYOffsets[rowIndex] + cellPadding + nestedTableLine.y;
+
+        // Descend into the nested table
+        const nextBlock = cellData?.blocks.find((b) => b.id === nextTableId);
+        if (!nextBlock?.tableData) return undefined;
+        tl = nestedTableLine.nestedTable;
+        dataBlock = nextBlock;
+      } else {
+        // Innermost level — resolve cursor position in this cell
+        const rowSpan = cellData?.rowSpan ?? 1;
+        const lineLayouts = computeMergedCellLineLayouts(
+          cell.lines, rowIndex, rowSpan, cellPadding,
+          tl.rowYOffsets, tl.rowHeights,
+        );
+
+        const cbi = cellData ? cellData.blocks.findIndex((b) => b.id === position.blockId) : 0;
+        const effectiveCbi = cbi >= 0 ? cbi : 0;
+        const startLine = cell.blockBoundaries[effectiveCbi] ?? 0;
+        const endLine = cell.blockBoundaries[effectiveCbi + 1] ?? cell.lines.length;
+
+        let cursorX = 0;
+        let targetLineIdx = -1;
+        let lineHeight = tl.rowHeights[rowIndex] ?? 20;
+        let offsetRemaining = position.offset;
+
+        for (let li = startLine; li < endLine; li++) {
+          const line = cell.lines[li];
+          let lineChars = 0;
+          for (const run of line.runs) {
+            lineChars += run.text.length;
+          }
+          if (offsetRemaining <= lineChars) {
+            // At a wrap boundary, forward affinity belongs to the next line
+            if (
+              lineAffinity === 'forward' &&
+              offsetRemaining === lineChars &&
+              li < endLine - 1
+            ) {
+              offsetRemaining = 0;
+              continue;
+            }
+            targetLineIdx = li;
+            lineHeight = line.height;
+            let chars = 0;
+            for (const run of line.runs) {
+              if (offsetRemaining <= chars + run.text.length) {
+                const localOff = offsetRemaining - chars;
+                if (run.imageHeight !== undefined) {
+                  cursorX = run.x + (localOff > 0 ? run.width : 0);
+                } else {
+                  const textBefore = run.text.slice(0, localOff);
+                  ctx.font = buildFont(
+                    run.inline.style.fontSize, run.inline.style.fontFamily,
+                    run.inline.style.bold, run.inline.style.italic,
+                  );
+                  cursorX = run.x + ctx.measureText(textBefore).width;
+                }
+                break;
+              }
+              chars += run.text.length;
             }
             break;
           }
-          chars += run.text.length;
+          offsetRemaining -= lineChars;
         }
-        break;
-      }
-      offsetRemaining -= lineChars;
-    }
 
-    // Cursor past end-of-content: place at the tail of the last line in
-    // the target block so Arrow-End still resolves.
-    if (targetLineIdx < 0) {
-      targetLineIdx = Math.max(startLine, endLine - 1);
-      const tailLine = cell.lines[targetLineIdx];
-      if (tailLine) {
-        lineHeight = tailLine.height;
-        const lastRun = tailLine.runs[tailLine.runs.length - 1];
-        cursorX = lastRun ? lastRun.x + lastRun.width : 0;
-      }
-    }
-
-    const targetLayout = lineLayouts[targetLineIdx];
-    if (!targetLayout) return undefined;
-    const ownerRow = targetLayout.ownerRow;
-
-    // Find the PageLine for the owner row.
-    const blockIndex = layout.blocks.indexOf(lb);
-    let pageLine: import('./pagination.js').PageLine | undefined;
-    let pageIndex = 0;
-    for (const page of paginatedLayout.pages) {
-      for (const pl of page.lines) {
-        if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
-          pageLine = pl;
-          pageIndex = page.pageIndex;
-          break;
+        if (targetLineIdx < 0) {
+          targetLineIdx = Math.max(startLine, endLine - 1);
+          const tailLine = cell.lines[targetLineIdx];
+          if (tailLine) {
+            lineHeight = tailLine.height;
+            const lastRun = tailLine.runs[tailLine.runs.length - 1];
+            cursorX = lastRun ? lastRun.x + lastRun.width : 0;
+          }
         }
+
+        const targetLayout = lineLayouts[targetLineIdx];
+        if (!targetLayout) return undefined;
+        const ownerRow = targetLayout.ownerRow;
+
+        const blockIndex = layout.blocks.indexOf(lb);
+        const pageX = getPageXOffset(paginatedLayout, canvasWidth);
+        const { margins } = paginatedLayout.pageSetup;
+
+        if (nestingPath.length === 1) {
+          // Non-nested table cell — use the original cursor positioning
+          // logic that finds the PageLine by ownerRow.
+          let pageLine: import('./pagination.js').PageLine | undefined;
+          let pageIndex = 0;
+          for (const page of paginatedLayout.pages) {
+            for (const pl of page.lines) {
+              if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
+                pageLine = pl;
+                pageIndex = page.pageIndex;
+                break;
+              }
+            }
+            if (pageLine) break;
+          }
+          if (!pageLine) return undefined;
+
+          const pageY = getPageYOffset(paginatedLayout, pageIndex);
+          const cellX = tl.columnXOffsets[colIndex] + cellPadding;
+          const cursorYOnPage =
+            pageY + pageLine.y + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
+
+          return {
+            x: pageX + margins.left + cellX + cursorX,
+            y: cursorYOnPage,
+            height: lineHeight,
+          };
+        }
+
+        // Nested table cell — find the PageLine for the outermost table's
+        // row, then add accumulated Y offset from outer cells.
+        const outerRowIndex = nestingPath[0].rowIndex;
+        let pageLine: import('./pagination.js').PageLine | undefined;
+        let pageIndex = 0;
+        for (const page of paginatedLayout.pages) {
+          for (const pl of page.lines) {
+            if (pl.blockIndex === blockIndex && pl.lineIndex === outerRowIndex) {
+              pageLine = pl;
+              pageIndex = page.pageIndex;
+              break;
+            }
+          }
+          if (pageLine) break;
+        }
+        if (!pageLine) return undefined;
+
+        const pageY = getPageYOffset(paginatedLayout, pageIndex);
+        const innerCellX = tl.columnXOffsets[colIndex] + cellPadding;
+        const innerCursorY = pageY + pageLine.y
+          + yOffsetInTable
+          + tl.rowYOffsets[ownerRow]
+          + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
+
+        return {
+          x: pageX + margins.left + xOffset + innerCellX + cursorX,
+          y: innerCursorY,
+          height: lineHeight,
+        };
       }
-      if (pageLine) break;
     }
-    if (!pageLine) return undefined;
-
-    const pageX = getPageXOffset(paginatedLayout, canvasWidth);
-    const pageY = getPageYOffset(paginatedLayout, pageIndex);
-    const { margins } = paginatedLayout.pageSetup;
-
-    const cellX = tl.columnXOffsets[colIndex] + cellPadding;
-    // targetLayout.runLineY is table-logical. The cursor's absolute Y
-    // on the owner row's page is pageY + pageLine.y + (runLineY -
-    // rowYOffsets[ownerRow]), i.e. the row-local offset of the line.
-    const cursorYOnPage =
-      pageY + pageLine.y + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
-
-    return {
-      x: pageX + margins.left + cellX + cursorX,
-      y: cursorYOnPage,
-      height: lineHeight,
-    };
+    return undefined;
   }
 
   // --- Regular (non-table) cursor ---

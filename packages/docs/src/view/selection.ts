@@ -5,6 +5,7 @@ import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import { resolvePositionPixel } from './peer-cursor.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
+import { resolveNestedTableLayout } from './table-layout.js';
 import { buildFont, Theme } from './theme.js';
 
 // --- Free helpers (used by both Selection class and computeSelectionRects) ---
@@ -131,12 +132,22 @@ function normalizeRange(
   const focusCellInfo = layout.blockParentMap.get(range.focus.blockId);
 
 
-  const anchorIdx = layout.blocks.findIndex(
-    (lb) => lb.block.id === (anchorCellInfo?.tableBlockId ?? range.anchor.blockId),
-  );
-  const focusIdx = layout.blocks.findIndex(
-    (lb) => lb.block.id === (focusCellInfo?.tableBlockId ?? range.focus.blockId),
-  );
+  // For nested tables, walk up the blockParentMap chain to find the
+  // outermost table ID that exists in layout.blocks.
+  let anchorTopId = anchorCellInfo?.tableBlockId ?? range.anchor.blockId;
+  while (anchorTopId && layout.blocks.findIndex((lb) => lb.block.id === anchorTopId) === -1) {
+    const parentInfo = layout.blockParentMap.get(anchorTopId);
+    if (!parentInfo) break;
+    anchorTopId = parentInfo.tableBlockId;
+  }
+  let focusTopId = focusCellInfo?.tableBlockId ?? range.focus.blockId;
+  while (focusTopId && layout.blocks.findIndex((lb) => lb.block.id === focusTopId) === -1) {
+    const parentInfo = layout.blockParentMap.get(focusTopId);
+    if (!parentInfo) break;
+    focusTopId = parentInfo.tableBlockId;
+  }
+  const anchorIdx = layout.blocks.findIndex((lb) => lb.block.id === anchorTopId);
+  const focusIdx = layout.blocks.findIndex((lb) => lb.block.id === focusTopId);
   if (anchorIdx === -1 || focusIdx === -1) return null;
   if (anchorCellInfo || focusCellInfo) {
     // Both must be in the same cell for a valid selection
@@ -144,9 +155,10 @@ function normalizeRange(
         anchorCellInfo.tableBlockId === focusCellInfo.tableBlockId &&
         anchorCellInfo.rowIndex === focusCellInfo.rowIndex &&
         anchorCellInfo.colIndex === focusCellInfo.colIndex) {
-      // Find cell block indices for ordering
-      const tableBlock = layout.blocks.find((b) => b.block.id === anchorCellInfo.tableBlockId);
-      const cell = tableBlock?.block.tableData?.rows[anchorCellInfo.rowIndex]?.cells[anchorCellInfo.colIndex];
+      // Find cell block indices for ordering — use resolveNestedTableLayout
+      // so nested table cells are found correctly.
+      const resolvedTable = resolveNestedTableLayout(anchorCellInfo.tableBlockId, layout);
+      const cell = resolvedTable?.dataBlock.tableData?.rows[anchorCellInfo.rowIndex]?.cells[anchorCellInfo.colIndex];
       const aCbi = cell ? cell.blocks.findIndex((b) => b.id === range.anchor.blockId) : 0;
       const fCbi = cell ? cell.blocks.findIndex((b) => b.id === range.focus.blockId) : 0;
       if (aCbi < fCbi || (aCbi === fCbi && range.anchor.offset <= range.focus.offset)) {
@@ -249,9 +261,11 @@ function buildRects(
   // Cell-internal selection
   const startCellInfo = layout.blockParentMap.get(start.blockId);
   const endCellInfo = layout.blockParentMap.get(end.blockId);
+
   if (startCellInfo && endCellInfo) {
     const startPixel = resolvePositionPixel(start, 'forward', paginatedLayout, layout, ctx, canvasWidth);
     const endPixel = resolvePositionPixel(end, 'backward', paginatedLayout, layout, ctx, canvasWidth);
+
     if (!startPixel || !endPixel) return [];
 
     if (startPixel.y === endPixel.y) {
@@ -271,9 +285,11 @@ function buildRects(
     // "advance midY by line height" path stepped linearly through the
     // cell's Y axis and painted into the empty space below row 0 when a
     // merged cell's line actually lived on the next page.
-    const lb = layout.blocks.find((b) => b.block.id === startCellInfo.tableBlockId);
-    const tl = lb?.layoutTable;
-    if (!lb || !tl) {
+    // Resolve the table that owns this cell — may be top-level or nested
+    const resolved = resolveNestedTableLayout(startCellInfo.tableBlockId, layout);
+    const lb = resolved ? layout.blocks[resolved.lb.blockIndex] : undefined;
+    const tl = resolved?.layoutTable;
+    if (!lb || !tl || !resolved) {
       return [{
         x: startPixel.x,
         y: startPixel.y,
@@ -283,7 +299,7 @@ function buildRects(
     }
     const { rowIndex, colIndex } = startCellInfo;
     const layoutCell = tl.cells[rowIndex]?.[colIndex];
-    const cellData = lb.block.tableData?.rows[rowIndex]?.cells[colIndex];
+    const cellData = resolved.dataBlock.tableData?.rows[rowIndex]?.cells[colIndex];
     if (!layoutCell || layoutCell.merged || !cellData) {
       return [{
         x: startPixel.x,
@@ -297,9 +313,10 @@ function buildRects(
 
     const pageXOffset = getPageXOffset(paginatedLayout, canvasWidth);
     const { margins } = paginatedLayout.pageSetup;
-    const cellLeftX = pageXOffset + margins.left + tl.columnXOffsets[colIndex] + cellPadding;
+    const nestedXOff = resolved.xOffset;
+    const cellLeftX = pageXOffset + margins.left + nestedXOff + tl.columnXOffsets[colIndex] + cellPadding;
     const cellRightX =
-      pageXOffset + margins.left + tl.columnXOffsets[colIndex] + layoutCell.width - cellPadding;
+      pageXOffset + margins.left + nestedXOff + tl.columnXOffsets[colIndex] + layoutCell.width - cellPadding;
 
     // Locate the cell's block containing the start/end positions and the
     // corresponding line indices within cell.lines.
@@ -355,8 +372,26 @@ function buildRects(
       tl.rowHeights,
     );
 
-    const blockIndex = layout.blocks.indexOf(lb);
+    const blockIndex = resolved.lb.blockIndex;
+    const nestedYOff = resolved.yOffset;
+    const isNested = resolved.outerRowIndex >= 0;
     const resolveLineAbsoluteY = (ownerRow: number, runLineY: number): number | undefined => {
+      if (isNested) {
+        // For nested tables, find the outer row's page position and
+        // add the accumulated Y offset + inner row offset
+        const outerRow = resolved.outerRowIndex;
+        for (const page of paginatedLayout.pages) {
+          for (const pl of page.lines) {
+            if (pl.blockIndex === blockIndex && pl.lineIndex === outerRow) {
+              const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+              return pageY + pl.y + nestedYOff
+                + tl.rowYOffsets[ownerRow]
+                + (runLineY - tl.rowYOffsets[ownerRow]);
+            }
+          }
+        }
+        return undefined;
+      }
       for (const page of paginatedLayout.pages) {
         for (const pl of page.lines) {
           if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
@@ -527,45 +562,62 @@ function buildCellRangeRects(
   layout: DocumentLayout,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
-  const lb = layout.blocks.find((b) => b.block.id === cellRange.blockId);
-  if (!lb?.layoutTable) return [];
-  const tl = lb.layoutTable;
+  // Resolve the table — may be top-level or nested
+  const resolved = resolveNestedTableLayout(cellRange.blockId, layout);
+  if (!resolved) return [];
+  const { lb, layoutTable: tl, dataBlock, xOffset: nestedXOffset, yOffset: nestedYOffset, outerRowIndex } = resolved;
 
-  const blockIndex = layout.blocks.indexOf(lb);
+  const blockIndex = lb.blockIndex;
   const pageX = getPageXOffset(paginatedLayout, canvasWidth);
   const { margins } = paginatedLayout.pageSetup;
 
-  // Build a row → absolute Y map from the paginated layout.
+  // For nested tables, we need the absolute Y of the outermost row that
+  // contains the nested table. For top-level tables, build the full row map.
+  let baseY = 0;
+  if (outerRowIndex >= 0) {
+    // Nested table — find the page line for the outer row
+    for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+      for (const pl of page.lines) {
+        if (pl.blockIndex === blockIndex && pl.lineIndex === outerRowIndex) {
+          baseY = pageY + pl.y + nestedYOffset;
+          break;
+        }
+      }
+    }
+  }
+
+  // Build a row → absolute Y map
   const rowYMap = new Map<number, number>();
-  for (const page of paginatedLayout.pages) {
-    const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-    for (const pl of page.lines) {
-      if (pl.blockIndex !== blockIndex) continue;
-      rowYMap.set(pl.lineIndex, pageY + pl.y);
+  if (outerRowIndex >= 0) {
+    // Nested: compute Y for each inner row from baseY + inner rowYOffsets
+    for (let r = 0; r < tl.rowYOffsets.length; r++) {
+      rowYMap.set(r, baseY + tl.rowYOffsets[r]);
+    }
+  } else {
+    // Top-level: use paginated layout
+    for (const page of paginatedLayout.pages) {
+      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+      for (const pl of page.lines) {
+        if (pl.blockIndex !== blockIndex) continue;
+        rowYMap.set(pl.lineIndex, pageY + pl.y);
+      }
     }
   }
 
   const { start, end } = cellRange;
   const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
-  const tableData = lb.block.tableData;
+  const tableData = dataBlock.tableData;
+  const xBase = pageX + margins.left + nestedXOffset;
 
   for (let r = start.rowIndex; r <= end.rowIndex; r++) {
     for (let c = start.colIndex; c <= end.colIndex; c++) {
       const cell = tl.cells[r]?.[c];
       if (!cell || cell.merged) continue;
 
-      // For merge top-left cells, highlight the full colSpan × rowSpan
-      // footprint. LayoutTableCell.width already sums spanned columns.
-      // Row coverage is split into one rect per contiguous page segment:
-      // when the next spanned row lives on a different page (its
-      // absolute Y is not the running segment's expected bottom), flush
-      // the current rect and start a new one anchored at the new row's
-      // page Y. This keeps merged-cell highlights aligned with the row
-      // bands on each page instead of bleeding into empty space below
-      // the first row.
       const srcCell = tableData?.rows[r]?.cells[c];
       const rowSpan = srcCell?.rowSpan ?? 1;
-      const x = pageX + margins.left + tl.columnXOffsets[c];
+      const x = xBase + tl.columnXOffsets[c];
       const width = cell.width;
 
       const spanEnd = Math.min(r + rowSpan, tl.rowHeights.length);
