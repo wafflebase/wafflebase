@@ -3109,8 +3109,8 @@ export class Sheet {
     }
 
     this.selectionType = 'cell';
-    this.setActiveCell(this.normalizeRefToAnchor(ref));
     this.ranges = [];
+    this.setActiveCell(this.normalizeRefToAnchor(ref));
   }
 
   /**
@@ -3154,11 +3154,13 @@ export class Sheet {
 
     if (isSameRef(anchor, target)) {
       this.ranges[this.ranges.length - 1] = [anchor, anchor];
+      this.syncSelectionToPresence();
       return;
     }
 
     this.ranges[this.ranges.length - 1] =
       this.expandRangeToMergedBoundaries(toRange(anchor, target));
+    this.syncSelectionToPresence();
   }
 
   /**
@@ -3172,12 +3174,14 @@ export class Sheet {
     const target = this.normalizeRefToAnchor(ref);
     if (isSameRef(this.activeCell, target)) {
       this.ranges = [];
+      this.syncSelectionToPresence();
       return;
     }
 
     this.ranges = [this.expandRangeToMergedBoundaries(
       toRange(this.activeCell, target),
     )];
+    this.syncSelectionToPresence();
   }
 
   /**
