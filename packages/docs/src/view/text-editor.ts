@@ -1248,8 +1248,28 @@ export class TextEditor {
                   blockId: resolved.blockId,
                   offset: resolved.offset,
                 };
+              } else if (resolvedCellInfo &&
+                  resolvedCellInfo.tableBlockId === anchorTableId) {
+                // Different cell in the SAME table (e.g., inner table
+                // cell-range selection) — use that table for cell-range mode
+                const innerTableData = this.doc.getBlock(anchorTableId).tableData!;
+                tableCellRange = expandCellRangeForMerges(
+                  {
+                    blockId: anchorTableId,
+                    start: { rowIndex: anchorCellInfo.rowIndex, colIndex: anchorCellInfo.colIndex },
+                    end: { rowIndex: resolvedCellInfo.rowIndex, colIndex: resolvedCellInfo.colIndex },
+                  },
+                  innerTableData,
+                );
+                const targetCell = innerTableData.rows[resolvedCellInfo.rowIndex]
+                  .cells[resolvedCellInfo.colIndex];
+                pos = {
+                  blockId: targetCell.blocks[0].id,
+                  offset: 0,
+                };
               } else {
-                // Different cell — cell-range mode within the outermost table
+                // Different cell in different tables or outer table —
+                // cell-range mode within the outermost table
                 const outerAnchorCA = this.findOuterCellAddress(anchor.blockId, resolveTableId);
                 if (outerAnchorCA) {
                   const tableData = this.doc.getBlock(resolveTableId).tableData!;
