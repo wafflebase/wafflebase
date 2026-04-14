@@ -4460,12 +4460,16 @@ export class Worksheet {
     const currentPeerIDs = new Set<string>();
 
     for (const { clientID, presence } of presences) {
-      if (!presence.activeCell) continue;
+      // Derive a stable key from either the new selection or legacy activeCell
+      const cellKey = presence.selection
+        ? `${presence.selection.activeCell.rowId}|${presence.selection.activeCell.colId}`
+        : presence.activeCell;
+      if (!cellKey) continue;
       currentPeerIDs.add(clientID);
 
       const prev = this.prevPeerActiveCells.get(clientID);
-      if (prev !== presence.activeCell) {
-        this.prevPeerActiveCells.set(clientID, presence.activeCell);
+      if (prev !== cellKey) {
+        this.prevPeerActiveCells.set(clientID, cellKey);
 
         const existingTimer = this.peerLabelTimers.get(clientID);
         if (existingTimer != null) {
