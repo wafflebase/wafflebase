@@ -39,6 +39,35 @@ describe('heading layout', () => {
   });
 });
 
+describe('empty block height', () => {
+  it('should give empty title block the same line height as a title with text', () => {
+    const emptyTitle = createBlock('title');
+    emptyTitle.inlines = [{ text: '', style: {} }];
+    const fullTitle = createBlock('title');
+    fullTitle.inlines = [{ text: 'Hello', style: {} }];
+    const { layout } = computeLayout([emptyTitle, fullTitle], mockCtx(), 600);
+    expect(layout.blocks[0].height).toBe(layout.blocks[1].height);
+  });
+
+  it('should give empty heading block the same line height as a heading with text', () => {
+    const emptyH1 = createBlock('heading', { headingLevel: 1 });
+    emptyH1.inlines = [{ text: '', style: {} }];
+    const fullH1 = createBlock('heading', { headingLevel: 1 });
+    fullH1.inlines = [{ text: 'Hello', style: {} }];
+    const { layout } = computeLayout([emptyH1, fullH1], mockCtx(), 600);
+    expect(layout.blocks[0].height).toBe(layout.blocks[1].height);
+  });
+
+  it('should give empty subtitle block the same line height as a subtitle with text', () => {
+    const emptySub = createBlock('subtitle');
+    emptySub.inlines = [{ text: '', style: {} }];
+    const fullSub = createBlock('subtitle');
+    fullSub.inlines = [{ text: 'Hello', style: {} }];
+    const { layout } = computeLayout([emptySub, fullSub], mockCtx(), 600);
+    expect(layout.blocks[0].height).toBe(layout.blocks[1].height);
+  });
+});
+
 describe('list-item layout', () => {
   it('should offset text by list indent', () => {
     const block = createBlock('list-item', { listKind: 'unordered', listLevel: 0 });

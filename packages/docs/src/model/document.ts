@@ -296,6 +296,11 @@ export class Doc {
     let newType: BlockType = 'paragraph';
     if (block.type === 'list-item') {
       newType = 'list-item';
+    } else if (
+      (block.type === 'title' || block.type === 'subtitle' || block.type === 'heading') &&
+      offset < blockText.length
+    ) {
+      newType = block.type;
     }
 
     const newBlockId = generateBlockId();

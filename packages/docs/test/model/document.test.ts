@@ -296,7 +296,7 @@ describe('Doc', () => {
   });
 
   describe('splitBlock — type-aware', () => {
-    it('should create paragraph when splitting a heading', () => {
+    it('should create paragraph when splitting a heading at end', () => {
       const doc = Doc.create();
       const blockId = doc.document.blocks[0].id;
       doc.setBlockType(blockId, 'heading', { headingLevel: 1 });
@@ -304,6 +304,59 @@ describe('Doc', () => {
       doc.splitBlock(blockId, 5);
       expect(doc.document.blocks[0].type).toBe('heading');
       expect(doc.document.blocks[1].type).toBe('paragraph');
+    });
+
+    it('should preserve heading style when splitting in the middle', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'heading', { headingLevel: 1 });
+      doc.insertText({ blockId, offset: 0 }, 'Hello');
+      doc.splitBlock(blockId, 3);
+      expect(doc.document.blocks[0].type).toBe('heading');
+      expect(doc.document.blocks[0].headingLevel).toBe(1);
+      expect(doc.document.blocks[1].type).toBe('heading');
+      expect(doc.document.blocks[1].headingLevel).toBe(1);
+    });
+
+    it('should preserve heading style when splitting at the beginning', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'heading', { headingLevel: 2 });
+      doc.insertText({ blockId, offset: 0 }, 'Hello');
+      doc.splitBlock(blockId, 0);
+      expect(doc.document.blocks[0].type).toBe('heading');
+      expect(doc.document.blocks[1].type).toBe('heading');
+      expect(doc.document.blocks[1].headingLevel).toBe(2);
+    });
+
+    it('should preserve title style when splitting at the beginning', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'title');
+      doc.insertText({ blockId, offset: 0 }, 'abcd');
+      doc.splitBlock(blockId, 0);
+      expect(doc.document.blocks[0].type).toBe('title');
+      expect(doc.document.blocks[1].type).toBe('title');
+    });
+
+    it('should reset to paragraph when splitting title at the end', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'title');
+      doc.insertText({ blockId, offset: 0 }, 'abcd');
+      doc.splitBlock(blockId, 4);
+      expect(doc.document.blocks[0].type).toBe('title');
+      expect(doc.document.blocks[1].type).toBe('paragraph');
+    });
+
+    it('should preserve subtitle style when splitting in the middle', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.setBlockType(blockId, 'subtitle');
+      doc.insertText({ blockId, offset: 0 }, 'Sub');
+      doc.splitBlock(blockId, 1);
+      expect(doc.document.blocks[0].type).toBe('subtitle');
+      expect(doc.document.blocks[1].type).toBe('subtitle');
     });
 
     it('should inherit list type when splitting list-item with content', () => {
