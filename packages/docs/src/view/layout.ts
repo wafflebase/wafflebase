@@ -556,10 +556,20 @@ function getLineMaxFontSizePx(line: LayoutLine, block: Block): number {
     if (size > max) max = size;
   }
   if (max > 0) return max;
-  if (block.inlines.length > 0 && block.inlines[0].style.fontSize) {
-    return ptToPx(block.inlines[0].style.fontSize);
+
+  // For empty lines, resolve font size from block type defaults
+  let fallbackSize: number | undefined;
+  if (block.type === 'title') {
+    fallbackSize = TITLE_DEFAULTS.fontSize;
+  } else if (block.type === 'subtitle') {
+    fallbackSize = SUBTITLE_DEFAULTS.fontSize;
+  } else if (block.type === 'heading' && block.headingLevel) {
+    fallbackSize = getHeadingDefaults(block.headingLevel as HeadingLevel).fontSize;
   }
-  return ptToPx(Theme.defaultFontSize);
+  if (block.inlines.length > 0 && block.inlines[0].style.fontSize) {
+    fallbackSize = block.inlines[0].style.fontSize;
+  }
+  return ptToPx(fallbackSize ?? Theme.defaultFontSize);
 }
 
 /**

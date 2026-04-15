@@ -525,6 +525,38 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
+   * Resolve a block-level character offset into the Yorkie tree's actual
+   * inline structure. The cached document may have merged adjacent same-style
+   * inlines (normalizeInlines) that remain separate nodes in the Yorkie tree,
+   * so paths computed from the cache can be invalid.
+   */
+  private resolveTreeOffset(
+    treeRoot: TreeNode,
+    treeBlockIdx: number,
+    offset: number,
+  ): { inlineIndex: number; charOffset: number } {
+    const blockNode = (treeRoot as ElementNode).children![treeBlockIdx] as ElementNode;
+    const inlineChildren = (blockNode.children ?? []).filter(
+      (c): c is ElementNode => c.type === 'inline',
+    );
+    let remaining = offset;
+    for (let i = 0; i < inlineChildren.length; i++) {
+      const textLen = (inlineChildren[i].children ?? [])
+        .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+        .reduce((sum, t) => sum + t.value.length, 0);
+      if (remaining <= textLen) {
+        return { inlineIndex: i, charOffset: remaining };
+      }
+      remaining -= textLen;
+    }
+    const lastIdx = inlineChildren.length - 1;
+    const lastLen = (inlineChildren[lastIdx]?.children ?? [])
+      .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+      .reduce((sum, t) => sum + t.value.length, 0);
+    return { inlineIndex: Math.max(0, lastIdx), charOffset: lastLen };
+  }
+
+  /**
    * Check if a block lives in header or footer.
    */
   private findHeaderFooterBlock(blockId: string, doc: Document): { region: 'header' | 'footer'; blocks: Block[]; index: number } | null {
@@ -587,30 +619,30 @@ export class YorkieDocStore implements DocStore {
     if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
     const block = currentDoc.blocks[blockIdx];
 
-    const { inlineIndex, charOffset } = resolveOffset(block, offset);
     const off = this.bodyTreeOffset(currentDoc);
-    const targetInline = block.inlines[inlineIndex];
+    // Use cache-based resolveOffset for image detection only
+    const cacheResolved = resolveOffset(block, offset);
+    const targetInline = block.inlines[cacheResolved.inlineIndex];
 
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
+      // Resolve offset from the actual Yorkie tree structure
+      const treeRoot = tree.getRootTreeNode();
+      const { inlineIndex, charOffset } = this.resolveTreeOffset(treeRoot, blockIdx + off, offset);
+
       if (targetInline.style.image) {
-        // Image inlines must not absorb regular text. Insert a new
-        // inline node adjacent to the image node instead of putting
-        // text inside it.
         const { image: _, ...plainStyle } = targetInline.style;
         void _;
         const newNode = buildInlineNode({ text, style: plainStyle });
         if (charOffset === 0) {
-          // Before image: insert new inline before the image node
           tree.editByPath(
             [blockIdx + off, inlineIndex],
             [blockIdx + off, inlineIndex],
             newNode,
           );
         } else {
-          // After image: insert new inline after the image node
           tree.editByPath(
             [blockIdx + off, inlineIndex + 1],
             [blockIdx + off, inlineIndex + 1],
@@ -665,19 +697,28 @@ export class YorkieDocStore implements DocStore {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
-      // 1. Character-level deletes (reverse order to preserve indices)
-      for (let i = segments.length - 1; i >= 0; i--) {
-        const seg = segments[i];
-        tree.editByPath(
-          [blockIdx + off, seg.inlineIndex, seg.charFrom],
-          [blockIdx + off, seg.inlineIndex, seg.charTo],
-        );
-      }
+      // Resolve delete segments from the actual Yorkie tree structure
+      const treeRoot = tree.getRootTreeNode();
+      const treeStart = this.resolveTreeOffset(treeRoot, blockIdx + off, offset);
+      const treeEnd = this.resolveTreeOffset(treeRoot, blockIdx + off, offset + length);
 
-      // 2. Remove empty inline nodes (reverse order to preserve indices)
-      for (let i = emptyInlineIndices.length - 1; i >= 0; i--) {
-        const idx = emptyInlineIndices[i];
-        tree.editByPath([blockIdx + off, idx], [blockIdx + off, idx + 1]);
+      // Single-range delete on the Yorkie tree
+      tree.editByPath(
+        [blockIdx + off, treeStart.inlineIndex, treeStart.charOffset],
+        [blockIdx + off, treeEnd.inlineIndex, treeEnd.charOffset],
+      );
+
+      // Remove any inlines that became empty after deletion
+      const blockNode = ((tree.getRootTreeNode() as ElementNode).children![blockIdx + off]) as ElementNode;
+      const inlines = (blockNode.children ?? []).filter((c) => c.type === 'inline') as ElementNode[];
+      for (let i = inlines.length - 1; i >= 0; i--) {
+        if (inlines.length <= 1) break; // keep at least one
+        const textLen = (inlines[i].children ?? [])
+          .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+          .reduce((sum, t) => sum + t.value.length, 0);
+        if (textLen === 0) {
+          tree.editByPath([blockIdx + off, i], [blockIdx + off, i + 1]);
+        }
       }
     });
 
@@ -790,13 +831,15 @@ export class YorkieDocStore implements DocStore {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
     }
 
-    // Resolve block-level character offset to inline-level path
-    const { inlineIndex, charOffset } = resolveOffset(block, offset);
     const off = this.bodyTreeOffset(currentDoc);
 
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      // Resolve offset from the actual Yorkie tree, not the cache.
+      const treeRoot = tree.getRootTreeNode();
+      const { inlineIndex, charOffset } = this.resolveTreeOffset(treeRoot, blockIdx + off, offset);
 
       // Native CRDT split: single atomic operation at splitLevel=2.
       // splitLevel=2 because the text position is 2 levels below block:
@@ -820,6 +863,9 @@ export class YorkieDocStore implements DocStore {
         if (block.listLevel !== undefined) {
           afterAttrs.listLevel = String(block.listLevel);
         }
+      }
+      if (newBlockType === 'heading' && block.headingLevel !== undefined) {
+        afterAttrs.headingLevel = String(block.headingLevel);
       }
       tree.styleByPath([blockIdx + off + 1], afterAttrs);
     });
