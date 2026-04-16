@@ -367,4 +367,3 @@ Harness v1 is complete when all are true:
 
 - [OpenAI: Harness engineering — leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/)
 - [Martin Fowler: Harness Engineering](https://martinfowler.com/articles/exploring-gen-ai/harness-engineering.html)
-- [Mitchell Hashimoto: Harness, not AGENTS.md](https://mitchellh.com/writing/agents-harness-not-agents-md)
