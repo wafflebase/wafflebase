@@ -111,6 +111,7 @@ import {
 import { type FormatValueOptions } from './model/worksheet/format';
 import {
   inferInput,
+  defaultAlign,
   type InferInputOptions,
   type InferredInput,
   type InferredInputFormat,
@@ -221,6 +222,7 @@ export {
   resolveCurrencyForLocale,
   buildLocaleFormatPreview,
   inferInput,
+  defaultAlign,
   getWorksheetCell,
   getWorksheetEntries,
   getWorksheetKeys,

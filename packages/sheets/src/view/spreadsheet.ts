@@ -14,6 +14,7 @@ import {
 import { Sheet } from '../model/worksheet/sheet';
 import { Store } from '../store/store';
 import { MemStore } from '../store/memory';
+import { defaultAlign } from '../model/worksheet/input';
 import { Worksheet } from './worksheet';
 
 export type Theme = 'light' | 'dark';
@@ -261,6 +262,22 @@ export class Spreadsheet {
   public async getActiveStyle(): Promise<CellStyle | undefined> {
     if (!this.sheet) return undefined;
     return this.sheet.getStyle(this.sheet.getActiveCell());
+  }
+
+  /**
+   * `getActiveEffectiveAlign` returns the effective horizontal alignment of
+   * the active cell, incorporating content-based defaults (numbers/dates →
+   * right, booleans → center, errors/text → left) when no explicit al is set.
+   */
+  public async getActiveEffectiveAlign(): Promise<'left' | 'center' | 'right'> {
+    if (!this.sheet) return 'left';
+    const ref = this.sheet.getActiveCell();
+    const [cell, style] = await Promise.all([
+      this.sheet.getCell(ref),
+      this.sheet.getStyle(ref),
+    ]);
+    if (style?.al) return style.al;
+    return defaultAlign(cell?.v ?? '', style?.nf);
   }
 
   /**

@@ -493,9 +493,10 @@ export function evaluate(formula: string, grid?: Grid): string {
 export type NumNode = { t: 'num'; v: number };
 export type StrNode = { t: 'str'; v: string };
 export type BoolNode = { t: 'bool'; v: boolean };
+export const ErrValues = ['#VALUE!', '#REF!', '#N/A', '#ERROR!', '#DIV/0!'] as const;
 export type ErrNode = {
   t: 'err';
-  v: '#VALUE!' | '#REF!' | '#N/A' | '#ERROR!' | '#DIV/0!';
+  v: typeof ErrValues[number];
 };
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
