@@ -279,30 +279,24 @@ export function ImageObjectLayer({
           });
           if (patch) {
             onUpdateImage(imageId, patch);
-            setDragState(null);
-            requestAnimationFrame(() => {
-              setDrafts((prev) => {
-                const remaining = { ...prev };
-                delete remaining[imageId];
-                return remaining;
-              });
+            setDrafts((prev) => {
+              const remaining = { ...prev };
+              delete remaining[imageId];
+              return remaining;
             });
+            setDragState(null);
             return;
           }
         }
       }
 
       onUpdateImage(imageId, nextDraft);
-      setDragState(null);
-      // Defer draft clearing so the Yorkie update propagates before
-      // we remove the visual preview.
-      requestAnimationFrame(() => {
-        setDrafts((prev) => {
-          const remaining = { ...prev };
-          delete remaining[imageId];
-          return remaining;
-        });
+      setDrafts((prev) => {
+        const remaining = { ...prev };
+        delete remaining[imageId];
+        return remaining;
       });
+      setDragState(null);
     };
 
     window.addEventListener("pointermove", onPointerMove);

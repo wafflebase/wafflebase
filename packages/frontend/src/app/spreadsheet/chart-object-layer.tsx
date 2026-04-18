@@ -134,28 +134,24 @@ export function ChartObjectLayer({
           });
           if (patch) {
             onUpdateChart(chartId, patch);
-            setDragState(null);
-            requestAnimationFrame(() => {
-              setDrafts((prev) => {
-                const remaining = { ...prev };
-                delete remaining[chartId];
-                return remaining;
-              });
+            setDrafts((prev) => {
+              const remaining = { ...prev };
+              delete remaining[chartId];
+              return remaining;
             });
+            setDragState(null);
             return;
           }
         }
       }
 
       onUpdateChart(chartId, nextDraft);
-      setDragState(null);
-      requestAnimationFrame(() => {
-        setDrafts((prev) => {
-          const remaining = { ...prev };
-          delete remaining[chartId];
-          return remaining;
-        });
+      setDrafts((prev) => {
+        const remaining = { ...prev };
+        delete remaining[chartId];
+        return remaining;
       });
+      setDragState(null);
     };
 
     window.addEventListener("pointermove", onPointerMove);
