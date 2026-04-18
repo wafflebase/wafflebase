@@ -1033,6 +1033,12 @@ export function SheetView({
           onInsertAfter={handleInsertAfter}
           onDeleteRowCol={handleDeleteRowCol}
           onInsertPivotTable={addPivotTab ? handleInsertPivotTable : undefined}
+          selectedImageId={selectedImageId}
+          onDeleteImage={() => {
+            if (selectedImageId) {
+              handleDeleteImage(selectedImageId);
+            }
+          }}
         >
           <div
             ref={containerRef}
