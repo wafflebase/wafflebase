@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Spreadsheet,
   BorderPreset,
@@ -64,6 +64,7 @@ import {
   IconDotsVertical,
   IconPaint,
   IconBrush,
+  IconPhoto,
 } from "@tabler/icons-react";
 
 const ALIGN_ICONS = {
@@ -107,14 +108,13 @@ interface FormattingToolbarProps {
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
-  onInsertImage: _insertImage,
+  onInsertImage,
   onOpenConditionalFormat,
   onTogglePaintFormat,
   paintFormatActive = false,
   isPivotTab = false,
 }: FormattingToolbarProps) {
-  // onInsertImage (_insertImage) will be wired into the toolbar UI in a follow-up task.
-  void _insertImage;
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
   const [selectionMerged, setSelectionMerged] = useState(false);
@@ -741,6 +741,30 @@ export function FormattingToolbar({
             <TooltipContent>Insert chart</TooltipContent>
           </Tooltip>
 
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onInsertImage?.(file);
+              e.target.value = "";
+            }}
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={() => imageInputRef.current?.click()}
+                aria-label="Insert image"
+              >
+                <IconPhoto size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Insert image</TooltipContent>
+          </Tooltip>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -877,6 +901,10 @@ export function FormattingToolbar({
               <DropdownMenuItem onClick={handleInsertChart}>
                 <IconChartBar size={16} className="mr-2" />
                 Insert chart
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
+                <IconPhoto size={16} className="mr-2" />
+                Insert image
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePaintFormat}>
                 <IconPaint size={16} className="mr-2" />
