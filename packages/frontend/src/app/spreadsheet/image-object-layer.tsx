@@ -288,7 +288,7 @@ export function ImageObjectLayer({
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [dragState, images, onUpdateImage, readOnly, spreadsheet]);
+  }, [dragState, onUpdateImage, readOnly, spreadsheet]);
 
   const mountedRef = useRef(false);
   useEffect(() => {
