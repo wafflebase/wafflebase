@@ -70,6 +70,7 @@ export class ImageService implements OnModuleInit {
     file: Buffer,
     mimeType: string,
     _originalName: string,
+    keyPrefix?: string,
   ): Promise<{ id: string; url: string }> {
     if (!this.allowedMimeTypes.includes(mimeType)) {
       throw new BadRequestException(`Unsupported file type: ${mimeType}`);
@@ -88,8 +89,8 @@ export class ImageService implements OnModuleInit {
     if (!ext) {
       throw new BadRequestException(`Unsupported file type: ${mimeType}`);
     }
-    const id = randomUUID();
-    const key = `${id}.${ext}`;
+    const id = `${randomUUID()}.${ext}`;
+    const key = keyPrefix ? `${keyPrefix}/${id}` : id;
 
     await this.s3.send(
       new PutObjectCommand({
@@ -100,7 +101,7 @@ export class ImageService implements OnModuleInit {
       }),
     );
 
-    return { id: key, url: `/images/${key}` };
+    return { id, url: `/images/${key}` };
   }
 
   async getObject(
