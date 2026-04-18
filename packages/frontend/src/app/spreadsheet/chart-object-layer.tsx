@@ -1,9 +1,10 @@
 import {
   type PointerEvent as ReactPointerEvent,
   useEffect,
+  useRef,
   useState,
 } from "react";
-import { parseRef, Spreadsheet } from "@wafflebase/sheets";
+import { parseRef, toSref, type Sref, Spreadsheet } from "@wafflebase/sheets";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,6 +80,8 @@ export function ChartObjectLayer({
   const [drafts, setDrafts] = useState<Record<string, DraftLayout>>({});
 
   const charts = Object.values(root.sheets[tabId]?.charts || {});
+  const chartsRef = useRef(charts);
+  chartsRef.current = charts;
 
   useEffect(() => {
     if (!dragState || readOnly) return;
@@ -121,13 +124,61 @@ export function ChartObjectLayer({
 
     const onPointerUp = () => {
       const nextDraft = toDraft(latestX, latestY);
-      onUpdateChart(dragState.chartId, nextDraft);
-      setDrafts((prev) => {
-        const remaining = { ...prev };
-        delete remaining[dragState.chartId];
-        return remaining;
-      });
+      const chartId = dragState.chartId;
+
+      // For move operations, re-anchor to the cell under the pointer
+      // so row/column insert/delete correctly shifts the chart.
+      if (dragState.mode === "move" && spreadsheet) {
+        const newRef = spreadsheet.cellRefFromPoint(latestX, latestY);
+        if (newRef) {
+          const newAnchorRect =
+            spreadsheet.getCellRectInScrollableViewport(newRef);
+          const oldAnchorRect = (() => {
+            const chart = chartsRef.current.find((c) => c.id === chartId);
+            if (!chart) return null;
+            try {
+              return spreadsheet.getCellRectInScrollableViewport(
+                parseRef(chart.anchor),
+              );
+            } catch {
+              return null;
+            }
+          })();
+          if (newAnchorRect && oldAnchorRect) {
+            const z = spreadsheet.getZoom() ?? 1;
+            onUpdateChart(chartId, {
+              anchor: toSref(newRef) as Sref,
+              offsetX:
+                nextDraft.offsetX +
+                (oldAnchorRect.left - newAnchorRect.left) / z,
+              offsetY:
+                nextDraft.offsetY +
+                (oldAnchorRect.top - newAnchorRect.top) / z,
+              width: nextDraft.width,
+              height: nextDraft.height,
+            });
+            setDragState(null);
+            requestAnimationFrame(() => {
+              setDrafts((prev) => {
+                const remaining = { ...prev };
+                delete remaining[chartId];
+                return remaining;
+              });
+            });
+            return;
+          }
+        }
+      }
+
+      onUpdateChart(chartId, nextDraft);
       setDragState(null);
+      requestAnimationFrame(() => {
+        setDrafts((prev) => {
+          const remaining = { ...prev };
+          delete remaining[chartId];
+          return remaining;
+        });
+      });
     };
 
     window.addEventListener("pointermove", onPointerMove);
