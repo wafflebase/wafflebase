@@ -1,6 +1,6 @@
 # Docs Mobile Toolbar Implementation Plan
 
-> **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add mobile-responsive overflow menu to the Docs formatting toolbar, matching the Sheets toolbar pattern.
 
@@ -26,7 +26,7 @@ No new files needed. Single-file change following the established Sheets pattern
 **Files:**
 - Modify: `packages/frontend/src/app/docs/docs-formatting-toolbar.tsx`
 
-- [ ] **Step 1: Add imports**
+- [x] **Step 1: Add imports**
 
 Add `useIsMobile` hook and new icons needed for the overflow menu:
 
@@ -50,7 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 ```
 
-- [ ] **Step 2: Call the hook**
+- [x] **Step 2: Call the hook**
 
 Inside `DocsFormattingToolbar`, right after the existing state declarations:
 
@@ -58,7 +58,7 @@ Inside `DocsFormattingToolbar`, right after the existing state declarations:
 const isMobile = useIsMobile();
 ```
 
-- [ ] **Step 3: Hide desktop-only items on mobile**
+- [x] **Step 3: Hide desktop-only items on mobile**
 
 Wrap the following sections with `{!isMobile && (...)}`:
 
@@ -72,7 +72,7 @@ Wrap the following sections with `{!isMobile && (...)}`:
 
 Keep always visible: Undo, Redo, separator, Bold, Italic, Underline, Text Color, Highlight Color.
 
-- [ ] **Step 4: Run lint to verify no syntax errors**
+- [x] **Step 4: Run lint to verify no syntax errors**
 
 Run: `cd /Users/hackerwins/Development/wafflebase/wafflebase && pnpm lint`
 Expected: PASS (no errors in docs-formatting-toolbar.tsx)
@@ -84,7 +84,7 @@ Expected: PASS (no errors in docs-formatting-toolbar.tsx)
 **Files:**
 - Modify: `packages/frontend/src/app/docs/docs-formatting-toolbar.tsx`
 
-- [ ] **Step 1: Add the overflow menu after the Highlight Color dropdown**
+- [x] **Step 1: Add the overflow menu after the Highlight Color dropdown**
 
 Right after the closing `</DropdownMenu>` for Highlight Color and before the `{!isMobile && (` block, add:
 
@@ -227,12 +227,12 @@ Right after the closing `</DropdownMenu>` for Highlight Color and before the `{!
 )}
 ```
 
-- [ ] **Step 2: Run verify:fast**
+- [x] **Step 2: Run verify:fast**
 
 Run: `cd /Users/hackerwins/Development/wafflebase/wafflebase && pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 3: Manual test — resize browser to < 768px**
+- [x] **Step 3: Manual test — resize browser to < 768px**
 
 Open the Docs editor, resize browser width below 768px:
 - Verify: Only Undo, Redo, Bold, Italic, Underline, Text Color, Highlight Color, and ⋮ button visible
@@ -240,7 +240,7 @@ Open the Docs editor, resize browser width below 768px:
 - Verify: Each menu item triggers the correct action
 - Verify: Desktop (>768px) shows all items as before
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/docs-formatting-toolbar.tsx

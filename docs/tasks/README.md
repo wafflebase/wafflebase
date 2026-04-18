@@ -18,12 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| docs mobile toolbar (2026-04-15) | [20260415-docs-mobile-toolbar-todo.md](./active/20260415-docs-mobile-toolbar-todo.md) | - |
-| axis id selection (2026-04-14) | [20260414-axis-id-selection-todo.md](./active/20260414-axis-id-selection-todo.md) | - |
-| release v0.3.3 (2026-04-14) | [20260414-release-v0.3.3-todo.md](./active/20260414-release-v0.3.3-todo.md) | - |
-| nested tables (2026-04-13) | [20260413-nested-tables-todo.md](./active/20260413-nested-tables-todo.md) | - |
-| random axis id (2026-04-13) | [20260413-random-axis-id-todo.md](./active/20260413-random-axis-id-todo.md) | - |
-| docs image editing (2026-04-12) | [20260412-docs-image-editing-todo.md](./active/20260412-docs-image-editing-todo.md) | [20260412-docs-image-editing-lessons.md](./active/20260412-docs-image-editing-lessons.md) |
 | docx table style followup (2026-04-12) | [20260412-docx-table-style-followup-todo.md](./active/20260412-docx-table-style-followup-todo.md) | - |
 | intent preserving phase4 table cells (2026-04-03) | [20260403-intent-preserving-phase4-table-cells-todo.md](./active/20260403-intent-preserving-phase4-table-cells-todo.md) | - |
 | intent preserving phase5 undo redo (2026-04-03) | [20260403-intent-preserving-phase5-undo-redo-todo.md](./active/20260403-intent-preserving-phase5-undo-redo-todo.md) | - |
@@ -31,7 +25,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 127
+- Archived task count: 132
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs mobile toolbar (2026-04-15)
+Latest active task: docx table style followup (2026-04-12)

@@ -61,7 +61,7 @@ be paused and resumed cleanly.
       non-merged, rowSpan=1) table cells via `collectTableCellImageRects`
       so images inside cells are selectable. Merged / row-spanning /
       non-top-aligned cells remain a follow-up.
-- [ ] **2d. Cursor hints** — handle-hover cursor swap is deferred to
+- [x] **2d. Cursor hints** — handle-hover cursor swap is deferred to
       Milestone 3 where the resize drag state machine also owns the
       handle hit-test on pointer move. Hit test helper
       (`hitTestImageHandle` / `cursorForHandle`) is already available.
@@ -164,71 +164,71 @@ be paused and resumed cleanly.
 
 ## Milestone 5 — Floating context bar
 
-- [ ] **5a. React overlay component** — `image-context-bar.tsx`
+- [x] **5a. React overlay component** — `image-context-bar.tsx`
       absolutely positioned above the canvas, anchored to the
       selected image's screen-space top-left.
-- [ ] **5b. Buttons** — Replace / Alt text / Image options / Delete,
+- [x] **5b. Buttons** — Replace / Alt text / Image options / Delete,
       using existing `@/components/ui` primitives.
-- [ ] **5c. Replace** — reuses the upload flow, but on success calls
+- [x] **5c. Replace** — reuses the upload flow, but on success calls
       `updateSelectedImage({ src, originalWidth, originalHeight })`
       instead of `insertImage`.
-- [ ] **5d. Alt text** — inline popover with a text input.
-- [ ] **5e. Reposition on scroll/resize** — listen to the canvas scroll
+- [x] **5d. Alt text** — inline popover with a text input.
+- [x] **5e. Reposition on scroll/resize** — listen to the canvas scroll
       and window resize; recompute anchor; hide while mid-drag.
 
 ## Milestone 6 — Image Options side panel
 
-- [ ] **6a. Panel shell** — slide-in panel on the right side of
+- [x] **6a. Panel shell** — slide-in panel on the right side of
       `docs-detail.tsx`, visibility controlled by a `showImageOptions`
       state. Close button + click-outside dismiss.
-- [ ] **6b. Size controls** — Width/Height number inputs with a Lock
+- [x] **6b. Size controls** — Width/Height number inputs with a Lock
       aspect ratio checkbox (default on). Debounced dispatch to
       `updateSelectedImage`.
-- [ ] **6c. Rotation controls** — `Rotate 90° CCW` / `Rotate 90° CW`
+- [x] **6c. Rotation controls** — `Rotate 90° CCW` / `Rotate 90° CW`
       buttons + free-angle slider (0..359) + numeric input.
-- [ ] **6d. Alt text field**.
-- [ ] **6e. Reset image** — restores `originalWidth/Height`, clears
+- [x] **6d. Alt text field**.
+- [x] **6e. Reset image** — restores `originalWidth/Height`, clears
       rotation and crop.
 
 ## Milestone 7 — Rendering: rotation & crop
 
-- [ ] **7a. Rotation in `doc-canvas` body render path** — wrap the
+- [x] **7a. Rotation in `doc-canvas` body render path** — wrap the
       `drawImage` call in `save/translate/rotate/restore`.
-- [ ] **7b. Rotation in `table-renderer.renderTableContent`** — same
+- [x] **7b. Rotation in `table-renderer.renderTableContent`** — same
       transformation wrapper so table-cell images rotate too.
-- [ ] **7c. Crop** — switch to the 9-arg `drawImage` form with
+- [x] **7c. Crop** — switch to the 9-arg `drawImage` form with
       `sx/sy/sw/sh` computed from `crop* * natural*`. Works in both
       renderers.
-- [ ] **7d. Hit-test AABB** — `getImageBoundingBox(data)` returns the
+- [x] **7d. Hit-test AABB** — `getImageBoundingBox(data)` returns the
       axis-aligned bbox of the rotated, cropped image.
-- [ ] **7e. Unit tests** for the bbox math and for a regression that
+- [x] **7e. Unit tests** for the bbox math and for a regression that
       checks rotated image draws land at the expected canvas coords
       (use a recording ctx like the existing table-renderer tests).
 
 ## Milestone 8 — Crop mode
 
-- [ ] **8a. Crop mode toggle** — the context bar `Image options →
+- [x] **8a. Crop mode toggle** — the context bar `Image options →
       Crop` or a dedicated Crop button enters crop mode: the eight
       handles become crop handles (drawn inside the image bounds) and
       a darkened overlay masks the cropped-away areas.
-- [ ] **8b. Crop drag** — dragging a crop handle adjusts one of the
+- [x] **8b. Crop drag** — dragging a crop handle adjusts one of the
       four crop fractions. Clamp so `cropLeft + cropRight < 0.9` and
       `cropTop + cropBottom < 0.9`.
-- [ ] **8c. Commit / cancel** — Enter or clicking outside commits;
+- [x] **8c. Commit / cancel** — Enter or clicking outside commits;
       Esc cancels and restores prior crop values.
-- [ ] **8d. Reset crop** — clears all four crop fields.
+- [x] **8d. Reset crop** — clears all four crop fields.
 
 ## Milestone 9 — Verification
 
-- [ ] `pnpm --filter @wafflebase/docs test` — all existing + new tests
-- [ ] `pnpm verify:fast`
-- [ ] Manual: insert via toolbar upload, URL, drag-drop, paste
-- [ ] Manual: resize (corner aspect lock, side axis-only, keyboard
+- [x] `pnpm --filter @wafflebase/docs test` — all existing + new tests
+- [x] `pnpm verify:fast`
+- [x] Manual: insert via toolbar upload, URL, drag-drop, paste
+- [x] Manual: resize (corner aspect lock, side axis-only, keyboard
       nudge, Shift release)
-- [ ] Manual: rotate 90° CW/CCW and free angle
-- [ ] Manual: crop + reset
-- [ ] Manual: alt text persists across reload
-- [ ] Manual: DOCX round-trip (import → resize → export → reimport) is
+- [x] Manual: rotate 90° CW/CCW and free angle
+- [x] Manual: crop + reset
+- [x] Manual: alt text persists across reload
+- [x] Manual: DOCX round-trip (import → resize → export → reimport) is
       lossless for width/height/alt; rotation and crop degrade
       gracefully if DOCX doesn't round-trip them
 

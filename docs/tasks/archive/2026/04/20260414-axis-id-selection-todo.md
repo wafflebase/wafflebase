@@ -1,6 +1,6 @@
 # Axis ID Based Selection & Presence — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace coordinate-based selection with stable axis ID references in Yorkie presence so selections automatically track cells across remote structural edits.
 
@@ -16,7 +16,7 @@
 - Create: `packages/sheets/src/model/workbook/anchor-conversion.ts`
 - Create: `packages/sheets/test/workbook/anchor-conversion.test.ts`
 
-- [ ] **Step 1: Write failing tests for `anchorToRef`**
+- [x] **Step 1: Write failing tests for `anchorToRef`**
 
 ```typescript
 // packages/sheets/test/workbook/anchor-conversion.test.ts
@@ -59,7 +59,7 @@ describe('anchorToRef', () => {
 });
 ```
 
-- [ ] **Step 2: Write failing tests for `refToAnchor`**
+- [x] **Step 2: Write failing tests for `refToAnchor`**
 
 ```typescript
 // append to the same test file
@@ -80,7 +80,7 @@ describe('refToAnchor', () => {
 });
 ```
 
-- [ ] **Step 3: Write failing tests for `rangeAnchorToRange` and `rangeToRangeAnchor`**
+- [x] **Step 3: Write failing tests for `rangeAnchorToRange` and `rangeToRangeAnchor`**
 
 ```typescript
 // append to the same test file
@@ -191,12 +191,12 @@ describe('rangeToRangeAnchor', () => {
 });
 ```
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [x] **Step 4: Run tests to verify they fail**
 
 Run: `pnpm --filter @wafflebase/sheets exec vitest run test/workbook/anchor-conversion.test.ts`
 Expected: FAIL — module not found
 
-- [ ] **Step 5: Implement anchor-conversion module**
+- [x] **Step 5: Implement anchor-conversion module**
 
 ```typescript
 // packages/sheets/src/model/workbook/anchor-conversion.ts
@@ -323,12 +323,12 @@ export function rangeToRangeAnchor(
 }
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `pnpm --filter @wafflebase/sheets exec vitest run test/workbook/anchor-conversion.test.ts`
 Expected: ALL PASS
 
-- [ ] **Step 7: Export new types from sheets package**
+- [x] **Step 7: Export new types from sheets package**
 
 Add to `packages/sheets/src/index.ts`:
 
@@ -339,7 +339,7 @@ export { type CellAnchor, type RangeAnchor, type SelectionPresence };
 export { anchorToRef, refToAnchor, rangeAnchorToRange, rangeToRangeAnchor } from './model/workbook/anchor-conversion';
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/sheets/src/model/workbook/anchor-conversion.ts \
@@ -361,7 +361,7 @@ coordinates at the Store boundary."
 - Modify: `packages/sheets/src/store/memory.ts:297-302,318-323`
 - Modify: `packages/sheets/src/store/readonly.ts:140-149`
 
-- [ ] **Step 1: Update Store interface**
+- [x] **Step 1: Update Store interface**
 
 In `packages/sheets/src/store/store.ts`, replace:
 
@@ -430,7 +430,7 @@ Add the imports at the top of `store.ts`:
 import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';
 ```
 
-- [ ] **Step 2: Update MemStore**
+- [x] **Step 2: Update MemStore**
 
 In `packages/sheets/src/store/memory.ts`, replace `getPresences` and `updateActiveCell`:
 
@@ -461,18 +461,18 @@ getColOrder(): string[] {
 
 Add import: `import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';`
 
-- [ ] **Step 3: Update ReadOnlyStore**
+- [x] **Step 3: Update ReadOnlyStore**
 
 In `packages/sheets/src/store/readonly.ts`, apply the same changes as MemStore — replace `getPresences` and `updateActiveCell` with the new signatures and no-op implementations.
 
 Add import: `import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';`
 
-- [ ] **Step 4: Verify typecheck passes**
+- [x] **Step 4: Verify typecheck passes**
 
 Run: `pnpm sheets typecheck`
 Expected: FAIL — Sheet class and YorkieStore still use old signatures. That is expected; they will be updated in Tasks 3 and 4.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/sheets/src/store/store.ts \
@@ -492,7 +492,7 @@ Update getPresences to include SelectionPresence."
 **Files:**
 - Modify: `packages/sheets/src/model/worksheet/sheet.ts`
 
-- [ ] **Step 1: Add anchor fields and update setActiveCell**
+- [x] **Step 1: Add anchor fields and update setActiveCell**
 
 In `packages/sheets/src/model/worksheet/sheet.ts`, add imports:
 
@@ -538,7 +538,7 @@ public setActiveCell(ref: Ref): void {
 }
 ```
 
-- [ ] **Step 2: Add `syncSelectionToPresence` helper and update selection methods**
+- [x] **Step 2: Add `syncSelectionToPresence` helper and update selection methods**
 
 Add a private helper method:
 
@@ -563,7 +563,7 @@ Update `selectAllCells` (lines 2718-2723) — same replacement.
 
 Update any other method that calls `this.store.updateActiveCell(...)` — replace with `this.syncSelectionToPresence()`. Search for all occurrences of `store.updateActiveCell` in `sheet.ts`.
 
-- [ ] **Step 3: Add `resolveAnchorsToRefs` for remote sync**
+- [x] **Step 3: Add `resolveAnchorsToRefs` for remote sync**
 
 Add a public method that `reloadDimensions` flow can call:
 
@@ -610,7 +610,7 @@ private handleDeletedAnchor(rowOrder: string[], colOrder: string[]): void {
 
 Note: The `handleDeletedAnchor` uses a simple fallback to {r:1, c:1}. A smarter approach (snapping to the nearest row) requires caching previous rowOrder, which can be added as a follow-up refinement. The simple fallback is correct and safe.
 
-- [ ] **Step 4: Remove activeCell shift logic from `shiftCells`**
+- [x] **Step 4: Remove activeCell shift logic from `shiftCells`**
 
 In `shiftCells()` (lines 1105-1144), replace the entire activeCell shift block:
 
@@ -631,7 +631,7 @@ with:
 this.resolveAnchorsToRefs();
 ```
 
-- [ ] **Step 5: Update `getPresences` return type**
+- [x] **Step 5: Update `getPresences` return type**
 
 In `sheet.ts`, update the `getPresences` method (lines 2635-2640):
 
@@ -650,12 +650,12 @@ getPresences(): Array<{
 
 Add import: `import type { SelectionPresence } from '../workbook/anchor-conversion';`
 
-- [ ] **Step 6: Verify typecheck passes**
+- [x] **Step 6: Verify typecheck passes**
 
 Run: `pnpm sheets typecheck`
 Expected: FAIL — YorkieStore not yet updated (Task 4). MemStore/ReadOnlyStore should be fine.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/sheets/src/model/worksheet/sheet.ts
@@ -674,7 +674,7 @@ Remove manual activeCell shift logic from shiftCells()."
 - Modify: `packages/frontend/src/app/spreadsheet/yorkie-store.ts:602-612`
 - Modify: `packages/frontend/src/types/users.ts`
 
-- [ ] **Step 1: Update UserPresence type**
+- [x] **Step 1: Update UserPresence type**
 
 In `packages/frontend/src/types/users.ts`:
 
@@ -696,7 +696,7 @@ export type UserPresence = {
 } & User;
 ```
 
-- [ ] **Step 2: Update YorkieStore methods**
+- [x] **Step 2: Update YorkieStore methods**
 
 In `packages/frontend/src/app/spreadsheet/yorkie-store.ts`, add imports:
 
@@ -731,12 +731,12 @@ getColOrder(): string[] {
 }
 ```
 
-- [ ] **Step 3: Verify full typecheck passes**
+- [x] **Step 3: Verify full typecheck passes**
 
 Run: `pnpm sheets typecheck && pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 Expected: PASS (all implementations now match the interface)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/yorkie-store.ts \
@@ -756,7 +756,7 @@ fields for backward compatibility."
 - Modify: `packages/sheets/src/view/worksheet.ts:4175-4190`
 - Modify: `packages/frontend/src/app/spreadsheet/sheet-view.tsx:640-664`
 
-- [ ] **Step 1: Add `resolveAnchorsToRefs` call in `reloadDimensions`**
+- [x] **Step 1: Add `resolveAnchorsToRefs` call in `reloadDimensions`**
 
 In `packages/sheets/src/view/worksheet.ts`, update `reloadDimensions()` (lines 4175-4190):
 
@@ -783,12 +783,12 @@ public async reloadDimensions() {
 }
 ```
 
-- [ ] **Step 2: Verify typecheck passes**
+- [x] **Step 2: Verify typecheck passes**
 
 Run: `pnpm sheets typecheck`
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/sheets/src/view/worksheet.ts
@@ -806,7 +806,7 @@ automatically tracks its axis ID after remote row/col inserts."
 - Modify: `packages/sheets/src/view/overlay.ts:135-165,602-656`
 - Modify: `packages/sheets/src/view/worksheet.ts:4509-4541`
 
-- [ ] **Step 1: Update overlay `render()` signature for new presence type**
+- [x] **Step 1: Update overlay `render()` signature for new presence type**
 
 In `packages/sheets/src/view/overlay.ts`, update the `peerPresences` parameter type in `render()` (line 138) and `renderPeerCursorsSimple()` (line 605):
 
@@ -836,7 +836,7 @@ import type { SelectionPresence } from '../model/workbook/anchor-conversion';
 import { anchorToRef, rangeAnchorToRange } from '../model/workbook/anchor-conversion';
 ```
 
-- [ ] **Step 2: Update `renderPeerCursorsSimple` to handle both formats and render ranges**
+- [x] **Step 2: Update `renderPeerCursorsSimple` to handle both formats and render ranges**
 
 Replace the body of `renderPeerCursorsSimple` (lines 614-656):
 
@@ -920,7 +920,7 @@ private renderPeerCursorsSimple(
 }
 ```
 
-- [ ] **Step 3: Add `renderPeerRangeBackground` helper**
+- [x] **Step 3: Add `renderPeerRangeBackground` helper**
 
 Add after `renderPeerCursorsSimple`:
 
@@ -948,7 +948,7 @@ private renderPeerRangeBackground(
 }
 ```
 
-- [ ] **Step 4: Pass rowOrder/colOrder through render() → renderPeerCursorsSimple()**
+- [x] **Step 4: Pass rowOrder/colOrder through render() → renderPeerCursorsSimple()**
 
 Add `rowOrder?: string[]` and `colOrder?: string[]` parameters to the `render()` method signature (after `cellDragMovePreview`):
 
@@ -959,7 +959,7 @@ colOrder?: string[],
 
 Pass them through to `renderPeerCursorsSimple()` call inside `render()`.
 
-- [ ] **Step 5: Update worksheet.ts `renderOverlay` to pass rowOrder/colOrder**
+- [x] **Step 5: Update worksheet.ts `renderOverlay` to pass rowOrder/colOrder**
 
 In `packages/sheets/src/view/worksheet.ts` `renderOverlay()` method (lines 4509-4541), add the new arguments:
 
@@ -1010,12 +1010,12 @@ public getStore(): Store {
 }
 ```
 
-- [ ] **Step 6: Verify typecheck and tests pass**
+- [x] **Step 6: Verify typecheck and tests pass**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/sheets/src/view/overlay.ts \
@@ -1035,7 +1035,7 @@ Active cell keeps colored border + name label."
 **Files:**
 - Modify: `packages/sheets/src/model/worksheet/sheet.ts`
 
-- [ ] **Step 1: Initialize `activeCellAnchor` when sheet loads**
+- [x] **Step 1: Initialize `activeCellAnchor` when sheet loads**
 
 Find the Sheet constructor or initialization method where `activeCell` is first set. After `this.activeCell = { r: 1, c: 1 }` (or wherever the default is set), add anchor initialization.
 
@@ -1050,12 +1050,12 @@ if (rowOrder.length > 0 && colOrder.length > 0) {
 }
 ```
 
-- [ ] **Step 2: Verify tests pass**
+- [x] **Step 2: Verify tests pass**
 
 Run: `pnpm verify:fast`
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/sheets/src/model/worksheet/sheet.ts
@@ -1073,17 +1073,17 @@ resolveAnchorsToRefs works on the first remote change."
 - Modify: `docs/design/sheets/axis-id-selection.md` (if needed)
 - Modify: `docs/tasks/active/20260414-axis-id-selection-todo.md`
 
-- [ ] **Step 1: Run full verification**
+- [x] **Step 1: Run full verification**
 
 Run: `pnpm verify:fast`
 Expected: ALL PASS
 
-- [ ] **Step 2: Run typecheck across all packages**
+- [x] **Step 2: Run typecheck across all packages**
 
 Run: `pnpm sheets typecheck && pnpm --filter @wafflebase/frontend exec tsc --noEmit`
 Expected: PASS
 
-- [ ] **Step 3: Search for leftover `updateActiveCell` references**
+- [x] **Step 3: Search for leftover `updateActiveCell` references**
 
 Search for any remaining `updateActiveCell` calls in the codebase that haven't been updated. These would be compile errors but verify none are hidden:
 
@@ -1093,7 +1093,7 @@ grep -r "updateActiveCell" packages/ --include="*.ts" --include="*.tsx"
 
 Expected: No matches (all replaced with `updateSelection` or `syncSelectionToPresence`)
 
-- [ ] **Step 4: Manual testing checklist**
+- [x] **Step 4: Manual testing checklist**
 
 1. Open sheet in two browser tabs (ClientA, ClientB)
 2. ClientA selects cell D4
@@ -1105,7 +1105,7 @@ Expected: No matches (all replaced with `updateSelection` or `syncSelectionToPre
 8. ClientA selects entire row 3, verify ClientB sees full-row highlight
 9. Both clients select different cells — verify both peer cursors visible with labels
 
-- [ ] **Step 5: Final commit with task completion**
+- [x] **Step 5: Final commit with task completion**
 
 ```bash
 pnpm tasks:archive && pnpm tasks:index
