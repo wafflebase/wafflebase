@@ -978,6 +978,13 @@ export function SheetView({
   }, [root, selectedChartId, tabId]);
 
   useEffect(() => {
+    if (!selectedImageId) return;
+    if (!root?.sheets[tabId]?.images?.[selectedImageId]) {
+      setSelectedImageId(null);
+    }
+  }, [root, selectedImageId, tabId]);
+
+  useEffect(() => {
     if (!peerJumpTarget) return;
     if (peerJumpTarget.targetTabId && peerJumpTarget.targetTabId !== tabId) {
       return;

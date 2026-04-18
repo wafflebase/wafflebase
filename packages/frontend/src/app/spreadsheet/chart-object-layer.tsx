@@ -1,17 +1,9 @@
-import {
-  type PointerEvent as ReactPointerEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type PointerEvent as ReactPointerEvent } from "react";
 import { parseRef, Spreadsheet } from "@wafflebase/sheets";
-import {
-  type DraftLayout,
-  type HandlePosition,
-  computeResizeDraft,
-  reanchorAfterMove,
-} from "./object-layer-utils";
+import { type DraftLayout, type HandlePosition } from "./object-layer-utils";
 import { SelectionOverlay } from "./selection-overlay";
+import { ObjectLayerViewport } from "./object-layer-viewport";
+import { useObjectKeyboardShortcuts, useObjectDragResize } from "./use-object-layer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,17 +28,6 @@ type ChartObjectLayerProps = {
   renderVersion: number;
 };
 
-type DragState = {
-  chartId: string;
-  mode: "move" | "resize";
-  handle?: HandlePosition;
-  startX: number;
-  startY: number;
-  startOffsetX: number;
-  startOffsetY: number;
-  startWidth: number;
-  startHeight: number;
-};
 const MIN_Y_AXIS_WIDTH = 40;
 const MAX_Y_AXIS_WIDTH = 96;
 
@@ -74,254 +55,90 @@ export function ChartObjectLayer({
   onUpdateChart,
   renderVersion,
 }: ChartObjectLayerProps) {
-  const [dragState, setDragState] = useState<DragState | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, DraftLayout>>({});
-
   const charts = Object.values(root.sheets[tabId]?.charts || {});
-  const chartsRef = useRef(charts);
-  chartsRef.current = charts;
 
-  // Keyboard handler for chart shortcuts (delete, move, escape).
-  useEffect(() => {
-    if (!selectedChartId || readOnly) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      // Don't intercept when user is typing in an external input.
-      const target = event.target;
-      if (target instanceof Element) {
-        const grid = document.querySelector("[data-sheet-container]");
-        if (!grid?.contains(target)) {
-          const tag = target.tagName;
-          if (
-            tag === "INPUT" ||
-            tag === "TEXTAREA" ||
-            (target as HTMLElement).isContentEditable
-          ) {
-            return;
-          }
-        }
-      }
+  useObjectKeyboardShortcuts({
+    selectedId: selectedChartId,
+    readOnly,
+    items: charts,
+    onDelete: onDeleteChart,
+    onDeselect: () => onSelectChart(null),
+    onUpdate: onUpdateChart,
+  });
 
-      if (event.key === "Delete" || event.key === "Backspace") {
-        event.preventDefault();
-        event.stopPropagation();
-        onDeleteChart(selectedChartId);
-        onSelectChart(null);
-      } else if (
-        event.key === "ArrowUp" ||
-        event.key === "ArrowDown" ||
-        event.key === "ArrowLeft" ||
-        event.key === "ArrowRight"
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        const dx =
-          event.key === "ArrowLeft" ? -10 : event.key === "ArrowRight" ? 10 : 0;
-        const dy =
-          event.key === "ArrowUp" ? -10 : event.key === "ArrowDown" ? 10 : 0;
-        onUpdateChart(selectedChartId, {
-          offsetX:
-            (charts.find((c) => c.id === selectedChartId)?.offsetX ?? 0) + dx,
-          offsetY:
-            (charts.find((c) => c.id === selectedChartId)?.offsetY ?? 0) + dy,
-        });
-      } else if (event.key === "Escape") {
-        event.stopPropagation();
-        onSelectChart(null);
-      }
-    };
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [selectedChartId, readOnly, onDeleteChart, onSelectChart, onUpdateChart, charts]);
-
-  useEffect(() => {
-    if (!dragState || readOnly) return;
-
-    let latestX = dragState.startX;
-    let latestY = dragState.startY;
-
-    const toDraft = (clientX: number, clientY: number): DraftLayout => {
-      const z = spreadsheet?.getZoom() ?? 1;
-      const deltaX = (clientX - dragState.startX) / z;
-      const deltaY = (clientY - dragState.startY) / z;
-
-      if (dragState.mode === "move") {
-        return {
-          offsetX: dragState.startOffsetX + deltaX,
-          offsetY: dragState.startOffsetY + deltaY,
-          width: dragState.startWidth,
-          height: dragState.startHeight,
-        };
-      }
-
-      // Resize mode — charts do NOT lock aspect ratio.
-      return computeResizeDraft({
-        handle: dragState.handle!,
-        deltaX,
-        deltaY,
-        startOffsetX: dragState.startOffsetX,
-        startOffsetY: dragState.startOffsetY,
-        startWidth: dragState.startWidth,
-        startHeight: dragState.startHeight,
-        aspectRatio: 1,
-        lockAspectRatio: false,
-      });
-    };
-
-    const onPointerMove = (event: PointerEvent) => {
-      latestX = event.clientX;
-      latestY = event.clientY;
-      const nextDraft = toDraft(latestX, latestY);
-      setDrafts((prev) => ({
-        ...prev,
-        [dragState.chartId]: nextDraft,
-      }));
-    };
-
-    const onPointerUp = () => {
-      const nextDraft = toDraft(latestX, latestY);
-      const chartId = dragState.chartId;
-
-      // For move operations, re-anchor to the cell under the pointer
-      // so row/column insert/delete correctly shifts the chart.
-      if (dragState.mode === "move" && spreadsheet) {
-        const chart = chartsRef.current.find((c) => c.id === chartId);
-        if (chart) {
-          const patch = reanchorAfterMove({
-            spreadsheet,
-            pointerX: latestX,
-            pointerY: latestY,
-            currentAnchor: chart.anchor,
-            draft: nextDraft,
-          });
-          if (patch) {
-            onUpdateChart(chartId, patch);
-            setDrafts((prev) => {
-              const remaining = { ...prev };
-              delete remaining[chartId];
-              return remaining;
-            });
-            setDragState(null);
-            return;
-          }
-        }
-      }
-
-      onUpdateChart(chartId, nextDraft);
-      setDrafts((prev) => {
-        const remaining = { ...prev };
-        delete remaining[chartId];
-        return remaining;
-      });
-      setDragState(null);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-    };
-  }, [dragState, onUpdateChart, readOnly, spreadsheet]);
+  const { setDragState, drafts } = useObjectDragResize({
+    readOnly,
+    spreadsheet,
+    lockAspectRatio: false,
+    items: charts,
+    onUpdate: onUpdateChart,
+  });
 
   if (!spreadsheet || charts.length === 0) {
     return null;
   }
 
   const zoom = spreadsheet.getZoom();
-  const viewport = spreadsheet.getGridViewportRect();
-  const scrollableViewport = spreadsheet.getScrollableGridViewportRect();
-  const clipLeft = Math.max(0, scrollableViewport.left - viewport.left);
-  const clipTop = Math.max(0, scrollableViewport.top - viewport.top);
-  const clipWidth = Math.max(0, scrollableViewport.width);
-  const clipHeight = Math.max(0, scrollableViewport.height);
-
-  if (clipWidth === 0 || clipHeight === 0) {
-    return null;
-  }
 
   return (
-    <div
-      className="absolute pointer-events-none overflow-hidden"
-      data-render-version={renderVersion}
-      style={{
-        left: viewport.left,
-        top: viewport.top,
-        width: viewport.width,
-        height: viewport.height,
-        zIndex: 4,
-      }}
+    <ObjectLayerViewport
+      spreadsheet={spreadsheet}
+      zIndex={4}
+      renderVersion={renderVersion}
     >
-      <div
-        className="absolute pointer-events-none overflow-hidden"
-        style={{
-          left: clipLeft,
-          top: clipTop,
-          width: clipWidth,
-          height: clipHeight,
-        }}
-      >
-        <div
-          className="relative h-full w-full pointer-events-none"
-          style={{
-            left: -clipLeft,
-            top: -clipTop,
-            width: viewport.width,
-            height: viewport.height,
-          }}
-        >
-          {charts.map((chart) => {
-            const layout = drafts[chart.id] || {
-              offsetX: chart.offsetX,
-              offsetY: chart.offsetY,
-              width: chart.width,
-              height: chart.height,
-            };
-            return (
-              <ChartObject
-                key={chart.id}
-                chart={chart}
-                root={root}
-                spreadsheet={spreadsheet}
-                zoom={zoom}
-                selected={selectedChartId === chart.id}
-                readOnly={readOnly}
-                layout={layout}
-                onSelect={() => onSelectChart(chart.id)}
-                onRequestEdit={() => onRequestEditChart(chart.id)}
-                onDelete={() => onDeleteChart(chart.id)}
-                onMoveStart={(event) => {
-                  onSelectChart(chart.id);
-                  setDragState({
-                    chartId: chart.id,
-                    mode: "move",
-                    startX: event.clientX,
-                    startY: event.clientY,
-                    startOffsetX: layout.offsetX,
-                    startOffsetY: layout.offsetY,
-                    startWidth: layout.width,
-                    startHeight: layout.height,
-                  });
-                }}
-                onResizeStart={(event, handle) => {
-                  onSelectChart(chart.id);
-                  setDragState({
-                    chartId: chart.id,
-                    mode: "resize",
-                    handle,
-                    startX: event.clientX,
-                    startY: event.clientY,
-                    startOffsetX: layout.offsetX,
-                    startOffsetY: layout.offsetY,
-                    startWidth: layout.width,
-                    startHeight: layout.height,
-                  });
-                }}
-              />
-            );
-          })}
-        </div>
-      </div>
-    </div>
+      {charts.map((chart) => {
+        const layout = drafts[chart.id] || {
+          offsetX: chart.offsetX,
+          offsetY: chart.offsetY,
+          width: chart.width,
+          height: chart.height,
+        };
+        return (
+          <ChartObject
+            key={chart.id}
+            chart={chart}
+            root={root}
+            spreadsheet={spreadsheet}
+            zoom={zoom}
+            selected={selectedChartId === chart.id}
+            readOnly={readOnly}
+            layout={layout}
+            onSelect={() => onSelectChart(chart.id)}
+            onRequestEdit={() => onRequestEditChart(chart.id)}
+            onDelete={() => onDeleteChart(chart.id)}
+            onMoveStart={(event) => {
+              onSelectChart(chart.id);
+              setDragState({
+                objectId: chart.id,
+                mode: "move",
+                startX: event.clientX,
+                startY: event.clientY,
+                startOffsetX: layout.offsetX,
+                startOffsetY: layout.offsetY,
+                startWidth: layout.width,
+                startHeight: layout.height,
+                aspectRatio: 1,
+              });
+            }}
+            onResizeStart={(event, handle) => {
+              onSelectChart(chart.id);
+              setDragState({
+                objectId: chart.id,
+                mode: "resize",
+                handle,
+                startX: event.clientX,
+                startY: event.clientY,
+                startOffsetX: layout.offsetX,
+                startOffsetY: layout.offsetY,
+                startWidth: layout.width,
+                startHeight: layout.height,
+                aspectRatio: 1,
+              });
+            }}
+          />
+        );
+      })}
+    </ObjectLayerViewport>
   );
 }
 
@@ -510,22 +327,17 @@ function formatYAxisTick(value: number | string): string {
   return plainTickFormatter.format(numeric);
 }
 
-function getYAxisWidth(dataset: ReturnType<typeof buildChartDataset>): number {
-  let maxLabelLength = 1;
-
+function getYAxisWidth(dataset: {
+  rows: Record<string, unknown>[];
+  series: { key: string }[];
+}): number {
+  let maxLen = 0;
   for (const row of dataset.rows) {
-    for (const series of dataset.series) {
-      const value = row[series.key];
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        continue;
-      }
-
-      maxLabelLength = Math.max(maxLabelLength, formatYAxisTick(value).length);
+    for (const s of dataset.series) {
+      const v = row[s.key];
+      const str = typeof v === "number" ? formatYAxisTick(v) : String(v ?? "");
+      if (str.length > maxLen) maxLen = str.length;
     }
   }
-
-  return Math.min(
-    MAX_Y_AXIS_WIDTH,
-    Math.max(MIN_Y_AXIS_WIDTH, Math.round(maxLabelLength * 7.2 + 10)),
-  );
+  return Math.max(MIN_Y_AXIS_WIDTH, Math.min(MAX_Y_AXIS_WIDTH, maxLen * 8 + 16));
 }
