@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inferInput } from '../../src/model/worksheet/input';
+import { inferInput, applyInferredFormat } from '../../src/model/worksheet/input';
 
 describe('inferInput', () => {
   it('infers currency', () => {
@@ -63,6 +63,26 @@ describe('inferInput', () => {
     );
   });
 
+  it('infers datetime (NOW() output format)', () => {
+    expect(inferInput('2026-03-09 14:30:45')).toEqual({
+      value: '2026-03-09 14:30:45',
+      type: 'date',
+      format: 'yyyy-mm-dd',
+    });
+    expect(inferInput('2025-12-31 23:59:59')).toEqual({
+      value: '2025-12-31 23:59:59',
+      type: 'date',
+      format: 'yyyy-mm-dd',
+    });
+    // Invalid date components should not match
+    expect(inferInput('2025-13-01 00:00:00').type).toBe('text');
+    expect(inferInput('2025-02-30 00:00:00').type).toBe('text');
+    // Invalid time components should not match
+    expect(inferInput('2025-01-01 24:00:00').type).toBe('text');
+    expect(inferInput('2025-01-01 00:60:00').type).toBe('text');
+    expect(inferInput('2025-01-01 00:00:60').type).toBe('text');
+  });
+
   it('infers boolean', () => {
     expect(inferInput('true')).toEqual({
       value: true,
@@ -102,5 +122,37 @@ describe('inferInput', () => {
       type: 'number',
       format: 'currency:USD',
     });
+  });
+});
+
+describe('applyInferredFormat', () => {
+  it('sets nf: date for date input', () => {
+    const result = applyInferredFormat(undefined, inferInput('2025-06-15'));
+    expect(result).toEqual({ nf: 'date' });
+  });
+
+  it('sets nf: date for datetime input', () => {
+    const result = applyInferredFormat(undefined, inferInput('2026-03-09 14:30:45'));
+    expect(result).toEqual({ nf: 'date' });
+  });
+
+  it('overrides existing nf with date', () => {
+    const result = applyInferredFormat({ nf: 'number' }, inferInput('2025-06-15'));
+    expect(result).toEqual({ nf: 'date' });
+  });
+
+  it('sets nf: percent for percent input', () => {
+    const result = applyInferredFormat(undefined, inferInput('50%'));
+    expect(result).toEqual({ nf: 'percent' });
+  });
+
+  it('returns undefined for plain text', () => {
+    const result = applyInferredFormat(undefined, inferInput('hello'));
+    expect(result).toBeUndefined();
+  });
+
+  it('preserves existing style for plain text', () => {
+    const result = applyInferredFormat({ b: true }, inferInput('hello'));
+    expect(result).toEqual({ b: true });
   });
 });

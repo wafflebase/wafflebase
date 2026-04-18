@@ -109,6 +109,31 @@ describe('formatValue', () => {
       'not-a-date',
     );
   });
+
+  it('should format datetime as YYYY-MM-DD HH:mm:ss', () => {
+    expect(formatValue('2026-03-09 14:30:45', 'date', undefined, { locale: 'en-US' })).toBe(
+      '2026-03-09 14:30:45',
+    );
+    expect(formatValue('2025-12-31 23:59:59', 'date', undefined, { locale: 'en-US' })).toBe(
+      '2025-12-31 23:59:59',
+    );
+    // zero-padded time components
+    expect(formatValue('2025-01-01 00:00:00', 'date', undefined, { locale: 'en-US' })).toBe(
+      '2025-01-01 00:00:00',
+    );
+  });
+
+  it('should return original value for datetime with invalid time components', () => {
+    expect(formatValue('2025-01-01 24:00:00', 'date', undefined, { locale: 'en-US' })).toBe(
+      '2025-01-01 24:00:00',
+    );
+    expect(formatValue('2025-01-01 00:60:00', 'date', undefined, { locale: 'en-US' })).toBe(
+      '2025-01-01 00:60:00',
+    );
+    expect(formatValue('2025-01-01 00:00:60', 'date', undefined, { locale: 'en-US' })).toBe(
+      '2025-01-01 00:00:60',
+    );
+  });
 });
 
 describe('locale helpers', () => {

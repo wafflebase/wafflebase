@@ -18,7 +18,9 @@ function safeFormat(
   }
 }
 
-function parseDateValue(value: string): Date | undefined {
+function parseDateValue(
+  value: string,
+): { date: Date; hasTime: boolean } | undefined {
   const isoDateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoDateMatch) {
     const year = Number(isoDateMatch[1]);
@@ -30,7 +32,29 @@ function parseDateValue(value: string): Date | undefined {
       localDate.getMonth() === month - 1 &&
       localDate.getDate() === day
     ) {
-      return localDate;
+      return { date: localDate, hasTime: false };
+    }
+    return undefined;
+  }
+
+  const datetimeMatch = value.match(
+    /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/,
+  );
+  if (datetimeMatch) {
+    const year = Number(datetimeMatch[1]);
+    const month = Number(datetimeMatch[2]);
+    const day = Number(datetimeMatch[3]);
+    const hour = Number(datetimeMatch[4]);
+    const minute = Number(datetimeMatch[5]);
+    const second = Number(datetimeMatch[6]);
+    if (hour > 23 || minute > 59 || second > 59) return undefined;
+    const localDate = new Date(year, month - 1, day, hour, minute, second);
+    if (
+      localDate.getFullYear() === year &&
+      localDate.getMonth() === month - 1 &&
+      localDate.getDate() === day
+    ) {
+      return { date: localDate, hasTime: true };
     }
     return undefined;
   }
@@ -39,19 +63,26 @@ function parseDateValue(value: string): Date | undefined {
   if (isNaN(parsed.getTime())) {
     return undefined;
   }
-  return parsed;
+  return { date: parsed, hasTime: false };
 }
 
 function safeFormatDate(value: string, _locale: string): string {
-  const date = parseDateValue(value);
-  if (!date) {
+  const result = parseDateValue(value);
+  if (!result) {
     return value;
   }
 
+  const { date, hasTime } = result;
   const year = String(date.getFullYear()).padStart(4, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  if (!hasTime) {
+    return `${year}-${month}-${day}`;
+  }
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  const second = String(date.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
 /**
