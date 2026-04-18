@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 126
+Total archived tasks: 127
 
-## 2026/04 (12 tasks)
+## 2026/04 (13 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| sheet image (2026-04-18) | [20260418-sheet-image-todo.md](./2026/04/20260418-sheet-image-todo.md) | - |
 | random axis id (2026-04-13) | [20260413-random-axis-id-todo.md](./2026/04/20260413-random-axis-id-todo.md) | - |
 | yorkie native split merge (2026-04-13) | [20260413-yorkie-native-split-merge-todo.md](./2026/04/20260413-yorkie-native-split-merge-todo.md) | [20260413-yorkie-native-split-merge-lessons.md](./2026/04/20260413-yorkie-native-split-merge-lessons.md) |
 | docx image import render (2026-04-12) | [20260412-docx-image-import-render-todo.md](./2026/04/20260412-docx-image-import-render-todo.md) | [20260412-docx-image-import-render-lessons.md](./2026/04/20260412-docx-image-import-render-lessons.md) |

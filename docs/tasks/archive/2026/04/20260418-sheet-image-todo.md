@@ -1,6 +1,6 @@
 # Sheet Image Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add floating image support to the Sheets package, with a shared workspace-level image upload API usable by both Sheets and Docs.
 
@@ -49,7 +49,7 @@
 - Modify: `packages/sheets/src/model/workbook/worksheet-document.ts:12-78`
 - Modify: `packages/sheets/src/index.ts`
 
-- [ ] **Step 1: Add SheetImage type definition**
+- [x] **Step 1: Add SheetImage type definition**
 
 In `packages/sheets/src/model/workbook/worksheet-document.ts`, add the `SheetImage` type after the `SheetChart` type (after line 30):
 
@@ -68,7 +68,7 @@ export type SheetImage = {
 };
 ```
 
-- [ ] **Step 2: Add images field to Worksheet type**
+- [x] **Step 2: Add images field to Worksheet type**
 
 In the same file, add `images` to the `Worksheet` type, next to the existing `charts` field:
 
@@ -77,11 +77,11 @@ In the same file, add `images` to the `Worksheet` type, next to the existing `ch
   images?: { [id: string]: SheetImage };  // ADD THIS LINE
 ```
 
-- [ ] **Step 3: Initialize images in createWorksheet()**
+- [x] **Step 3: Initialize images in createWorksheet()**
 
 In the `createWorksheet()` function, add `images: {},` next to `charts: {},`.
 
-- [ ] **Step 4: Export SheetImage from index.ts**
+- [x] **Step 4: Export SheetImage from index.ts**
 
 In `packages/sheets/src/index.ts`, find where `SheetChart` is exported and add `SheetImage` next to it:
 
@@ -89,12 +89,12 @@ In `packages/sheets/src/index.ts`, find where `SheetChart` is exported and add `
 export type { SheetChart, SheetImage } from './model/workbook/worksheet-document';
 ```
 
-- [ ] **Step 5: Verify build**
+- [x] **Step 5: Verify build**
 
 Run: `pnpm sheets build`
 Expected: Build succeeds with no errors
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/sheets/src/model/workbook/worksheet-document.ts packages/sheets/src/index.ts
@@ -109,14 +109,14 @@ git commit -m "Add SheetImage type and images field to Worksheet"
 - Create: `packages/backend/src/api/v1/images.controller.ts`
 - Modify: `packages/backend/src/api/v1/api-v1.module.ts`
 
-- [ ] **Step 1: Read existing image module for reference**
+- [x] **Step 1: Read existing image module for reference**
 
 Read these files to understand current patterns:
 - `packages/backend/src/image/image.controller.ts`
 - `packages/backend/src/image/image.service.ts`
 - `packages/backend/src/api/v1/documents.controller.ts`
 
-- [ ] **Step 2: Create workspace-scoped images controller**
+- [x] **Step 2: Create workspace-scoped images controller**
 
 Create `packages/backend/src/api/v1/images.controller.ts`:
 
@@ -180,7 +180,7 @@ export class ApiV1ImagesController {
 }
 ```
 
-- [ ] **Step 3: Register controller in API v1 module**
+- [x] **Step 3: Register controller in API v1 module**
 
 In `packages/backend/src/api/v1/api-v1.module.ts`, add the import and register the controller:
 
@@ -190,17 +190,17 @@ import { ApiV1ImagesController } from './images.controller';
 
 Add `ApiV1ImagesController` to the `controllers` array. Add `ImageModule` to the `imports` array.
 
-- [ ] **Step 4: Verify build**
+- [x] **Step 4: Verify build**
 
 Run: `pnpm backend build`
 Expected: Build succeeds
 
-- [ ] **Step 5: Verify existing tests still pass**
+- [x] **Step 5: Verify existing tests still pass**
 
 Run: `pnpm backend test`
 Expected: All tests pass
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/backend/src/api/v1/images.controller.ts packages/backend/src/api/v1/api-v1.module.ts
@@ -214,11 +214,11 @@ git commit -m "Add workspace-scoped image upload endpoints to API v1"
 **Files:**
 - Create: `packages/frontend/src/app/spreadsheet/image-cache.ts`
 
-- [ ] **Step 1: Read Docs image-cache.ts for reference**
+- [x] **Step 1: Read Docs image-cache.ts for reference**
 
 Read: `packages/docs/src/view/image-cache.ts`
 
-- [ ] **Step 2: Create image cache module**
+- [x] **Step 2: Create image cache module**
 
 Create `packages/frontend/src/app/spreadsheet/image-cache.ts`:
 
@@ -270,7 +270,7 @@ export function getOrLoadImage(
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/image-cache.ts
@@ -284,12 +284,12 @@ git commit -m "Add image cache with async load and dedup for Sheets"
 **Files:**
 - Create: `packages/frontend/src/app/spreadsheet/image-upload.ts`
 
-- [ ] **Step 1: Read Docs upload pattern for reference**
+- [x] **Step 1: Read Docs upload pattern for reference**
 
 Read: `packages/frontend/src/app/docs/image-insert.ts` (lines 1-50)
 Read: `packages/frontend/src/app/docs/docx-actions.ts` (image upload section)
 
-- [ ] **Step 2: Create image upload helper**
+- [x] **Step 2: Create image upload helper**
 
 Create `packages/frontend/src/app/spreadsheet/image-upload.ts`:
 
@@ -366,7 +366,7 @@ function resolveImageUrl(url: string): string {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/image-upload.ts
@@ -380,11 +380,11 @@ git commit -m "Add image upload helper for Sheets"
 **Files:**
 - Modify: `packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts:79-128`
 
-- [ ] **Step 1: Read existing chart anchor shift logic**
+- [x] **Step 1: Read existing chart anchor shift logic**
 
 Read: `packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts` (lines 79-250)
 
-- [ ] **Step 2: Add shiftImageAnchors function**
+- [x] **Step 2: Add shiftImageAnchors function**
 
 Add `shiftImageAnchors` after `shiftChartAnchors` in the same file:
 
@@ -414,7 +414,7 @@ function shiftImageAnchors(
 }
 ```
 
-- [ ] **Step 3: Add moveImageAnchors function**
+- [x] **Step 3: Add moveImageAnchors function**
 
 Add `moveImageAnchors` after `moveChartAnchors`:
 
@@ -441,7 +441,7 @@ function moveImageAnchors(
 }
 ```
 
-- [ ] **Step 4: Wire into applyYorkieWorksheetShift**
+- [x] **Step 4: Wire into applyYorkieWorksheetShift**
 
 Find the call to `shiftChartAnchors(ws.charts, ...)` in `applyYorkieWorksheetShift` and add below it:
 
@@ -449,7 +449,7 @@ Find the call to `shiftChartAnchors(ws.charts, ...)` in `applyYorkieWorksheetShi
 shiftImageAnchors(ws.images, axis, index, count);
 ```
 
-- [ ] **Step 5: Wire into applyYorkieWorksheetMove**
+- [x] **Step 5: Wire into applyYorkieWorksheetMove**
 
 Find the call to `moveChartAnchors(ws.charts, ...)` in `applyYorkieWorksheetMove` and add below it:
 
@@ -457,16 +457,16 @@ Find the call to `moveChartAnchors(ws.charts, ...)` in `applyYorkieWorksheetMove
 moveImageAnchors(ws.images, axis, srcIndex, count, dstIndex);
 ```
 
-- [ ] **Step 6: Add SheetImage import**
+- [x] **Step 6: Add SheetImage import**
 
 Add `SheetImage` to the imports from `@wafflebase/sheets` at the top of the file.
 
-- [ ] **Step 7: Verify build**
+- [x] **Step 7: Verify build**
 
 Run: `pnpm build`
 Expected: Build succeeds
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts
@@ -480,11 +480,11 @@ git commit -m "Add image anchor shifting on row/column insert/delete/move"
 **Files:**
 - Create: `packages/frontend/src/app/spreadsheet/image-object-layer.tsx`
 
-- [ ] **Step 1: Read chart-object-layer.tsx for reference**
+- [x] **Step 1: Read chart-object-layer.tsx for reference**
 
 Read: `packages/frontend/src/app/spreadsheet/chart-object-layer.tsx` (full file)
 
-- [ ] **Step 2: Create ImageObjectLayer component**
+- [x] **Step 2: Create ImageObjectLayer component**
 
 Create `packages/frontend/src/app/spreadsheet/image-object-layer.tsx`:
 
@@ -916,12 +916,12 @@ function computeResizeRect(
 }
 ```
 
-- [ ] **Step 3: Verify build**
+- [x] **Step 3: Verify build**
 
 Run: `pnpm build`
 Expected: Build succeeds (component not yet wired)
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/image-object-layer.tsx
@@ -935,11 +935,11 @@ git commit -m "Add ImageObjectLayer with rendering, selection, drag, and resize"
 **Files:**
 - Modify: `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
 
-- [ ] **Step 1: Read sheet-view.tsx for chart integration pattern**
+- [x] **Step 1: Read sheet-view.tsx for chart integration pattern**
 
 Read: `packages/frontend/src/app/spreadsheet/sheet-view.tsx` (full file, focus on chart-related code)
 
-- [ ] **Step 2: Add image state and imports**
+- [x] **Step 2: Add image state and imports**
 
 Add imports at the top:
 
@@ -962,7 +962,7 @@ Add state variables near the chart state:
 const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
 ```
 
-- [ ] **Step 3: Add image CRUD handlers**
+- [x] **Step 3: Add image CRUD handlers**
 
 Add after the chart handlers, following the same pattern:
 
@@ -1039,7 +1039,7 @@ const handleDeleteImage = useCallback(
 );
 ```
 
-- [ ] **Step 4: Render ImageObjectLayer**
+- [x] **Step 4: Render ImageObjectLayer**
 
 Find where `ChartObjectLayer` is rendered and add `ImageObjectLayer` above it (images render below charts in z-order):
 
@@ -1067,7 +1067,7 @@ Where `imageEntries` is derived:
 const hasImages = !!root && Object.keys(root.sheets[tabId]?.images || {}).length > 0;
 ```
 
-- [ ] **Step 5: Pass handleInsertImage to toolbar**
+- [x] **Step 5: Pass handleInsertImage to toolbar**
 
 Find where `onInsertChart` is passed to `FormattingToolbar` and add:
 
@@ -1075,12 +1075,12 @@ Find where `onInsertChart` is passed to `FormattingToolbar` and add:
 onInsertImage={handleInsertImage}
 ```
 
-- [ ] **Step 6: Verify build**
+- [x] **Step 6: Verify build**
 
 Run: `pnpm build`
 Expected: Build succeeds
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/sheet-view.tsx
@@ -1094,11 +1094,11 @@ git commit -m "Wire image CRUD handlers and ImageObjectLayer into SheetView"
 **Files:**
 - Modify: `packages/frontend/src/components/formatting-toolbar.tsx`
 
-- [ ] **Step 1: Read toolbar to find chart button pattern**
+- [x] **Step 1: Read toolbar to find chart button pattern**
 
 Read: `packages/frontend/src/components/formatting-toolbar.tsx` (find `onInsertChart` and chart button)
 
-- [ ] **Step 2: Add onInsertImage prop**
+- [x] **Step 2: Add onInsertImage prop**
 
 Add to the `FormattingToolbarProps` interface:
 
@@ -1106,7 +1106,7 @@ Add to the `FormattingToolbarProps` interface:
 onInsertImage?: (file: File) => void;
 ```
 
-- [ ] **Step 3: Add image insert button with file input**
+- [x] **Step 3: Add image insert button with file input**
 
 Find the chart insert button (`IconChartBar`) and add an image button next to it:
 
@@ -1141,12 +1141,12 @@ const imageInputRef = useRef<HTMLInputElement>(null);
 
 Add `IconPhoto` to the Tabler icon imports.
 
-- [ ] **Step 4: Verify build**
+- [x] **Step 4: Verify build**
 
 Run: `pnpm build`
 Expected: Build succeeds
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/components/formatting-toolbar.tsx
@@ -1160,7 +1160,7 @@ git commit -m "Add image insert button to formatting toolbar"
 **Files:**
 - Modify: `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
 
-- [ ] **Step 1: Add drag-and-drop handler**
+- [x] **Step 1: Add drag-and-drop handler**
 
 Add dragover and drop handlers to the spreadsheet container div:
 
@@ -1194,7 +1194,7 @@ const handleDrop = useCallback(
 
 Add `onDragOver={handleDragOver}` and `onDrop={handleDrop}` to the spreadsheet container element.
 
-- [ ] **Step 2: Add clipboard paste handler**
+- [x] **Step 2: Add clipboard paste handler**
 
 Add paste handler:
 
@@ -1224,12 +1224,12 @@ useEffect(() => {
 }, [handlePaste]);
 ```
 
-- [ ] **Step 3: Verify build**
+- [x] **Step 3: Verify build**
 
 Run: `pnpm build`
 Expected: Build succeeds
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/spreadsheet/sheet-view.tsx
@@ -1244,11 +1244,11 @@ git commit -m "Add drag-and-drop and clipboard paste for image insertion"
 - Modify: `packages/frontend/src/components/sheet-context-menu.tsx`
 - Modify: `packages/frontend/src/app/spreadsheet/sheet-view.tsx`
 
-- [ ] **Step 1: Read context menu component**
+- [x] **Step 1: Read context menu component**
 
 Read: `packages/frontend/src/components/sheet-context-menu.tsx`
 
-- [ ] **Step 2: Add onDeleteImage prop to SheetContextMenu**
+- [x] **Step 2: Add onDeleteImage prop to SheetContextMenu**
 
 Add to props:
 
@@ -1257,7 +1257,7 @@ onDeleteImage?: () => void;
 selectedImageId?: string | null;
 ```
 
-- [ ] **Step 3: Add "Delete image" menu item**
+- [x] **Step 3: Add "Delete image" menu item**
 
 When `selectedImageId` is truthy, add a "Delete image" menu item:
 
@@ -1275,7 +1275,7 @@ When `selectedImageId` is truthy, add a "Delete image" menu item:
 
 Add `IconTrash` to imports.
 
-- [ ] **Step 4: Wire in sheet-view.tsx**
+- [x] **Step 4: Wire in sheet-view.tsx**
 
 Pass the new props to `SheetContextMenu`:
 
@@ -1288,12 +1288,12 @@ onDeleteImage={() => {
 selectedImageId={selectedImageId}
 ```
 
-- [ ] **Step 5: Verify build**
+- [x] **Step 5: Verify build**
 
 Run: `pnpm build`
 Expected: Build succeeds
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/components/sheet-context-menu.tsx packages/frontend/src/app/spreadsheet/sheet-view.tsx
@@ -1304,12 +1304,12 @@ git commit -m "Add delete image option to sheet context menu"
 
 ## Task 11: Final Verification
 
-- [ ] **Step 1: Run lint and unit tests**
+- [x] **Step 1: Run lint and unit tests**
 
 Run: `pnpm verify:fast`
 Expected: All checks pass
 
-- [ ] **Step 2: Manual verification**
+- [x] **Step 2: Manual verification**
 
 Start dev server: `pnpm dev`
 
@@ -1333,9 +1333,9 @@ Test structural operations:
 11. Insert row above image anchor → image moves down
 12. Delete column at image anchor → image deleted
 
-- [ ] **Step 3: Commit any fixes from verification**
+- [x] **Step 3: Commit any fixes from verification**
 
-- [ ] **Step 4: Final commit with design doc update**
+- [x] **Step 4: Final commit with design doc update**
 
 ```bash
 git add docs/design/sheets/sheet-image.md docs/design/README.md
