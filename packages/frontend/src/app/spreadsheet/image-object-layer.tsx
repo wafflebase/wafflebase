@@ -124,14 +124,18 @@ export function ImageObjectLayer({
           return;
         }
         event.preventDefault();
+        event.stopPropagation();
         onDeleteImage(selectedImageId);
         onSelectImage(null);
       } else if (event.key === "Escape") {
+        event.stopPropagation();
         onSelectImage(null);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    // Use capture phase on document so this fires before the grid's
+    // keydown handler (which also listens on document in bubble phase).
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [selectedImageId, readOnly, onDeleteImage, onSelectImage]);
 
   // Drag/resize handler.
