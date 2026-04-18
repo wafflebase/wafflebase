@@ -114,7 +114,9 @@ function shiftImageAnchors(
 ): void {
   if (!images) return;
 
-  for (const image of safeWorksheetRecordValues(images as Record<string, SheetImage>)) {
+  for (const key of safeWorksheetRecordKeys(images as Record<string, SheetImage>)) {
+    const image = images[key];
+    if (!image) continue;
     const shiftedAnchor = shiftSref(image.anchor, axis, index, count);
     if (shiftedAnchor) {
       image.anchor = shiftedAnchor;
@@ -162,7 +164,9 @@ function moveImageAnchors(
 ): void {
   if (!images) return;
 
-  for (const image of safeWorksheetRecordValues(images as Record<string, SheetImage>)) {
+  for (const key of safeWorksheetRecordKeys(images as Record<string, SheetImage>)) {
+    const image = images[key];
+    if (!image) continue;
     const nextAnchor = moveRef(
       parseRef(image.anchor),
       axis,
