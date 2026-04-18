@@ -409,7 +409,7 @@ export function SheetView({
           const ref = sheet.cellRefFromPoint(dropPoint.clientX, dropPoint.clientY);
           anchor = ref ? toSref(ref) : 'A1';
           if (ref) {
-            const rect = sheet.cellBoundingRect(ref);
+            const rect = sheet.getCellRectInScrollableViewport(ref);
             if (rect) {
               offsetX = dropPoint.clientX - rect.left;
               offsetY = dropPoint.clientY - rect.top;
@@ -505,6 +505,16 @@ export function SheetView({
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       if (readOnly) return;
+
+      // Don't intercept paste when editing a cell, formula bar, or dialog input.
+      const target = e.target;
+      if (target instanceof Element) {
+        const grid = document.querySelector("[data-sheet-container]");
+        if (!grid?.contains(target)) {
+          return;
+        }
+      }
+
       const imageFile = Array.from(e.clipboardData?.items || [])
         .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
         .map((item) => item.getAsFile())
