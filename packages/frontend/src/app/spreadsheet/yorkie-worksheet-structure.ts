@@ -21,9 +21,11 @@ import {
   type Axis,
   type Cell,
   type MergeSpan,
+  type SheetChart,
+  type SheetImage,
   type Sref,
+  type Worksheet,
 } from "@wafflebase/sheets";
-import type { SheetChart, Worksheet } from "@/types/worksheet";
 import {
   deleteYorkieWorksheetAxis,
   insertYorkieWorksheetAxis,
@@ -104,6 +106,30 @@ function shiftChartAnchors(
   }
 }
 
+function shiftImageAnchors(
+  images: Worksheet['images'] | undefined,
+  axis: Axis,
+  index: number,
+  count: number,
+): void {
+  if (!images) return;
+
+  for (const image of safeWorksheetRecordValues(images as Record<string, SheetImage>)) {
+    const shiftedAnchor = shiftSref(image.anchor, axis, index, count);
+    if (shiftedAnchor) {
+      image.anchor = shiftedAnchor;
+      continue;
+    }
+    const fallback = parseRef(image.anchor);
+    if (axis === 'row') {
+      fallback.r = Math.max(1, index);
+    } else {
+      fallback.c = Math.max(1, index);
+    }
+    image.anchor = toSref(fallback);
+  }
+}
+
 function moveChartAnchors(
   charts: Worksheet["charts"] | undefined,
   axis: Axis,
@@ -124,6 +150,27 @@ function moveChartAnchors(
       dstIndex,
     );
     chart.anchor = toSref(nextAnchor);
+  }
+}
+
+function moveImageAnchors(
+  images: Worksheet['images'] | undefined,
+  axis: Axis,
+  srcIndex: number,
+  count: number,
+  dstIndex: number,
+): void {
+  if (!images) return;
+
+  for (const image of safeWorksheetRecordValues(images as Record<string, SheetImage>)) {
+    const nextAnchor = moveRef(
+      parseRef(image.anchor),
+      axis,
+      srcIndex,
+      count,
+      dstIndex,
+    );
+    image.anchor = toSref(nextAnchor);
   }
 }
 
@@ -182,6 +229,7 @@ export function applyYorkieWorksheetShift(options: {
   );
 
   shiftChartAnchors(ws.charts, axis, index, count);
+  shiftImageAnchors(ws.images, axis, index, count);
 }
 
 export function applyYorkieWorksheetMove(options: {
@@ -244,4 +292,5 @@ export function applyYorkieWorksheetMove(options: {
   );
 
   moveChartAnchors(ws.charts, axis, srcIndex, count, dstIndex);
+  moveImageAnchors(ws.images, axis, srcIndex, count, dstIndex);
 }
