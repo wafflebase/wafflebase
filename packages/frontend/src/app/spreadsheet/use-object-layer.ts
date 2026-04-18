@@ -155,7 +155,11 @@ export function useObjectDragResize(opts: {
       }));
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (event: PointerEvent) => {
+      // Use the pointerup coordinates so the last delta is not dropped.
+      latestX = event.clientX;
+      latestY = event.clientY;
+
       const nextDraft = toDraft(latestX, latestY);
       const objectId = dragState.objectId;
 
@@ -191,11 +195,22 @@ export function useObjectDragResize(opts: {
       setDragState(null);
     };
 
+    const onPointerCancel = () => {
+      setDrafts((prev) => {
+        const remaining = { ...prev };
+        delete remaining[dragState.objectId];
+        return remaining;
+      });
+      setDragState(null);
+    };
+
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
     };
   }, [dragState, lockAspectRatio, readOnly, spreadsheet]);
 

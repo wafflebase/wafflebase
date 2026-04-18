@@ -99,13 +99,28 @@ export function computeResizeDraft(opts: {
     newHeight = aspectHeight;
   }
 
-  if (newWidth < MIN_OBJECT_SIZE) {
-    if (hasWest) newOffsetX -= MIN_OBJECT_SIZE - newWidth;
-    newWidth = MIN_OBJECT_SIZE;
-  }
-  if (newHeight < MIN_OBJECT_SIZE) {
-    if (hasNorth) newOffsetY -= MIN_OBJECT_SIZE - newHeight;
-    newHeight = MIN_OBJECT_SIZE;
+  // Clamp minimum size. For locked corner resizes, clamp via scale
+  // so the aspect ratio is preserved.
+  if (isCorner && lockAspectRatio && aspectRatio > 0) {
+    const minScale = Math.max(
+      MIN_OBJECT_SIZE / startWidth,
+      MIN_OBJECT_SIZE / startHeight,
+    );
+    if (newWidth / startWidth < minScale) {
+      newWidth = startWidth * minScale;
+      newHeight = startHeight * minScale;
+      if (hasWest) newOffsetX = startOffsetX + (startWidth - newWidth);
+      if (hasNorth) newOffsetY = startOffsetY + (startHeight - newHeight);
+    }
+  } else {
+    if (newWidth < MIN_OBJECT_SIZE) {
+      if (hasWest) newOffsetX -= MIN_OBJECT_SIZE - newWidth;
+      newWidth = MIN_OBJECT_SIZE;
+    }
+    if (newHeight < MIN_OBJECT_SIZE) {
+      if (hasNorth) newOffsetY -= MIN_OBJECT_SIZE - newHeight;
+      newHeight = MIN_OBJECT_SIZE;
+    }
   }
 
   return { offsetX: newOffsetX, offsetY: newOffsetY, width: newWidth, height: newHeight };
