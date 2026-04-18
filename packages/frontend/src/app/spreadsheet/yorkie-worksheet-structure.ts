@@ -14,15 +14,12 @@ import {
   shiftRangeStylePatches,
   safeWorksheetRecordEntries,
   safeWorksheetRecordKeys,
-  safeWorksheetRecordValues,
   shiftSref,
   toSref,
   writeWorksheetCell,
   type Axis,
   type Cell,
   type MergeSpan,
-  type SheetChart,
-  type SheetImage,
   type Sref,
   type Worksheet,
 } from "@wafflebase/sheets";
@@ -78,103 +75,62 @@ function replaceMerges(ws: Worksheet, nextMerges: Map<Sref, MergeSpan>): void {
   }
 }
 
-function shiftChartAnchors(
-  charts: Worksheet["charts"] | undefined,
+/**
+ * Shift anchors for any record of anchored objects (charts, images, etc.)
+ * when rows/columns are inserted or deleted. Uses key-based access so
+ * mutations go through the Yorkie proxy.
+ */
+function shiftAnchors(
+  record: Record<string, { anchor: Sref }> | undefined,
   axis: Axis,
   index: number,
   count: number,
 ): void {
-  if (!charts) {
-    return;
-  }
+  if (!record) return;
 
-  for (const chart of safeWorksheetRecordValues(charts as Record<string, SheetChart>)) {
-    const shiftedAnchor = shiftSref(chart.anchor, axis, index, count);
+  for (const key of safeWorksheetRecordKeys(record)) {
+    const item = record[key];
+    if (!item) continue;
+    const shiftedAnchor = shiftSref(item.anchor, axis, index, count);
     if (shiftedAnchor) {
-      chart.anchor = shiftedAnchor;
+      item.anchor = shiftedAnchor;
       continue;
     }
-
     // If anchor cell was deleted, pin to the deletion boundary.
-    const fallback = parseRef(chart.anchor);
-    if (axis === "row") {
-      fallback.r = Math.max(1, index);
-    } else {
-      fallback.c = Math.max(1, index);
-    }
-    chart.anchor = toSref(fallback);
-  }
-}
-
-function shiftImageAnchors(
-  images: Worksheet['images'] | undefined,
-  axis: Axis,
-  index: number,
-  count: number,
-): void {
-  if (!images) return;
-
-  for (const key of safeWorksheetRecordKeys(images as Record<string, SheetImage>)) {
-    const image = images[key];
-    if (!image) continue;
-    const shiftedAnchor = shiftSref(image.anchor, axis, index, count);
-    if (shiftedAnchor) {
-      image.anchor = shiftedAnchor;
-      continue;
-    }
-    const fallback = parseRef(image.anchor);
+    const fallback = parseRef(item.anchor);
     if (axis === 'row') {
       fallback.r = Math.max(1, index);
     } else {
       fallback.c = Math.max(1, index);
     }
-    image.anchor = toSref(fallback);
+    item.anchor = toSref(fallback);
   }
 }
 
-function moveChartAnchors(
-  charts: Worksheet["charts"] | undefined,
+/**
+ * Move anchors for any record of anchored objects when rows/columns
+ * are reordered.
+ */
+function moveAnchors(
+  record: Record<string, { anchor: Sref }> | undefined,
   axis: Axis,
   srcIndex: number,
   count: number,
   dstIndex: number,
 ): void {
-  if (!charts) {
-    return;
-  }
+  if (!record) return;
 
-  for (const chart of safeWorksheetRecordValues(charts as Record<string, SheetChart>)) {
+  for (const key of safeWorksheetRecordKeys(record)) {
+    const item = record[key];
+    if (!item) continue;
     const nextAnchor = moveRef(
-      parseRef(chart.anchor),
+      parseRef(item.anchor),
       axis,
       srcIndex,
       count,
       dstIndex,
     );
-    chart.anchor = toSref(nextAnchor);
-  }
-}
-
-function moveImageAnchors(
-  images: Worksheet['images'] | undefined,
-  axis: Axis,
-  srcIndex: number,
-  count: number,
-  dstIndex: number,
-): void {
-  if (!images) return;
-
-  for (const key of safeWorksheetRecordKeys(images as Record<string, SheetImage>)) {
-    const image = images[key];
-    if (!image) continue;
-    const nextAnchor = moveRef(
-      parseRef(image.anchor),
-      axis,
-      srcIndex,
-      count,
-      dstIndex,
-    );
-    image.anchor = toSref(nextAnchor);
+    item.anchor = toSref(nextAnchor);
   }
 }
 
@@ -232,8 +188,8 @@ export function applyYorkieWorksheetShift(options: {
     ),
   );
 
-  shiftChartAnchors(ws.charts, axis, index, count);
-  shiftImageAnchors(ws.images, axis, index, count);
+  shiftAnchors(ws.charts as Record<string, { anchor: Sref }>, axis, index, count);
+  shiftAnchors(ws.images as Record<string, { anchor: Sref }>, axis, index, count);
 }
 
 export function applyYorkieWorksheetMove(options: {
@@ -295,6 +251,6 @@ export function applyYorkieWorksheetMove(options: {
     ),
   );
 
-  moveChartAnchors(ws.charts, axis, srcIndex, count, dstIndex);
-  moveImageAnchors(ws.images, axis, srcIndex, count, dstIndex);
+  moveAnchors(ws.charts as Record<string, { anchor: Sref }>, axis, srcIndex, count, dstIndex);
+  moveAnchors(ws.images as Record<string, { anchor: Sref }>, axis, srcIndex, count, dstIndex);
 }
