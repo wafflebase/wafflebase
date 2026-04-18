@@ -1,4 +1,5 @@
-import { CellStyle } from '../core/types';
+import { CellStyle, NumberFormat, TextAlign } from '../core/types';
+import { ErrValues } from '../../formula/formula';
 
 const CurrencySymbolToCode = {
   '$': 'USD',
@@ -336,4 +337,28 @@ export function applyInferredFormat(
   }
 
   return existing ? { ...existing } : undefined;
+}
+
+/**
+ * `defaultAlign` returns the implicit horizontal alignment for a cell value
+ * when no explicit alignment is set: errors and booleans center, numbers and
+ * dates right, text left.
+ */
+const FormulaErrorValues = new Set<string>(ErrValues);
+
+export function defaultAlign(rawValue: string, nf?: NumberFormat): TextAlign {
+  if (FormulaErrorValues.has(rawValue)) {
+    return 'center';
+  }
+  if (rawValue === 'TRUE' || rawValue === 'FALSE') {
+    return 'center';
+  }
+  if (nf === 'date') {
+    return 'right';
+  }
+  const inferred = inferInput(rawValue);
+  if (inferred.type === 'number') {
+    return 'right';
+  }
+  return 'left';
 }

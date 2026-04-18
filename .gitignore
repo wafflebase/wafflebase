@@ -186,3 +186,6 @@ packages/documentation/.vitepress/cache
 
 # Superpowers
 .superpowers/
+
+# pnpm local store (when store-dir is set to .pnpm-store in repo)
+.pnpm-store/

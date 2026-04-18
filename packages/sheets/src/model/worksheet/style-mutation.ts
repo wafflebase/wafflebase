@@ -22,7 +22,6 @@ const DefaultStyleValues: Partial<CellStyle> = {
   bl: false,
   tc: '',
   bg: '',
-  al: 'left',
   va: 'top',
   nf: 'plain',
   dp: 2,

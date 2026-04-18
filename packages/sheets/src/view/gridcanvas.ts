@@ -5,8 +5,6 @@ import {
   Range,
   SelectionType,
   CellStyle,
-  TextAlign,
-  NumberFormat,
   ConditionalFormatRule,
   MergeSpan,
 } from '../model/core/types';
@@ -14,7 +12,7 @@ import { RangeStylePatch, resolveRangeStyleAt } from '../model/worksheet/range-s
 import { resolveConditionalFormatStyleAt } from '../model/worksheet/conditional-format';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { formatValue } from '../model/worksheet/format';
-import { inferInput } from '../model/worksheet/input';
+import { defaultAlign } from '../model/worksheet/input';
 import { Theme, ThemeKey, getThemeColor } from './theme';
 import { parseRef, toColumnLabel, toSref } from '../model/core/coordinates';
 import {
@@ -50,25 +48,6 @@ export const HiddenBtnArrowGap = 3;
 export const HiddenBtnPadding = 3;
 export const HiddenBtnRadius = 3;
 export const HiddenBtnMargin = 1;
-
-/**
- * `defaultAlign` returns the implicit horizontal alignment for a cell value
- * when no explicit alignment is set. Matches Excel/Google Sheets behavior:
- * numbers and dates right-align, booleans center-align, text left-aligns.
- */
-function defaultAlign(rawData: string, nf?: NumberFormat): TextAlign {
-  if (rawData === 'TRUE' || rawData === 'FALSE') {
-    return 'center';
-  }
-  if (nf === 'date') {
-    return 'right';
-  }
-  const inferred = inferInput(rawData);
-  if (inferred.type === 'number') {
-    return 'right';
-  }
-  return 'left';
-}
 
 /**
  * GridCanvas handles the rendering of the spreadsheet grid on a canvas element.

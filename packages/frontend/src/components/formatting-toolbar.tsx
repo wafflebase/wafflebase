@@ -113,6 +113,7 @@ export function FormattingToolbar({
 }: FormattingToolbarProps) {
   const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
+  const [effectiveAlign, setEffectiveAlign] = useState<"left" | "center" | "right">("left");
   const [selectionMerged, setSelectionMerged] = useState(false);
   const [canMerge, setCanMerge] = useState(false);
   const [hasFilter, setHasFilter] = useState(false);
@@ -127,8 +128,12 @@ export function FormattingToolbar({
 
   const refreshStyle = useCallback(async () => {
     if (!spreadsheet) return;
-    const s = await spreadsheet.getActiveStyle();
+    const [s, align] = await Promise.all([
+      spreadsheet.getActiveStyle(),
+      spreadsheet.getActiveEffectiveAlign(),
+    ]);
     setStyle(s);
+    setEffectiveAlign(align);
     setSelectionMerged(spreadsheet.isSelectionMerged());
     setCanMerge(spreadsheet.canMergeSelection());
     setHasFilter(spreadsheet.hasFilter());
@@ -243,7 +248,7 @@ export function FormattingToolbar({
     [spreadsheet],
   );
 
-  const currentAlign = style?.al || "left";
+  const currentAlign = effectiveAlign;
   const CurrentAlignIcon = ALIGN_ICONS[currentAlign];
   const currentVAlign = style?.va || "top";
   const CurrentVAlignIcon = VALIGN_ICONS[currentVAlign];
