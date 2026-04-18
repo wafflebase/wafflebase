@@ -58,7 +58,7 @@ import {
 } from './grids';
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
-import { inferInput, type InferredInput } from './input';
+import { inferInput, applyInferredFormat, type InferredInput } from './input';
 import {
   cloneConditionalFormatRule,
   moveConditionalFormatRules,
@@ -895,40 +895,6 @@ export class Sheet {
   }
 
   /**
-   * `applyInferredFormat` applies inferred format metadata onto an existing style.
-   */
-  private applyInferredFormat(
-    existing: CellStyle | undefined,
-    inferred: InferredInput,
-  ): CellStyle | undefined {
-    if (inferred.type === 'date') {
-      const style: CellStyle = { ...(existing || {}), nf: 'date' };
-      delete style.cu;
-      return style;
-    }
-
-    if (inferred.type === 'number' && inferred.format === 'percent') {
-      const style: CellStyle = { ...(existing || {}), nf: 'percent' };
-      delete style.cu;
-      return style;
-    }
-
-    if (
-      inferred.type === 'number' &&
-      inferred.format?.startsWith('currency:')
-    ) {
-      const style: CellStyle = {
-        ...(existing || {}),
-        nf: 'currency',
-        cu: inferred.format.slice('currency:'.length),
-      };
-      return style;
-    }
-
-    return existing ? { ...existing } : undefined;
-  }
-
-  /**
    * `applyInputInferenceToGrid` normalizes pasted external cell input values.
    */
   private applyInputInferenceToGrid(grid: Grid): Grid {
@@ -940,7 +906,7 @@ export class Sheet {
       }
 
       const inferred = inferInput(cell.v ?? '');
-      const style = this.applyInferredFormat(cell.s, inferred);
+      const style = applyInferredFormat(cell.s, inferred);
       const base =
         inferred.type === 'formula'
           ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
@@ -962,7 +928,7 @@ export class Sheet {
       // 01. Update the cell with normalized inferred value and style metadata.
       const existing = await this.store.get(target);
       const inferred = inferInput(value);
-      const style = this.applyInferredFormat(existing?.s, inferred);
+      const style = applyInferredFormat(existing?.s, inferred);
       const base =
         inferred.type === 'formula'
           ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
