@@ -7,7 +7,13 @@ import {
   useState,
 } from "react";
 import { parseRef, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
-import { type DraftLayout, reanchorAfterMove } from "./object-layer-utils";
+import {
+  type DraftLayout,
+  type HandlePosition,
+  computeResizeDraft,
+  reanchorAfterMove,
+} from "./object-layer-utils";
+import { SelectionOverlay } from "./selection-overlay";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 import { getOrLoadImage } from "./image-cache";
 
@@ -27,16 +33,6 @@ type ImageObjectLayerProps = {
   renderVersion: number;
 };
 
-type HandlePosition =
-  | "nw"
-  | "n"
-  | "ne"
-  | "e"
-  | "se"
-  | "s"
-  | "sw"
-  | "w";
-
 type DragState = {
   imageId: string;
   mode: "move" | "resize";
@@ -48,36 +44,6 @@ type DragState = {
   startWidth: number;
   startHeight: number;
   aspectRatio: number;
-};
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const MIN_IMAGE_SIZE = 20;
-const HANDLE_SIZE = 8;
-const SELECTION_COLOR = "#1a73e8";
-
-const HANDLES: readonly HandlePosition[] = [
-  "nw",
-  "n",
-  "ne",
-  "e",
-  "se",
-  "s",
-  "sw",
-  "w",
-];
-
-const HANDLE_CURSORS: Record<HandlePosition, string> = {
-  nw: "nwse-resize",
-  n: "ns-resize",
-  ne: "nesw-resize",
-  e: "ew-resize",
-  se: "nwse-resize",
-  s: "ns-resize",
-  sw: "nesw-resize",
-  w: "ew-resize",
 };
 
 // ---------------------------------------------------------------------------
@@ -181,74 +147,18 @@ export function ImageObjectLayer({
         };
       }
 
-      // Resize mode.
-      const handle = dragState.handle!;
-      const hasEast = handle === "ne" || handle === "e" || handle === "se";
-      const hasWest = handle === "nw" || handle === "w" || handle === "sw";
-      const hasNorth = handle === "nw" || handle === "n" || handle === "ne";
-      const hasSouth = handle === "sw" || handle === "s" || handle === "se";
-
-      let newWidth = dragState.startWidth;
-      let newHeight = dragState.startHeight;
-      let newOffsetX = dragState.startOffsetX;
-      let newOffsetY = dragState.startOffsetY;
-
-      if (hasEast) newWidth = dragState.startWidth + deltaX;
-      if (hasWest) {
-        newWidth = dragState.startWidth - deltaX;
-        newOffsetX = dragState.startOffsetX + deltaX;
-      }
-      if (hasSouth) newHeight = dragState.startHeight + deltaY;
-      if (hasNorth) {
-        newHeight = dragState.startHeight - deltaY;
-        newOffsetY = dragState.startOffsetY + deltaY;
-      }
-
-      // Corner handles lock aspect ratio.
-      const isCorner = (hasEast || hasWest) && (hasNorth || hasSouth);
-      if (isCorner && dragState.aspectRatio > 0) {
-        const wScale = newWidth / dragState.startWidth;
-        const hScale = newHeight / dragState.startHeight;
-        const scale =
-          Math.abs(wScale - 1) >= Math.abs(hScale - 1) ? wScale : hScale;
-        const aspectWidth = dragState.startWidth * scale;
-        const aspectHeight = dragState.startHeight * scale;
-
-        // Adjust offset for west/north-anchored handles.
-        if (hasWest) {
-          newOffsetX =
-            dragState.startOffsetX +
-            (dragState.startWidth - aspectWidth);
-        }
-        if (hasNorth) {
-          newOffsetY =
-            dragState.startOffsetY +
-            (dragState.startHeight - aspectHeight);
-        }
-        newWidth = aspectWidth;
-        newHeight = aspectHeight;
-      }
-
-      // Clamp minimum size.
-      if (newWidth < MIN_IMAGE_SIZE) {
-        if (hasWest) {
-          newOffsetX -= MIN_IMAGE_SIZE - newWidth;
-        }
-        newWidth = MIN_IMAGE_SIZE;
-      }
-      if (newHeight < MIN_IMAGE_SIZE) {
-        if (hasNorth) {
-          newOffsetY -= MIN_IMAGE_SIZE - newHeight;
-        }
-        newHeight = MIN_IMAGE_SIZE;
-      }
-
-      return {
-        offsetX: newOffsetX,
-        offsetY: newOffsetY,
-        width: newWidth,
-        height: newHeight,
-      };
+      // Resize mode — images lock aspect ratio on corner handles.
+      return computeResizeDraft({
+        handle: dragState.handle!,
+        deltaX,
+        deltaY,
+        startOffsetX: dragState.startOffsetX,
+        startOffsetY: dragState.startOffsetY,
+        startWidth: dragState.startWidth,
+        startHeight: dragState.startHeight,
+        aspectRatio: dragState.aspectRatio,
+        lockAspectRatio: true,
+      });
     };
 
     const onPointerMove = (event: PointerEvent) => {
@@ -524,78 +434,3 @@ function ImageObject({
   );
 }
 
-// ---------------------------------------------------------------------------
-// SelectionOverlay
-// ---------------------------------------------------------------------------
-
-function SelectionOverlay({
-  width,
-  height,
-  readOnly,
-  onResizeStart,
-}: {
-  width: number;
-  height: number;
-  readOnly: boolean;
-  onResizeStart: (
-    event: ReactPointerEvent<HTMLDivElement>,
-    handle: HandlePosition,
-  ) => void;
-}) {
-  const half = HANDLE_SIZE / 2;
-  const handleStyle = (
-    handle: HandlePosition,
-  ): React.CSSProperties => {
-    const base: React.CSSProperties = {
-      position: "absolute",
-      width: HANDLE_SIZE,
-      height: HANDLE_SIZE,
-      backgroundColor: "#ffffff",
-      border: `1px solid ${SELECTION_COLOR}`,
-      boxSizing: "border-box",
-      cursor: readOnly ? "default" : HANDLE_CURSORS[handle],
-      pointerEvents: readOnly ? "none" : "auto",
-    };
-
-    switch (handle) {
-      case "nw":
-        return { ...base, left: -half, top: -half };
-      case "n":
-        return { ...base, left: width / 2 - half, top: -half };
-      case "ne":
-        return { ...base, left: width - half, top: -half };
-      case "e":
-        return { ...base, left: width - half, top: height / 2 - half };
-      case "se":
-        return { ...base, left: width - half, top: height - half };
-      case "s":
-        return { ...base, left: width / 2 - half, top: height - half };
-      case "sw":
-        return { ...base, left: -half, top: height - half };
-      case "w":
-        return { ...base, left: -half, top: height / 2 - half };
-    }
-  };
-
-  return (
-    <div
-      className="absolute inset-0 pointer-events-none"
-      style={{
-        border: `1px solid ${SELECTION_COLOR}`,
-      }}
-    >
-      {HANDLES.map((handle) => (
-        <div
-          key={handle}
-          style={handleStyle(handle)}
-          onPointerDown={(event) => {
-            if (readOnly) return;
-            event.preventDefault();
-            event.stopPropagation();
-            onResizeStart(event, handle);
-          }}
-        />
-      ))}
-    </div>
-  );
-}

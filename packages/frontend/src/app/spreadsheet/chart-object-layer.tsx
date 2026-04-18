@@ -5,7 +5,13 @@ import {
   useState,
 } from "react";
 import { parseRef, Spreadsheet } from "@wafflebase/sheets";
-import { type DraftLayout, reanchorAfterMove } from "./object-layer-utils";
+import {
+  type DraftLayout,
+  type HandlePosition,
+  computeResizeDraft,
+  reanchorAfterMove,
+} from "./object-layer-utils";
+import { SelectionOverlay } from "./selection-overlay";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +29,7 @@ type ChartObjectLayerProps = {
   tabId: string;
   readOnly: boolean;
   selectedChartId: string | null;
-  onSelectChart: (chartId: string) => void;
+  onSelectChart: (chartId: string | null) => void;
   onRequestEditChart: (chartId: string) => void;
   onDeleteChart: (chartId: string) => void;
   onUpdateChart: (chartId: string, patch: Partial<SheetChart>) => void;
@@ -33,6 +39,7 @@ type ChartObjectLayerProps = {
 type DragState = {
   chartId: string;
   mode: "move" | "resize";
+  handle?: HandlePosition;
   startX: number;
   startY: number;
   startOffsetX: number;
@@ -40,9 +47,6 @@ type DragState = {
   startWidth: number;
   startHeight: number;
 };
-
-const MIN_CHART_WIDTH = 240;
-const MIN_CHART_HEIGHT = 160;
 const MIN_Y_AXIS_WIDTH = 40;
 const MAX_Y_AXIS_WIDTH = 96;
 
@@ -77,6 +81,58 @@ export function ChartObjectLayer({
   const chartsRef = useRef(charts);
   chartsRef.current = charts;
 
+  // Keyboard handler for chart shortcuts (delete, move, escape).
+  useEffect(() => {
+    if (!selectedChartId || readOnly) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Don't intercept when user is typing in an external input.
+      const target = event.target;
+      if (target instanceof Element) {
+        const grid = document.querySelector("[data-sheet-container]");
+        if (!grid?.contains(target)) {
+          const tag = target.tagName;
+          if (
+            tag === "INPUT" ||
+            tag === "TEXTAREA" ||
+            (target as HTMLElement).isContentEditable
+          ) {
+            return;
+          }
+        }
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        event.stopPropagation();
+        onDeleteChart(selectedChartId);
+        onSelectChart(null);
+      } else if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowDown" ||
+        event.key === "ArrowLeft" ||
+        event.key === "ArrowRight"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        const dx =
+          event.key === "ArrowLeft" ? -10 : event.key === "ArrowRight" ? 10 : 0;
+        const dy =
+          event.key === "ArrowUp" ? -10 : event.key === "ArrowDown" ? 10 : 0;
+        onUpdateChart(selectedChartId, {
+          offsetX:
+            (charts.find((c) => c.id === selectedChartId)?.offsetX ?? 0) + dx,
+          offsetY:
+            (charts.find((c) => c.id === selectedChartId)?.offsetY ?? 0) + dy,
+        });
+      } else if (event.key === "Escape") {
+        event.stopPropagation();
+        onSelectChart(null);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [selectedChartId, readOnly, onDeleteChart, onSelectChart, onUpdateChart, charts]);
+
   useEffect(() => {
     if (!dragState || readOnly) return;
 
@@ -84,7 +140,6 @@ export function ChartObjectLayer({
     let latestY = dragState.startY;
 
     const toDraft = (clientX: number, clientY: number): DraftLayout => {
-      // Drag deltas are in screen pixels; convert to logical pixels.
       const z = spreadsheet?.getZoom() ?? 1;
       const deltaX = (clientX - dragState.startX) / z;
       const deltaY = (clientY - dragState.startY) / z;
@@ -98,12 +153,18 @@ export function ChartObjectLayer({
         };
       }
 
-      return {
-        offsetX: dragState.startOffsetX,
-        offsetY: dragState.startOffsetY,
-        width: Math.max(MIN_CHART_WIDTH, dragState.startWidth + deltaX),
-        height: Math.max(MIN_CHART_HEIGHT, dragState.startHeight + deltaY),
-      };
+      // Resize mode — charts do NOT lock aspect ratio.
+      return computeResizeDraft({
+        handle: dragState.handle!,
+        deltaX,
+        deltaY,
+        startOffsetX: dragState.startOffsetX,
+        startOffsetY: dragState.startOffsetY,
+        startWidth: dragState.startWidth,
+        startHeight: dragState.startHeight,
+        aspectRatio: 1,
+        lockAspectRatio: false,
+      });
     };
 
     const onPointerMove = (event: PointerEvent) => {
@@ -241,11 +302,12 @@ export function ChartObjectLayer({
                     startHeight: layout.height,
                   });
                 }}
-                onResizeStart={(event) => {
+                onResizeStart={(event, handle) => {
                   onSelectChart(chart.id);
                   setDragState({
                     chartId: chart.id,
                     mode: "resize",
+                    handle,
                     startX: event.clientX,
                     startY: event.clientY,
                     startOffsetX: layout.offsetX,
@@ -288,7 +350,10 @@ function ChartObject({
   onRequestEdit: () => void;
   onDelete: () => void;
   onMoveStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizeStart: (
+    event: ReactPointerEvent<HTMLDivElement>,
+    handle: HandlePosition,
+  ) => void;
 }) {
   let anchorRect;
   try {
@@ -334,23 +399,21 @@ function ChartObject({
         top,
         width: layout.width * zoom,
         height: layout.height * zoom,
-        borderColor: selected ? "var(--color-primary)" : undefined,
+        cursor: readOnly ? "default" : "move",
       }}
       onPointerDown={(event) => {
+        if (readOnly) {
+          event.stopPropagation();
+          onSelect();
+          return;
+        }
+        event.preventDefault();
         event.stopPropagation();
-        onSelect();
+        onMoveStart(event);
       }}
     >
       <div className="flex shrink-0 items-center justify-between border-b px-2 py-1 text-xs font-medium">
-        <div
-          className={`min-w-0 flex-1 ${readOnly ? "" : "cursor-move"}`}
-          onPointerDown={(event) => {
-            if (readOnly) return;
-            event.preventDefault();
-            event.stopPropagation();
-            onMoveStart(event);
-          }}
-        >
+        <div className="min-w-0 flex-1">
           <span className="truncate">{chart.title || "Chart"}</span>
         </div>
         {!readOnly && (
@@ -421,17 +484,15 @@ function ChartObject({
             Unsupported chart type
           </div>
         )}
-        {!readOnly && selected && (
-          <div
-            className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize rounded-tl border-l border-t bg-background"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onResizeStart(event);
-            }}
-          />
-        )}
       </div>
+      {selected && (
+        <SelectionOverlay
+          width={layout.width * zoom}
+          height={layout.height * zoom}
+          readOnly={readOnly}
+          onResizeStart={onResizeStart}
+        />
+      )}
     </div>
   );
 }
