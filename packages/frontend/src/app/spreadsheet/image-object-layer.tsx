@@ -5,7 +5,7 @@ import {
   useReducer,
   useState,
 } from "react";
-import { parseRef, toSref, type Sref, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
+import { parseRef, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 import { getOrLoadImage } from "./image-cache";
 
@@ -266,55 +266,6 @@ export function ImageObjectLayer({
 
     const onPointerUp = () => {
       const nextDraft = toDraft(latestX, latestY);
-
-      // For move operations, re-anchor to the cell under the image's
-      // top-left corner so structural operations (row/col insert/delete)
-      // act on the correct cell.
-      if (dragState.mode === "move" && spreadsheet) {
-        const image = images.find((i) => i.id === dragState.imageId);
-        if (image) {
-          const z = spreadsheet.getZoom() ?? 1;
-          let anchorRect;
-          try {
-            anchorRect = spreadsheet.getCellRectInScrollableViewport(
-              parseRef(image.anchor),
-            );
-          } catch {
-            /* keep current anchor */
-          }
-          if (anchorRect) {
-            const absX = anchorRect.left + nextDraft.offsetX * z;
-            const absY = anchorRect.top + nextDraft.offsetY * z;
-            const newRef = spreadsheet.cellRefFromPoint(absX, absY);
-            if (newRef) {
-              let newAnchorRect;
-              try {
-                newAnchorRect =
-                  spreadsheet.getCellRectInScrollableViewport(newRef);
-              } catch {
-                /* keep current anchor */
-              }
-              if (newAnchorRect) {
-                onUpdateImage(dragState.imageId, {
-                  anchor: toSref(newRef) as Sref,
-                  offsetX: (absX - newAnchorRect.left) / z,
-                  offsetY: (absY - newAnchorRect.top) / z,
-                  width: nextDraft.width,
-                  height: nextDraft.height,
-                });
-                setDrafts((prev) => {
-                  const remaining = { ...prev };
-                  delete remaining[dragState.imageId];
-                  return remaining;
-                });
-                setDragState(null);
-                return;
-              }
-            }
-          }
-        }
-      }
-
       onUpdateImage(dragState.imageId, nextDraft);
       setDrafts((prev) => {
         const remaining = { ...prev };
