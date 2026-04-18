@@ -6,7 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { parseRef, toSref, type Sref, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
+import { parseRef, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
+import { type DraftLayout, reanchorAfterMove } from "./object-layer-utils";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 import { getOrLoadImage } from "./image-cache";
 
@@ -24,13 +25,6 @@ type ImageObjectLayerProps = {
   onUpdateImage: (imageId: string, patch: Partial<SheetImage>) => void;
   onDeleteImage: (imageId: string) => void;
   renderVersion: number;
-};
-
-type DraftLayout = {
-  offsetX: number;
-  offsetY: number;
-  width: number;
-  height: number;
 };
 
 type HandlePosition =
@@ -274,38 +268,17 @@ export function ImageObjectLayer({
       // For move operations, re-anchor to the cell under the pointer
       // so row/column insert/delete correctly shifts the image.
       if (dragState.mode === "move" && spreadsheet) {
-        const newRef = spreadsheet.cellRefFromPoint(latestX, latestY);
-        if (newRef) {
-          const newAnchorRect =
-            spreadsheet.getCellRectInScrollableViewport(newRef);
-          const oldAnchorRect = (() => {
-            const img = imagesRef.current.find((i) => i.id === imageId);
-            if (!img) return null;
-            try {
-              return spreadsheet.getCellRectInScrollableViewport(
-                parseRef(img.anchor),
-              );
-            } catch {
-              return null;
-            }
-          })();
-          if (newAnchorRect && oldAnchorRect) {
-            const z = spreadsheet.getZoom() ?? 1;
-            // Convert the draft offset (relative to old anchor) to
-            // an offset relative to the new anchor cell.
-            const newOffsetX =
-              nextDraft.offsetX +
-              (oldAnchorRect.left - newAnchorRect.left) / z;
-            const newOffsetY =
-              nextDraft.offsetY +
-              (oldAnchorRect.top - newAnchorRect.top) / z;
-            onUpdateImage(imageId, {
-              anchor: toSref(newRef) as Sref,
-              offsetX: newOffsetX,
-              offsetY: newOffsetY,
-              width: nextDraft.width,
-              height: nextDraft.height,
-            });
+        const img = imagesRef.current.find((i) => i.id === imageId);
+        if (img) {
+          const patch = reanchorAfterMove({
+            spreadsheet,
+            pointerX: latestX,
+            pointerY: latestY,
+            currentAnchor: img.anchor,
+            draft: nextDraft,
+          });
+          if (patch) {
+            onUpdateImage(imageId, patch);
             setDragState(null);
             requestAnimationFrame(() => {
               setDrafts((prev) => {

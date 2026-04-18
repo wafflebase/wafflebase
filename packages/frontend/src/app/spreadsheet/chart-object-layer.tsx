@@ -4,7 +4,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { parseRef, toSref, type Sref, Spreadsheet } from "@wafflebase/sheets";
+import { parseRef, Spreadsheet } from "@wafflebase/sheets";
+import { type DraftLayout, reanchorAfterMove } from "./object-layer-utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,13 +28,6 @@ type ChartObjectLayerProps = {
   onDeleteChart: (chartId: string) => void;
   onUpdateChart: (chartId: string, patch: Partial<SheetChart>) => void;
   renderVersion: number;
-};
-
-type DraftLayout = {
-  offsetX: number;
-  offsetY: number;
-  width: number;
-  height: number;
 };
 
 type DragState = {
@@ -129,34 +123,17 @@ export function ChartObjectLayer({
       // For move operations, re-anchor to the cell under the pointer
       // so row/column insert/delete correctly shifts the chart.
       if (dragState.mode === "move" && spreadsheet) {
-        const newRef = spreadsheet.cellRefFromPoint(latestX, latestY);
-        if (newRef) {
-          const newAnchorRect =
-            spreadsheet.getCellRectInScrollableViewport(newRef);
-          const oldAnchorRect = (() => {
-            const chart = chartsRef.current.find((c) => c.id === chartId);
-            if (!chart) return null;
-            try {
-              return spreadsheet.getCellRectInScrollableViewport(
-                parseRef(chart.anchor),
-              );
-            } catch {
-              return null;
-            }
-          })();
-          if (newAnchorRect && oldAnchorRect) {
-            const z = spreadsheet.getZoom() ?? 1;
-            onUpdateChart(chartId, {
-              anchor: toSref(newRef) as Sref,
-              offsetX:
-                nextDraft.offsetX +
-                (oldAnchorRect.left - newAnchorRect.left) / z,
-              offsetY:
-                nextDraft.offsetY +
-                (oldAnchorRect.top - newAnchorRect.top) / z,
-              width: nextDraft.width,
-              height: nextDraft.height,
-            });
+        const chart = chartsRef.current.find((c) => c.id === chartId);
+        if (chart) {
+          const patch = reanchorAfterMove({
+            spreadsheet,
+            pointerX: latestX,
+            pointerY: latestY,
+            currentAnchor: chart.anchor,
+            draft: nextDraft,
+          });
+          if (patch) {
+            onUpdateChart(chartId, patch);
             setDragState(null);
             requestAnimationFrame(() => {
               setDrafts((prev) => {
