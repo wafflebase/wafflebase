@@ -505,7 +505,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 {activeTab?.type === "datasource" ? (
                   <DataSourceView tabId={activeTabId} />
                 ) : (
-                  <SheetView tabId={activeTabId} peerJumpTarget={peerJumpTarget} addPivotTab={addPivotTab} />
+                  <SheetView tabId={activeTabId} peerJumpTarget={peerJumpTarget} addPivotTab={addPivotTab} workspaceId={documentData?.workspaceId} />
                 )}
               </Suspense>
             </div>

@@ -94,6 +94,7 @@ const modKey = isMac ? "⌘" : "Ctrl";
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
   onInsertChart?: () => void;
+  onInsertImage?: (file: File) => void;
   onOpenConditionalFormat?: () => void;
   onTogglePaintFormat?: () => void;
   paintFormatActive?: boolean;
@@ -106,11 +107,14 @@ interface FormattingToolbarProps {
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
+  onInsertImage: _insertImage,
   onOpenConditionalFormat,
   onTogglePaintFormat,
   paintFormatActive = false,
   isPivotTab = false,
 }: FormattingToolbarProps) {
+  // onInsertImage (_insertImage) will be wired into the toolbar UI in a follow-up task.
+  void _insertImage;
   const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
   const [selectionMerged, setSelectionMerged] = useState(false);

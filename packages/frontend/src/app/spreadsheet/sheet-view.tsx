@@ -23,7 +23,9 @@ import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
+import type { SheetImage } from "@wafflebase/sheets";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
+import { uploadImageFile } from "./image-upload";
 import { YorkieStore } from "./yorkie-store";
 import { needsRecalc } from "./remote-change-utils";
 import { UserPresence } from "@/types/users";
@@ -88,6 +90,11 @@ const PivotEditorPanel = lazy(() =>
     default: module.PivotEditorPanel,
   })),
 );
+const ImageObjectLayer = lazy(() =>
+  import("./image-object-layer").then((module) => ({
+    default: module.ImageObjectLayer,
+  })),
+);
 
 /**
  * Renders the SheetView component.
@@ -97,6 +104,7 @@ export function SheetView({
   readOnly = false,
   peerJumpTarget = null,
   addPivotTab,
+  workspaceId,
 }: {
   tabId: string;
   readOnly?: boolean;
@@ -106,12 +114,14 @@ export function SheetView({
     requestId: number;
   } | null;
   addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
+  workspaceId?: string;
 }) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
   const [sheetRenderVersion, setSheetRenderVersion] = useState(0);
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
   const [paintFormatActive, setPaintFormatActive] = useState(false);
@@ -135,6 +145,7 @@ export function SheetView({
   const lastHandledPeerJumpRequestIdRef = useRef(0);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
+  const hasImagesRef = useRef(false);
   const paintFormatActiveRef = useRef(false);
   const paintFormatPointerDownRef = useRef(false);
   const paintFormatApplyPendingRef = useRef(false);
@@ -151,6 +162,7 @@ export function SheetView({
   const [pivotEditorOpen, setPivotEditorOpen] = useState(false);
   const root = doc?.getRoot();
   const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
+  const hasImages = !!root && Object.keys(root.sheets[tabId]?.images || {}).length > 0;
   const selectedChart =
     root && selectedChartId ? root.sheets[tabId]?.charts?.[selectedChartId] : undefined;
 
@@ -170,6 +182,10 @@ export function SheetView({
   useEffect(() => {
     hasChartsRef.current = hasCharts;
   }, [hasCharts]);
+
+  useEffect(() => {
+    hasImagesRef.current = hasImages;
+  }, [hasImages]);
 
   const clearPaintFormatState = useCallback(() => {
     paintFormatActiveRef.current = false;
@@ -359,6 +375,73 @@ export function SheetView({
     setConditionalFormatOpen(false);
   }, []);
 
+  const handleInsertImage = useCallback(
+    async (file: File) => {
+      if (readOnly || !doc || !workspaceId) return;
+      try {
+        const result = await uploadImageFile(file, workspaceId);
+        const sheet = sheetRef.current;
+        const activeCell = sheet?.getActiveCell();
+        const anchor = activeCell ? toSref(activeCell) : 'A1';
+        const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+        doc.update((root) => {
+          const ws = root.sheets[tabId];
+          if (!ws.images) {
+            ws.images = {};
+          }
+          ws.images[imageId] = {
+            id: imageId,
+            src: result.url,
+            anchor,
+            offsetX: 8,
+            offsetY: 8,
+            width: Math.min(result.width, 400),
+            height: Math.min(result.width, 400) * (result.height / result.width),
+            originalWidth: result.width,
+            originalHeight: result.height,
+          } as SheetImage;
+        });
+
+        setSelectedImageId(imageId);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Image upload failed');
+      }
+    },
+    [doc, readOnly, tabId, workspaceId],
+  );
+
+  const handleUpdateImage = useCallback(
+    (imageId: string, patch: Partial<SheetImage>) => {
+      if (readOnly || !doc) return;
+      doc.update((root) => {
+        const image = root.sheets[tabId]?.images?.[imageId];
+        if (!image) return;
+        if (patch.anchor !== undefined) image.anchor = patch.anchor;
+        if (patch.offsetX !== undefined) image.offsetX = patch.offsetX;
+        if (patch.offsetY !== undefined) image.offsetY = patch.offsetY;
+        if (patch.width !== undefined) image.width = patch.width;
+        if (patch.height !== undefined) image.height = patch.height;
+      });
+    },
+    [doc, readOnly, tabId],
+  );
+
+  const handleDeleteImage = useCallback(
+    (imageId: string) => {
+      if (readOnly || !doc) return;
+      doc.update((root) => {
+        const ws = root.sheets[tabId];
+        if (!ws?.images?.[imageId]) return;
+        delete ws.images[imageId];
+      });
+      if (selectedImageId === imageId) {
+        setSelectedImageId(null);
+      }
+    },
+    [doc, readOnly, selectedImageId, tabId],
+  );
+
   const handleOpenConditionalFormat = useCallback(() => {
     setConditionalFormatOpen(true);
     setChartEditorOpen(false);
@@ -424,6 +507,9 @@ export function SheetView({
       if (selectedChartId !== null) {
         setSelectedChartId(null);
       }
+      if (selectedImageId !== null) {
+        setSelectedImageId(null);
+      }
       if (chartEditorOpen) {
         setChartEditorOpen(false);
       }
@@ -431,7 +517,7 @@ export function SheetView({
         setConditionalFormatOpen(false);
       }
     },
-    [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId],
+    [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId, selectedImageId],
   );
 
   const handleMobileEditCommit = useCallback(
@@ -525,6 +611,7 @@ export function SheetView({
 
   useEffect(() => {
     setSelectedChartId(null);
+    setSelectedImageId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
     setFindBarOpen(false);
@@ -582,7 +669,7 @@ export function SheetView({
       unsubs.push(
         s.onSelectionChange(() => {
           if (
-            (hasChartsRef.current || paintFormatSourceIndicatorVisibleRef.current || isMobileRef.current) &&
+            (hasChartsRef.current || hasImagesRef.current || paintFormatSourceIndicatorVisibleRef.current || isMobileRef.current) &&
             selectionFrame === null
           ) {
             selectionFrame = requestAnimationFrame(() => {
@@ -883,6 +970,7 @@ export function SheetView({
           spreadsheet={sheetRef.current}
           isPivotTab={isPivotTab}
           onInsertChart={handleInsertChart}
+          onInsertImage={handleInsertImage}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {
             void handleTogglePaintFormat();
@@ -917,6 +1005,21 @@ export function SheetView({
           />
         )}
         {paintFormatSourceIndicator}
+        {root && hasImages && (
+          <Suspense fallback={null}>
+            <ImageObjectLayer
+              spreadsheet={sheetRef.current}
+              root={root}
+              tabId={tabId}
+              readOnly={readOnly}
+              selectedImageId={selectedImageId}
+              onSelectImage={setSelectedImageId}
+              onUpdateImage={handleUpdateImage}
+              onDeleteImage={handleDeleteImage}
+              renderVersion={sheetRenderVersion}
+            />
+          </Suspense>
+        )}
         {root && hasCharts && (
           <Suspense fallback={null}>
             <ChartObjectLayer
