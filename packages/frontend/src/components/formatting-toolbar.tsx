@@ -256,6 +256,17 @@ export function FormattingToolbar({
 
   return (
     <Toolbar>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onInsertImage?.(file);
+          e.target.value = "";
+        }}
+      />
       {/* Undo / Redo */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -741,17 +752,6 @@ export function FormattingToolbar({
             <TooltipContent>Insert chart</TooltipContent>
           </Tooltip>
 
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onInsertImage?.(file);
-              e.target.value = "";
-            }}
-          />
           <Tooltip>
             <TooltipTrigger asChild>
               <button

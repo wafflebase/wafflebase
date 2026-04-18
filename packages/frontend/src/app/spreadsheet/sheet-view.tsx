@@ -377,13 +377,29 @@ export function SheetView({
   }, []);
 
   const handleInsertImage = useCallback(
-    async (file: File) => {
+    async (file: File, dropPoint?: { clientX: number; clientY: number }) => {
       if (readOnly || !doc || !workspaceId) return;
       try {
         const result = await uploadImageFile(file, workspaceId);
         const sheet = sheetRef.current;
-        const activeCell = sheet?.getActiveCell();
-        const anchor = activeCell ? toSref(activeCell) : 'A1';
+        let anchor: string;
+        let offsetX = 8;
+        let offsetY = 8;
+
+        if (dropPoint && sheet) {
+          const ref = sheet.cellRefFromPoint(dropPoint.clientX, dropPoint.clientY);
+          anchor = ref ? toSref(ref) : 'A1';
+          if (ref) {
+            const rect = sheet.cellBoundingRect(ref);
+            if (rect) {
+              offsetX = dropPoint.clientX - rect.left;
+              offsetY = dropPoint.clientY - rect.top;
+            }
+          }
+        } else {
+          const activeCell = sheet?.getActiveCell();
+          anchor = activeCell ? toSref(activeCell) : 'A1';
+        }
         const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
         doc.update((root) => {
@@ -395,8 +411,8 @@ export function SheetView({
             id: imageId,
             src: result.url,
             anchor,
-            offsetX: 8,
-            offsetY: 8,
+            offsetX,
+            offsetY,
             width: Math.min(result.width, 400),
             height: Math.min(result.width, 400) * (result.height / result.width),
             originalWidth: result.width,
@@ -462,7 +478,7 @@ export function SheetView({
         f.type.startsWith('image/'),
       );
       if (!file) return;
-      void handleInsertImage(file);
+      void handleInsertImage(file, { clientX: e.clientX, clientY: e.clientY });
     },
     [readOnly, handleInsertImage],
   );

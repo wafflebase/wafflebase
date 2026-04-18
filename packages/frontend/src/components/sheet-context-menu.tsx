@@ -203,10 +203,10 @@ export function SheetContextMenu({
                 </ContextMenuItem>
               </>
             )}
-            {selectedImageId && (
+            {selectedImageId && onDeleteImage && (
               <>
                 <ContextMenuSeparator />
-                <ContextMenuItem disabled={readOnly} onSelect={() => onDeleteImage?.()}>
+                <ContextMenuItem disabled={readOnly} onSelect={onDeleteImage}>
                   <IconTrash size={16} /> Delete image
                 </ContextMenuItem>
               </>

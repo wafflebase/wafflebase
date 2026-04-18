@@ -25,7 +25,20 @@ export class ApiV1ImagesController {
   constructor(private readonly imageService: ImageService) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const allowed = [
+          'image/png',
+          'image/jpeg',
+          'image/gif',
+          'image/webp',
+        ];
+        cb(null, allowed.includes(file.mimetype));
+      },
+    }),
+  )
   async upload(
     @UploadedFile() file: Express.Multer.File,
   ): Promise<{ id: string; url: string }> {

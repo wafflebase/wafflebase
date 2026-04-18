@@ -5,7 +5,7 @@ import {
   useReducer,
   useState,
 } from "react";
-import { parseRef, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
+import { parseRef, toSref, type Sref, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 import { getOrLoadImage } from "./image-cache";
 
@@ -108,28 +108,28 @@ export function ImageObjectLayer({
 
   const images = Object.values(root.sheets[tabId]?.images || {});
 
-  // Keyboard handler for delete/escape.
+  // Keyboard handler for image shortcuts (delete, move, escape).
   useEffect(() => {
     if (!selectedImageId || readOnly) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Delete" || event.key === "Backspace") {
-        // Don't intercept when user is typing in an external dialog input.
-        // The grid's own cell input (contentEditable div) is NOT external —
-        // Delete should still remove the selected image in that case.
-        const target = event.target;
-        if (target instanceof Element) {
-          const grid = document.querySelector("[data-sheet-container]");
-          if (!grid?.contains(target)) {
-            const tag = target.tagName;
-            if (
-              tag === "INPUT" ||
-              tag === "TEXTAREA" ||
-              (target as HTMLElement).isContentEditable
-            ) {
-              return;
-            }
+      // Don't intercept when user is typing in an external input (dialog, etc.).
+      // The grid's own cell input (contentEditable div) is NOT external.
+      const target = event.target;
+      if (target instanceof Element) {
+        const grid = document.querySelector("[data-sheet-container]");
+        if (!grid?.contains(target)) {
+          const tag = target.tagName;
+          if (
+            tag === "INPUT" ||
+            tag === "TEXTAREA" ||
+            (target as HTMLElement).isContentEditable
+          ) {
+            return;
           }
         }
+      }
+
+      if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
         event.stopPropagation();
         onDeleteImage(selectedImageId);
@@ -266,6 +266,55 @@ export function ImageObjectLayer({
 
     const onPointerUp = () => {
       const nextDraft = toDraft(latestX, latestY);
+
+      // For move operations, re-anchor to the cell under the image's
+      // top-left corner so structural operations (row/col insert/delete)
+      // act on the correct cell.
+      if (dragState.mode === "move" && spreadsheet) {
+        const image = images.find((i) => i.id === dragState.imageId);
+        if (image) {
+          const z = spreadsheet.getZoom() ?? 1;
+          let anchorRect;
+          try {
+            anchorRect = spreadsheet.getCellRectInScrollableViewport(
+              parseRef(image.anchor),
+            );
+          } catch {
+            /* keep current anchor */
+          }
+          if (anchorRect) {
+            const absX = anchorRect.left + nextDraft.offsetX * z;
+            const absY = anchorRect.top + nextDraft.offsetY * z;
+            const newRef = spreadsheet.cellRefFromPoint(absX, absY);
+            if (newRef) {
+              let newAnchorRect;
+              try {
+                newAnchorRect =
+                  spreadsheet.getCellRectInScrollableViewport(newRef);
+              } catch {
+                /* keep current anchor */
+              }
+              if (newAnchorRect) {
+                onUpdateImage(dragState.imageId, {
+                  anchor: toSref(newRef) as Sref,
+                  offsetX: (absX - newAnchorRect.left) / z,
+                  offsetY: (absY - newAnchorRect.top) / z,
+                  width: nextDraft.width,
+                  height: nextDraft.height,
+                });
+                setDrafts((prev) => {
+                  const remaining = { ...prev };
+                  delete remaining[dragState.imageId];
+                  return remaining;
+                });
+                setDragState(null);
+                return;
+              }
+            }
+          }
+        }
+      }
+
       onUpdateImage(dragState.imageId, nextDraft);
       setDrafts((prev) => {
         const remaining = { ...prev };
@@ -281,7 +330,7 @@ export function ImageObjectLayer({
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [dragState, onUpdateImage, readOnly, spreadsheet]);
+  }, [dragState, images, onUpdateImage, readOnly, spreadsheet]);
 
   const onImageLoad = useCallback(() => {
     forceUpdate();
