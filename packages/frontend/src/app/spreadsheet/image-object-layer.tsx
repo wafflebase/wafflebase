@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { parseRef, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
+import { parseRef, toSref, type Sref, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
 import type { SpreadsheetDocument } from "@/types/worksheet";
 import { getOrLoadImage } from "./image-cache";
 
@@ -108,6 +108,8 @@ export function ImageObjectLayer({
   const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
 
   const images = Object.values(root.sheets[tabId]?.images || {});
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
 
   // Keyboard handler for image shortcuts (delete, move, escape).
   useEffect(() => {
@@ -268,11 +270,59 @@ export function ImageObjectLayer({
     const onPointerUp = () => {
       const nextDraft = toDraft(latestX, latestY);
       const imageId = dragState.imageId;
+
+      // For move operations, re-anchor to the cell under the pointer
+      // so row/column insert/delete correctly shifts the image.
+      if (dragState.mode === "move" && spreadsheet) {
+        const newRef = spreadsheet.cellRefFromPoint(latestX, latestY);
+        if (newRef) {
+          const newAnchorRect =
+            spreadsheet.getCellRectInScrollableViewport(newRef);
+          const oldAnchorRect = (() => {
+            const img = imagesRef.current.find((i) => i.id === imageId);
+            if (!img) return null;
+            try {
+              return spreadsheet.getCellRectInScrollableViewport(
+                parseRef(img.anchor),
+              );
+            } catch {
+              return null;
+            }
+          })();
+          if (newAnchorRect && oldAnchorRect) {
+            const z = spreadsheet.getZoom() ?? 1;
+            // Convert the draft offset (relative to old anchor) to
+            // an offset relative to the new anchor cell.
+            const newOffsetX =
+              nextDraft.offsetX +
+              (oldAnchorRect.left - newAnchorRect.left) / z;
+            const newOffsetY =
+              nextDraft.offsetY +
+              (oldAnchorRect.top - newAnchorRect.top) / z;
+            onUpdateImage(imageId, {
+              anchor: toSref(newRef) as Sref,
+              offsetX: newOffsetX,
+              offsetY: newOffsetY,
+              width: nextDraft.width,
+              height: nextDraft.height,
+            });
+            setDragState(null);
+            requestAnimationFrame(() => {
+              setDrafts((prev) => {
+                const remaining = { ...prev };
+                delete remaining[imageId];
+                return remaining;
+              });
+            });
+            return;
+          }
+        }
+      }
+
       onUpdateImage(imageId, nextDraft);
       setDragState(null);
       // Defer draft clearing so the Yorkie update propagates before
-      // we remove the visual preview. Without this, the image snaps
-      // back to its old position for one frame.
+      // we remove the visual preview.
       requestAnimationFrame(() => {
         setDrafts((prev) => {
           const remaining = { ...prev };
