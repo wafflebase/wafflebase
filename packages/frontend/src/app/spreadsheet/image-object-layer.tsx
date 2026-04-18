@@ -113,15 +113,22 @@ export function ImageObjectLayer({
     if (!selectedImageId || readOnly) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Delete" || event.key === "Backspace") {
-        // Don't intercept when user is typing in an input/textarea.
-        const active = document.activeElement;
-        if (
-          active &&
-          (active.tagName === "INPUT" ||
-            active.tagName === "TEXTAREA" ||
-            (active as HTMLElement).isContentEditable)
-        ) {
-          return;
+        // Don't intercept when user is typing in an external dialog input.
+        // The grid's own cell input (contentEditable div) is NOT external —
+        // Delete should still remove the selected image in that case.
+        const target = event.target;
+        if (target instanceof Element) {
+          const grid = document.querySelector("[data-sheet-container]");
+          if (!grid?.contains(target)) {
+            const tag = target.tagName;
+            if (
+              tag === "INPUT" ||
+              tag === "TEXTAREA" ||
+              (target as HTMLElement).isContentEditable
+            ) {
+              return;
+            }
+          }
         }
         event.preventDefault();
         event.stopPropagation();

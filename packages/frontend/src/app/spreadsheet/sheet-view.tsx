@@ -1045,6 +1045,7 @@ export function SheetView({
           <div
             ref={containerRef}
             className="h-full w-full select-none"
+            data-sheet-container
             style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
             onPointerDown={handleGridPointerDown}
             onDragOver={handleDragOver}
