@@ -481,8 +481,10 @@ export function SheetView({
       }
     };
 
-    document.addEventListener('paste', handlePaste);
-    return () => document.removeEventListener('paste', handlePaste);
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener('paste', handlePaste);
+    return () => container.removeEventListener('paste', handlePaste);
   }, [readOnly, handleInsertImage]);
 
   const handleOpenConditionalFormat = useCallback(() => {

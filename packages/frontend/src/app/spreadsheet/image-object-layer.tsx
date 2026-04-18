@@ -113,6 +113,16 @@ export function ImageObjectLayer({
     if (!selectedImageId || readOnly) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Delete" || event.key === "Backspace") {
+        // Don't intercept when user is typing in an input/textarea.
+        const active = document.activeElement;
+        if (
+          active &&
+          (active.tagName === "INPUT" ||
+            active.tagName === "TEXTAREA" ||
+            (active as HTMLElement).isContentEditable)
+        ) {
+          return;
+        }
         event.preventDefault();
         onDeleteImage(selectedImageId);
         onSelectImage(null);
