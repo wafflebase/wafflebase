@@ -134,6 +134,24 @@ export function ImageObjectLayer({
         event.stopPropagation();
         onDeleteImage(selectedImageId);
         onSelectImage(null);
+      } else if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowDown" ||
+        event.key === "ArrowLeft" ||
+        event.key === "ArrowRight"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        const dx =
+          event.key === "ArrowLeft" ? -10 : event.key === "ArrowRight" ? 10 : 0;
+        const dy =
+          event.key === "ArrowUp" ? -10 : event.key === "ArrowDown" ? 10 : 0;
+        onUpdateImage(selectedImageId, {
+          offsetX:
+            (images.find((i) => i.id === selectedImageId)?.offsetX ?? 0) + dx,
+          offsetY:
+            (images.find((i) => i.id === selectedImageId)?.offsetY ?? 0) + dy,
+        });
       } else if (event.key === "Escape") {
         event.stopPropagation();
         onSelectImage(null);
@@ -143,7 +161,7 @@ export function ImageObjectLayer({
     // keydown handler (which also listens on document in bubble phase).
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [selectedImageId, readOnly, onDeleteImage, onSelectImage]);
+  }, [selectedImageId, readOnly, onDeleteImage, onSelectImage, onUpdateImage, images]);
 
   // Drag/resize handler.
   useEffect(() => {
