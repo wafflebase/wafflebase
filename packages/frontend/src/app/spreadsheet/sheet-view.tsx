@@ -481,10 +481,8 @@ export function SheetView({
       }
     };
 
-    const container = containerRef.current;
-    if (!container) return;
-    container.addEventListener('paste', handlePaste);
-    return () => container.removeEventListener('paste', handlePaste);
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
   }, [readOnly, handleInsertImage]);
 
   const handleOpenConditionalFormat = useCallback(() => {
@@ -1042,15 +1040,32 @@ export function SheetView({
             }
           }}
         >
-          <div
-            ref={containerRef}
-            className="h-full w-full select-none"
-            data-sheet-container
-            style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
-            onPointerDown={handleGridPointerDown}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-          />
+          <div className="relative h-full w-full">
+            <div
+              ref={containerRef}
+              className="h-full w-full select-none"
+              data-sheet-container
+              style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
+              onPointerDown={handleGridPointerDown}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+            />
+            {root && hasImages && (
+              <Suspense fallback={null}>
+                <ImageObjectLayer
+                  spreadsheet={sheetRef.current}
+                  root={root}
+                  tabId={tabId}
+                  readOnly={readOnly}
+                  selectedImageId={selectedImageId}
+                  onSelectImage={setSelectedImageId}
+                  onUpdateImage={handleUpdateImage}
+                  onDeleteImage={handleDeleteImage}
+                  renderVersion={sheetRenderVersion}
+                />
+              </Suspense>
+            )}
+          </div>
         </SheetContextMenu>
         {findBarOpen && (
           <FindBar
@@ -1059,21 +1074,6 @@ export function SheetView({
           />
         )}
         {paintFormatSourceIndicator}
-        {root && hasImages && (
-          <Suspense fallback={null}>
-            <ImageObjectLayer
-              spreadsheet={sheetRef.current}
-              root={root}
-              tabId={tabId}
-              readOnly={readOnly}
-              selectedImageId={selectedImageId}
-              onSelectImage={setSelectedImageId}
-              onUpdateImage={handleUpdateImage}
-              onDeleteImage={handleDeleteImage}
-              renderVersion={sheetRenderVersion}
-            />
-          </Suspense>
-        )}
         {root && hasCharts && (
           <Suspense fallback={null}>
             <ChartObjectLayer
