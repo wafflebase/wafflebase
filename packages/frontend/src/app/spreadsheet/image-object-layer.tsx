@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useReducer,
+  useRef,
   useState,
 } from "react";
 import { parseRef, type SheetImage, Spreadsheet } from "@wafflebase/sheets";
@@ -266,13 +267,19 @@ export function ImageObjectLayer({
 
     const onPointerUp = () => {
       const nextDraft = toDraft(latestX, latestY);
-      onUpdateImage(dragState.imageId, nextDraft);
-      setDrafts((prev) => {
-        const remaining = { ...prev };
-        delete remaining[dragState.imageId];
-        return remaining;
-      });
+      const imageId = dragState.imageId;
+      onUpdateImage(imageId, nextDraft);
       setDragState(null);
+      // Defer draft clearing so the Yorkie update propagates before
+      // we remove the visual preview. Without this, the image snaps
+      // back to its old position for one frame.
+      requestAnimationFrame(() => {
+        setDrafts((prev) => {
+          const remaining = { ...prev };
+          delete remaining[imageId];
+          return remaining;
+        });
+      });
     };
 
     window.addEventListener("pointermove", onPointerMove);
@@ -283,8 +290,16 @@ export function ImageObjectLayer({
     };
   }, [dragState, images, onUpdateImage, readOnly, spreadsheet]);
 
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const onImageLoad = useCallback(() => {
-    forceUpdate();
+    if (mountedRef.current) forceUpdate();
   }, []);
 
   if (!spreadsheet || images.length === 0) {
