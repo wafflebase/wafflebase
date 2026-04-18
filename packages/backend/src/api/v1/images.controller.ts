@@ -35,7 +35,16 @@ export class ApiV1ImagesController {
           'image/gif',
           'image/webp',
         ];
-        cb(null, allowed.includes(file.mimetype));
+        if (!allowed.includes(file.mimetype)) {
+          cb(
+            new BadRequestException(
+              `Unsupported file type: ${file.mimetype}`,
+            ),
+            false,
+          );
+        } else {
+          cb(null, true);
+        }
       },
     }),
   )
