@@ -11,6 +11,7 @@ import {
   toSref,
 } from "@wafflebase/sheets";
 import {
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   lazy,
   Suspense,
@@ -441,6 +442,48 @@ export function SheetView({
     },
     [doc, readOnly, selectedImageId, tabId],
   );
+
+  const handleDragOver = useCallback((e: ReactDragEvent) => {
+    if (readOnly) return;
+    const hasImage = Array.from(e.dataTransfer.items).some((item) =>
+      item.type.startsWith('image/'),
+    );
+    if (hasImage) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }, [readOnly]);
+
+  const handleDrop = useCallback(
+    (e: ReactDragEvent) => {
+      if (readOnly) return;
+      e.preventDefault();
+      const file = Array.from(e.dataTransfer.files).find((f) =>
+        f.type.startsWith('image/'),
+      );
+      if (!file) return;
+      void handleInsertImage(file);
+    },
+    [readOnly, handleInsertImage],
+  );
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (readOnly) return;
+      const imageFile = Array.from(e.clipboardData?.items || [])
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .find((f): f is File => f !== null);
+
+      if (imageFile) {
+        e.preventDefault();
+        void handleInsertImage(imageFile);
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [readOnly, handleInsertImage]);
 
   const handleOpenConditionalFormat = useCallback(() => {
     setConditionalFormatOpen(true);
@@ -996,6 +1039,8 @@ export function SheetView({
             className="h-full w-full select-none"
             style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
             onPointerDown={handleGridPointerDown}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
           />
         </SheetContextMenu>
         {findBarOpen && (
