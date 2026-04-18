@@ -376,6 +376,25 @@ export function SheetView({
     setConditionalFormatOpen(false);
   }, []);
 
+  const handleSelectChart = useCallback(
+    (chartId: string | null) => {
+      setSelectedChartId(chartId);
+      if (chartId) setSelectedImageId(null);
+    },
+    [],
+  );
+
+  const handleSelectImage = useCallback(
+    (imageId: string | null) => {
+      setSelectedImageId(imageId);
+      if (imageId) {
+        setSelectedChartId(null);
+        setChartEditorOpen(false);
+      }
+    },
+    [],
+  );
+
   const handleInsertImage = useCallback(
     async (file: File, dropPoint?: { clientX: number; clientY: number }) => {
       if (readOnly || !doc || !workspaceId) return;
@@ -1074,7 +1093,7 @@ export function SheetView({
                   tabId={tabId}
                   readOnly={readOnly}
                   selectedImageId={selectedImageId}
-                  onSelectImage={setSelectedImageId}
+                  onSelectImage={handleSelectImage}
                   onUpdateImage={handleUpdateImage}
                   onDeleteImage={handleDeleteImage}
                   renderVersion={sheetRenderVersion}
@@ -1098,7 +1117,7 @@ export function SheetView({
               tabId={tabId}
               readOnly={readOnly}
               selectedChartId={selectedChartId}
-              onSelectChart={setSelectedChartId}
+              onSelectChart={handleSelectChart}
               onRequestEditChart={handleEditChart}
               onDeleteChart={handleDeleteChart}
               onUpdateChart={handleUpdateChart}
