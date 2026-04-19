@@ -1929,9 +1929,7 @@ export class TextEditor {
       } else if (direction === 'up') {
         const tableBlock = this.doc.getBlock(tableBlockId);
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
-        const tl = this.doc.getParentTableBlock(pos.blockId)
-          ? undefined
-          : this.getLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
+        const tl = this.getLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
         const layoutCell = tl?.cells[arrowCellInfo.rowIndex]?.[arrowCellInfo.colIndex];
 
         // Try line-by-line navigation within the cell first
