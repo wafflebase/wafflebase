@@ -628,62 +628,6 @@ export class YorkieDocStore implements DocStore {
     }
   }
 
-  /**
-   * Resolve a block-level character offset into the Yorkie tree's actual
-   * inline structure. The cached document may have merged adjacent same-style
-   * inlines (normalizeInlines) that remain separate nodes in the Yorkie tree,
-   * so paths computed from the cache can be invalid.
-   */
-  private resolveTreeOffset(
-    treeRoot: TreeNode,
-    treeBlockIdx: number,
-    offset: number,
-  ): { inlineIndex: number; charOffset: number } {
-    const blockNode = (treeRoot as ElementNode).children![treeBlockIdx] as ElementNode;
-    const inlineChildren = (blockNode.children ?? []).filter(
-      (c): c is ElementNode => c.type === 'inline',
-    );
-    let remaining = offset;
-    for (let i = 0; i < inlineChildren.length; i++) {
-      const textLen = (inlineChildren[i].children ?? [])
-        .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
-        .reduce((sum, t) => sum + t.value.length, 0);
-      if (remaining <= textLen) {
-        return { inlineIndex: i, charOffset: remaining };
-      }
-      remaining -= textLen;
-    }
-    const lastIdx = inlineChildren.length - 1;
-    const lastLen = (inlineChildren[lastIdx]?.children ?? [])
-      .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
-      .reduce((sum, t) => sum + t.value.length, 0);
-    return { inlineIndex: Math.max(0, lastIdx), charOffset: lastLen };
-  }
-
-  /**
-   * Check if a block lives in header or footer.
-   */
-  private findHeaderFooterBlock(blockId: string, doc: Document): { region: 'header' | 'footer'; blocks: Block[]; index: number } | null {
-    if (doc.header) {
-      const idx = doc.header.blocks.findIndex((b) => b.id === blockId);
-      if (idx !== -1) return { region: 'header', blocks: doc.header.blocks, index: idx };
-    }
-    if (doc.footer) {
-      const idx = doc.footer.blocks.findIndex((b) => b.id === blockId);
-      if (idx !== -1) return { region: 'footer', blocks: doc.footer.blocks, index: idx };
-    }
-    return null;
-  }
-
-  /**
-   * For header/footer mutations, apply the change and rewrite the full tree.
-   */
-  private commitHeaderFooterChange(doc: Document): void {
-    this.writeFullDocument(doc);
-    this.cachedDoc = doc;
-    this.dirty = false;
-  }
-
   updateBlock(id: string, block: Block): void {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(id, currentDoc);
