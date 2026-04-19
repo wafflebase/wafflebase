@@ -7,9 +7,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { DataSourceFormFields } from "@/components/datasource-form-fields";
 import { updateDataSource, testDataSourceConnection } from "@/api/datasources";
 import { isAuthExpiredError } from "@/api/auth";
 import type { DataSource } from "@/types/datasource";
@@ -104,71 +102,24 @@ export function DataSourceEditDialog({
             Update the connection settings for this datasource.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="edit-ds-name">Name</Label>
-            <Input
-              id="edit-ds-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="col-span-2 grid gap-2">
-              <Label htmlFor="edit-ds-host">Host</Label>
-              <Input
-                id="edit-ds-host"
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-ds-port">Port</Label>
-              <Input
-                id="edit-ds-port"
-                type="number"
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="edit-ds-database">Database</Label>
-            <Input
-              id="edit-ds-database"
-              value={database}
-              onChange={(e) => setDatabase(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="grid gap-2">
-              <Label htmlFor="edit-ds-username">Username</Label>
-              <Input
-                id="edit-ds-username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="edit-ds-password">Password</Label>
-              <Input
-                id="edit-ds-password"
-                type="password"
-                placeholder="Leave blank to keep current"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              id="edit-ds-ssl"
-              checked={sslEnabled}
-              onCheckedChange={setSslEnabled}
-            />
-            <Label htmlFor="edit-ds-ssl">Enable SSL</Label>
-          </div>
-        </div>
+        <DataSourceFormFields
+          idPrefix="edit-ds"
+          name={name}
+          host={host}
+          port={port}
+          database={database}
+          username={username}
+          password={password}
+          sslEnabled={sslEnabled}
+          passwordPlaceholder="Leave blank to keep current"
+          onNameChange={setName}
+          onHostChange={setHost}
+          onPortChange={setPort}
+          onDatabaseChange={setDatabase}
+          onUsernameChange={setUsername}
+          onPasswordChange={setPassword}
+          onSslEnabledChange={setSslEnabled}
+        />
         <div className="flex justify-between">
           <Button variant="outline" onClick={handleTest} disabled={testing}>
             {testing ? "Testing..." : "Test Connection"}
