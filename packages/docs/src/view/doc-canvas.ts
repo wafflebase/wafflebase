@@ -56,6 +56,8 @@ function computeTableRangeForPageLine(
   for (let k = plIndex + 1; k < page.lines.length; k++) {
     const nextPl = page.lines[k];
     if (nextPl.blockIndex === pl.blockIndex) {
+      // Stop before split fragments — they get their own render pass
+      if (nextPl.rowSplitOffset !== undefined) break;
       endRowIndex = nextPl.lineIndex + 1;
     } else {
       break;
