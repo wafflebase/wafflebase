@@ -23,7 +23,6 @@ import {
   normalizeBlockStyle,
   DEFAULT_BLOCK_STYLE,
   resolveOffset,
-  resolveDeleteRange,
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
@@ -479,19 +478,82 @@ export class YorkieDocStore implements DocStore {
   }
 
   setHeader(header: HeaderFooter | undefined): void {
-    // Rewrite the full document to include/remove header
     const doc = this.getDocument();
+    const hadHeader = !!doc.header;
+
+    // If tree is not initialized yet, fall back to full document write.
+    const root = this.doc.getRoot();
+    const tree = root.content;
+    if (!tree || typeof tree.getRootTreeNode !== 'function') {
+      doc.header = header;
+      this.writeFullDocument(doc);
+      this.cachedDoc = cloneDocument(doc);
+      this.dirty = false;
+      return;
+    }
+
+    this.doc.update((root) => {
+      const tree = root.content;
+
+      if (header) {
+        const node: ElementNode = {
+          type: 'header',
+          attributes: { marginFromEdge: String(header.marginFromEdge) },
+          children: header.blocks.map(buildBlockNode),
+        };
+        if (hadHeader) {
+          tree.editByPath([0], [1], node);
+        } else {
+          tree.editByPath([0], [0], node);
+        }
+      } else if (hadHeader) {
+        tree.editByPath([0], [1]);
+      }
+    });
+
     doc.header = header;
-    this.writeFullDocument(doc);
-    this.cachedDoc = cloneDocument(doc);
+    this.cachedDoc = doc;
     this.dirty = false;
   }
 
   setFooter(footer: HeaderFooter | undefined): void {
     const doc = this.getDocument();
+    const hadFooter = !!doc.footer;
+
+    // If tree is not initialized yet, fall back to full document write.
+    const root = this.doc.getRoot();
+    const tree = root.content;
+    if (!tree || typeof tree.getRootTreeNode !== 'function') {
+      doc.footer = footer;
+      this.writeFullDocument(doc);
+      this.cachedDoc = cloneDocument(doc);
+      this.dirty = false;
+      return;
+    }
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      const treeRoot = tree.getRootTreeNode() as ElementNode;
+      const childCount = (treeRoot.children ?? []).length;
+
+      if (footer) {
+        const node: ElementNode = {
+          type: 'footer',
+          attributes: { marginFromEdge: String(footer.marginFromEdge) },
+          children: footer.blocks.map(buildBlockNode),
+        };
+        if (hadFooter) {
+          tree.editByPath([childCount - 1], [childCount], node);
+        } else {
+          tree.editByPath([childCount], [childCount], node);
+        }
+      } else if (hadFooter) {
+        tree.editByPath([childCount - 1], [childCount]);
+      }
+    });
+
     doc.footer = footer;
-    this.writeFullDocument(doc);
-    this.cachedDoc = cloneDocument(doc);
+    this.cachedDoc = doc;
     this.dirty = false;
   }
 
@@ -525,18 +587,56 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
-   * Resolve a block-level character offset into the Yorkie tree's actual
-   * inline structure. The cached document may have merged adjacent same-style
-   * inlines (normalizeInlines) that remain separate nodes in the Yorkie tree,
-   * so paths computed from the cache can be invalid.
+   * Resolve a block ID to its Yorkie tree path prefix.
+   * - Header block: [0, blockIdx]
+   * - Body block:   [blockIdx + bodyOffset]
+   * - Footer block: [footerTreeIdx, blockIdx]
    */
-  private resolveTreeOffset(
-    treeRoot: TreeNode,
-    treeBlockIdx: number,
+  private resolveBlockTreePath(
+    blockId: string,
+    doc: Document,
+  ): { path: number[]; region: 'header' | 'body' | 'footer' } {
+    if (doc.header) {
+      const idx = doc.header.blocks.findIndex((b) => b.id === blockId);
+      if (idx !== -1) return { path: [0, idx], region: 'header' };
+    }
+    const bodyIdx = doc.blocks.findIndex((b) => b.id === blockId);
+    if (bodyIdx !== -1) {
+      return { path: [bodyIdx + this.bodyTreeOffset(doc)], region: 'body' };
+    }
+    if (doc.footer) {
+      const idx = doc.footer.blocks.findIndex((b) => b.id === blockId);
+      if (idx !== -1) {
+        const footerTreeIdx = this.bodyTreeOffset(doc) + doc.blocks.length;
+        return { path: [footerTreeIdx, idx], region: 'footer' };
+      }
+    }
+    throw new Error(`Block not found: ${blockId}`);
+  }
+
+  /**
+   * Navigate the tree to find the block node at the given path.
+   */
+  private getTreeBlockNode(treeRoot: TreeNode, blockPath: number[]): TreeNode {
+    let node = treeRoot;
+    for (const idx of blockPath) {
+      node = ((node as ElementNode).children ?? [])[idx];
+    }
+    return node;
+  }
+
+  /**
+   * Resolve a block-level character offset into (inlineIndex, charOffset)
+   * by walking the inline children of a given block TreeNode.
+   * This is a generalized version of resolveTreeOffset that works for any
+   * region (header, body, footer).
+   */
+  private resolveBlockNodeOffset(
+    blockNode: TreeNode,
     offset: number,
   ): { inlineIndex: number; charOffset: number } {
-    const blockNode = (treeRoot as ElementNode).children![treeBlockIdx] as ElementNode;
-    const inlineChildren = (blockNode.children ?? []).filter(
+    const el = blockNode as ElementNode;
+    const inlineChildren = (el.children ?? []).filter(
       (c): c is ElementNode => c.type === 'inline',
     );
     let remaining = offset;
@@ -557,69 +657,62 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
-   * Check if a block lives in header or footer.
+   * Get the block from the correct region of the cached document.
    */
-  private findHeaderFooterBlock(blockId: string, doc: Document): { region: 'header' | 'footer'; blocks: Block[]; index: number } | null {
-    if (doc.header) {
-      const idx = doc.header.blocks.findIndex((b) => b.id === blockId);
-      if (idx !== -1) return { region: 'header', blocks: doc.header.blocks, index: idx };
+  private getBlockByRegion(
+    doc: Document,
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): Block {
+    if (region === 'header') {
+      return doc.header!.blocks[blockPath[blockPath.length - 1]];
+    } else if (region === 'footer') {
+      return doc.footer!.blocks[blockPath[blockPath.length - 1]];
     }
-    if (doc.footer) {
-      const idx = doc.footer.blocks.findIndex((b) => b.id === blockId);
-      if (idx !== -1) return { region: 'footer', blocks: doc.footer.blocks, index: idx };
-    }
-    return null;
+    return doc.blocks[blockPath[0] - this.bodyTreeOffset(doc)];
   }
 
   /**
-   * For header/footer mutations, apply the change and rewrite the full tree.
+   * Set a block in the correct region of the cached document.
    */
-  private commitHeaderFooterChange(doc: Document): void {
-    this.writeFullDocument(doc);
-    this.cachedDoc = doc;
-    this.dirty = false;
+  private setBlockByRegion(
+    doc: Document,
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+    block: Block,
+  ): void {
+    if (region === 'header') {
+      doc.header!.blocks[blockPath[blockPath.length - 1]] = block;
+    } else if (region === 'footer') {
+      doc.footer!.blocks[blockPath[blockPath.length - 1]] = block;
+    } else {
+      doc.blocks[blockPath[0] - this.bodyTreeOffset(doc)] = block;
+    }
   }
 
   updateBlock(id: string, block: Block): void {
     const currentDoc = this.getDocument();
-    const hf = this.findHeaderFooterBlock(id, currentDoc);
-    if (hf) {
-      hf.blocks[hf.index] = block;
-      this.commitHeaderFooterChange(currentDoc);
-      return;
-    }
+    const { path: blockPath, region } = this.resolveBlockTreePath(id, currentDoc);
 
-    const index = currentDoc.blocks.findIndex((b) => b.id === id);
-    if (index === -1) {
-      throw new Error(`Block not found: ${id}`);
-    }
+    const endPath = [...blockPath];
+    endPath[endPath.length - 1] += 1;
 
-    const off = this.bodyTreeOffset(currentDoc);
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([index + off], [index + off + 1], buildBlockNode(block));
+      tree.editByPath(blockPath, endPath, buildBlockNode(block));
     });
-    // Update cache in-place instead of clearing
-    currentDoc.blocks[index] = block;
+    // Update cache in-place
+    this.setBlockByRegion(currentDoc, blockPath, region, block);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   insertText(blockId: string, offset: number, text: string): void {
     const currentDoc = this.getDocument();
-    const hf = this.findHeaderFooterBlock(blockId, currentDoc);
-    if (hf) {
-      hf.blocks[hf.index] = applyInsertText(hf.blocks[hf.index], offset, text);
-      this.commitHeaderFooterChange(currentDoc);
-      return;
-    }
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
 
-    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
-    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
-    const block = currentDoc.blocks[blockIdx];
-
-    const off = this.bodyTreeOffset(currentDoc);
     // Use cache-based resolveOffset for image detection only
     const cacheResolved = resolveOffset(block, offset);
     const targetInline = block.inlines[cacheResolved.inlineIndex];
@@ -630,7 +723,8 @@ export class YorkieDocStore implements DocStore {
 
       // Resolve offset from the actual Yorkie tree structure
       const treeRoot = tree.getRootTreeNode();
-      const { inlineIndex, charOffset } = this.resolveTreeOffset(treeRoot, blockIdx + off, offset);
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
 
       if (targetInline.style.image) {
         const { image: _, ...plainStyle } = targetInline.style;
@@ -638,92 +732,71 @@ export class YorkieDocStore implements DocStore {
         const newNode = buildInlineNode({ text, style: plainStyle });
         if (charOffset === 0) {
           tree.editByPath(
-            [blockIdx + off, inlineIndex],
-            [blockIdx + off, inlineIndex],
+            [...blockPath, inlineIndex],
+            [...blockPath, inlineIndex],
             newNode,
           );
         } else {
           tree.editByPath(
-            [blockIdx + off, inlineIndex + 1],
-            [blockIdx + off, inlineIndex + 1],
+            [...blockPath, inlineIndex + 1],
+            [...blockPath, inlineIndex + 1],
             newNode,
           );
         }
       } else {
         tree.editByPath(
-          [blockIdx + off, inlineIndex, charOffset],
-          [blockIdx + off, inlineIndex, charOffset],
+          [...blockPath, inlineIndex, charOffset],
+          [...blockPath, inlineIndex, charOffset],
           { type: 'text', value: text },
         );
       }
     });
 
-    // Update cache in-place (same pattern as updateBlock)
-    currentDoc.blocks[blockIdx] = applyInsertText(block, offset, text);
+    // Update cache in-place
+    const updated = applyInsertText(block, offset, text);
+    this.setBlockByRegion(currentDoc, blockPath, region, updated);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
 
   deleteText(blockId: string, offset: number, length: number): void {
     const currentDoc = this.getDocument();
-    const hf = this.findHeaderFooterBlock(blockId, currentDoc);
-    if (hf) {
-      hf.blocks[hf.index] = applyDeleteText(hf.blocks[hf.index], offset, length);
-      this.commitHeaderFooterChange(currentDoc);
-      return;
-    }
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
 
-    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
-    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
-    const block = currentDoc.blocks[blockIdx];
-
-    const segments = resolveDeleteRange(block, offset, length);
-
-    // Identify inlines that will become completely empty after deletion
-    const emptyInlineIndices: number[] = [];
-    for (const seg of segments) {
-      const inline = block.inlines[seg.inlineIndex];
-      if (seg.charFrom === 0 && seg.charTo === inline.text.length) {
-        emptyInlineIndices.push(seg.inlineIndex);
-      }
-    }
-    // Keep at least one inline in the block
-    if (emptyInlineIndices.length >= block.inlines.length) {
-      emptyInlineIndices.pop();
-    }
-
-    const off = this.bodyTreeOffset(currentDoc);
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
       // Resolve delete segments from the actual Yorkie tree structure
       const treeRoot = tree.getRootTreeNode();
-      const treeStart = this.resolveTreeOffset(treeRoot, blockIdx + off, offset);
-      const treeEnd = this.resolveTreeOffset(treeRoot, blockIdx + off, offset + length);
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      const treeStart = this.resolveBlockNodeOffset(blockNode, offset);
+      const treeEnd = this.resolveBlockNodeOffset(blockNode, offset + length);
 
       // Single-range delete on the Yorkie tree
       tree.editByPath(
-        [blockIdx + off, treeStart.inlineIndex, treeStart.charOffset],
-        [blockIdx + off, treeEnd.inlineIndex, treeEnd.charOffset],
+        [...blockPath, treeStart.inlineIndex, treeStart.charOffset],
+        [...blockPath, treeEnd.inlineIndex, treeEnd.charOffset],
       );
 
       // Remove any inlines that became empty after deletion
-      const blockNode = ((tree.getRootTreeNode() as ElementNode).children![blockIdx + off]) as ElementNode;
-      const inlines = (blockNode.children ?? []).filter((c) => c.type === 'inline') as ElementNode[];
+      const updatedBlockNode = this.getTreeBlockNode(tree.getRootTreeNode(), blockPath) as ElementNode;
+      const inlines = (updatedBlockNode.children ?? []).filter((c) => c.type === 'inline') as ElementNode[];
       for (let i = inlines.length - 1; i >= 0; i--) {
         if (inlines.length <= 1) break; // keep at least one
         const textLen = (inlines[i].children ?? [])
           .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
           .reduce((sum, t) => sum + t.value.length, 0);
         if (textLen === 0) {
-          tree.editByPath([blockIdx + off, i], [blockIdx + off, i + 1]);
+          tree.editByPath([...blockPath, i], [...blockPath, i + 1]);
         }
       }
     });
 
     // Update cache in-place
-    currentDoc.blocks[blockIdx] = applyDeleteText(block, offset, length);
+    const updated = applyDeleteText(block, offset, length);
+    this.setBlockByRegion(currentDoc, blockPath, region, updated);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
@@ -735,31 +808,24 @@ export class YorkieDocStore implements DocStore {
     style: Partial<InlineStyle>,
   ): void {
     const currentDoc = this.getDocument();
-    const hf = this.findHeaderFooterBlock(blockId, currentDoc);
-    if (hf) {
-      hf.blocks[hf.index] = applyInlineStyleHelper(hf.blocks[hf.index], fromOffset, toOffset, style);
-      this.commitHeaderFooterChange(currentDoc);
-      return;
-    }
-
-    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
-    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
-    const block = currentDoc.blocks[blockIdx];
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
 
     const updated = applyInlineStyleHelper(block, fromOffset, toOffset, style);
 
     // styleByPath targets element attributes, not text ranges.
     // Use block replacement via editByPath until Yorkie supports
     // text-range style operations.
-    const off = this.bodyTreeOffset(currentDoc);
+    const endPath = [...blockPath];
+    endPath[endPath.length - 1] += 1;
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath([blockIdx + off], [blockIdx + off + 1], buildBlockNode(updated));
+      tree.editByPath(blockPath, endPath, buildBlockNode(updated));
     });
 
     // Update cache in-place
-    currentDoc.blocks[blockIdx] = updated;
+    this.setBlockByRegion(currentDoc, blockPath, region, updated);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
@@ -780,18 +846,28 @@ export class YorkieDocStore implements DocStore {
 
   deleteBlock(id: string): void {
     const currentDoc = this.getDocument();
-    const hf = this.findHeaderFooterBlock(id, currentDoc);
-    if (hf) {
-      hf.blocks.splice(hf.index, 1);
-      this.commitHeaderFooterChange(currentDoc);
-      return;
-    }
+    const { path: blockPath, region } = this.resolveBlockTreePath(id, currentDoc);
 
-    const index = currentDoc.blocks.findIndex((b) => b.id === id);
-    if (index === -1) {
-      throw new Error(`Block not found: ${id}`);
+    const endPath = [...blockPath];
+    endPath[endPath.length - 1] += 1;
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.editByPath(blockPath, endPath);
+    });
+
+    // Update cache in-place
+    if (region === 'header') {
+      currentDoc.header!.blocks.splice(blockPath[blockPath.length - 1], 1);
+    } else if (region === 'footer') {
+      currentDoc.footer!.blocks.splice(blockPath[blockPath.length - 1], 1);
+    } else {
+      const index = blockPath[0] - this.bodyTreeOffset(currentDoc);
+      currentDoc.blocks.splice(index, 1);
     }
-    this.deleteBlockByIndex(index);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
   }
 
   deleteBlockByIndex(index: number): void {
@@ -815,23 +891,12 @@ export class YorkieDocStore implements DocStore {
     newBlockType: BlockType,
   ): void {
     const currentDoc = this.getDocument();
-    const hf = this.findHeaderFooterBlock(blockId, currentDoc);
-    if (hf) {
-      const [before, after] = applySplitBlock(hf.blocks[hf.index], offset, newBlockId, newBlockType);
-      hf.blocks[hf.index] = before;
-      hf.blocks.splice(hf.index + 1, 0, after);
-      this.commitHeaderFooterChange(currentDoc);
-      return;
-    }
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
 
-    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
-    if (blockIdx === -1) throw new Error(`Block not found: ${blockId}`);
-    const block = currentDoc.blocks[blockIdx];
     if (block.type === 'table' || block.type === 'horizontal-rule' || block.type === 'page-break') {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
     }
-
-    const off = this.bodyTreeOffset(currentDoc);
 
     this.doc.update((root) => {
       const tree = root.content;
@@ -839,20 +904,23 @@ export class YorkieDocStore implements DocStore {
 
       // Resolve offset from the actual Yorkie tree, not the cache.
       const treeRoot = tree.getRootTreeNode();
-      const { inlineIndex, charOffset } = this.resolveTreeOffset(treeRoot, blockIdx + off, offset);
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
 
       // Native CRDT split: single atomic operation at splitLevel=2.
       // splitLevel=2 because the text position is 2 levels below block:
       //   doc → block → inline → text(charOffset)
       // Two splits are needed: text→inline split + inline→block split.
       tree.editByPath(
-        [blockIdx + off, inlineIndex, charOffset],
-        [blockIdx + off, inlineIndex, charOffset],
+        [...blockPath, inlineIndex, charOffset],
+        [...blockPath, inlineIndex, charOffset],
         undefined,
         2,
       );
 
       // The split duplicated all attributes. Update the "after" block.
+      const afterPath = [...blockPath];
+      afterPath[afterPath.length - 1] += 1;
       const afterAttrs: Record<string, string> = {
         id: newBlockId,
         type: newBlockType,
@@ -867,13 +935,23 @@ export class YorkieDocStore implements DocStore {
       if (newBlockType === 'heading' && block.headingLevel !== undefined) {
         afterAttrs.headingLevel = String(block.headingLevel);
       }
-      tree.styleByPath([blockIdx + off + 1], afterAttrs);
+      tree.styleByPath(afterPath, afterAttrs);
     });
 
     // Update cache in-place using the pure-function result
     const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
-    currentDoc.blocks[blockIdx] = before;
-    currentDoc.blocks.splice(blockIdx + 1, 0, after);
+    const blockIndex = blockPath[blockPath.length - 1];
+    if (region === 'header') {
+      currentDoc.header!.blocks[blockIndex] = before;
+      currentDoc.header!.blocks.splice(blockIndex + 1, 0, after);
+    } else if (region === 'footer') {
+      currentDoc.footer!.blocks[blockIndex] = before;
+      currentDoc.footer!.blocks.splice(blockIndex + 1, 0, after);
+    } else {
+      const bodyIdx = blockPath[0] - this.bodyTreeOffset(currentDoc);
+      currentDoc.blocks[bodyIdx] = before;
+      currentDoc.blocks.splice(bodyIdx + 1, 0, after);
+    }
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
@@ -881,23 +959,21 @@ export class YorkieDocStore implements DocStore {
   mergeBlock(blockId: string, nextBlockId: string): void {
     if (blockId === nextBlockId) throw new Error('Cannot merge a block with itself');
     const currentDoc = this.getDocument();
-    const hf1 = this.findHeaderFooterBlock(blockId, currentDoc);
-    const hf2 = this.findHeaderFooterBlock(nextBlockId, currentDoc);
-    if (hf1 && hf2 && hf1.region === hf2.region) {
-      const merged = applyMergeBlocks(hf1.blocks[hf1.index], hf2.blocks[hf2.index]);
-      hf1.blocks[hf1.index] = merged;
-      hf1.blocks.splice(hf2.index, 1);
-      this.commitHeaderFooterChange(currentDoc);
-      return;
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const { path: nextPath, region: nextRegion } = this.resolveBlockTreePath(nextBlockId, currentDoc);
+
+    if (region !== nextRegion) throw new Error('Cannot merge blocks across regions');
+
+    const firstBlock = this.getBlockByRegion(currentDoc, blockPath, region);
+    const nextBlock = this.getBlockByRegion(currentDoc, nextPath, nextRegion);
+
+    // Verify blocks are adjacent (last path segment differs by 1)
+    const blockLastIdx = blockPath[blockPath.length - 1];
+    const nextLastIdx = nextPath[nextPath.length - 1];
+    if (nextLastIdx !== blockLastIdx + 1) {
+      throw new Error('Blocks to merge must be adjacent and in order');
     }
 
-    const blockIdx = currentDoc.blocks.findIndex((b) => b.id === blockId);
-    const nextIdx = currentDoc.blocks.findIndex((b) => b.id === nextBlockId);
-    if (blockIdx === -1 || nextIdx === -1) throw new Error('Block not found');
-    if (nextIdx !== blockIdx + 1) throw new Error('Blocks to merge must be adjacent and in order');
-
-    const off = this.bodyTreeOffset(currentDoc);
-    const firstBlock = currentDoc.blocks[blockIdx];
     const firstBlockInlineCount = firstBlock.inlines.length;
     this.doc.update((root) => {
       const tree = root.content;
@@ -905,17 +981,24 @@ export class YorkieDocStore implements DocStore {
       // Delete the boundary between the two blocks. This range starts just
       // past the last inline of the first block and ends just before the
       // first inline of the next block, causing Yorkie Tree to merge them.
-      tree.editByPath([blockIdx + off, firstBlockInlineCount], [nextIdx + off, 0]);
+      tree.editByPath([...blockPath, firstBlockInlineCount], [...nextPath, 0]);
     });
 
-    const merged = applyMergeBlocks(
-      currentDoc.blocks[blockIdx],
-      currentDoc.blocks[nextIdx],
-    );
+    const merged = applyMergeBlocks(firstBlock, nextBlock);
 
     // Update cache in-place
-    currentDoc.blocks[blockIdx] = merged;
-    currentDoc.blocks.splice(nextIdx, 1);
+    if (region === 'header') {
+      currentDoc.header!.blocks[blockLastIdx] = merged;
+      currentDoc.header!.blocks.splice(nextLastIdx, 1);
+    } else if (region === 'footer') {
+      currentDoc.footer!.blocks[blockLastIdx] = merged;
+      currentDoc.footer!.blocks.splice(nextLastIdx, 1);
+    } else {
+      const bodyIdx = blockPath[0] - this.bodyTreeOffset(currentDoc);
+      const nextBodyIdx = nextPath[0] - this.bodyTreeOffset(currentDoc);
+      currentDoc.blocks[bodyIdx] = merged;
+      currentDoc.blocks.splice(nextBodyIdx, 1);
+    }
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
