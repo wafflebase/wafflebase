@@ -99,6 +99,8 @@ export function renderTableBackgrounds(
   startRow = 0,
   endRow?: number,
   pageStartRow?: number,
+  rowSplitOffset?: number,
+  rowSplitHeight?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -107,6 +109,15 @@ export function renderTableBackgrounds(
   const numCols = columnPixelWidths.length;
   const rowEnd = endRow ?? numRows;
   const pageStart = pageStartRow ?? startRow;
+
+  const isSplit = rowSplitOffset !== undefined && rowSplitHeight !== undefined;
+  if (isSplit) {
+    const clipY = tableY + rowYOffsets[pageStart] + rowSplitOffset;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(tableX, clipY, tableLayout.totalWidth, rowSplitHeight);
+    ctx.clip();
+  }
 
   for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
@@ -145,6 +156,10 @@ export function renderTableBackgrounds(
       );
     }
   }
+
+  if (isSplit) {
+    ctx.restore();
+  }
 }
 
 /**
@@ -182,6 +197,8 @@ export function renderTableContent(
   dragImageRun?: LayoutRun,
   selectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
   focused?: boolean,
+  rowSplitOffset?: number,
+  rowSplitHeight?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -190,6 +207,15 @@ export function renderTableContent(
   const numCols = columnPixelWidths.length;
   const rowEnd = endRow ?? numRows;
   const pageStart = pageStartRow ?? startRow;
+
+  const isSplit = rowSplitOffset !== undefined && rowSplitHeight !== undefined;
+  if (isSplit) {
+    const clipY = tableY + rowYOffsets[pageStart] + rowSplitOffset;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(tableX, clipY, tableLayout.totalWidth, rowSplitHeight);
+    ctx.clip();
+  }
 
   // 2. Cell text
   for (let r = startRow; r < rowEnd; r++) {
@@ -476,6 +502,32 @@ export function renderTableContent(
       drawBorder(ctx, cell.style?.borderLeft ?? themeBorder, x, y, x, y + visibleHeight);
       drawBorder(ctx, cell.style?.borderRight ?? themeBorder, x + cellWidth, y, x + cellWidth, y + visibleHeight);
     }
+  }
+
+  if (isSplit) {
+    ctx.restore();
+    // Re-draw borders on fragment boundaries so each split piece has
+    // a clean rectangular outline.
+    const fragTop = tableY + rowYOffsets[pageStart] + rowSplitOffset;
+    const fragBottom = fragTop + rowSplitHeight;
+    ctx.save();
+    ctx.strokeStyle = Theme.defaultColor;
+    ctx.lineWidth = 1;
+    // Top and bottom borders
+    ctx.beginPath();
+    ctx.moveTo(tableX, fragTop);
+    ctx.lineTo(tableX + tableLayout.totalWidth, fragTop);
+    ctx.moveTo(tableX, fragBottom);
+    ctx.lineTo(tableX + tableLayout.totalWidth, fragBottom);
+    // Vertical cell borders
+    for (const xOff of columnXOffsets) {
+      ctx.moveTo(tableX + xOff, fragTop);
+      ctx.lineTo(tableX + xOff, fragBottom);
+    }
+    ctx.moveTo(tableX + tableLayout.totalWidth, fragTop);
+    ctx.lineTo(tableX + tableLayout.totalWidth, fragBottom);
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
