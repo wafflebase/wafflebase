@@ -638,18 +638,25 @@ export function findRowSplitHeight(
     if (cell.merged) continue;
     hasCells = true;
 
-    // Find largest breakpoint <= availableHeight for this cell
+    // Find largest breakpoint <= availableHeight for this cell.
+    // If all content fits, this cell imposes no constraint on split height.
     let bestBp = 0;
     let y = padding;
+    let allFit = true;
     for (const line of cell.lines) {
       y += line.height;
       if (y <= availableHeight) {
         bestBp = y;
       } else {
+        allFit = false;
         break;
       }
     }
-    minSafe = Math.min(minSafe, bestBp);
+    if (!allFit) {
+      minSafe = Math.min(minSafe, bestBp);
+    }
+    // When allFit, this cell's content ends before availableHeight,
+    // so splitting at any height >= bestBp is safe — no constraint.
   }
 
   return hasCells ? minSafe : 0;
