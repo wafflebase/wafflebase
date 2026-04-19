@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
+import { ColorPickerGrid } from "@/components/color-picker-grid";
 import {
   IconBold,
   IconItalic,
@@ -27,7 +28,6 @@ import {
   IconAlignJustified,
   IconTypography,
   IconHighlight,
-  IconDropletOff,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconChevronDown,
@@ -380,14 +380,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
             <TooltipContent>Text color</TooltipContent>
           </Tooltip>
           <DropdownMenuContent className="w-auto p-2">
-            <button className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted" onClick={() => handleTextColor("")}>
-              <IconDropletOff size={14} /> Reset
-            </button>
-            <div className="grid grid-cols-5 gap-1">
-              {TEXT_COLORS.map((color) => (
-                <button key={color} className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform" style={{ backgroundColor: color }} onClick={() => handleTextColor(color)} />
-              ))}
-            </div>
+            <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -403,14 +396,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
             <TooltipContent>Highlight color</TooltipContent>
           </Tooltip>
           <DropdownMenuContent className="w-auto p-2">
-            <button className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted" onClick={() => handleHighlightColor("")}>
-              <IconDropletOff size={14} /> Reset
-            </button>
-            <div className="grid grid-cols-5 gap-1">
-              {BG_COLORS.map((color) => (
-                <button key={color} className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform" style={{ backgroundColor: color }} onClick={() => handleHighlightColor(color)} />
-              ))}
-            </div>
+            <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -603,23 +589,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <TooltipContent>Text color</TooltipContent>
         </Tooltip>
         <DropdownMenuContent className="w-auto p-2">
-          <button
-            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
-            onClick={() => handleTextColor("")}
-          >
-            <IconDropletOff size={14} />
-            Reset
-          </button>
-          <div className="grid grid-cols-5 gap-1">
-            {TEXT_COLORS.map((color) => (
-              <button
-                key={color}
-                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
-                style={{ backgroundColor: color }}
-                onClick={() => handleTextColor(color)}
-              />
-            ))}
-          </div>
+          <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -638,23 +608,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <TooltipContent>Highlight color</TooltipContent>
         </Tooltip>
         <DropdownMenuContent className="w-auto p-2">
-          <button
-            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
-            onClick={() => handleHighlightColor("")}
-          >
-            <IconDropletOff size={14} />
-            Reset
-          </button>
-          <div className="grid grid-cols-5 gap-1">
-            {BG_COLORS.map((color) => (
-              <button
-                key={color}
-                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
-                style={{ backgroundColor: color }}
-                onClick={() => handleHighlightColor(color)}
-              />
-            ))}
-          </div>
+          <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
         </DropdownMenuContent>
       </DropdownMenu>
 
