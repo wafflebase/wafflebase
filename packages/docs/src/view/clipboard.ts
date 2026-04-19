@@ -1,9 +1,10 @@
-import type { Block, BlockType, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
+import type { Block, BlockType, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
 import { generateBlockId, DEFAULT_BLOCK_STYLE, inlineStylesEqual } from '../model/types.js';
 
 interface ClipboardPayload {
   version: 1;
   blocks: Block[];
+  tableCells?: TableCell[][];
 }
 
 export function serializeBlocks(blocks: Block[]): string {
@@ -18,6 +19,32 @@ export function deserializeBlocks(json: string): Block[] {
     return payload.blocks as Block[];
   } catch {
     return [];
+  }
+}
+
+export interface ClipboardData {
+  blocks: Block[];
+  tableCells?: TableCell[][];
+}
+
+export function serializeClipboard(data: ClipboardData): string {
+  const payload: ClipboardPayload = { version: 1, blocks: data.blocks };
+  if (data.tableCells) {
+    payload.tableCells = data.tableCells;
+  }
+  return JSON.stringify(payload);
+}
+
+export function deserializeClipboard(json: string): ClipboardData {
+  try {
+    const payload = JSON.parse(json) as Partial<ClipboardPayload>;
+    if (payload.version !== 1) return { blocks: [] };
+    return {
+      blocks: Array.isArray(payload.blocks) ? payload.blocks : [],
+      tableCells: Array.isArray(payload.tableCells) ? payload.tableCells : undefined,
+    };
+  } catch {
+    return { blocks: [] };
   }
 }
 

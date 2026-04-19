@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { serializeBlocks, deserializeBlocks, parseHtmlToInlines } from '../../src/view/clipboard.js';
+import type { TableCell } from '../../src/model/types.js';
+import { serializeClipboard, deserializeClipboard, serializeBlocks, deserializeBlocks, parseHtmlToInlines } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
   it('should round-trip blocks with formatting', () => {
@@ -83,6 +84,45 @@ describe('clipboard JSON serialization', () => {
     const parsed = deserializeBlocks(serializeBlocks(blocks));
     expect(parsed[0].listKind).toBe('ordered');
     expect(parsed[0].listLevel).toBe(1);
+  });
+
+  it('should round-trip tableCells payload', () => {
+    const cells: TableCell[][] = [
+      [
+        {
+          blocks: [{
+            id: 'c1',
+            type: 'paragraph' as const,
+            inlines: [{ text: 'A1', style: { bold: true } }],
+            style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
+          }],
+          style: { padding: 4 },
+        },
+        {
+          blocks: [{
+            id: 'c2',
+            type: 'paragraph' as const,
+            inlines: [{ text: 'B1', style: {} }],
+            style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
+          }],
+          style: { padding: 4 },
+        },
+      ],
+    ];
+    const json = serializeClipboard({ blocks: [], tableCells: cells });
+    const result = deserializeClipboard(json);
+    expect(result.tableCells).toBeDefined();
+    expect(result.tableCells).toHaveLength(1);
+    expect(result.tableCells![0]).toHaveLength(2);
+    expect(result.tableCells![0][0].blocks[0].inlines[0].text).toBe('A1');
+    expect(result.tableCells![0][0].blocks[0].inlines[0].style.bold).toBe(true);
+    expect(result.tableCells![0][1].blocks[0].inlines[0].text).toBe('B1');
+  });
+
+  it('should return empty tableCells when absent in payload', () => {
+    const json = serializeClipboard({ blocks: [] });
+    const result = deserializeClipboard(json);
+    expect(result.tableCells).toBeUndefined();
   });
 
   it('should preserve inline style properties', () => {
