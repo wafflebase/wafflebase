@@ -1927,9 +1927,24 @@ export class TextEditor {
           }
         }
       } else if (direction === 'up') {
-        // Find previous block in the same cell
         const tableBlock = this.doc.getBlock(tableBlockId);
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
+        const tl = this.doc.getParentTableBlock(pos.blockId)
+          ? undefined
+          : this.getLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
+        const layoutCell = tl?.cells[arrowCellInfo.rowIndex]?.[arrowCellInfo.colIndex];
+
+        // Try line-by-line navigation within the cell first
+        if (layoutCell && !layoutCell.merged) {
+          const prevLine = this.moveCellLine(pos, layoutCell, cell, -1);
+          if (prevLine) {
+            newPos = prevLine;
+            // Skip the block-level fallback below
+          }
+        }
+
+        if (!newPos) {
+        // Fall back to block/cell navigation
         const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
         if (blockIdx > 0) {
           const prevBlock = cell.blocks[blockIdx - 1];
@@ -2015,9 +2030,22 @@ export class TextEditor {
             }
           }
         }
+        } // end if (!newPos)
       } else if (direction === 'down') {
         const tableBlock = this.doc.getBlock(tableBlockId);
         const cell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
+        const tl2 = this.getLayout().blocks.find(b => b.block.id === tableBlockId)?.layoutTable;
+        const layoutCell2 = tl2?.cells[arrowCellInfo.rowIndex]?.[arrowCellInfo.colIndex];
+
+        // Try line-by-line navigation within the cell first
+        if (layoutCell2 && !layoutCell2.merged) {
+          const nextLine = this.moveCellLine(pos, layoutCell2, cell, 1);
+          if (nextLine) {
+            newPos = nextLine;
+          }
+        }
+
+        if (!newPos) {
         const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
         if (blockIdx < cell.blocks.length - 1) {
           const nextBlock = cell.blocks[blockIdx + 1];
@@ -2101,6 +2129,7 @@ export class TextEditor {
             }
           }
         }
+        } // end if (!newPos) for down
       }
 
       if (newPos) {
@@ -2406,6 +2435,74 @@ export class TextEditor {
 
   private getCellInfo(blockId: string): BlockCellInfo | undefined {
     return this.getLayout().blockParentMap.get(blockId);
+  }
+
+  /**
+   * Move the cursor one visual line up (direction=-1) or down (direction=1)
+   * within a table cell. Returns undefined if already at the first/last line
+   * of the cell, so the caller can fall back to block/cell navigation.
+   */
+  private moveCellLine(
+    pos: DocPosition,
+    layoutCell: import('./table-layout.js').LayoutTableCell,
+    cell: import('../model/types.js').TableCell,
+    direction: -1 | 1,
+  ): DocPosition | undefined {
+    // Find which cell line the cursor is on
+    const blockIdx = cell.blocks.findIndex(b => b.id === pos.blockId);
+    if (blockIdx < 0) return undefined;
+
+    const lineStart = layoutCell.blockBoundaries[blockIdx] ?? 0;
+    const lineEnd = layoutCell.blockBoundaries[blockIdx + 1] ?? layoutCell.lines.length;
+
+    // Find the current line within this block
+    let remaining = pos.offset;
+    let currentLine = lineStart;
+    for (let li = lineStart; li < lineEnd; li++) {
+      let lineChars = 0;
+      for (const run of layoutCell.lines[li].runs) lineChars += run.text.length;
+      if (remaining <= lineChars) {
+        currentLine = li;
+        break;
+      }
+      remaining -= lineChars;
+      currentLine = li;
+    }
+
+    const targetLine = currentLine + direction;
+
+    // Check bounds: can we move within the cell's lines?
+    if (targetLine < 0 || targetLine >= layoutCell.lines.length) return undefined;
+
+    // If the target line is in a different block, compute the new position
+    // within that block.
+    let targetBlockIdx = blockIdx;
+    for (let bi = layoutCell.blockBoundaries.length - 1; bi >= 0; bi--) {
+      if (targetLine >= (layoutCell.blockBoundaries[bi] ?? 0)) {
+        targetBlockIdx = bi;
+        break;
+      }
+    }
+    const targetBlock = cell.blocks[targetBlockIdx];
+    if (!targetBlock) return undefined;
+
+    // Skip nested table lines — fall back to block navigation
+    if (layoutCell.lines[targetLine].nestedTable) return undefined;
+
+    // Compute character offset: count chars from target block start to
+    // target line, then clamp the cursor's column position to the line length.
+    const targetLineStart = layoutCell.blockBoundaries[targetBlockIdx] ?? 0;
+    let charsBeforeTargetLine = 0;
+    for (let li = targetLineStart; li < targetLine; li++) {
+      for (const run of layoutCell.lines[li].runs) charsBeforeTargetLine += run.text.length;
+    }
+    let targetLineChars = 0;
+    for (const run of layoutCell.lines[targetLine].runs) targetLineChars += run.text.length;
+
+    // `remaining` is the cursor's column position within the current line
+    const offset = charsBeforeTargetLine + Math.min(remaining, targetLineChars);
+
+    return { blockId: targetBlock.id, offset };
   }
 
   /**
