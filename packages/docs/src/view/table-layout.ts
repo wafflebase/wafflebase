@@ -638,42 +638,41 @@ export function findRowSplitHeight(
     if (cell.merged) continue;
     hasCells = true;
 
-    // Find largest breakpoint <= availableHeight for this cell.
-    // If all content fits, this cell imposes no constraint on split height.
+    // Use the layout engine's actual line.y values (which include any
+    // block margins and spacing) instead of re-summing heights manually.
+    // Breakpoints are at padding + line.y + line.height for each line.
     let bestBp = 0;
-    let y = padding;
     let allFit = true;
     for (const line of cell.lines) {
+      const lineEnd = padding + line.y + line.height;
       if (line.nestedTable) {
         // Recurse into nested table: each row boundary is a breakpoint
         const nt = line.nestedTable;
+        const ntBase = padding + line.y; // Y of nested table top within row
         for (let nr = 0; nr < nt.rowHeights.length; nr++) {
-          const rowEnd = y + nt.rowYOffsets[nr] + nt.rowHeights[nr];
+          const rowEnd = ntBase + nt.rowYOffsets[nr] + nt.rowHeights[nr];
           if (rowEnd <= availableHeight) {
             bestBp = rowEnd;
           } else {
-            // Try splitting within this nested row
-            const nestedAvail = availableHeight - y - nt.rowYOffsets[nr];
+            const nestedAvail = availableHeight - ntBase - nt.rowYOffsets[nr];
             if (nestedAvail > 0) {
               const innerSplit = findRowSplitHeight(nt, nr, nestedAvail);
               if (innerSplit > 0) {
-                bestBp = y + nt.rowYOffsets[nr] + innerSplit;
+                bestBp = ntBase + nt.rowYOffsets[nr] + innerSplit;
               }
             }
             allFit = false;
             break;
           }
         }
-        if (allFit) y += line.height;
       } else {
-        y += line.height;
-        if (y <= availableHeight) {
-          bestBp = y;
+        if (lineEnd <= availableHeight) {
+          bestBp = lineEnd;
         } else {
           allFit = false;
-          break;
         }
       }
+      if (!allFit) break;
     }
     if (!allFit) {
       minSafe = Math.min(minSafe, bestBp);
