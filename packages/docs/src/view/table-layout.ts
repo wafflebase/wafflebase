@@ -611,3 +611,45 @@ export function resolveNestedTableLayout(
     outerRowIndex: path[0].rowIndex,
   };
 }
+
+/**
+ * Return sorted array of safe vertical break positions within a table row.
+ * Each value is a cumulative height (relative to the row top) at which
+ * all cells in the row have an atomic-unit boundary (text line or image end).
+ * The paginator can split the row at any of these heights.
+ */
+export function getCellContentBreakpoints(
+  layout: LayoutTable,
+  rowIndex: number,
+): number[] {
+  const padding = DEFAULT_CELL_PADDING;
+  const cells = layout.cells[rowIndex];
+  if (!cells || cells.length === 0) return [];
+
+  // Collect per-cell breakpoint sets
+  const perCell: Set<number>[] = [];
+  for (let c = 0; c < cells.length; c++) {
+    const cell = cells[c];
+    if (cell.merged) continue; // skip covered cells
+    const breaks = new Set<number>();
+    let y = padding;
+    for (const line of cell.lines) {
+      y += line.height;
+      breaks.add(y);
+    }
+    perCell.push(breaks);
+  }
+
+  if (perCell.length === 0) return [];
+
+  // Intersect: only keep heights where ALL non-merged cells have a break
+  const first = perCell[0];
+  const common: number[] = [];
+  for (const h of first) {
+    if (perCell.every(s => s.has(h))) {
+      common.push(h);
+    }
+  }
+  common.sort((a, b) => a - b);
+  return common;
+}
