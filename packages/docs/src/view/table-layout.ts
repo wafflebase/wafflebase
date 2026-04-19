@@ -410,6 +410,46 @@ export function computeTableLayout(
     }
   }
 
+  // 5c. Grow rows that overflow due to merged-cell content redistribution.
+  // computeMergedCellLineLayouts (used at render time) pushes lines from
+  // shorter rows into later rows. When staggered merges make an
+  // intermediate row short, all content may pile into the last spanned
+  // row whose height was calculated without that extra load. Simulate
+  // the redistribution here and grow the receiving row as needed.
+  for (let r = 0; r < numRows; r++) {
+    for (let c = 0; c < numCols; c++) {
+      const cell = cells[r][c];
+      if (cell.merged) continue;
+      const rowSpan = rows[r].cells[c]?.rowSpan ?? 1;
+      if (rowSpan <= 1) continue;
+
+      const padding = rows[r].cells[c]?.style?.padding ?? DEFAULT_CELL_PADDING;
+      const spanEnd = Math.min(r + rowSpan, numRows);
+
+      // Simulate the line redistribution (mirrors computeMergedCellLineLayouts)
+      let curRow = r;
+      let yInRow = padding;
+
+      for (const line of cell.lines) {
+        if (
+          curRow + 1 < spanEnd &&
+          yInRow + line.height > rowHeights[curRow] - padding
+        ) {
+          curRow++;
+          yInRow = padding;
+        }
+        yInRow += line.height;
+
+        // Ensure every receiving row has enough height for the content
+        // already assigned to it (not just the last row).
+        const needed = yInRow + padding;
+        if (needed > rowHeights[curRow]) {
+          rowHeights[curRow] = needed;
+        }
+      }
+    }
+  }
+
   // 6. Compute row Y offsets (cumulative sum)
   const rowYOffsets: number[] = [];
   let yOffset = 0;
