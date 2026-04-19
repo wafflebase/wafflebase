@@ -246,17 +246,18 @@ describe('Formula', () => {
     expect(evaluate('=MOD(10,3)')).toBe('1');
     expect(evaluate('=MOD(-10,3)')).toBe('2');
     expect(evaluate('=MOD(10,-3)')).toBe('-2');
-    expect(evaluate('=MOD(10,0)')).toBe('#VALUE!');
+    expect(evaluate('=MOD(10,0)')).toBe('#DIV/0!');
   });
 
   it('should correctly evaluate SQRT function', () => {
     expect(evaluate('=SQRT(9)')).toBe('3');
-    expect(evaluate('=SQRT(-1)')).toBe('#VALUE!');
+    expect(evaluate('=SQRT(-1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate POWER function', () => {
     expect(evaluate('=POWER(2,3)')).toBe('8');
     expect(evaluate('=POWER(9,0.5)')).toBe('3');
+    expect(evaluate('=POWER(10,1000)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate PRODUCT function', () => {
@@ -391,9 +392,15 @@ describe('Formula', () => {
   });
 
   it('should display #ERROR! for invalid formulas', () => {
-    expect(evaluate('abc')).toBe('#ERROR!');
     expect(evaluate('=1+')).toBe('#ERROR!');
     expect(evaluate('=SUM(1,2,3')).toBe('#ERROR!');
+  });
+
+  it('should return #NAME? for unresolved names', () => {
+    expect(evaluate('=UNKNOWNFUNC(1)')).toBe('#NAME?');
+    expect(evaluate('=abc')).toBe('#NAME?');
+    expect(evaluate('=FOO+1')).toBe('#NAME?');
+    expect(evaluate('=NOTAFUNCTION()')).toBe('#NAME?');
   });
 
   it('should normalize missing trailing function parenthesis on commit', () => {
@@ -527,6 +534,8 @@ describe('Formula', () => {
     expect(evaluate('=MATCH(25,A1:A3,1)', grid)).toBe('2');
     expect(evaluate('=MATCH(25,B1:B3,-1)', grid)).toBe('1');
     expect(evaluate('=MATCH(25,A1:B3,0)', grid)).toBe('#N/A');
+    // invalid search_type → #N/A
+    expect(evaluate('=MATCH(20,A1:A3,2)', grid)).toBe('#N/A');
   });
 
   it('should correctly evaluate INDEX function', () => {
@@ -813,7 +822,7 @@ describe('Formula', () => {
 
   it('should correctly evaluate IFNA function', () => {
     expect(evaluate('=IFNA(SUM(),"fallback")')).toBe('fallback');
-    expect(evaluate('=IFNA(MOD(1,0),"fallback")')).toBe('#VALUE!');
+    expect(evaluate('=IFNA(MOD(1,0),"fallback")')).toBe('#DIV/0!');
     expect(evaluate('=IFNA(10,"fallback")')).toBe('10');
   });
 
@@ -854,15 +863,16 @@ describe('Formula', () => {
   it('should correctly evaluate LN function', () => {
     expect(evaluate('=LN(1)')).toBe('0');
     expect(evaluate('=LN(EXP(1))')).toBe('1');
-    expect(evaluate('=LN(0)')).toBe('#VALUE!');
-    expect(evaluate('=LN(-1)')).toBe('#VALUE!');
+    expect(evaluate('=LN(0)')).toBe('#NUM!');
+    expect(evaluate('=LN(-1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate LOG function', () => {
     expect(evaluate('=LOG(100)')).toBe('2');
     expect(evaluate('=LOG(8,2)')).toBe('3');
-    expect(evaluate('=LOG(0)')).toBe('#VALUE!');
-    expect(evaluate('=LOG(10,1)')).toBe('#VALUE!');
+    expect(evaluate('=LOG(0)')).toBe('#NUM!');
+    expect(evaluate('=LOG(10,0)')).toBe('#NUM!');
+    expect(evaluate('=LOG(10,1)')).toBe('#DIV/0!');
   });
 
   it('should correctly evaluate TRUE and FALSE function', () => {
@@ -901,13 +911,15 @@ describe('Formula', () => {
   it('should correctly evaluate ASIN function', () => {
     expect(evaluate('=ASIN(0)')).toBe('0');
     expect(evaluate('=ASIN(1)')).toBe(String(Math.PI / 2));
-    expect(evaluate('=ASIN(2)')).toBe('#VALUE!');
+    expect(evaluate('=ASIN(2)')).toBe('#NUM!');
+    expect(evaluate('=ASIN(-2)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate ACOS function', () => {
     expect(evaluate('=ACOS(1)')).toBe('0');
     expect(evaluate('=ACOS(0)')).toBe(String(Math.PI / 2));
-    expect(evaluate('=ACOS(2)')).toBe('#VALUE!');
+    expect(evaluate('=ACOS(2)')).toBe('#NUM!');
+    expect(evaluate('=ACOS(-2)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate ATAN function', () => {
@@ -918,7 +930,7 @@ describe('Formula', () => {
   it('should correctly evaluate ATAN2 function', () => {
     expect(evaluate('=ATAN2(1,0)')).toBe('0');
     expect(evaluate('=ATAN2(0,1)')).toBe(String(Math.PI / 2));
-    expect(evaluate('=ATAN2(0,0)')).toBe('#VALUE!');
+    expect(evaluate('=ATAN2(0,0)')).toBe('#DIV/0!');
   });
 
   it('should correctly evaluate DEGREES function', () => {
@@ -1003,7 +1015,10 @@ describe('Formula', () => {
   it('should correctly evaluate CHAR function', () => {
     expect(evaluate('=CHAR(65)')).toBe('A');
     expect(evaluate('=CHAR(97)')).toBe('a');
-    expect(evaluate('=CHAR(0)')).toBe('#VALUE!');
+    expect(evaluate('=CHAR(65536)')).toBe('𐀀'); // U+10000, valid Unicode
+    expect(evaluate('=CHAR(1114111)')).toBe('\u{10FFFF}'); // max valid code point
+    expect(evaluate('=CHAR(0)')).toBe('#NUM!');
+    expect(evaluate('=CHAR(1114112)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate CODE function', () => {
@@ -1094,20 +1109,22 @@ describe('Formula', () => {
     expect(evaluate('=COMBIN(5,2)')).toBe('10');
     expect(evaluate('=COMBIN(10,3)')).toBe('120');
     expect(evaluate('=COMBIN(5,0)')).toBe('1');
-    expect(evaluate('=COMBIN(5,6)')).toBe('#VALUE!');
+    expect(evaluate('=COMBIN(5,6)')).toBe('#NUM!');
+    expect(evaluate('=COMBIN(-1,2)')).toBe('#NUM!');
+    expect(evaluate('=COMBIN(2,-1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate FACT function', () => {
     expect(evaluate('=FACT(5)')).toBe('120');
     expect(evaluate('=FACT(0)')).toBe('1');
     expect(evaluate('=FACT(1)')).toBe('1');
-    expect(evaluate('=FACT(-1)')).toBe('#VALUE!');
+    expect(evaluate('=FACT(-1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate QUOTIENT function', () => {
     expect(evaluate('=QUOTIENT(5,2)')).toBe('2');
     expect(evaluate('=QUOTIENT(-10,3)')).toBe('-3');
-    expect(evaluate('=QUOTIENT(10,0)')).toBe('#VALUE!');
+    expect(evaluate('=QUOTIENT(10,0)')).toBe('#DIV/0!');
   });
 
   it('should correctly evaluate XOR function', () => {
@@ -1265,7 +1282,8 @@ describe('Formula', () => {
     expect(evaluate('=PERCENTILE(A1:A5,0.5)', grid)).toBe('30');
     expect(evaluate('=PERCENTILE(A1:A5,0.25)', grid)).toBe('20');
     // Invalid k
-    expect(evaluate('=PERCENTILE(A1:A5,1.5)', grid)).toBe('#VALUE!');
+    expect(evaluate('=PERCENTILE(A1:A5,1.5)', grid)).toBe('#NUM!');
+    expect(evaluate('=PERCENTILE({1,2,3},-0.1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate CLEAN function', () => {
@@ -1322,6 +1340,8 @@ describe('Formula', () => {
     expect(evaluate('=QUARTILE(A1:A4,0)', grid)).toBe('1');
     expect(evaluate('=QUARTILE(A1:A4,2)', grid)).toBe('2.5');
     expect(evaluate('=QUARTILE(A1:A4,4)', grid)).toBe('4');
+    expect(evaluate('=QUARTILE({1,2,3},5)')).toBe('#NUM!');
+    expect(evaluate('=QUARTILE({1,2,3},-1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate COUNTUNIQUE function', () => {
@@ -1421,9 +1441,44 @@ describe('Formula', () => {
 
   it('should correctly evaluate ERROR.TYPE function', () => {
     expect(evaluate('=ERROR.TYPE(NA())')).toBe('7'); // #N/A
+    expect(evaluate('=ERROR.TYPE(1/0)')).toBe('2'); // #DIV/0!
     // Non-error returns #N/A
     expect(evaluate('=ERROR.TYPE(1)')).toBe('#N/A');
     expect(evaluate('=ERROR.TYPE("hello")')).toBe('#N/A');
+  });
+
+  it('should return 1-8 for ERROR.TYPE over a referenced error cell', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '#NULL!' });
+    grid.set('A2', { v: '#DIV/0!' });
+    grid.set('A3', { v: '#VALUE!' });
+    grid.set('A4', { v: '#REF!' });
+    grid.set('A5', { v: '#NAME?' });
+    grid.set('A6', { v: '#NUM!' });
+    grid.set('A7', { v: '#N/A' });
+    grid.set('A8', { v: '#ERROR!' });
+    expect(evaluate('=ERROR.TYPE(A1)', grid)).toBe('1');
+    expect(evaluate('=ERROR.TYPE(A2)', grid)).toBe('2');
+    expect(evaluate('=ERROR.TYPE(A3)', grid)).toBe('3');
+    expect(evaluate('=ERROR.TYPE(A4)', grid)).toBe('4');
+    expect(evaluate('=ERROR.TYPE(A5)', grid)).toBe('5');
+    expect(evaluate('=ERROR.TYPE(A6)', grid)).toBe('6');
+    expect(evaluate('=ERROR.TYPE(A7)', grid)).toBe('7');
+    expect(evaluate('=ERROR.TYPE(A8)', grid)).toBe('8');
+  });
+
+  it('should return #N/A for ERROR.TYPE over a non-error or empty cell', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('B1', { v: '42' });
+    grid.set('B2', { v: 'hello' });
+    grid.set('B3', { v: 'TRUE' });
+    expect(evaluate('=ERROR.TYPE(B1)', grid)).toBe('#N/A');
+    expect(evaluate('=ERROR.TYPE(B2)', grid)).toBe('#N/A');
+    expect(evaluate('=ERROR.TYPE(B3)', grid)).toBe('#N/A');
+    // Empty / unset cell.
+    expect(evaluate('=ERROR.TYPE(Z99)', grid)).toBe('#N/A');
+    // Range input is not supported.
+    expect(evaluate('=ERROR.TYPE(A1:A2)', grid)).toBe('#N/A');
   });
 
   it('should correctly evaluate ISDATE function', () => {
@@ -1537,6 +1592,7 @@ describe('Formula', () => {
     expect(evaluate('=FACTDOUBLE(5)')).toBe('15'); // 5*3*1
     expect(evaluate('=FACTDOUBLE(6)')).toBe('48'); // 6*4*2
     expect(evaluate('=FACTDOUBLE(0)')).toBe('1');
+    expect(evaluate('=FACTDOUBLE(-2)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate BASE and DECIMAL functions', () => {
@@ -1545,6 +1601,14 @@ describe('Formula', () => {
     expect(evaluate('=BASE(10,2,8)')).toBe('00001010');
     expect(evaluate('=DECIMAL("FF",16)')).toBe('255');
     expect(evaluate('=DECIMAL("1010",2)')).toBe('10');
+    expect(evaluate('=BASE(10,37)')).toBe('#NUM!');
+    expect(evaluate('=BASE(10,1)')).toBe('#NUM!');
+    expect(evaluate('=DECIMAL("FF",37)')).toBe('#NUM!');
+    expect(evaluate('=DECIMAL("FF",1)')).toBe('#NUM!');
+    // Reject invalid digits instead of silently truncating (parseInt quirk).
+    expect(evaluate('=DECIMAL("12Z",10)')).toBe('#NUM!');
+    expect(evaluate('=DECIMAL("G",16)')).toBe('#NUM!');
+    expect(evaluate('=DECIMAL("",10)')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate SQRTPI function', () => {
@@ -1559,7 +1623,10 @@ describe('Formula', () => {
     expect(evaluate('=TANH(0)')).toBe('0');
     expect(evaluate('=ASINH(0)')).toBe('0');
     expect(evaluate('=ACOSH(1)')).toBe('0');
+    expect(evaluate('=ACOSH(0.5)')).toBe('#NUM!');
     expect(evaluate('=ATANH(0)')).toBe('0');
+    expect(evaluate('=ATANH(1)')).toBe('#NUM!');
+    expect(evaluate('=ATANH(-1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate COT, CSC, SEC functions', () => {
@@ -1623,6 +1690,10 @@ describe('Formula', () => {
   it('should correctly evaluate PERMUT function', () => {
     expect(evaluate('=PERMUT(5,2)')).toBe('20'); // 5*4 = 20
     expect(evaluate('=PERMUT(4,4)')).toBe('24'); // 4! = 24
+    // Domain errors: negative args or k > n emit #NUM!, matching COMBIN.
+    expect(evaluate('=PERMUT(-1,2)')).toBe('#NUM!');
+    expect(evaluate('=PERMUT(3,-1)')).toBe('#NUM!');
+    expect(evaluate('=PERMUT(3,5)')).toBe('#NUM!');
   });
 
   // --- Batch 16: Financial functions ---
@@ -1676,6 +1747,8 @@ describe('Formula', () => {
     // EFFECT(0.1, 4) — 10% nominal compounded quarterly
     const result = evaluate('=EFFECT(0.1,4)');
     expect(Number(result)).toBeCloseTo(0.10381, 4);
+    expect(evaluate('=EFFECT(-0.05,1)')).toBe('#NUM!');
+    expect(evaluate('=EFFECT(0.05,0)')).toBe('#NUM!');
   });
 
   // --- Batch 17: More Financial functions ---
@@ -1710,6 +1783,8 @@ describe('Formula', () => {
     // NOMINAL(0.10381, 4) — effective 10.381% quarterly → ~10% nominal
     const result = evaluate('=NOMINAL(0.10381,4)');
     expect(Number(result)).toBeCloseTo(0.1, 3);
+    expect(evaluate('=NOMINAL(0.05,0)')).toBe('#NUM!');
+    expect(evaluate('=NOMINAL(-0.05,1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate CUMIPMT function', () => {
@@ -1889,6 +1964,7 @@ describe('Formula', () => {
   it('should correctly evaluate MULTINOMIAL function', () => {
     // MULTINOMIAL(2, 3, 4) = 9! / (2!*3!*4!) = 1260
     expect(evaluate('=MULTINOMIAL(2,3,4)')).toBe('1260');
+    expect(evaluate('=MULTINOMIAL(-1,2,3)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate SERIESSUM function', () => {
@@ -2129,6 +2205,10 @@ describe('Formula', () => {
     ]);
     const result = evaluate('=PERCENTILE.EXC(A1:A4,0.4)', grid);
     expect(Number(result)).toBe(2);
+    // k must be strictly in (0, 1); interpolation rank out of range also → #NUM!.
+    expect(evaluate('=PERCENTILE.EXC(A1:A4,0)', grid)).toBe('#NUM!');
+    expect(evaluate('=PERCENTILE.EXC(A1:A4,1)', grid)).toBe('#NUM!');
+    expect(evaluate('=PERCENTILE.EXC(A1:A4,0.1)', grid)).toBe('#NUM!');
   });
 
   it('should correctly evaluate QUARTILE.EXC function', () => {
@@ -2142,6 +2222,9 @@ describe('Formula', () => {
     ]);
     const result = evaluate('=QUARTILE.EXC(A1:A6,1)', grid);
     expect(Number(result)).toBeCloseTo(1.75, 2);
+    // quart outside [1,3] is a domain error → #NUM!.
+    expect(evaluate('=QUARTILE.EXC(A1:A6,0)', grid)).toBe('#NUM!');
+    expect(evaluate('=QUARTILE.EXC(A1:A6,4)', grid)).toBe('#NUM!');
   });
 
   it('should correctly evaluate RANK.AVG function', () => {
@@ -2166,6 +2249,15 @@ describe('Formula', () => {
     ]);
     const result = evaluate('=PERCENTRANK(A1:A5,3)', grid);
     expect(Number(result)).toBe(0.5);
+    // value outside range → #N/A
+    expect(evaluate('=PERCENTRANK(A1:A5,6)', grid)).toBe('#N/A');
+    // sig=0 → raw rank returned without rounding
+    const grid2 = new Map([
+      ['B1', { v: '1' } as Cell],
+      ['B2', { v: '2' } as Cell],
+      ['B3', { v: '3' } as Cell],
+    ]);
+    expect(evaluate('=PERCENTRANK(B1:B3,2,0)', grid2)).toBe('0.5');
   });
 
   it('should correctly evaluate PERCENTRANK.EXC function', () => {
@@ -2178,6 +2270,8 @@ describe('Formula', () => {
     ]);
     const result = evaluate('=PERCENTRANK.EXC(A1:A5,3)', grid);
     expect(Number(result)).toBe(0.5);
+    // significance < 1 is a domain error → #NUM!.
+    expect(evaluate('=PERCENTRANK.EXC(A1:A5,3,0)', grid)).toBe('#NUM!');
   });
 
   it('should correctly evaluate BETA.DIST function', () => {
@@ -2861,6 +2955,30 @@ describe('Formula', () => {
     expect(Number(evaluate('=LOGEST(B1:B3,A1:A3)', grid))).toBeCloseTo(2, 1);
   });
 
+  it('should return #NUM! for GROWTH/LOGEST with non-positive known_y', () => {
+    const zero = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['B1', { v: '2' } as Cell],
+      ['B2', { v: '0' } as Cell],
+      ['B3', { v: '8' } as Cell],
+    ]);
+    expect(evaluate('=GROWTH(B1:B3,A1:A3)', zero)).toBe('#NUM!');
+    expect(evaluate('=LOGEST(B1:B3,A1:A3)', zero)).toBe('#NUM!');
+
+    const negative = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['B1', { v: '2' } as Cell],
+      ['B2', { v: '-4' } as Cell],
+      ['B3', { v: '8' } as Cell],
+    ]);
+    expect(evaluate('=GROWTH(B1:B3,A1:A3)', negative)).toBe('#NUM!');
+    expect(evaluate('=LOGEST(B1:B3,A1:A3)', negative)).toBe('#NUM!');
+  });
+
   it('should correctly evaluate FREQUENCY function', () => {
     const grid = new Map([
       ['A1', { v: '1' } as Cell],
@@ -2904,12 +3022,16 @@ describe('Formula', () => {
     expect(evaluate('=COMBINA(4,2)')).toBe('10');
     // COMBINA(10,3) = C(12,3) = 220
     expect(evaluate('=COMBINA(10,3)')).toBe('220');
+    expect(evaluate('=COMBINA(-1,2)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate PERMUTATIONA function', () => {
     // PERMUTATIONA(3,2) = 3^2 = 9
     expect(evaluate('=PERMUTATIONA(3,2)')).toBe('9');
     expect(evaluate('=PERMUTATIONA(2,4)')).toBe('16');
+    // Negative args are a domain error → #NUM!.
+    expect(evaluate('=PERMUTATIONA(-1,2)')).toBe('#NUM!');
+    expect(evaluate('=PERMUTATIONA(3,-1)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate T.TEST function', () => {
@@ -3173,10 +3295,12 @@ describe('Formula', () => {
 
   it('should correctly evaluate CSCH function', () => {
     expect(Number(evaluate('=CSCH(1)'))).toBeCloseTo(0.8509, 3);
+    expect(evaluate('=CSCH(0)')).toBe('#DIV/0!');
   });
 
   it('should correctly evaluate COTH function', () => {
     expect(Number(evaluate('=COTH(1)'))).toBeCloseTo(1.3130, 3);
+    expect(evaluate('=COTH(0)')).toBe('#DIV/0!');
   });
 
   it('should correctly evaluate ACOT function', () => {
@@ -3185,6 +3309,7 @@ describe('Formula', () => {
 
   it('should correctly evaluate ACOTH function', () => {
     expect(Number(evaluate('=ACOTH(2)'))).toBeCloseTo(0.5493, 3);
+    expect(evaluate('=ACOTH(0.5)')).toBe('#NUM!');
   });
 
   it('should correctly evaluate DAYS360 function', () => {

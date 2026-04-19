@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode } from './formula';
+import { ErrValue, EvalNode, ErrNode } from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -18,12 +18,12 @@ export function ifFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const condition = BoolArgs.map(visit(exprs[0]), grid);
@@ -54,12 +54,12 @@ export function ifsFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length % 2 !== 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   for (let i = 0; i < exprs.length; i += 2) {
@@ -73,7 +73,7 @@ export function ifsFunc(
     }
   }
 
-  return { t: 'err', v: '#N/A' };
+  return ErrNode.NA;
 }
 
 /**
@@ -87,12 +87,12 @@ export function switchFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const expression = toStr(visit(exprs[0]), grid);
@@ -119,7 +119,7 @@ export function switchFunc(
     return visit(exprs[exprs.length - 1]);
   }
 
-  return { t: 'err', v: '#N/A' };
+  return ErrNode.NA;
 }
 
 /**
@@ -133,7 +133,7 @@ export function andFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   for (const node of BoolArgs.iterate(args, visit, grid)) {
@@ -160,7 +160,7 @@ export function orFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   for (const node of BoolArgs.iterate(args, visit, grid)) {
@@ -187,12 +187,12 @@ export function notFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const value = BoolArgs.map(visit(exprs[0]), grid);
@@ -213,7 +213,7 @@ export function xorFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let trueCount = 0;
@@ -239,12 +239,12 @@ export function chooseFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const indexNode = NumberArgs.map(visit(exprs[0]), grid);
@@ -254,7 +254,7 @@ export function chooseFunc(
 
   const index = Math.trunc(indexNode.v);
   if (index < 1 || index >= exprs.length) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return visit(exprs[index]);
@@ -271,12 +271,12 @@ export function iferrorFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const value = visit(exprs[0]);
@@ -298,16 +298,16 @@ export function ifnaFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const value = visit(exprs[0]);
-  if (value.t === 'err' && value.v === '#N/A') {
+  if (value.t === 'err' && value.v === ErrValue.NA) {
     return visit(exprs[1]);
   }
 

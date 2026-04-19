@@ -21,7 +21,7 @@ export function todayFunc(
 ): EvalNode {
   const args = ctx.args();
   if (args && args.expr().length > 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   return { t: 'str', v: formatDate(new Date()) };
@@ -38,7 +38,7 @@ export function nowFunc(
 ): EvalNode {
   const args = ctx.args();
   if (args && args.expr().length > 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const now = new Date();
@@ -56,12 +56,12 @@ export function dateFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const yearNode = NumberArgs.map(visit(exprs[0]), grid);
@@ -81,7 +81,7 @@ export function dateFunc(
   const month = Math.trunc(monthNode.v);
   const day = Math.trunc(dayNode.v);
   if (!isFinite(year) || !isFinite(month) || !isFinite(day)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'str', v: formatDate(new Date(year, month - 1, day)) };
@@ -98,12 +98,12 @@ export function timeFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const hourNode = NumberArgs.map(visit(exprs[0]), grid);
@@ -123,7 +123,7 @@ export function timeFunc(
   const minute = Math.trunc(minuteNode.v);
   const second = Math.trunc(secondNode.v);
   if (!isFinite(hour) || !isFinite(minute) || !isFinite(second)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'str', v: formatTime(new Date(1970, 0, 1, hour, minute, second)) };
@@ -140,12 +140,12 @@ export function daysFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const endDate = parseDate(visit(exprs[0]), grid);
@@ -184,12 +184,12 @@ export function yearFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -209,12 +209,12 @@ export function monthFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -234,12 +234,12 @@ export function dayFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -259,12 +259,12 @@ export function hourFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDateTime(visit(exprs[0]), grid);
@@ -286,12 +286,12 @@ export function minuteFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDateTime(visit(exprs[0]), grid);
@@ -313,12 +313,12 @@ export function secondFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDateTime(visit(exprs[0]), grid);
@@ -340,12 +340,12 @@ export function weekdayFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -373,7 +373,7 @@ export function weekdayFunc(
     return { t: 'num', v: day === 0 ? 6 : day - 1 };
   }
 
-  return { t: 'err', v: '#VALUE!' };
+  return ErrNode.VALUE;
 }
 
 /**
@@ -386,12 +386,12 @@ export function edateFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -419,12 +419,12 @@ export function eomonthFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -454,12 +454,12 @@ export function networkdaysFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const startDate = parseDate(visit(exprs[0]), grid);
@@ -499,9 +499,9 @@ export function networkdaysintlFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 4) return ErrNode.NA;
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if ('t' in startDate) return startDate;
@@ -555,12 +555,12 @@ export function datevalueFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -581,12 +581,12 @@ export function timevalueFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDateTime(visit(exprs[0]), grid);
@@ -613,12 +613,12 @@ export function datedifFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const startDate = parseDate(visit(exprs[0]), grid);
@@ -632,7 +632,7 @@ export function datedifFunc(
   }
 
   if (startDate > endDate) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const unitStr = toStr(visit(exprs[2]), grid);
@@ -702,7 +702,7 @@ export function datedifFunc(
     return { t: 'num', v: (endUtc - startUtc) / dayMs };
   }
 
-  return { t: 'err', v: '#VALUE!' };
+  return ErrNode.VALUE;
 }
 
 /**
@@ -716,12 +716,12 @@ export function weeknumFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -759,12 +759,12 @@ export function isoweeknumFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const date = parseDate(visit(exprs[0]), grid);
@@ -791,12 +791,12 @@ export function workdayFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const startDate = parseDate(visit(exprs[0]), grid);
@@ -853,9 +853,9 @@ export function workdayintlFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 4) return ErrNode.NA;
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if ('t' in startDate) return startDate;
@@ -913,12 +913,12 @@ export function yearfracFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const startDate = parseDate(visit(exprs[0]), grid);
@@ -941,7 +941,7 @@ export function yearfracFunc(
   }
 
   if (basis < 0 || basis > 4) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const s = startDate < endDate ? startDate : endDate;
@@ -1000,7 +1000,7 @@ export function yearfracFunc(
     case 3:
       return { t: 'num', v: actualDays / 365 };
     default:
-      return { t: 'err', v: '#VALUE!' };
+      return ErrNode.VALUE;
   }
 }
 
@@ -1014,9 +1014,9 @@ export function days360Func(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
 
   const startDate = parseDate(visit(exprs[0]), grid);
   if ('t' in startDate) return startDate;
@@ -1078,7 +1078,7 @@ export function parseDate(
 
   const date = new Date(str.v);
   if (isNaN(date.getTime())) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
   return date;
 }
@@ -1108,7 +1108,7 @@ function parseDateTime(
       second < 0 ||
       second > 59
     ) {
-      return { t: 'err', v: '#VALUE!' };
+      return ErrNode.VALUE;
     }
 
     return new Date(1970, 0, 1, hour, minute, second);
@@ -1116,7 +1116,7 @@ function parseDateTime(
 
   const date = new Date(str.v);
   if (isNaN(date.getTime())) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return date;

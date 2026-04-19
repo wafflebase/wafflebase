@@ -99,7 +99,7 @@ Formula string → ANTLR Lexer → Token stream → ANTLR Parser → AST → Eva
    - `StrNode { t: 'str', v: string }`
    - `BoolNode { t: 'bool', v: boolean }`
    - `RefNode { t: 'ref', v: Reference }`
-   - `ErrNode { t: 'err', v: '#VALUE!' | '#REF!' | '#N/A' | '#ERROR!' | '#DIV/0!' }`
+   - `ErrNode { t: 'err', v: '#NULL!' | '#DIV/0!' | '#VALUE!' | '#REF!' | '#NAME?' | '#NUM!' | '#N/A' | '#ERROR!' }`
    - `EmptyNode { t: 'empty' }` — sentinel for omitted arguments
    - `ArrNode { t: 'arr', v: EvalNode[][], rows, cols }` — array literal
    - `LambdaNode { t: 'lambda', params, body, closureScope }` — lambda
@@ -178,11 +178,22 @@ argument info.
 
 | Error     | Meaning                                                                  |
 | --------- | ------------------------------------------------------------------------ |
+| `#NULL!`  | Reserved for the Excel space-intersection operator; never emitted by Wafflebase (see note below) |
+| `#DIV/0!` | Division by zero                                                         |
 | `#VALUE!` | Type mismatch (e.g., arithmetic on non-numeric, range ref as scalar)     |
 | `#REF!`   | Invalid cell reference (deleted cell, circular dependency, out-of-range) |
-| `#N/A`    | Function returned no applicable result (missing args)                    |
-| `#ERROR!` | Catch-all for unexpected evaluation errors                               |
-| `#DIV/0!` | Division by zero                                                         |
+| `#NAME?`  | Unrecognized function name or named range                                |
+| `#NUM!`   | Invalid numeric value (e.g., SQRT of negative, out-of-range result)      |
+| `#N/A`    | Value not available (lookup not found, missing required argument)        |
+| `#ERROR!` | Catch-all for unexpected evaluation errors (Google Sheets–specific)      |
+
+`#NULL!` is kept in the error enum only to preserve the canonical 1–8
+`ERROR.TYPE` code ordering shared with Excel/Google Sheets. In Excel it
+indicates an empty range intersection produced by the space operator
+(`A1:A10 B1:B10`), but that operator exists neither in Google Sheets nor in
+Wafflebase, so no built-in function or operator returns `#NULL!`. It can
+still appear if a user types the literal `#NULL!` into a cell and another
+formula reads it.
 
 On commit (`Sheet.setData`), formula input is normalized for one safe case:
 if syntax errors are only `missing ')' at '<EOF>'`, the engine appends the

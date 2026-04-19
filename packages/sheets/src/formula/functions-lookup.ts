@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode } from './formula';
+import { EvalNode, ErrNode } from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -35,12 +35,12 @@ export function matchFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const lookup = lookupValueFromNode(visit(exprs[0]), grid);
@@ -53,7 +53,7 @@ export function matchFunc(
     return matrix;
   }
   if (matrix.v.rowCount > 1 && matrix.v.colCount > 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let searchType = 1;
@@ -66,7 +66,7 @@ export function matchFunc(
   }
 
   if (searchType !== -1 && searchType !== 0 && searchType !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   if (searchType === 0) {
@@ -77,7 +77,7 @@ export function matchFunc(
       }
     }
 
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let bestIndex = -1;
@@ -104,7 +104,7 @@ export function matchFunc(
   }
 
   if (bestIndex < 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   return { t: 'num', v: bestIndex + 1 };
@@ -121,12 +121,12 @@ export function indexFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const matrix = getReferenceMatrixFromExpression(exprs[0], visit, grid);
@@ -159,10 +159,10 @@ export function indexFunc(
   }
 
   if (row <= 0 || col <= 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
   if (row > matrix.v.rowCount || col > matrix.v.colCount) {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 
   return {
@@ -182,12 +182,12 @@ export function vlookupFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 3 || exprs.length > 4) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const lookup = lookupValueFromNode(visit(exprs[0]), grid);
@@ -206,10 +206,10 @@ export function vlookupFunc(
   }
   const targetCol = Math.trunc(indexNode.v);
   if (targetCol <= 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
   if (targetCol > matrix.v.colCount) {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 
   let isSorted = true;
@@ -235,7 +235,7 @@ export function vlookupFunc(
       };
     }
 
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let bestRow = -1;
@@ -251,7 +251,7 @@ export function vlookupFunc(
   }
 
   if (bestRow < 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   return {
@@ -271,12 +271,12 @@ export function hlookupFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 3 || exprs.length > 4) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const lookup = lookupValueFromNode(visit(exprs[0]), grid);
@@ -295,10 +295,10 @@ export function hlookupFunc(
   }
   const targetRow = Math.trunc(indexNode.v);
   if (targetRow <= 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
   if (targetRow > matrix.v.rowCount) {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 
   let isSorted = true;
@@ -324,7 +324,7 @@ export function hlookupFunc(
       };
     }
 
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let bestCol = -1;
@@ -340,7 +340,7 @@ export function hlookupFunc(
   }
 
   if (bestCol < 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   return {
@@ -359,12 +359,12 @@ export function xlookupFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 3 || exprs.length > 6) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const keyNode = visit(exprs[0]);
@@ -450,11 +450,11 @@ export function xlookupFunc(
     if (ifNotFound) {
       return ifNotFound;
     }
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   if (matchIdx >= returnRefs.v.length) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const resultVal = grid?.get(returnRefs.v[matchIdx])?.v || '';
@@ -475,9 +475,9 @@ export function xmatchFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 4) return ErrNode.NA;
 
   const keyNode = visit(exprs[0]);
   if (keyNode.t === 'err') return keyNode;
@@ -485,7 +485,7 @@ export function xmatchFunc(
   const lookupRefs = getRefsFromExpression(exprs[1], visit, grid);
   if ('t' in lookupRefs && lookupRefs.t === 'err') return lookupRefs as EvalNode;
   if (!('v' in lookupRefs) || !Array.isArray((lookupRefs as { v: string[] }).v)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
   const refs = (lookupRefs as { t: 'refs'; v: string[] }).v;
 
@@ -516,7 +516,7 @@ export function xmatchFunc(
         }
       }
     }
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   } else if (matchMode === -1) {
     // Exact or next smaller
     let bestIdx = -1;
@@ -530,7 +530,7 @@ export function xmatchFunc(
         bestIdx = i;
       }
     }
-    return bestIdx >= 0 ? { t: 'num', v: bestIdx + 1 } : { t: 'err', v: '#N/A' };
+    return bestIdx >= 0 ? { t: 'num', v: bestIdx + 1 } : ErrNode.NA;
   } else if (matchMode === 1) {
     // Exact or next larger
     let bestIdx = -1;
@@ -544,7 +544,7 @@ export function xmatchFunc(
         bestIdx = i;
       }
     }
-    return bestIdx >= 0 ? { t: 'num', v: bestIdx + 1 } : { t: 'err', v: '#N/A' };
+    return bestIdx >= 0 ? { t: 'num', v: bestIdx + 1 } : ErrNode.NA;
   } else if (matchMode === 2) {
     // Wildcard match
     const pattern = String(keyVal).replace(/\*/g, '.*').replace(/\?/g, '.');
@@ -555,9 +555,9 @@ export function xmatchFunc(
         return { t: 'num', v: i + 1 };
       }
     }
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
-  return { t: 'err', v: '#N/A' };
+  return ErrNode.NA;
 }
 
 /**
@@ -570,12 +570,12 @@ export function lookupFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const keyNode = visit(exprs[0]);
@@ -616,7 +616,7 @@ export function lookupFunc(
   }
 
   if (matchIdx === -1 || matchIdx >= resultRefsList.length) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const resultVal = grid?.get(resultRefsList[matchIdx])?.v || '';
@@ -637,12 +637,12 @@ export function indirectFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -651,7 +651,7 @@ export function indirectFunc(
   }
 
   if (!grid) {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 
   const ref = str.v.trim();
@@ -677,12 +677,12 @@ export function offsetFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 3 || exprs.length > 5) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const refNode = visit(exprs[0]);
@@ -690,7 +690,7 @@ export function offsetFunc(
     return refNode;
   }
   if (refNode.t !== 'ref' || !grid) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const rowsNode = NumberArgs.map(visit(exprs[1]), grid);
@@ -709,7 +709,7 @@ export function offsetFunc(
   const newCol = parsed.c + colOffset;
 
   if (newRow < 1 || newCol < 1) {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 
   // For single cell OFFSET (no height/width or 1x1)
@@ -732,12 +732,12 @@ export function rowFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args || args.expr().length === 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const node = visit(exprs[0]);
@@ -745,7 +745,7 @@ export function rowFunc(
     return node;
   }
   if (node.t !== 'ref') {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const refStr = isSrng(node.v) ? node.v.split(':')[0] : node.v;
@@ -758,7 +758,7 @@ export function rowFunc(
     const ref = parseRef(localRef);
     return { t: 'num', v: ref.r };
   } catch {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 }
 
@@ -772,12 +772,12 @@ export function columnFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args || args.expr().length === 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const node = visit(exprs[0]);
@@ -785,7 +785,7 @@ export function columnFunc(
     return node;
   }
   if (node.t !== 'ref') {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const refStr = isSrng(node.v) ? node.v.split(':')[0] : node.v;
@@ -798,7 +798,7 @@ export function columnFunc(
     const ref = parseRef(localRef);
     return { t: 'num', v: ref.c };
   } catch {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 }
 
@@ -812,12 +812,12 @@ export function rowsFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const node = visit(exprs[0]);
@@ -825,7 +825,7 @@ export function rowsFunc(
     return node;
   }
   if (node.t !== 'ref') {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   if (!isSrng(node.v)) {
@@ -841,7 +841,7 @@ export function rowsFunc(
     const [from, to] = parseRange(localRange);
     return { t: 'num', v: Math.abs(to.r - from.r) + 1 };
   } catch {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 }
 
@@ -855,12 +855,12 @@ export function columnsFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const node = visit(exprs[0]);
@@ -868,7 +868,7 @@ export function columnsFunc(
     return node;
   }
   if (node.t !== 'ref') {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   if (!isSrng(node.v)) {
@@ -884,7 +884,7 @@ export function columnsFunc(
     const [from, to] = parseRange(localRange);
     return { t: 'num', v: Math.abs(to.c - from.c) + 1 };
   } catch {
-    return { t: 'err', v: '#REF!' };
+    return ErrNode.REF;
   }
 }
 
@@ -898,12 +898,12 @@ export function addressFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 4) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const rowNode = NumberArgs.map(visit(exprs[0]), grid);
@@ -918,7 +918,7 @@ export function addressFunc(
   const row = Math.trunc(rowNode.v);
   const col = Math.trunc(colNode.v);
   if (row < 1 || col < 1) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   let absNum = 1;
@@ -942,7 +942,7 @@ export function addressFunc(
     case 4:
       return { t: 'str', v: `${colLabel}${row}` };
     default:
-      return { t: 'err', v: '#VALUE!' };
+      return ErrNode.VALUE;
   }
 }
 
@@ -956,12 +956,12 @@ export function hyperlinkFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const url = toStr(visit(exprs[0]), grid);
@@ -989,9 +989,9 @@ export function areasFunc(
   _visit: (tree: ParseTree) => EvalNode,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   return { t: 'num', v: 1 };
 }
 
@@ -1004,13 +1004,13 @@ export function sortFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 3) return ErrNode.NA;
 
   const vals = collectNumericValues(exprs[0], visit, grid);
   if (!Array.isArray(vals)) return vals;
-  if (vals.length === 0) return { t: 'err', v: '#VALUE!' };
+  if (vals.length === 0) return ErrNode.VALUE;
 
   let order = 1;
   if (exprs.length >= 3) {
@@ -1033,13 +1033,13 @@ export function sortbyFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const byRefs = getRefsFromExpression(exprs[1], visit, grid);
   if ('t' in byRefs && byRefs.t === 'err') return byRefs as EvalNode;
@@ -1086,9 +1086,9 @@ export function uniqueFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
 
   const node = visit(exprs[0]);
   if (node.t === 'err') return node;
@@ -1105,9 +1105,9 @@ export function flattenFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
 
   const node = visit(exprs[0]);
   if (node.t === 'err') return node;
@@ -1124,9 +1124,9 @@ export function transposeFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
 
   const node = visit(exprs[0]);
   if (node.t === 'err') return node;
@@ -1144,13 +1144,13 @@ export function filterFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const includeRefs = getRefsFromExpression(exprs[1], visit, grid);
   if ('t' in includeRefs && includeRefs.t === 'err') return includeRefs as EvalNode;
@@ -1173,7 +1173,7 @@ export function filterFunc(
   if (exprs.length >= 3) {
     return visit(exprs[2]);
   }
-  return { t: 'err', v: '#N/A' };
+  return ErrNode.NA;
 }
 
 /**
@@ -1185,13 +1185,13 @@ export function sequenceFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 4) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 4) return ErrNode.NA;
 
   const rowsNode = NumberArgs.map(visit(exprs[0]), grid);
   if (rowsNode.t === 'err') return rowsNode;
-  if (rowsNode.v < 1) return { t: 'err', v: '#VALUE!' };
+  if (rowsNode.v < 1) return ErrNode.VALUE;
 
   let start = 1;
   if (exprs.length >= 3) {
@@ -1214,7 +1214,7 @@ export function randarrayFunc(
 ): EvalNode {
   const args = ctx.args();
   const exprs = args ? args.expr() : [];
-  if (exprs.length > 5) return { t: 'err', v: '#N/A' };
+  if (exprs.length > 5) return ErrNode.NA;
 
   let min = 0, max = 1, whole = false;
   if (exprs.length >= 3) {
@@ -1233,7 +1233,7 @@ export function randarrayFunc(
     whole = wholeNode.v;
   }
 
-  if (min > max) return { t: 'err', v: '#VALUE!' };
+  if (min > max) return ErrNode.VALUE;
 
   const val = min + Math.random() * (max - min);
   return { t: 'num', v: whole ? Math.floor(val) : val };
@@ -1249,13 +1249,13 @@ export function tocolFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 3) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   let ignore = 0; // 0=keep all, 1=ignore blanks, 2=ignore errors, 3=ignore blanks+errors
   if (exprs.length >= 2) {
@@ -1291,7 +1291,7 @@ export function tocolFunc(
   // Return first value for single-cell evaluation
   return values.length > 0
     ? { t: 'str', v: values[0] }
-    : { t: 'err', v: '#N/A' };
+    : ErrNode.NA;
 }
 
 /**
@@ -1316,19 +1316,19 @@ export function chooserowsFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const rowNum = NumberArgs.map(visit(exprs[1]), grid);
   if (rowNum.t === 'err') return rowNum;
   let r = Math.trunc(rowNum.v);
   if (r < 0) r = m.v.rowCount + r + 1; // negative = from end
-  if (r < 1 || r > m.v.rowCount) return { t: 'err', v: '#VALUE!' };
+  if (r < 1 || r > m.v.rowCount) return ErrNode.VALUE;
 
   const refIdx = (r - 1) * m.v.colCount;
   const cellVal = grid?.get(m.v.refs[refIdx])?.v ?? '';
@@ -1347,19 +1347,19 @@ export function choosecolsFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const colNum = NumberArgs.map(visit(exprs[1]), grid);
   if (colNum.t === 'err') return colNum;
   let c = Math.trunc(colNum.v);
   if (c < 0) c = m.v.colCount + c + 1;
-  if (c < 1 || c > m.v.colCount) return { t: 'err', v: '#VALUE!' };
+  if (c < 1 || c > m.v.colCount) return ErrNode.VALUE;
 
   const refIdx = c - 1; // first row, chosen column
   const cellVal = grid?.get(m.v.refs[refIdx])?.v ?? '';
@@ -1378,22 +1378,22 @@ export function takeFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const rowsNode = NumberArgs.map(visit(exprs[1]), grid);
   if (rowsNode.t === 'err') return rowsNode;
   const takeRows = Math.trunc(rowsNode.v);
-  if (takeRows === 0) return { t: 'err', v: '#VALUE!' };
+  if (takeRows === 0) return ErrNode.VALUE;
 
   // Determine starting row
   const startRow = takeRows > 0 ? 0 : m.v.rowCount + takeRows;
-  if (startRow < 0 || startRow >= m.v.rowCount) return { t: 'err', v: '#VALUE!' };
+  if (startRow < 0 || startRow >= m.v.rowCount) return ErrNode.VALUE;
 
   // Determine starting col
   let startCol = 0;
@@ -1401,9 +1401,9 @@ export function takeFunc(
     const colsNode = NumberArgs.map(visit(exprs[2]), grid);
     if (colsNode.t === 'err') return colsNode;
     const takeCols = Math.trunc(colsNode.v);
-    if (takeCols === 0) return { t: 'err', v: '#VALUE!' };
+    if (takeCols === 0) return ErrNode.VALUE;
     startCol = takeCols > 0 ? 0 : m.v.colCount + takeCols;
-    if (startCol < 0 || startCol >= m.v.colCount) return { t: 'err', v: '#VALUE!' };
+    if (startCol < 0 || startCol >= m.v.colCount) return ErrNode.VALUE;
   }
 
   const refIdx = startRow * m.v.colCount + startCol;
@@ -1423,13 +1423,13 @@ export function dropFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const rowsNode = NumberArgs.map(visit(exprs[1]), grid);
   if (rowsNode.t === 'err') return rowsNode;
@@ -1437,7 +1437,7 @@ export function dropFunc(
 
   // First remaining row after drop
   const startRow = dropRows >= 0 ? dropRows : 0;
-  if (startRow >= m.v.rowCount) return { t: 'err', v: '#VALUE!' };
+  if (startRow >= m.v.rowCount) return ErrNode.VALUE;
 
   let startCol = 0;
   if (exprs.length >= 3) {
@@ -1445,7 +1445,7 @@ export function dropFunc(
     if (colsNode.t === 'err') return colsNode;
     const dropCols = Math.trunc(colsNode.v);
     startCol = dropCols >= 0 ? dropCols : 0;
-    if (startCol >= m.v.colCount) return { t: 'err', v: '#VALUE!' };
+    if (startCol >= m.v.colCount) return ErrNode.VALUE;
   }
 
   const refIdx = startRow * m.v.colCount + startCol;
@@ -1465,13 +1465,13 @@ export function hstackFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const cellVal = grid?.get(m.v.refs[0])?.v ?? '';
   return cellVal !== '' && !isNaN(Number(cellVal))
@@ -1501,17 +1501,17 @@ export function wrapcolsFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const wrapNode = NumberArgs.map(visit(exprs[1]), grid);
   if (wrapNode.t === 'err') return wrapNode;
-  if (wrapNode.v < 1) return { t: 'err', v: '#VALUE!' };
+  if (wrapNode.v < 1) return ErrNode.VALUE;
 
   const cellVal = grid?.get(m.v.refs[0])?.v ?? '';
   return cellVal !== '' && !isNaN(Number(cellVal))
@@ -1541,13 +1541,13 @@ export function expandFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 4) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 4) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const cellVal = grid?.get(m.v.refs[0])?.v ?? '';
   return cellVal !== '' && !isNaN(Number(cellVal))
