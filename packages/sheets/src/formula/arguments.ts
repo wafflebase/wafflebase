@@ -143,7 +143,7 @@ function str2num(result: StrNode): NumNode {
  */
 export function ref2num(result: RefNode, grid: Grid): NumNode | ErrNode {
   if (isSrng(result.v)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const val = grid.get(result.v)?.v || '';
@@ -171,7 +171,7 @@ function num2bool(result: NumNode): BoolNode {
  */
 function ref2bool(result: RefNode, grid: Grid): BoolNode | ErrNode {
   if (isSrng(result.v)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const val = grid.get(result.v)?.v || '';
@@ -187,7 +187,7 @@ function ref2bool(result: RefNode, grid: Grid): BoolNode | ErrNode {
     return { t: 'bool', v: num !== 0 };
   }
 
-  return { t: 'err', v: '#VALUE!' };
+  return ErrNode.VALUE;
 }
 
 /**
@@ -196,7 +196,7 @@ function ref2bool(result: RefNode, grid: Grid): BoolNode | ErrNode {
 export const BoolArgs = Arguments.create<BoolNode>()
   .setRef(ref2bool)
   .setNum(num2bool)
-  .setStr(() => ({ t: 'err' as const, v: '#VALUE!' as const }));
+  .setStr(() => ErrNode.VALUE);
 
 /**
  * `num2str` converts a number result to a string result.
@@ -217,7 +217,7 @@ function bool2str(result: BoolNode): StrNode {
  */
 export function ref2str(result: RefNode, grid: Grid): StrNode | ErrNode {
   if (isSrng(result.v)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const val = grid.get(result.v)?.v || '';

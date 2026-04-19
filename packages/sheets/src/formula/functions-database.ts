@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode } from './formula';
+import { EvalNode, ErrNode } from './formula';
 import { Grid } from '../model/core/types';
 import {
   isSrng,
@@ -60,7 +60,7 @@ export function daverageFunc(
 ): EvalNode {
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
-  if (result.values.length === 0) return { t: 'err', v: '#VALUE!' };
+  if (result.values.length === 0) return ErrNode.VALUE;
   return { t: 'num', v: result.values.reduce((a, b) => a + b, 0) / result.values.length };
 }
 
@@ -116,7 +116,7 @@ export function dgetFunc(
 ): EvalNode {
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
-  if (result.strValues.length !== 1) return { t: 'err', v: '#VALUE!' };
+  if (result.strValues.length !== 1) return ErrNode.VALUE;
   const n = Number(result.strValues[0]);
   if (!isNaN(n) && result.strValues[0] !== '') return { t: 'num', v: n };
   return { t: 'str', v: result.strValues[0] };
@@ -133,7 +133,7 @@ export function dstdevFunc(
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
   const vals = result.values;
-  if (vals.length < 2) return { t: 'err', v: '#VALUE!' };
+  if (vals.length < 2) return ErrNode.VALUE;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (vals.length - 1);
   return { t: 'num', v: Math.sqrt(variance) };
@@ -150,7 +150,7 @@ export function dstdevpFunc(
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
   const vals = result.values;
-  if (vals.length === 0) return { t: 'err', v: '#VALUE!' };
+  if (vals.length === 0) return ErrNode.VALUE;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
   return { t: 'num', v: Math.sqrt(variance) };
@@ -167,7 +167,7 @@ export function dvarFunc(
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
   const vals = result.values;
-  if (vals.length < 2) return { t: 'err', v: '#VALUE!' };
+  if (vals.length < 2) return ErrNode.VALUE;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   return { t: 'num', v: vals.reduce((a, b) => a + (b - mean) ** 2, 0) / (vals.length - 1) };
 }
@@ -183,7 +183,7 @@ export function dvarpFunc(
   const result = extractDatabaseValues(ctx, visit, grid);
   if ('t' in result) return result;
   const vals = result.values;
-  if (vals.length === 0) return { t: 'err', v: '#VALUE!' };
+  if (vals.length === 0) return ErrNode.VALUE;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   return { t: 'num', v: vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length };
 }
@@ -200,14 +200,14 @@ function extractDatabaseValues(
   grid?: Grid,
 ): { values: number[]; strValues: string[] } | EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 3) return ErrNode.NA;
 
   // Parse database range
   const dbNode = visit(exprs[0]);
-  if (dbNode.t !== 'ref' || !grid) return { t: 'err', v: '#VALUE!' };
-  if (!isSrng(dbNode.v)) return { t: 'err', v: '#VALUE!' };
+  if (dbNode.t !== 'ref' || !grid) return ErrNode.VALUE;
+  if (!isSrng(dbNode.v)) return ErrNode.VALUE;
   const dbRange = parseRange(dbNode.v);
 
   // Parse field (column header name or 1-based index)
@@ -228,13 +228,13 @@ function extractDatabaseValues(
         break;
       }
     }
-    if (fieldCol === -1) return { t: 'err', v: '#VALUE!' };
+    if (fieldCol === -1) return ErrNode.VALUE;
   }
 
   // Parse criteria range
   const critNode = visit(exprs[2]);
-  if (critNode.t !== 'ref') return { t: 'err', v: '#VALUE!' };
-  if (!isSrng(critNode.v)) return { t: 'err', v: '#VALUE!' };
+  if (critNode.t !== 'ref') return ErrNode.VALUE;
+  if (!isSrng(critNode.v)) return ErrNode.VALUE;
   const critRange = parseRange(critNode.v);
 
   // Read criteria headers and values

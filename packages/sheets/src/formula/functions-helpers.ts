@@ -47,7 +47,7 @@ export function toStr(
   if (node.t === 'ref' && grid) {
     return ref2str(node, grid);
   }
-  return { t: 'err', v: '#VALUE!' };
+  return ErrNode.VALUE;
 }
 
 export function isFormulaError(value: unknown): value is FormulaError {
@@ -68,7 +68,7 @@ export function getRefsFromExpression(
     return node;
   }
   if (node.t !== 'ref' || !grid) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'refs', v: Array.from(toSrefs([node.v])) };
@@ -84,7 +84,7 @@ export function getReferenceMatrixFromExpression(
     return node;
   }
   if (node.t !== 'ref' || !grid) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   if (!isSrng(node.v)) {
@@ -128,7 +128,7 @@ export function getReferenceMatrixFromExpression(
       },
     };
   } catch {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 }
 

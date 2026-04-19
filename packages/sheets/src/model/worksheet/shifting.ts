@@ -1,4 +1,4 @@
-import { extractTokens } from '../../formula/formula';
+import { ErrValue, extractTokens } from '../../formula/formula';
 import { parseARef, parseRef, toASref, toSref } from '../core/coordinates';
 import { ARef, Axis, Cell, Grid, Ref, Sref } from '../core/types';
 
@@ -184,14 +184,14 @@ export function relocateFormula(
         const startRef = relocateARef(parseARef(startStr.toUpperCase()), deltaRow, deltaCol);
         const endRef = relocateARef(parseARef(endStr.toUpperCase()), deltaRow, deltaCol);
         if (startRef.r < 1 || startRef.c < 1 || endRef.r < 1 || endRef.c < 1) {
-          result += '#REF!';
+          result += ErrValue.REF;
         } else {
           result += toASref(startRef) + ':' + toASref(endRef);
         }
       } else {
         const ref = relocateARef(parseARef(text.toUpperCase()), deltaRow, deltaCol);
         if (ref.r < 1 || ref.c < 1) {
-          result += '#REF!';
+          result += ErrValue.REF;
         } else {
           result += toASref(ref);
         }
@@ -373,7 +373,7 @@ export function shiftFormula(
         const newStart = shiftARef(parseARef(startStr.toUpperCase()), axis, index, count);
         const newEnd = shiftARef(parseARef(endStr.toUpperCase()), axis, index, count);
         if (!newStart || !newEnd) {
-          result += '#REF!';
+          result += ErrValue.REF;
         } else {
           result += toASref(newStart) + ':' + toASref(newEnd);
         }
@@ -381,7 +381,7 @@ export function shiftFormula(
         // Single reference
         const shifted = shiftARef(parseARef(text.toUpperCase()), axis, index, count);
         if (!shifted) {
-          result += '#REF!';
+          result += ErrValue.REF;
         } else {
           result += toASref(shifted);
         }

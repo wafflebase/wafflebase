@@ -26,7 +26,7 @@ export function sum(
 ): EvalNode {
   const args = ctx.args()!;
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let value = 0;
@@ -55,12 +55,12 @@ export function absFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -82,12 +82,12 @@ export function roundFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const value = NumberArgs.map(visit(exprs[0]), grid);
@@ -116,12 +116,12 @@ export function roundUpFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const value = NumberArgs.map(visit(exprs[0]), grid);
@@ -151,12 +151,12 @@ export function roundDownFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const value = NumberArgs.map(visit(exprs[0]), grid);
@@ -186,12 +186,12 @@ export function intFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const value = NumberArgs.map(visit(exprs[0]), grid);
@@ -213,12 +213,12 @@ export function modFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const dividend = NumberArgs.map(visit(exprs[0]), grid);
@@ -231,7 +231,7 @@ export function modFunc(
     return divisor;
   }
   if (divisor.v === 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.DIV0;
   }
 
   const remainder = dividend.v - divisor.v * Math.floor(dividend.v / divisor.v);
@@ -249,12 +249,12 @@ export function sqrtFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const value = NumberArgs.map(visit(exprs[0]), grid);
@@ -262,7 +262,7 @@ export function sqrtFunc(
     return value;
   }
   if (value.v < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.NUM;
   }
 
   return { t: 'num', v: Math.sqrt(value.v) };
@@ -279,12 +279,12 @@ export function powerFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const base = NumberArgs.map(visit(exprs[0]), grid);
@@ -299,7 +299,7 @@ export function powerFunc(
 
   const result = Math.pow(base.v, exponent.v);
   if (!isFinite(result)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.NUM;
   }
 
   return { t: 'num', v: result };
@@ -316,7 +316,7 @@ export function productFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let value = 1;
@@ -340,7 +340,7 @@ export function piFunc(
 ): EvalNode {
   const args = ctx.args();
   if (args && args.expr().length > 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   return { t: 'num', v: Math.PI };
@@ -356,12 +356,12 @@ export function signFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -382,12 +382,12 @@ export function evenFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -415,12 +415,12 @@ export function oddFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -449,12 +449,12 @@ export function expFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -475,12 +475,12 @@ export function lnFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -488,7 +488,7 @@ export function lnFunc(
     return num;
   }
   if (num.v <= 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.NUM;
   }
 
   return { t: 'num', v: Math.log(num.v) };
@@ -504,12 +504,12 @@ export function logFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -517,7 +517,7 @@ export function logFunc(
     return num;
   }
   if (num.v <= 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.NUM;
   }
 
   let base = 10;
@@ -526,8 +526,11 @@ export function logFunc(
     if (baseNode.t === 'err') {
       return baseNode;
     }
-    if (baseNode.v <= 0 || baseNode.v === 1) {
-      return { t: 'err', v: '#VALUE!' };
+    if (baseNode.v <= 0) {
+      return ErrNode.NUM;
+    }
+    if (baseNode.v === 1) {
+      return ErrNode.DIV0;
     }
     base = baseNode.v;
   }
@@ -545,12 +548,12 @@ export function sinFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -571,12 +574,12 @@ export function cosFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -597,12 +600,12 @@ export function tanFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -623,12 +626,12 @@ export function asinFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -636,7 +639,7 @@ export function asinFunc(
     return num;
   }
   if (num.v < -1 || num.v > 1) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.NUM;
   }
 
   return { t: 'num', v: Math.asin(num.v) };
@@ -652,12 +655,12 @@ export function acosFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -665,7 +668,7 @@ export function acosFunc(
     return num;
   }
   if (num.v < -1 || num.v > 1) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.NUM;
   }
 
   return { t: 'num', v: Math.acos(num.v) };
@@ -681,12 +684,12 @@ export function atanFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -707,12 +710,12 @@ export function atan2Func(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const x = NumberArgs.map(visit(exprs[0]), grid);
@@ -726,7 +729,7 @@ export function atan2Func(
   }
 
   if (x.v === 0 && y.v === 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: Math.atan2(y.v, x.v) };
@@ -742,12 +745,12 @@ export function degreesFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -768,12 +771,12 @@ export function radiansFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -794,12 +797,12 @@ export function ceilingFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -821,7 +824,7 @@ export function ceilingFunc(
   }
 
   if (num.v > 0 && significance < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: Math.ceil(num.v / significance) * significance };
@@ -837,12 +840,12 @@ export function floorFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -864,7 +867,7 @@ export function floorFunc(
   }
 
   if (num.v > 0 && significance < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: Math.floor(num.v / significance) * significance };
@@ -880,12 +883,12 @@ export function truncFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -916,12 +919,12 @@ export function mroundFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -939,7 +942,7 @@ export function mroundFunc(
   }
 
   if ((num.v > 0 && multiple.v < 0) || (num.v < 0 && multiple.v > 0)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: Math.round(num.v / multiple.v) * multiple.v };
@@ -955,9 +958,9 @@ export function ceilingmathFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 3) return ErrNode.NA;
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
@@ -995,9 +998,9 @@ export function floormathFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 3) return ErrNode.NA;
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
@@ -1034,9 +1037,9 @@ export function ceilingpreciseFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
@@ -1061,9 +1064,9 @@ export function floorpreciseFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
@@ -1089,9 +1092,9 @@ export function isoceilingFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
 
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
@@ -1117,7 +1120,7 @@ export function gcdFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let result = 0;
@@ -1127,7 +1130,7 @@ export function gcdFunc(
     }
     const val = Math.trunc(node.v);
     if (val < 0) {
-      return { t: 'err', v: '#VALUE!' };
+      return ErrNode.VALUE;
     }
     result = gcdTwo(result, val);
   }
@@ -1145,7 +1148,7 @@ export function lcmFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let result = 1;
@@ -1156,7 +1159,7 @@ export function lcmFunc(
     }
     const val = Math.trunc(node.v);
     if (val < 0) {
-      return { t: 'err', v: '#VALUE!' };
+      return ErrNode.VALUE;
     }
     if (val === 0) {
       return { t: 'num', v: 0 };
@@ -1166,7 +1169,7 @@ export function lcmFunc(
   }
 
   if (!hasValue) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: result };
@@ -1182,12 +1185,12 @@ export function combinFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const nNode = NumberArgs.map(visit(exprs[0]), grid);
@@ -1203,7 +1206,7 @@ export function combinFunc(
   const n = Math.trunc(nNode.v);
   const k = Math.trunc(kNode.v);
   if (n < 0 || k < 0 || k > n) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.NUM;
   }
 
   let result = 1;
@@ -1224,16 +1227,16 @@ export function combinaFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 2) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   const k = NumberArgs.map(visit(exprs[1]), grid);
   if (k.t === 'err') return k;
   const ni = Math.trunc(n.v);
   const ki = Math.trunc(k.v);
-  if (ni < 0 || ki < 0) return { t: 'err', v: '#VALUE!' };
+  if (ni < 0 || ki < 0) return ErrNode.NUM;
   if (ki === 0) return { t: 'num', v: 1 };
   // C(ni+ki-1, ki)
   let result = 1;
@@ -1253,12 +1256,12 @@ export function factFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -1268,7 +1271,7 @@ export function factFunc(
 
   const n = Math.trunc(num.v);
   if (n < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.NUM;
   }
 
   let result = 1;
@@ -1288,13 +1291,13 @@ export function factdoubleFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   const n = Math.trunc(num.v);
-  if (n < -1) return { t: 'err', v: '#VALUE!' };
+  if (n < -1) return ErrNode.NUM;
   if (n <= 0) return { t: 'num', v: 1 };
   let result = 1;
   for (let i = n; i > 0; i -= 2) {
@@ -1313,12 +1316,12 @@ export function quotientFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const numerator = NumberArgs.map(visit(exprs[0]), grid);
@@ -1332,7 +1335,7 @@ export function quotientFunc(
   }
 
   if (denominator.v === 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.DIV0;
   }
 
   return { t: 'num', v: Math.trunc(numerator.v / denominator.v) };
@@ -1347,15 +1350,15 @@ export function baseFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   const base = NumberArgs.map(visit(exprs[1]), grid);
   if (base.t === 'err') return base;
   const b = Math.trunc(base.v);
-  if (b < 2 || b > 36) return { t: 'err', v: '#VALUE!' };
+  if (b < 2 || b > 36) return ErrNode.NUM;
   let result = Math.trunc(num.v).toString(b).toUpperCase();
   if (exprs.length === 3) {
     const minLen = NumberArgs.map(visit(exprs[2]), grid);
@@ -1374,17 +1377,25 @@ export function decimalFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 2) return ErrNode.NA;
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
   const base = NumberArgs.map(visit(exprs[1]), grid);
   if (base.t === 'err') return base;
   const b = Math.trunc(base.v);
-  if (b < 2 || b > 36) return { t: 'err', v: '#VALUE!' };
-  const num = parseInt(str.v, b);
-  if (isNaN(num)) return { t: 'err', v: '#VALUE!' };
+  if (b < 2 || b > 36) return ErrNode.NUM;
+  const raw = str.v.trim();
+  if (raw.length === 0) return ErrNode.VALUE;
+  const body = raw.startsWith('-') || raw.startsWith('+') ? raw.slice(1) : raw;
+  if (body.length === 0) return ErrNode.VALUE;
+  for (const ch of body) {
+    const digit = parseInt(ch, b);
+    if (isNaN(digit)) return ErrNode.NUM;
+  }
+  const num = parseInt(raw, b);
+  if (isNaN(num)) return ErrNode.NUM;
   return { t: 'num', v: num };
 }
 
@@ -1397,12 +1408,12 @@ export function sqrtpiFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  if (num.v < 0) return { t: 'err', v: '#VALUE!' };
+  if (num.v < 0) return ErrNode.NUM;
   return { t: 'num', v: Math.sqrt(num.v * Math.PI) };
 }
 
@@ -1415,9 +1426,9 @@ export function sinhFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   return { t: 'num', v: Math.sinh(num.v) };
@@ -1432,9 +1443,9 @@ export function coshFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   return { t: 'num', v: Math.cosh(num.v) };
@@ -1449,9 +1460,9 @@ export function tanhFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   return { t: 'num', v: Math.tanh(num.v) };
@@ -1466,9 +1477,9 @@ export function asinhFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   return { t: 'num', v: Math.asinh(num.v) };
@@ -1483,12 +1494,12 @@ export function acoshFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  if (num.v < 1) return { t: 'err', v: '#VALUE!' };
+  if (num.v < 1) return ErrNode.NUM;
   return { t: 'num', v: Math.acosh(num.v) };
 }
 
@@ -1501,12 +1512,12 @@ export function atanhFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
-  if (num.v <= -1 || num.v >= 1) return { t: 'err', v: '#VALUE!' };
+  if (num.v <= -1 || num.v >= 1) return ErrNode.NUM;
   return { t: 'num', v: Math.atanh(num.v) };
 }
 
@@ -1519,13 +1530,13 @@ export function cotFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   const tan = Math.tan(num.v);
-  if (tan === 0) return { t: 'err', v: '#DIV/0!' };
+  if (tan === 0) return ErrNode.DIV0;
   return { t: 'num', v: 1 / tan };
 }
 
@@ -1538,13 +1549,13 @@ export function cscFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   const sin = Math.sin(num.v);
-  if (sin === 0) return { t: 'err', v: '#DIV/0!' };
+  if (sin === 0) return ErrNode.DIV0;
   return { t: 'num', v: 1 / sin };
 }
 
@@ -1557,13 +1568,13 @@ export function secFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   const cos = Math.cos(num.v);
-  if (cos === 0) return { t: 'err', v: '#DIV/0!' };
+  if (cos === 0) return ErrNode.DIV0;
   return { t: 'num', v: 1 / cos };
 }
 
@@ -1576,9 +1587,9 @@ export function sechFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   return { t: 'num', v: 1 / Math.cosh(n.v) };
@@ -1593,12 +1604,12 @@ export function cschFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (n.v === 0) return { t: 'err', v: '#VALUE!' };
+  if (n.v === 0) return ErrNode.DIV0;
   return { t: 'num', v: 1 / Math.sinh(n.v) };
 }
 
@@ -1611,12 +1622,12 @@ export function cothFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (n.v === 0) return { t: 'err', v: '#VALUE!' };
+  if (n.v === 0) return ErrNode.DIV0;
   return { t: 'num', v: Math.cosh(n.v) / Math.sinh(n.v) };
 }
 
@@ -1629,9 +1640,9 @@ export function acotFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   return { t: 'num', v: Math.atan(1 / n.v) };
@@ -1646,12 +1657,12 @@ export function acothFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (Math.abs(n.v) <= 1) return { t: 'err', v: '#VALUE!' };
+  if (Math.abs(n.v) <= 1) return ErrNode.NUM;
   return { t: 'num', v: 0.5 * Math.log((n.v + 1) / (n.v - 1)) };
 }
 
@@ -1664,7 +1675,7 @@ export function multinomialFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
 
   let sum = 0;
   let denomProduct = 1;
@@ -1672,7 +1683,7 @@ export function multinomialFunc(
     const n = NumberArgs.map(visit(expr), grid);
     if (n.t === 'err') return n;
     const val = Math.trunc(n.v);
-    if (val < 0) return { t: 'err', v: '#VALUE!' };
+    if (val < 0) return ErrNode.NUM;
     sum += val;
     denomProduct *= gammaLanczos(val + 1);
   }
@@ -1688,9 +1699,9 @@ export function seriessumFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 4) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 4) return ErrNode.NA;
 
   const x = NumberArgs.map(visit(exprs[0]), grid);
   if (x.t === 'err') return x;
@@ -1707,7 +1718,7 @@ export function seriessumFunc(
   for (let i = 0; i < coeffsResult.v.length; i++) {
     const cell = grid!.get(coeffsResult.v[i]);
     const coeff = cell ? Number(cell.v) : 0;
-    if (isNaN(coeff)) return { t: 'err', v: '#VALUE!' };
+    if (isNaN(coeff)) return ErrNode.VALUE;
     sum += coeff * Math.pow(x.v, n.v + i * m.v);
   }
   return { t: 'num', v: sum };
@@ -1723,7 +1734,7 @@ export function sumsqFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let total = 0;
@@ -1747,12 +1758,12 @@ export function sumproductFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const arrays: number[][] = [];
@@ -1772,7 +1783,7 @@ export function sumproductFunc(
 
   const length = arrays[0].length;
   if (arrays.some((a) => a.length !== length)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   let total = 0;
@@ -1798,7 +1809,7 @@ export function randFunc(
 ): EvalNode {
   const args = ctx.args();
   if (args && args.expr().length > 0) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   return { t: 'num', v: Math.random() };
@@ -1815,12 +1826,12 @@ export function randbetweenFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const lowNode = NumberArgs.map(visit(exprs[0]), grid);
@@ -1836,7 +1847,7 @@ export function randbetweenFunc(
   const low = Math.ceil(lowNode.v);
   const high = Math.floor(highNode.v);
   if (low > high) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: Math.floor(Math.random() * (high - low + 1)) + low };
@@ -1851,9 +1862,9 @@ export function arabicFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const node = visit(exprs[0]);
   const strResult = toStr(node, grid);
   if (strResult.t === 'err') return strResult;
@@ -1864,7 +1875,7 @@ export function arabicFunc(
   for (let i = 0; i < text.length; i++) {
     const current = romanValues[text[i]];
     const next = i + 1 < text.length ? romanValues[text[i + 1]] : 0;
-    if (current === undefined) return { t: 'err', v: '#VALUE!' };
+    if (current === undefined) return ErrNode.VALUE;
     if (current < next) {
       result -= current;
     } else {
@@ -1883,14 +1894,14 @@ export function romanFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
 
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   let num = Math.trunc(n.v);
-  if (num < 0 || num > 3999) return { t: 'err', v: '#VALUE!' };
+  if (num < 0 || num > 3999) return ErrNode.VALUE;
   if (num === 0) return { t: 'str', v: '' };
 
   const values = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
@@ -1914,16 +1925,16 @@ export function permutFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 2) return ErrNode.NA;
   const nNode = NumberArgs.map(visit(exprs[0]), grid);
   if (nNode.t === 'err') return nNode;
   const kNode = NumberArgs.map(visit(exprs[1]), grid);
   if (kNode.t === 'err') return kNode;
   const n = Math.trunc(nNode.v);
   const k = Math.trunc(kNode.v);
-  if (n < 0 || k < 0 || k > n) return { t: 'err', v: '#VALUE!' };
+  if (n < 0 || k < 0 || k > n) return ErrNode.NUM;
   let result = 1;
   for (let i = n; i > n - k; i--) {
     result *= i;
@@ -1940,16 +1951,16 @@ export function permutationaFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 2) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
   const k = NumberArgs.map(visit(exprs[1]), grid);
   if (k.t === 'err') return k;
   const ni = Math.trunc(n.v);
   const ki = Math.trunc(k.v);
-  if (ni < 0 || ki < 0) return { t: 'err', v: '#VALUE!' };
+  if (ni < 0 || ki < 0) return ErrNode.NUM;
   return { t: 'num', v: Math.pow(ni, ki) };
 }
 
@@ -1962,9 +1973,9 @@ export function subtotalFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2) return ErrNode.NA;
 
   const fnNode = NumberArgs.map(visit(exprs[0]), grid);
   if (fnNode.t === 'err') return fnNode;
@@ -2004,14 +2015,14 @@ export function subtotalFunc(
       return { t: 'num', v: values.reduce((a, b) => a * b, 1) };
     case 7: { // STDEV
       const n = values.length;
-      if (n < 2) return { t: 'err', v: '#DIV/0!' };
+      if (n < 2) return ErrNode.DIV0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
       const variance = values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1);
       return { t: 'num', v: Math.sqrt(variance) };
     }
     case 8: { // STDEVP
       const n = values.length;
-      if (n === 0) return { t: 'err', v: '#DIV/0!' };
+      if (n === 0) return ErrNode.DIV0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
       const variance = values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n;
       return { t: 'num', v: Math.sqrt(variance) };
@@ -2020,18 +2031,18 @@ export function subtotalFunc(
       return { t: 'num', v: values.reduce((a, b) => a + b, 0) };
     case 10: { // VAR
       const n = values.length;
-      if (n < 2) return { t: 'err', v: '#DIV/0!' };
+      if (n < 2) return ErrNode.DIV0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
       return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / (n - 1) };
     }
     case 11: { // VARP
       const n = values.length;
-      if (n === 0) return { t: 'err', v: '#DIV/0!' };
+      if (n === 0) return ErrNode.DIV0;
       const mean = values.reduce((a, b) => a + b, 0) / n;
       return { t: 'num', v: values.reduce((a, v) => a + (v - mean) * (v - mean), 0) / n };
     }
     default:
-      return { t: 'err', v: '#VALUE!' };
+      return ErrNode.VALUE;
   }
 }
 
@@ -2045,9 +2056,9 @@ export function aggregateFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 3) return ErrNode.NA;
   const funcNum = NumberArgs.map(visit(exprs[0]), grid);
   if (funcNum.t === 'err') return funcNum;
   // Skip options (exprs[1])
@@ -2078,25 +2089,25 @@ export function aggregateFunc(
     case 5: return { t: 'num', v: nums.length > 0 ? Math.min(...nums) : 0 }; // MIN
     case 6: return { t: 'num', v: nums.reduce((a, b) => a * b, 1) }; // PRODUCT
     case 7: { // STDEV.S
-      if (nums.length < 2) return { t: 'err', v: '#VALUE!' };
+      if (nums.length < 2) return ErrNode.VALUE;
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
       const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1);
       return { t: 'num', v: Math.sqrt(variance) };
     }
     case 8: { // STDEV.P
-      if (nums.length === 0) return { t: 'err', v: '#VALUE!' };
+      if (nums.length === 0) return ErrNode.VALUE;
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
       const variance = nums.reduce((a, b) => a + (b - mean) ** 2, 0) / nums.length;
       return { t: 'num', v: Math.sqrt(variance) };
     }
     case 9: return { t: 'num', v: nums.reduce((a, b) => a + b, 0) }; // SUM
     case 10: { // VAR.S
-      if (nums.length < 2) return { t: 'err', v: '#VALUE!' };
+      if (nums.length < 2) return ErrNode.VALUE;
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
       return { t: 'num', v: nums.reduce((a, b) => a + (b - mean) ** 2, 0) / (nums.length - 1) };
     }
     case 11: { // VAR.P
-      if (nums.length === 0) return { t: 'err', v: '#VALUE!' };
+      if (nums.length === 0) return ErrNode.VALUE;
       const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
       return { t: 'num', v: nums.reduce((a, b) => a + (b - mean) ** 2, 0) / nums.length };
     }
@@ -2105,7 +2116,7 @@ export function aggregateFunc(
       const mid = Math.floor(sorted.length / 2);
       return { t: 'num', v: sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid] };
     }
-    default: return { t: 'err', v: '#VALUE!' };
+    default: return ErrNode.VALUE;
   }
 }
 
@@ -2118,14 +2129,14 @@ export function mdetermFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
 
   const node = visit(exprs[0]);
   if (node.t === 'err') return node;
   if (node.t === 'num') return node; // 1x1 matrix
-  if (node.t !== 'ref' || !grid) return { t: 'err', v: '#VALUE!' };
+  if (node.t !== 'ref' || !grid) return ErrNode.VALUE;
 
   // Parse range to get dimensions
   const ref = node.v;
@@ -2133,14 +2144,14 @@ export function mdetermFunc(
     // Single cell = 1x1 matrix
     const cell = grid.get(ref);
     const v = cell?.v || '';
-    if (v === '' || isNaN(Number(v))) return { t: 'err', v: '#VALUE!' };
+    if (v === '' || isNaN(Number(v))) return ErrNode.VALUE;
     return { t: 'num', v: Number(v) };
   }
 
   const range = parseRange(ref);
   const rows = range[1].r - range[0].r + 1;
   const cols = range[1].c - range[0].c + 1;
-  if (rows !== cols) return { t: 'err', v: '#VALUE!' };
+  if (rows !== cols) return ErrNode.VALUE;
 
   // Build matrix
   const matrix: number[][] = [];
@@ -2150,7 +2161,7 @@ export function mdetermFunc(
       const cellRef = toSref({ r, c });
       const cell = grid.get(cellRef);
       const v = cell?.v || '';
-      if (v === '' || isNaN(Number(v))) return { t: 'err', v: '#VALUE!' };
+      if (v === '' || isNaN(Number(v))) return ErrNode.VALUE;
       row.push(Number(v));
     }
     matrix.push(row);
@@ -2185,20 +2196,20 @@ export function mmultFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 2) return ErrNode.NA;
 
   const m1 = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m1 && m1.t === 'err') return m1;
   const m2 = getReferenceMatrixFromExpression(exprs[1], visit, grid);
   if ('t' in m2 && m2.t === 'err') return m2;
-  if (m1.t !== 'matrix' || m2.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m1.t !== 'matrix' || m2.t !== 'matrix') return ErrNode.VALUE;
 
   const a = m1.v;
   const b = m2.v;
   // a.colCount must equal b.rowCount
-  if (a.colCount !== b.rowCount) return { t: 'err', v: '#VALUE!' };
+  if (a.colCount !== b.rowCount) return ErrNode.VALUE;
 
   const getVal = (refs: string[], row: number, col: number, cols: number): number => {
     const cellVal = grid?.get(refs[row * cols + col])?.v;
@@ -2231,16 +2242,16 @@ export function minverseFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return { t: 'err', v: '#VALUE!' };
+  if (m.t !== 'matrix') return ErrNode.VALUE;
 
   const n = m.v.rowCount;
-  if (n !== m.v.colCount) return { t: 'err', v: '#VALUE!' };
+  if (n !== m.v.colCount) return ErrNode.VALUE;
 
   // Build augmented matrix [A | I]
   const aug: number[][] = [];
@@ -2267,7 +2278,7 @@ export function minverseFunc(
         maxRow = row;
       }
     }
-    if (maxVal < 1e-12) return { t: 'err', v: '#VALUE!' }; // Singular
+    if (maxVal < 1e-12) return ErrNode.VALUE; // Singular
     if (maxRow !== col) {
       [aug[col], aug[maxRow]] = [aug[maxRow], aug[col]];
     }
@@ -2298,12 +2309,12 @@ export function munitFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (n.v < 1) return { t: 'err', v: '#VALUE!' };
+  if (n.v < 1) return ErrNode.VALUE;
   // Top-left element of identity matrix is always 1
   return { t: 'num', v: 1 };
 }
@@ -2351,12 +2362,12 @@ export function log10Func(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (n.v <= 0) return { t: 'err', v: '#VALUE!' };
+  if (n.v <= 0) return ErrNode.VALUE;
   return { t: 'num', v: Math.log10(n.v) };
 }
 
