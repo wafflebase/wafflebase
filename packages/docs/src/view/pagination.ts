@@ -408,3 +408,27 @@ export function resolveClickTarget(
   }
   return 'body';
 }
+
+/**
+ * Find the first PageLine matching a given blockIndex and lineIndex.
+ * Returns the PageLine together with its pageIndex and absolute pageY,
+ * or undefined if no match is found.
+ */
+export function findPageLine(
+  paginatedLayout: PaginatedLayout,
+  blockIndex: number,
+  lineIndex: number,
+): { pageLine: PageLine; pageIndex: number; pageY: number } | undefined {
+  for (const page of paginatedLayout.pages) {
+    for (const pl of page.lines) {
+      if (pl.blockIndex === blockIndex && pl.lineIndex === lineIndex) {
+        return {
+          pageLine: pl,
+          pageIndex: page.pageIndex,
+          pageY: getPageYOffset(paginatedLayout, page.pageIndex),
+        };
+      }
+    }
+  }
+  return undefined;
+}

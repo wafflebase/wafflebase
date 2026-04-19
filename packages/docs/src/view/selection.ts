@@ -2,7 +2,7 @@ import type { DocPosition, DocRange, TableCellRange, TableData, CellAddress } fr
 import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
-import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
+import { findPageForPosition, findPageLine, getPageYOffset, getPageXOffset } from './pagination.js';
 import { resolvePositionPixel } from './peer-cursor.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 import { resolveNestedTableLayout } from './table-layout.js';
@@ -377,30 +377,16 @@ function buildRects(
     const isNested = resolved.outerRowIndex >= 0;
     const resolveLineAbsoluteY = (ownerRow: number, runLineY: number): number | undefined => {
       if (isNested) {
-        // For nested tables, find the outer row's page position and
-        // add the accumulated Y offset + inner row offset
         const outerRow = resolved.outerRowIndex;
-        for (const page of paginatedLayout.pages) {
-          for (const pl of page.lines) {
-            if (pl.blockIndex === blockIndex && pl.lineIndex === outerRow) {
-              const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-              return pageY + pl.y + nestedYOff
-                + tl.rowYOffsets[ownerRow]
-                + (runLineY - tl.rowYOffsets[ownerRow]);
-            }
-          }
-        }
-        return undefined;
+        const found = findPageLine(paginatedLayout, blockIndex, outerRow);
+        if (!found) return undefined;
+        return found.pageY + found.pageLine.y + nestedYOff
+          + tl.rowYOffsets[ownerRow]
+          + (runLineY - tl.rowYOffsets[ownerRow]);
       }
-      for (const page of paginatedLayout.pages) {
-        for (const pl of page.lines) {
-          if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
-            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-            return pageY + pl.y + (runLineY - tl.rowYOffsets[ownerRow]);
-          }
-        }
-      }
-      return undefined;
+      const found = findPageLine(paginatedLayout, blockIndex, ownerRow);
+      if (!found) return undefined;
+      return found.pageY + found.pageLine.y + (runLineY - tl.rowYOffsets[ownerRow]);
     };
 
     const cellRects: Array<{ x: number; y: number; width: number; height: number }> = [];
@@ -575,15 +561,9 @@ function buildCellRangeRects(
   // contains the nested table. For top-level tables, build the full row map.
   let baseY = 0;
   if (outerRowIndex >= 0) {
-    // Nested table — find the page line for the outer row
-    for (const page of paginatedLayout.pages) {
-      const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-      for (const pl of page.lines) {
-        if (pl.blockIndex === blockIndex && pl.lineIndex === outerRowIndex) {
-          baseY = pageY + pl.y + nestedYOffset;
-          break;
-        }
-      }
+    const found = findPageLine(paginatedLayout, blockIndex, outerRowIndex);
+    if (found) {
+      baseY = found.pageY + found.pageLine.y + nestedYOffset;
     }
   }
 
