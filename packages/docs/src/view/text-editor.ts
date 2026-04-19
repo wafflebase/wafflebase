@@ -2604,6 +2604,25 @@ export class TextEditor {
       if (block.headingLevel !== undefined) cloned.headingLevel = block.headingLevel;
       if (block.listKind !== undefined) cloned.listKind = block.listKind;
       if (block.listLevel !== undefined) cloned.listLevel = block.listLevel;
+      if (block.tableData) {
+        cloned.tableData = {
+          columnWidths: [...block.tableData.columnWidths],
+          ...(block.tableData.rowHeights ? { rowHeights: [...block.tableData.rowHeights] } : {}),
+          rows: block.tableData.rows.map(row => ({
+            cells: row.cells.map(cell => ({
+              style: { ...cell.style },
+              ...(cell.colSpan != null ? { colSpan: cell.colSpan } : {}),
+              ...(cell.rowSpan != null ? { rowSpan: cell.rowSpan } : {}),
+              blocks: cell.blocks.map(b => ({
+                ...b,
+                id: generateBlockId(),
+                inlines: b.inlines.map(il => ({ text: il.text, style: { ...il.style } })),
+                style: { ...b.style },
+              })),
+            })),
+          })),
+        };
+      }
       result.push(cloned);
     }
 
@@ -2702,7 +2721,6 @@ export class TextEditor {
     // If cursor is on a non-editable block, split to create a text block first
     this.ensureEditableBlock();
     const pos = this.cursor.position;
-
     if (blocks.length === 1) {
       // Single block: merge pasted inlines into the current block at cursor
       const pastedInlines = blocks[0].inlines;
