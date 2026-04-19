@@ -77,6 +77,42 @@ const isMac =
   /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 const modKey = isMac ? "⌘" : "Ctrl";
 
+function AlignmentDropdown({ onAlign }: { onAlign: (alignment: "left" | "center" | "right" | "justify") => void }) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
+              <IconAlignLeft size={16} />
+              <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Text alignment</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent className="w-[200px]">
+        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("left")}>
+          <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
+          <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("center")}>
+          <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
+          <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("right")}>
+          <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
+          <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("justify")}>
+          <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
+          <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function TableDropdown({ editor }: { editor: EditorAPI | null }) {
   const [open, setOpen] = useState(false);
   return (
@@ -403,37 +439,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
         <ToolbarSeparator />
 
         {/* ── Alignment ── */}
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
-                  <IconAlignLeft size={16} />
-                  <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                </button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>Text alignment</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent className="w-[200px]">
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
-              <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
-              <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
-              <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
-              <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AlignmentDropdown onAlign={handleAlign} />
 
         <ToolbarSeparator />
 
@@ -637,40 +643,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <ToolbarSeparator />
 
           {/* ── Block Styles ── */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted"
-                    aria-label="Text alignment"
-                  >
-                    <IconAlignLeft size={16} />
-                    <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Text alignment</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent className="w-[200px]">
-              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
-                <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
-                <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
-                <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
-                <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
-                <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
-                <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
-                <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
-                <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <AlignmentDropdown onAlign={handleAlign} />
 
           <Tooltip>
             <TooltipTrigger asChild>
