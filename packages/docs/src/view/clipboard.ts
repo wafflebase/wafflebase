@@ -48,6 +48,22 @@ export function deserializeClipboard(json: string): ClipboardData {
   }
 }
 
+export function cloneTableCells(cells: TableCell[][]): TableCell[][] {
+  return cells.map(row =>
+    row.map(cell => ({
+      style: { ...cell.style },
+      ...(cell.colSpan != null ? { colSpan: cell.colSpan } : {}),
+      ...(cell.rowSpan != null ? { rowSpan: cell.rowSpan } : {}),
+      blocks: cell.blocks.map(b => ({
+        ...b,
+        id: generateBlockId(),
+        inlines: b.inlines.map(il => ({ text: il.text, style: { ...il.style } })),
+        style: { ...b.style },
+      })),
+    }))
+  );
+}
+
 export const WAFFLEDOCS_MIME = 'application/x-waffledocs';
 
 /**
