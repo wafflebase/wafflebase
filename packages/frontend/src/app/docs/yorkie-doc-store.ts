@@ -481,9 +481,19 @@ export class YorkieDocStore implements DocStore {
     const doc = this.getDocument();
     const hadHeader = !!doc.header;
 
+    // If tree is not initialized yet, fall back to full document write.
+    const root = this.doc.getRoot();
+    const tree = root.content;
+    if (!tree || typeof tree.getRootTreeNode !== 'function') {
+      doc.header = header;
+      this.writeFullDocument(doc);
+      this.cachedDoc = cloneDocument(doc);
+      this.dirty = false;
+      return;
+    }
+
     this.doc.update((root) => {
       const tree = root.content;
-      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
       if (header) {
         const node: ElementNode = {
@@ -492,14 +502,11 @@ export class YorkieDocStore implements DocStore {
           children: header.blocks.map(buildBlockNode),
         };
         if (hadHeader) {
-          // Replace existing header
           tree.editByPath([0], [1], node);
         } else {
-          // Insert new header at the beginning
           tree.editByPath([0], [0], node);
         }
       } else if (hadHeader) {
-        // Remove existing header
         tree.editByPath([0], [1]);
       }
     });
@@ -513,10 +520,19 @@ export class YorkieDocStore implements DocStore {
     const doc = this.getDocument();
     const hadFooter = !!doc.footer;
 
+    // If tree is not initialized yet, fall back to full document write.
+    const root = this.doc.getRoot();
+    const tree = root.content;
+    if (!tree || typeof tree.getRootTreeNode !== 'function') {
+      doc.footer = footer;
+      this.writeFullDocument(doc);
+      this.cachedDoc = cloneDocument(doc);
+      this.dirty = false;
+      return;
+    }
+
     this.doc.update((root) => {
       const tree = root.content;
-      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-
       const treeRoot = tree.getRootTreeNode() as ElementNode;
       const childCount = (treeRoot.children ?? []).length;
 
@@ -527,14 +543,11 @@ export class YorkieDocStore implements DocStore {
           children: footer.blocks.map(buildBlockNode),
         };
         if (hadFooter) {
-          // Replace existing footer (last child)
           tree.editByPath([childCount - 1], [childCount], node);
         } else {
-          // Append new footer at the end
           tree.editByPath([childCount], [childCount], node);
         }
       } else if (hadFooter) {
-        // Remove existing footer (last child)
         tree.editByPath([childCount - 1], [childCount]);
       }
     });
