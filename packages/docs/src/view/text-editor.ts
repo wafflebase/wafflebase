@@ -3616,7 +3616,8 @@ export class TextEditor {
       for (const pl of page.lines) {
         if (pl.blockIndex !== blockIndex) continue;
         const top = pageY + pl.y;
-        const bottom = top + pl.line.height;
+        const visibleHeight = pl.rowSplitHeight ?? pl.line.height;
+        const bottom = top + visibleHeight;
         if (top < firstRowTop) firstRowTop = top;
         if (bottom > lastRowBottom) {
           lastRowBottom = bottom;
