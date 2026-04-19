@@ -7,6 +7,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import type { ChartDataset } from "../chart-utils";
+import { getLegendProps } from "./chart-registry";
 
 type Props = {
   dataset: ChartDataset;
@@ -46,19 +47,7 @@ export function ScatterChartRenderer({
         />
         <ChartTooltip content={<ChartTooltipContent />} />
         {legendPosition !== "none" && (
-          <ChartLegend
-            content={<ChartLegendContent />}
-            verticalAlign={
-              legendPosition === "top" || legendPosition === "bottom"
-                ? legendPosition
-                : undefined
-            }
-            align={
-              legendPosition === "left" || legendPosition === "right"
-                ? legendPosition
-                : undefined
-            }
-          />
+          <ChartLegend content={<ChartLegendContent />} {...getLegendProps(legendPosition)} />
         )}
         {dataset.series.map((series) => {
           const seriesData = dataset.rows.map((row) => ({
