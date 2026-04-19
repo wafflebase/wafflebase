@@ -3635,13 +3635,25 @@ export class TextEditor {
       const blockIndex = layout.blocks.indexOf(lb);
 
       // Cache ownerRow → page Y + pl.y so we avoid an O(pages*lines)
-      // lookup per click.
-      const rowPageInfo = new Map<number, { pageY: number; plY: number }>();
+      // lookup per click. For split rows, prefer the fragment whose
+      // visible range contains the click Y (multiple PageLines share
+      // the same lineIndex).
+      const rowPageInfo = new Map<number, { pageY: number; plY: number; splitOffset: number }>();
       for (const page of paginatedLayout.pages) {
         const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
         for (const pl of page.lines) {
           if (pl.blockIndex !== blockIndex) continue;
-          rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y });
+          const existing = rowPageInfo.get(pl.lineIndex);
+          if (!existing) {
+            rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y, splitOffset: pl.rowSplitOffset ?? 0 });
+          } else if (logicalY !== undefined && pl.rowSplitOffset !== undefined) {
+            // Split fragment: use the one whose page contains the click
+            const fragTop = pageY + pl.y;
+            const fragBottom = fragTop + (pl.rowSplitHeight ?? pl.line.height);
+            if (logicalY >= fragTop && logicalY < fragBottom) {
+              rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y, splitOffset: pl.rowSplitOffset });
+            }
+          }
         }
       }
 
@@ -3651,7 +3663,7 @@ export class TextEditor {
         const info = rowPageInfo.get(ll.ownerRow);
         if (!info) continue;
         const lineAbsY =
-          info.pageY + info.plY + (ll.runLineY - tl.rowYOffsets[ll.ownerRow]);
+          info.pageY + info.plY + (ll.runLineY - tl.rowYOffsets[ll.ownerRow]) - info.splitOffset;
         if (logicalY < lineAbsY + cell.lines[li].height) {
           targetLineIdx = li;
           break;
