@@ -1,3 +1,4 @@
+import { toRange } from '../core/coordinates';
 import { Axis, CellStyle, Range } from '../core/types';
 
 export type RangeStylePatch = {
@@ -55,23 +56,12 @@ export function mergeStylePatch(
   return next as CellStyle;
 }
 
-function normalizeRange(range: Range): Range {
-  const top = Math.min(range[0].r, range[1].r);
-  const left = Math.min(range[0].c, range[1].c);
-  const bottom = Math.max(range[0].r, range[1].r);
-  const right = Math.max(range[0].c, range[1].c);
-  return [
-    { r: top, c: left },
-    { r: bottom, c: right },
-  ];
-}
-
 /**
  * Creates a deep copy of a range-style patch with normalized coordinates.
  */
 export function cloneRangeStylePatch(patch: RangeStylePatch): RangeStylePatch {
   return {
-    range: normalizeRange(patch.range),
+    range: toRange(patch.range[0], patch.range[1]),
     style: { ...patch.style },
   };
 }
@@ -87,7 +77,7 @@ export function normalizeRangeStylePatch(
     return undefined;
   }
   return {
-    range: normalizeRange(patch.range),
+    range: toRange(patch.range[0], patch.range[1]),
     style,
   };
 }
@@ -440,7 +430,7 @@ export function clipRangeStylePatches(
   patches: RangeStylePatch[],
   clipRange: Range,
 ): RangeStylePatch[] {
-  const normalizedClip = normalizeRange(clipRange);
+  const normalizedClip = toRange(clipRange[0], clipRange[1]);
   const clipped: RangeStylePatch[] = [];
 
   for (const patch of patches) {
@@ -518,8 +508,8 @@ export function subtractRange(
   patch: RangeStylePatch,
   hole: Range,
 ): RangeStylePatch[] {
-  const p = normalizeRange(patch.range);
-  const h = normalizeRange(hole);
+  const p = toRange(patch.range[0], patch.range[1]);
+  const h = toRange(hole[0], hole[1]);
 
   // No intersection — return the patch unchanged.
   if (p[0].r > h[1].r || p[1].r < h[0].r || p[0].c > h[1].c || p[1].c < h[0].c) {
