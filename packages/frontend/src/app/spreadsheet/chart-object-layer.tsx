@@ -1,9 +1,9 @@
-import {
-  type PointerEvent as ReactPointerEvent,
-  useEffect,
-  useState,
-} from "react";
+import { type PointerEvent as ReactPointerEvent } from "react";
 import { parseRef, Spreadsheet } from "@wafflebase/sheets";
+import { type DraftLayout, type HandlePosition } from "./object-layer-utils";
+import { SelectionOverlay } from "./selection-overlay";
+import { ObjectLayerViewport } from "./object-layer-viewport";
+import { useObjectKeyboardShortcuts, useObjectDragResize } from "./use-object-layer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,33 +21,13 @@ type ChartObjectLayerProps = {
   tabId: string;
   readOnly: boolean;
   selectedChartId: string | null;
-  onSelectChart: (chartId: string) => void;
+  onSelectChart: (chartId: string | null) => void;
   onRequestEditChart: (chartId: string) => void;
   onDeleteChart: (chartId: string) => void;
   onUpdateChart: (chartId: string, patch: Partial<SheetChart>) => void;
   renderVersion: number;
 };
 
-type DraftLayout = {
-  offsetX: number;
-  offsetY: number;
-  width: number;
-  height: number;
-};
-
-type DragState = {
-  chartId: string;
-  mode: "move" | "resize";
-  startX: number;
-  startY: number;
-  startOffsetX: number;
-  startOffsetY: number;
-  startWidth: number;
-  startHeight: number;
-};
-
-const MIN_CHART_WIDTH = 240;
-const MIN_CHART_HEIGHT = 160;
 const MIN_Y_AXIS_WIDTH = 40;
 const MAX_Y_AXIS_WIDTH = 96;
 
@@ -75,167 +55,90 @@ export function ChartObjectLayer({
   onUpdateChart,
   renderVersion,
 }: ChartObjectLayerProps) {
-  const [dragState, setDragState] = useState<DragState | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, DraftLayout>>({});
-
   const charts = Object.values(root.sheets[tabId]?.charts || {});
 
-  useEffect(() => {
-    if (!dragState || readOnly) return;
+  useObjectKeyboardShortcuts({
+    selectedId: selectedChartId,
+    readOnly,
+    items: charts,
+    onDelete: onDeleteChart,
+    onDeselect: () => onSelectChart(null),
+    onUpdate: onUpdateChart,
+  });
 
-    let latestX = dragState.startX;
-    let latestY = dragState.startY;
-
-    const toDraft = (clientX: number, clientY: number): DraftLayout => {
-      // Drag deltas are in screen pixels; convert to logical pixels.
-      const z = spreadsheet?.getZoom() ?? 1;
-      const deltaX = (clientX - dragState.startX) / z;
-      const deltaY = (clientY - dragState.startY) / z;
-
-      if (dragState.mode === "move") {
-        return {
-          offsetX: dragState.startOffsetX + deltaX,
-          offsetY: dragState.startOffsetY + deltaY,
-          width: dragState.startWidth,
-          height: dragState.startHeight,
-        };
-      }
-
-      return {
-        offsetX: dragState.startOffsetX,
-        offsetY: dragState.startOffsetY,
-        width: Math.max(MIN_CHART_WIDTH, dragState.startWidth + deltaX),
-        height: Math.max(MIN_CHART_HEIGHT, dragState.startHeight + deltaY),
-      };
-    };
-
-    const onPointerMove = (event: PointerEvent) => {
-      latestX = event.clientX;
-      latestY = event.clientY;
-      const nextDraft = toDraft(latestX, latestY);
-      setDrafts((prev) => ({
-        ...prev,
-        [dragState.chartId]: nextDraft,
-      }));
-    };
-
-    const onPointerUp = () => {
-      const nextDraft = toDraft(latestX, latestY);
-      onUpdateChart(dragState.chartId, nextDraft);
-      setDrafts((prev) => {
-        const remaining = { ...prev };
-        delete remaining[dragState.chartId];
-        return remaining;
-      });
-      setDragState(null);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-    };
-  }, [dragState, onUpdateChart, readOnly, spreadsheet]);
+  const { setDragState, drafts } = useObjectDragResize({
+    readOnly,
+    spreadsheet,
+    lockAspectRatio: false,
+    items: charts,
+    onUpdate: onUpdateChart,
+  });
 
   if (!spreadsheet || charts.length === 0) {
     return null;
   }
 
   const zoom = spreadsheet.getZoom();
-  const viewport = spreadsheet.getGridViewportRect();
-  const scrollableViewport = spreadsheet.getScrollableGridViewportRect();
-  const clipLeft = Math.max(0, scrollableViewport.left - viewport.left);
-  const clipTop = Math.max(0, scrollableViewport.top - viewport.top);
-  const clipWidth = Math.max(0, scrollableViewport.width);
-  const clipHeight = Math.max(0, scrollableViewport.height);
-
-  if (clipWidth === 0 || clipHeight === 0) {
-    return null;
-  }
 
   return (
-    <div
-      className="absolute pointer-events-none overflow-hidden"
-      data-render-version={renderVersion}
-      style={{
-        left: viewport.left,
-        top: viewport.top,
-        width: viewport.width,
-        height: viewport.height,
-        zIndex: 4,
-      }}
+    <ObjectLayerViewport
+      spreadsheet={spreadsheet}
+      zIndex={4}
+      renderVersion={renderVersion}
     >
-      <div
-        className="absolute pointer-events-none overflow-hidden"
-        style={{
-          left: clipLeft,
-          top: clipTop,
-          width: clipWidth,
-          height: clipHeight,
-        }}
-      >
-        <div
-          className="relative h-full w-full pointer-events-none"
-          style={{
-            left: -clipLeft,
-            top: -clipTop,
-            width: viewport.width,
-            height: viewport.height,
-          }}
-        >
-          {charts.map((chart) => {
-            const layout = drafts[chart.id] || {
-              offsetX: chart.offsetX,
-              offsetY: chart.offsetY,
-              width: chart.width,
-              height: chart.height,
-            };
-            return (
-              <ChartObject
-                key={chart.id}
-                chart={chart}
-                root={root}
-                spreadsheet={spreadsheet}
-                zoom={zoom}
-                selected={selectedChartId === chart.id}
-                readOnly={readOnly}
-                layout={layout}
-                onSelect={() => onSelectChart(chart.id)}
-                onRequestEdit={() => onRequestEditChart(chart.id)}
-                onDelete={() => onDeleteChart(chart.id)}
-                onMoveStart={(event) => {
-                  onSelectChart(chart.id);
-                  setDragState({
-                    chartId: chart.id,
-                    mode: "move",
-                    startX: event.clientX,
-                    startY: event.clientY,
-                    startOffsetX: layout.offsetX,
-                    startOffsetY: layout.offsetY,
-                    startWidth: layout.width,
-                    startHeight: layout.height,
-                  });
-                }}
-                onResizeStart={(event) => {
-                  onSelectChart(chart.id);
-                  setDragState({
-                    chartId: chart.id,
-                    mode: "resize",
-                    startX: event.clientX,
-                    startY: event.clientY,
-                    startOffsetX: layout.offsetX,
-                    startOffsetY: layout.offsetY,
-                    startWidth: layout.width,
-                    startHeight: layout.height,
-                  });
-                }}
-              />
-            );
-          })}
-        </div>
-      </div>
-    </div>
+      {charts.map((chart) => {
+        const layout = drafts[chart.id] || {
+          offsetX: chart.offsetX,
+          offsetY: chart.offsetY,
+          width: chart.width,
+          height: chart.height,
+        };
+        return (
+          <ChartObject
+            key={chart.id}
+            chart={chart}
+            root={root}
+            spreadsheet={spreadsheet}
+            zoom={zoom}
+            selected={selectedChartId === chart.id}
+            readOnly={readOnly}
+            layout={layout}
+            onSelect={() => onSelectChart(chart.id)}
+            onRequestEdit={() => onRequestEditChart(chart.id)}
+            onDelete={() => onDeleteChart(chart.id)}
+            onMoveStart={(event) => {
+              onSelectChart(chart.id);
+              setDragState({
+                objectId: chart.id,
+                mode: "move",
+                startX: event.clientX,
+                startY: event.clientY,
+                startOffsetX: layout.offsetX,
+                startOffsetY: layout.offsetY,
+                startWidth: layout.width,
+                startHeight: layout.height,
+                aspectRatio: 1,
+              });
+            }}
+            onResizeStart={(event, handle) => {
+              onSelectChart(chart.id);
+              setDragState({
+                objectId: chart.id,
+                mode: "resize",
+                handle,
+                startX: event.clientX,
+                startY: event.clientY,
+                startOffsetX: layout.offsetX,
+                startOffsetY: layout.offsetY,
+                startWidth: layout.width,
+                startHeight: layout.height,
+                aspectRatio: 1,
+              });
+            }}
+          />
+        );
+      })}
+    </ObjectLayerViewport>
   );
 }
 
@@ -264,7 +167,10 @@ function ChartObject({
   onRequestEdit: () => void;
   onDelete: () => void;
   onMoveStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizeStart: (
+    event: ReactPointerEvent<HTMLDivElement>,
+    handle: HandlePosition,
+  ) => void;
 }) {
   let anchorRect;
   try {
@@ -310,23 +216,21 @@ function ChartObject({
         top,
         width: layout.width * zoom,
         height: layout.height * zoom,
-        borderColor: selected ? "var(--color-primary)" : undefined,
+        cursor: readOnly ? "default" : "move",
       }}
       onPointerDown={(event) => {
+        if (readOnly) {
+          event.stopPropagation();
+          onSelect();
+          return;
+        }
+        event.preventDefault();
         event.stopPropagation();
-        onSelect();
+        onMoveStart(event);
       }}
     >
       <div className="flex shrink-0 items-center justify-between border-b px-2 py-1 text-xs font-medium">
-        <div
-          className={`min-w-0 flex-1 ${readOnly ? "" : "cursor-move"}`}
-          onPointerDown={(event) => {
-            if (readOnly) return;
-            event.preventDefault();
-            event.stopPropagation();
-            onMoveStart(event);
-          }}
-        >
+        <div className="min-w-0 flex-1">
           <span className="truncate">{chart.title || "Chart"}</span>
         </div>
         {!readOnly && (
@@ -397,17 +301,15 @@ function ChartObject({
             Unsupported chart type
           </div>
         )}
-        {!readOnly && selected && (
-          <div
-            className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize rounded-tl border-l border-t bg-background"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onResizeStart(event);
-            }}
-          />
-        )}
       </div>
+      {selected && (
+        <SelectionOverlay
+          width={layout.width * zoom}
+          height={layout.height * zoom}
+          readOnly={readOnly}
+          onResizeStart={onResizeStart}
+        />
+      )}
     </div>
   );
 }
@@ -425,22 +327,17 @@ function formatYAxisTick(value: number | string): string {
   return plainTickFormatter.format(numeric);
 }
 
-function getYAxisWidth(dataset: ReturnType<typeof buildChartDataset>): number {
-  let maxLabelLength = 1;
-
+function getYAxisWidth(dataset: {
+  rows: Record<string, unknown>[];
+  series: { key: string }[];
+}): number {
+  let maxLen = 0;
   for (const row of dataset.rows) {
-    for (const series of dataset.series) {
-      const value = row[series.key];
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        continue;
-      }
-
-      maxLabelLength = Math.max(maxLabelLength, formatYAxisTick(value).length);
+    for (const s of dataset.series) {
+      const v = row[s.key];
+      const str = typeof v === "number" ? formatYAxisTick(v) : String(v ?? "");
+      if (str.length > maxLen) maxLen = str.length;
     }
   }
-
-  return Math.min(
-    MAX_Y_AXIS_WIDTH,
-    Math.max(MIN_Y_AXIS_WIDTH, Math.round(maxLabelLength * 7.2 + 10)),
-  );
+  return Math.max(MIN_Y_AXIS_WIDTH, Math.min(MAX_Y_AXIS_WIDTH, maxLen * 8 + 16));
 }

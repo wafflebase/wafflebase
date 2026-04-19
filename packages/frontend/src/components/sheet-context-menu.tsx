@@ -42,6 +42,8 @@ interface SheetContextMenuProps {
   onInsertAfter: () => void;
   onDeleteRowCol: () => void;
   onInsertPivotTable?: () => void;
+  onDeleteImage?: () => void;
+  selectedImageId?: string | null;
 }
 
 export function SheetContextMenu({
@@ -56,6 +58,8 @@ export function SheetContextMenu({
   onInsertAfter,
   onDeleteRowCol,
   onInsertPivotTable,
+  onDeleteImage,
+  selectedImageId,
 }: SheetContextMenuProps) {
   const [menuType, setMenuType] = useState<MenuType>("cell");
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(
@@ -196,6 +200,14 @@ export function SheetContextMenu({
                 <ContextMenuSeparator />
                 <ContextMenuItem disabled={readOnly} onSelect={onInsertPivotTable}>
                   <IconLayoutRows size={16} /> Insert pivot table
+                </ContextMenuItem>
+              </>
+            )}
+            {selectedImageId && onDeleteImage && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem disabled={readOnly} onSelect={onDeleteImage}>
+                  <IconTrash size={16} /> Delete image
                 </ContextMenuItem>
               </>
             )}

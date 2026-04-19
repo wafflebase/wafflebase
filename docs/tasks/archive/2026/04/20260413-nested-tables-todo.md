@@ -1,6 +1,6 @@
 # Nested Tables Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Support recursively nested tables in the Docs editor — a table cell can contain another table.
 
@@ -37,7 +37,7 @@ Enable `BlockParentMap` to register blocks inside nested tables and make `getBlo
 - Modify: `packages/docs/src/model/document.ts:121-167`
 - Create: `packages/docs/test/model/nested-table.test.ts`
 
-- [ ] **Step 1: Write failing test — nested table block lookup**
+- [x] **Step 1: Write failing test — nested table block lookup**
 
 Create `packages/docs/test/model/nested-table.test.ts`:
 
@@ -153,12 +153,12 @@ describe('Nested table data model', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && npx vitest run test/model/nested-table.test.ts`
 Expected: FAIL — `getBlock()` cannot find blocks inside nested tables because `BlockParentMap` only maps one level and `getBlock()` only searches top-level table blocks.
 
-- [ ] **Step 3: Make getBlock()/findBlock() support nested tables**
+- [x] **Step 3: Make getBlock()/findBlock() support nested tables**
 
 The current `getBlock()` at `document.ts:131-139` looks up `cellInfo.tableBlockId` only in `this._document.blocks` (top-level). For nested tables, the parent table is itself inside a cell. Change the lookup to be recursive:
 
@@ -229,17 +229,17 @@ findBlock(blockId: string): Block | undefined {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && npx vitest run test/model/nested-table.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Run full test suite**
+- [x] **Step 5: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: All existing tests still pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts packages/docs/test/model/nested-table.test.ts
@@ -261,7 +261,7 @@ Make `layoutCellBlocks()` handle `block.type === 'table'` by calling `computeTab
 - Modify: `packages/docs/src/view/table-layout.ts:237-376` (computeTableLayout — blockParentMap merge)
 - Create: `packages/docs/test/view/nested-table-layout.test.ts`
 
-- [ ] **Step 1: Write failing test — nested table layout**
+- [x] **Step 1: Write failing test — nested table layout**
 
 Create `packages/docs/test/view/nested-table-layout.test.ts`:
 
@@ -345,12 +345,12 @@ describe('Nested table layout', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && npx vitest run test/view/nested-table-layout.test.ts`
 Expected: FAIL — `layoutCellBlocks()` doesn't handle table blocks, so nested table height is 0 and no `nestedTable` field exists on `LayoutLine`.
 
-- [ ] **Step 3: Add nestedTable field to LayoutLine**
+- [x] **Step 3: Add nestedTable field to LayoutLine**
 
 In `packages/docs/src/view/layout.ts`, add the import and field:
 
@@ -368,7 +368,7 @@ export interface LayoutLine {
 }
 ```
 
-- [ ] **Step 4: Make layoutCellBlocks() handle table blocks recursively**
+- [x] **Step 4: Make layoutCellBlocks() handle table blocks recursively**
 
 In `packages/docs/src/view/table-layout.ts`, modify `layoutCellBlocks()` (around line 199-221). The function needs access to the outer `tableBlockId` and an accumulator for the merged `blockParentMap`. Change the function signature and add the table block handling:
 
@@ -476,17 +476,17 @@ const { lines, blockBoundaries } = layoutCellBlocks(
 // direct children. The nested maps are already merged via layoutCellBlocks.
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd packages/docs && npx vitest run test/view/nested-table-layout.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/docs/src/view/layout.ts packages/docs/src/view/table-layout.ts packages/docs/test/view/nested-table-layout.test.ts
@@ -507,7 +507,7 @@ Make `renderTableContent()` and `renderTableBackgrounds()` recurse when a line h
 - Modify: `packages/docs/src/view/table-renderer.ts:93-148` (renderTableBackgrounds)
 - Modify: `packages/docs/src/view/table-renderer.ts:260-358` (renderTableContent, per-line loop)
 
-- [ ] **Step 1: Add nested table rendering in renderTableContent()**
+- [x] **Step 1: Add nested table rendering in renderTableContent()**
 
 In `packages/docs/src/view/table-renderer.ts`, inside the per-line loop (around line 260), add a check before the run loop:
 
@@ -587,12 +587,12 @@ if (line.nestedTable) {
 }
 ```
 
-- [ ] **Step 2: Run full test suite**
+- [x] **Step 2: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass. (Rendering tests may not cover nested tables yet, but no regressions.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/docs/src/view/table-renderer.ts
@@ -613,7 +613,7 @@ Modify the editor's `insertTable()` to work when the cursor is inside a table ce
 - Modify: `packages/docs/src/view/editor.ts:1849-1873`
 - Modify: `packages/docs/src/model/document.ts` (add `insertTableInCell()`)
 
-- [ ] **Step 1: Write failing test — insert table inside cell**
+- [x] **Step 1: Write failing test — insert table inside cell**
 
 Add to `packages/docs/test/model/nested-table.test.ts`:
 
@@ -640,12 +640,12 @@ describe('insertTableInCell', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/docs && npx vitest run test/model/nested-table.test.ts`
 Expected: FAIL — `insertTableInCell` doesn't exist.
 
-- [ ] **Step 3: Add insertTableInCell() to Doc**
+- [x] **Step 3: Add insertTableInCell() to Doc**
 
 In `packages/docs/src/model/document.ts`, add after the existing `insertTable()` method:
 
@@ -674,12 +674,12 @@ insertTableInCell(blockId: string, rows: number, cols: number): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd packages/docs && npx vitest run test/model/nested-table.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Update editor insertTable() to handle cell context**
+- [x] **Step 5: Update editor insertTable() to handle cell context**
 
 In `packages/docs/src/view/editor.ts`, modify the `insertTable` method (lines 1849-1873):
 
@@ -718,7 +718,7 @@ insertTable: (rows: number, cols: number) => {
 },
 ```
 
-- [ ] **Step 6: Update deleteTable() to handle nested tables**
+- [x] **Step 6: Update deleteTable() to handle nested tables**
 
 In `packages/docs/src/view/editor.ts`, modify `deleteTable` (lines 1874-1889):
 
@@ -769,12 +769,12 @@ deleteTable: () => {
 
 Note: You'll need to import `generateBlockId` and `DEFAULT_BLOCK_STYLE` at the top of editor.ts if not already imported.
 
-- [ ] **Step 7: Run full test suite**
+- [x] **Step 7: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add packages/docs/src/model/document.ts packages/docs/src/view/editor.ts packages/docs/test/model/nested-table.test.ts
@@ -795,7 +795,7 @@ Verify that Tab/arrow navigation works correctly when the cursor is inside a nes
 - Modify: `packages/docs/src/view/text-editor.ts:3290-3380` (if needed)
 - Modify: `packages/docs/test/model/nested-table.test.ts` (add navigation tests)
 
-- [ ] **Step 1: Write test for navigation context in nested tables**
+- [x] **Step 1: Write test for navigation context in nested tables**
 
 Add to `packages/docs/test/model/nested-table.test.ts`:
 
@@ -842,12 +842,12 @@ describe('Nested table navigation context', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run: `cd packages/docs && npx vitest run test/model/nested-table.test.ts`
 Expected: PASS — `BlockParentMap` already maps inner blocks to direct parent table. `moveToNextCell()` and `moveToPrevCell()` in text-editor.ts use `getCellInfo()` which reads from `blockParentMap`, so they will navigate within the inner table. No code changes needed if tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/docs/test/model/nested-table.test.ts
@@ -869,11 +869,11 @@ Add a `resolveTreePath()` utility that converts a blockId to a Yorkie Tree path,
 
 This task depends on the existing YorkieDocStore implementation. The key change is:
 
-- [ ] **Step 1: Identify current Yorkie path resolution**
+- [x] **Step 1: Identify current Yorkie path resolution**
 
 Read `packages/docs/src/store/yorkie.ts` to understand how table operations currently map to tree paths.
 
-- [ ] **Step 2: Add resolveTreePath() utility**
+- [x] **Step 2: Add resolveTreePath() utility**
 
 The utility walks up the `BlockParentMap` chain from a blockId to build the full Yorkie Tree path:
 
@@ -911,23 +911,23 @@ export function resolveTreePath(
 }
 ```
 
-- [ ] **Step 3: Update Yorkie store table operations to use resolveTreePath()**
+- [x] **Step 3: Update Yorkie store table operations to use resolveTreePath()**
 
 Existing granular operations (`insertTableRow`, `updateTableCell`, etc.) in the Yorkie store should use `resolveTreePath()` to compute the correct path for nested tables instead of assuming a flat document structure.
 
-- [ ] **Step 4: Write tests for path resolution**
+- [x] **Step 4: Write tests for path resolution**
 
 Test that `resolveTreePath()` returns the correct path for:
 - A block in a top-level table cell
 - A block in a nested table cell
 - A block in a 2-level nested table cell
 
-- [ ] **Step 5: Run full test suite**
+- [x] **Step 5: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/store/
@@ -946,7 +946,7 @@ End-to-end verification of nested tables across the full pipeline.
 **Files:**
 - Modify: `packages/docs/test/model/nested-table.test.ts`
 
-- [ ] **Step 1: Add integration tests**
+- [x] **Step 1: Add integration tests**
 
 ```typescript
 describe('Nested table integration', () => {
@@ -1039,17 +1039,17 @@ describe('Nested table integration', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `cd packages/docs && npx vitest run test/model/nested-table.test.ts`
 Expected: PASS
 
-- [ ] **Step 3: Run full test suite**
+- [x] **Step 3: Run full test suite**
 
 Run: `pnpm verify:fast`
 Expected: All tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/test/model/nested-table.test.ts
@@ -1069,15 +1069,15 @@ Update the existing table design docs to reflect nested table support.
 - Modify: `docs/design/docs/docs-tables.md` — add nested tables to the phase plan
 - Already created: `docs/design/docs/docs-nested-tables.md`
 
-- [ ] **Step 1: Update docs-tables.md phase plan**
+- [x] **Step 1: Update docs-tables.md phase plan**
 
 Add a note in the extensibility/phase section that nested tables are now supported.
 
-- [ ] **Step 2: Update docs-table-crdt.md**
+- [x] **Step 2: Update docs-table-crdt.md**
 
 Remove or update the "table type NOT allowed in cell" constraint to reflect the new capability.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/design/

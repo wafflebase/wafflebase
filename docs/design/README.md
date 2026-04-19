@@ -15,6 +15,7 @@ Spreadsheet engine — data model, formulas, rendering, collaboration.
 | [calculator.md](sheets/calculator.md)                                | Calculator — dependency graph, topological sort, single-sheet and cross-sheet cycle detection       |
 | [scroll-and-rendering.md](sheets/scroll-and-rendering.md)            | Viewport-based Canvas rendering and proportional scroll remapping for large grids                  |
 | [charts.md](sheets/charts.md)                                        | Chart system — registry architecture, chart types, editor panel, phased roadmap                    |
+| [sheet-image.md](sheets/sheet-image.md)                              | Sheet image — floating images, workspace image API, insertion paths, phased roadmap               |
 | [pivot-table.md](sheets/pivot-table.md)                              | Pivot table — materialized cells, calculation engine, side panel editor, collaboration             |
 | [conditional-format-multi-range.md](sheets/conditional-format-multi-range.md) | Conditional formatting multi-range support                                                |
 | [batch-transactions.md](sheets/batch-transactions.md)                | Store-level batch transactions for atomic undo/redo grouping                                       |

@@ -11,6 +11,7 @@ import {
   toSref,
 } from "@wafflebase/sheets";
 import {
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
   lazy,
   Suspense,
@@ -23,7 +24,9 @@ import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
 import { useDocument } from "@yorkie-js/react";
+import type { SheetImage } from "@wafflebase/sheets";
 import { SheetChart, SpreadsheetDocument } from "@/types/worksheet";
+import { uploadImageFile } from "./image-upload";
 import { YorkieStore } from "./yorkie-store";
 import { needsRecalc } from "./remote-change-utils";
 import { UserPresence } from "@/types/users";
@@ -88,6 +91,11 @@ const PivotEditorPanel = lazy(() =>
     default: module.PivotEditorPanel,
   })),
 );
+const ImageObjectLayer = lazy(() =>
+  import("./image-object-layer").then((module) => ({
+    default: module.ImageObjectLayer,
+  })),
+);
 
 /**
  * Renders the SheetView component.
@@ -97,6 +105,7 @@ export function SheetView({
   readOnly = false,
   peerJumpTarget = null,
   addPivotTab,
+  workspaceId,
 }: {
   tabId: string;
   readOnly?: boolean;
@@ -106,12 +115,14 @@ export function SheetView({
     requestId: number;
   } | null;
   addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
+  workspaceId?: string;
 }) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [didMount, setDidMount] = useState(false);
   const [sheetRenderVersion, setSheetRenderVersion] = useState(0);
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
   const [paintFormatActive, setPaintFormatActive] = useState(false);
@@ -135,6 +146,7 @@ export function SheetView({
   const lastHandledPeerJumpRequestIdRef = useRef(0);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
+  const hasImagesRef = useRef(false);
   const paintFormatActiveRef = useRef(false);
   const paintFormatPointerDownRef = useRef(false);
   const paintFormatApplyPendingRef = useRef(false);
@@ -151,6 +163,7 @@ export function SheetView({
   const [pivotEditorOpen, setPivotEditorOpen] = useState(false);
   const root = doc?.getRoot();
   const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
+  const hasImages = !!root && Object.keys(root.sheets[tabId]?.images || {}).length > 0;
   const selectedChart =
     root && selectedChartId ? root.sheets[tabId]?.charts?.[selectedChartId] : undefined;
 
@@ -170,6 +183,10 @@ export function SheetView({
   useEffect(() => {
     hasChartsRef.current = hasCharts;
   }, [hasCharts]);
+
+  useEffect(() => {
+    hasImagesRef.current = hasImages;
+  }, [hasImages]);
 
   const clearPaintFormatState = useCallback(() => {
     paintFormatActiveRef.current = false;
@@ -359,6 +376,160 @@ export function SheetView({
     setConditionalFormatOpen(false);
   }, []);
 
+  const handleSelectChart = useCallback(
+    (chartId: string | null) => {
+      setSelectedChartId(chartId);
+      if (chartId) setSelectedImageId(null);
+    },
+    [],
+  );
+
+  const handleSelectImage = useCallback(
+    (imageId: string | null) => {
+      setSelectedImageId(imageId);
+      if (imageId) {
+        setSelectedChartId(null);
+        setChartEditorOpen(false);
+      }
+    },
+    [],
+  );
+
+  const handleInsertImage = useCallback(
+    async (file: File, dropPoint?: { clientX: number; clientY: number }) => {
+      if (readOnly || !doc || !workspaceId) return;
+      try {
+        const result = await uploadImageFile(file, workspaceId);
+        const sheet = sheetRef.current;
+        let anchor: string;
+        let offsetX = 8;
+        let offsetY = 8;
+
+        if (dropPoint && sheet) {
+          const ref = sheet.cellRefFromPoint(dropPoint.clientX, dropPoint.clientY);
+          anchor = ref ? toSref(ref) : 'A1';
+          if (ref) {
+            const rect = sheet.getCellRectInScrollableViewport(ref);
+            if (rect) {
+              offsetX = dropPoint.clientX - rect.left;
+              offsetY = dropPoint.clientY - rect.top;
+            }
+          }
+        } else {
+          const activeCell = sheet?.getActiveCell();
+          anchor = activeCell ? toSref(activeCell) : 'A1';
+        }
+        const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+        doc.update((root) => {
+          const ws = root.sheets[tabId];
+          if (!ws.images) {
+            ws.images = {};
+          }
+          ws.images[imageId] = {
+            id: imageId,
+            src: result.url,
+            anchor,
+            offsetX,
+            offsetY,
+            width: Math.min(result.width, 400),
+            height: Math.min(result.width, 400) * (result.height / result.width),
+            originalWidth: result.width,
+            originalHeight: result.height,
+          } as SheetImage;
+        });
+
+        setSelectedImageId(imageId);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Image upload failed');
+      }
+    },
+    [doc, readOnly, tabId, workspaceId],
+  );
+
+  const handleUpdateImage = useCallback(
+    (imageId: string, patch: Partial<SheetImage>) => {
+      if (readOnly || !doc) return;
+      doc.update((root) => {
+        const image = root.sheets[tabId]?.images?.[imageId];
+        if (!image) return;
+        if (patch.anchor !== undefined) image.anchor = patch.anchor;
+        if (patch.offsetX !== undefined) image.offsetX = patch.offsetX;
+        if (patch.offsetY !== undefined) image.offsetY = patch.offsetY;
+        if (patch.width !== undefined) image.width = patch.width;
+        if (patch.height !== undefined) image.height = patch.height;
+      });
+    },
+    [doc, readOnly, tabId],
+  );
+
+  const handleDeleteImage = useCallback(
+    (imageId: string) => {
+      if (readOnly || !doc) return;
+      doc.update((root) => {
+        const ws = root.sheets[tabId];
+        if (!ws?.images?.[imageId]) return;
+        delete ws.images[imageId];
+      });
+      if (selectedImageId === imageId) {
+        setSelectedImageId(null);
+      }
+    },
+    [doc, readOnly, selectedImageId, tabId],
+  );
+
+  const handleDragOver = useCallback((e: ReactDragEvent) => {
+    if (readOnly) return;
+    const hasImage = Array.from(e.dataTransfer.items).some((item) =>
+      item.type.startsWith('image/'),
+    );
+    if (hasImage) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }, [readOnly]);
+
+  const handleDrop = useCallback(
+    (e: ReactDragEvent) => {
+      if (readOnly) return;
+      e.preventDefault();
+      const file = Array.from(e.dataTransfer.files).find((f) =>
+        f.type.startsWith('image/'),
+      );
+      if (!file) return;
+      void handleInsertImage(file, { clientX: e.clientX, clientY: e.clientY });
+    },
+    [readOnly, handleInsertImage],
+  );
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (readOnly) return;
+
+      // Don't intercept paste when editing a cell, formula bar, or dialog input.
+      const target = e.target;
+      if (target instanceof Element) {
+        const grid = document.querySelector("[data-sheet-container]");
+        if (!grid?.contains(target)) {
+          return;
+        }
+      }
+
+      const imageFile = Array.from(e.clipboardData?.items || [])
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .find((f): f is File => f !== null);
+
+      if (imageFile) {
+        e.preventDefault();
+        void handleInsertImage(imageFile);
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [readOnly, handleInsertImage]);
+
   const handleOpenConditionalFormat = useCallback(() => {
     setConditionalFormatOpen(true);
     setChartEditorOpen(false);
@@ -424,6 +595,9 @@ export function SheetView({
       if (selectedChartId !== null) {
         setSelectedChartId(null);
       }
+      if (selectedImageId !== null) {
+        setSelectedImageId(null);
+      }
       if (chartEditorOpen) {
         setChartEditorOpen(false);
       }
@@ -431,7 +605,7 @@ export function SheetView({
         setConditionalFormatOpen(false);
       }
     },
-    [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId],
+    [chartEditorOpen, conditionalFormatOpen, paintFormatSourceRef, selectedChartId, selectedImageId],
   );
 
   const handleMobileEditCommit = useCallback(
@@ -525,6 +699,7 @@ export function SheetView({
 
   useEffect(() => {
     setSelectedChartId(null);
+    setSelectedImageId(null);
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
     setFindBarOpen(false);
@@ -582,7 +757,7 @@ export function SheetView({
       unsubs.push(
         s.onSelectionChange(() => {
           if (
-            (hasChartsRef.current || paintFormatSourceIndicatorVisibleRef.current || isMobileRef.current) &&
+            (hasChartsRef.current || hasImagesRef.current || paintFormatSourceIndicatorVisibleRef.current || isMobileRef.current) &&
             selectionFrame === null
           ) {
             selectionFrame = requestAnimationFrame(() => {
@@ -813,6 +988,13 @@ export function SheetView({
   }, [root, selectedChartId, tabId]);
 
   useEffect(() => {
+    if (!selectedImageId) return;
+    if (!root?.sheets[tabId]?.images?.[selectedImageId]) {
+      setSelectedImageId(null);
+    }
+  }, [root, selectedImageId, tabId]);
+
+  useEffect(() => {
     if (!peerJumpTarget) return;
     if (peerJumpTarget.targetTabId && peerJumpTarget.targetTabId !== tabId) {
       return;
@@ -883,6 +1065,7 @@ export function SheetView({
           spreadsheet={sheetRef.current}
           isPivotTab={isPivotTab}
           onInsertChart={handleInsertChart}
+          onInsertImage={handleInsertImage}
           onOpenConditionalFormat={handleOpenConditionalFormat}
           onTogglePaintFormat={() => {
             void handleTogglePaintFormat();
@@ -902,13 +1085,39 @@ export function SheetView({
           onInsertAfter={handleInsertAfter}
           onDeleteRowCol={handleDeleteRowCol}
           onInsertPivotTable={addPivotTab ? handleInsertPivotTable : undefined}
+          selectedImageId={selectedImageId}
+          onDeleteImage={() => {
+            if (selectedImageId) {
+              handleDeleteImage(selectedImageId);
+            }
+          }}
         >
-          <div
-            ref={containerRef}
-            className="h-full w-full select-none"
-            style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
-            onPointerDown={handleGridPointerDown}
-          />
+          <div className="relative h-full w-full">
+            <div
+              ref={containerRef}
+              className="h-full w-full select-none"
+              data-sheet-container
+              style={{ touchAction: "manipulation", WebkitTouchCallout: "none" }}
+              onPointerDown={handleGridPointerDown}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+            />
+            {root && hasImages && (
+              <Suspense fallback={null}>
+                <ImageObjectLayer
+                  spreadsheet={sheetRef.current}
+                  root={root}
+                  tabId={tabId}
+                  readOnly={readOnly}
+                  selectedImageId={selectedImageId}
+                  onSelectImage={handleSelectImage}
+                  onUpdateImage={handleUpdateImage}
+                  onDeleteImage={handleDeleteImage}
+                  renderVersion={sheetRenderVersion}
+                />
+              </Suspense>
+            )}
+          </div>
         </SheetContextMenu>
         {findBarOpen && (
           <FindBar
@@ -925,7 +1134,7 @@ export function SheetView({
               tabId={tabId}
               readOnly={readOnly}
               selectedChartId={selectedChartId}
-              onSelectChart={setSelectedChartId}
+              onSelectChart={handleSelectChart}
               onRequestEditChart={handleEditChart}
               onDeleteChart={handleDeleteChart}
               onUpdateChart={handleUpdateChart}

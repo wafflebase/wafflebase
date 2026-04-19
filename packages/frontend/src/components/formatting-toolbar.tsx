@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Spreadsheet,
   BorderPreset,
@@ -64,6 +64,7 @@ import {
   IconDotsVertical,
   IconPaint,
   IconBrush,
+  IconPhoto,
 } from "@tabler/icons-react";
 
 const ALIGN_ICONS = {
@@ -94,6 +95,7 @@ const modKey = isMac ? "⌘" : "Ctrl";
 interface FormattingToolbarProps {
   spreadsheet: Spreadsheet | undefined;
   onInsertChart?: () => void;
+  onInsertImage?: (file: File) => void;
   onOpenConditionalFormat?: () => void;
   onTogglePaintFormat?: () => void;
   paintFormatActive?: boolean;
@@ -106,11 +108,13 @@ interface FormattingToolbarProps {
 export function FormattingToolbar({
   spreadsheet,
   onInsertChart,
+  onInsertImage,
   onOpenConditionalFormat,
   onTogglePaintFormat,
   paintFormatActive = false,
   isPivotTab = false,
 }: FormattingToolbarProps) {
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const isMobile = useIsMobile();
   const [style, setStyle] = useState<CellStyle | undefined>(undefined);
   const [effectiveAlign, setEffectiveAlign] = useState<"left" | "center" | "right">("left");
@@ -257,6 +261,17 @@ export function FormattingToolbar({
 
   return (
     <Toolbar>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onInsertImage?.(file);
+          e.target.value = "";
+        }}
+      />
       {/* Undo / Redo */}
       <Tooltip>
         <TooltipTrigger asChild>
@@ -745,6 +760,19 @@ export function FormattingToolbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted"
+                onClick={() => imageInputRef.current?.click()}
+                aria-label="Insert image"
+              >
+                <IconPhoto size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Insert image</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
                 className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md px-2 text-[10px] font-semibold tracking-wide hover:bg-muted"
                 onClick={handleOpenConditionalFormat}
                 aria-label="Conditional formatting"
@@ -878,6 +906,10 @@ export function FormattingToolbar({
               <DropdownMenuItem onClick={handleInsertChart}>
                 <IconChartBar size={16} className="mr-2" />
                 Insert chart
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
+                <IconPhoto size={16} className="mr-2" />
+                Insert image
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleTogglePaintFormat}>
                 <IconPaint size={16} className="mr-2" />

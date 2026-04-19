@@ -2,21 +2,24 @@ import { Module } from '@nestjs/common';
 import { ApiV1DocumentsController } from './documents.controller';
 import { ApiV1TabsController } from './tabs.controller';
 import { ApiV1CellsController } from './cells.controller';
+import { ApiV1ImagesController } from './images.controller';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { DocumentService } from '../../document/document.service';
 import { PrismaService } from '../../database/prisma.service';
 import { WorkspaceModule } from '../../workspace/workspace.module';
 import { ApiKeyModule } from '../../api-key/api-key.module';
+import { ImageModule } from '../../image/image.module';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { ApiKeyAuthGuard } from '../../api-key/api-key-auth.guard';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 
 @Module({
-  imports: [WorkspaceModule, ApiKeyModule],
+  imports: [WorkspaceModule, ApiKeyModule, ImageModule],
   controllers: [
     ApiV1DocumentsController,
     ApiV1TabsController,
     ApiV1CellsController,
+    ApiV1ImagesController,
   ],
   providers: [
     DocumentService,

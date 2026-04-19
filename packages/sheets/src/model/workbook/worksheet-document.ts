@@ -29,6 +29,19 @@ export type SheetChart = {
   colorPalette?: string;
 };
 
+export type SheetImage = {
+  id: string;
+  src: string;
+  anchor: Sref;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
+  alt?: string;
+};
+
 export type WorksheetFilterState = {
   startRow: number;
   endRow: number;
@@ -71,6 +84,9 @@ export type Worksheet = {
   hiddenColumns?: number[];
   charts?: {
     [id: string]: SheetChart;
+  };
+  images?: {
+    [id: string]: SheetImage;
   };
   frozenRows: number;
   frozenCols: number;
@@ -115,6 +131,7 @@ export function createWorksheet(
     conditionalFormats: [],
     merges: {},
     charts: {},
+    images: {},
     frozenRows: 0,
     frozenCols: 0,
     ...overrides,
