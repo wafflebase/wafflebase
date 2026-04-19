@@ -525,6 +525,45 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
+   * Resolve a block ID to its Yorkie tree path prefix.
+   * - Header block: [0, blockIdx]
+   * - Body block:   [blockIdx + bodyOffset]
+   * - Footer block: [footerTreeIdx, blockIdx]
+   */
+  private resolveBlockTreePath(
+    blockId: string,
+    doc: Document,
+  ): { path: number[]; region: 'header' | 'body' | 'footer' } {
+    if (doc.header) {
+      const idx = doc.header.blocks.findIndex((b) => b.id === blockId);
+      if (idx !== -1) return { path: [0, idx], region: 'header' };
+    }
+    const bodyIdx = doc.blocks.findIndex((b) => b.id === blockId);
+    if (bodyIdx !== -1) {
+      return { path: [bodyIdx + this.bodyTreeOffset(doc)], region: 'body' };
+    }
+    if (doc.footer) {
+      const idx = doc.footer.blocks.findIndex((b) => b.id === blockId);
+      if (idx !== -1) {
+        const footerTreeIdx = this.bodyTreeOffset(doc) + doc.blocks.length;
+        return { path: [footerTreeIdx, idx], region: 'footer' };
+      }
+    }
+    throw new Error(`Block not found: ${blockId}`);
+  }
+
+  /**
+   * Navigate the tree to find the block node at the given path.
+   */
+  private getTreeBlockNode(treeRoot: TreeNode, blockPath: number[]): TreeNode {
+    let node = treeRoot;
+    for (const idx of blockPath) {
+      node = ((node as ElementNode).children ?? [])[idx];
+    }
+    return node;
+  }
+
+  /**
    * Resolve a block-level character offset into the Yorkie tree's actual
    * inline structure. The cached document may have merged adjacent same-style
    * inlines (normalizeInlines) that remain separate nodes in the Yorkie tree,
