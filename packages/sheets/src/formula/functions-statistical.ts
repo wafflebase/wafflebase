@@ -3488,7 +3488,7 @@ export function growthFunc(
   const knownY = result.ys;
   const knownX = result.xs.length > 0 ? result.xs : knownY.map((_, i) => i + 1);
   if (knownY.length !== knownX.length || knownY.length === 0) return ErrNode.VALUE;
-  // Log-transform y values
+  if (knownY.some(y => y <= 0)) return ErrNode.NUM;
   const lnY = knownY.map(y => Math.log(y));
   const reg = linearRegression(knownX, lnY);
   // For new_x, use the first value (single-cell return)
@@ -3572,6 +3572,7 @@ export function logestFunc(
   const knownY = result.ys;
   const knownX = result.xs.length > 0 ? result.xs : knownY.map((_, i) => i + 1);
   if (knownY.length !== knownX.length || knownY.length === 0) return ErrNode.VALUE;
+  if (knownY.some(y => y <= 0)) return ErrNode.NUM;
   const lnY = knownY.map(y => Math.log(y));
   const reg = linearRegression(knownX, lnY);
   // Single-cell output: m = e^slope

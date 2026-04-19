@@ -930,7 +930,7 @@ describe('Formula', () => {
   it('should correctly evaluate ATAN2 function', () => {
     expect(evaluate('=ATAN2(1,0)')).toBe('0');
     expect(evaluate('=ATAN2(0,1)')).toBe(String(Math.PI / 2));
-    expect(evaluate('=ATAN2(0,0)')).toBe('#VALUE!');
+    expect(evaluate('=ATAN2(0,0)')).toBe('#DIV/0!');
   });
 
   it('should correctly evaluate DEGREES function', () => {
@@ -2953,6 +2953,30 @@ describe('Formula', () => {
     ]);
     // y ≈ 1 * 2^x, growth rate ≈ 2
     expect(Number(evaluate('=LOGEST(B1:B3,A1:A3)', grid))).toBeCloseTo(2, 1);
+  });
+
+  it('should return #NUM! for GROWTH/LOGEST with non-positive known_y', () => {
+    const zero = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['B1', { v: '2' } as Cell],
+      ['B2', { v: '0' } as Cell],
+      ['B3', { v: '8' } as Cell],
+    ]);
+    expect(evaluate('=GROWTH(B1:B3,A1:A3)', zero)).toBe('#NUM!');
+    expect(evaluate('=LOGEST(B1:B3,A1:A3)', zero)).toBe('#NUM!');
+
+    const negative = new Map([
+      ['A1', { v: '1' } as Cell],
+      ['A2', { v: '2' } as Cell],
+      ['A3', { v: '3' } as Cell],
+      ['B1', { v: '2' } as Cell],
+      ['B2', { v: '-4' } as Cell],
+      ['B3', { v: '8' } as Cell],
+    ]);
+    expect(evaluate('=GROWTH(B1:B3,A1:A3)', negative)).toBe('#NUM!');
+    expect(evaluate('=LOGEST(B1:B3,A1:A3)', negative)).toBe('#NUM!');
   });
 
   it('should correctly evaluate FREQUENCY function', () => {

@@ -729,7 +729,7 @@ export function atan2Func(
   }
 
   if (x.v === 0 && y.v === 0) {
-    return ErrNode.VALUE;
+    return ErrNode.DIV0;
   }
 
   return { t: 'num', v: Math.atan2(y.v, x.v) };
