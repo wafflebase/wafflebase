@@ -3,7 +3,7 @@ import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE,
 import { Doc, type EditContext } from '../model/document.js';
 import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
-import { Selection, expandCellRangeForMerges } from './selection.js';
+import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, resolveClickTarget } from './pagination.js';
@@ -1893,7 +1893,13 @@ export class TextEditor {
         } else {
           // At first block — move to cell above or exit table
           if (arrowCellInfo.rowIndex > 0) {
-            const aboveCell = tableBlock.tableData!.rows[arrowCellInfo.rowIndex - 1].cells[arrowCellInfo.colIndex];
+            const aboveRow = arrowCellInfo.rowIndex - 1;
+            let aboveCell = tableBlock.tableData!.rows[aboveRow].cells[arrowCellInfo.colIndex];
+            // Resolve covered cell to its merge top-left
+            if (aboveCell?.colSpan === 0) {
+              const tl = findMergeTopLeft(tableBlock.tableData!, aboveRow, arrowCellInfo.colIndex);
+              aboveCell = tableBlock.tableData!.rows[tl.rowIndex].cells[tl.colIndex];
+            }
             const lastBlock = aboveCell.blocks[aboveCell.blocks.length - 1];
             // If last block is a nested table, enter it
             if (lastBlock.type === 'table' && lastBlock.tableData) {
@@ -1925,7 +1931,12 @@ export class TextEditor {
                 newPos = { blockId: prevBlock.id, offset: getBlockTextLength(prevBlock) };
               } else if (parentCellInfo.rowIndex > 0) {
                 // Move to the cell above in the outer table
-                const aboveCell = parentTable.tableData!.rows[parentCellInfo.rowIndex - 1].cells[parentCellInfo.colIndex];
+                const aboveRow = parentCellInfo.rowIndex - 1;
+                let aboveCell = parentTable.tableData!.rows[aboveRow].cells[parentCellInfo.colIndex];
+                if (aboveCell?.colSpan === 0) {
+                  const tl = findMergeTopLeft(parentTable.tableData!, aboveRow, parentCellInfo.colIndex);
+                  aboveCell = parentTable.tableData!.rows[tl.rowIndex].cells[tl.colIndex];
+                }
                 const lastBlock = aboveCell.blocks[aboveCell.blocks.length - 1];
                 newPos = { blockId: lastBlock.id, offset: getBlockTextLength(lastBlock) };
               } else {
@@ -1969,8 +1980,15 @@ export class TextEditor {
         } else {
           // At last block — move to cell below or exit table
           const td = tableBlock.tableData!;
-          if (arrowCellInfo.rowIndex < td.rows.length - 1) {
-            const belowCell = td.rows[arrowCellInfo.rowIndex + 1].cells[arrowCellInfo.colIndex];
+          const currentCell = td.rows[arrowCellInfo.rowIndex].cells[arrowCellInfo.colIndex];
+          const nextRow = arrowCellInfo.rowIndex + (currentCell.rowSpan ?? 1);
+          if (nextRow < td.rows.length) {
+            let belowCell = td.rows[nextRow].cells[arrowCellInfo.colIndex];
+            // Resolve covered cell to its merge top-left
+            if (belowCell?.colSpan === 0) {
+              const tl = findMergeTopLeft(td, nextRow, arrowCellInfo.colIndex);
+              belowCell = td.rows[tl.rowIndex].cells[tl.colIndex];
+            }
             const firstBlock = belowCell.blocks[0];
             // If first block is a nested table, enter it
             if (firstBlock.type === 'table' && firstBlock.tableData) {
@@ -2001,8 +2019,14 @@ export class TextEditor {
               } else {
                 // No more blocks — move to cell below in outer table
                 const outerTd = parentTable.tableData!;
-                if (parentCellInfo.rowIndex < outerTd.rows.length - 1) {
-                  const belowCell = outerTd.rows[parentCellInfo.rowIndex + 1].cells[parentCellInfo.colIndex];
+                const outerCell = outerTd.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
+                const outerNextRow = parentCellInfo.rowIndex + (outerCell.rowSpan ?? 1);
+                if (outerNextRow < outerTd.rows.length) {
+                  let belowCell = outerTd.rows[outerNextRow].cells[parentCellInfo.colIndex];
+                  if (belowCell?.colSpan === 0) {
+                    const tl = findMergeTopLeft(outerTd, outerNextRow, parentCellInfo.colIndex);
+                    belowCell = outerTd.rows[tl.rowIndex].cells[tl.colIndex];
+                  }
                   newPos = { blockId: belowCell.blocks[0].id, offset: 0 };
                 } else {
                   // Exit outer table

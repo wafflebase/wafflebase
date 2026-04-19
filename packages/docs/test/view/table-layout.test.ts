@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeTableLayout } from '../../src/view/table-layout.js';
-import { createTableBlock } from '../../src/model/types.js';
+import { createTableBlock, DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 
 function stubCtx(): CanvasRenderingContext2D {
   return {
@@ -63,5 +63,58 @@ describe('computeTableLayout', () => {
     const result = computeTableLayout(block.tableData!, 'test-table', stubCtx(), 50); // narrow width forces wrapping
     // Row height should be content-based, not 5px
     expect(result.rowHeights[0]).toBeGreaterThan(5);
+  });
+
+  it('should grow rows when staggered rowSpan merges redistribute content', () => {
+    // 3x3 table with staggered merges:
+    //   Col 0: normal row 0, merged rows 1-2
+    //   Col 1: merged rows 0-1, normal row 2
+    //   Col 2: normal row 0, merged rows 1-2
+    const block = createTableBlock(3, 3);
+    const td = block.tableData!;
+
+    // (0,1): rowSpan=2, two blocks
+    td.rows[0].cells[1].rowSpan = 2;
+    td.rows[0].cells[1].blocks = [
+      { id: 'b1', type: 'paragraph', inlines: [{ text: '1x2', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } },
+      { id: 'b2', type: 'paragraph', inlines: [{ text: '2x2', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } },
+    ];
+    // (1,1): covered
+    td.rows[1].cells[1].colSpan = 0;
+    td.rows[1].cells[1].blocks = [{ id: 'b3', type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }];
+
+    // (1,0): rowSpan=2, two blocks
+    td.rows[1].cells[0].rowSpan = 2;
+    td.rows[1].cells[0].blocks = [
+      { id: 'b4', type: 'paragraph', inlines: [{ text: '2x1', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } },
+      { id: 'b5', type: 'paragraph', inlines: [{ text: '3x1', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } },
+    ];
+    // (2,0): covered
+    td.rows[2].cells[0].colSpan = 0;
+    td.rows[2].cells[0].blocks = [{ id: 'b6', type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }];
+
+    // (1,2): rowSpan=2, two blocks
+    td.rows[1].cells[2].rowSpan = 2;
+    td.rows[1].cells[2].blocks = [
+      { id: 'b7', type: 'paragraph', inlines: [{ text: '2x3', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } },
+      { id: 'b8', type: 'paragraph', inlines: [{ text: '3x3', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } },
+    ];
+    // (2,2): covered
+    td.rows[2].cells[2].colSpan = 0;
+    td.rows[2].cells[2].blocks = [{ id: 'b9', type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }];
+
+    const result = computeTableLayout(td, 'test-table', stubCtx(), 300);
+
+    // The merged cells in row 1 each have 2 lines. Row 1 must be tall
+    // enough so that content is not pushed entirely into row 2, or row 2
+    // must grow to accommodate redistributed content. Either way, the
+    // total height must contain all content.
+    const totalContentPerMergedCell = result.cells[1][0].height;
+    const spannedHeight = result.rowHeights[1] + result.rowHeights[2];
+    expect(spannedHeight).toBeGreaterThanOrEqual(totalContentPerMergedCell);
+
+    // totalHeight must equal sum of all row heights
+    const sumRowHeights = result.rowHeights.reduce((s, h) => s + h, 0);
+    expect(result.totalHeight).toBe(sumRowHeights);
   });
 });
