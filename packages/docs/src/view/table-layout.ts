@@ -644,12 +644,35 @@ export function findRowSplitHeight(
     let y = padding;
     let allFit = true;
     for (const line of cell.lines) {
-      y += line.height;
-      if (y <= availableHeight) {
-        bestBp = y;
+      if (line.nestedTable) {
+        // Recurse into nested table: each row boundary is a breakpoint
+        const nt = line.nestedTable;
+        for (let nr = 0; nr < nt.rowHeights.length; nr++) {
+          const rowEnd = y + nt.rowYOffsets[nr] + nt.rowHeights[nr];
+          if (rowEnd <= availableHeight) {
+            bestBp = rowEnd;
+          } else {
+            // Try splitting within this nested row
+            const nestedAvail = availableHeight - y - nt.rowYOffsets[nr];
+            if (nestedAvail > 0) {
+              const innerSplit = findRowSplitHeight(nt, nr, nestedAvail);
+              if (innerSplit > 0) {
+                bestBp = y + nt.rowYOffsets[nr] + innerSplit;
+              }
+            }
+            allFit = false;
+            break;
+          }
+        }
+        if (allFit) y += line.height;
       } else {
-        allFit = false;
-        break;
+        y += line.height;
+        if (y <= availableHeight) {
+          bestBp = y;
+        } else {
+          allFit = false;
+          break;
+        }
       }
     }
     if (!allFit) {
