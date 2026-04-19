@@ -36,11 +36,10 @@ export class ApiV1CellsController {
     documentId: string,
     workspaceId: string,
   ) {
-    const doc = await this.documentService.document({
+    await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
-    if (!doc) throw new NotFoundException('Document not found');
   }
 
   @Get()
