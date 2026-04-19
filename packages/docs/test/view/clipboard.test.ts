@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { serializeBlocks, deserializeBlocks, parseHtmlToInlines } from '../../src/view/clipboard.js';
+import type { TableCell } from '../../src/model/types.js';
+import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
   it('should round-trip blocks with formatting', () => {
@@ -83,6 +84,45 @@ describe('clipboard JSON serialization', () => {
     const parsed = deserializeBlocks(serializeBlocks(blocks));
     expect(parsed[0].listKind).toBe('ordered');
     expect(parsed[0].listLevel).toBe(1);
+  });
+
+  it('should round-trip tableCells payload', () => {
+    const cells: TableCell[][] = [
+      [
+        {
+          blocks: [{
+            id: 'c1',
+            type: 'paragraph' as const,
+            inlines: [{ text: 'A1', style: { bold: true } }],
+            style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
+          }],
+          style: { padding: 4 },
+        },
+        {
+          blocks: [{
+            id: 'c2',
+            type: 'paragraph' as const,
+            inlines: [{ text: 'B1', style: {} }],
+            style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
+          }],
+          style: { padding: 4 },
+        },
+      ],
+    ];
+    const json = serializeClipboard({ blocks: [], tableCells: cells });
+    const result = deserializeClipboard(json);
+    expect(result.tableCells).toBeDefined();
+    expect(result.tableCells).toHaveLength(1);
+    expect(result.tableCells![0]).toHaveLength(2);
+    expect(result.tableCells![0][0].blocks[0].inlines[0].text).toBe('A1');
+    expect(result.tableCells![0][0].blocks[0].inlines[0].style.bold).toBe(true);
+    expect(result.tableCells![0][1].blocks[0].inlines[0].text).toBe('B1');
+  });
+
+  it('should return empty tableCells when absent in payload', () => {
+    const json = serializeClipboard({ blocks: [] });
+    const result = deserializeClipboard(json);
+    expect(result.tableCells).toBeUndefined();
   });
 
   it('should preserve inline style properties', () => {
@@ -208,5 +248,50 @@ describe('HTML paste parsing', () => {
     const inlines = parseHtmlToInlines('<span>hello </span><span>world</span>');
     expect(inlines).toHaveLength(1);
     expect(inlines[0].text).toBe('hello world');
+  });
+});
+
+describe('cloneTableCells', () => {
+  it('should deep clone cells with new block IDs', () => {
+    const cells: TableCell[][] = [
+      [
+        {
+          blocks: [{
+            id: 'original-id',
+            type: 'paragraph' as const,
+            inlines: [{ text: 'hello', style: { bold: true } }],
+            style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
+          }],
+          style: { padding: 4 },
+        },
+      ],
+    ];
+    const cloned = cloneTableCells(cells);
+
+    // Different block ID
+    expect(cloned[0][0].blocks[0].id).not.toBe('original-id');
+    // Same content
+    expect(cloned[0][0].blocks[0].inlines[0].text).toBe('hello');
+    expect(cloned[0][0].blocks[0].inlines[0].style.bold).toBe(true);
+    // Deep clone — mutating original does not affect clone
+    cells[0][0].blocks[0].inlines[0].text = 'mutated';
+    expect(cloned[0][0].blocks[0].inlines[0].text).toBe('hello');
+  });
+
+  it('should clone cell style independently', () => {
+    const cells: TableCell[][] = [
+      [{
+        blocks: [{
+          id: 'b1',
+          type: 'paragraph' as const,
+          inlines: [{ text: '', style: {} }],
+          style: { alignment: 'left' as const, lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 },
+        }],
+        style: { padding: 8 },
+      }],
+    ];
+    const cloned = cloneTableCells(cells);
+    cells[0][0].style.padding = 99;
+    expect(cloned[0][0].style.padding).toBe(8);
   });
 });

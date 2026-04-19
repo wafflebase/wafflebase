@@ -1,7 +1,7 @@
-import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock } from '../model/types.js';
+import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
-import { serializeBlocks, deserializeBlocks, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
 import type { DocumentLayout } from './layout.js';
@@ -696,8 +696,18 @@ export class TextEditor {
   private handleCopy = (e: ClipboardEvent): void => {
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
+
+    const tableCells = this.getSelectedTableCells();
+    if (tableCells) {
+      const cloned = cloneTableCells(tableCells);
+      const json = serializeClipboard({ blocks: [], tableCells: cloned });
+      e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
+      e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+      return;
+    }
+
     const selectedBlocks = this.getSelectedBlocks();
-    const json = serializeBlocks(selectedBlocks);
+    const json = serializeClipboard({ blocks: selectedBlocks });
     e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
     e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
   };
@@ -705,8 +715,21 @@ export class TextEditor {
   private handleCut = (e: ClipboardEvent): void => {
     if (!this.selection.hasSelection()) return;
     e.preventDefault();
+
+    const tableCells = this.getSelectedTableCells();
+    if (tableCells) {
+      const cloned = cloneTableCells(tableCells);
+      const json = serializeClipboard({ blocks: [], tableCells: cloned });
+      e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
+      e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+      this.saveSnapshot();
+      this.deleteSelection();
+      this.requestRender();
+      return;
+    }
+
     const selectedBlocks = this.getSelectedBlocks();
-    const json = serializeBlocks(selectedBlocks);
+    const json = serializeClipboard({ blocks: selectedBlocks });
     e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
     e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
     this.saveSnapshot();
@@ -736,11 +759,19 @@ export class TextEditor {
     // Try rich internal paste first
     const json = e.clipboardData?.getData(WAFFLEDOCS_MIME);
     if (json) {
-      const blocks = deserializeBlocks(json);
-      if (blocks.length > 0) {
+      const data = deserializeClipboard(json);
+      if (data.tableCells && data.tableCells.length > 0) {
         this.saveSnapshot();
         this.deleteSelection();
-        this.insertBlocks(blocks);
+        this.pasteTableCells(data.tableCells);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
+      if (data.blocks.length > 0) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.insertBlocks(data.blocks);
         this.selection.setRange(null);
         this.requestRender();
         return;
@@ -2535,6 +2566,33 @@ export class TextEditor {
   }
 
   /**
+   * Extract selected table cells as a 2D array when a tableCellRange is active.
+   */
+  private getSelectedTableCells(): TableCell[][] | null {
+    const layout = this.getLayout();
+    const normalized = this.selection.getNormalizedRange(layout);
+    if (!normalized?.tableCellRange) return null;
+
+    const cr = normalized.tableCellRange;
+    const lb = layout.blocks.find((b) => b.block.id === cr.blockId);
+    if (!lb?.block.tableData) return null;
+
+    const td = lb.block.tableData;
+    const rows: TableCell[][] = [];
+    for (let r = cr.start.rowIndex; r <= cr.end.rowIndex; r++) {
+      const row: TableCell[] = [];
+      for (let c = cr.start.colIndex; c <= cr.end.colIndex; c++) {
+        const cell = td.rows[r]?.cells[c];
+        if (cell) {
+          row.push(cell);
+        }
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  /**
    * Extract the selected blocks with formatting, trimming the first and last
    * block to the selection boundaries. Block IDs are regenerated.
    */
@@ -2570,6 +2628,25 @@ export class TextEditor {
       if (block.headingLevel !== undefined) cloned.headingLevel = block.headingLevel;
       if (block.listKind !== undefined) cloned.listKind = block.listKind;
       if (block.listLevel !== undefined) cloned.listLevel = block.listLevel;
+      if (block.tableData) {
+        cloned.tableData = {
+          columnWidths: [...block.tableData.columnWidths],
+          ...(block.tableData.rowHeights ? { rowHeights: [...block.tableData.rowHeights] } : {}),
+          rows: block.tableData.rows.map(row => ({
+            cells: row.cells.map(cell => ({
+              style: { ...cell.style },
+              ...(cell.colSpan != null ? { colSpan: cell.colSpan } : {}),
+              ...(cell.rowSpan != null ? { rowSpan: cell.rowSpan } : {}),
+              blocks: cell.blocks.map(b => ({
+                ...b,
+                id: generateBlockId(),
+                inlines: b.inlines.map(il => ({ text: il.text, style: { ...il.style } })),
+                style: { ...b.style },
+              })),
+            })),
+          })),
+        };
+      }
       result.push(cloned);
     }
 
@@ -2668,7 +2745,6 @@ export class TextEditor {
     // If cursor is on a non-editable block, split to create a text block first
     this.ensureEditableBlock();
     const pos = this.cursor.position;
-
     if (blocks.length === 1) {
       // Single block: merge pasted inlines into the current block at cursor
       const pastedInlines = blocks[0].inlines;
@@ -2731,6 +2807,74 @@ export class TextEditor {
 
       const newPos = { blockId: tailBlockId, offset: lastPastedTextLen };
       this.cursor.moveTo(newPos, this.getWrapAffinity(newPos));
+    }
+  }
+
+  /**
+   * Paste table cells into the current table at the cursor position.
+   * If cursor is not in a table, creates a new table block from the cells.
+   */
+  private pasteTableCells(cells: TableCell[][]): void {
+    if (cells.length === 0) return;
+
+    // Table paste is only supported in the body context
+    if (this.editContext !== 'body') return;
+
+    const layout = this.getLayout();
+    const pos = this.cursor.position;
+    const cellInfo = layout.blockParentMap.get(pos.blockId);
+
+    if (!cellInfo) {
+      // Cursor not in a table — insert a new table block from the cells
+      const rows = cells.length;
+      const cols = Math.max(1, ...cells.map(r => r.length));
+      const tableBlock = createTableBlock(rows, cols);
+      const td = tableBlock.tableData!;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cells[r].length; c++) {
+          const cloned = cloneTableCells([[cells[r][c]]])[0][0];
+          td.rows[r].cells[c] = cloned;
+        }
+      }
+      const blockIdx = this.doc.getBlockIndex(pos.blockId);
+      this.doc.insertBlockAt(blockIdx + 1, tableBlock);
+      this.invalidateLayout();
+      const firstCellBlock = td.rows[0].cells[0].blocks[0];
+      this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');
+      return;
+    }
+
+    // Cursor is in a table — paste cells starting from current cell position
+    const tableBlockId = cellInfo.tableBlockId;
+    const tableBlock = this.doc.getBlock(tableBlockId);
+    const td = tableBlock.tableData;
+    if (!td) return;
+
+    const startRow = cellInfo.rowIndex;
+    const startCol = cellInfo.colIndex;
+
+    for (let r = 0; r < cells.length; r++) {
+      const targetRow = startRow + r;
+      if (targetRow >= td.rows.length) break; // clamp
+
+      for (let c = 0; c < cells[r].length; c++) {
+        const targetCol = startCol + c;
+        if (targetCol >= td.rows[targetRow].cells.length) continue; // clamp
+
+        const cloned = cloneTableCells([[cells[r][c]]])[0][0];
+        td.rows[targetRow].cells[targetCol] = cloned;
+      }
+    }
+    this.doc.updateBlockDirect(tableBlockId, tableBlock);
+
+    this.invalidateLayout();
+    // Move cursor to the last pasted cell's first block
+    const lastRow = Math.min(startRow + cells.length - 1, td.rows.length - 1);
+    const lastColIdx = Math.max(0, cells[cells.length - 1].length - 1);
+    const lastCol = Math.min(startCol + lastColIdx, td.rows[lastRow].cells.length - 1);
+    const lastCell = td.rows[lastRow].cells[lastCol];
+    if (lastCell?.blocks[0]) {
+      this.cursor.moveTo({ blockId: lastCell.blocks[0].id, offset: 0 }, 'forward');
     }
   }
 

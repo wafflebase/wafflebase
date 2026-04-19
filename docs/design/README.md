@@ -46,6 +46,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-intent-preserving-edits.md](docs/docs-intent-preserving-edits.md)          | Intent-preserving Yorkie edits — character-level Tree editing, 5-phase migration                  |
 | [docs-wordprocessor-roadmap.md](docs/docs-wordprocessor-roadmap.md)              | Docs word processor roadmap — 6-phase plan for Google Docs parity                                 |
 | [docs-ruler.md](docs/docs-ruler.md)                                              | Docs ruler design                                                                                 |
+| [docs-table-copy-paste.md](docs/docs-table-copy-paste.md)                        | Docs table copy-paste — cell-range clipboard, whole-table block, external HTML table paste        |
 
 ## Common
 
