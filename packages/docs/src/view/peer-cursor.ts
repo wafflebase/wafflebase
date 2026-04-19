@@ -187,25 +187,45 @@ export function resolvePositionPixel(
 
         if (nestingPath.length === 1) {
           // Non-nested table cell — use the original cursor positioning
-          // logic that finds the PageLine by ownerRow.
+          // logic that finds the PageLine by ownerRow. For split rows,
+          // pick the fragment whose visible range contains the line.
           let pageLine: import('./pagination.js').PageLine | undefined;
           let pageIndex = 0;
+          const lineInRow = targetLayout.runLineY - tl.rowYOffsets[ownerRow];
           for (const page of paginatedLayout.pages) {
             for (const pl of page.lines) {
               if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
+                if (pl.rowSplitHeight === undefined) {
+                  // Non-split row — use directly
+                  pageLine = pl;
+                  pageIndex = page.pageIndex;
+                  break;
+                }
+                // Split row — check if line falls within this fragment
+                const splitOff = pl.rowSplitOffset ?? 0;
+                if (lineInRow >= splitOff && lineInRow < splitOff + pl.rowSplitHeight) {
+                  pageLine = pl;
+                  pageIndex = page.pageIndex;
+                  break;
+                }
+                // Fallback to last seen
                 pageLine = pl;
                 pageIndex = page.pageIndex;
-                break;
               }
             }
-            if (pageLine) break;
+            if (pageLine && pageLine.rowSplitHeight === undefined) break;
+            if (pageLine && pageLine.rowSplitOffset !== undefined) {
+              const splitOff = pageLine.rowSplitOffset ?? 0;
+              if (lineInRow >= splitOff && lineInRow < splitOff + (pageLine.rowSplitHeight ?? Infinity)) break;
+            }
           }
           if (!pageLine) return undefined;
 
           const pageY = getPageYOffset(paginatedLayout, pageIndex);
+          const splitOffset = pageLine.rowSplitOffset ?? 0;
           const cellX = tl.columnXOffsets[colIndex] + cellPadding;
           const cursorYOnPage =
-            pageY + pageLine.y + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
+            pageY + pageLine.y + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]) - splitOffset;
 
           return {
             x: pageX + margins.left + cellX + cursorX,
@@ -215,28 +235,42 @@ export function resolvePositionPixel(
         }
 
         // Nested table cell — find the PageLine for the outermost table's
-        // row, then add accumulated Y offset from outer cells.
+        // row, then add accumulated Y offset from outer cells. For split
+        // rows, pick the fragment whose range contains the cursor's Y.
         const outerRowIndex = nestingPath[0].rowIndex;
+        const cursorInRow = yOffsetInTable + targetLayout.runLineY;
         let pageLine: import('./pagination.js').PageLine | undefined;
         let pageIndex = 0;
         for (const page of paginatedLayout.pages) {
           for (const pl of page.lines) {
             if (pl.blockIndex === blockIndex && pl.lineIndex === outerRowIndex) {
+              if (pl.rowSplitHeight === undefined) {
+                pageLine = pl;
+                pageIndex = page.pageIndex;
+                break;
+              }
+              const splitOff = pl.rowSplitOffset ?? 0;
+              if (cursorInRow >= splitOff && cursorInRow < splitOff + pl.rowSplitHeight) {
+                pageLine = pl;
+                pageIndex = page.pageIndex;
+                break;
+              }
               pageLine = pl;
               pageIndex = page.pageIndex;
-              break;
             }
           }
           if (pageLine) break;
         }
         if (!pageLine) return undefined;
 
+        const nestedSplitOffset = pageLine.rowSplitOffset ?? 0;
         const pageY = getPageYOffset(paginatedLayout, pageIndex);
         const innerCellX = tl.columnXOffsets[colIndex] + cellPadding;
         const innerCursorY = pageY + pageLine.y
           + yOffsetInTable
           + tl.rowYOffsets[ownerRow]
-          + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
+          + (targetLayout.runLineY - tl.rowYOffsets[ownerRow])
+          - nestedSplitOffset;
 
         return {
           x: pageX + margins.left + xOffset + innerCellX + cursorX,
