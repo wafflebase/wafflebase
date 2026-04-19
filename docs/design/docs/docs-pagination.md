@@ -395,6 +395,51 @@ Reuses the `horizontal-rule` non-editable pattern in `document.ts`:
 Block type attribute `'page-break'` stored in the Yorkie Tree node, following
 the existing pattern for `horizontal-rule` and `table`.
 
+## Table Row Splitting
+
+See [docs-table-row-splitting.md](docs-table-row-splitting.md) for the full
+design.
+
+### Motivation
+
+The original pagination treats table rows as atomic — a row is never split
+across pages. This causes two problems when a row is tall (e.g. contains a
+nested table, long text, or images):
+
+1. The row is pushed to the next page, leaving large blank space on the
+   previous page.
+2. If the row exceeds page height, its content is clipped.
+
+### Summary of Changes to Pagination
+
+- `paginateLayout()` gains row-splitting logic: when a table row does not fit
+  on the current page, the paginator walks each cell's content lines to find a
+  safe split height (between atomic units — text lines or images).
+- `PageLine` gains optional `rowSplitOffset` and `rowSplitHeight` fields. A
+  split row produces two or more `PageLine` entries (one per page fragment)
+  sharing the same `blockIndex + lineIndex`.
+- Nested tables are handled recursively — a nested table row can itself be
+  split, and its partial height feeds into the parent cell's split calculation.
+- rowSpan/colSpan merged cells that straddle a split are rendered on both pages,
+  with content clipped to each fragment's height.
+
+### Atomic Units
+
+| Unit | Splittable? |
+|------|-------------|
+| Text line | No |
+| Image block | No |
+| Table row | Yes — between text lines / blocks inside cells |
+| Nested-table row | Yes — recursively |
+
+### Rendering
+
+Each page fragment of a split row renders with:
+- Clipped cell content (translated by `rowSplitOffset`)
+- Full cell borders on both fragment top and bottom
+- Cell background fill for the visible area only
+- Recursive rendering for nested table fragments
+
 ## Risks and Mitigation
 
 | Risk | Mitigation |
@@ -403,3 +448,5 @@ the existing pattern for `horizontal-rule` and `table`.
 | Existing tests break from signature change | Update `computeLayout` call sites in tests to pass `contentWidth` |
 | Coordinate mapping bugs at page boundaries | Comprehensive tests for clicks on margins, gaps, and page edges |
 | Future header/footer integration | `LayoutPage` structure is extensible; header/footer regions can be added to page model |
+| Row splitting correctness with merges | Start with simple cases; add merge-specific tests |
+| Deep nesting performance | Cache split results per row; only recompute dirty rows |
