@@ -1,7 +1,7 @@
 {
   "name": "@wafflebase/documentation",
   "private": true,
-  "version": "0.3.3",
+  "version": "0.3.4",
   "type": "module",
   "scripts": {
     "dev": "vitepress dev --port 5174 --no-open",
