@@ -23,7 +23,6 @@ import {
   normalizeBlockStyle,
   DEFAULT_BLOCK_STYLE,
   resolveOffset,
-  resolveDeleteRange,
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
