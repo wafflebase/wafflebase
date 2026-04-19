@@ -10,6 +10,14 @@ export interface PageLine {
   line: LayoutLine;
   x: number;
   y: number;
+
+  /** For split table rows: vertical offset into the row where this
+      page fragment starts (0 for the first fragment). */
+  rowSplitOffset?: number;
+
+  /** For split table rows: height of this fragment on this page.
+      When undefined the full row height is used. */
+  rowSplitHeight?: number;
 }
 
 export interface LayoutPage {
