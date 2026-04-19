@@ -1,7 +1,7 @@
 import type { DocPosition, DocRange } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
 import type { PaginatedLayout } from './pagination.js';
-import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
+import { findPageForPosition, findPageLine, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
 import { buildFont, Theme } from './theme.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
@@ -188,24 +188,12 @@ export function resolvePositionPixel(
         if (nestingPath.length === 1) {
           // Non-nested table cell — use the original cursor positioning
           // logic that finds the PageLine by ownerRow.
-          let pageLine: import('./pagination.js').PageLine | undefined;
-          let pageIndex = 0;
-          for (const page of paginatedLayout.pages) {
-            for (const pl of page.lines) {
-              if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
-                pageLine = pl;
-                pageIndex = page.pageIndex;
-                break;
-              }
-            }
-            if (pageLine) break;
-          }
-          if (!pageLine) return undefined;
+          const found = findPageLine(paginatedLayout, blockIndex, ownerRow);
+          if (!found) return undefined;
 
-          const pageY = getPageYOffset(paginatedLayout, pageIndex);
           const cellX = tl.columnXOffsets[colIndex] + cellPadding;
           const cursorYOnPage =
-            pageY + pageLine.y + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
+            found.pageY + found.pageLine.y + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
 
           return {
             x: pageX + margins.left + cellX + cursorX,
@@ -217,23 +205,11 @@ export function resolvePositionPixel(
         // Nested table cell — find the PageLine for the outermost table's
         // row, then add accumulated Y offset from outer cells.
         const outerRowIndex = nestingPath[0].rowIndex;
-        let pageLine: import('./pagination.js').PageLine | undefined;
-        let pageIndex = 0;
-        for (const page of paginatedLayout.pages) {
-          for (const pl of page.lines) {
-            if (pl.blockIndex === blockIndex && pl.lineIndex === outerRowIndex) {
-              pageLine = pl;
-              pageIndex = page.pageIndex;
-              break;
-            }
-          }
-          if (pageLine) break;
-        }
-        if (!pageLine) return undefined;
+        const found = findPageLine(paginatedLayout, blockIndex, outerRowIndex);
+        if (!found) return undefined;
 
-        const pageY = getPageYOffset(paginatedLayout, pageIndex);
         const innerCellX = tl.columnXOffsets[colIndex] + cellPadding;
-        const innerCursorY = pageY + pageLine.y
+        const innerCursorY = found.pageY + found.pageLine.y
           + yOffsetInTable
           + tl.rowYOffsets[ownerRow]
           + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);

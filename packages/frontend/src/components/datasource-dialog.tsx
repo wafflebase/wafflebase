@@ -7,9 +7,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { DataSourceFormFields } from "@/components/datasource-form-fields";
 import { testDataSourceConnection } from "@/api/datasources";
 import { createWorkspaceDataSource } from "@/api/workspaces";
 import { isAuthExpiredError } from "@/api/auth";
@@ -143,74 +141,23 @@ export function DataSourceDialog({
             Connect to an external PostgreSQL database.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="ds-name">Name</Label>
-            <Input
-              id="ds-name"
-              placeholder="My Database"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="col-span-2 grid gap-2">
-              <Label htmlFor="ds-host">Host</Label>
-              <Input
-                id="ds-host"
-                placeholder="localhost"
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="ds-port">Port</Label>
-              <Input
-                id="ds-port"
-                type="number"
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="ds-database">Database</Label>
-            <Input
-              id="ds-database"
-              placeholder="mydb"
-              value={database}
-              onChange={(e) => setDatabase(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="grid gap-2">
-              <Label htmlFor="ds-username">Username</Label>
-              <Input
-                id="ds-username"
-                placeholder="postgres"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="ds-password">Password</Label>
-              <Input
-                id="ds-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              id="ds-ssl"
-              checked={sslEnabled}
-              onCheckedChange={setSslEnabled}
-            />
-            <Label htmlFor="ds-ssl">Enable SSL</Label>
-          </div>
-        </div>
+        <DataSourceFormFields
+          idPrefix="ds"
+          name={name}
+          host={host}
+          port={port}
+          database={database}
+          username={username}
+          password={password}
+          sslEnabled={sslEnabled}
+          onNameChange={setName}
+          onHostChange={setHost}
+          onPortChange={setPort}
+          onDatabaseChange={setDatabase}
+          onUsernameChange={setUsername}
+          onPasswordChange={setPassword}
+          onSslEnabledChange={setSslEnabled}
+        />
         <div className="flex justify-between">
           <Button
             variant="outline"

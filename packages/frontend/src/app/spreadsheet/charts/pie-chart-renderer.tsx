@@ -7,10 +7,11 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import type { PieDataset } from "../chart-utils";
+import { getLegendProps, type LegendPosition } from "./chart-registry";
 
 type Props = {
   dataset: PieDataset;
-  legendPosition: "top" | "bottom" | "right" | "left" | "none";
+  legendPosition: LegendPosition;
 };
 
 export function PieChartRenderer({ dataset, legendPosition }: Props) {
@@ -24,19 +25,7 @@ export function PieChartRenderer({ dataset, legendPosition }: Props) {
       <PieChart>
         <ChartTooltip content={<ChartTooltipContent />} />
         {legendPosition !== "none" && (
-          <ChartLegend
-            content={<ChartLegendContent />}
-            verticalAlign={
-              legendPosition === "top" || legendPosition === "bottom"
-                ? legendPosition
-                : undefined
-            }
-            align={
-              legendPosition === "left" || legendPosition === "right"
-                ? legendPosition
-                : undefined
-            }
-          />
+          <ChartLegend content={<ChartLegendContent />} {...getLegendProps(legendPosition)} />
         )}
         <Pie
           data={dataset.entries}

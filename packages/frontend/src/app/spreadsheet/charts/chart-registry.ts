@@ -135,3 +135,18 @@ export function getChartEntry(type: ChartType): ChartRegistryEntry {
 export function getAllChartEntries(): ChartRegistryEntry[] {
   return [...registry.values()];
 }
+
+export type LegendPosition = ChartRendererProps["legendPosition"];
+
+export function getLegendProps(legendPosition: LegendPosition) {
+  return {
+    verticalAlign:
+      legendPosition === "top" || legendPosition === "bottom"
+        ? legendPosition
+        : undefined,
+    align:
+      legendPosition === "left" || legendPosition === "right"
+        ? legendPosition
+        : undefined,
+  } as const;
+}

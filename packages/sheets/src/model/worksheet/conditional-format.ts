@@ -1,4 +1,4 @@
-import { inRange, toRange } from '../core/coordinates';
+import { cloneRange, inRange, toRange } from '../core/coordinates';
 import { remapIndex } from './shifting';
 import {
   Axis,
@@ -25,13 +25,6 @@ const ValueRequiredOperators = new Set<ConditionalFormatOperator>([
   'dateBefore',
   'dateAfter',
 ]);
-
-function cloneRange(range: Range): Range {
-  return [
-    { r: range[0].r, c: range[0].c },
-    { r: range[1].r, c: range[1].c },
-  ];
-}
 
 function isOperator(value: string): value is ConditionalFormatOperator {
   return ConditionalFormatOperators.has(value as ConditionalFormatOperator);
@@ -64,10 +57,6 @@ function normalizeText(value: unknown): string {
     }
   }
   return String(value);
-}
-
-function normalizeRange(range: Range): Range {
-  return toRange(range[0], range[1]);
 }
 
 function normalizeNumericValue(value: string | undefined): number | undefined {
@@ -229,7 +218,7 @@ export function normalizeConditionalFormatRule(
   if (!rawRanges || rawRanges.length === 0) {
     return undefined;
   }
-  const normalizedRanges = rawRanges.map((r) => normalizeRange(r));
+  const normalizedRanges = rawRanges.map((r) => toRange(r[0], r[1]));
 
   const normalized: ConditionalFormatRule = {
     id,
