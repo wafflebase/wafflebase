@@ -395,6 +395,19 @@ export class TextEditor {
       return;
     }
 
+    // Guard: if the cursor references a block that no longer exists
+    // (e.g. deleted by a remote collaborator), reset to the first block.
+    if (!this.doc.findBlock(this.cursor.position.blockId)) {
+      const blocks = this.doc.getContextBlocks();
+      if (blocks.length > 0) {
+        this.cursor.moveTo({ blockId: blocks[0].id, offset: 0 });
+        this.selection.setRange(null);
+        this.invalidateLayout();
+        this.requestRender();
+      }
+      return;
+    }
+
     const { ctrlKey, metaKey, shiftKey, altKey } = e;
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -1840,6 +1853,21 @@ export class TextEditor {
     shiftKey: boolean,
     wordMod = false,
   ): void {
+    try {
+      this.handleArrowInner(direction, shiftKey, wordMod);
+    } catch {
+      // Stale blockParentMap data (e.g. table rows removed by remote edit).
+      // Rebuild layout so the next keypress has fresh data.
+      this.invalidateLayout();
+      this.requestRender();
+    }
+  }
+
+  private handleArrowInner(
+    direction: 'left' | 'right' | 'up' | 'down',
+    shiftKey: boolean,
+    wordMod = false,
+  ): void {
     const pos = this.cursor.position;
 
     // Table cell arrow key handling: keep cursor within cell boundaries
@@ -3179,9 +3207,27 @@ export class TextEditor {
           const crossPageResult = paginatedPixelToPosition(
             paginatedLayout, layout, pixel.x, targetY, canvasWidth,
           );
-          if (crossPageResult) {
+          if (crossPageResult
+              && !(crossPageResult.blockId === pos.blockId && crossPageResult.offset === pos.offset)) {
             this.cursor.lineAffinity = crossPageResult.lineAffinity;
             return crossPageResult;
+          }
+          // Cross-page pixel lookup returned the same position (e.g. the
+          // adjacent page only contains a tall table block). Fall back to
+          // the block on that page line and enter the table if applicable.
+          const fallbackBlock = layout.blocks[targetLine.blockIndex]?.block;
+          if (fallbackBlock?.type === 'table' && fallbackBlock.tableData) {
+            const td = fallbackBlock.tableData;
+            if (direction === -1) {
+              const lastRow = td.rows.length - 1;
+              const lastCol = td.columnWidths.length - 1;
+              const lastCell = td.rows[lastRow].cells[lastCol];
+              const lastCellBlock = lastCell.blocks[lastCell.blocks.length - 1];
+              return { blockId: lastCellBlock.id, offset: Math.min(pos.offset, getBlockTextLength(lastCellBlock)) };
+            } else {
+              const firstCellBlock = td.rows[0].cells[0].blocks[0];
+              return { blockId: firstCellBlock.id, offset: Math.min(pos.offset, getBlockTextLength(firstCellBlock)) };
+            }
           }
           return pos;
         }

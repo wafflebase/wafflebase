@@ -1612,7 +1612,10 @@ export function initialize(
     },
     getPeerCursorPixels: () => lastPeerPixels,
     getBlockType() {
-      const block = doc.getBlock(cursor.position.blockId);
+      const block = doc.findBlock(cursor.position.blockId);
+      if (!block) {
+        return { type: 'paragraph' as BlockType };
+      }
       return {
         type: block.type,
         headingLevel: block.headingLevel,
