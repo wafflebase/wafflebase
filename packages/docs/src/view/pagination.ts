@@ -2,7 +2,7 @@ import type { PageSetup } from '../model/types.js';
 import { getEffectiveDimensions } from '../model/types.js';
 import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutLine, LayoutRun } from './layout.js';
-import { getCellContentBreakpoints } from './table-layout.js';
+import { findRowSplitHeight } from './table-layout.js';
 import { Theme } from './theme.js';
 
 export interface PageLine {
@@ -75,40 +75,8 @@ export function paginateLayout(
         const rowHeight = tl.rowHeights[ri];
         const rowLine = { runs: [] as LayoutRun[], y: tl.rowYOffsets[ri], height: rowHeight, width: availableWidth };
 
-        // Row fits on current page — no split needed
-        if (currentY + rowHeight <= contentHeight || isPageTop) {
-          // If row exceeds page even when at page top, try to split it
-          if (isPageTop && currentY + rowHeight > contentHeight) {
-            const breakpoints = getCellContentBreakpoints(tl, ri);
-            if (breakpoints.length > 0) {
-              let consumed = 0;
-              while (consumed < rowHeight) {
-                if (consumed > 0) startNewPage();
-                const remaining = rowHeight - consumed;
-                const pageAvail = contentHeight - currentY;
-                let fragHeight = remaining;
-                if (remaining > pageAvail) {
-                  fragHeight = 0;
-                  for (const bp of breakpoints) {
-                    if (bp > consumed && bp - consumed <= pageAvail) {
-                      fragHeight = bp - consumed;
-                    }
-                  }
-                  if (fragHeight <= 0) fragHeight = Math.min(remaining, pageAvail);
-                }
-                currentLines.push({
-                  blockIndex: bi, lineIndex: ri, line: rowLine,
-                  x: margins.left, y: margins.top + currentY,
-                  rowSplitOffset: consumed, rowSplitHeight: fragHeight,
-                });
-                consumed += fragHeight;
-                currentY += fragHeight;
-                isPageTop = false;
-              }
-              continue;
-            }
-          }
-          // No split needed or not possible — place whole row
+        // Row fits on current page — place whole row
+        if (currentY + rowHeight <= contentHeight) {
           currentLines.push({
             blockIndex: bi, lineIndex: ri, line: rowLine,
             x: margins.left, y: margins.top + currentY,
@@ -120,55 +88,34 @@ export function paginateLayout(
 
         // Row doesn't fit — try to split
         const availableForRow = contentHeight - currentY;
-        const breakpoints = getCellContentBreakpoints(tl, ri);
+        const splitHeight = availableForRow > 0
+          ? findRowSplitHeight(tl, ri, availableForRow)
+          : 0;
 
-        let splitHeight = 0;
-        for (const bp of breakpoints) {
-          if (bp <= availableForRow) splitHeight = bp;
-          else break;
-        }
-
-        if (splitHeight <= 0) {
-          // No safe split point — push entire row to next page
+        if (splitHeight <= 0 && !isPageTop) {
+          // No safe split point on this page — push to next page
           startNewPage();
-          currentLines.push({
-            blockIndex: bi, lineIndex: ri, line: rowLine,
-            x: margins.left, y: margins.top + currentY,
-          });
-          currentY += rowHeight;
-          isPageTop = false;
-          continue;
         }
 
-        // Emit first fragment
-        currentLines.push({
-          blockIndex: bi, lineIndex: ri, line: rowLine,
-          x: margins.left, y: margins.top + currentY,
-          rowSplitOffset: 0, rowSplitHeight: splitHeight,
-        });
-        let consumed = splitHeight;
-        currentY += splitHeight;
-        isPageTop = false;
-
-        // Continue on subsequent pages
+        // Emit fragments across pages
+        let consumed = 0;
         while (consumed < rowHeight) {
-          startNewPage();
+          if (consumed > 0) startNewPage();
           const remaining = rowHeight - consumed;
-          const pageAvail = contentHeight;
+          const pageAvail = contentHeight - currentY;
+
           let fragHeight = remaining;
-          if (remaining > pageAvail) {
-            fragHeight = 0;
-            for (const bp of breakpoints) {
-              if (bp > consumed && bp - consumed <= pageAvail) {
-                fragHeight = bp - consumed;
-              }
-            }
-            if (fragHeight <= 0) fragHeight = Math.min(remaining, pageAvail);
+          if (remaining > pageAvail && pageAvail > 0) {
+            const sh = findRowSplitHeight(tl, ri, consumed + pageAvail);
+            fragHeight = sh > consumed ? sh - consumed : Math.min(remaining, pageAvail);
           }
+          if (fragHeight <= 0) fragHeight = Math.min(remaining, contentHeight);
+
+          const needsSplit = consumed > 0 || fragHeight < rowHeight;
           currentLines.push({
             blockIndex: bi, lineIndex: ri, line: rowLine,
             x: margins.left, y: margins.top + currentY,
-            rowSplitOffset: consumed, rowSplitHeight: fragHeight,
+            ...(needsSplit ? { rowSplitOffset: consumed, rowSplitHeight: fragHeight } : {}),
           });
           consumed += fragHeight;
           currentY += fragHeight;

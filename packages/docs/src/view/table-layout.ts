@@ -613,43 +613,44 @@ export function resolveNestedTableLayout(
 }
 
 /**
- * Return sorted array of safe vertical break positions within a table row.
- * Each value is a cumulative height (relative to the row top) at which
- * all cells in the row have an atomic-unit boundary (text line or image end).
- * The paginator can split the row at any of these heights.
+ * Find the maximum safe split height for a table row given the available space.
+ * Returns 0 if no safe split is possible (row stays atomic).
+ *
+ * A split at height H is safe when, for every non-merged cell in the row,
+ * H falls exactly at a line boundary (never mid-line). Because different
+ * cells have different line heights, the function clamps to each cell's
+ * largest breakpoint <= availableHeight and returns the minimum across cells.
  */
-export function getCellContentBreakpoints(
+export function findRowSplitHeight(
   layout: LayoutTable,
   rowIndex: number,
-): number[] {
+  availableHeight: number,
+): number {
   const padding = DEFAULT_CELL_PADDING;
   const cells = layout.cells[rowIndex];
-  if (!cells || cells.length === 0) return [];
+  if (!cells || cells.length === 0) return 0;
 
-  // Collect per-cell breakpoint sets
-  const perCell: Set<number>[] = [];
+  let minSafe = availableHeight;
+  let hasCells = false;
+
   for (let c = 0; c < cells.length; c++) {
     const cell = cells[c];
-    if (cell.merged) continue; // skip covered cells
-    const breaks = new Set<number>();
+    if (cell.merged) continue;
+    hasCells = true;
+
+    // Find largest breakpoint <= availableHeight for this cell
+    let bestBp = 0;
     let y = padding;
     for (const line of cell.lines) {
       y += line.height;
-      breaks.add(y);
+      if (y <= availableHeight) {
+        bestBp = y;
+      } else {
+        break;
+      }
     }
-    perCell.push(breaks);
+    minSafe = Math.min(minSafe, bestBp);
   }
 
-  if (perCell.length === 0) return [];
-
-  // Intersect: only keep heights where ALL non-merged cells have a break
-  const first = perCell[0];
-  const common: number[] = [];
-  for (const h of first) {
-    if (perCell.every(s => s.has(h))) {
-      common.push(h);
-    }
-  }
-  common.sort((a, b) => a - b);
-  return common;
+  return hasCells ? minSafe : 0;
 }
