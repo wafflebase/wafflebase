@@ -506,28 +506,6 @@ export function renderTableContent(
 
   if (isSplit) {
     ctx.restore();
-    // Re-draw borders on fragment boundaries so each split piece has
-    // a clean rectangular outline.
-    const fragTop = tableY + rowYOffsets[pageStart] + rowSplitOffset;
-    const fragBottom = fragTop + rowSplitHeight;
-    ctx.save();
-    ctx.strokeStyle = Theme.defaultColor;
-    ctx.lineWidth = 1;
-    // Top and bottom borders
-    ctx.beginPath();
-    ctx.moveTo(tableX, fragTop);
-    ctx.lineTo(tableX + tableLayout.totalWidth, fragTop);
-    ctx.moveTo(tableX, fragBottom);
-    ctx.lineTo(tableX + tableLayout.totalWidth, fragBottom);
-    // Vertical cell borders
-    for (const xOff of columnXOffsets) {
-      ctx.moveTo(tableX + xOff, fragTop);
-      ctx.lineTo(tableX + xOff, fragBottom);
-    }
-    ctx.moveTo(tableX + tableLayout.totalWidth, fragTop);
-    ctx.lineTo(tableX + tableLayout.totalWidth, fragBottom);
-    ctx.stroke();
-    ctx.restore();
   }
 }
 
