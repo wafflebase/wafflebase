@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeTableLayout } from '../../src/view/table-layout.js';
+import { computeMergedCellLineLayouts } from '../../src/view/table-renderer.js';
 import { createTableBlock, DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 
 function stubCtx(): CanvasRenderingContext2D {
@@ -105,13 +106,24 @@ describe('computeTableLayout', () => {
 
     const result = computeTableLayout(td, 'test-table', stubCtx(), 300);
 
-    // The merged cells in row 1 each have 2 lines. Row 1 must be tall
-    // enough so that content is not pushed entirely into row 2, or row 2
-    // must grow to accommodate redistributed content. Either way, the
-    // total height must contain all content.
-    const totalContentPerMergedCell = result.cells[1][0].height;
-    const spannedHeight = result.rowHeights[1] + result.rowHeights[2];
-    expect(spannedHeight).toBeGreaterThanOrEqual(totalContentPerMergedCell);
+    // Every redistributed line must fit within its owner row.
+    const mergedCell = result.cells[1][0];
+    const padding = td.rows[1].cells[0].style?.padding ?? 4;
+    const lineLayouts = computeMergedCellLineLayouts(
+      mergedCell.lines,
+      1,
+      td.rows[1].cells[0].rowSpan ?? 1,
+      padding,
+      result.rowYOffsets,
+      result.rowHeights,
+    );
+
+    for (let i = 0; i < mergedCell.lines.length; i++) {
+      const { ownerRow, runLineY } = lineLayouts[i];
+      const lineBottom =
+        runLineY - result.rowYOffsets[ownerRow] + mergedCell.lines[i].height + padding;
+      expect(lineBottom).toBeLessThanOrEqual(result.rowHeights[ownerRow]);
+    }
 
     // totalHeight must equal sum of all row heights
     const sumRowHeights = result.rowHeights.reduce((s, h) => s + h, 0);

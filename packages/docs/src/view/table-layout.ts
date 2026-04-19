@@ -439,12 +439,13 @@ export function computeTableLayout(
           yInRow = padding;
         }
         yInRow += line.height;
-      }
 
-      // Ensure the last receiving row has enough height
-      const needed = yInRow + padding;
-      if (needed > rowHeights[curRow]) {
-        rowHeights[curRow] = needed;
+        // Ensure every receiving row has enough height for the content
+        // already assigned to it (not just the last row).
+        const needed = yInRow + padding;
+        if (needed > rowHeights[curRow]) {
+          rowHeights[curRow] = needed;
+        }
       }
     }
   }
