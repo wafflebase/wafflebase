@@ -479,19 +479,69 @@ export class YorkieDocStore implements DocStore {
   }
 
   setHeader(header: HeaderFooter | undefined): void {
-    // Rewrite the full document to include/remove header
     const doc = this.getDocument();
+    const hadHeader = !!doc.header;
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      if (header) {
+        const node: ElementNode = {
+          type: 'header',
+          attributes: { marginFromEdge: String(header.marginFromEdge) },
+          children: header.blocks.map(buildBlockNode),
+        };
+        if (hadHeader) {
+          // Replace existing header
+          tree.editByPath([0], [1], node);
+        } else {
+          // Insert new header at the beginning
+          tree.editByPath([0], [0], node);
+        }
+      } else if (hadHeader) {
+        // Remove existing header
+        tree.editByPath([0], [1]);
+      }
+    });
+
     doc.header = header;
-    this.writeFullDocument(doc);
-    this.cachedDoc = cloneDocument(doc);
+    this.cachedDoc = doc;
     this.dirty = false;
   }
 
   setFooter(footer: HeaderFooter | undefined): void {
     const doc = this.getDocument();
+    const hadFooter = !!doc.footer;
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      const treeRoot = tree.getRootTreeNode() as ElementNode;
+      const childCount = (treeRoot.children ?? []).length;
+
+      if (footer) {
+        const node: ElementNode = {
+          type: 'footer',
+          attributes: { marginFromEdge: String(footer.marginFromEdge) },
+          children: footer.blocks.map(buildBlockNode),
+        };
+        if (hadFooter) {
+          // Replace existing footer (last child)
+          tree.editByPath([childCount - 1], [childCount], node);
+        } else {
+          // Append new footer at the end
+          tree.editByPath([childCount], [childCount], node);
+        }
+      } else if (hadFooter) {
+        // Remove existing footer (last child)
+        tree.editByPath([childCount - 1], [childCount]);
+      }
+    });
+
     doc.footer = footer;
-    this.writeFullDocument(doc);
-    this.cachedDoc = cloneDocument(doc);
+    this.cachedDoc = doc;
     this.dirty = false;
   }
 
