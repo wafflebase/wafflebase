@@ -392,15 +392,29 @@ function buildRects(
         }
         return undefined;
       }
+      // For split rows, multiple PageLines share the same blockIndex +
+      // lineIndex. Pick the fragment whose visible range contains runLineY
+      // (relative to the row top).
+      let bestResult: number | undefined;
       for (const page of paginatedLayout.pages) {
         for (const pl of page.lines) {
           if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
             const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
-            return pageY + pl.y + (runLineY - tl.rowYOffsets[ownerRow]);
+            const splitOffset = pl.rowSplitOffset ?? 0;
+            const absY = pageY + pl.y + (runLineY - tl.rowYOffsets[ownerRow]) - splitOffset;
+            if (pl.rowSplitHeight === undefined) {
+              return absY; // non-split row
+            }
+            // Check if this line falls within this fragment's range
+            const lineInRow = runLineY - tl.rowYOffsets[ownerRow];
+            if (lineInRow >= splitOffset && lineInRow < splitOffset + pl.rowSplitHeight) {
+              return absY;
+            }
+            bestResult = absY; // fallback to last
           }
         }
       }
-      return undefined;
+      return bestResult;
     };
 
     const cellRects: Array<{ x: number; y: number; width: number; height: number }> = [];
