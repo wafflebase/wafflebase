@@ -7,11 +7,11 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import type { PieDataset } from "../chart-utils";
-import { getLegendProps } from "./chart-registry";
+import { getLegendProps, type LegendPosition } from "./chart-registry";
 
 type Props = {
   dataset: PieDataset;
-  legendPosition: "top" | "bottom" | "right" | "left" | "none";
+  legendPosition: LegendPosition;
 };
 
 export function PieChartRenderer({ dataset, legendPosition }: Props) {

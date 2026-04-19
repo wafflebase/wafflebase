@@ -562,9 +562,8 @@ function buildCellRangeRects(
   let baseY = 0;
   if (outerRowIndex >= 0) {
     const found = findPageLine(paginatedLayout, blockIndex, outerRowIndex);
-    if (found) {
-      baseY = found.pageY + found.pageLine.y + nestedYOffset;
-    }
+    if (!found) return [];
+    baseY = found.pageY + found.pageLine.y + nestedYOffset;
   }
 
   // Build a row → absolute Y map

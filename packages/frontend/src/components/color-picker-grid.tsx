@@ -10,7 +10,9 @@ export function ColorPickerGrid({ colors, onSelect, onReset }: ColorPickerGridPr
   return (
     <>
       <button
+        type="button"
         className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+        aria-label="Reset color"
         onClick={onReset}
       >
         <IconDropletOff size={14} />
@@ -20,8 +22,11 @@ export function ColorPickerGrid({ colors, onSelect, onReset }: ColorPickerGridPr
         {colors.map((color) => (
           <button
             key={color}
+            type="button"
             className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
             style={{ backgroundColor: color }}
+            aria-label={`Select color ${color}`}
+            title={color}
             onClick={() => onSelect(color)}
           />
         ))}

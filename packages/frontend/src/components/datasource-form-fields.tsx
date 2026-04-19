@@ -94,6 +94,7 @@ export function DataSourceFormFields({
           <Input
             id={`${idPrefix}-password`}
             type="password"
+            autoComplete="new-password"
             placeholder={passwordPlaceholder}
             value={password}
             onChange={(e) => onPasswordChange(e.target.value)}

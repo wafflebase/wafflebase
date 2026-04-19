@@ -7,13 +7,13 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart";
 import type { ChartDataset } from "../chart-utils";
-import { getLegendProps } from "./chart-registry";
+import { getLegendProps, type LegendPosition } from "./chart-registry";
 
 type Props = {
   dataset: ChartDataset;
   yAxisWidth: number;
   showGridlines: boolean;
-  legendPosition: "top" | "bottom" | "right" | "left" | "none";
+  legendPosition: LegendPosition;
   formatYAxisTick: (value: number | string) => string;
 };
 
