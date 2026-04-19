@@ -271,15 +271,26 @@ export function findPageForPosition(
     targetLineIndex = li;
   }
 
+  // For non-table blocks, return the first matching PageLine.
+  // For table rows that split across pages, multiple PageLines share the same
+  // blockIndex + lineIndex; return the last fragment so the cursor lands on the
+  // most-recently-visible portion of the row (continuation pages).
+  const isTableBlock = lb.block.type === 'table';
+  let result: { pageIndex: number; pageLine: PageLine } | undefined;
+
   for (const page of paginatedLayout.pages) {
     for (const pl of page.lines) {
       if (pl.blockIndex === blockIndex && pl.lineIndex === targetLineIndex) {
-        return { pageIndex: page.pageIndex, pageLine: pl };
+        if (!isTableBlock) {
+          return { pageIndex: page.pageIndex, pageLine: pl };
+        }
+        // For table blocks, keep scanning to find the last fragment.
+        result = { pageIndex: page.pageIndex, pageLine: pl };
       }
     }
   }
 
-  return undefined;
+  return result;
 }
 
 /**
