@@ -2793,6 +2793,9 @@ export class TextEditor {
   private pasteTableCells(cells: TableCell[][]): void {
     if (cells.length === 0) return;
 
+    // Table paste is only supported in the body context
+    if (this.editContext !== 'body') return;
+
     const layout = this.getLayout();
     const pos = this.cursor.position;
     const cellInfo = layout.blockParentMap.get(pos.blockId);
@@ -2800,7 +2803,7 @@ export class TextEditor {
     if (!cellInfo) {
       // Cursor not in a table — insert a new table block from the cells
       const rows = cells.length;
-      const cols = Math.max(...cells.map(r => r.length));
+      const cols = Math.max(1, ...cells.map(r => r.length));
       const tableBlock = createTableBlock(rows, cols);
       const td = tableBlock.tableData!;
       for (let r = 0; r < rows; r++) {
@@ -2836,14 +2839,14 @@ export class TextEditor {
 
         const cloned = cloneTableCells([[cells[r][c]]])[0][0];
         td.rows[targetRow].cells[targetCol] = cloned;
-        this.doc.updateBlockDirect(tableBlockId, tableBlock);
       }
     }
+    this.doc.updateBlockDirect(tableBlockId, tableBlock);
 
     this.invalidateLayout();
     // Move cursor to the last pasted cell's first block
     const lastRow = Math.min(startRow + cells.length - 1, td.rows.length - 1);
-    const lastColIdx = cells.length > 0 ? cells[cells.length - 1].length - 1 : 0;
+    const lastColIdx = Math.max(0, cells[cells.length - 1].length - 1);
     const lastCol = Math.min(startCol + lastColIdx, td.rows[lastRow].cells.length - 1);
     const lastCell = td.rows[lastRow].cells[lastCol];
     if (lastCell?.blocks[0]) {

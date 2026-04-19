@@ -44,7 +44,7 @@ interface ClipboardPayload {
 
 When `tableCells` is present, the payload represents a cell-range copy. When absent, it is a regular block copy. `blocks` remains `[]` for cell-range copies.
 
-**Files:** `clipboard.ts` — update `serializeBlocks()` and `deserializeBlocks()` to accept/return the optional `tableCells` field.
+**Files:** `clipboard.ts` — add new `serializeClipboard()` and `deserializeClipboard()` functions that handle the optional `tableCells` field (existing `serializeBlocks`/`deserializeBlocks` kept for backward compatibility).
 
 ### Copy Flow
 
@@ -74,7 +74,7 @@ if payload has tableCells:
     2. For each source cell [r][c], compute target address: (rowIndex + r, colIndex + c)
     3. Clamp to target table bounds — skip cells that exceed dimensions
     4. Deep-clone source cell blocks (regenerate IDs)
-    5. Replace target cell's blocks via doc.updateCellBlocks()
+    5. Replace target cell's blocks via doc.updateBlockDirect()
     6. Move cursor to the last pasted cell
   else (cursor on normal block):
     Create a new table block from tableCells and insert at cursor position
