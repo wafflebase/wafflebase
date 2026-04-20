@@ -28,6 +28,8 @@ interface TableRenderRange {
   pageStartRow: number;
   renderStartRow: number;
   endRowIndex: number;
+  rowSplitOffset?: number;
+  rowSplitHeight?: number;
 }
 
 /**
@@ -51,12 +53,19 @@ function computeTableRangeForPageLine(
 ): { pageStartRow: number; renderStartRow: number; endRowIndex: number } {
   const pageStartRow = pl.lineIndex;
   let endRowIndex = pageStartRow + 1;
-  for (let k = plIndex + 1; k < page.lines.length; k++) {
-    const nextPl = page.lines[k];
-    if (nextPl.blockIndex === pl.blockIndex) {
-      endRowIndex = nextPl.lineIndex + 1;
-    } else {
-      break;
+  // Split fragments render only their own row — don't extend to
+  // subsequent rows, which would incorrectly include them in the
+  // clipped split pass.
+  if (pl.rowSplitOffset === undefined) {
+    for (let k = plIndex + 1; k < page.lines.length; k++) {
+      const nextPl = page.lines[k];
+      if (nextPl.blockIndex === pl.blockIndex) {
+        // Stop before split fragments — they get their own render pass
+        if (nextPl.rowSplitOffset !== undefined) break;
+        endRowIndex = nextPl.lineIndex + 1;
+      } else {
+        break;
+      }
     }
   }
   let renderStartRow = pageStartRow;
@@ -94,14 +103,16 @@ function collectTableRenderRanges(
     // range computation sweeps forward from there, so subsequent rows
     // of the same block are handled by the sweep.
     if (plIndex > 0 && page.lines[plIndex - 1]?.blockIndex === pl.blockIndex) {
-      continue;
+      // Allow split fragments through — each needs its own render range
+      if (pl.rowSplitOffset === undefined) continue;
     }
     const lb = layout.blocks[pl.blockIndex];
     if (!lb || lb.block.type !== 'table' || !lb.layoutTable || !lb.block.tableData) {
       continue;
     }
     const range = computeTableRangeForPageLine(page, lb, pl, plIndex);
-    const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex];
+    const splitOffset = pl.rowSplitOffset ?? 0;
+    const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex] - splitOffset;
     ranges.push({
       layoutBlock: lb,
       tableX: pageX + margins.left,
@@ -109,6 +120,8 @@ function collectTableRenderRanges(
       pageStartRow: range.pageStartRow,
       renderStartRow: range.renderStartRow,
       endRowIndex: range.endRowIndex,
+      rowSplitOffset: pl.rowSplitOffset,
+      rowSplitHeight: pl.rowSplitHeight,
     });
   }
   return ranges;
@@ -374,6 +387,8 @@ export class DocCanvas {
             tr.renderStartRow,
             tr.endRowIndex,
             tr.pageStartRow,
+            tr.rowSplitOffset,
+            tr.rowSplitHeight,
           );
         }
       }
@@ -462,13 +477,12 @@ export class DocCanvas {
           const lb = layout.blocks[pl.blockIndex];
           if (lb && lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
             // Only render on the first row PageLine of this table block,
-            // so we touch each table once per page. The row range was
-            // already computed in the background pre-pass — recompute it
-            // here instead of threading the data through so both passes
-            // keep their logic self-contained and readable.
-            if (plIndex === 0 || page.lines[plIndex - 1]?.blockIndex !== pl.blockIndex) {
+            // so we touch each table once per page. Split fragments (with
+            // rowSplitOffset) must not be deduped — each gets its own pass.
+            if (plIndex === 0 || page.lines[plIndex - 1]?.blockIndex !== pl.blockIndex || pl.rowSplitOffset !== undefined) {
               const range = computeTableRangeForPageLine(page, lb, pl, plIndex);
-              const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex];
+              const splitOffset = pl.rowSplitOffset ?? 0;
+              const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex] - splitOffset;
               renderTableContent(
                 this.ctx,
                 lb.block.tableData,
@@ -482,6 +496,8 @@ export class DocCanvas {
                 dragImageRun,
                 selectionRects,
                 focused,
+                pl.rowSplitOffset,
+                pl.rowSplitHeight,
               );
             }
             continue;

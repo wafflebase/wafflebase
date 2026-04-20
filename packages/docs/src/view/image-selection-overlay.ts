@@ -247,7 +247,7 @@ export function collectImageRects(
       if (!lb) continue;
 
       if (lb.block.type === 'table') {
-        collectTableCellImageRects(lb, pl, pageY, pageX, map);
+        collectTableCellImageRects(lb, pl, pageY, pageX, map, pl.rowSplitOffset, pl.rowSplitHeight);
         continue;
       }
 
@@ -300,6 +300,8 @@ function collectTableCellImageRects(
   pageY: number,
   pageX: number,
   out: Map<string, ImageRect>,
+  rowSplitOffset?: number,
+  rowSplitHeight?: number,
 ): void {
   const tableData = lb.block.tableData;
   const layoutTable = lb.layoutTable;
@@ -310,11 +312,9 @@ function collectTableCellImageRects(
   const dataRow = tableData.rows[r];
   if (!dataRow) return;
 
-  // Note: `pl.x` for a table row is `margins.left` (see pagination.ts
-  // where table row PageLines are constructed), matching the body
-  // path. We use `pl.x` directly here so the two code paths stay
-  // symmetric and the test fixtures don't need table-specific
-  // pl.x / pl.y values.
+  const splitOffset = rowSplitOffset ?? 0;
+  const isSplit = rowSplitOffset !== undefined && rowSplitHeight !== undefined;
+
   for (let c = 0; c < rowCells.length; c++) {
     const layoutCell = rowCells[c];
     if (layoutCell.merged) continue;
@@ -329,7 +329,8 @@ function collectTableCellImageRects(
 
     const padding = cell.style?.padding ?? 4;
     const cellX = pageX + pl.x + layoutTable.columnXOffsets[c];
-    const cellY = pageY + pl.y;
+    // For split fragments, shift up by splitOffset to match rendering
+    const cellY = pageY + pl.y - splitOffset;
 
     // Walk the cell's lines, tracking which block each line belongs
     // to (cells can hold multiple paragraphs / list-items) and the
@@ -369,6 +370,17 @@ function collectTableCellImageRects(
           const drawHeight = run.imageHeight ?? line.height;
           const x = cellX + padding + run.x;
           const y = cellY + padding + line.y + line.height - drawHeight;
+
+          // For split fragments, skip images outside the visible range
+          if (isSplit) {
+            const imgTop = padding + line.y + line.height - drawHeight;
+            const imgBottom = imgTop + drawHeight;
+            if (imgBottom <= splitOffset || imgTop >= splitOffset + rowSplitHeight!) {
+              offsetInBlock += run.charEnd - run.charStart;
+              continue;
+            }
+          }
+
           const key = `${innerBlock.id}:${offsetInBlock}`;
           out.set(key, { x, y, width: run.width, height: drawHeight });
         }

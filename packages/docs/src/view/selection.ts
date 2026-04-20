@@ -384,9 +384,29 @@ function buildRects(
           + tl.rowYOffsets[ownerRow]
           + (runLineY - tl.rowYOffsets[ownerRow]);
       }
-      const found = findPageLine(paginatedLayout, blockIndex, ownerRow);
-      if (!found) return undefined;
-      return found.pageY + found.pageLine.y + (runLineY - tl.rowYOffsets[ownerRow]);
+      // For split rows, multiple PageLines share the same blockIndex +
+      // lineIndex. Pick the fragment whose visible range contains runLineY
+      // (relative to the row top).
+      let bestResult: number | undefined;
+      for (const page of paginatedLayout.pages) {
+        for (const pl of page.lines) {
+          if (pl.blockIndex === blockIndex && pl.lineIndex === ownerRow) {
+            const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
+            const splitOffset = pl.rowSplitOffset ?? 0;
+            const absY = pageY + pl.y + (runLineY - tl.rowYOffsets[ownerRow]) - splitOffset;
+            if (pl.rowSplitHeight === undefined) {
+              return absY; // non-split row
+            }
+            // Check if this line falls within this fragment's range
+            const lineInRow = runLineY - tl.rowYOffsets[ownerRow];
+            if (lineInRow >= splitOffset && lineInRow < splitOffset + pl.rowSplitHeight) {
+              return absY;
+            }
+            bestResult = absY; // fallback to last
+          }
+        }
+      }
+      return bestResult;
     };
 
     const cellRects: Array<{ x: number; y: number; width: number; height: number }> = [];
@@ -559,27 +579,59 @@ function buildCellRangeRects(
 
   // For nested tables, we need the absolute Y of the outermost row that
   // contains the nested table. For top-level tables, build the full row map.
-  let baseY = 0;
+  // Build a row → absolute Y fragments list. For split rows, multiple
+  // fragments share the same lineIndex; each gets its own entry so the
+  // selection highlight appears on every page the row spans.
+  const rowFrags = new Map<number, Array<{ y: number; height: number }>>();
   if (outerRowIndex >= 0) {
-    const found = findPageLine(paginatedLayout, blockIndex, outerRowIndex);
-    if (!found) return [];
-    baseY = found.pageY + found.pageLine.y + nestedYOffset;
-  }
+    // Nested table inside a (possibly split) outer row.
+    // Collect all outer-row fragments so inner rows that fall on
+    // different pages each get their own rect.
+    const outerFragments: Array<{ pageY: number; plY: number; splitOff: number; splitH: number }> = [];
+    for (const page of paginatedLayout.pages) {
+      const pY = getPageYOffset(paginatedLayout, page.pageIndex);
+      for (const pl of page.lines) {
+        if (pl.blockIndex === blockIndex && pl.lineIndex === outerRowIndex) {
+          outerFragments.push({
+            pageY: pY,
+            plY: pl.y,
+            splitOff: pl.rowSplitOffset ?? 0,
+            splitH: pl.rowSplitHeight ?? pl.line.height,
+          });
+        }
+      }
+    }
 
-  // Build a row → absolute Y map
-  const rowYMap = new Map<number, number>();
-  if (outerRowIndex >= 0) {
-    // Nested: compute Y for each inner row from baseY + inner rowYOffsets
     for (let r = 0; r < tl.rowYOffsets.length; r++) {
-      rowYMap.set(r, baseY + tl.rowYOffsets[r]);
+      const innerRowTop = nestedYOffset + tl.rowYOffsets[r];
+      const innerRowH = tl.rowHeights[r];
+      const entries: Array<{ y: number; height: number }> = [];
+
+      for (const frag of outerFragments) {
+        const fragEnd = frag.splitOff + frag.splitH;
+        // Check if this inner row overlaps the fragment's visible range
+        if (innerRowTop + innerRowH <= frag.splitOff || innerRowTop >= fragEnd) continue;
+        // Clamp the visible portion to the fragment bounds
+        const visTop = Math.max(innerRowTop, frag.splitOff);
+        const visBot = Math.min(innerRowTop + innerRowH, fragEnd);
+        const y = frag.pageY + frag.plY + (visTop - frag.splitOff);
+        entries.push({ y, height: visBot - visTop });
+      }
+
+      if (entries.length > 0) {
+        rowFrags.set(r, entries);
+      }
     }
   } else {
-    // Top-level: use paginated layout
+    // Top-level: use paginated layout (split rows produce multiple entries)
     for (const page of paginatedLayout.pages) {
       const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
       for (const pl of page.lines) {
         if (pl.blockIndex !== blockIndex) continue;
-        rowYMap.set(pl.lineIndex, pageY + pl.y);
+        const visibleHeight = pl.rowSplitHeight ?? tl.rowHeights[pl.lineIndex];
+        const entries = rowFrags.get(pl.lineIndex) ?? [];
+        entries.push({ y: pageY + pl.y, height: visibleHeight });
+        rowFrags.set(pl.lineIndex, entries);
       }
     }
   }
@@ -599,23 +651,13 @@ function buildCellRangeRects(
       const x = xBase + tl.columnXOffsets[c];
       const width = cell.width;
 
-      const spanEnd = Math.min(r + rowSpan, tl.rowHeights.length);
-      let segmentTop: number | undefined;
-      let segmentHeight = 0;
-      for (let rr = r; rr < spanEnd; rr++) {
-        const rrY = rowYMap.get(rr);
-        if (rrY === undefined) continue;
-        if (segmentTop === undefined) {
-          segmentTop = rrY;
-        } else if (Math.abs(rrY - (segmentTop + segmentHeight)) > 0.5) {
-          rects.push({ x, y: segmentTop, width, height: segmentHeight });
-          segmentTop = rrY;
-          segmentHeight = 0;
+      // Collect all visible fragments for the spanned rows
+      for (let rr = r; rr < Math.min(r + rowSpan, tl.rowHeights.length); rr++) {
+        const frags = rowFrags.get(rr);
+        if (!frags) continue;
+        for (const frag of frags) {
+          rects.push({ x, y: frag.y, width, height: frag.height });
         }
-        segmentHeight += tl.rowHeights[rr];
-      }
-      if (segmentTop !== undefined && segmentHeight > 0) {
-        rects.push({ x, y: segmentTop, width, height: segmentHeight });
       }
     }
   }

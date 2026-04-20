@@ -99,6 +99,8 @@ export function renderTableBackgrounds(
   startRow = 0,
   endRow?: number,
   pageStartRow?: number,
+  rowSplitOffset?: number,
+  rowSplitHeight?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -108,16 +110,26 @@ export function renderTableBackgrounds(
   const rowEnd = endRow ?? numRows;
   const pageStart = pageStartRow ?? startRow;
 
+  const isSplit = rowSplitOffset !== undefined && rowSplitHeight !== undefined;
+  if (isSplit) {
+    const clipY = tableY + rowYOffsets[pageStart] + rowSplitOffset;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(tableX, clipY, tableLayout.totalWidth, rowSplitHeight);
+    ctx.clip();
+  }
+
   for (let r = startRow; r < rowEnd; r++) {
     for (let c = 0; c < numCols; c++) {
       const layoutCell = cells[r][c];
       if (layoutCell.merged) continue;
 
       const cell = rows[r]?.cells[c];
-      if (!cell?.style?.backgroundColor) continue;
+      if (!cell) continue;
 
       const colSpan = cell.colSpan ?? 1;
       const rowSpan = cell.rowSpan ?? 1;
+      const padding = cell.style?.padding ?? 4;
 
       // Clip the cell to the rows physically rendered on this page so a
       // merged cell split across pages shows its background on each page
@@ -136,14 +148,39 @@ export function renderTableBackgrounds(
         visibleHeight += rowHeights[rr];
       }
 
-      ctx.fillStyle = cell.style.backgroundColor;
-      ctx.fillRect(
-        tableX + columnXOffsets[c],
-        tableY + rowYOffsets[visibleStart],
-        cellWidth,
-        visibleHeight,
-      );
+      // Draw this cell's own background
+      if (cell.style?.backgroundColor) {
+        ctx.fillStyle = cell.style.backgroundColor;
+        ctx.fillRect(
+          tableX + columnXOffsets[c],
+          tableY + rowYOffsets[visibleStart],
+          cellWidth,
+          visibleHeight,
+        );
+      }
+
+      // Recurse into nested tables so their backgrounds are also drawn
+      // in the first pass, before the selection highlight layer.
+      const cellX = tableX + columnXOffsets[c];
+      const cellY = tableY + rowYOffsets[r];
+      const textYOffset = padding; // nested tables use top alignment
+      for (let li = 0; li < layoutCell.lines.length; li++) {
+        const line = layoutCell.lines[li];
+        if (!line.nestedTable) continue;
+        const blockIndex = getBlockIndexForLine(layoutCell.blockBoundaries, li);
+        const nestedBlock = cell.blocks[blockIndex];
+        if (nestedBlock?.tableData) {
+          renderTableBackgrounds(
+            ctx, nestedBlock.tableData, line.nestedTable,
+            cellX + padding, cellY + textYOffset + line.y,
+          );
+        }
+      }
     }
+  }
+
+  if (isSplit) {
+    ctx.restore();
   }
 }
 
@@ -182,6 +219,8 @@ export function renderTableContent(
   dragImageRun?: LayoutRun,
   selectionRects?: Array<{ x: number; y: number; width: number; height: number }>,
   focused?: boolean,
+  rowSplitOffset?: number,
+  rowSplitHeight?: number,
 ): void {
   const { rows } = tableData;
   const { cells, columnXOffsets, columnPixelWidths, rowYOffsets, rowHeights } = tableLayout;
@@ -190,6 +229,15 @@ export function renderTableContent(
   const numCols = columnPixelWidths.length;
   const rowEnd = endRow ?? numRows;
   const pageStart = pageStartRow ?? startRow;
+
+  const isSplit = rowSplitOffset !== undefined && rowSplitHeight !== undefined;
+  if (isSplit) {
+    const clipY = tableY + rowYOffsets[pageStart] + rowSplitOffset;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(tableX, clipY, tableLayout.totalWidth, rowSplitHeight);
+    ctx.clip();
+  }
 
   // 2. Cell text
   for (let r = startRow; r < rowEnd; r++) {
@@ -267,17 +315,16 @@ export function renderTableContent(
         } else {
           lineAbsoluteY = cellY + textYOffset + line.y;
         }
-        // Render nested table if this line contains one
+        // Render nested table if this line contains one.
+        // Backgrounds were already drawn in the first pass
+        // (renderTableBackgrounds recurses into nested tables)
+        // so only the content pass is needed here.
         if (line.nestedTable) {
           const blockIndex = getBlockIndexForLine(layoutCell.blockBoundaries, li);
           const nestedBlock = cell.blocks[blockIndex];
           if (nestedBlock?.tableData) {
             const nestedX = cellX + padding;
             const nestedY = lineAbsoluteY;
-            renderTableBackgrounds(
-              ctx, nestedBlock.tableData, line.nestedTable,
-              nestedX, nestedY,
-            );
             renderTableContent(
               ctx, nestedBlock.tableData, line.nestedTable,
               nestedX, nestedY,
@@ -476,6 +523,10 @@ export function renderTableContent(
       drawBorder(ctx, cell.style?.borderLeft ?? themeBorder, x, y, x, y + visibleHeight);
       drawBorder(ctx, cell.style?.borderRight ?? themeBorder, x + cellWidth, y, x + cellWidth, y + visibleHeight);
     }
+  }
+
+  if (isSplit) {
+    ctx.restore();
   }
 }
 

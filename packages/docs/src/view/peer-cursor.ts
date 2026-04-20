@@ -1,10 +1,70 @@
 import type { DocPosition, DocRange } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
-import type { PaginatedLayout } from './pagination.js';
-import { findPageForPosition, findPageLine, getPageYOffset, getPageXOffset } from './pagination.js';
+import type { PageLine, PaginatedLayout } from './pagination.js';
+import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
 import { buildFont, Theme } from './theme.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
+
+/**
+ * Find the split fragment (PageLine) that should render a cursor at
+ * `cursorInRow` pixels from the top of the outer table row.
+ *
+ * For non-split rows the first matching PageLine is returned immediately.
+ * For split rows the fragment whose [splitOffset, splitOffset+splitHeight)
+ * range contains `cursorInRow` is preferred. When `lineEndInRow` is
+ * supplied (nested tables), a straddling match is also accepted — this
+ * handles the case where the cursor's precise Y is in the first fragment
+ * but the enclosing nested-table line extends into a later fragment.
+ */
+function findSplitFragment(
+  paginatedLayout: PaginatedLayout,
+  blockIndex: number,
+  rowIndex: number,
+  cursorInRow: number,
+  lineEndInRow?: number,
+): { pageLine: PageLine; pageIndex: number } | undefined {
+  let pageLine: PageLine | undefined;
+  let pageIndex = 0;
+
+  for (const page of paginatedLayout.pages) {
+    for (const pl of page.lines) {
+      if (pl.blockIndex !== blockIndex || pl.lineIndex !== rowIndex) continue;
+
+      if (pl.rowSplitHeight === undefined) {
+        return { pageLine: pl, pageIndex: page.pageIndex };
+      }
+
+      const splitOff = pl.rowSplitOffset ?? 0;
+      const splitEnd = splitOff + pl.rowSplitHeight;
+
+      if (cursorInRow >= splitOff && cursorInRow < splitEnd) {
+        return { pageLine: pl, pageIndex: page.pageIndex };
+      }
+
+      // Straddling: cursor Y is before this fragment but the enclosing
+      // nested-table line extends into it.
+      if (lineEndInRow !== undefined
+          && cursorInRow < splitOff
+          && lineEndInRow > splitOff) {
+        return { pageLine: pl, pageIndex: page.pageIndex };
+      }
+
+      // Fallback — keep the last seen fragment so we don't return
+      // undefined when the cursor is past all fragments.
+      pageLine = pl;
+      pageIndex = page.pageIndex;
+    }
+
+    if (!pageLine) continue;
+    if (pageLine.rowSplitHeight === undefined) break;
+    const off = pageLine.rowSplitOffset ?? 0;
+    if (cursorInRow >= off && cursorInRow < off + (pageLine.rowSplitHeight ?? Infinity)) break;
+    if (lineEndInRow !== undefined && cursorInRow < off && lineEndInRow > off) break;
+  }
+
+  return pageLine ? { pageLine, pageIndex } : undefined;
+}
 
 /**
  * Represents a remote peer's cursor for collaborative editing.
@@ -186,33 +246,67 @@ export function resolvePositionPixel(
         const { margins } = paginatedLayout.pageSetup;
 
         if (nestingPath.length === 1) {
-          // Non-nested table cell — use the original cursor positioning
-          // logic that finds the PageLine by ownerRow.
-          const found = findPageLine(paginatedLayout, blockIndex, ownerRow);
+          // Non-nested table cell
+          const lineInRow = targetLayout.runLineY - tl.rowYOffsets[ownerRow];
+          const found = findSplitFragment(paginatedLayout, blockIndex, ownerRow, lineInRow);
           if (!found) return undefined;
 
+          const pageY = getPageYOffset(paginatedLayout, found.pageIndex);
+          const splitOffset = found.pageLine.rowSplitOffset ?? 0;
           const cellX = tl.columnXOffsets[colIndex] + cellPadding;
-          const cursorYOnPage =
-            found.pageY + found.pageLine.y + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
 
           return {
             x: pageX + margins.left + cellX + cursorX,
-            y: cursorYOnPage,
+            y: pageY + found.pageLine.y + lineInRow - splitOffset,
             height: lineHeight,
           };
         }
 
-        // Nested table cell — find the PageLine for the outermost table's
-        // row, then add accumulated Y offset from outer cells.
+        // Nested table cell — accumulated Y offset places the cursor
+        // within the outermost row. For split rows that straddle the
+        // boundary, pass the enclosing cell line's end Y so that the
+        // straddling match can pick the continuation fragment.
+        // Subtract the outer row's Y offset so cursorInRow is row-local
+        // (matching the row-local splitOffset/splitHeight in PageLine).
         const outerRowIndex = nestingPath[0].rowIndex;
-        const found = findPageLine(paginatedLayout, blockIndex, outerRowIndex);
+        const outerRowTop = lb.layoutTable.rowYOffsets[outerRowIndex] ?? 0;
+        const cursorInRow = yOffsetInTable + targetLayout.runLineY - outerRowTop;
+
+        // Compute lineEndInRow: end Y of the outermost cell line that
+        // contains the nested-table chain.
+        let lineEndInRow: number | undefined;
+        if (nestingPath.length > 1) {
+          const outerSeg = nestingPath[0];
+          const outerCell = lb.layoutTable.cells[outerSeg.rowIndex]?.[outerSeg.colIndex];
+          const outerCellData = lb.block.tableData?.rows[outerSeg.rowIndex]?.cells[outerSeg.colIndex];
+          if (outerCell && outerCellData) {
+            const nextTableId = nestingPath[1].tableBlockId;
+            for (let li = 0; li < outerCell.lines.length; li++) {
+              if (!outerCell.lines[li].nestedTable) continue;
+              let bIdx = 0;
+              for (let bi = outerCell.blockBoundaries.length - 1; bi >= 0; bi--) {
+                if (li >= outerCell.blockBoundaries[bi]) { bIdx = bi; break; }
+              }
+              if (outerCellData.blocks[bIdx]?.id === nextTableId) {
+                lineEndInRow = yOffsetInTable + outerCell.lines[li].height - outerRowTop;
+                break;
+              }
+            }
+          }
+        }
+
+        const found = findSplitFragment(
+          paginatedLayout, blockIndex, outerRowIndex, cursorInRow, lineEndInRow,
+        );
         if (!found) return undefined;
 
+        const nestedSplitOffset = found.pageLine.rowSplitOffset ?? 0;
+        const pageY = getPageYOffset(paginatedLayout, found.pageIndex);
         const innerCellX = tl.columnXOffsets[colIndex] + cellPadding;
-        const innerCursorY = found.pageY + found.pageLine.y
-          + yOffsetInTable
-          + tl.rowYOffsets[ownerRow]
-          + (targetLayout.runLineY - tl.rowYOffsets[ownerRow]);
+        // Clamp cursor Y to the fragment top. When a nested table
+        // straddles the split boundary the raw Y can be above the page.
+        const rawCursorY = pageY + found.pageLine.y + cursorInRow - nestedSplitOffset;
+        const innerCursorY = Math.max(rawCursorY, pageY + found.pageLine.y);
 
         return {
           x: pageX + margins.left + xOffset + innerCellX + cursorX,

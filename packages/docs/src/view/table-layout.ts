@@ -611,3 +611,77 @@ export function resolveNestedTableLayout(
     outerRowIndex: path[0].rowIndex,
   };
 }
+
+/**
+ * Find the maximum safe split height for a table row given the available space.
+ * Returns 0 if no safe split is possible (row stays atomic).
+ *
+ * A split at height H is safe when, for every non-merged cell in the row,
+ * H falls exactly at a line boundary (never mid-line). Because different
+ * cells have different line heights, the function clamps to each cell's
+ * largest breakpoint <= availableHeight and returns the minimum across cells.
+ */
+export function findRowSplitHeight(
+  layout: LayoutTable,
+  rowIndex: number,
+  availableHeight: number,
+  tableData?: import('../model/types.js').TableData,
+): number {
+  const cells = layout.cells[rowIndex];
+  if (!cells || cells.length === 0) return 0;
+
+  let minSafe = availableHeight;
+  let hasCells = false;
+
+  for (let c = 0; c < cells.length; c++) {
+    const cell = cells[c];
+    if (cell.merged) continue;
+    hasCells = true;
+
+    const padding = tableData?.rows[rowIndex]?.cells[c]?.style?.padding ?? DEFAULT_CELL_PADDING;
+
+    // Use the layout engine's actual line.y values (which include any
+    // block margins and spacing) instead of re-summing heights manually.
+    // Breakpoints are at padding + line.y + line.height for each line.
+    let bestBp = 0;
+    let allFit = true;
+    for (const line of cell.lines) {
+      const lineEnd = padding + line.y + line.height;
+      if (line.nestedTable) {
+        // Recurse into nested table: each row boundary is a breakpoint
+        const nt = line.nestedTable;
+        const ntBase = padding + line.y; // Y of nested table top within row
+        for (let nr = 0; nr < nt.rowHeights.length; nr++) {
+          const rowEnd = ntBase + nt.rowYOffsets[nr] + nt.rowHeights[nr];
+          if (rowEnd <= availableHeight) {
+            bestBp = rowEnd;
+          } else {
+            const nestedAvail = availableHeight - ntBase - nt.rowYOffsets[nr];
+            if (nestedAvail > 0) {
+              const innerSplit = findRowSplitHeight(nt, nr, nestedAvail);
+              if (innerSplit > 0) {
+                bestBp = ntBase + nt.rowYOffsets[nr] + innerSplit;
+              }
+            }
+            allFit = false;
+            break;
+          }
+        }
+      } else {
+        if (lineEnd <= availableHeight) {
+          bestBp = lineEnd;
+        } else {
+          allFit = false;
+        }
+      }
+      if (!allFit) break;
+    }
+    if (!allFit) {
+      minSafe = Math.min(minSafe, bestBp);
+    }
+    // When allFit, this cell's content ends before availableHeight,
+    // so splitting at any height >= bestBp is safe — no constraint.
+  }
+
+  return hasCells ? minSafe : 0;
+}

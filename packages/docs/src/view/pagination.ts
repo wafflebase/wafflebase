@@ -1,7 +1,8 @@
 import type { PageSetup } from '../model/types.js';
 import { getEffectiveDimensions } from '../model/types.js';
 import type { EditContext } from '../model/document.js';
-import type { DocumentLayout, LayoutLine } from './layout.js';
+import type { DocumentLayout, LayoutLine, LayoutRun } from './layout.js';
+import { findRowSplitHeight } from './table-layout.js';
 import { Theme } from './theme.js';
 
 export interface PageLine {
@@ -10,6 +11,14 @@ export interface PageLine {
   line: LayoutLine;
   x: number;
   y: number;
+
+  /** For split table rows: vertical offset into the row where this
+      page fragment starts (0 for the first fragment). */
+  rowSplitOffset?: number;
+
+  /** For split table rows: height of this fragment on this page.
+      When undefined the full row height is used. */
+  rowSplitHeight?: number;
 }
 
 export interface LayoutPage {
@@ -64,18 +73,55 @@ export function paginateLayout(
       const tl = lb.layoutTable;
       for (let ri = 0; ri < tl.rowHeights.length; ri++) {
         const rowHeight = tl.rowHeights[ri];
-        if (currentY + rowHeight > contentHeight && !isPageTop) {
+        const rowLine = { runs: [] as LayoutRun[], y: tl.rowYOffsets[ri], height: rowHeight, width: availableWidth };
+
+        // Row fits on current page — place whole row
+        if (currentY + rowHeight <= contentHeight) {
+          currentLines.push({
+            blockIndex: bi, lineIndex: ri, line: rowLine,
+            x: margins.left, y: margins.top + currentY,
+          });
+          currentY += rowHeight;
+          isPageTop = false;
+          continue;
+        }
+
+        // Row doesn't fit — try to split
+        const availableForRow = contentHeight - currentY;
+        const td = lb.block.tableData;
+        const splitHeight = availableForRow > 0
+          ? findRowSplitHeight(tl, ri, availableForRow, td ?? undefined)
+          : 0;
+
+        if (splitHeight <= 0 && !isPageTop) {
+          // No safe split point on this page — push to next page
           startNewPage();
         }
-        currentLines.push({
-          blockIndex: bi,
-          lineIndex: ri,
-          line: { runs: [], y: tl.rowYOffsets[ri], height: rowHeight, width: availableWidth },
-          x: margins.left,
-          y: margins.top + currentY,
-        });
-        currentY += rowHeight;
-        isPageTop = false;
+
+        // Emit fragments across pages
+        let consumed = 0;
+        while (consumed < rowHeight) {
+          if (consumed > 0) startNewPage();
+          const remaining = rowHeight - consumed;
+          const pageAvail = contentHeight - currentY;
+
+          let fragHeight = remaining;
+          if (remaining > pageAvail && pageAvail > 0) {
+            const sh = findRowSplitHeight(tl, ri, consumed + pageAvail, td ?? undefined);
+            fragHeight = sh > consumed ? sh - consumed : Math.min(remaining, pageAvail);
+          }
+          if (fragHeight <= 0) fragHeight = Math.min(remaining, contentHeight);
+
+          const needsSplit = consumed > 0 || fragHeight < rowHeight;
+          currentLines.push({
+            blockIndex: bi, lineIndex: ri, line: rowLine,
+            x: margins.left, y: margins.top + currentY,
+            ...(needsSplit ? { rowSplitOffset: consumed, rowSplitHeight: fragHeight } : {}),
+          });
+          consumed += fragHeight;
+          currentY += fragHeight;
+          isPageTop = false;
+        }
       }
 
       if (tl.rowHeights.length > 0) {
@@ -226,15 +272,26 @@ export function findPageForPosition(
     targetLineIndex = li;
   }
 
+  // For non-table blocks, return the first matching PageLine.
+  // For table rows that split across pages, multiple PageLines share the same
+  // blockIndex + lineIndex; return the last fragment so the cursor lands on the
+  // most-recently-visible portion of the row (continuation pages).
+  const isTableBlock = lb.block.type === 'table';
+  let result: { pageIndex: number; pageLine: PageLine } | undefined;
+
   for (const page of paginatedLayout.pages) {
     for (const pl of page.lines) {
       if (pl.blockIndex === blockIndex && pl.lineIndex === targetLineIndex) {
-        return { pageIndex: page.pageIndex, pageLine: pl };
+        if (!isTableBlock) {
+          return { pageIndex: page.pageIndex, pageLine: pl };
+        }
+        // For table blocks, keep scanning to find the last fragment.
+        result = { pageIndex: page.pageIndex, pageLine: pl };
       }
     }
   }
 
-  return undefined;
+  return result;
 }
 
 /**
@@ -273,13 +330,18 @@ export function paginatedPixelToPosition(
   const localY = py - pageTop;
   const localX = px - pageX - margins.left;
 
-  // Find the target line on this page by Y
+  // Find the target line on this page by Y.
+  // For split table rows, use rowSplitHeight so a tiny first-fragment
+  // doesn't claim the space that belongs to the next line below it.
   let targetPL = targetPage.lines[0];
   for (const pl of targetPage.lines) {
+    const visibleHeight = pl.rowSplitHeight ?? pl.line.height;
+    if (localY >= pl.y && localY < pl.y + visibleHeight) {
+      targetPL = pl;
+      break;
+    }
     if (localY >= pl.y) {
       targetPL = pl;
-    } else {
-      break;
     }
   }
 
