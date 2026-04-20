@@ -420,8 +420,9 @@ nested table, long text, or images):
   sharing the same `blockIndex + lineIndex`.
 - Nested tables are handled recursively — a nested table row can itself be
   split, and its partial height feeds into the parent cell's split calculation.
-- rowSpan/colSpan merged cells that straddle a split are rendered on both pages,
-  with content clipped to each fragment's height.
+- rowSpan/colSpan merged cells are not yet split-aware — they render correctly
+  only when the merge owner row is on the same page. Full merged-cell splitting
+  is a planned future enhancement.
 
 ### Atomic Units
 

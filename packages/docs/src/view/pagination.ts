@@ -88,8 +88,9 @@ export function paginateLayout(
 
         // Row doesn't fit — try to split
         const availableForRow = contentHeight - currentY;
+        const td = lb.block.tableData;
         const splitHeight = availableForRow > 0
-          ? findRowSplitHeight(tl, ri, availableForRow)
+          ? findRowSplitHeight(tl, ri, availableForRow, td ?? undefined)
           : 0;
 
         if (splitHeight <= 0 && !isPageTop) {
@@ -106,7 +107,7 @@ export function paginateLayout(
 
           let fragHeight = remaining;
           if (remaining > pageAvail && pageAvail > 0) {
-            const sh = findRowSplitHeight(tl, ri, consumed + pageAvail);
+            const sh = findRowSplitHeight(tl, ri, consumed + pageAvail, td ?? undefined);
             fragHeight = sh > consumed ? sh - consumed : Math.min(remaining, pageAvail);
           }
           if (fragHeight <= 0) fragHeight = Math.min(remaining, contentHeight);

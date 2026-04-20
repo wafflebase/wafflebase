@@ -625,8 +625,8 @@ export function findRowSplitHeight(
   layout: LayoutTable,
   rowIndex: number,
   availableHeight: number,
+  tableData?: import('../model/types.js').TableData,
 ): number {
-  const padding = DEFAULT_CELL_PADDING;
   const cells = layout.cells[rowIndex];
   if (!cells || cells.length === 0) return 0;
 
@@ -637,6 +637,8 @@ export function findRowSplitHeight(
     const cell = cells[c];
     if (cell.merged) continue;
     hasCells = true;
+
+    const padding = tableData?.rows[rowIndex]?.cells[c]?.style?.padding ?? DEFAULT_CELL_PADDING;
 
     // Use the layout engine's actual line.y values (which include any
     // block margins and spacing) instead of re-summing heights manually.

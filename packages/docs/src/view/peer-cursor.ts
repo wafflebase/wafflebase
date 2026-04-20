@@ -266,8 +266,11 @@ export function resolvePositionPixel(
         // within the outermost row. For split rows that straddle the
         // boundary, pass the enclosing cell line's end Y so that the
         // straddling match can pick the continuation fragment.
+        // Subtract the outer row's Y offset so cursorInRow is row-local
+        // (matching the row-local splitOffset/splitHeight in PageLine).
         const outerRowIndex = nestingPath[0].rowIndex;
-        const cursorInRow = yOffsetInTable + targetLayout.runLineY;
+        const outerRowTop = lb.layoutTable.rowYOffsets[outerRowIndex] ?? 0;
+        const cursorInRow = yOffsetInTable + targetLayout.runLineY - outerRowTop;
 
         // Compute lineEndInRow: end Y of the outermost cell line that
         // contains the nested-table chain.
@@ -285,7 +288,7 @@ export function resolvePositionPixel(
                 if (li >= outerCell.blockBoundaries[bi]) { bIdx = bi; break; }
               }
               if (outerCellData.blocks[bIdx]?.id === nextTableId) {
-                lineEndInRow = yOffsetInTable + outerCell.lines[li].height;
+                lineEndInRow = yOffsetInTable + outerCell.lines[li].height - outerRowTop;
                 break;
               }
             }

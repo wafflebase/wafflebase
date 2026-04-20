@@ -2460,14 +2460,22 @@ export class TextEditor {
     const lineStart = layoutCell.blockBoundaries[blockIdx] ?? 0;
     const lineEnd = layoutCell.blockBoundaries[blockIdx + 1] ?? layoutCell.lines.length;
 
-    // Find the current line within this block
+    // Find the current line within this block, respecting lineAffinity
+    // so that at a wrap boundary the cursor stays on the correct visual line.
     let remaining = pos.offset;
     let currentLine = lineStart;
     for (let li = lineStart; li < lineEnd; li++) {
       let lineChars = 0;
       for (const run of layoutCell.lines[li].runs) lineChars += run.text.length;
-      if (remaining <= lineChars) {
+      if (remaining < lineChars || (remaining === lineChars && li === lineEnd - 1)) {
         currentLine = li;
+        break;
+      }
+      // At a wrap boundary with forward affinity, the cursor belongs to
+      // the next line — keep iterating.
+      if (remaining === lineChars && this.cursor.lineAffinity === 'forward' && li < lineEnd - 1) {
+        remaining = 0;
+        currentLine = li + 1;
         break;
       }
       remaining -= lineChars;

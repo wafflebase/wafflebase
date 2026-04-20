@@ -53,14 +53,19 @@ function computeTableRangeForPageLine(
 ): { pageStartRow: number; renderStartRow: number; endRowIndex: number } {
   const pageStartRow = pl.lineIndex;
   let endRowIndex = pageStartRow + 1;
-  for (let k = plIndex + 1; k < page.lines.length; k++) {
-    const nextPl = page.lines[k];
-    if (nextPl.blockIndex === pl.blockIndex) {
-      // Stop before split fragments — they get their own render pass
-      if (nextPl.rowSplitOffset !== undefined) break;
-      endRowIndex = nextPl.lineIndex + 1;
-    } else {
-      break;
+  // Split fragments render only their own row — don't extend to
+  // subsequent rows, which would incorrectly include them in the
+  // clipped split pass.
+  if (pl.rowSplitOffset === undefined) {
+    for (let k = plIndex + 1; k < page.lines.length; k++) {
+      const nextPl = page.lines[k];
+      if (nextPl.blockIndex === pl.blockIndex) {
+        // Stop before split fragments — they get their own render pass
+        if (nextPl.rowSplitOffset !== undefined) break;
+        endRowIndex = nextPl.lineIndex + 1;
+      } else {
+        break;
+      }
     }
   }
   let renderStartRow = pageStartRow;
