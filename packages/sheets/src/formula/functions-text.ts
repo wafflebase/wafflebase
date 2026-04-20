@@ -23,12 +23,12 @@ export function trimFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -48,12 +48,12 @@ export function lenFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -73,12 +73,12 @@ export function leftFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -105,12 +105,12 @@ export function rightFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -137,12 +137,12 @@ export function midFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -169,12 +169,12 @@ export function concatenateFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   let result = '';
@@ -210,12 +210,12 @@ export function findFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const searchFor = toStr(visit(exprs[0]), grid);
@@ -239,7 +239,7 @@ export function findFunc(
 
   const index = text.v.indexOf(searchFor.v, start.v - 1);
   if (index < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: index + 1 };
@@ -256,12 +256,12 @@ export function searchFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const searchFor = toStr(visit(exprs[0]), grid);
@@ -288,7 +288,7 @@ export function searchFunc(
   const sliced = text.v.slice(start.v - 1);
   const match = regex.exec(sliced);
   if (!match || match.index === undefined) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: start.v + match.index };
@@ -305,12 +305,12 @@ export function textjoinFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const delimiter = toStr(visit(exprs[0]), grid);
@@ -365,12 +365,12 @@ export function lowerFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -392,12 +392,12 @@ export function upperFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -419,12 +419,12 @@ export function properFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -450,12 +450,12 @@ export function substituteFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 3 || exprs.length > 4) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const text = toStr(visit(exprs[0]), grid);
@@ -488,7 +488,7 @@ export function substituteFunc(
 
   const target = Math.trunc(occurrence.v);
   if (target <= 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   let from = 0;
@@ -522,12 +522,12 @@ export function exactFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const a = toStr(visit(exprs[0]), grid);
@@ -553,12 +553,12 @@ export function replaceFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 4) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const oldText = toStr(visit(exprs[0]), grid);
@@ -584,7 +584,7 @@ export function replaceFunc(
   const start = Math.trunc(startNum.v) - 1;
   const count = Math.trunc(numChars.v);
   if (start < 0 || count < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   const result = oldText.v.slice(0, start) + newText.v + oldText.v.slice(start + count);
@@ -601,12 +601,12 @@ export function reptFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const text = toStr(visit(exprs[0]), grid);
@@ -621,7 +621,7 @@ export function reptFunc(
 
   const count = Math.trunc(times.v);
   if (count < 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'str', v: text.v.repeat(count) };
@@ -637,12 +637,12 @@ export function tFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const node = visit(exprs[0]);
@@ -679,12 +679,12 @@ export function valueFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -695,7 +695,7 @@ export function valueFunc(
   const trimmed = str.v.trim();
   const num = Number(trimmed);
   if (trimmed === '' || isNaN(num)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: num };
@@ -712,12 +712,12 @@ export function textFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -768,12 +768,12 @@ export function charFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -782,11 +782,11 @@ export function charFunc(
   }
 
   const code = Math.trunc(num.v);
-  if (code < 1 || code > 65535) {
-    return { t: 'err', v: '#VALUE!' };
+  if (code < 1 || code > 1114111) {
+    return ErrNode.NUM;
   }
 
-  return { t: 'str', v: String.fromCharCode(code) };
+  return { t: 'str', v: String.fromCodePoint(code) };
 }
 
 /**
@@ -799,12 +799,12 @@ export function codeFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -813,7 +813,7 @@ export function codeFunc(
   }
 
   if (str.v.length === 0) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: str.v.charCodeAt(0) };
@@ -829,12 +829,12 @@ export function cleanFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 1) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -857,12 +857,12 @@ export function numbervalueFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const str = toStr(visit(exprs[0]), grid);
@@ -900,14 +900,14 @@ export function numbervalueFunc(
   if (cleaned.endsWith('%')) {
     const num = Number(cleaned.slice(0, -1));
     if (isNaN(num)) {
-      return { t: 'err', v: '#VALUE!' };
+      return ErrNode.VALUE;
     }
     return { t: 'num', v: num / 100 };
   }
 
   const num = Number(cleaned);
   if (cleaned === '' || isNaN(num)) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: num };
@@ -923,12 +923,12 @@ export function fixedFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 3) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -981,12 +981,12 @@ export function dollarFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 1 || exprs.length > 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const num = NumberArgs.map(visit(exprs[0]), grid);
@@ -1031,12 +1031,12 @@ export function splitFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2 || exprs.length > 4) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const text = toStr(visit(exprs[0]), grid);
@@ -1094,12 +1094,12 @@ export function joinFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length < 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const delimiter = toStr(visit(exprs[0]), grid);
@@ -1140,12 +1140,12 @@ export function regexmatchFunc(
 ): EvalNode {
   const args = ctx.args();
   if (!args) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const exprs = args.expr();
   if (exprs.length !== 2) {
-    return { t: 'err', v: '#N/A' };
+    return ErrNode.NA;
   }
 
   const text = toStr(visit(exprs[0]), grid);
@@ -1162,7 +1162,7 @@ export function regexmatchFunc(
     const regex = new RegExp(pattern.v);
     return { t: 'bool', v: regex.test(text.v) };
   } catch {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 }
 
@@ -1175,19 +1175,19 @@ export function regexextractFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 2) return ErrNode.NA;
   const text = toStr(visit(exprs[0]), grid);
   if (text.t === 'err') return text;
   const pattern = toStr(visit(exprs[1]), grid);
   if (pattern.t === 'err') return pattern;
   try {
     const match = new RegExp(pattern.v).exec(text.v);
-    if (!match) return { t: 'err', v: '#N/A' };
+    if (!match) return ErrNode.NA;
     return { t: 'str', v: match[1] !== undefined ? match[1] : match[0] };
   } catch {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 }
 
@@ -1200,9 +1200,9 @@ export function regexreplaceFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 3) return ErrNode.NA;
   const text = toStr(visit(exprs[0]), grid);
   if (text.t === 'err') return text;
   const pattern = toStr(visit(exprs[1]), grid);
@@ -1212,7 +1212,7 @@ export function regexreplaceFunc(
   try {
     return { t: 'str', v: text.v.replace(new RegExp(pattern.v, 'g'), replacement.v) };
   } catch {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 }
 
@@ -1225,12 +1225,12 @@ export function unicodeFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const str = toStr(visit(exprs[0]), grid);
   if (str.t === 'err') return str;
-  if (str.v.length === 0) return { t: 'err', v: '#VALUE!' };
+  if (str.v.length === 0) return ErrNode.VALUE;
   return { t: 'num', v: str.v.codePointAt(0)! };
 }
 
@@ -1243,17 +1243,17 @@ export function unicharFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
   const num = NumberArgs.map(visit(exprs[0]), grid);
   if (num.t === 'err') return num;
   const code = Math.trunc(num.v);
-  if (code < 1) return { t: 'err', v: '#VALUE!' };
+  if (code < 1) return ErrNode.VALUE;
   try {
     return { t: 'str', v: String.fromCodePoint(code) };
   } catch {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 }
 
@@ -1266,9 +1266,9 @@ export function encodeurlFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length !== 1) return { t: 'err', v: '#N/A' };
+  if (exprs.length !== 1) return ErrNode.NA;
 
   const node = visit(exprs[0]);
   const s = toStr(node, grid);
@@ -1285,9 +1285,9 @@ export function textbeforeFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
 
   const textNode = toStr(visit(exprs[0]), grid);
   if (textNode.t === 'err') return textNode;
@@ -1303,24 +1303,24 @@ export function textbeforeFunc(
 
   const text = textNode.v;
   const delim = delimNode.v;
-  if (delim === '') return { t: 'err', v: '#VALUE!' };
+  if (delim === '') return ErrNode.VALUE;
 
   if (instance > 0) {
     let pos = -1;
     for (let i = 0; i < instance; i++) {
       pos = text.indexOf(delim, pos + 1);
-      if (pos === -1) return { t: 'err', v: '#N/A' };
+      if (pos === -1) return ErrNode.NA;
     }
     return { t: 'str', v: text.substring(0, pos) };
   } else if (instance < 0) {
     let pos = text.length;
     for (let i = 0; i < -instance; i++) {
       pos = text.lastIndexOf(delim, pos - 1);
-      if (pos === -1) return { t: 'err', v: '#N/A' };
+      if (pos === -1) return ErrNode.NA;
     }
     return { t: 'str', v: text.substring(0, pos) };
   }
-  return { t: 'err', v: '#VALUE!' };
+  return ErrNode.VALUE;
 }
 
 /**
@@ -1332,9 +1332,9 @@ export function textafterFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 3) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 3) return ErrNode.NA;
 
   const textNode = toStr(visit(exprs[0]), grid);
   if (textNode.t === 'err') return textNode;
@@ -1350,24 +1350,24 @@ export function textafterFunc(
 
   const text = textNode.v;
   const delim = delimNode.v;
-  if (delim === '') return { t: 'err', v: '#VALUE!' };
+  if (delim === '') return ErrNode.VALUE;
 
   if (instance > 0) {
     let pos = -1;
     for (let i = 0; i < instance; i++) {
       pos = text.indexOf(delim, pos + 1);
-      if (pos === -1) return { t: 'err', v: '#N/A' };
+      if (pos === -1) return ErrNode.NA;
     }
     return { t: 'str', v: text.substring(pos + delim.length) };
   } else if (instance < 0) {
     let pos = text.length;
     for (let i = 0; i < -instance; i++) {
       pos = text.lastIndexOf(delim, pos - 1);
-      if (pos === -1) return { t: 'err', v: '#N/A' };
+      if (pos === -1) return ErrNode.NA;
     }
     return { t: 'str', v: text.substring(pos + delim.length) };
   }
-  return { t: 'err', v: '#VALUE!' };
+  return ErrNode.VALUE;
 }
 
 /**
@@ -1379,9 +1379,9 @@ export function valuetotextFunc(
   grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 1 || exprs.length > 2) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 1 || exprs.length > 2) return ErrNode.NA;
 
   const node = visit(exprs[0]);
   if (node.t === 'err') return node;
@@ -1411,9 +1411,9 @@ export function textsplitFunc(
   _grid?: Grid,
 ): EvalNode {
   const args = ctx.args();
-  if (!args) return { t: 'err', v: '#N/A' };
+  if (!args) return ErrNode.NA;
   const exprs = args.expr();
-  if (exprs.length < 2 || exprs.length > 6) return { t: 'err', v: '#N/A' };
+  if (exprs.length < 2 || exprs.length > 6) return ErrNode.NA;
 
   const textNode = visit(exprs[0]);
   const text = textNode.t === 'str' ? textNode.v : textNode.t === 'num' ? String(textNode.v) : '';
@@ -1423,7 +1423,7 @@ export function textsplitFunc(
   if (delimNode.t === 'err') return delimNode;
   const colDelim = delimNode.t === 'str' || delimNode.t === 'num' ? String(delimNode.v) : '';
 
-  if (colDelim === '') return { t: 'err', v: '#VALUE!' };
+  if (colDelim === '') return ErrNode.VALUE;
 
   let ignoreEmpty = false;
   if (exprs.length >= 4) {
@@ -1439,7 +1439,7 @@ export function textsplitFunc(
   // Return first part for single-cell evaluation
   return parts.length > 0
     ? { t: 'str', v: parts[0] }
-    : { t: 'err', v: '#N/A' };
+    : ErrNode.NA;
 }
 
 function parseStartPosition(
@@ -1459,7 +1459,7 @@ function parseStartPosition(
 
   const value = Math.trunc(start.v);
   if (value < 1 || value > text.length + 1) {
-    return { t: 'err', v: '#VALUE!' };
+    return ErrNode.VALUE;
   }
 
   return { t: 'num', v: value };

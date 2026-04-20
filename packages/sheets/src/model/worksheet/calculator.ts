@@ -1,4 +1,4 @@
-import { evaluate, extractReferences } from '../../formula/formula';
+import { ErrValue, evaluate, extractReferences } from '../../formula/formula';
 import { parseRef } from '../core/coordinates';
 import { inferInput, applyInferredFormat } from './input';
 import { Sheet } from './sheet';
@@ -47,7 +47,7 @@ export async function calculate(
     const cell = (await sheet.getCell(ref))!;
     if (cycled.has(sref)) {
       const nextCell = {
-        v: '#REF!',
+        v: ErrValue.REF,
         f: cell.f,
         s: cell.s,
       };

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Document, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 
@@ -12,6 +12,14 @@ export class DocumentService {
     return this.prisma.document.findUnique({
       where: postWhereUniqueInput,
     });
+  }
+
+  async getDocumentOrThrow(
+    where: Prisma.DocumentWhereUniqueInput,
+  ): Promise<Document> {
+    const doc = await this.document(where);
+    if (!doc) throw new NotFoundException('Document not found');
+    return doc;
   }
 
   async documents(params: {

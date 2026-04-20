@@ -452,14 +452,14 @@ export function evaluate(formula: string, grid?: Grid): string {
   try {
     const parsed = parseExpression(formula);
     if (!parsed || hasSyntaxErrors(parsed)) {
-      return '#ERROR!';
+      return ErrValue.ERROR;
     }
 
     const evaluator = new Evaluator(grid);
     const node = evaluator.visit(parsed.tree);
     if (node.t === 'ref' && grid) {
       if (isSrng(node.v)) {
-        return '#VALUE!';
+        return ErrValue.VALUE;
       }
       return grid.get(node.v)?.v || '';
     }
@@ -471,13 +471,13 @@ export function evaluate(formula: string, grid?: Grid): string {
     if (node.t === 'arr') {
       const topLeft = node.v[0]?.[0];
       if (!topLeft || topLeft.t === 'empty') return '0';
-      if (topLeft.t === 'arr' || topLeft.t === 'lambda') return '#VALUE!';
+      if (topLeft.t === 'arr' || topLeft.t === 'lambda') return ErrValue.VALUE;
       if (topLeft.t === 'bool') return topLeft.v ? 'TRUE' : 'FALSE';
       return topLeft.v.toString();
     }
 
     if (node.t === 'lambda') {
-      return '#ERROR!';
+      return ErrValue.ERROR;
     }
 
     if (node.t === 'bool') {
@@ -486,18 +486,97 @@ export function evaluate(formula: string, grid?: Grid): string {
 
     return node.v.toString();
   } catch (e) {
-    return '#ERROR!';
+    return ErrValue.ERROR;
   }
 }
 
 export type NumNode = { t: 'num'; v: number };
 export type StrNode = { t: 'str'; v: string };
 export type BoolNode = { t: 'bool'; v: boolean };
-export const ErrValues = ['#VALUE!', '#REF!', '#N/A', '#ERROR!', '#DIV/0!'] as const;
+/**
+ * Ordered error values. Array position is canonical: `ErrValues[i]` corresponds
+ * to `ERROR.TYPE` code `i + 1` (1 = #NULL!, …, 8 = #ERROR!).
+ */
+export const ErrValues = [
+  '#NULL!',
+  '#DIV/0!',
+  '#VALUE!',
+  '#REF!',
+  '#NAME?',
+  '#NUM!',
+  '#N/A',
+  '#ERROR!',
+] as const;
+
+export type ErrValue = (typeof ErrValues)[number];
+
+/**
+ * Named accessors for `ErrValues`. Use these at call sites instead of raw
+ * `'#…'` literals so renames surface through the type system.
+ */
+export const ErrValue = {
+  NULL: ErrValues[0],
+  DIV0: ErrValues[1],
+  VALUE: ErrValues[2],
+  REF: ErrValues[3],
+  NAME: ErrValues[4],
+  NUM: ErrValues[5],
+  NA: ErrValues[6],
+  ERROR: ErrValues[7],
+} as const satisfies Record<string, ErrValue>;
+
+/**
+ * Returns the 1-based `ERROR.TYPE` code for an error value, or 0 if unknown.
+ */
+export function errValueCode(v: ErrValue): number {
+  return ErrValues.indexOf(v) + 1;
+}
+
 export type ErrNode = {
   t: 'err';
-  v: typeof ErrValues[number];
+  v: ErrValue;
 };
+
+/**
+ * Pre-built frozen singletons for every `ErrValue`. Return these from
+ * evaluators instead of re-allocating `{ t: 'err', v: ... }` object
+ * literals at every call site. Shared identity is safe because consumers
+ * only inspect `.t` and `.v`, never compare by reference; `Object.freeze`
+ * prevents accidental mutation of a shared instance.
+ *
+ * Picking the right code when a new function needs to emit an error:
+ *   - NULL:  Reserved for Excel's space-intersection operator; Wafflebase
+ *            never emits this. Do not use in new code.
+ *   - DIV0:  Division (or a division-like operation, e.g. MOD) by zero.
+ *   - VALUE: Wrong argument type — e.g. arithmetic on non-numeric text,
+ *            a range passed where a scalar is required, or a string that
+ *            cannot be coerced.
+ *   - REF:   Invalid cell reference — deleted cell, circular dependency,
+ *            or reference out of the sheet bounds.
+ *   - NAME:  Unrecognized function name or unresolved identifier / named
+ *            range. Emitted by the evaluator, not usually by function
+ *            bodies.
+ *   - NUM:   Numeric domain violation — SQRT of a negative, LOG base ≤ 0,
+ *            factorial of a negative, k outside PERMUT/COMBIN domain,
+ *            out-of-range financial result, etc.
+ *   - NA:    Value not available — lookup target not found, wrong argument
+ *            count, or a required argument is missing/empty. Also the
+ *            default fallback for unexpected shapes inside a function.
+ *   - ERROR: Google Sheets catch-all for parse failures and generic
+ *            evaluation errors. Prefer a more specific code when one
+ *            applies.
+ */
+export const ErrNode = {
+  NULL: Object.freeze({ t: 'err', v: ErrValue.NULL }) as ErrNode,
+  DIV0: Object.freeze({ t: 'err', v: ErrValue.DIV0 }) as ErrNode,
+  VALUE: Object.freeze({ t: 'err', v: ErrValue.VALUE }) as ErrNode,
+  REF: Object.freeze({ t: 'err', v: ErrValue.REF }) as ErrNode,
+  NAME: Object.freeze({ t: 'err', v: ErrValue.NAME }) as ErrNode,
+  NUM: Object.freeze({ t: 'err', v: ErrValue.NUM }) as ErrNode,
+  NA: Object.freeze({ t: 'err', v: ErrValue.NA }) as ErrNode,
+  ERROR: Object.freeze({ t: 'err', v: ErrValue.ERROR }) as ErrNode,
+} as const;
+
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
 export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number };
@@ -573,12 +652,12 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       return this.invokeLambda(scopeVal, ctx.args());
     }
 
-    throw new Error('Function not implemented.');
+    return ErrNode.NAME;
   }
 
   visitReference(ctx: ReferenceContext): EvalNode {
     if (!this.grid) {
-      return { t: 'err', v: '#REF!' };
+      return ErrNode.REF;
     }
 
     return { t: 'ref', v: ctx.text.toUpperCase() };
@@ -636,7 +715,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (right.v === 0) {
-      return { t: 'err', v: '#DIV/0!' };
+      return ErrNode.DIV0;
     }
 
     return { t: 'num', v: left.v / right.v };
@@ -703,7 +782,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
 
   private resolveValue(node: EvalNode): EvalNode {
     if (node.t !== 'ref' || !this.grid) return node;
-    if (isSrng(node.v)) return { t: 'err', v: '#VALUE!' };
+    if (isSrng(node.v)) return ErrNode.VALUE;
     const val = this.grid.get(node.v)?.v || '';
     if (val === '') return { t: 'num', v: 0 };
     if (val === 'TRUE' || val === 'true') return { t: 'bool', v: true };
@@ -728,7 +807,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       case FormulaParser.GTE:
         return { t: 'bool', v: cmp >= 0 };
       default:
-        return { t: 'err', v: '#ERROR!' };
+        return ErrNode.ERROR;
     }
   }
 
@@ -762,7 +841,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     const name = ctx.FUNCNAME().text.toUpperCase();
     const val = this.scope.get(name);
     if (val !== undefined) return val;
-    return { t: 'err', v: '#ERROR!' };
+    return ErrNode.NAME;
   }
 
   visitCall(ctx: CallContext): EvalNode {
@@ -778,18 +857,18 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (callee.t !== 'lambda') {
-      return { t: 'err', v: '#ERROR!' };
+      return ErrNode.ERROR;
     }
     return this.invokeLambda(callee, ctx.args());
   }
 
   private evalLet(ctx: FunctionContext): EvalNode {
     const args = ctx.args();
-    if (!args) return { t: 'err', v: '#ERROR!' };
+    if (!args) return ErrNode.ERROR;
 
     const exprs = args.expr();
     if (exprs.length < 3 || exprs.length % 2 === 0) {
-      return { t: 'err', v: '#ERROR!' };
+      return ErrNode.ERROR;
     }
 
     const savedScope = new Map(this.scope);
@@ -797,7 +876,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       const nameExpr = exprs[i];
       if (!(nameExpr instanceof IdentifierContext)) {
         this.scope = savedScope;
-        return { t: 'err', v: '#ERROR!' };
+        return ErrNode.ERROR;
       }
       const name = nameExpr.FUNCNAME().text.toUpperCase();
       this.scope.set(name, this.visit(exprs[i + 1]));
@@ -810,15 +889,15 @@ class Evaluator implements FormulaVisitor<EvalNode> {
 
   private evalLambda(ctx: FunctionContext): EvalNode {
     const args = ctx.args();
-    if (!args) return { t: 'err', v: '#ERROR!' };
+    if (!args) return ErrNode.ERROR;
 
     const exprs = args.expr();
-    if (exprs.length < 2) return { t: 'err', v: '#ERROR!' };
+    if (exprs.length < 2) return ErrNode.ERROR;
 
     const params: string[] = [];
     for (let i = 0; i < exprs.length - 1; i++) {
       if (!(exprs[i] instanceof IdentifierContext)) {
-        return { t: 'err', v: '#ERROR!' };
+        return ErrNode.ERROR;
       }
       params.push(
         (exprs[i] as IdentifierContext).FUNCNAME().text.toUpperCase(),
@@ -839,7 +918,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   ): EvalNode {
     const argExprs = argsCtx?.expr() || [];
     if (argExprs.length !== lambda.params.length) {
-      return { t: 'err', v: '#ERROR!' };
+      return ErrNode.ERROR;
     }
 
     const argValues = argExprs.map((e) => this.visit(e));

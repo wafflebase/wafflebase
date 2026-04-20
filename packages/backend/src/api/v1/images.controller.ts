@@ -16,10 +16,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ImageService } from '../../image/image.service';
+import { VALID_IMAGE_ID_PATTERN } from '../../image/image.constants';
 import type { Response, Request } from 'express';
-
-const VALID_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpe?g|gif|webp)$/i;
 
 @Controller('api/v1/workspaces/:workspaceId/images')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
@@ -81,7 +79,7 @@ export class ApiV1ImagesController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    if (!VALID_ID_PATTERN.test(imageId)) {
+    if (!VALID_IMAGE_ID_PATTERN.test(imageId)) {
       throw new BadRequestException('Invalid image id');
     }
     try {
@@ -101,7 +99,7 @@ export class ApiV1ImagesController {
     @Param('imageId') imageId: string,
     @Req() req: Request,
   ): Promise<{ deleted: boolean }> {
-    if (!VALID_ID_PATTERN.test(imageId)) {
+    if (!VALID_IMAGE_ID_PATTERN.test(imageId)) {
       throw new BadRequestException('Invalid image id');
     }
     await this.imageService.delete(this.scopedKey(req, imageId));

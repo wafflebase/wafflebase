@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  NotFoundException,
   Param,
   UseGuards,
 } from '@nestjs/common';
@@ -23,11 +22,10 @@ export class ApiV1TabsController {
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
   ) {
-    const doc = await this.documentService.document({
+    await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
-    if (!doc) throw new NotFoundException('Document not found');
 
     return this.yorkieService.withDocument(
       documentId,

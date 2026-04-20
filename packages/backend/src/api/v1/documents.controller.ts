@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  NotFoundException,
   Param,
   Patch,
   Post,
@@ -46,12 +45,10 @@ export class ApiV1DocumentsController {
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
   ) {
-    const doc = await this.documentService.document({
+    return this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
-    if (!doc) throw new NotFoundException('Document not found');
-    return doc;
   }
 
   @Patch(':documentId')
@@ -60,11 +57,10 @@ export class ApiV1DocumentsController {
     @Param('documentId') documentId: string,
     @Body() body: { title?: string },
   ) {
-    const doc = await this.documentService.document({
+    await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
-    if (!doc) throw new NotFoundException('Document not found');
     return this.documentService.updateDocument({
       where: { id: documentId },
       data: body,
@@ -76,11 +72,10 @@ export class ApiV1DocumentsController {
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
   ) {
-    const doc = await this.documentService.document({
+    await this.documentService.getDocumentOrThrow({
       id: documentId,
       workspaceId,
     });
-    if (!doc) throw new NotFoundException('Document not found');
     return this.documentService.deleteDocument({ id: documentId });
   }
 }

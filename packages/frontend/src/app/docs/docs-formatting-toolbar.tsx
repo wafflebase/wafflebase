@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { TEXT_COLORS, BG_COLORS } from "@/components/formatting-colors";
+import { ColorPickerGrid } from "@/components/color-picker-grid";
 import {
   IconBold,
   IconItalic,
@@ -27,7 +28,6 @@ import {
   IconAlignJustified,
   IconTypography,
   IconHighlight,
-  IconDropletOff,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconChevronDown,
@@ -76,6 +76,42 @@ const isMac =
   typeof navigator !== "undefined" &&
   /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
 const modKey = isMac ? "⌘" : "Ctrl";
+
+function AlignmentDropdown({ onAlign }: { onAlign: (alignment: "left" | "center" | "right" | "justify") => void }) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
+              <IconAlignLeft size={16} />
+              <IconChevronDown size={12} className="ml-0.5 opacity-50" />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Text alignment</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent className="w-[200px]">
+        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("left")}>
+          <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
+          <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("center")}>
+          <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
+          <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("right")}>
+          <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
+          <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="flex items-center justify-between" onClick={() => onAlign("justify")}>
+          <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
+          <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function TableDropdown({ editor }: { editor: EditorAPI | null }) {
   const [open, setOpen] = useState(false);
@@ -380,14 +416,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
             <TooltipContent>Text color</TooltipContent>
           </Tooltip>
           <DropdownMenuContent className="w-auto p-2">
-            <button className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted" onClick={() => handleTextColor("")}>
-              <IconDropletOff size={14} /> Reset
-            </button>
-            <div className="grid grid-cols-5 gap-1">
-              {TEXT_COLORS.map((color) => (
-                <button key={color} className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform" style={{ backgroundColor: color }} onClick={() => handleTextColor(color)} />
-              ))}
-            </div>
+            <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -403,51 +432,14 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
             <TooltipContent>Highlight color</TooltipContent>
           </Tooltip>
           <DropdownMenuContent className="w-auto p-2">
-            <button className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted" onClick={() => handleHighlightColor("")}>
-              <IconDropletOff size={14} /> Reset
-            </button>
-            <div className="grid grid-cols-5 gap-1">
-              {BG_COLORS.map((color) => (
-                <button key={color} className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform" style={{ backgroundColor: color }} onClick={() => handleHighlightColor(color)} />
-              ))}
-            </div>
+            <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
           </DropdownMenuContent>
         </DropdownMenu>
 
         <ToolbarSeparator />
 
         {/* ── Alignment ── */}
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <button className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted" aria-label="Text alignment">
-                  <IconAlignLeft size={16} />
-                  <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                </button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>Text alignment</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent className="w-[200px]">
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
-              <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
-              <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
-              <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
-              <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
-              <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AlignmentDropdown onAlign={handleAlign} />
 
         <ToolbarSeparator />
 
@@ -603,23 +595,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <TooltipContent>Text color</TooltipContent>
         </Tooltip>
         <DropdownMenuContent className="w-auto p-2">
-          <button
-            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
-            onClick={() => handleTextColor("")}
-          >
-            <IconDropletOff size={14} />
-            Reset
-          </button>
-          <div className="grid grid-cols-5 gap-1">
-            {TEXT_COLORS.map((color) => (
-              <button
-                key={color}
-                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
-                style={{ backgroundColor: color }}
-                onClick={() => handleTextColor(color)}
-              />
-            ))}
-          </div>
+          <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -638,23 +614,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <TooltipContent>Highlight color</TooltipContent>
         </Tooltip>
         <DropdownMenuContent className="w-auto p-2">
-          <button
-            className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
-            onClick={() => handleHighlightColor("")}
-          >
-            <IconDropletOff size={14} />
-            Reset
-          </button>
-          <div className="grid grid-cols-5 gap-1">
-            {BG_COLORS.map((color) => (
-              <button
-                key={color}
-                className="h-5 w-5 cursor-pointer rounded border border-border hover:scale-125 transition-transform"
-                style={{ backgroundColor: color }}
-                onClick={() => handleHighlightColor(color)}
-              />
-            ))}
-          </div>
+          <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} />
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -683,40 +643,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
           <ToolbarSeparator />
 
           {/* ── Block Styles ── */}
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="inline-flex h-7 cursor-pointer items-center justify-center gap-0 rounded-md px-1 text-sm hover:bg-muted"
-                    aria-label="Text alignment"
-                  >
-                    <IconAlignLeft size={16} />
-                    <IconChevronDown size={12} className="ml-0.5 opacity-50" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Text alignment</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent className="w-[200px]">
-              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("left")}>
-                <span className="flex items-center"><IconAlignLeft size={16} className="mr-2" />Left</span>
-                <span className="text-[11px] text-muted-foreground">{modKey}+⇧L</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("center")}>
-                <span className="flex items-center"><IconAlignCenter size={16} className="mr-2" />Center</span>
-                <span className="text-[11px] text-muted-foreground">{modKey}+⇧E</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("right")}>
-                <span className="flex items-center"><IconAlignRight size={16} className="mr-2" />Right</span>
-                <span className="text-[11px] text-muted-foreground">{modKey}+⇧R</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem className="flex items-center justify-between" onClick={() => handleAlign("justify")}>
-                <span className="flex items-center"><IconAlignJustified size={16} className="mr-2" />Justify</span>
-                <span className="text-[11px] text-muted-foreground">{modKey}+⇧J</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <AlignmentDropdown onAlign={handleAlign} />
 
           <Tooltip>
             <TooltipTrigger asChild>
