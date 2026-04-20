@@ -125,10 +125,11 @@ export function renderTableBackgrounds(
       if (layoutCell.merged) continue;
 
       const cell = rows[r]?.cells[c];
-      if (!cell?.style?.backgroundColor) continue;
+      if (!cell) continue;
 
       const colSpan = cell.colSpan ?? 1;
       const rowSpan = cell.rowSpan ?? 1;
+      const padding = cell.style?.padding ?? 4;
 
       // Clip the cell to the rows physically rendered on this page so a
       // merged cell split across pages shows its background on each page
@@ -147,13 +148,34 @@ export function renderTableBackgrounds(
         visibleHeight += rowHeights[rr];
       }
 
-      ctx.fillStyle = cell.style.backgroundColor;
-      ctx.fillRect(
-        tableX + columnXOffsets[c],
-        tableY + rowYOffsets[visibleStart],
-        cellWidth,
-        visibleHeight,
-      );
+      // Draw this cell's own background
+      if (cell.style?.backgroundColor) {
+        ctx.fillStyle = cell.style.backgroundColor;
+        ctx.fillRect(
+          tableX + columnXOffsets[c],
+          tableY + rowYOffsets[visibleStart],
+          cellWidth,
+          visibleHeight,
+        );
+      }
+
+      // Recurse into nested tables so their backgrounds are also drawn
+      // in the first pass, before the selection highlight layer.
+      const cellX = tableX + columnXOffsets[c];
+      const cellY = tableY + rowYOffsets[r];
+      const textYOffset = padding; // nested tables use top alignment
+      for (let li = 0; li < layoutCell.lines.length; li++) {
+        const line = layoutCell.lines[li];
+        if (!line.nestedTable) continue;
+        const blockIndex = getBlockIndexForLine(layoutCell.blockBoundaries, li);
+        const nestedBlock = cell.blocks[blockIndex];
+        if (nestedBlock?.tableData) {
+          renderTableBackgrounds(
+            ctx, nestedBlock.tableData, line.nestedTable,
+            cellX + padding, cellY + textYOffset + line.y,
+          );
+        }
+      }
     }
   }
 
@@ -293,17 +315,16 @@ export function renderTableContent(
         } else {
           lineAbsoluteY = cellY + textYOffset + line.y;
         }
-        // Render nested table if this line contains one
+        // Render nested table if this line contains one.
+        // Backgrounds were already drawn in the first pass
+        // (renderTableBackgrounds recurses into nested tables)
+        // so only the content pass is needed here.
         if (line.nestedTable) {
           const blockIndex = getBlockIndexForLine(layoutCell.blockBoundaries, li);
           const nestedBlock = cell.blocks[blockIndex];
           if (nestedBlock?.tableData) {
             const nestedX = cellX + padding;
             const nestedY = lineAbsoluteY;
-            renderTableBackgrounds(
-              ctx, nestedBlock.tableData, line.nestedTable,
-              nestedX, nestedY,
-            );
             renderTableContent(
               ctx, nestedBlock.tableData, line.nestedTable,
               nestedX, nestedY,

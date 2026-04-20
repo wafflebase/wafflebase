@@ -1035,7 +1035,14 @@ export class TextEditor {
         const cellAddr = this.resolveTableCellClick(pos.blockId, mouseX, mouseY);
         if (cellAddr) {
           const tableBlock = this.doc.getBlock(pos.blockId);
-          const cell = tableBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex];
+          const cellRow = tableBlock.tableData?.rows[cellAddr.rowIndex];
+          if (!cellRow) {
+            this.cursor.moveTo(pos);
+            this.selection.setRange(null);
+            this.requestRender();
+            return;
+          }
+          const cell = cellRow.cells[cellAddr.colIndex];
 
           if (this.clickCount === 3) {
             // Triple-click: select all text in the clicked cell block
@@ -2658,8 +2665,33 @@ export class TextEditor {
     } else {
       // Multi-block structural change — force full layout recompute
       this.invalidateLayout();
-      // Delete from start to end of first block
+
+      // Check if entire document is selected (all blocks from first to last,
+      // at offset 0 and end). Replace with a single empty paragraph.
+      const blocks = this.doc.document.blocks;
       const firstBlock = this.doc.getBlock(start.blockId);
+      const lastBlock = this.doc.getBlock(end.blockId);
+      const isFullSelection = startBlockIdx === 0
+        && endBlockIdx === blocks.length - 1
+        && start.offset === 0
+        && end.offset === getBlockTextLength(lastBlock);
+
+      if (isFullSelection) {
+        // Replace everything with a single empty paragraph
+        const emptyBlock = createBlock();
+        this.doc.insertBlockAt(0, emptyBlock);
+        // Remove all original blocks (now shifted to indices 1..length-1)
+        const remaining = this.doc.document.blocks.length;
+        for (let i = remaining - 1; i > 0; i--) {
+          this.doc.deleteBlockByIndex(i);
+        }
+        this.cursor.moveTo({ blockId: emptyBlock.id, offset: 0 });
+        this.selection.setRange(null);
+        this.requestRender();
+        return true;
+      }
+
+      // Delete from start to end of first block
       const firstLen = getBlockTextLength(firstBlock);
       if (start.offset < firstLen) {
         this.doc.deleteText(start, firstLen - start.offset);
@@ -3599,6 +3631,7 @@ export class TextEditor {
   ): CellAddress | undefined {
     const block = this.doc.document.blocks.find((b) => b.id === blockId);
     if (!block || block.type !== 'table' || !block.tableData) return undefined;
+    if (block.tableData.rows.length === 0) return undefined;
     const layout = this.getLayout();
     const paginatedLayout = this.getPaginatedLayout();
     const lb = layout.blocks.find((b) => b.block.id === blockId);
@@ -3734,20 +3767,20 @@ export class TextEditor {
       // lookup per click. For split rows, prefer the fragment whose
       // visible range contains the click Y (multiple PageLines share
       // the same lineIndex).
-      const rowPageInfo = new Map<number, { pageY: number; plY: number; splitOffset: number }>();
+      const rowPageInfo = new Map<number, { pageY: number; plY: number; splitOffset: number; splitHeight: number | undefined }>();
       for (const page of paginatedLayout.pages) {
         const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
         for (const pl of page.lines) {
           if (pl.blockIndex !== blockIndex) continue;
           const existing = rowPageInfo.get(pl.lineIndex);
           if (!existing) {
-            rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y, splitOffset: pl.rowSplitOffset ?? 0 });
+            rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y, splitOffset: pl.rowSplitOffset ?? 0, splitHeight: pl.rowSplitHeight });
           } else if (logicalY !== undefined && pl.rowSplitOffset !== undefined) {
             // Split fragment: use the one whose page contains the click
             const fragTop = pageY + pl.y;
             const fragBottom = fragTop + (pl.rowSplitHeight ?? pl.line.height);
             if (logicalY >= fragTop && logicalY < fragBottom) {
-              rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y, splitOffset: pl.rowSplitOffset });
+              rowPageInfo.set(pl.lineIndex, { pageY, plY: pl.y, splitOffset: pl.rowSplitOffset, splitHeight: pl.rowSplitHeight });
             }
           }
         }
@@ -3763,6 +3796,30 @@ export class TextEditor {
         if (logicalY < lineAbsY + cell.lines[li].height) {
           targetLineIdx = li;
           break;
+        }
+      }
+
+      // Clamp to visible lines in the clicked fragment. When the loop
+      // falls through (click below all visible lines in a split fragment),
+      // targetLineIdx defaults to the last cell line which may be on a
+      // different page. Restrict it to lines within the fragment bounds.
+      const clickedRowInfo = rowPageInfo.get(lineLayouts[targetLineIdx]?.ownerRow ?? cellAddr.rowIndex);
+      if (clickedRowInfo?.splitHeight !== undefined) {
+        const splitEnd = clickedRowInfo.splitOffset + clickedRowInfo.splitHeight;
+        const lineInRow = lineLayouts[targetLineIdx]
+          ? lineLayouts[targetLineIdx].runLineY - tl.rowYOffsets[lineLayouts[targetLineIdx].ownerRow]
+          : 0;
+        if (lineInRow >= splitEnd || lineInRow + cell.lines[targetLineIdx]?.height <= clickedRowInfo.splitOffset) {
+          // Target line is outside the visible fragment — find the last visible line
+          let lastVisible = 0;
+          for (let li = 0; li < cell.lines.length; li++) {
+            const ll = lineLayouts[li];
+            const inRow = ll.runLineY - tl.rowYOffsets[ll.ownerRow];
+            if (inRow >= clickedRowInfo.splitOffset && inRow < splitEnd) {
+              lastVisible = li;
+            }
+          }
+          targetLineIdx = lastVisible;
         }
       }
     }
@@ -3809,19 +3866,28 @@ export class TextEditor {
         let innerRow = innerLayout.rowHeights.length - 1;
         let innerTableAbsY = 0;
         if (logicalY !== undefined) {
-          // Compute the inner table's absolute Y origin
+          // Compute the inner table's absolute Y origin, accounting for
+          // split rows by picking the fragment that contains the click Y.
           const lineLayouts = computeMergedCellLineLayouts(
             cell.lines, cellAddr.rowIndex, dataCell?.rowSpan ?? 1,
             cellPadding, tl.rowYOffsets, tl.rowHeights,
           );
           const ll = lineLayouts[targetLineIdx];
           const blockIndex = layout.blocks.indexOf(lb);
-          for (const page of paginatedLayout.pages) {
+          findInnerTableY: for (const page of paginatedLayout.pages) {
             const pageY = getPageYOffset(paginatedLayout, page.pageIndex);
             for (const pl of page.lines) {
               if (pl.blockIndex === blockIndex && pl.lineIndex === ll.ownerRow) {
-                innerTableAbsY = pageY + pl.y + (ll.runLineY - tl.rowYOffsets[ll.ownerRow]);
-                break;
+                const splitOff = pl.rowSplitOffset ?? 0;
+                innerTableAbsY = pageY + pl.y + (ll.runLineY - tl.rowYOffsets[ll.ownerRow]) - splitOff;
+                // For split rows, check if the click falls within this fragment
+                if (pl.rowSplitHeight !== undefined) {
+                  const fragTop = pageY + pl.y;
+                  const fragBottom = fragTop + pl.rowSplitHeight;
+                  if (logicalY >= fragTop && logicalY < fragBottom) break findInnerTableY;
+                  continue; // try next fragment
+                }
+                break findInnerTableY;
               }
             }
           }
@@ -3878,8 +3944,16 @@ export class TextEditor {
           // Check for further nesting (recursive)
           const innerTargetLine = innerCellLayout.lines[innerLineIdx];
           if (innerTargetLine?.nestedTable) {
-            // For deeper nesting, fall through to first block of inner cell
-            return { blockId: innerCellData.blocks[0].id, offset: 0 };
+            // For deeper nesting, resolve to the block that owns this line
+            let deepBlockIdx = 0;
+            for (let bi = 0; bi < innerCellLayout.blockBoundaries.length; bi++) {
+              const nextBound = innerCellLayout.blockBoundaries[bi + 1] ?? innerCellLayout.lines.length;
+              if (innerLineIdx < nextBound) {
+                deepBlockIdx = bi;
+                break;
+              }
+            }
+            return { blockId: innerCellData.blocks[deepBlockIdx]?.id ?? innerCellData.blocks[0].id, offset: 0 };
           }
 
           // Find block index within inner cell

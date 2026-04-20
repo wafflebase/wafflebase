@@ -329,13 +329,18 @@ export function paginatedPixelToPosition(
   const localY = py - pageTop;
   const localX = px - pageX - margins.left;
 
-  // Find the target line on this page by Y
+  // Find the target line on this page by Y.
+  // For split table rows, use rowSplitHeight so a tiny first-fragment
+  // doesn't claim the space that belongs to the next line below it.
   let targetPL = targetPage.lines[0];
   for (const pl of targetPage.lines) {
+    const visibleHeight = pl.rowSplitHeight ?? pl.line.height;
+    if (localY >= pl.y && localY < pl.y + visibleHeight) {
+      targetPL = pl;
+      break;
+    }
     if (localY >= pl.y) {
       targetPL = pl;
-    } else {
-      break;
     }
   }
 
