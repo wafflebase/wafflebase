@@ -560,5 +560,15 @@ export function moveA1Range(
 
   const start = moveRef(parseRef(parts[0]), axis, src, count, dst);
   const end = moveRef(parseRef(parts[1]), axis, src, count, dst);
-  return toSref(start) + ':' + toSref(end);
+
+  // Normalize: when a move splits the range, endpoints can cross over.
+  const normStart = {
+    r: Math.min(start.r, end.r),
+    c: Math.min(start.c, end.c),
+  };
+  const normEnd = {
+    r: Math.max(start.r, end.r),
+    c: Math.max(start.c, end.c),
+  };
+  return toSref(normStart) + ':' + toSref(normEnd);
 }

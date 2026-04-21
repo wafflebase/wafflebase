@@ -528,4 +528,10 @@ describe('moveA1Range', () => {
   it('should not change range outside affected region', () => {
     expect(moveA1Range('A5:D8', 'row', 10, 1, 1)).toBe('A6:D9');
   });
+
+  it('should normalize inverted range when move splits it', () => {
+    // Move col 3 (C) to col 10. "C1:D10" → start C→I, end D→C → inverted.
+    // Should normalize to "C1:I10".
+    expect(moveA1Range('C1:D10', 'column', 3, 1, 10)).toBe('C1:I10');
+  });
 });
