@@ -279,6 +279,13 @@ export function applyYorkieWorksheetShift(options: {
   shiftAnchors(ws.charts as Record<string, { anchor: Sref }>, axis, index, count);
   shiftAnchors(ws.images as Record<string, { anchor: Sref }>, axis, index, count);
   shiftChartRanges(ws.charts as Record<string, SheetChart>, axis, index, count);
+
+  if (ws.pivotTable?.sourceRange) {
+    const shifted = shiftA1Range(ws.pivotTable.sourceRange, axis, index, count);
+    if (shifted) {
+      ws.pivotTable.sourceRange = shifted;
+    }
+  }
 }
 
 export function applyYorkieWorksheetMove(options: {
@@ -343,4 +350,10 @@ export function applyYorkieWorksheetMove(options: {
   moveAnchors(ws.charts as Record<string, { anchor: Sref }>, axis, srcIndex, count, dstIndex);
   moveAnchors(ws.images as Record<string, { anchor: Sref }>, axis, srcIndex, count, dstIndex);
   moveChartRanges(ws.charts as Record<string, SheetChart>, axis, srcIndex, count, dstIndex);
+
+  if (ws.pivotTable?.sourceRange) {
+    ws.pivotTable.sourceRange = moveA1Range(
+      ws.pivotTable.sourceRange, axis, srcIndex, count, dstIndex,
+    );
+  }
 }

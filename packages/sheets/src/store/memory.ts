@@ -8,8 +8,10 @@ import {
 import {
   shiftGrid,
   shiftDimensionMap,
+  shiftA1Range,
   moveGrid,
   moveDimensionMap,
+  moveA1Range,
 } from '../model/worksheet/shifting';
 import {
   RangeStylePatch,
@@ -189,6 +191,18 @@ export class MemStore implements Store {
       const shifted = shiftDimensionMap(map, index, count);
       this.hiddenState[key] = Array.from(shifted.keys()).sort((a, b) => a - b);
     }
+
+    if (this.pivotDefinition?.sourceRange) {
+      const shifted = shiftA1Range(
+        this.pivotDefinition.sourceRange,
+        axis,
+        index,
+        count,
+      );
+      if (shifted) {
+        this.pivotDefinition.sourceRange = shifted;
+      }
+    }
   }
 
   async moveCells(
@@ -251,6 +265,16 @@ export class MemStore implements Store {
       }
       const moved = moveDimensionMap(map, srcIndex, count, dstIndex);
       this.hiddenState[key] = Array.from(moved.keys()).sort((a, b) => a - b);
+    }
+
+    if (this.pivotDefinition?.sourceRange) {
+      this.pivotDefinition.sourceRange = moveA1Range(
+        this.pivotDefinition.sourceRange,
+        axis,
+        srcIndex,
+        count,
+        dstIndex,
+      );
     }
   }
 
