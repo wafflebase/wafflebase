@@ -43,6 +43,8 @@ import type { UserPresence } from "@/types/users";
 import {
   applyYorkieWorksheetMove,
   applyYorkieWorksheetShift,
+  shiftCrossTabDataRanges,
+  moveCrossTabDataRanges,
 } from "./yorkie-worksheet-structure";
 
 export class YorkieStore implements Store {
@@ -461,6 +463,7 @@ export class YorkieStore implements Store {
         count,
         normalizeCell: this.normalizeCell.bind(this),
       });
+      shiftCrossTabDataRanges(root.sheets, tabId, axis, index, count);
     };
 
     if (this.batchOps) {
@@ -492,6 +495,7 @@ export class YorkieStore implements Store {
         dstIndex,
         normalizeCell: this.normalizeCell.bind(this),
       });
+      moveCrossTabDataRanges(root.sheets, tabId, axis, srcIndex, count, dstIndex);
     };
 
     if (this.batchOps) {
