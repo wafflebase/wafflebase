@@ -302,6 +302,19 @@ export function toColumnLabel(col: number): string {
 }
 
 /**
+ * `parseColumnLabel` converts a column label (e.g. "A", "BC") to a 1-based column index.
+ * The inverse of `toColumnLabel`.
+ */
+export function parseColumnLabel(label: string): number {
+  const upper = label.toUpperCase();
+  let col = 0;
+  for (let i = 0; i < upper.length; i++) {
+    col = col * 26 + (upper.charCodeAt(i) - 64);
+  }
+  return col;
+}
+
+/**
  * parseRef parses the given sref and returns the ref.
  *
  * @param ref

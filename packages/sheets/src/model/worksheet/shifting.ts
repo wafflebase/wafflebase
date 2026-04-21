@@ -1,5 +1,5 @@
 import { ErrValue, extractTokens } from '../../formula/formula';
-import { parseARef, parseRef, toASref, toSref } from '../core/coordinates';
+import { parseARef, parseColumnLabel, parseRef, toASref, toColumnLabel, toSref } from '../core/coordinates';
 import { ARef, Axis, Cell, Grid, Ref, Sref } from '../core/types';
 
 /**
@@ -463,4 +463,73 @@ export function shiftGrid(
   }
 
   return newGrid;
+}
+
+/**
+ * `shiftColumnLabel` shifts a column label (e.g. "B") when columns are
+ * inserted or deleted. Returns `null` if the column falls in a deleted zone.
+ */
+export function shiftColumnLabel(
+  label: string,
+  index: number,
+  count: number,
+): string | null {
+  const col = parseColumnLabel(label);
+  const shifted = shiftRef({ r: 1, c: col }, 'column', index, count);
+  if (!shifted) return null;
+  return toColumnLabel(shifted.c);
+}
+
+/**
+ * `shiftA1Range` shifts an A1-notation range string (e.g. "A1:D10") when
+ * rows or columns are inserted or deleted.
+ * Returns `null` if the entire range is deleted.
+ */
+export function shiftA1Range(
+  range: string,
+  axis: Axis,
+  index: number,
+  count: number,
+): string | null {
+  const parts = range.split(':');
+  if (parts.length !== 2) return range;
+
+  const start = shiftRef(parseRef(parts[0]), axis, index, count);
+  const end = shiftRef(parseRef(parts[1]), axis, index, count);
+
+  if (!start || !end) return null;
+  return toSref(start) + ':' + toSref(end);
+}
+
+/**
+ * `moveColumnLabel` remaps a column label when columns are moved.
+ */
+export function moveColumnLabel(
+  label: string,
+  src: number,
+  count: number,
+  dst: number,
+): string {
+  const col = parseColumnLabel(label);
+  const moved = moveRef({ r: 1, c: col }, 'column', src, count, dst);
+  return toColumnLabel(moved.c);
+}
+
+/**
+ * `moveA1Range` remaps an A1-notation range string when rows or columns
+ * are moved.
+ */
+export function moveA1Range(
+  range: string,
+  axis: Axis,
+  src: number,
+  count: number,
+  dst: number,
+): string {
+  const parts = range.split(':');
+  if (parts.length !== 2) return range;
+
+  const start = moveRef(parseRef(parts[0]), axis, src, count, dst);
+  const end = moveRef(parseRef(parts[1]), axis, src, count, dst);
+  return toSref(start) + ':' + toSref(end);
 }
