@@ -123,14 +123,16 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
   const workspaceSlug = currentWorkspace?.slug;
 
+  const fallbackSlug = workspaceSlug ?? workspaces[0]?.slug;
+
   useEffect(() => {
     if (isDocumentError) {
       toast.error("Document not found");
-      navigate(workspaceSlug ? `/w/${workspaceSlug}` : "/documents", {
+      navigate(fallbackSlug ? `/w/${fallbackSlug}` : "/documents", {
         replace: true,
       });
     }
-  }, [isDocumentError, navigate, workspaceSlug]);
+  }, [isDocumentError, navigate, fallbackSlug]);
 
   const items = useMemo(() => {
     if (workspaceSlug) {
