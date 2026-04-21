@@ -8,10 +8,8 @@ import {
 import {
   shiftGrid,
   shiftDimensionMap,
-  shiftA1Range,
   moveGrid,
   moveDimensionMap,
-  moveA1Range,
 } from '../model/worksheet/shifting';
 import {
   RangeStylePatch,
@@ -192,17 +190,9 @@ export class MemStore implements Store {
       this.hiddenState[key] = Array.from(shifted.keys()).sort((a, b) => a - b);
     }
 
-    if (this.pivotDefinition?.sourceRange) {
-      const shifted = shiftA1Range(
-        this.pivotDefinition.sourceRange,
-        axis,
-        index,
-        count,
-      );
-      if (shifted) {
-        this.pivotDefinition.sourceRange = shifted;
-      }
-    }
+    // NOTE: Pivot table sourceRange is NOT shifted here because it references
+    // a different tab (sourceTabId). Cross-tab range shifting is handled at
+    // the document level in YorkieStore via shiftCrossTabDataRanges().
   }
 
   async moveCells(
@@ -267,15 +257,7 @@ export class MemStore implements Store {
       this.hiddenState[key] = Array.from(moved.keys()).sort((a, b) => a - b);
     }
 
-    if (this.pivotDefinition?.sourceRange) {
-      this.pivotDefinition.sourceRange = moveA1Range(
-        this.pivotDefinition.sourceRange,
-        axis,
-        srcIndex,
-        count,
-        dstIndex,
-      );
-    }
+    // NOTE: Pivot table sourceRange is NOT moved here — see shiftCells comment.
   }
 
   /**

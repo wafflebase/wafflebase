@@ -464,6 +464,21 @@ describe('shiftA1Range', () => {
     it('should shift range after deleted zone', () => {
       expect(shiftA1Range('A5:D10', 'row', 1, -2)).toBe('A3:D8');
     });
+
+    it('should clamp start when start rows are deleted', () => {
+      // Delete rows 1-3 from "A1:D10" → start clamps to row 1, end shifts to row 7
+      expect(shiftA1Range('A1:D10', 'row', 1, -3)).toBe('A1:D7');
+    });
+
+    it('should clamp end when end rows are deleted', () => {
+      // Delete rows 8-10 from "A1:D10" → end clamps to row 7
+      expect(shiftA1Range('A1:D10', 'row', 8, -3)).toBe('A1:D7');
+    });
+
+    it('should clamp both endpoints for large deletion overlapping range', () => {
+      // Delete rows 3-12 from "A5:D10" → start clamps to 3, end clamps to 2 → null
+      expect(shiftA1Range('A5:D10', 'row', 3, -10)).toBeNull();
+    });
   });
 
   describe('column delete', () => {
@@ -473,6 +488,16 @@ describe('shiftA1Range', () => {
 
     it('should return null when range is fully deleted', () => {
       expect(shiftA1Range('A1:D10', 'column', 1, -4)).toBeNull();
+    });
+
+    it('should clamp start when start columns are deleted', () => {
+      // Delete cols 1-2 (A-B) from "A1:D10" → start clamps to col 1, end shifts to col 2
+      expect(shiftA1Range('A1:D10', 'column', 1, -2)).toBe('A1:B10');
+    });
+
+    it('should clamp end when end columns are deleted', () => {
+      // Delete cols 3-4 (C-D) from "A1:D10" → end clamps to col 2
+      expect(shiftA1Range('A1:D10', 'column', 3, -2)).toBe('A1:B10');
     });
   });
 });

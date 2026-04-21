@@ -483,7 +483,12 @@ export function shiftColumnLabel(
 /**
  * `shiftA1Range` shifts an A1-notation range string (e.g. "A1:D10") when
  * rows or columns are inserted or deleted.
- * Returns `null` if the entire range is deleted.
+ *
+ * Unlike formula references (which become #REF! on partial deletion),
+ * data ranges clamp to the surviving boundary so that charts/pivots
+ * keep referencing as much of the original data as possible.
+ *
+ * Returns `null` only when the entire range is deleted.
  */
 export function shiftA1Range(
   range: string,
@@ -494,8 +499,32 @@ export function shiftA1Range(
   const parts = range.split(':');
   if (parts.length !== 2) return range;
 
-  const start = shiftRef(parseRef(parts[0]), axis, index, count);
-  const end = shiftRef(parseRef(parts[1]), axis, index, count);
+  let start = shiftRef(parseRef(parts[0]), axis, index, count);
+  let end = shiftRef(parseRef(parts[1]), axis, index, count);
+
+  if (count < 0) {
+    // Clamp deleted endpoints to the deletion boundary.
+    if (!start) {
+      start = axis === 'row'
+        ? { r: index, c: parseRef(parts[0]).c }
+        : { r: parseRef(parts[0]).r, c: index };
+    }
+    if (!end) {
+      // End was in the deleted zone — clamp to index-1.
+      const orig = parseRef(parts[1]);
+      const clamped = axis === 'row'
+        ? { r: index - 1, c: orig.c }
+        : { r: orig.r, c: index - 1 };
+      // If clamped value < 1, the entire range was before/in the deleted zone.
+      if ((axis === 'row' ? clamped.r : clamped.c) < 1) return null;
+      end = clamped;
+    }
+
+    // After clamping, if start > end the entire range was deleted.
+    const sv = axis === 'row' ? start.r : start.c;
+    const ev = axis === 'row' ? end.r : end.c;
+    if (sv > ev) return null;
+  }
 
   if (!start || !end) return null;
   return toSref(start) + ':' + toSref(end);
