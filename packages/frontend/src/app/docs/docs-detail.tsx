@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
+import { toast } from "sonner";
 import { Loader } from "@/components/loader";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -55,9 +56,13 @@ function DocsLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const { data: documentData } = useQuery({
+  const {
+    data: documentData,
+    isError: isDocumentError,
+  } = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
+    retry: false,
   });
 
   useEffect(() => {
@@ -75,6 +80,17 @@ function DocsLayout({ documentId }: { documentId: string }) {
     (w) => w.id === documentData?.workspaceId,
   );
   const workspaceSlug = currentWorkspace?.slug;
+
+  const fallbackSlug = workspaceSlug ?? workspaces[0]?.slug;
+
+  useEffect(() => {
+    if (isDocumentError) {
+      toast.error("Document not found");
+      navigate(fallbackSlug ? `/w/${fallbackSlug}` : "/documents", {
+        replace: true,
+      });
+    }
+  }, [isDocumentError, navigate, fallbackSlug]);
 
   const items = useMemo(() => {
     if (workspaceSlug) {
