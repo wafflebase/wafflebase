@@ -7,8 +7,41 @@ import {
   shiftDimensionMap,
   relocateFormula,
   redirectFormula,
+  shiftA1Range,
+  shiftColumnLabel,
+  moveA1Range,
+  moveColumnLabel,
 } from '../../src/model/worksheet/shifting';
+import {
+  parseColumnLabel,
+  toColumnLabel,
+} from '../../src/model/core/coordinates';
 import { Grid } from '../../src/model/core/types';
+
+describe('parseColumnLabel', () => {
+  it('should parse single letter columns', () => {
+    expect(parseColumnLabel('A')).toBe(1);
+    expect(parseColumnLabel('B')).toBe(2);
+    expect(parseColumnLabel('Z')).toBe(26);
+  });
+
+  it('should parse multi-letter columns', () => {
+    expect(parseColumnLabel('AA')).toBe(27);
+    expect(parseColumnLabel('AZ')).toBe(52);
+    expect(parseColumnLabel('BA')).toBe(53);
+  });
+
+  it('should be case-insensitive', () => {
+    expect(parseColumnLabel('a')).toBe(1);
+    expect(parseColumnLabel('az')).toBe(52);
+  });
+
+  it('should round-trip with toColumnLabel', () => {
+    for (let i = 1; i <= 100; i++) {
+      expect(parseColumnLabel(toColumnLabel(i))).toBe(i);
+    }
+  });
+});
 
 describe('shiftRef', () => {
   describe('insert (count > 0)', () => {
@@ -361,5 +394,144 @@ describe('cross-sheet refs in shift/move/relocate', () => {
     expect(relocateFormula('=SUM(Sheet2!A1:A3)+A1', 1, 0)).toBe(
       '=SUM(Sheet2!A1:A3)+A2',
     );
+  });
+});
+
+describe('shiftColumnLabel', () => {
+  describe('insert (count > 0)', () => {
+    it('should shift column at index forward', () => {
+      expect(shiftColumnLabel('B', 2, 1)).toBe('C');
+    });
+
+    it('should not shift column before index', () => {
+      expect(shiftColumnLabel('A', 3, 1)).toBe('A');
+    });
+
+    it('should shift column after index forward', () => {
+      expect(shiftColumnLabel('D', 2, 2)).toBe('F');
+    });
+  });
+
+  describe('delete (count < 0)', () => {
+    it('should return null when column is in deleted zone', () => {
+      expect(shiftColumnLabel('B', 2, -1)).toBeNull();
+    });
+
+    it('should shift column after deleted zone backward', () => {
+      expect(shiftColumnLabel('C', 2, -1)).toBe('B');
+    });
+
+    it('should not shift column before deleted zone', () => {
+      expect(shiftColumnLabel('A', 3, -1)).toBe('A');
+    });
+
+    it('should return null for column in multi-delete zone', () => {
+      expect(shiftColumnLabel('C', 2, -2)).toBeNull();
+    });
+  });
+});
+
+describe('shiftA1Range', () => {
+  describe('row insert', () => {
+    it('should expand range when inserting within it', () => {
+      expect(shiftA1Range('A1:D10', 'row', 5, 2)).toBe('A1:D12');
+    });
+
+    it('should shift range entirely below insertion', () => {
+      expect(shiftA1Range('A3:B5', 'row', 1, 1)).toBe('A4:B6');
+    });
+
+    it('should not change range entirely above insertion', () => {
+      expect(shiftA1Range('A1:D10', 'row', 20, 1)).toBe('A1:D10');
+    });
+  });
+
+  describe('column insert', () => {
+    it('should expand range when inserting within it', () => {
+      expect(shiftA1Range('A1:D10', 'column', 2, 1)).toBe('A1:E10');
+    });
+  });
+
+  describe('row delete', () => {
+    it('should shrink range when deleting within it', () => {
+      expect(shiftA1Range('A1:D10', 'row', 3, -3)).toBe('A1:D7');
+    });
+
+    it('should return null when range is fully deleted', () => {
+      expect(shiftA1Range('A1:D10', 'row', 1, -10)).toBeNull();
+    });
+
+    it('should shift range after deleted zone', () => {
+      expect(shiftA1Range('A5:D10', 'row', 1, -2)).toBe('A3:D8');
+    });
+
+    it('should clamp start when start rows are deleted', () => {
+      // Delete rows 1-3 from "A1:D10" → start clamps to row 1, end shifts to row 7
+      expect(shiftA1Range('A1:D10', 'row', 1, -3)).toBe('A1:D7');
+    });
+
+    it('should clamp end when end rows are deleted', () => {
+      // Delete rows 8-10 from "A1:D10" → end clamps to row 7
+      expect(shiftA1Range('A1:D10', 'row', 8, -3)).toBe('A1:D7');
+    });
+
+    it('should clamp both endpoints for large deletion overlapping range', () => {
+      // Delete rows 3-12 from "A5:D10" → start clamps to 3, end clamps to 2 → null
+      expect(shiftA1Range('A5:D10', 'row', 3, -10)).toBeNull();
+    });
+  });
+
+  describe('column delete', () => {
+    it('should shrink range when deleting within it', () => {
+      expect(shiftA1Range('A1:D10', 'column', 2, -1)).toBe('A1:C10');
+    });
+
+    it('should return null when range is fully deleted', () => {
+      expect(shiftA1Range('A1:D10', 'column', 1, -4)).toBeNull();
+    });
+
+    it('should clamp start when start columns are deleted', () => {
+      // Delete cols 1-2 (A-B) from "A1:D10" → start clamps to col 1, end shifts to col 2
+      expect(shiftA1Range('A1:D10', 'column', 1, -2)).toBe('A1:B10');
+    });
+
+    it('should clamp end when end columns are deleted', () => {
+      // Delete cols 3-4 (C-D) from "A1:D10" → end clamps to col 2
+      expect(shiftA1Range('A1:D10', 'column', 3, -2)).toBe('A1:B10');
+    });
+  });
+});
+
+describe('moveColumnLabel', () => {
+  it('should remap column in moved block', () => {
+    expect(moveColumnLabel('B', 2, 1, 4)).toBe('C');
+  });
+
+  it('should remap column in shifted region', () => {
+    expect(moveColumnLabel('C', 2, 1, 4)).toBe('B');
+  });
+
+  it('should not change column outside affected region', () => {
+    expect(moveColumnLabel('A', 2, 1, 4)).toBe('A');
+  });
+});
+
+describe('moveA1Range', () => {
+  it('should remap range endpoints on row move', () => {
+    expect(moveA1Range('A2:D2', 'row', 2, 1, 5)).toBe('A4:D4');
+  });
+
+  it('should remap range endpoints on column move', () => {
+    expect(moveA1Range('A1:A10', 'column', 1, 1, 4)).toBe('C1:C10');
+  });
+
+  it('should not change range outside affected region', () => {
+    expect(moveA1Range('A5:D8', 'row', 10, 1, 1)).toBe('A6:D9');
+  });
+
+  it('should normalize inverted range when move splits it', () => {
+    // Move col 3 (C) to col 10. "C1:D10" → start C→I, end D→C → inverted.
+    // Should normalize to "C1:I10".
+    expect(moveA1Range('C1:D10', 'column', 3, 1, 10)).toBe('C1:I10');
   });
 });

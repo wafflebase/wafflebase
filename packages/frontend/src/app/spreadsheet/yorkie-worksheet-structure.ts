@@ -14,12 +14,17 @@ import {
   shiftRangeStylePatches,
   safeWorksheetRecordEntries,
   safeWorksheetRecordKeys,
+  shiftA1Range,
+  shiftColumnLabel,
   shiftSref,
+  moveA1Range,
+  moveColumnLabel,
   toSref,
   writeWorksheetCell,
   type Axis,
   type Cell,
   type MergeSpan,
+  type SheetChart,
   type Sref,
   type Worksheet,
 } from "@wafflebase/sheets";
@@ -104,6 +109,115 @@ function shiftAnchors(
       fallback.c = Math.max(1, index);
     }
     item.anchor = toSref(fallback);
+  }
+}
+
+/**
+ * Shift a single chart's data ranges (sourceRange, xAxisColumn, seriesColumns).
+ */
+function shiftOneChartRange(
+  chart: SheetChart,
+  axis: Axis,
+  index: number,
+  count: number,
+): void {
+  if (chart.sourceRange) {
+    const shifted = shiftA1Range(chart.sourceRange, axis, index, count);
+    if (shifted) {
+      chart.sourceRange = shifted;
+    }
+  }
+
+  if (axis === 'column') {
+    if (chart.xAxisColumn) {
+      const shifted = shiftColumnLabel(chart.xAxisColumn, index, count);
+      if (shifted) {
+        chart.xAxisColumn = shifted;
+      }
+    }
+
+    if (chart.seriesColumns) {
+      const result: string[] = [];
+      for (const col of chart.seriesColumns) {
+        const shifted = shiftColumnLabel(col, index, count);
+        if (shifted) {
+          result.push(shifted);
+        }
+      }
+      chart.seriesColumns = result;
+    }
+  }
+}
+
+/**
+ * Move a single chart's data ranges.
+ */
+function moveOneChartRange(
+  chart: SheetChart,
+  axis: Axis,
+  srcIndex: number,
+  count: number,
+  dstIndex: number,
+): void {
+  if (chart.sourceRange) {
+    chart.sourceRange = moveA1Range(
+      chart.sourceRange, axis, srcIndex, count, dstIndex,
+    );
+  }
+
+  if (axis === 'column') {
+    if (chart.xAxisColumn) {
+      chart.xAxisColumn = moveColumnLabel(
+        chart.xAxisColumn, srcIndex, count, dstIndex,
+      );
+    }
+
+    if (chart.seriesColumns) {
+      chart.seriesColumns = chart.seriesColumns.map((col) =>
+        moveColumnLabel(col, srcIndex, count, dstIndex),
+      );
+    }
+  }
+}
+
+/**
+ * Shift chart data ranges for charts whose sourceTabId matches the
+ * tab being modified.
+ */
+function shiftChartRanges(
+  charts: Record<string, SheetChart> | undefined,
+  sourceTabId: string,
+  axis: Axis,
+  index: number,
+  count: number,
+): void {
+  if (!charts) return;
+
+  for (const key of safeWorksheetRecordKeys(charts)) {
+    const chart = charts[key];
+    if (!chart || chart.sourceTabId !== sourceTabId) continue;
+    shiftOneChartRange(chart, axis, index, count);
+  }
+}
+
+/**
+ * Move chart data ranges for charts whose sourceTabId matches the
+ * tab being modified.
+ */
+function moveChartRanges(
+  charts: Record<string, SheetChart> | undefined,
+  sourceTabId: string,
+  axis: Axis,
+  srcIndex: number,
+  count: number,
+  dstIndex: number,
+): void {
+  if (!charts) return;
+
+  for (const key of safeWorksheetRecordKeys(charts)) {
+    const chart = charts[key];
+    if (!chart || chart.sourceTabId !== sourceTabId) continue;
+    moveOneChartRange(chart, axis, srcIndex, count, dstIndex);
   }
 }
 
@@ -253,4 +367,63 @@ export function applyYorkieWorksheetMove(options: {
 
   moveAnchors(ws.charts as Record<string, { anchor: Sref }>, axis, srcIndex, count, dstIndex);
   moveAnchors(ws.images as Record<string, { anchor: Sref }>, axis, srcIndex, count, dstIndex);
+}
+
+/**
+ * Shift chart/pivot data ranges across all tabs whose sourceTabId matches
+ * the tab being structurally modified. This handles cross-tab references
+ * (e.g. a pivot on tab-2 referencing data on tab-1).
+ */
+export function shiftCrossTabDataRanges(
+  sheets: Record<string, Worksheet>,
+  sourceTabId: string,
+  axis: Axis,
+  index: number,
+  count: number,
+): void {
+  for (const tabId of Object.keys(sheets)) {
+    const ws = sheets[tabId];
+    if (!ws) continue;
+
+    shiftChartRanges(
+      ws.charts as Record<string, SheetChart>,
+      sourceTabId, axis, index, count,
+    );
+
+    if (ws.pivotTable?.sourceTabId === sourceTabId && ws.pivotTable.sourceRange) {
+      const shifted = shiftA1Range(ws.pivotTable.sourceRange, axis, index, count);
+      if (shifted) {
+        ws.pivotTable.sourceRange = shifted;
+      }
+    }
+  }
+}
+
+/**
+ * Move chart/pivot data ranges across all tabs whose sourceTabId matches
+ * the tab being structurally modified.
+ */
+export function moveCrossTabDataRanges(
+  sheets: Record<string, Worksheet>,
+  sourceTabId: string,
+  axis: Axis,
+  srcIndex: number,
+  count: number,
+  dstIndex: number,
+): void {
+  for (const tabId of Object.keys(sheets)) {
+    const ws = sheets[tabId];
+    if (!ws) continue;
+
+    moveChartRanges(
+      ws.charts as Record<string, SheetChart>,
+      sourceTabId, axis, srcIndex, count, dstIndex,
+    );
+
+    if (ws.pivotTable?.sourceTabId === sourceTabId && ws.pivotTable.sourceRange) {
+      ws.pivotTable.sourceRange = moveA1Range(
+        ws.pivotTable.sourceRange, axis, srcIndex, count, dstIndex,
+      );
+    }
+  }
 }

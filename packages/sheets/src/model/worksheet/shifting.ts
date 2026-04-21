@@ -1,5 +1,5 @@
 import { ErrValue, extractTokens } from '../../formula/formula';
-import { parseARef, parseRef, toASref, toSref } from '../core/coordinates';
+import { parseARef, parseColumnLabel, parseRef, toASref, toColumnLabel, toSref } from '../core/coordinates';
 import { ARef, Axis, Cell, Grid, Ref, Sref } from '../core/types';
 
 /**
@@ -463,4 +463,112 @@ export function shiftGrid(
   }
 
   return newGrid;
+}
+
+/**
+ * `shiftColumnLabel` shifts a column label (e.g. "B") when columns are
+ * inserted or deleted. Returns `null` if the column falls in a deleted zone.
+ */
+export function shiftColumnLabel(
+  label: string,
+  index: number,
+  count: number,
+): string | null {
+  const col = parseColumnLabel(label);
+  const shifted = shiftRef({ r: 1, c: col }, 'column', index, count);
+  if (!shifted) return null;
+  return toColumnLabel(shifted.c);
+}
+
+/**
+ * `shiftA1Range` shifts an A1-notation range string (e.g. "A1:D10") when
+ * rows or columns are inserted or deleted.
+ *
+ * Unlike formula references (which become #REF! on partial deletion),
+ * data ranges clamp to the surviving boundary so that charts/pivots
+ * keep referencing as much of the original data as possible.
+ *
+ * Returns `null` only when the entire range is deleted.
+ */
+export function shiftA1Range(
+  range: string,
+  axis: Axis,
+  index: number,
+  count: number,
+): string | null {
+  const parts = range.split(':');
+  if (parts.length !== 2) return range;
+
+  let start = shiftRef(parseRef(parts[0]), axis, index, count);
+  let end = shiftRef(parseRef(parts[1]), axis, index, count);
+
+  if (count < 0) {
+    // Clamp deleted endpoints to the deletion boundary.
+    if (!start) {
+      start = axis === 'row'
+        ? { r: index, c: parseRef(parts[0]).c }
+        : { r: parseRef(parts[0]).r, c: index };
+    }
+    if (!end) {
+      // End was in the deleted zone — clamp to index-1.
+      const orig = parseRef(parts[1]);
+      const clamped = axis === 'row'
+        ? { r: index - 1, c: orig.c }
+        : { r: orig.r, c: index - 1 };
+      // If clamped value < 1, the entire range was before/in the deleted zone.
+      if ((axis === 'row' ? clamped.r : clamped.c) < 1) return null;
+      end = clamped;
+    }
+
+    // After clamping, if start > end the entire range was deleted.
+    const sv = axis === 'row' ? start.r : start.c;
+    const ev = axis === 'row' ? end.r : end.c;
+    if (sv > ev) return null;
+  }
+
+  if (!start || !end) return null;
+  return toSref(start) + ':' + toSref(end);
+}
+
+/**
+ * `moveColumnLabel` remaps a column label when columns are moved.
+ */
+export function moveColumnLabel(
+  label: string,
+  src: number,
+  count: number,
+  dst: number,
+): string {
+  const col = parseColumnLabel(label);
+  const moved = moveRef({ r: 1, c: col }, 'column', src, count, dst);
+  return toColumnLabel(moved.c);
+}
+
+/**
+ * `moveA1Range` remaps an A1-notation range string when rows or columns
+ * are moved.
+ */
+export function moveA1Range(
+  range: string,
+  axis: Axis,
+  src: number,
+  count: number,
+  dst: number,
+): string {
+  const parts = range.split(':');
+  if (parts.length !== 2) return range;
+
+  const start = moveRef(parseRef(parts[0]), axis, src, count, dst);
+  const end = moveRef(parseRef(parts[1]), axis, src, count, dst);
+
+  // Normalize: when a move splits the range, endpoints can cross over.
+  const normStart = {
+    r: Math.min(start.r, end.r),
+    c: Math.min(start.c, end.c),
+  };
+  const normEnd = {
+    r: Math.max(start.r, end.r),
+    c: Math.max(start.c, end.c),
+  };
+  return toSref(normStart) + ':' + toSref(normEnd);
 }

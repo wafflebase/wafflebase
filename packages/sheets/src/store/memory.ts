@@ -189,6 +189,10 @@ export class MemStore implements Store {
       const shifted = shiftDimensionMap(map, index, count);
       this.hiddenState[key] = Array.from(shifted.keys()).sort((a, b) => a - b);
     }
+
+    // NOTE: Pivot table sourceRange is NOT shifted here because it references
+    // a different tab (sourceTabId). Cross-tab range shifting is handled at
+    // the document level in YorkieStore via shiftCrossTabDataRanges().
   }
 
   async moveCells(
@@ -252,6 +256,8 @@ export class MemStore implements Store {
       const moved = moveDimensionMap(map, srcIndex, count, dstIndex);
       this.hiddenState[key] = Array.from(moved.keys()).sort((a, b) => a - b);
     }
+
+    // NOTE: Pivot table sourceRange is NOT moved here — see shiftCells comment.
   }
 
   /**
