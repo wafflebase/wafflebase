@@ -98,9 +98,13 @@ function DocumentLayout({ documentId }: { documentId: string }) {
 
   const navigate = useNavigate();
 
-  const { data: documentData } = useQuery({
+  const {
+    data: documentData,
+    isError: isDocumentError,
+  } = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
+    retry: false,
   });
 
   useEffect(() => {
@@ -118,6 +122,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     (w) => w.id === documentData?.workspaceId,
   );
   const workspaceSlug = currentWorkspace?.slug;
+
+  useEffect(() => {
+    if (isDocumentError) {
+      toast.error("Document not found");
+      navigate(workspaceSlug ? `/w/${workspaceSlug}` : "/documents", {
+        replace: true,
+      });
+    }
+  }, [isDocumentError, navigate, workspaceSlug]);
 
   const items = useMemo(() => {
     if (workspaceSlug) {
