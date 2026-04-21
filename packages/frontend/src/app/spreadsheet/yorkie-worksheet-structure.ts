@@ -14,12 +14,17 @@ import {
   shiftRangeStylePatches,
   safeWorksheetRecordEntries,
   safeWorksheetRecordKeys,
+  shiftA1Range,
+  shiftColumnLabel,
   shiftSref,
+  moveA1Range,
+  moveColumnLabel,
   toSref,
   writeWorksheetCell,
   type Axis,
   type Cell,
   type MergeSpan,
+  type SheetChart,
   type Sref,
   type Worksheet,
 } from "@wafflebase/sheets";
@@ -108,6 +113,89 @@ function shiftAnchors(
 }
 
 /**
+ * Shift chart data ranges (sourceRange, xAxisColumn, seriesColumns)
+ * when rows/columns are inserted or deleted.
+ */
+function shiftChartRanges(
+  charts: Record<string, SheetChart> | undefined,
+  axis: Axis,
+  index: number,
+  count: number,
+): void {
+  if (!charts) return;
+
+  for (const key of safeWorksheetRecordKeys(charts)) {
+    const chart = charts[key];
+    if (!chart) continue;
+
+    if (chart.sourceRange) {
+      const shifted = shiftA1Range(chart.sourceRange, axis, index, count);
+      if (shifted) {
+        chart.sourceRange = shifted;
+      }
+    }
+
+    if (axis === 'column') {
+      if (chart.xAxisColumn) {
+        const shifted = shiftColumnLabel(chart.xAxisColumn, index, count);
+        if (shifted) {
+          chart.xAxisColumn = shifted;
+        }
+      }
+
+      if (chart.seriesColumns) {
+        const result: string[] = [];
+        for (const col of chart.seriesColumns) {
+          const shifted = shiftColumnLabel(col, index, count);
+          if (shifted) {
+            result.push(shifted);
+          }
+        }
+        chart.seriesColumns = result;
+      }
+    }
+  }
+}
+
+/**
+ * Move chart data ranges when rows/columns are reordered.
+ */
+function moveChartRanges(
+  charts: Record<string, SheetChart> | undefined,
+  axis: Axis,
+  srcIndex: number,
+  count: number,
+  dstIndex: number,
+): void {
+  if (!charts) return;
+
+  for (const key of safeWorksheetRecordKeys(charts)) {
+    const chart = charts[key];
+    if (!chart) continue;
+
+    if (chart.sourceRange) {
+      chart.sourceRange = moveA1Range(
+        chart.sourceRange, axis, srcIndex, count, dstIndex,
+      );
+    }
+
+    if (axis === 'column') {
+      if (chart.xAxisColumn) {
+        chart.xAxisColumn = moveColumnLabel(
+          chart.xAxisColumn, srcIndex, count, dstIndex,
+        );
+      }
+
+      if (chart.seriesColumns) {
+        chart.seriesColumns = chart.seriesColumns.map((col) =>
+          moveColumnLabel(col, srcIndex, count, dstIndex),
+        );
+      }
+    }
+  }
+}
+
+/**
  * Move anchors for any record of anchored objects when rows/columns
  * are reordered.
  */
@@ -190,6 +278,7 @@ export function applyYorkieWorksheetShift(options: {
 
   shiftAnchors(ws.charts as Record<string, { anchor: Sref }>, axis, index, count);
   shiftAnchors(ws.images as Record<string, { anchor: Sref }>, axis, index, count);
+  shiftChartRanges(ws.charts as Record<string, SheetChart>, axis, index, count);
 }
 
 export function applyYorkieWorksheetMove(options: {
@@ -253,4 +342,5 @@ export function applyYorkieWorksheetMove(options: {
 
   moveAnchors(ws.charts as Record<string, { anchor: Sref }>, axis, srcIndex, count, dstIndex);
   moveAnchors(ws.images as Record<string, { anchor: Sref }>, axis, srcIndex, count, dstIndex);
+  moveChartRanges(ws.charts as Record<string, SheetChart>, axis, srcIndex, count, dstIndex);
 }
