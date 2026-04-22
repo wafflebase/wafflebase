@@ -3696,4 +3696,136 @@ describe('Formula.extractTokens', () => {
     const result = Number(evaluate('=XIRR(A1:A5,B1:B5)', grid));
     expect(result).toBeCloseTo(0.3734, 2);
   });
+
+  // ─── Operator functions ────────────────────────────────────────────────────
+
+  describe('Operator arithmetic', () => {
+    it('ADD returns sum of two numbers', () => {
+      expect(evaluate('=ADD(3,4)')).toBe('7');
+      expect(evaluate('=ADD(-1,1)')).toBe('0');
+      expect(evaluate('=ADD(1.5,2.5)')).toBe('4');
+    });
+
+    it('MINUS returns difference', () => {
+      expect(evaluate('=MINUS(10,3)')).toBe('7');
+      expect(evaluate('=MINUS(0,5)')).toBe('-5');
+    });
+
+    it('MULTIPLY returns product', () => {
+      expect(evaluate('=MULTIPLY(3,4)')).toBe('12');
+      expect(evaluate('=MULTIPLY(-2,5)')).toBe('-10');
+      expect(evaluate('=MULTIPLY(0,999)')).toBe('0');
+    });
+
+    it('DIVIDE returns quotient', () => {
+      expect(evaluate('=DIVIDE(10,4)')).toBe('2.5');
+      expect(evaluate('=DIVIDE(9,3)')).toBe('3');
+    });
+
+    it('DIVIDE returns #DIV/0! when divisor is zero', () => {
+      expect(evaluate('=DIVIDE(5,0)')).toBe('#DIV/0!');
+    });
+
+    it('POW raises base to exponent', () => {
+      expect(evaluate('=POW(2,10)')).toBe('1024');
+      expect(evaluate('=POW(4,0.5)')).toBe('2');
+      expect(evaluate('=POW(5,0)')).toBe('1');
+    });
+  });
+
+  describe('Operator unary', () => {
+    it('UMINUS negates a number', () => {
+      expect(evaluate('=UMINUS(5)')).toBe('-5');
+      expect(evaluate('=UMINUS(-3)')).toBe('3');
+      expect(evaluate('=UMINUS(0)')).toBe('0');
+    });
+
+    it('UPLUS returns the same number', () => {
+      expect(evaluate('=UPLUS(7)')).toBe('7');
+      expect(evaluate('=UPLUS(-4)')).toBe('-4');
+    });
+
+    it('UNARY_PERCENT divides by 100', () => {
+      expect(evaluate('=UNARY_PERCENT(50)')).toBe('0.5');
+      expect(evaluate('=UNARY_PERCENT(100)')).toBe('1');
+      expect(evaluate('=UNARY_PERCENT(1)')).toBe('0.01');
+    });
+  });
+
+  describe('Operator comparison', () => {
+    it('EQ returns TRUE when values are equal', () => {
+      expect(evaluate('=EQ(1,1)')).toBe('TRUE');
+      expect(evaluate('=EQ("a","a")')).toBe('TRUE');
+      expect(evaluate('=EQ(0,0)')).toBe('TRUE');
+    });
+
+    it('EQ returns FALSE when values differ', () => {
+      expect(evaluate('=EQ(1,2)')).toBe('FALSE');
+      expect(evaluate('=EQ("a","b")')).toBe('FALSE');
+    });
+
+    it('NE returns TRUE when values differ', () => {
+      expect(evaluate('=NE(1,2)')).toBe('TRUE');
+      expect(evaluate('=NE("a","b")')).toBe('TRUE');
+    });
+
+    it('NE returns FALSE when values are equal', () => {
+      expect(evaluate('=NE(5,5)')).toBe('FALSE');
+    });
+
+    it('LT / LTE compare numbers correctly', () => {
+      expect(evaluate('=LT(1,2)')).toBe('TRUE');
+      expect(evaluate('=LT(2,1)')).toBe('FALSE');
+      expect(evaluate('=LT(2,2)')).toBe('FALSE');
+      expect(evaluate('=LTE(2,2)')).toBe('TRUE');
+      expect(evaluate('=LTE(3,2)')).toBe('FALSE');
+    });
+
+    it('GT / GTE compare numbers correctly', () => {
+      expect(evaluate('=GT(3,2)')).toBe('TRUE');
+      expect(evaluate('=GT(1,2)')).toBe('FALSE');
+      expect(evaluate('=GT(2,2)')).toBe('FALSE');
+      expect(evaluate('=GTE(2,2)')).toBe('TRUE');
+      expect(evaluate('=GTE(1,2)')).toBe('FALSE');
+    });
+
+    it('comparison functions work with cell references', () => {
+      const grid = new Map([
+        ['A1', { v: '10' } as Cell],
+        ['B1', { v: '20' } as Cell],
+      ]);
+      expect(evaluate('=LT(A1,B1)', grid)).toBe('TRUE');
+      expect(evaluate('=GT(A1,B1)', grid)).toBe('FALSE');
+      expect(evaluate('=EQ(A1,A1)', grid)).toBe('TRUE');
+    });
+  });
+
+  describe('ISBETWEEN', () => {
+    it('returns TRUE when value is within inclusive bounds (default)', () => {
+      expect(evaluate('=ISBETWEEN(5,1,10)')).toBe('TRUE');
+      expect(evaluate('=ISBETWEEN(1,1,10)')).toBe('TRUE');
+      expect(evaluate('=ISBETWEEN(10,1,10)')).toBe('TRUE');
+    });
+
+    it('returns FALSE when value is outside bounds', () => {
+      expect(evaluate('=ISBETWEEN(0,1,10)')).toBe('FALSE');
+      expect(evaluate('=ISBETWEEN(11,1,10)')).toBe('FALSE');
+    });
+
+    it('respects exclusive lower bound', () => {
+      expect(evaluate('=ISBETWEEN(1,1,10,FALSE)')).toBe('FALSE');
+      expect(evaluate('=ISBETWEEN(2,1,10,FALSE)')).toBe('TRUE');
+    });
+
+    it('respects exclusive upper bound', () => {
+      expect(evaluate('=ISBETWEEN(10,1,10,TRUE,FALSE)')).toBe('FALSE');
+      expect(evaluate('=ISBETWEEN(9,1,10,TRUE,FALSE)')).toBe('TRUE');
+    });
+
+    it('both bounds exclusive', () => {
+      expect(evaluate('=ISBETWEEN(1,1,10,FALSE,FALSE)')).toBe('FALSE');
+      expect(evaluate('=ISBETWEEN(10,1,10,FALSE,FALSE)')).toBe('FALSE');
+      expect(evaluate('=ISBETWEEN(5,1,10,FALSE,FALSE)')).toBe('TRUE');
+    });
+  });
 });
