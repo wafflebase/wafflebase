@@ -444,7 +444,7 @@ describe('YorkieDocStore', () => {
   });
 
   describe('splitBlock with styled inlines', () => {
-    it('should preserve inline styles across split', () => {
+    it('should preserve inline styles across split at inline boundary', () => {
       const block: Block = {
         id: generateBlockId(),
         type: 'paragraph',
@@ -461,6 +461,81 @@ describe('YorkieDocStore', () => {
       assert.equal(result.blocks[0].inlines[0].text, 'Bold');
       assert.equal(result.blocks[0].inlines[0].style.bold, true);
       assert.equal(result.blocks[1].inlines[0].text, 'Normal');
+    });
+
+    it('should preserve bold style when splitting inside a bold inline', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'HelloWorld', style: { bold: true } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
+      assert.equal(result.blocks[0].inlines[0].style.bold, true);
+      assert.equal(result.blocks[1].inlines[0].text, 'World');
+      assert.equal(result.blocks[1].inlines[0].style.bold, true,
+        'bold style should be preserved on the right half after split');
+    });
+
+    it('should preserve bold attr in Yorkie Tree after split (not just cache)', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'HelloWorld', style: { bold: true } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'paragraph');
+
+      // Read directly from Yorkie Tree, bypassing the cache
+      const root = doc.getRoot();
+      const tree = root.content;
+      const treeRoot = tree.getRootTreeNode();
+      const afterBlock = treeRoot.children[1];
+      const afterInline = afterBlock.children[0];
+      assert.equal(afterInline.attributes?.bold, 'true',
+        'Yorkie Tree node should have bold attribute after split');
+    });
+
+    it('should preserve bold style when peer reads from Tree after remote split', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'HelloWorld', style: { bold: true } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'paragraph');
+
+      // Simulate remote-change: invalidate cache so getDocument() re-parses from Tree
+      // @ts-expect-error accessing private field for test
+      store.dirty = true;
+      // @ts-expect-error accessing private field for test
+      store.cachedDoc = null;
+
+      const result = store.getDocument();
+      assert.equal(result.blocks[1].inlines[0].text, 'World');
+      assert.equal(result.blocks[1].inlines[0].style.bold, true,
+        'peer should see bold style after remote split');
+    });
+
+    it('should preserve multiple inline styles when splitting mid-inline', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'HelloWorld', style: { bold: true, italic: true, fontSize: 18 } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks[1].inlines[0].text, 'World');
+      assert.equal(result.blocks[1].inlines[0].style.bold, true);
+      assert.equal(result.blocks[1].inlines[0].style.italic, true);
+      assert.equal(result.blocks[1].inlines[0].style.fontSize, 18);
     });
   });
 
