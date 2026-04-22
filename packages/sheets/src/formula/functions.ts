@@ -9,6 +9,7 @@ import { financialEntries } from './functions-financial';
 import { engineeringEntries } from './functions-engineering';
 import { databaseEntries } from './functions-database';
 import { infoEntries } from './functions-info';
+import { operatorEntries } from './functions-operator';
 
 /**
  * FunctionMap is a map of function name to the function implementation.
@@ -24,4 +25,5 @@ export const FunctionMap = new Map<string, (...args: any[]) => EvalNode>([
   ...engineeringEntries,
   ...databaseEntries,
   ...infoEntries,
+  ...operatorEntries,
 ]);

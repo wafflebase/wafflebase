@@ -42,13 +42,11 @@ Coverage is effectively complete for daily use. The remaining gaps are:
 | Financial   |     50 |   49 |      98% |
 | Engineering |     47 |   42 |      89% |
 | Database    |     12 |   12 |     100% |
-| Operator    |     17 |    — |        — |
+| Operator    |     17 |   17 |     100% |
 | Parser      |      6 |    1 |      17% |
 | Web         |      8 |    3 |      38% |
 
 Notes:
-- **Operator** functions (ADD, MINUS, MULTIPLY, etc.) are covered by
-  built-in arithmetic/comparison operators. CONCAT is implemented.
 - **Statistical** gap is mostly legacy aliases (BETADIST, CHIDIST, etc.)
   for which we have the modern equivalents (BETA.DIST, CHISQ.DIST, etc.).
 - **Web** gap is entirely IMPORT* functions (external HTTP from formula).

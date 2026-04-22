@@ -188,18 +188,6 @@ export function concatenateFunc(
 }
 
 /**
- * `concatFunc` is the implementation of the CONCAT function.
- * CONCAT(text1, text2, ...) — joins text values into one string.
- */
-export function concatFunc(
-  ctx: FunctionContext,
-  visit: (tree: ParseTree) => EvalNode,
-  grid?: Grid,
-): EvalNode {
-  return concatenateFunc(ctx, visit, grid);
-}
-
-/**
  * `findFunc` is the implementation of the FIND function.
  * FIND(search_for, text_to_search, [starting_at]) — case-sensitive search.
  */
@@ -1472,7 +1460,6 @@ export const textEntries: [string, (...args: any[]) => EvalNode][] = [
   ['RIGHT', rightFunc],
   ['MID', midFunc],
   ['CONCATENATE', concatenateFunc],
-  ['CONCAT', concatFunc],
   ['FIND', findFunc],
   ['SEARCH', searchFunc],
   ['TEXTJOIN', textjoinFunc],

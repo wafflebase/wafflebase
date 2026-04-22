@@ -424,6 +424,7 @@ describe('FunctionCatalog', () => {
         'Logical',
         'Lookup',
         'Math',
+        'Operator',
         'Statistical',
         'Text',
         'Database',

@@ -10,7 +10,6 @@ import {
   parseRange,
   parseRef,
   toColumnLabel,
-  toSrefs,
 } from '../model/core/coordinates';
 import {
   toStr,
@@ -21,6 +20,7 @@ import {
   lookupValueFromRef,
   equalLookupValues,
   compareLookupValues,
+  firstCellValue,
 } from './functions-helpers';
 import { collectNumericValues } from './functions-statistical';
 
@@ -1078,25 +1078,6 @@ export function sortbyFunc(
 }
 
 /**
- * UNIQUE(range) — for single cell returns the first unique value.
- */
-export function uniqueFunc(
-  ctx: FunctionContext,
-  visit: (tree: ParseTree) => EvalNode,
-  grid?: Grid,
-): EvalNode {
-  const args = ctx.args();
-  if (!args) return ErrNode.NA;
-  const exprs = args.expr();
-  if (exprs.length !== 1) return ErrNode.NA;
-
-  const node = visit(exprs[0]);
-  if (node.t === 'err') return node;
-  if (node.t !== 'ref' || !grid) return node;
-  return firstCellValue(node, grid);
-}
-
-/**
  * FLATTEN(range) — for single cell returns the first value.
  */
 export function flattenFunc(
@@ -1555,20 +1536,6 @@ export function expandFunc(
     : { t: 'str', v: cellVal };
 }
 
-/**
- * Helper: get the first cell value from a ref node.
- */
-function firstCellValue(node: EvalNode, grid: Grid): EvalNode {
-  if (node.t !== 'ref') return node;
-  const firstRef = toSrefs([node.v]).next().value;
-  if (!firstRef) return { t: 'str', v: '' };
-  const cell = grid.get(firstRef);
-  const val = cell?.v || '';
-  if (val === '') return { t: 'str', v: '' };
-  if (!isNaN(Number(val))) return { t: 'num', v: Number(val) };
-  return { t: 'str', v: val };
-}
-
 export const lookupEntries: [string, (...args: any[]) => EvalNode][] = [
   ['MATCH', matchFunc],
   ['INDEX', indexFunc],
@@ -1588,7 +1555,6 @@ export const lookupEntries: [string, (...args: any[]) => EvalNode][] = [
   ['AREAS', areasFunc],
   ['SORT', sortFunc],
   ['SORTBY', sortbyFunc],
-  ['UNIQUE', uniqueFunc],
   ['FLATTEN', flattenFunc],
   ['TRANSPOSE', transposeFunc],
   ['FILTER', filterFunc],

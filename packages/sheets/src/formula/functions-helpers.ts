@@ -167,6 +167,22 @@ export function lookupValueFromRef(ref: string, grid?: Grid): LookupValue {
   return toLookupValue(raw);
 }
 
+/**
+ * `firstCellValue` returns the first cell's value from a ref node.
+ * Used by single-cell evaluation of array-returning functions such as
+ * UNIQUE, FLATTEN, and TRANSPOSE.
+ */
+export function firstCellValue(node: EvalNode, grid: Grid): EvalNode {
+  if (node.t !== 'ref') return node;
+  const firstRef = toSrefs([node.v]).next().value;
+  if (!firstRef) return { t: 'str', v: '' };
+  const cell = grid.get(firstRef);
+  const val = cell?.v || '';
+  if (val === '') return { t: 'str', v: '' };
+  if (!isNaN(Number(val))) return { t: 'num', v: Number(val) };
+  return { t: 'str', v: val };
+}
+
 export function equalLookupValues(left: LookupValue, right: LookupValue): boolean {
   if (left.numericValue !== undefined && right.numericValue !== undefined) {
     return left.numericValue === right.numericValue;
