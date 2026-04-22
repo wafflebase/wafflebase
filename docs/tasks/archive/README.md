@@ -6,12 +6,15 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 132
+Total archived tasks: 135
 
-## 2026/04 (18 tasks)
+## 2026/04 (21 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| chart pivot range shift (2026-04-21) | [20260421-chart-pivot-range-shift-todo.md](./20260421-chart-pivot-range-shift-todo.md) | - |
+| table copy paste (2026-04-19) | [20260419-table-copy-paste-todo.md](./20260419-table-copy-paste-todo.md) | [20260419-table-copy-paste-lessons.md](./20260419-table-copy-paste-lessons.md) |
+| table row splitting (2026-04-19) | [20260419-table-row-splitting-todo.md](./20260419-table-row-splitting-todo.md) | - |
 | sheet image (2026-04-18) | [20260418-sheet-image-todo.md](./2026/04/20260418-sheet-image-todo.md) | - |
 | docs mobile toolbar (2026-04-15) | [20260415-docs-mobile-toolbar-todo.md](./2026/04/20260415-docs-mobile-toolbar-todo.md) | - |
 | axis id selection (2026-04-14) | [20260414-axis-id-selection-todo.md](./2026/04/20260414-axis-id-selection-todo.md) | - |
