@@ -178,11 +178,59 @@ Migrate remaining LWW operations to intent-preserving `styleByPath`/`editByPath`
 This eliminates `updateBlockInStore` and `findRootTableId` from the Doc class.
 All editing operations now route through intent-preserving store methods.
 
-**Remaining LWW operations** (deferred — low concurrency risk or complex):
-- `mergeCells` / `splitCell` — multi-cell structural changes
-- `deleteRow` / `deleteColumn` — span adjustment across cells
-- `insertTableInCell` / `deleteTableInCell` — nested table structure
-- `updateTableAttrs` — column width / row height changes
+### Remaining LWW Operations
+
+Operations still using full replacement (`updateTableCell`, `updateBlock`,
+`updateTableAttrs`). Grouped by migration strategy:
+
+#### A. Cell span attribute changes → `styleByPath`
+
+These only change `colSpan`/`rowSpan` attributes on cell nodes. Same pattern
+as `applyCellStyle`.
+
+| Call site | Trigger | Current method |
+|-----------|---------|----------------|
+| `deleteRow()` | rowSpan adjustment | `store.updateTableCell` |
+| `deleteColumn()` | colSpan adjustment | `store.updateTableCell` |
+| `splitCell()` | restore span on covered cells | `store.updateTableCell` |
+
+#### B. Table-level attribute changes → `styleByPath` on block node
+
+Column widths and row heights are block-level attributes on the table node.
+
+| Call site | Trigger | Current method |
+|-----------|---------|----------------|
+| `insertRow()` | rowHeights update | `store.updateTableAttrs` |
+| `deleteRow()` | rowHeights update | `store.updateTableAttrs` |
+| `insertColumn()` | columnWidths update | `store.updateTableAttrs` |
+| `deleteColumn()` | columnWidths update | `store.updateTableAttrs` |
+| `setColumnWidth()` | single column resize | `store.updateTableAttrs` |
+| `setColumnWidthPair()` | adjacent column resize | `store.updateTableAttrs` |
+| `setRowHeight()` | row height resize | `store.updateTableAttrs` |
+
+#### C. Cell structural changes → `editByPath` at block level
+
+These insert or remove blocks inside a cell, or merge content across cells.
+
+| Call site | Trigger | Current method |
+|-----------|---------|----------------|
+| `splitBlock()` (HR/page-break in cell) | non-splittable block in cell | `store.updateTableCell` |
+| `insertTableInCell()` | nested table insertion | `store.updateTableCell` |
+| `deleteTableInCell()` | nested table deletion | `store.updateTableCell` |
+| `mergeCells()` | multi-cell content consolidation | `store.updateTableCell` (loop) |
+
+#### D. Direct block replacement
+
+| Call site | Trigger | Current method |
+|-----------|---------|----------------|
+| `updateBlockDirect()` | external inline modification | `store.updateBlock` |
+
+#### Migration priority
+
+1. **A** (span attributes) — low complexity, same `styleByPath` pattern
+2. **B** (table attrs) — low complexity, `styleByPath` on block node
+3. **C** (cell structure) — medium complexity, `editByPath` for block insert/delete within cells
+4. **D** (direct block) — audit callers to determine if finer-grained method exists
 
 ## Known Issues
 
