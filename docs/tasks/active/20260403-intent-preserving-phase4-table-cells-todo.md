@@ -15,29 +15,47 @@ cell blocks via the longer path prefix.
 
 ---
 
-## Step 1: `insertText` / `deleteText` in cells
+## Step 1: `insertText` / `deleteText` in cells — ✅ Done
 
-- [ ] Extend `resolveBlockTreePath()` to DFS into table/row/cell/block nodes
-- [ ] Add `region` support for cell blocks (returns parent table's region)
-- [ ] Add `getBlockByRegion()` support for cell block lookup
-- [ ] Verify `insertText` works for cell-internal blocks
-- [ ] Verify `deleteText` works for cell-internal blocks
-- [ ] Remove Doc `updateBlockInStore()` cell LWW branch for text edits
-- [ ] Unit tests: cell text insert/delete via YorkieDocStore
-- [ ] Concurrent test: two users editing same cell, character-level merge
+- [x] Extend `resolveBlockTreePath()` to DFS into table/row/cell/block nodes
+- [x] Add `region` support for cell blocks (returns parent table's region)
+- [x] Add `getBlockByRegion()` / `setBlockByRegion()` support for cell block lookup
+- [x] Extend `getBlock()` with `findBlockRecursive()` for cell search
+- [x] Verify `insertText` works for cell-internal blocks
+- [x] Verify `deleteText` works for cell-internal blocks
+- [x] Unit tests: 5 cases (insert, delete, mid-insert, preceded block, different cells)
+- [x] Concurrent test: two users inserting in same cell, character-level merge
 
-## Step 2: `applyStyle` in cells
+## Step 2: `applyStyle` in cells — ✅ Done
 
-- [ ] Verify `applyStyle` works for cell-internal blocks (reuses Step 1 path)
-- [ ] Remove Doc cell routing for style operations
-- [ ] Unit tests: cell inline styling via YorkieDocStore
-- [ ] Concurrent test: text edit + style in same cell
+- [x] Verify `applyStyle` works for cell-internal blocks (reuses Step 1 path)
+- [x] Unit tests: cell bold, cell style after insert
+- [x] Concurrent test: text insert + bold in same cell
 
-## Step 3: `splitBlock` / `mergeBlock` in cells
+## Step 3: `splitBlock` / `mergeBlock` in cells — ✅ Done
 
-- [ ] Verify `splitBlock` works for cell-internal blocks
-- [ ] Verify `mergeBlock` works for cell-internal blocks
-- [ ] Remove `splitBlockInCellInternal()` from Doc
-- [ ] Remove cell branch in `Doc.mergeBlocks()`
-- [ ] Unit tests: cell split/merge via YorkieDocStore
-- [ ] Concurrent test: split + text edit in same cell
+- [x] Add `getBlocksArrayForPath()` for cell-internal split/merge cache updates
+- [x] Verify `splitBlock` works for cell-internal blocks
+- [x] Verify `mergeBlock` works for cell-internal blocks
+- [x] Unit tests: cell split, cell merge, split without affecting other cells
+- [x] Concurrent test: split + text insert in same cell
+
+## Doc class LWW routing cleanup — ✅ Done
+
+- [x] Route `Doc.insertText` through `store.insertText` (not `updateBlockInStore`)
+- [x] Route `Doc.deleteText` through `store.deleteText`
+- [x] Route `Doc.applyInlineStyle` same-block through `store.applyStyle`
+- [x] Route `Doc.applyInlineStyle` cross-block same-cell through `store.applyStyle` per block
+- [x] Route `Doc.applyInlineStyle` cross-block table-in-range through `store.applyStyle` per cell block
+- [x] Route `Doc.mergeBlocks` through `store.mergeBlock` (remove cell branch)
+- [x] Remove `splitBlockInCellInternal()` and exclusive helpers
+- [x] Remove `applyStyleToBlock()` (no longer used)
+- [x] Fix nested-table test to sync store after direct mutation
+
+## Key finding
+
+`Doc.insertText`/`deleteText` were using `store.updateBlock` (full block
+replacement) even for top-level blocks. Phase 1-3's character-level
+`store.insertText`/`deleteText` were only reachable from tests, not the UI.
+The Doc cleanup commit fixes this — all text/style operations now route
+through fine-grained store methods for both top-level and cell blocks.
