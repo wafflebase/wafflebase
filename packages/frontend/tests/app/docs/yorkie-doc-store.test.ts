@@ -695,14 +695,15 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  function makeTableWithText(): { tableBlock: Block; cellBlockId: string } {
+    const tableBlock = createTableBlock(2, 2);
+    // Put text in cell [0][0]
+    const cellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'Hello', style: {} }];
+    return { tableBlock, cellBlockId: cellBlock.id };
+  }
+
   describe('table cell internal edits', () => {
-    function makeTableWithText(): { tableBlock: Block; cellBlockId: string } {
-      const tableBlock = createTableBlock(2, 2);
-      // Put text in cell [0][0]
-      const cellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
-      cellBlock.inlines = [{ text: 'Hello', style: {} }];
-      return { tableBlock, cellBlockId: cellBlock.id };
-    }
 
     it('should insertText into a table cell block', () => {
       const { tableBlock, cellBlockId } = makeTableWithText();
@@ -828,6 +829,162 @@ describe('YorkieDocStore', () => {
       // cell01 unchanged
       assert.equal(doc.blocks[0].tableData!.rows[0].cells[1].blocks.length, 1);
       assert.equal(store.getBlock(cell01.id)!.inlines[0].text, 'World');
+    });
+  });
+
+  describe('setBlockType', () => {
+    it('should change block type to heading', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.setBlockType(block.id, 'heading', { headingLevel: 2 });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.type, 'heading');
+      assert.equal(result.headingLevel, 2);
+      assert.equal(result.inlines[0].text, 'Hello');
+    });
+
+    it('should change heading to paragraph, clearing headingLevel', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'heading',
+        inlines: [{ text: 'Title', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        headingLevel: 1,
+      };
+      store.setDocument({ blocks: [block] });
+      store.setBlockType(block.id, 'paragraph');
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.type, 'paragraph');
+      assert.equal(result.headingLevel, undefined);
+    });
+
+    it('should change to list-item with kind and level', () => {
+      const block = makeBlock('Item');
+      store.setDocument({ blocks: [block] });
+      store.setBlockType(block.id, 'list-item', { listKind: 'ordered', listLevel: 1 });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.type, 'list-item');
+      assert.equal(result.listKind, 'ordered');
+      assert.equal(result.listLevel, 1);
+    });
+
+    it('should clear inlines for horizontal-rule', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.setBlockType(block.id, 'horizontal-rule');
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.type, 'horizontal-rule');
+      assert.equal(result.inlines.length, 0);
+    });
+
+    it('should work for cell-internal blocks', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.setBlockType(cellBlockId, 'heading', { headingLevel: 3 });
+      const result = store.getBlock(cellBlockId)!;
+      assert.equal(result.type, 'heading');
+      assert.equal(result.headingLevel, 3);
+    });
+  });
+
+  describe('applyBlockStyle', () => {
+    it('should apply alignment', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyBlockStyle(block.id, { alignment: 'center' });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.style.alignment, 'center');
+      // Other defaults preserved
+      assert.equal(result.style.lineHeight, DEFAULT_BLOCK_STYLE.lineHeight);
+    });
+
+    it('should merge with existing style', () => {
+      const block = makeBlock('Hello', { alignment: 'right', marginTop: 10 });
+      store.setDocument({ blocks: [block] });
+      store.applyBlockStyle(block.id, { marginTop: 20 });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.style.alignment, 'right');
+      assert.equal(result.style.marginTop, 20);
+    });
+
+    it('should work for cell-internal blocks', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyBlockStyle(cellBlockId, { alignment: 'center' });
+      const result = store.getBlock(cellBlockId)!;
+      assert.equal(result.style.alignment, 'center');
+    });
+  });
+
+  describe('applyCellStyle', () => {
+    it('should apply background color to a cell', () => {
+      const tableBlock = createTableBlock(2, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000' });
+      const doc = store.getDocument();
+      const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cell.style.backgroundColor, '#ff0000');
+    });
+
+    it('should merge with existing cell style', () => {
+      const tableBlock = createTableBlock(1, 1);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000' });
+      store.applyCellStyle(tableBlock.id, 0, 0, { verticalAlign: 'middle' });
+      const doc = store.getDocument();
+      const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cell.style.backgroundColor, '#ff0000');
+      assert.equal(cell.style.verticalAlign, 'middle');
+    });
+
+    it('should not affect other cells', () => {
+      const tableBlock = createTableBlock(2, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000' });
+      const doc = store.getDocument();
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells[1].style.backgroundColor, undefined);
+      assert.equal(doc.blocks[0].tableData!.rows[1].cells[0].style.backgroundColor, undefined);
+    });
+  });
+
+  describe('insertImageInline', () => {
+    it('should insert an image inline at offset', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.insertImageInline(block.id, 3, {
+        text: '\uFFFC',
+        style: { image: { src: 'test.png', width: 100, height: 50 } },
+      });
+      const result = store.getBlock(block.id)!;
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.equal(fullText, 'Hel\uFFFClo');
+      const imgInline = result.inlines.find((i) => i.style.image);
+      assert.ok(imgInline, 'Image inline should exist');
+      assert.equal(imgInline!.style.image!.src, 'test.png');
+    });
+
+    it('should insert image at beginning of block', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.insertImageInline(block.id, 0, {
+        text: '\uFFFC',
+        style: { image: { src: 'img.png', width: 50, height: 50 } },
+      });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.inlines[0].text, '\uFFFC');
+      assert.ok(result.inlines[0].style.image);
+    });
+
+    it('should work for cell-internal blocks', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.insertImageInline(cellBlockId, 2, {
+        text: '\uFFFC',
+        style: { image: { src: 'cell.png', width: 80, height: 60 } },
+      });
+      const result = store.getBlock(cellBlockId)!;
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.ok(fullText.includes('\uFFFC'), 'Image char should be present');
     });
   });
 });
