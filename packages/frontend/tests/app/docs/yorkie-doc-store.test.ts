@@ -738,6 +738,29 @@ describe('YorkieDocStore', () => {
       assert.equal(result.inlines[0].text, 'Hello!');
     });
 
+    it('should applyStyle to a table cell block', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyStyle(cellBlockId, 0, 3, { bold: true });
+      const result = store.getBlock(cellBlockId)!;
+      assert.equal(result.inlines[0].text, 'Hel');
+      assert.equal(result.inlines[0].style.bold, true);
+      assert.equal(result.inlines[1].text, 'lo');
+      assert.equal(result.inlines[1].style.bold, undefined);
+    });
+
+    it('should applyStyle after insertText in cell', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.insertText(cellBlockId, 5, ' World');
+      store.applyStyle(cellBlockId, 6, 11, { italic: true });
+      const result = store.getBlock(cellBlockId)!;
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.equal(fullText, 'Hello World');
+      assert.equal(result.inlines[1].text, 'World');
+      assert.equal(result.inlines[1].style.italic, true);
+    });
+
     it('should edit different cells independently', () => {
       const tableBlock = createTableBlock(2, 2);
       const cell00 = tableBlock.tableData!.rows[0].cells[0].blocks[0];
