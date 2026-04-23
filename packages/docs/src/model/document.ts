@@ -28,7 +28,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
-import { applyDeleteText, applyInsertInline, applyInsertText } from '../store/block-helpers.js';
+import { applyInsertInline } from '../store/block-helpers.js';
 
 /**
  * The current editing context for header/footer routing.
@@ -198,9 +198,7 @@ export class Doc {
    * Insert text at a document position.
    */
   insertText(pos: DocPosition, text: string): void {
-    const block = this.getBlock(pos.blockId);
-    const updated = applyInsertText(block, pos.offset, text);
-    this.updateBlockInStore(pos.blockId, updated);
+    this.store.insertText(pos.blockId, pos.offset, text);
     this.refresh();
   }
 
@@ -220,9 +218,7 @@ export class Doc {
    * Delete `length` characters forward from position.
    */
   deleteText(pos: DocPosition, length: number): void {
-    const block = this.getBlock(pos.blockId);
-    const updated = applyDeleteText(block, pos.offset, length);
-    this.updateBlockInStore(pos.blockId, updated);
+    this.store.deleteText(pos.blockId, pos.offset, length);
     this.refresh();
   }
 
@@ -264,13 +260,7 @@ export class Doc {
    * Returns the ID of the newly created block.
    */
   splitBlock(blockId: string, offset: number): string {
-    const cellInfo = this._blockParentMap.get(blockId);
-    if (cellInfo) {
-      return this.splitBlockInCellInternal(cellInfo, blockId, offset);
-    }
-
-    const blockIndex = this.getBlockIndex(blockId);
-    const block = this.getContextBlocks()[blockIndex];
+    const block = this.getBlock(blockId);
     const blockText = getBlockText(block);
 
     // Empty list-item: exit list by converting to paragraph
@@ -287,7 +277,17 @@ export class Doc {
         inlines: [{ text: '', style: {} }],
         style: { ...DEFAULT_BLOCK_STYLE },
       };
-      this.store.insertBlock(blockIndex + 1, newBlock);
+      const cellInfo = this._blockParentMap.get(blockId);
+      if (cellInfo) {
+        const tableBlock = this.getBlock(cellInfo.tableBlockId);
+        const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
+        const idx = cell.blocks.findIndex((b) => b.id === blockId);
+        cell.blocks.splice(idx + 1, 0, newBlock);
+        this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
+      } else {
+        const blockIndex = this.getBlockIndex(blockId);
+        this.store.insertBlock(blockIndex + 1, newBlock);
+      }
       this.refresh();
       return newBlock.id;
     }
@@ -313,23 +313,6 @@ export class Doc {
    * Merge two adjacent blocks. The second block is removed.
    */
   mergeBlocks(blockId: string, nextBlockId: string): void {
-    const cellInfo = this._blockParentMap.get(blockId);
-    if (cellInfo) {
-      const tableBlock = this.getBlock(cellInfo.tableBlockId);
-      const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
-      const idx = cell.blocks.findIndex((b) => b.id === blockId);
-      const nextIdx = cell.blocks.findIndex((b) => b.id === nextBlockId);
-      if (idx === -1 || nextIdx === -1) return;
-
-      const block = cell.blocks[idx];
-      const nextBlock = cell.blocks[nextIdx];
-      block.inlines = this.normalizeInlinesArray([...block.inlines, ...nextBlock.inlines]);
-      cell.blocks.splice(nextIdx, 1);
-      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
-      this.refresh();
-      return;
-    }
-
     this.store.mergeBlock(blockId, nextBlockId);
     this.refresh();
   }
@@ -341,27 +324,19 @@ export class Doc {
     const anchorCellInfo = this._blockParentMap.get(range.anchor.blockId);
     const focusCellInfo = this._blockParentMap.get(range.focus.blockId);
 
-    // Same block
+    // Same block — works for both top-level and cell blocks
     if (range.anchor.blockId === range.focus.blockId) {
-      const block = this.getBlock(range.anchor.blockId);
       const [start, end] = range.anchor.offset <= range.focus.offset
         ? [range.anchor.offset, range.focus.offset]
         : [range.focus.offset, range.anchor.offset];
       if (start < end) {
-        const cellInfo = this._blockParentMap.get(range.anchor.blockId);
-        if (cellInfo) {
-          // Table cell path — keep existing behavior (Phase 4)
-          this.applyStyleToBlock(block, start, end, style);
-          this.updateBlockInStore(block.id, block);
-        } else {
-          this.store.applyStyle(block.id, start, end, style);
-        }
+        this.store.applyStyle(range.anchor.blockId, start, end, style);
       }
       this.refresh();
       return;
     }
 
-    // Cross-block within same cell
+    // Cross-block within same cell — apply style per block via store
     if (anchorCellInfo && focusCellInfo &&
         anchorCellInfo.tableBlockId === focusCellInfo.tableBlockId &&
         anchorCellInfo.rowIndex === focusCellInfo.rowIndex &&
@@ -380,10 +355,9 @@ export class Doc {
         const start = i === fromIdx ? from.offset : 0;
         const end = i === toIdx ? to.offset : blockLen;
         if (start < end) {
-          this.applyStyleToBlock(block, start, end, style);
+          this.store.applyStyle(block.id, start, end, style);
         }
       }
-      this.store.updateTableCell(anchorCellInfo.tableBlockId, anchorCellInfo.rowIndex, anchorCellInfo.colIndex, cell);
       this.refresh();
       return;
     }
@@ -420,10 +394,9 @@ export class Doc {
             for (const cellBlock of cell.blocks) {
               const len = getBlockTextLength(cellBlock);
               if (len > 0) {
-                this.applyStyleToBlock(cellBlock, 0, len, style);
+                this.store.applyStyle(cellBlock.id, 0, len, style);
               }
             }
-            this.store.updateTableCell(block.id, r, c, cell);
           }
         }
         continue;
@@ -434,8 +407,7 @@ export class Doc {
       const end = i === toBlockIdx ? to.offset : blockLen;
 
       if (start >= end) continue;
-      this.applyStyleToBlock(block, start, end, style);
-      this.store.updateBlock(block.id, block);
+      this.store.applyStyle(block.id, start, end, style);
     }
 
     this.refresh();
@@ -955,205 +927,9 @@ export class Doc {
   }
 
   /**
-   * Split a block within a table cell using BlockCellInfo lookup.
-   * Returns the ID of the newly created block.
-   */
-  private splitBlockInCellInternal(
-    cellInfo: BlockCellInfo,
-    blockId: string,
-    offset: number,
-  ): string {
-    const tableBlock = this.getBlock(cellInfo.tableBlockId);
-    const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
-    const cellBlockIndex = cell.blocks.findIndex((b) => b.id === blockId);
-    const targetBlock = cell.blocks[cellBlockIndex];
-    if (!targetBlock) return blockId;
-
-    const blockText = getBlockText(targetBlock);
-
-    if (targetBlock.type === 'list-item' && blockText.length === 0) {
-      targetBlock.type = 'paragraph';
-      delete targetBlock.listKind;
-      delete targetBlock.listLevel;
-      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
-      this.refresh();
-      return blockId;
-    }
-
-    // Horizontal rules and page-breaks should not be split — create paragraph after
-    if (targetBlock.type === 'horizontal-rule' || targetBlock.type === 'page-break') {
-      const newBlock: Block = {
-        id: generateBlockId(),
-        type: 'paragraph',
-        inlines: [{ text: '', style: {} }],
-        style: { ...DEFAULT_BLOCK_STYLE },
-      };
-      cell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
-      this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
-      this.refresh();
-      return newBlock.id;
-    }
-
-    const beforeInlines = this.buildInlinesFromSplit(targetBlock, 0, offset);
-    const afterInlines = this.buildInlinesFromSplit(targetBlock, offset, blockText.length);
-    const cursorStyle = this.getStyleAtOffset(targetBlock, offset);
-
-    targetBlock.inlines = beforeInlines.length > 0
-      ? beforeInlines
-      : [{ text: '', style: cursorStyle }];
-
-    let newType: BlockType = 'paragraph';
-    const extra: Partial<Block> = {};
-    if (targetBlock.type === 'list-item') {
-      newType = 'list-item';
-      extra.listKind = targetBlock.listKind;
-      extra.listLevel = targetBlock.listLevel;
-    }
-
-    const newBlock: Block = {
-      id: generateBlockId(),
-      type: newType,
-      inlines: afterInlines.length > 0
-        ? afterInlines
-        : [{ text: '', style: cursorStyle }],
-      style: { ...targetBlock.style },
-      ...extra,
-    };
-
-    cell.blocks.splice(cellBlockIndex + 1, 0, newBlock);
-    this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
-    this.refresh();
-    return newBlock.id;
-  }
-
-  /**
-   * Resolve a character offset within a block to the specific
-   * inline index and character position within that inline.
-   */
-  private resolveOffset(
-    block: Block,
-    offset: number,
-  ): { inlineIndex: number; charOffset: number } {
-    let remaining = offset;
-    for (let i = 0; i < block.inlines.length; i++) {
-      const inline = block.inlines[i];
-      if (remaining <= inline.text.length) {
-        return { inlineIndex: i, charOffset: remaining };
-      }
-      remaining -= inline.text.length;
-    }
-    // Past the end — clamp to last inline
-    const last = block.inlines.length - 1;
-    return { inlineIndex: last, charOffset: block.inlines[last].text.length };
-  }
-
-  /**
-   * Get the inline style at a given offset in a block.
-   */
-  private getStyleAtOffset(block: Block, offset: number): InlineStyle {
-    const { inlineIndex } = this.resolveOffset(block, offset);
-    return { ...block.inlines[inlineIndex].style };
-  }
-
-  /**
-   * Build inlines for a substring of a block (used by splitBlock).
-   */
-  private buildInlinesFromSplit(
-    block: Block,
-    start: number,
-    end: number,
-  ): typeof block.inlines {
-    const result: typeof block.inlines = [];
-    let pos = 0;
-
-    for (const inline of block.inlines) {
-      const inlineEnd = pos + inline.text.length;
-      if (inlineEnd <= start || pos >= end) {
-        pos = inlineEnd;
-        continue;
-      }
-
-      const sliceStart = Math.max(0, start - pos);
-      const sliceEnd = Math.min(inline.text.length, end - pos);
-      const text = inline.text.slice(sliceStart, sliceEnd);
-      if (text.length > 0) {
-        result.push({ text, style: { ...inline.style } });
-      }
-      pos = inlineEnd;
-    }
-
-    return result;
-  }
-
-  /**
-   * Apply a partial style to a range within a single block.
-   * Splits inlines as needed.
-   */
-  private applyStyleToBlock(
-    block: Block,
-    start: number,
-    end: number,
-    style: Partial<InlineStyle>,
-  ): void {
-    const resolvedStyle = { ...style };
-    if (resolvedStyle.superscript) {
-      resolvedStyle.subscript = undefined;
-    } else if (resolvedStyle.subscript) {
-      resolvedStyle.superscript = undefined;
-    }
-
-    const newInlines: typeof block.inlines = [];
-    let pos = 0;
-
-    for (const inline of block.inlines) {
-      const inlineEnd = pos + inline.text.length;
-
-      if (inlineEnd <= start || pos >= end) {
-        // Completely outside range
-        newInlines.push({ text: inline.text, style: { ...inline.style } });
-      } else {
-        // Overlaps with range — split into up to 3 parts
-        const overlapStart = Math.max(0, start - pos);
-        const overlapEnd = Math.min(inline.text.length, end - pos);
-
-        // Before overlap
-        if (overlapStart > 0) {
-          newInlines.push({
-            text: inline.text.slice(0, overlapStart),
-            style: { ...inline.style },
-          });
-        }
-
-        // Overlap (apply style)
-        newInlines.push({
-          text: inline.text.slice(overlapStart, overlapEnd),
-          style: { ...inline.style, ...resolvedStyle },
-        });
-
-        // After overlap
-        if (overlapEnd < inline.text.length) {
-          newInlines.push({
-            text: inline.text.slice(overlapEnd),
-            style: { ...inline.style },
-          });
-        }
-      }
-
-      pos = inlineEnd;
-    }
-
-    block.inlines = newInlines;
-    this.normalizeInlines(block);
-  }
-
-  /**
    * Merge adjacent inlines with identical styles.
    * Removes empty inlines (keeping at least one).
    */
-  private normalizeInlines(block: Block): void {
-    block.inlines = this.normalizeInlinesArray(block.inlines);
-  }
-
   /**
    * Get a table cell from a block, throwing if the block has no table data.
    */
