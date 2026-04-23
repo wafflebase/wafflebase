@@ -587,6 +587,70 @@ describe('YorkieDocStore concurrent table cell edits', { skip: !shouldRun }, () 
     }
   });
 
+  it('concurrent applyCellSpan and text insert in same cell should both be preserved', async () => {
+    const table = createTableBlock(2, 2);
+    const cellBlock = table.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'SpanText', style: {} }];
+    const ctx = await createTwoUserDocs('cellspan-and-insert', [table]);
+    try {
+      // Client A: set colSpan on cell (merge scenario)
+      ctx.storeA.applyCellSpan(table.id, 0, 0, { colSpan: 2 });
+
+      // Client B: insert text in cell
+      ctx.storeB.insertText(cellBlock.id, 4, 'YY');
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      // Span should be preserved
+      const cellA = docA.blocks[0].tableData!.rows[0].cells[0];
+      const cellB = docB.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cellA.colSpan, 2, 'A: colSpan should be 2');
+      assert.equal(cellB.colSpan, 2, 'B: colSpan should be 2');
+
+      // Text should be preserved
+      const textA = cellA.blocks.flatMap((b) => b.inlines.map((i) => i.text)).join('');
+      const textB = cellB.blocks.flatMap((b) => b.inlines.map((i) => i.text)).join('');
+      assert.equal(textA, textB, 'Text should converge');
+      assert.ok(textA.includes('YY'), `Inserted text "YY" should be preserved, got "${textA}"`);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('concurrent applyCellSpan removal and applyCellStyle should both be preserved', async () => {
+    const table = createTableBlock(2, 2);
+    // Pre-set a span
+    table.tableData!.rows[0].cells[0].colSpan = 2;
+    const ctx = await createTwoUserDocs('cellspan-remove-and-style', [table]);
+    try {
+      // Client A: remove colSpan (split cell scenario)
+      ctx.storeA.applyCellSpan(table.id, 0, 0, { colSpan: 1 });
+
+      // Client B: apply cell background
+      ctx.storeB.applyCellStyle(table.id, 0, 0, { backgroundColor: '#00ff00' });
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      // colSpan should be removed on both
+      const cellA = docA.blocks[0].tableData!.rows[0].cells[0];
+      const cellB = docB.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cellA.colSpan, undefined, 'A: colSpan should be removed');
+      assert.equal(cellB.colSpan, undefined, 'B: colSpan should be removed');
+
+      // Style should be preserved
+      assert.equal(cellA.style.backgroundColor, '#00ff00', 'A: bg should be green');
+      assert.equal(cellB.style.backgroundColor, '#00ff00', 'B: bg should be green');
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
   it('concurrent split in cell and text insert in same cell should converge', async () => {
     const table = createTableBlock(1, 1);
     const cellBlock = table.tableData!.rows[0].cells[0].blocks[0];

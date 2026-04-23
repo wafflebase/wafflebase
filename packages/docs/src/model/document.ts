@@ -646,8 +646,8 @@ export class Doc {
         const cell = td.rows[r].cells[c];
         const rs = cell.rowSpan ?? 1;
         if (r + rs > rowIndex) {
-          cell.rowSpan = rs - 1;
-          this.store.updateTableCell(blockId, r, c, cell);
+          this.store.applyCellSpan(blockId, r, c, { rowSpan: rs - 1 });
+          cell.rowSpan = rs - 1 === 1 ? undefined : rs - 1;
         }
       }
     }
@@ -696,8 +696,8 @@ export class Doc {
         const cell = td.rows[ri].cells[c];
         const cs = cell.colSpan ?? 1;
         if (c + cs > colIndex) {
-          cell.colSpan = cs - 1;
-          this.store.updateTableCell(blockId, ri, c, cell);
+          this.store.applyCellSpan(blockId, ri, c, { colSpan: cs - 1 });
+          cell.colSpan = cs - 1 === 1 ? undefined : cs - 1;
         }
       }
     }
@@ -783,11 +783,12 @@ export class Doc {
     const rowSpan = target.rowSpan ?? 1;
     const colSpan = target.colSpan ?? 1;
 
-    // Clear merge on top-left
+    // Clear merge on top-left via intent-preserving span update
     delete target.colSpan;
     delete target.rowSpan;
+    this.store.applyCellSpan(blockId, cell.rowIndex, cell.colIndex, { colSpan: 1, rowSpan: 1 });
 
-    // Restore covered cells
+    // Restore covered cells (block reset + span clear)
     for (let r = cell.rowIndex; r < cell.rowIndex + rowSpan; r++) {
       for (let c = cell.colIndex; c < cell.colIndex + colSpan; c++) {
         if (r === cell.rowIndex && c === cell.colIndex) continue;
@@ -795,12 +796,7 @@ export class Doc {
         delete covered.colSpan;
         delete covered.rowSpan;
         covered.blocks = [{ id: generateBlockId(), type: 'paragraph', inlines: [{ text: '', style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }];
-      }
-    }
-
-    for (let r = cell.rowIndex; r < cell.rowIndex + rowSpan; r++) {
-      for (let c = cell.colIndex; c < cell.colIndex + colSpan; c++) {
-        this.store.updateTableCell(blockId, r, c, td.rows[r].cells[c]);
+        this.store.updateTableCell(blockId, r, c, covered);
       }
     }
     this.refresh();

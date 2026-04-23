@@ -123,7 +123,7 @@ divergence cannot be fully ruled out until these are resolved upstream.
 | 3 | Structural editing — split/merge (native CRDT, SDK 0.7.4) | ✅ Shipped |
 | 4 | Table cell internal edits (extend Phase 1–3) | ✅ Shipped |
 | 5 | Block/cell attribute edits (styleByPath) | ✅ Shipped |
-| 6 | Cell span attributes (styleByPath) | Planned |
+| 6 | Cell span attributes (styleByPath) | ✅ Shipped |
 | 7 | Table-level attributes (styleByPath on block) | Planned |
 | 8 | Cell structural edits (editByPath) | Planned |
 | 9 | Yorkie-native undo/redo (feature-flagged) | Planned |
@@ -186,11 +186,15 @@ All editing operations now route through intent-preserving store methods.
 Change `colSpan`/`rowSpan` attributes on cell nodes via `styleByPath`. Same
 pattern as Phase 5's `applyCellStyle`.
 
-| Call site | Trigger | Current method |
-|-----------|---------|----------------|
-| `deleteRow()` | rowSpan adjustment | `store.updateTableCell` |
-| `deleteColumn()` | colSpan adjustment | `store.updateTableCell` |
-| `splitCell()` | restore span on covered cells | `store.updateTableCell` |
+| Operation | Before | After |
+|-----------|--------|-------|
+| `deleteRow()` rowSpan adjust | `store.updateTableCell` (full cell replace) | `store.applyCellSpan` (styleByPath) |
+| `deleteColumn()` colSpan adjust | `store.updateTableCell` (full cell replace) | `store.applyCellSpan` (styleByPath) |
+| `splitCell()` top-left span clear | `store.updateTableCell` (full cell replace) | `store.applyCellSpan` (styleByPath) |
+
+`applyCellSpan` uses `styleByPath` to set span values and `removeStyleByPath`
+to clear them (value 1 = default = remove from tree). Covered cell block reset
+in `splitCell` still uses `updateTableCell` (Phase 8).
 
 ### Phase 7: Table-Level Attributes
 

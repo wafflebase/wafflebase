@@ -235,6 +235,20 @@ export class MemDocStore implements DocStore {
     cell.style = { ...cell.style, ...style };
   }
 
+  applyCellSpan(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    span: { colSpan?: number; rowSpan?: number },
+  ): void {
+    const block = this.findBlock(tableBlockId);
+    const cell = block.tableData!.rows[rowIndex].cells[colIndex];
+    if (span.colSpan !== undefined) {
+      cell.colSpan = span.colSpan === 1 ? undefined : span.colSpan;
+    }
+    if (span.rowSpan !== undefined) {
+      cell.rowSpan = span.rowSpan === 1 ? undefined : span.rowSpan;
+    }
+  }
+
   insertImageInline(blockId: string, offset: number, inline: Inline): void {
     const { blocks, index } = this.findBlockInAnyArray(blockId);
     blocks[index] = applyInsertInline(blocks[index], offset, inline);
