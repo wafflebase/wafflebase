@@ -2663,6 +2663,56 @@ export class TextEditor {
     }
 
     const { start, end } = normalized;
+
+    // Cell-internal cross-block deletion
+    const startCellInfo = this.getCellInfo(start.blockId);
+    const endCellInfo = this.getCellInfo(end.blockId);
+    if (startCellInfo && endCellInfo &&
+        startCellInfo.tableBlockId === endCellInfo.tableBlockId &&
+        startCellInfo.rowIndex === endCellInfo.rowIndex &&
+        startCellInfo.colIndex === endCellInfo.colIndex) {
+      const tableBlock = this.doc.getBlock(startCellInfo.tableBlockId);
+      const cell = tableBlock.tableData!.rows[startCellInfo.rowIndex].cells[startCellInfo.colIndex];
+      const startIdx = cell.blocks.findIndex((b) => b.id === start.blockId);
+      const endIdx = cell.blocks.findIndex((b) => b.id === end.blockId);
+
+      if (startIdx === endIdx) {
+        // Same block within cell
+        this.doc.deleteText(start, end.offset - start.offset);
+        this.markDirty(startCellInfo.tableBlockId);
+      } else {
+        this.invalidateLayout();
+
+        // Delete from start offset to end of first block
+        const firstBlock = cell.blocks[startIdx];
+        const firstLen = getBlockTextLength(firstBlock);
+        if (start.offset < firstLen) {
+          this.doc.deleteText(start, firstLen - start.offset);
+        }
+        // Delete from beginning of last block to end offset
+        if (end.offset > 0) {
+          this.doc.deleteText({ blockId: end.blockId, offset: 0 }, end.offset);
+        }
+        // Remove middle blocks (reverse order)
+        for (let i = endIdx - 1; i > startIdx; i--) {
+          this.doc.deleteBlock(cell.blocks[i].id);
+        }
+        // Merge first and last
+        // Re-read cell blocks after deletions
+        const updatedTable = this.doc.getBlock(startCellInfo.tableBlockId);
+        const updatedCell = updatedTable.tableData!.rows[startCellInfo.rowIndex].cells[startCellInfo.colIndex];
+        if (startIdx + 1 < updatedCell.blocks.length) {
+          this.doc.mergeBlocks(updatedCell.blocks[startIdx].id, updatedCell.blocks[startIdx + 1].id);
+        }
+        this.markDirty(startCellInfo.tableBlockId);
+      }
+
+      this.cursor.moveTo(start);
+      this.selection.setRange(null);
+      this.requestRender();
+      return true;
+    }
+
     const startBlockIdx = this.doc.getBlockIndex(start.blockId);
     const endBlockIdx = this.doc.getBlockIndex(end.blockId);
 
