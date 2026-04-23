@@ -122,6 +122,7 @@ divergence cannot be fully ruled out until these are resolved upstream.
 | 2 | Inline styling (native CRDT, SDK 0.7.6) | ✅ Shipped |
 | 3 | Structural editing — split/merge (native CRDT, SDK 0.7.4) | ✅ Shipped |
 | 4 | Table cell internal edits (extend Phase 1–3) | ✅ Shipped |
+| 4b | Block/cell attribute edits (styleByPath) | ✅ Shipped |
 | 5 | Yorkie-native undo/redo (feature-flagged) | Planned |
 
 ### Phase 4: Table Cell Internal Edits
@@ -162,6 +163,26 @@ Nested cell block:  [...outerPath, rowIdx, cellIdx, tableIdx, rowIdx, cellIdx, b
 - Step 1: Remove cell branch in `updateBlockInStore()` for text edits
 - Step 2: Remove cell branch in `applyInlineStyle()` routing
 - Step 3: Remove `splitBlockInCellInternal()` and cell branch in `mergeBlocks()`
+
+### Phase 4b: Block/Cell Attribute Edits
+
+Migrate remaining LWW operations to intent-preserving `styleByPath`/`editByPath`:
+
+| Operation | Before | After |
+|-----------|--------|-------|
+| `setBlockType` | `updateBlockInStore` (full block replace) | `styleByPath` on block node |
+| `applyBlockStyle` | `updateBlockInStore` (full block replace) | `styleByPath` on block node |
+| `applyCellStyle` | `updateTableCell` (full cell replace) | `styleByPath` on cell node |
+| `insertImageInline` | `updateBlockInStore` (full block replace) | `editByPath` at inline level |
+
+This eliminates `updateBlockInStore` and `findRootTableId` from the Doc class.
+All editing operations now route through intent-preserving store methods.
+
+**Remaining LWW operations** (deferred — low concurrency risk or complex):
+- `mergeCells` / `splitCell` — multi-cell structural changes
+- `deleteRow` / `deleteColumn` — span adjustment across cells
+- `insertTableInCell` / `deleteTableInCell` — nested table structure
+- `updateTableAttrs` — column width / row height changes
 
 ## Known Issues
 

@@ -7,7 +7,7 @@ Currently `setBlockType`, `applyBlockStyle`, `applyCellStyle`, and
 
 ## Steps
 
-- [ ] Step 1: Add `setBlockType` / `applyBlockStyle` to DocStore → `styleByPath`
-- [ ] Step 2: Add `applyCellStyle` to DocStore → `styleByPath`
-- [ ] Step 3: Add `insertImageInline` to DocStore → `editByPath`
-- [ ] Step 4: Update design doc, verify, archive
+- [x] Step 1: Add `setBlockType` / `applyBlockStyle` to DocStore → `styleByPath`
+- [x] Step 2: Add `applyCellStyle` to DocStore → `styleByPath`
+- [x] Step 3: Add `insertImageInline` to DocStore → `editByPath`
+- [x] Step 4: Update design doc, verify, archive
