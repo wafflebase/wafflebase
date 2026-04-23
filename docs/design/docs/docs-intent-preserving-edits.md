@@ -122,7 +122,11 @@ divergence cannot be fully ruled out until these are resolved upstream.
 | 2 | Inline styling (native CRDT, SDK 0.7.6) | ✅ Shipped |
 | 3 | Structural editing — split/merge (native CRDT, SDK 0.7.4) | ✅ Shipped |
 | 4 | Table cell internal edits (extend Phase 1–3) | ✅ Shipped |
-| 5 | Yorkie-native undo/redo (feature-flagged) | Planned |
+| 5 | Block/cell attribute edits (styleByPath) | ✅ Shipped |
+| 6 | Cell span attributes (styleByPath) | Planned |
+| 7 | Table-level attributes (styleByPath on block) | Planned |
+| 8 | Cell structural edits (editByPath) | Planned |
+| 9 | Yorkie-native undo/redo (feature-flagged) | Planned |
 
 ### Phase 4: Table Cell Internal Edits
 
@@ -162,6 +166,59 @@ Nested cell block:  [...outerPath, rowIdx, cellIdx, tableIdx, rowIdx, cellIdx, b
 - Step 1: Remove cell branch in `updateBlockInStore()` for text edits
 - Step 2: Remove cell branch in `applyInlineStyle()` routing
 - Step 3: Remove `splitBlockInCellInternal()` and cell branch in `mergeBlocks()`
+
+### Phase 5: Block/Cell Attribute Edits
+
+Migrate remaining LWW operations to intent-preserving `styleByPath`/`editByPath`:
+
+| Operation | Before | After |
+|-----------|--------|-------|
+| `setBlockType` | `updateBlockInStore` (full block replace) | `styleByPath` on block node |
+| `applyBlockStyle` | `updateBlockInStore` (full block replace) | `styleByPath` on block node |
+| `applyCellStyle` | `updateTableCell` (full cell replace) | `styleByPath` on cell node |
+| `insertImageInline` | `updateBlockInStore` (full block replace) | `editByPath` at inline level |
+
+This eliminates `updateBlockInStore` and `findRootTableId` from the Doc class.
+All editing operations now route through intent-preserving store methods.
+
+### Phase 6: Cell Span Attributes
+
+Change `colSpan`/`rowSpan` attributes on cell nodes via `styleByPath`. Same
+pattern as Phase 5's `applyCellStyle`.
+
+| Call site | Trigger | Current method |
+|-----------|---------|----------------|
+| `deleteRow()` | rowSpan adjustment | `store.updateTableCell` |
+| `deleteColumn()` | colSpan adjustment | `store.updateTableCell` |
+| `splitCell()` | restore span on covered cells | `store.updateTableCell` |
+
+### Phase 7: Table-Level Attributes
+
+Column widths and row heights are block-level attributes on the table node.
+Migrate `updateTableAttrs` to `styleByPath` on the block node.
+
+| Call site | Trigger | Current method |
+|-----------|---------|----------------|
+| `insertRow()` | rowHeights update | `store.updateTableAttrs` |
+| `deleteRow()` | rowHeights update | `store.updateTableAttrs` |
+| `insertColumn()` | columnWidths update | `store.updateTableAttrs` |
+| `deleteColumn()` | columnWidths update | `store.updateTableAttrs` |
+| `setColumnWidth()` | single column resize | `store.updateTableAttrs` |
+| `setColumnWidthPair()` | adjacent column resize | `store.updateTableAttrs` |
+| `setRowHeight()` | row height resize | `store.updateTableAttrs` |
+
+### Phase 8: Cell Structural Edits
+
+Insert or remove blocks inside a cell, or merge content across cells.
+Use `editByPath` at block level within cell containers.
+
+| Call site | Trigger | Current method |
+|-----------|---------|----------------|
+| `splitBlock()` (HR/page-break in cell) | non-splittable block in cell | `store.updateTableCell` |
+| `insertTableInCell()` | nested table insertion | `store.updateTableCell` |
+| `deleteTableInCell()` | nested table deletion | `store.updateTableCell` |
+| `mergeCells()` | multi-cell content consolidation | `store.updateTableCell` (loop) |
+| `updateBlockDirect()` | external inline modification | `store.updateBlock` |
 
 ## Known Issues
 

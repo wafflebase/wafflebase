@@ -497,6 +497,96 @@ describe('YorkieDocStore concurrent table cell edits', { skip: !shouldRun }, () 
     }
   });
 
+  it('concurrent setBlockType and text insert should both be preserved', async () => {
+    const block = makeBlock('HelloWorld');
+    const ctx = await createTwoUserDocs('setblocktype-and-insert', [block]);
+    try {
+      // Client A: change block to heading
+      ctx.storeA.setBlockType(block.id, 'heading', { headingLevel: 2 });
+
+      // Client B: insert text at offset 5
+      ctx.storeB.insertText(block.id, 5, 'XX');
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      // Both should converge to heading with inserted text
+      assert.equal(docA.blocks[0].type, 'heading', 'A: block type should be heading');
+      assert.equal(docB.blocks[0].type, 'heading', 'B: block type should be heading');
+      assert.equal(docA.blocks[0].headingLevel, 2, 'A: heading level');
+      assert.equal(docB.blocks[0].headingLevel, 2, 'B: heading level');
+
+      const textA = docA.blocks[0].inlines.map((i) => i.text).join('');
+      const textB = docB.blocks[0].inlines.map((i) => i.text).join('');
+      assert.equal(textA, textB, 'Text should converge');
+      assert.ok(textA.includes('XX'), `Inserted text "XX" should be preserved, got "${textA}"`);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('concurrent applyBlockStyle and text insert should both be preserved', async () => {
+    const block = makeBlock('HelloWorld');
+    const ctx = await createTwoUserDocs('blockstyle-and-insert', [block]);
+    try {
+      // Client A: change alignment to center
+      ctx.storeA.applyBlockStyle(block.id, { alignment: 'center' });
+
+      // Client B: insert text at offset 3
+      ctx.storeB.insertText(block.id, 3, 'YY');
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      assert.equal(docA.blocks[0].style.alignment, 'center', 'A: alignment should be center');
+      assert.equal(docB.blocks[0].style.alignment, 'center', 'B: alignment should be center');
+
+      const textA = docA.blocks[0].inlines.map((i) => i.text).join('');
+      const textB = docB.blocks[0].inlines.map((i) => i.text).join('');
+      assert.equal(textA, textB, 'Text should converge');
+      assert.ok(textA.includes('YY'), `Inserted text "YY" should be preserved, got "${textA}"`);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('concurrent applyCellStyle and text insert in same cell should both be preserved', async () => {
+    const table = createTableBlock(1, 1);
+    const cellBlock = table.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'CellText', style: {} }];
+    const ctx = await createTwoUserDocs('cellstyle-and-insert', [table]);
+    try {
+      // Client A: apply cell background
+      ctx.storeA.applyCellStyle(table.id, 0, 0, { backgroundColor: '#ff0000' });
+
+      // Client B: insert text in cell
+      ctx.storeB.insertText(cellBlock.id, 4, 'ZZ');
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      // Cell style should be preserved
+      const cellA = docA.blocks[0].tableData!.rows[0].cells[0];
+      const cellB = docB.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cellA.style.backgroundColor, '#ff0000', 'A: cell bg should be red');
+      assert.equal(cellB.style.backgroundColor, '#ff0000', 'B: cell bg should be red');
+
+      // Text should be preserved
+      const textA = cellA.blocks.flatMap((b) => b.inlines.map((i) => i.text)).join('');
+      const textB = cellB.blocks.flatMap((b) => b.inlines.map((i) => i.text)).join('');
+      assert.equal(textA, textB, 'Text should converge');
+      assert.ok(textA.includes('ZZ'), `Inserted text "ZZ" should be preserved, got "${textA}"`);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
   it('concurrent split in cell and text insert in same cell should converge', async () => {
     const table = createTableBlock(1, 1);
     const cellBlock = table.tableData!.rows[0].cells[0].blocks[0];

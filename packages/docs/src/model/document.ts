@@ -28,7 +28,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
-import { applyInsertInline } from '../store/block-helpers.js';
+
 
 /**
  * The current editing context for header/footer routing.
@@ -207,10 +207,7 @@ export class Doc {
    * The image inline uses \uFFFC as its text character.
    */
   insertImageInline(blockId: string, offset: number, imageInline: Inline): void {
-    this.store.snapshot();
-    const block = this.getBlock(blockId);
-    const updated = applyInsertInline(block, offset, imageInline);
-    this.updateBlockInStore(blockId, updated);
+    this.store.insertImageInline(blockId, offset, imageInline);
     this.refresh();
   }
 
@@ -417,9 +414,7 @@ export class Doc {
    * Apply block-level style to a paragraph.
    */
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
-    const block = this.getBlock(blockId);
-    block.style = { ...block.style, ...style };
-    this.updateBlockInStore(blockId, block);
+    this.store.applyBlockStyle(blockId, style);
     this.refresh();
   }
 
@@ -435,27 +430,7 @@ export class Doc {
       listLevel?: number;
     },
   ): void {
-    const block = this.getBlock(blockId);
-    block.type = type;
-    // Clear type-specific fields
-    delete block.headingLevel;
-    delete block.listKind;
-    delete block.listLevel;
-    // Set new type-specific fields
-    if (type === 'heading') {
-      block.headingLevel = opts?.headingLevel ?? 1;
-    }
-    if (type === 'list-item') {
-      block.listKind = opts?.listKind ?? 'unordered';
-      block.listLevel = opts?.listLevel ?? 0;
-    }
-    // Normalize inlines for block type invariant
-    if (type === 'horizontal-rule' || type === 'page-break') {
-      block.inlines = [];
-    } else if (block.inlines.length === 0) {
-      block.inlines = [{ text: '', style: {} }];
-    }
-    this.updateBlockInStore(blockId, block);
+    this.store.setBlockType(blockId, type, opts);
     this.refresh();
   }
 
@@ -839,10 +814,7 @@ export class Doc {
     cell: CellAddress,
     style: Partial<CellStyle>,
   ): void {
-    const block = this.getBlock(blockId);
-    const tableCell = this.getTableCell(block, cell);
-    tableCell.style = { ...tableCell.style, ...style };
-    this.store.updateTableCell(blockId, cell.rowIndex, cell.colIndex, tableCell);
+    this.store.applyCellStyle(blockId, cell.rowIndex, cell.colIndex, style);
     this.refresh();
   }
 
@@ -888,51 +860,6 @@ export class Doc {
   }
 
   // --- Private helpers ---
-
-  /**
-   * Update a block in the store. For cell blocks, updates the parent
-   * table block instead.
-   */
-  private updateBlockInStore(blockId: string, block: Block): void {
-    const cellInfo = this._blockParentMap.get(blockId);
-    if (cellInfo) {
-      // Find the direct parent table block (may itself be nested)
-      const tableBlock = this.findBlock(cellInfo.tableBlockId);
-
-      if (tableBlock) {
-        const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
-        // Replace the block within the cell with the updated one (handles pure-function callers)
-        const blockIndex = cell.blocks.findIndex((b) => b.id === blockId);
-        if (blockIndex !== -1) {
-          cell.blocks[blockIndex] = block;
-        }
-
-        // Walk up to find the root-level table for store persistence
-        const rootTableId = this.findRootTableId(cellInfo.tableBlockId);
-        const rootBlock = this.getBlock(rootTableId);
-        this.store.updateBlock(rootTableId, rootBlock);
-      }
-    } else {
-      this.store.updateBlock(blockId, block);
-    }
-  }
-
-  /**
-   * Walk up the BlockParentMap chain to find the root-level (top-level) table ID.
-   */
-  private findRootTableId(tableBlockId: string): string {
-    const parentInfo = this._blockParentMap.get(tableBlockId);
-    if (!parentInfo) return tableBlockId;
-    return this.findRootTableId(parentInfo.tableBlockId);
-  }
-
-  /**
-   * Get a table cell from a block, throwing if the block has no table data.
-   */
-  private getTableCell(block: Block, cell: CellAddress): TableCell {
-    if (!block.tableData) throw new Error('Block is not a table');
-    return block.tableData.rows[cell.rowIndex].cells[cell.colIndex];
-  }
 
   /**
    * Merge adjacent same-style inlines, remove empties (keep at least one).

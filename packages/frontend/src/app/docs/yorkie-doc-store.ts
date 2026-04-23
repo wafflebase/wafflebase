@@ -7,6 +7,7 @@ import type {
   Document,
   Block,
   BlockType,
+  HeadingLevel,
   Inline,
   BlockStyle,
   InlineStyle,
@@ -26,6 +27,7 @@ import {
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
+  applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
 } from '@wafflebase/docs';
@@ -917,6 +919,160 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
+  setBlockType(
+    blockId: string,
+    type: BlockType,
+    opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number },
+  ): void {
+    const currentDoc = this.getDocument();
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
+
+    // Build only type-specific attributes (not style — it's unchanged)
+    const attrs: Record<string, string> = { type };
+    if (type === 'heading') {
+      attrs.headingLevel = String(opts?.headingLevel ?? 1);
+    }
+    if (type === 'list-item') {
+      attrs.listKind = opts?.listKind ?? 'unordered';
+      attrs.listLevel = String(opts?.listLevel ?? 0);
+    }
+
+    // Determine stale attributes to remove (styleByPath merges, not replaces)
+    const toRemove: string[] = [];
+    if (type !== 'heading') toRemove.push('headingLevel');
+    if (type !== 'list-item') toRemove.push('listKind', 'listLevel');
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.styleByPath(blockPath, attrs);
+
+      // Remove stale type-specific attributes from previous block type
+      if (toRemove.length > 0) {
+        const endPath = [...blockPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(blockPath, endPath, toRemove);
+      }
+
+      // For HR/page-break, clear all inlines
+      if (type === 'horizontal-rule' || type === 'page-break') {
+        const treeRoot = tree.getRootTreeNode();
+        const blockNode = this.getTreeBlockNode(treeRoot, blockPath) as ElementNode;
+        const childCount = (blockNode.children ?? []).length;
+        if (childCount > 0) {
+          tree.editByPath([...blockPath, 0], [...blockPath, childCount]);
+        }
+      } else if (block.inlines.length === 0) {
+        // Ensure at least one empty inline
+        tree.editByPath(
+          [...blockPath, 0],
+          [...blockPath, 0],
+          buildInlineNode({ text: '', style: {} }),
+        );
+      }
+    });
+
+    // Update cache
+    block.type = type;
+    delete block.headingLevel;
+    delete block.listKind;
+    delete block.listLevel;
+    if (type === 'heading') block.headingLevel = opts?.headingLevel ?? 1;
+    if (type === 'list-item') {
+      block.listKind = opts?.listKind ?? 'unordered';
+      block.listLevel = opts?.listLevel ?? 0;
+    }
+    if (type === 'horizontal-rule' || type === 'page-break') {
+      block.inlines = [];
+    } else if (block.inlines.length === 0) {
+      block.inlines = [{ text: '', style: {} }];
+    }
+    this.setBlockByRegion(currentDoc, blockPath, region, block);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
+    const currentDoc = this.getDocument();
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
+
+    const merged = normalizeBlockStyle({ ...block.style, ...style });
+    const attrs = serializeBlockStyle(merged);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.styleByPath(blockPath, attrs);
+    });
+
+    // Update cache
+    block.style = merged;
+    this.setBlockByRegion(currentDoc, blockPath, region, block);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  insertImageInline(blockId: string, offset: number, inline: Inline): void {
+    const currentDoc = this.getDocument();
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      const treeRoot = tree.getRootTreeNode();
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
+
+      const newNode = buildInlineNode(inline);
+
+      // Determine inline text length to detect end boundary
+      const inlineEl = ((blockNode as ElementNode).children ?? [])
+        .filter((c): c is ElementNode => c.type === 'inline')[inlineIndex];
+      const inlineTextLen = (inlineEl?.children ?? [])
+        .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+        .reduce((sum, t) => sum + t.value.length, 0);
+
+      if (charOffset === 0) {
+        // Insert before current inline
+        tree.editByPath(
+          [...blockPath, inlineIndex],
+          [...blockPath, inlineIndex],
+          newNode,
+        );
+      } else if (charOffset === inlineTextLen) {
+        // At inline end boundary: insert after without splitting
+        tree.editByPath(
+          [...blockPath, inlineIndex + 1],
+          [...blockPath, inlineIndex + 1],
+          newNode,
+        );
+      } else {
+        // Split at charOffset, then insert after the first half
+        tree.editByPath(
+          [...blockPath, inlineIndex, charOffset],
+          [...blockPath, inlineIndex, charOffset],
+          undefined,
+          1,
+        );
+        tree.editByPath(
+          [...blockPath, inlineIndex + 1],
+          [...blockPath, inlineIndex + 1],
+          newNode,
+        );
+      }
+    });
+
+    // Update cache
+    const updated = applyInsertInline(block, offset, inline);
+    this.setBlockByRegion(currentDoc, blockPath, region, updated);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
   insertText(blockId: string, offset: number, text: string): void {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
@@ -1492,6 +1648,32 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const block = this.resolveTableBlock(tablePath, currentDoc);
     block.tableData!.rows[rowIndex].cells[colIndex] = cell;
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  applyCellStyle(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    style: Partial<CellStyle>,
+  ): void {
+    const tablePath = this.resolveTableTreePath(tableBlockId);
+    const currentDoc = this.getDocument();
+    const block = this.resolveTableBlock(tablePath, currentDoc);
+    const cell = block.tableData!.rows[rowIndex].cells[colIndex];
+    const merged = { ...cell.style, ...style };
+
+    // Build serialized attributes for the cell node
+    const attrs = serializeCellStyle({ ...cell, style: merged });
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.styleByPath([...tablePath, rowIndex, colIndex], attrs);
+    });
+
+    // Update cache after Yorkie update succeeds
+    cell.style = merged;
+
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }

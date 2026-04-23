@@ -1,4 +1,4 @@
-import type { Block, Document, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, Inline, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -72,4 +72,22 @@ export interface DocStore {
   ): void;
   /** Merge nextBlock into blockId, removing nextBlock. */
   mergeBlock(blockId: string, nextBlockId: string): void;
+
+  // --- Block attribute edits (intent-preserving) ---
+  /** Change block type and type-specific attributes via styleByPath. */
+  setBlockType(
+    blockId: string,
+    type: BlockType,
+    opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number },
+  ): void;
+  /** Apply partial block-level style (alignment, margins, etc.) via styleByPath. */
+  applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void;
+  /** Apply partial cell style (background, borders, alignment) via styleByPath.
+   *  Additive only — setting a property to undefined will not remove it from the tree. */
+  applyCellStyle(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    style: Partial<CellStyle>,
+  ): void;
+  /** Insert an image inline at a block-level character offset. */
+  insertImageInline(blockId: string, offset: number, inline: Inline): void;
 }

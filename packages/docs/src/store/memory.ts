@@ -1,7 +1,7 @@
-import type { Block, Document, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, Inline, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
-import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper, applySplitBlock, applyMergeBlocks } from './block-helpers.js';
+import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper, applyInsertInline, applySplitBlock, applyMergeBlocks } from './block-helpers.js';
 
 /**
  * Deep clone a document for snapshot-based undo/redo.
@@ -195,6 +195,49 @@ export class MemDocStore implements DocStore {
     if (arr1 !== arr2) throw new Error('Cannot merge blocks from different regions');
     arr1[idx1] = applyMergeBlocks(arr1[idx1], arr2[idx2]);
     arr2.splice(idx2, 1);
+  }
+
+  setBlockType(
+    blockId: string,
+    type: BlockType,
+    opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number },
+  ): void {
+    const block = this.findBlock(blockId);
+    block.type = type;
+    delete block.headingLevel;
+    delete block.listKind;
+    delete block.listLevel;
+    if (type === 'heading') {
+      block.headingLevel = opts?.headingLevel ?? 1;
+    }
+    if (type === 'list-item') {
+      block.listKind = opts?.listKind ?? 'unordered';
+      block.listLevel = opts?.listLevel ?? 0;
+    }
+    if (type === 'horizontal-rule' || type === 'page-break') {
+      block.inlines = [];
+    } else if (block.inlines.length === 0) {
+      block.inlines = [{ text: '', style: {} }];
+    }
+  }
+
+  applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
+    const block = this.findBlock(blockId);
+    block.style = normalizeBlockStyle({ ...block.style, ...style });
+  }
+
+  applyCellStyle(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    style: Partial<CellStyle>,
+  ): void {
+    const block = this.findBlock(tableBlockId);
+    const cell = block.tableData!.rows[rowIndex].cells[colIndex];
+    cell.style = { ...cell.style, ...style };
+  }
+
+  insertImageInline(blockId: string, offset: number, inline: Inline): void {
+    const { blocks, index } = this.findBlockInAnyArray(blockId);
+    blocks[index] = applyInsertInline(blocks[index], offset, inline);
   }
 
   private findBlock(id: string): Block {
