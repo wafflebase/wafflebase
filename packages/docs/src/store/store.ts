@@ -1,4 +1,4 @@
-import type { Block, Document, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, BlockStyle, Document, HeadingLevel, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -72,4 +72,14 @@ export interface DocStore {
   ): void;
   /** Merge nextBlock into blockId, removing nextBlock. */
   mergeBlock(blockId: string, nextBlockId: string): void;
+
+  // --- Block attribute edits (intent-preserving) ---
+  /** Change block type and type-specific attributes via styleByPath. */
+  setBlockType(
+    blockId: string,
+    type: BlockType,
+    opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number },
+  ): void;
+  /** Apply partial block-level style (alignment, margins, etc.) via styleByPath. */
+  applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void;
 }

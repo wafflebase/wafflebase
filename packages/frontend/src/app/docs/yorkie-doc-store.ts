@@ -7,6 +7,7 @@ import type {
   Document,
   Block,
   BlockType,
+  HeadingLevel,
   Inline,
   BlockStyle,
   InlineStyle,
@@ -912,6 +913,92 @@ export class YorkieDocStore implements DocStore {
       tree.editByPath(blockPath, endPath, buildBlockNode(block));
     });
     // Update cache in-place
+    this.setBlockByRegion(currentDoc, blockPath, region, block);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  setBlockType(
+    blockId: string,
+    type: BlockType,
+    opts?: { headingLevel?: HeadingLevel; listKind?: 'ordered' | 'unordered'; listLevel?: number },
+  ): void {
+    const currentDoc = this.getDocument();
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
+
+    // Build the updated attributes
+    const attrs: Record<string, string> = {
+      type,
+      ...serializeBlockStyle(block.style),
+    };
+    if (type === 'heading') {
+      attrs.headingLevel = String(opts?.headingLevel ?? 1);
+    }
+    if (type === 'list-item') {
+      attrs.listKind = opts?.listKind ?? 'unordered';
+      attrs.listLevel = String(opts?.listLevel ?? 0);
+    }
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.styleByPath(blockPath, attrs);
+
+      // For HR/page-break, clear all inlines
+      if (type === 'horizontal-rule' || type === 'page-break') {
+        const treeRoot = tree.getRootTreeNode();
+        const blockNode = this.getTreeBlockNode(treeRoot, blockPath) as ElementNode;
+        const childCount = (blockNode.children ?? []).length;
+        if (childCount > 0) {
+          tree.editByPath([...blockPath, 0], [...blockPath, childCount]);
+        }
+      } else if (block.inlines.length === 0) {
+        // Ensure at least one empty inline
+        tree.editByPath(
+          [...blockPath, 0],
+          [...blockPath, 0],
+          buildInlineNode({ text: '', style: {} }),
+        );
+      }
+    });
+
+    // Update cache
+    block.type = type;
+    delete block.headingLevel;
+    delete block.listKind;
+    delete block.listLevel;
+    if (type === 'heading') block.headingLevel = opts?.headingLevel ?? 1;
+    if (type === 'list-item') {
+      block.listKind = opts?.listKind ?? 'unordered';
+      block.listLevel = opts?.listLevel ?? 0;
+    }
+    if (type === 'horizontal-rule' || type === 'page-break') {
+      block.inlines = [];
+    } else if (block.inlines.length === 0) {
+      block.inlines = [{ text: '', style: {} }];
+    }
+    this.setBlockByRegion(currentDoc, blockPath, region, block);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
+    const currentDoc = this.getDocument();
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
+
+    const merged = normalizeBlockStyle({ ...block.style, ...style });
+    const attrs = serializeBlockStyle(merged);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.styleByPath(blockPath, attrs);
+    });
+
+    // Update cache
+    block.style = merged;
     this.setBlockByRegion(currentDoc, blockPath, region, block);
     this.cachedDoc = currentDoc;
     this.dirty = false;

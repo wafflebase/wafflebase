@@ -417,9 +417,7 @@ export class Doc {
    * Apply block-level style to a paragraph.
    */
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
-    const block = this.getBlock(blockId);
-    block.style = { ...block.style, ...style };
-    this.updateBlockInStore(blockId, block);
+    this.store.applyBlockStyle(blockId, style);
     this.refresh();
   }
 
@@ -435,27 +433,7 @@ export class Doc {
       listLevel?: number;
     },
   ): void {
-    const block = this.getBlock(blockId);
-    block.type = type;
-    // Clear type-specific fields
-    delete block.headingLevel;
-    delete block.listKind;
-    delete block.listLevel;
-    // Set new type-specific fields
-    if (type === 'heading') {
-      block.headingLevel = opts?.headingLevel ?? 1;
-    }
-    if (type === 'list-item') {
-      block.listKind = opts?.listKind ?? 'unordered';
-      block.listLevel = opts?.listLevel ?? 0;
-    }
-    // Normalize inlines for block type invariant
-    if (type === 'horizontal-rule' || type === 'page-break') {
-      block.inlines = [];
-    } else if (block.inlines.length === 0) {
-      block.inlines = [{ text: '', style: {} }];
-    }
-    this.updateBlockInStore(blockId, block);
+    this.store.setBlockType(blockId, type, opts);
     this.refresh();
   }
 
