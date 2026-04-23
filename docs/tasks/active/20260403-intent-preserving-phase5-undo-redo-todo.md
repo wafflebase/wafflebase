@@ -1,11 +1,11 @@
-# Intent-Preserving Edits — Phase 5: Yorkie-Native Undo/Redo
+# Intent-Preserving Edits — Phase 9: Yorkie-Native Undo/Redo
 
 **Goal:** Migrate from snapshot-based undo/redo to Yorkie Tree history, where
 each `doc.update()` is an undo unit.
 
 **Design doc:** `docs/design/docs/docs-intent-preserving-edits.md`
 
-**Depends on:** Phase 1-3 (completed), Phase 4 (recommended), SDK 0.7.3 (completed)
+**Depends on:** Phase 1-5 (completed), Phase 6-8 (recommended), SDK 0.7.3 (completed)
 
 ---
 
@@ -48,7 +48,7 @@ must be feature-flagged with snapshot-based fallback retained.
 
 ### Task 4: Deprecate updateBlock for text mutations
 
-- [ ] Audit remaining `updateBlock()` calls in Doc
-- [ ] Replace any text/style/structure calls with fine-grained methods
-- [ ] Add deprecation comment — keep only for block-level attribute changes
+- [x] Audit remaining `updateBlock()` calls in Doc — done in Phase 5
+- [x] Replace text/style/structure/attribute calls with fine-grained methods — done in Phase 4-5
+- [ ] Audit remaining `updateBlock()` / `updateTableCell` calls (Phase 6-8 scope)
 - [ ] MemDocStore undo/redo stays snapshot-based (no Yorkie dependency)
