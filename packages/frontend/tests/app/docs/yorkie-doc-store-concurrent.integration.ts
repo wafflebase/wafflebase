@@ -747,4 +747,43 @@ describe('YorkieDocStore concurrent table cell edits', { skip: !shouldRun }, () 
       await ctx.cleanup();
     }
   });
+
+  it('concurrent updateTableAttrs from two clients should merge attributes', async () => {
+    const table = createTableBlock(2, 2);
+    const ctx = await createTwoUserDocs('table-attrs-attrs', [table]);
+    try {
+      // Client A: resize columns
+      ctx.storeA.updateTableAttrs(table.id, { cols: [0.6, 0.4] });
+
+      // Client B: set row heights (cols unchanged)
+      ctx.storeB.updateTableAttrs(table.id, {
+        cols: [0.5, 0.5],
+        rowHeights: [30, 50],
+      });
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      // Both clients should converge (LWW on each attribute key)
+      assert.deepEqual(
+        docA.blocks[0].tableData!.columnWidths,
+        docB.blocks[0].tableData!.columnWidths,
+        'Column widths should converge',
+      );
+      assert.deepEqual(
+        docA.blocks[0].tableData!.rowHeights,
+        docB.blocks[0].tableData!.rowHeights,
+        'Row heights should converge',
+      );
+      // rowHeights should be present (set by Client B)
+      assert.ok(
+        docA.blocks[0].tableData!.rowHeights,
+        'rowHeights should exist after merge',
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
 });

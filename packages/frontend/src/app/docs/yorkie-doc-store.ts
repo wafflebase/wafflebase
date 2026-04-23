@@ -212,6 +212,17 @@ function buildInlineNode(inline: Inline): ElementNode {
   };
 }
 
+function serializeTableAttrs(
+  cols: number[],
+  rowHeights?: (number | undefined)[],
+): Record<string, string> {
+  const attrs: Record<string, string> = { cols: cols.join(',') };
+  if (rowHeights && rowHeights.length > 0) {
+    attrs.rowHeights = rowHeights.map(h => h ?? '').join(',');
+  }
+  return attrs;
+}
+
 function buildBlockNode(block: Block): ElementNode {
   // Table block: children are row → cell → block nodes
   if (block.type === 'table' && block.tableData) {
@@ -220,10 +231,7 @@ function buildBlockNode(block: Block): ElementNode {
       attributes: {
         id: block.id,
         type: 'table',
-        cols: block.tableData.columnWidths.join(','),
-        ...(block.tableData.rowHeights && block.tableData.rowHeights.length > 0
-          ? { rowHeights: block.tableData.rowHeights.map(h => h ?? '').join(',') }
-          : {}),
+        ...serializeTableAttrs(block.tableData.columnWidths, block.tableData.rowHeights),
         ...serializeBlockStyle(block.style),
       },
       children: block.tableData.rows.map(buildRowNode),
@@ -1740,12 +1748,11 @@ export class YorkieDocStore implements DocStore {
       block.tableData!.rowHeights = attrs.rowHeights;
     }
 
-    const nodeAttrs: Record<string, string> = {
-      cols: attrs.cols.join(','),
-    };
-    if (attrs.rowHeights !== undefined) {
-      nodeAttrs.rowHeights = attrs.rowHeights.map(h => h ?? '').join(',');
-    }
+    // styleByPath merges attributes — it never removes existing keys.
+    // No call site currently transitions rowHeights from set → unset,
+    // so removeStyleByPath is not needed here. If that changes, add:
+    //   tree.removeStyleByPath(tablePath, endPath, ['rowHeights']);
+    const nodeAttrs = serializeTableAttrs(attrs.cols, attrs.rowHeights);
 
     this.doc.update((root) => {
       const tree = root.content;
