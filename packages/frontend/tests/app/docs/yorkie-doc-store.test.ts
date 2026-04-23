@@ -515,6 +515,34 @@ describe('YorkieDocStore', () => {
       assert.equal(result.inlines[1].text, 'World');
       assert.equal(result.inlines[1].style.bold, true);
     });
+
+    it('should toggle bold off when re-applied to same range', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 3, { bold: true });
+      // Now un-bold "Hel"
+      store.applyStyle(block.id, 0, 3, { bold: false });
+      const result = store.getBlock(block.id)!;
+      // Text is preserved across inlines
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.equal(fullText, 'Hello');
+      // The first inline covering "Hel" should have bold:false (not true)
+      assert.equal(result.inlines[0].style.bold, false);
+    });
+
+    it('should preserve bold for text inserted inside bold region', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 5, { bold: true });
+      store.insertText(block.id, 3, 'XX');
+      const result = store.getBlock(block.id)!;
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.equal(fullText, 'HelXXlo');
+      // All text should be bold since insertion inherits the inline style
+      for (const inline of result.inlines) {
+        assert.equal(inline.style.bold, true, `"${inline.text}" should be bold`);
+      }
+    });
   });
 
   describe('split then merge round-trip', () => {
