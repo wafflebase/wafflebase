@@ -1108,7 +1108,8 @@ export class YorkieDocStore implements DocStore {
       // If the block has no inline children (e.g. empty block left after
       // a split or concurrent edit), insert a new inline node with the text.
       if (!hasInlineChildren) {
-        const style = targetInline?.style ?? {};
+        const { image: _, ...style } = targetInline?.style ?? {};
+        void _;
         tree.editByPath(
           [...blockPath, 0],
           [...blockPath, 0],
@@ -1450,6 +1451,15 @@ export class YorkieDocStore implements DocStore {
           type: newBlockType,
           ...serializeBlockStyle(block.style),
         };
+        if (newBlockType === 'list-item' && block.listKind !== undefined) {
+          afterAttrs.listKind = block.listKind;
+          if (block.listLevel !== undefined) {
+            afterAttrs.listLevel = String(block.listLevel);
+          }
+        }
+        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
+          afterAttrs.headingLevel = String(block.headingLevel);
+        }
         tree.editByPath(afterPath, afterPath, buildBlockNode({
           id: newBlockId,
           type: newBlockType,
