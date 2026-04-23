@@ -694,4 +694,63 @@ describe('YorkieDocStore', () => {
       assert.equal(result.blocks[1].listLevel, 1);
     });
   });
+
+  describe('table cell internal edits', () => {
+    function makeTableWithText(): { tableBlock: Block; cellBlockId: string } {
+      const tableBlock = createTableBlock(2, 2);
+      // Put text in cell [0][0]
+      const cellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+      cellBlock.inlines = [{ text: 'Hello', style: {} }];
+      return { tableBlock, cellBlockId: cellBlock.id };
+    }
+
+    it('should insertText into a table cell block', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.insertText(cellBlockId, 5, ' World');
+      const result = store.getBlock(cellBlockId)!;
+      assert.equal(result.inlines[0].text, 'Hello World');
+    });
+
+    it('should deleteText from a table cell block', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.deleteText(cellBlockId, 0, 3);
+      const result = store.getBlock(cellBlockId)!;
+      assert.equal(result.inlines[0].text, 'lo');
+    });
+
+    it('should insertText at middle of cell text', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      store.setDocument({ blocks: [tableBlock] });
+      store.insertText(cellBlockId, 2, 'XX');
+      const result = store.getBlock(cellBlockId)!;
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.equal(fullText, 'HeXXllo');
+    });
+
+    it('should work with table preceded by other blocks', () => {
+      const { tableBlock, cellBlockId } = makeTableWithText();
+      const before = makeBlock('Before');
+      store.setDocument({ blocks: [before, tableBlock] });
+      store.insertText(cellBlockId, 5, '!');
+      const result = store.getBlock(cellBlockId)!;
+      assert.equal(result.inlines[0].text, 'Hello!');
+    });
+
+    it('should edit different cells independently', () => {
+      const tableBlock = createTableBlock(2, 2);
+      const cell00 = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+      const cell11 = tableBlock.tableData!.rows[1].cells[1].blocks[0];
+      cell00.inlines = [{ text: 'A', style: {} }];
+      cell11.inlines = [{ text: 'B', style: {} }];
+      store.setDocument({ blocks: [tableBlock] });
+
+      store.insertText(cell00.id, 1, '1');
+      store.insertText(cell11.id, 1, '2');
+
+      assert.equal(store.getBlock(cell00.id)!.inlines[0].text, 'A1');
+      assert.equal(store.getBlock(cell11.id)!.inlines[0].text, 'B2');
+    });
+  });
 });
