@@ -32,6 +32,29 @@ import {
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
 
+// Enable with: localStorage.setItem('DOCS_DEBUG', '1')
+const isDebug = () =>
+  typeof localStorage !== 'undefined' && localStorage.getItem('DOCS_DEBUG') === '1';
+
+/** Summarize a block's inline text for debug logging. */
+function describeBlock(block: Block): string {
+  const text = block.inlines.map((i) => i.text).join('');
+  return `[${block.id.slice(0, 6)}:${block.type}] "${text.length > 40 ? text.slice(0, 40) + '…' : text}"`;
+}
+
+/** Summarize the Yorkie Tree node for a block path. */
+function describeTreeBlock(node: TreeNode): string {
+  const el = node as ElementNode;
+  const id = (el.attributes as Record<string, string>)?.id ?? '?';
+  const inlines = (el.children ?? []).filter((c) => c.type === 'inline') as ElementNode[];
+  const text = inlines.flatMap((i) =>
+    (i.children ?? [])
+      .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+      .map((t) => t.value),
+  ).join('');
+  return `[${id.slice(0, 6)}:${(el.attributes as Record<string, string>)?.type ?? '?'}] "${text.length > 40 ? text.slice(0, 40) + '…' : text}"`;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers: attribute serialization
 //
@@ -723,6 +746,20 @@ export class YorkieDocStore implements DocStore {
     return { inlineIndex: Math.max(0, lastIdx), charOffset: lastLen };
   }
 
+  /** Log the Yorkie Tree state at a given block path for debugging. */
+  private logTreeState(op: string, blockPath: number[]): void {
+    try {
+      const root = this.doc.getRoot();
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      const treeRoot = tree.getRootTreeNode();
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      console.log(`[DOC]   tree AFTER:  ${describeTreeBlock(blockNode)} (${op})`);
+    } catch {
+      console.log(`[DOC]   tree AFTER:  <error reading path [${blockPath}]> (${op})`);
+    }
+  }
+
   /**
    * Get the top-level blocks array and index for a region.
    */
@@ -884,6 +921,10 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    if (isDebug()) {
+      console.log(`[DOC] insertText blockId=${blockId.slice(0, 6)} offset=${offset} text="${text}" path=[${blockPath}] region=${region}`);
+      console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);
+    }
 
     // Use cache-based resolveOffset for image detection only
     const cacheResolved = resolveOffset(block, offset);
@@ -929,12 +970,20 @@ export class YorkieDocStore implements DocStore {
     this.setBlockByRegion(currentDoc, blockPath, region, updated);
     this.cachedDoc = currentDoc;
     this.dirty = false;
+    if (isDebug()) {
+      console.log(`[DOC]   cache AFTER:  ${describeBlock(updated)}`);
+      this.logTreeState('insertText', blockPath);
+    }
   }
 
   deleteText(blockId: string, offset: number, length: number): void {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    if (isDebug()) {
+      console.log(`[DOC] deleteText blockId=${blockId.slice(0, 6)} offset=${offset} length=${length} path=[${blockPath}] region=${region}`);
+      console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);
+    }
 
     this.doc.update((root) => {
       const tree = root.content;
@@ -971,6 +1020,10 @@ export class YorkieDocStore implements DocStore {
     this.setBlockByRegion(currentDoc, blockPath, region, updated);
     this.cachedDoc = currentDoc;
     this.dirty = false;
+    if (isDebug()) {
+      console.log(`[DOC]   cache AFTER:  ${describeBlock(updated)}`);
+      this.logTreeState('deleteText', blockPath);
+    }
   }
 
   applyStyle(
@@ -1156,6 +1209,10 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    if (isDebug()) {
+      console.log(`[DOC] splitBlock blockId=${blockId.slice(0, 6)} offset=${offset} newId=${newBlockId.slice(0, 6)} newType=${newBlockType} path=[${blockPath}] region=${region}`);
+      console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);
+    }
 
     if (block.type === 'table' || block.type === 'horizontal-rule' || block.type === 'page-break') {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
@@ -1209,6 +1266,10 @@ export class YorkieDocStore implements DocStore {
     blocksArray.splice(localIdx + 1, 0, after);
     this.cachedDoc = currentDoc;
     this.dirty = false;
+    if (isDebug()) {
+      console.log(`[DOC]   cache AFTER:  before=${describeBlock(before)} after=${describeBlock(after)}`);
+      this.logTreeState('splitBlock', blockPath);
+    }
   }
 
   mergeBlock(blockId: string, nextBlockId: string): void {
@@ -1221,6 +1282,11 @@ export class YorkieDocStore implements DocStore {
 
     const firstBlock = this.getBlockByRegion(currentDoc, blockPath, region);
     const nextBlock = this.getBlockByRegion(currentDoc, nextPath, nextRegion);
+    if (isDebug()) {
+      console.log(`[DOC] mergeBlock first=${blockId.slice(0, 6)} next=${nextBlockId.slice(0, 6)} path=[${blockPath}] nextPath=[${nextPath}] region=${region}`);
+      console.log(`[DOC]   cache BEFORE first: ${describeBlock(firstBlock)}`);
+      console.log(`[DOC]   cache BEFORE next:  ${describeBlock(nextBlock)}`);
+    }
 
     // Verify blocks are adjacent (last path segment differs by 1)
     const blockLastIdx = blockPath[blockPath.length - 1];
@@ -1249,6 +1315,10 @@ export class YorkieDocStore implements DocStore {
     blocksArray.splice(nextLocalIdx, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
+    if (isDebug()) {
+      console.log(`[DOC]   cache AFTER:  ${describeBlock(merged)}`);
+      this.logTreeState('mergeBlock', blockPath);
+    }
   }
 
   // -----------------------------------------------------------------------
