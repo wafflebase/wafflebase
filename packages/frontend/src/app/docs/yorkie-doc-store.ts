@@ -813,15 +813,111 @@ export class YorkieDocStore implements DocStore {
 
     const updated = applyInlineStyleHelper(block, fromOffset, toOffset, style);
 
-    // styleByPath targets element attributes, not text ranges.
-    // Use block replacement via editByPath until Yorkie supports
-    // text-range style operations.
-    const endPath = [...blockPath];
-    endPath[endPath.length - 1] += 1;
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.editByPath(blockPath, endPath, buildBlockNode(updated));
+
+      // Helper to get the text length of an inline node
+      const inlineTextLen = (node: ElementNode): number =>
+        (node.children ?? [])
+          .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+          .reduce((sum, t) => sum + t.value.length, 0);
+
+      // Helper to read current block node from tree
+      const readBlockNode = (): ElementNode =>
+        this.getTreeBlockNode(tree.getRootTreeNode(), blockPath) as ElementNode;
+
+      // Step 1: Resolve offsets to (inlineIndex, charOffset) positions
+      let blockNode = readBlockNode();
+      const toPos = this.resolveBlockNodeOffset(blockNode, toOffset);
+      const fromPos = this.resolveBlockNodeOffset(blockNode, fromOffset);
+
+      // Step 2: Split at toOffset first, then fromOffset.
+      // Order matters: splitting at toOffset doesn't shift fromPos because
+      // the split only affects inlines at or after toPos.inlineIndex.
+      // When both offsets are in the same inline, the toOffset split shortens
+      // it but fromPos.charOffset remains valid (it's before the split point).
+      const toInline = ((blockNode as ElementNode).children ?? []).filter(
+        (c): c is ElementNode => c.type === 'inline',
+      )[toPos.inlineIndex];
+      if (toInline && toPos.charOffset > 0 && toPos.charOffset < inlineTextLen(toInline)) {
+        tree.editByPath(
+          [...blockPath, toPos.inlineIndex, toPos.charOffset],
+          [...blockPath, toPos.inlineIndex, toPos.charOffset],
+          undefined,
+          1,
+        );
+      }
+
+      // Re-read block node after potential split
+      blockNode = readBlockNode();
+
+      // Split at fromOffset
+      const fromInline = ((blockNode as ElementNode).children ?? []).filter(
+        (c): c is ElementNode => c.type === 'inline',
+      )[fromPos.inlineIndex];
+      if (fromInline && fromPos.charOffset > 0 && fromPos.charOffset < inlineTextLen(fromInline)) {
+        tree.editByPath(
+          [...blockPath, fromPos.inlineIndex, fromPos.charOffset],
+          [...blockPath, fromPos.inlineIndex, fromPos.charOffset],
+          undefined,
+          1,
+        );
+      }
+
+      // Step 3: Re-read block after all splits
+      blockNode = readBlockNode();
+      const inlines = ((blockNode as ElementNode).children ?? []).filter(
+        (c): c is ElementNode => c.type === 'inline',
+      );
+
+      // Step 4: Find the inline range that falls within [fromOffset, toOffset)
+      let accum = 0;
+      let startIdx = -1;
+      let endIdx = -1; // exclusive
+      for (let i = 0; i < inlines.length; i++) {
+        const len = inlineTextLen(inlines[i]);
+        if (startIdx === -1 && accum + len > fromOffset) {
+          startIdx = i;
+        }
+        if (startIdx === -1 && accum + len === fromOffset && fromOffset === toOffset) {
+          // zero-width range at boundary — no inlines to style
+          break;
+        }
+        if (accum + len >= toOffset && startIdx !== -1) {
+          // Check if this inline's start is already at or past toOffset
+          if (accum >= toOffset) {
+            endIdx = i;
+          } else {
+            endIdx = i + 1;
+          }
+          break;
+        }
+        accum += len;
+      }
+
+      if (startIdx === -1 || endIdx === -1) return;
+
+      // Step 5: Apply style via styleByPath to each inline in the range
+      const styleAttrs = serializeInlineStyle(style as InlineStyle);
+      for (let i = startIdx; i < endIdx; i++) {
+        const existingAttrs = inlines[i].attributes ?? {};
+        tree.styleByPath([...blockPath, i], { ...existingAttrs, ...styleAttrs });
+      }
+
+      // Step 6: Clean up empty inlines produced by boundary splits
+      // Re-read after styling
+      const finalBlockNode = readBlockNode();
+      const finalInlines = ((finalBlockNode as ElementNode).children ?? []).filter(
+        (c): c is ElementNode => c.type === 'inline',
+      );
+      // Delete empty inlines from back to front, but keep at least 1
+      for (let i = finalInlines.length - 1; i >= 0 && finalInlines.length > 1; i--) {
+        if (inlineTextLen(finalInlines[i]) === 0) {
+          tree.editByPath([...blockPath, i], [...blockPath, i + 1]);
+          finalInlines.splice(i, 1);
+        }
+      }
     });
 
     // Update cache in-place

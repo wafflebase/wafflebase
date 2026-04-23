@@ -68,7 +68,7 @@ applyStyleInCell(...): void;
 |-----------|-----------|-------------|---------------------|
 | Text insert | `editByPath` | Character-level `[blockIdx, inlineIdx, charOffset]` | CRDT merge |
 | Text delete | `editByPath` | Character-level + empty inline cleanup | CRDT merge |
-| Style | `editByPath` | Block replacement `[blockIdx]` | LWW |
+| Style | `editByPath` (`splitLevel=1`) + `styleByPath` | Inline-level split + element style | CRDT merge |
 | Split | `editByPath` + `styleByPath` | Native CRDT split (`splitLevel=2`) | CRDT merge |
 | Merge | `editByPath` | Native boundary deletion | CRDT merge |
 | Full doc write | `editBulkByPath` | Undo/redo fallback | — |
@@ -76,9 +76,13 @@ applyStyleInCell(...): void;
 **Path format:** 3 levels `[blockIdx, inlineIdx, charOffset]`. The inline
 node's `hasTextChild()` interprets the last element as a character offset.
 
-**Why not `styleByPath` for inline styling?** It sets attributes on a single
-element, not a text range. Cannot split inlines for partial styling.
-([yorkie-js-sdk#1197](https://github.com/yorkie-team/yorkie-js-sdk/issues/1197))
+#### Native Inline Styling (SDK 0.7.6)
+
+Style operations use `editByPath` with `splitLevel=1` to split inline nodes
+at style boundaries, then `styleByPath` to apply attributes to the resulting
+inlines. This eliminates LWW conflicts — concurrent text edits in the same
+block are preserved during styling operations. The split is performed at
+`toOffset` first, then `fromOffset`, so that earlier path indices remain valid.
 
 #### Native Split/Merge (SDK 0.7.4)
 
@@ -115,7 +119,7 @@ divergence cannot be fully ruled out until these are resolved upstream.
 | Phase | Scope | Status |
 |-------|-------|--------|
 | 1 | Text insert/delete (character-level) | ✅ Shipped |
-| 2 | Inline styling (block replacement) | ✅ Shipped |
+| 2 | Inline styling (native CRDT, SDK 0.7.6) | ✅ Shipped |
 | 3 | Structural editing — split/merge (native CRDT, SDK 0.7.4) | ✅ Shipped |
 | 4 | Table cell internal edits (extend Phase 1–3) | Planned |
 | 5 | Yorkie-native undo/redo (feature-flagged) | Planned |
@@ -126,14 +130,11 @@ divergence cannot be fully ruled out until these are resolved upstream.
    before the local cursor, the position is not adjusted. Needs cursor
    transformation based on remote edit positions.
 
-2. **Style operations are LWW** — concurrent style on the same block loses one
-   side. Blocked by Yorkie's `styleByPath` limitation for text-range styling.
-   Split/merge upgraded to native CRDT operations in SDK 0.7.4.
-
-3. **Concurrent split+edit edge cases** — Yorkie SDK 0.7.4 has two skipped
-   concurrent tests involving mixed splitLevel values. Our uniform
-   `splitLevel=2` pattern is narrower, but needs verification via concurrent
-   integration tests.
+2. **Concurrent split+edit edge cases** — Yorkie SDK 0.7.4 has two skipped
+   concurrent tests involving mixed splitLevel values. Our concurrent
+   integration tests (inline `splitLevel=1` + block `splitLevel=2`) converge
+   correctly in SDK 0.7.6, but edge cases cannot be fully ruled out until
+   resolved upstream.
 
 ## Risks and Mitigation
 

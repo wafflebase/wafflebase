@@ -6,12 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 136
+Total archived tasks: 138
 
-## 2026/04 (22 tasks)
+## 2026/04 (24 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| inline style tests (2026-04-23) | [20260423-inline-style-tests-todo.md](./20260423-inline-style-tests-todo.md) | - |
+| native inline style (2026-04-23) | [20260423-native-inline-style-todo.md](./20260423-native-inline-style-todo.md) | - |
 | chart pivot range shift (2026-04-21) | [20260421-chart-pivot-range-shift-todo.md](./20260421-chart-pivot-range-shift-todo.md) | - |
 | header footer granular edits (2026-04-19) | [20260419-header-footer-granular-edits-todo.md](./2026/04/20260419-header-footer-granular-edits-todo.md) | - |
 | table copy paste (2026-04-19) | [20260419-table-copy-paste-todo.md](./20260419-table-copy-paste-todo.md) | [20260419-table-copy-paste-lessons.md](./20260419-table-copy-paste-lessons.md) |

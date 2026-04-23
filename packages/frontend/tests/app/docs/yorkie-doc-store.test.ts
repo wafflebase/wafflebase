@@ -428,6 +428,123 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('applyStyle', () => {
+    it('should apply bold to a middle range', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 3, 8, { bold: true });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.inlines.length, 3);
+      assert.equal(result.inlines[0].text, 'Hel');
+      assert.equal(result.inlines[0].style.bold, undefined);
+      assert.equal(result.inlines[1].text, 'loWor');
+      assert.equal(result.inlines[1].style.bold, true);
+      assert.equal(result.inlines[2].text, 'ld');
+      assert.equal(result.inlines[2].style.bold, undefined);
+    });
+
+    it('should apply bold to block start', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 3, { bold: true });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.inlines.length, 2);
+      assert.equal(result.inlines[0].text, 'Hel');
+      assert.equal(result.inlines[0].style.bold, true);
+      assert.equal(result.inlines[1].text, 'lo');
+      assert.equal(result.inlines[1].style.bold, undefined);
+    });
+
+    it('should apply bold to block end', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 3, 5, { bold: true });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.inlines.length, 2);
+      assert.equal(result.inlines[0].text, 'Hel');
+      assert.equal(result.inlines[0].style.bold, undefined);
+      assert.equal(result.inlines[1].text, 'lo');
+      assert.equal(result.inlines[1].style.bold, true);
+    });
+
+    it('should apply bold to entire block', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 5, { bold: true });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.inlines.length, 1);
+      assert.equal(result.inlines[0].text, 'Hello');
+      assert.equal(result.inlines[0].style.bold, true);
+    });
+
+    it('should apply style across existing multi-inline block', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          { text: 'Hello', style: { bold: true } },
+          { text: 'World', style: {} },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 3, 8, { italic: true });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.inlines.length, 4);
+      assert.equal(result.inlines[0].text, 'Hel');
+      assert.equal(result.inlines[0].style.bold, true);
+      assert.equal(result.inlines[0].style.italic, undefined);
+      assert.equal(result.inlines[1].text, 'lo');
+      assert.equal(result.inlines[1].style.bold, true);
+      assert.equal(result.inlines[1].style.italic, true);
+      assert.equal(result.inlines[2].text, 'Wor');
+      assert.equal(result.inlines[2].style.italic, true);
+      assert.equal(result.inlines[3].text, 'ld');
+      assert.equal(result.inlines[3].style.italic, undefined);
+    });
+
+    it('should work correctly after text insert', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.insertText(block.id, 5, ' World');
+      store.applyStyle(block.id, 6, 11, { bold: true });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.inlines.length, 2);
+      assert.equal(result.inlines[0].text, 'Hello ');
+      assert.equal(result.inlines[0].style.bold, undefined);
+      assert.equal(result.inlines[1].text, 'World');
+      assert.equal(result.inlines[1].style.bold, true);
+    });
+
+    it('should toggle bold off when re-applied to same range', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 3, { bold: true });
+      // Now un-bold "Hel"
+      store.applyStyle(block.id, 0, 3, { bold: false });
+      const result = store.getBlock(block.id)!;
+      // Text is preserved across inlines
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.equal(fullText, 'Hello');
+      // The first inline covering "Hel" should have bold:false (not true)
+      assert.equal(result.inlines[0].style.bold, false);
+    });
+
+    it('should preserve bold for text inserted inside bold region', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 5, { bold: true });
+      store.insertText(block.id, 3, 'XX');
+      const result = store.getBlock(block.id)!;
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.equal(fullText, 'HelXXlo');
+      // All text should be bold since insertion inherits the inline style
+      for (const inline of result.inlines) {
+        assert.equal(inline.style.bold, true, `"${inline.text}" should be bold`);
+      }
+    });
+  });
+
   describe('split then merge round-trip', () => {
     it('should produce the original text after split then merge', () => {
       const block = makeBlock('HelloWorld');
