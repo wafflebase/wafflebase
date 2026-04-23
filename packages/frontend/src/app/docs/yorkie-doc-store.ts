@@ -32,6 +32,29 @@ import {
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
 
+// Enable with: localStorage.setItem('DOCS_DEBUG', '1')
+const isDebug = () =>
+  typeof localStorage !== 'undefined' && localStorage.getItem('DOCS_DEBUG') === '1';
+
+/** Summarize a block's inline text for debug logging. */
+function describeBlock(block: Block): string {
+  const text = block.inlines.map((i) => i.text).join('');
+  return `[${block.id.slice(0, 6)}:${block.type}] "${text.length > 40 ? text.slice(0, 40) + '…' : text}"`;
+}
+
+/** Summarize the Yorkie Tree node for a block path. */
+function describeTreeBlock(node: TreeNode): string {
+  const el = node as ElementNode;
+  const id = (el.attributes as Record<string, string>)?.id ?? '?';
+  const inlines = (el.children ?? []).filter((c) => c.type === 'inline') as ElementNode[];
+  const text = inlines.flatMap((i) =>
+    (i.children ?? [])
+      .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+      .map((t) => t.value),
+  ).join('');
+  return `[${id.slice(0, 6)}:${(el.attributes as Record<string, string>)?.type ?? '?'}] "${text.length > 40 ? text.slice(0, 40) + '…' : text}"`;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers: attribute serialization
 //
@@ -451,13 +474,33 @@ export class YorkieDocStore implements DocStore {
     return cloneDocument(parsed);
   }
 
+  private findBlockRecursive(blocks: Block[], id: string): Block | undefined {
+    for (const block of blocks) {
+      if (block.id === id) return block;
+      if (block.tableData) {
+        for (const row of block.tableData.rows) {
+          for (const cell of row.cells) {
+            const found = this.findBlockRecursive(cell.blocks, id);
+            if (found) return found;
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
   getBlock(id: string): Block | undefined {
     const document = this.getDocument();
-    const block = document.blocks.find((b) => b.id === id);
-    if (block) return block;
-    const hBlock = document.header?.blocks.find((b) => b.id === id);
-    if (hBlock) return hBlock;
-    return document.footer?.blocks.find((b) => b.id === id);
+    const found = this.findBlockRecursive(document.blocks, id);
+    if (found) return found;
+    if (document.header) {
+      const hFound = this.findBlockRecursive(document.header.blocks, id);
+      if (hFound) return hFound;
+    }
+    if (document.footer) {
+      return this.findBlockRecursive(document.footer.blocks, id);
+    }
+    return undefined;
   }
 
   getPageSetup(): PageSetup {
@@ -587,10 +630,41 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
+   * Search for a block inside a table block's cells (recursively for nested
+   * tables). Returns the sub-path within the table if found:
+   * `[rowIdx, cellIdx, blockIdx]` or deeper for nested tables.
+   */
+  private findBlockInTable(
+    block: Block,
+    blockId: string,
+  ): number[] | undefined {
+    if (!block.tableData) return undefined;
+    for (let r = 0; r < block.tableData.rows.length; r++) {
+      const row = block.tableData.rows[r];
+      for (let c = 0; c < row.cells.length; c++) {
+        const cell = row.cells[c];
+        for (let b = 0; b < cell.blocks.length; b++) {
+          if (cell.blocks[b].id === blockId) {
+            return [r, c, b];
+          }
+          // Recurse into nested tables
+          const nested = this.findBlockInTable(cell.blocks[b], blockId);
+          if (nested) {
+            return [r, c, b, ...nested];
+          }
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * Resolve a block ID to its Yorkie tree path prefix.
-   * - Header block: [0, blockIdx]
-   * - Body block:   [blockIdx + bodyOffset]
-   * - Footer block: [footerTreeIdx, blockIdx]
+   * - Header block:      [0, blockIdx]
+   * - Body block:        [blockIdx + bodyOffset]
+   * - Footer block:      [footerTreeIdx, blockIdx]
+   * - Table cell block:  [...tablePath, rowIdx, cellIdx, blockIdx]
+   *   (recursively for nested tables)
    */
   private resolveBlockTreePath(
     blockId: string,
@@ -599,16 +673,32 @@ export class YorkieDocStore implements DocStore {
     if (doc.header) {
       const idx = doc.header.blocks.findIndex((b) => b.id === blockId);
       if (idx !== -1) return { path: [0, idx], region: 'header' };
+      // Search inside table blocks in header
+      for (let i = 0; i < doc.header.blocks.length; i++) {
+        const sub = this.findBlockInTable(doc.header.blocks[i], blockId);
+        if (sub) return { path: [0, i, ...sub], region: 'header' };
+      }
     }
+    const bodyOffset = this.bodyTreeOffset(doc);
     const bodyIdx = doc.blocks.findIndex((b) => b.id === blockId);
     if (bodyIdx !== -1) {
-      return { path: [bodyIdx + this.bodyTreeOffset(doc)], region: 'body' };
+      return { path: [bodyIdx + bodyOffset], region: 'body' };
+    }
+    // Search inside table blocks in body
+    for (let i = 0; i < doc.blocks.length; i++) {
+      const sub = this.findBlockInTable(doc.blocks[i], blockId);
+      if (sub) return { path: [i + bodyOffset, ...sub], region: 'body' };
     }
     if (doc.footer) {
+      const footerTreeIdx = bodyOffset + doc.blocks.length;
       const idx = doc.footer.blocks.findIndex((b) => b.id === blockId);
       if (idx !== -1) {
-        const footerTreeIdx = this.bodyTreeOffset(doc) + doc.blocks.length;
         return { path: [footerTreeIdx, idx], region: 'footer' };
+      }
+      // Search inside table blocks in footer
+      for (let i = 0; i < doc.footer.blocks.length; i++) {
+        const sub = this.findBlockInTable(doc.footer.blocks[i], blockId);
+        if (sub) return { path: [footerTreeIdx, i, ...sub], region: 'footer' };
       }
     }
     throw new Error(`Block not found: ${blockId}`);
@@ -656,24 +746,143 @@ export class YorkieDocStore implements DocStore {
     return { inlineIndex: Math.max(0, lastIdx), charOffset: lastLen };
   }
 
+  /** Log the Yorkie Tree state at a given block path for debugging. */
+  private logTreeState(op: string, blockPath: number[]): void {
+    try {
+      const root = this.doc.getRoot();
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      const treeRoot = tree.getRootTreeNode();
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      console.log(`[DOC]   tree AFTER:  ${describeTreeBlock(blockNode)} (${op})`);
+    } catch {
+      console.log(`[DOC]   tree AFTER:  <error reading path [${blockPath}]> (${op})`);
+    }
+  }
+
+  /**
+   * Get the top-level blocks array and index for a region.
+   */
+  private getRegionBlocks(
+    doc: Document,
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): { blocks: Block[]; topIndex: number } {
+    if (region === 'header') {
+      return { blocks: doc.header!.blocks, topIndex: blockPath[1] };
+    } else if (region === 'footer') {
+      return { blocks: doc.footer!.blocks, topIndex: blockPath[1] };
+    }
+    return { blocks: doc.blocks, topIndex: blockPath[0] - this.bodyTreeOffset(doc) };
+  }
+
+  /**
+   * Navigate into a table block's cell hierarchy to find the target block.
+   * `cellPath` is the sub-path within the table: [rowIdx, cellIdx, blockIdx, ...]
+   * For nested tables, the pattern repeats: [r, c, b, r, c, b, ...]
+   */
+  private getCellBlock(tableBlock: Block, cellPath: number[]): Block {
+    let block = tableBlock;
+    for (let i = 0; i < cellPath.length; i += 3) {
+      const r = cellPath[i];
+      const c = cellPath[i + 1];
+      const b = cellPath[i + 2];
+      block = block.tableData!.rows[r].cells[c].blocks[b];
+    }
+    return block;
+  }
+
+  /**
+   * Set a block inside a table block's cell hierarchy.
+   */
+  private setCellBlock(tableBlock: Block, cellPath: number[], value: Block): void {
+    let block = tableBlock;
+    for (let i = 0; i < cellPath.length - 3; i += 3) {
+      const r = cellPath[i];
+      const c = cellPath[i + 1];
+      const b = cellPath[i + 2];
+      block = block.tableData!.rows[r].cells[c].blocks[b];
+    }
+    const lastR = cellPath[cellPath.length - 3];
+    const lastC = cellPath[cellPath.length - 2];
+    const lastB = cellPath[cellPath.length - 1];
+    block.tableData!.rows[lastR].cells[lastC].blocks[lastB] = value;
+  }
+
+  /**
+   * Get the Block[] array that contains the target block.
+   * For top-level blocks, returns doc.blocks (or header/footer blocks).
+   * For cell-internal blocks, returns cell.blocks of the parent cell.
+   */
+  private getBlocksArrayForPath(
+    doc: Document,
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): Block[] {
+    const { blocks, topIndex } = this.getRegionBlocks(doc, blockPath, region);
+    if (!this.isCellBlockPath(blockPath, region)) {
+      return blocks;
+    }
+    // Navigate into the table cell and return cell.blocks
+    const cellPath = this.getCellSubPath(blockPath, region);
+    let block = blocks[topIndex];
+    // Walk through nested tables, stopping before the last (r, c, b) triplet
+    for (let i = 0; i < cellPath.length - 3; i += 3) {
+      const r = cellPath[i];
+      const c = cellPath[i + 1];
+      const b = cellPath[i + 2];
+      block = block.tableData!.rows[r].cells[c].blocks[b];
+    }
+    const lastR = cellPath[cellPath.length - 3];
+    const lastC = cellPath[cellPath.length - 2];
+    return block.tableData!.rows[lastR].cells[lastC].blocks;
+  }
+
+  /**
+   * Check if a block path points to a cell-internal block.
+   * Cell paths have more than 1 element (body) or 2 elements (header/footer).
+   */
+  private isCellBlockPath(
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): boolean {
+    const topLevelLen = region === 'body' ? 1 : 2;
+    return blockPath.length > topLevelLen;
+  }
+
+  /**
+   * Extract the cell sub-path from a full block path.
+   * For body: [tableTreeIdx, r, c, b, ...] → [r, c, b, ...]
+   * For header/footer: [regionIdx, tableIdx, r, c, b, ...] → [r, c, b, ...]
+   */
+  private getCellSubPath(
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): number[] {
+    const topLevelLen = region === 'body' ? 1 : 2;
+    return blockPath.slice(topLevelLen);
+  }
+
   /**
    * Get the block from the correct region of the cached document.
+   * Handles top-level blocks and cell-internal blocks.
    */
   private getBlockByRegion(
     doc: Document,
     blockPath: number[],
     region: 'header' | 'body' | 'footer',
   ): Block {
-    if (region === 'header') {
-      return doc.header!.blocks[blockPath[blockPath.length - 1]];
-    } else if (region === 'footer') {
-      return doc.footer!.blocks[blockPath[blockPath.length - 1]];
+    const { blocks, topIndex } = this.getRegionBlocks(doc, blockPath, region);
+    if (this.isCellBlockPath(blockPath, region)) {
+      const cellPath = this.getCellSubPath(blockPath, region);
+      return this.getCellBlock(blocks[topIndex], cellPath);
     }
-    return doc.blocks[blockPath[0] - this.bodyTreeOffset(doc)];
+    return blocks[topIndex];
   }
 
   /**
    * Set a block in the correct region of the cached document.
+   * Handles top-level blocks and cell-internal blocks.
    */
   private setBlockByRegion(
     doc: Document,
@@ -681,12 +890,12 @@ export class YorkieDocStore implements DocStore {
     region: 'header' | 'body' | 'footer',
     block: Block,
   ): void {
-    if (region === 'header') {
-      doc.header!.blocks[blockPath[blockPath.length - 1]] = block;
-    } else if (region === 'footer') {
-      doc.footer!.blocks[blockPath[blockPath.length - 1]] = block;
+    const { blocks, topIndex } = this.getRegionBlocks(doc, blockPath, region);
+    if (this.isCellBlockPath(blockPath, region)) {
+      const cellPath = this.getCellSubPath(blockPath, region);
+      this.setCellBlock(blocks[topIndex], cellPath, block);
     } else {
-      doc.blocks[blockPath[0] - this.bodyTreeOffset(doc)] = block;
+      blocks[topIndex] = block;
     }
   }
 
@@ -712,6 +921,10 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    if (isDebug()) {
+      console.log(`[DOC] insertText blockId=${blockId.slice(0, 6)} offset=${offset} text="${text}" path=[${blockPath}] region=${region}`);
+      console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);
+    }
 
     // Use cache-based resolveOffset for image detection only
     const cacheResolved = resolveOffset(block, offset);
@@ -757,12 +970,20 @@ export class YorkieDocStore implements DocStore {
     this.setBlockByRegion(currentDoc, blockPath, region, updated);
     this.cachedDoc = currentDoc;
     this.dirty = false;
+    if (isDebug()) {
+      console.log(`[DOC]   cache AFTER:  ${describeBlock(updated)}`);
+      this.logTreeState('insertText', blockPath);
+    }
   }
 
   deleteText(blockId: string, offset: number, length: number): void {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    if (isDebug()) {
+      console.log(`[DOC] deleteText blockId=${blockId.slice(0, 6)} offset=${offset} length=${length} path=[${blockPath}] region=${region}`);
+      console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);
+    }
 
     this.doc.update((root) => {
       const tree = root.content;
@@ -799,6 +1020,10 @@ export class YorkieDocStore implements DocStore {
     this.setBlockByRegion(currentDoc, blockPath, region, updated);
     this.cachedDoc = currentDoc;
     this.dirty = false;
+    if (isDebug()) {
+      console.log(`[DOC]   cache AFTER:  ${describeBlock(updated)}`);
+      this.logTreeState('deleteText', blockPath);
+    }
   }
 
   applyStyle(
@@ -954,14 +1179,9 @@ export class YorkieDocStore implements DocStore {
     });
 
     // Update cache in-place
-    if (region === 'header') {
-      currentDoc.header!.blocks.splice(blockPath[blockPath.length - 1], 1);
-    } else if (region === 'footer') {
-      currentDoc.footer!.blocks.splice(blockPath[blockPath.length - 1], 1);
-    } else {
-      const index = blockPath[0] - this.bodyTreeOffset(currentDoc);
-      currentDoc.blocks.splice(index, 1);
-    }
+    const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
+    const localIdx = blockPath[blockPath.length - 1];
+    blocksArray.splice(localIdx, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
@@ -989,6 +1209,10 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
+    if (isDebug()) {
+      console.log(`[DOC] splitBlock blockId=${blockId.slice(0, 6)} offset=${offset} newId=${newBlockId.slice(0, 6)} newType=${newBlockType} path=[${blockPath}] region=${region}`);
+      console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);
+    }
 
     if (block.type === 'table' || block.type === 'horizontal-rule' || block.type === 'page-break') {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
@@ -1036,20 +1260,16 @@ export class YorkieDocStore implements DocStore {
 
     // Update cache in-place using the pure-function result
     const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
-    const blockIndex = blockPath[blockPath.length - 1];
-    if (region === 'header') {
-      currentDoc.header!.blocks[blockIndex] = before;
-      currentDoc.header!.blocks.splice(blockIndex + 1, 0, after);
-    } else if (region === 'footer') {
-      currentDoc.footer!.blocks[blockIndex] = before;
-      currentDoc.footer!.blocks.splice(blockIndex + 1, 0, after);
-    } else {
-      const bodyIdx = blockPath[0] - this.bodyTreeOffset(currentDoc);
-      currentDoc.blocks[bodyIdx] = before;
-      currentDoc.blocks.splice(bodyIdx + 1, 0, after);
-    }
+    const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
+    const localIdx = blockPath[blockPath.length - 1];
+    blocksArray[localIdx] = before;
+    blocksArray.splice(localIdx + 1, 0, after);
     this.cachedDoc = currentDoc;
     this.dirty = false;
+    if (isDebug()) {
+      console.log(`[DOC]   cache AFTER:  before=${describeBlock(before)} after=${describeBlock(after)}`);
+      this.logTreeState('splitBlock', blockPath);
+    }
   }
 
   mergeBlock(blockId: string, nextBlockId: string): void {
@@ -1062,6 +1282,11 @@ export class YorkieDocStore implements DocStore {
 
     const firstBlock = this.getBlockByRegion(currentDoc, blockPath, region);
     const nextBlock = this.getBlockByRegion(currentDoc, nextPath, nextRegion);
+    if (isDebug()) {
+      console.log(`[DOC] mergeBlock first=${blockId.slice(0, 6)} next=${nextBlockId.slice(0, 6)} path=[${blockPath}] nextPath=[${nextPath}] region=${region}`);
+      console.log(`[DOC]   cache BEFORE first: ${describeBlock(firstBlock)}`);
+      console.log(`[DOC]   cache BEFORE next:  ${describeBlock(nextBlock)}`);
+    }
 
     // Verify blocks are adjacent (last path segment differs by 1)
     const blockLastIdx = blockPath[blockPath.length - 1];
@@ -1070,33 +1295,37 @@ export class YorkieDocStore implements DocStore {
       throw new Error('Blocks to merge must be adjacent and in order');
     }
 
-    const firstBlockInlineCount = firstBlock.inlines.length;
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Read inline count from the actual tree, not the cache, because
+      // previous split/merge operations can leave the tree with a different
+      // number of inline nodes than the cache (e.g. split fragments).
+      const treeRoot = tree.getRootTreeNode();
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath) as ElementNode;
+      const treeInlineCount = (blockNode.children ?? []).filter(
+        (c) => c.type === 'inline',
+      ).length;
       // Delete the boundary between the two blocks. This range starts just
       // past the last inline of the first block and ends just before the
       // first inline of the next block, causing Yorkie Tree to merge them.
-      tree.editByPath([...blockPath, firstBlockInlineCount], [...nextPath, 0]);
+      tree.editByPath([...blockPath, treeInlineCount], [...nextPath, 0]);
     });
 
     const merged = applyMergeBlocks(firstBlock, nextBlock);
 
     // Update cache in-place
-    if (region === 'header') {
-      currentDoc.header!.blocks[blockLastIdx] = merged;
-      currentDoc.header!.blocks.splice(nextLastIdx, 1);
-    } else if (region === 'footer') {
-      currentDoc.footer!.blocks[blockLastIdx] = merged;
-      currentDoc.footer!.blocks.splice(nextLastIdx, 1);
-    } else {
-      const bodyIdx = blockPath[0] - this.bodyTreeOffset(currentDoc);
-      const nextBodyIdx = nextPath[0] - this.bodyTreeOffset(currentDoc);
-      currentDoc.blocks[bodyIdx] = merged;
-      currentDoc.blocks.splice(nextBodyIdx, 1);
-    }
+    const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
+    const localIdx = blockPath[blockPath.length - 1];
+    const nextLocalIdx = nextPath[nextPath.length - 1];
+    blocksArray[localIdx] = merged;
+    blocksArray.splice(nextLocalIdx, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
+    if (isDebug()) {
+      console.log(`[DOC]   cache AFTER:  ${describeBlock(merged)}`);
+      this.logTreeState('mergeBlock', blockPath);
+    }
   }
 
   // -----------------------------------------------------------------------

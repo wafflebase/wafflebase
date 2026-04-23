@@ -41,10 +41,14 @@ describe('Nested table block lookup', () => {
     const doc = Doc.create();
     const outerTableId = doc.insertTable(0, 2, 2);
 
-    // Manually place an inner table into cell (0,0) of the outer table
+    // Place an inner table into cell (0,0) of the outer table.
+    // Use store directly so both Doc cache and MemDocStore stay in sync.
     const outerBlock = doc.getBlock(outerTableId);
     const innerTable = createTableBlock(2, 2);
-    outerBlock.tableData!.rows[0].cells[0].blocks.push(innerTable);
+    const outerCell = outerBlock.tableData!.rows[0].cells[0];
+    outerCell.blocks.push(innerTable);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (doc as any).store.updateTableCell(outerTableId, 0, 0, outerCell);
 
     // Build recursive parent map
     const map = buildParentMapRecursive(doc, outerTableId);

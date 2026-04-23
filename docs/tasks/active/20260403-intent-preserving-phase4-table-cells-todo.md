@@ -1,51 +1,61 @@
 # Intent-Preserving Edits — Phase 4: Table Cell Internal Edits
 
-**Goal:** Extend Phase 1-3's character-level editing to table cell blocks via
-deeper Yorkie Tree paths.
+**Goal:** Extend Phase 1-3's character-level editing to table cell blocks by
+unifying path resolution — no new `*InCell` methods, existing methods handle
+cells transparently.
 
 **Design doc:** `docs/design/docs/docs-intent-preserving-edits.md`
 
 **Depends on:** Phase 1-3 (completed)
 
+**Approach:** B-2 — `resolveBlockTreePath()` DFS traverses the Yorkie Tree to
+find cell-internal blocks by `id` attribute. All existing `insertText`,
+`deleteText`, `applyStyle`, `splitBlock`, `mergeBlock` work unchanged for
+cell blocks via the longer path prefix.
+
 ---
 
-## Overview
+## Step 1: `insertText` / `deleteText` in cells — ✅ Done
 
-Table cells contain blocks (`cell → block → inline → text`). Currently, cell
-editing uses the old `updateBlock`/`updateTableCell` path. This phase routes
-cell-internal text/style/structure edits through the new fine-grained store
-methods with extended Yorkie Tree paths:
+- [x] Extend `resolveBlockTreePath()` to DFS into table/row/cell/block nodes
+- [x] Add `region` support for cell blocks (returns parent table's region)
+- [x] Add `getBlockByRegion()` / `setBlockByRegion()` support for cell block lookup
+- [x] Extend `getBlock()` with `findBlockRecursive()` for cell search
+- [x] Verify `insertText` works for cell-internal blocks
+- [x] Verify `deleteText` works for cell-internal blocks
+- [x] Unit tests: 5 cases (insert, delete, mid-insert, preceded block, different cells)
+- [x] Concurrent test: two users inserting in same cell, character-level merge
 
-```
-Top-level:  [blockIdx, inlineIdx, charOffset]
-Table cell: [tableIdx, rowIdx, colIdx, cellBlockIdx, inlineIdx, charOffset]
-```
+## Step 2: `applyStyle` in cells — ✅ Done
 
-## Tasks
+- [x] Verify `applyStyle` works for cell-internal blocks (reuses Step 1 path)
+- [x] Unit tests: cell bold, cell style after insert
+- [x] Concurrent test: text insert + bold in same cell
 
-### Task 1: Add table cell variants to DocStore and MemDocStore
+## Step 3: `splitBlock` / `mergeBlock` in cells — ✅ Done
 
-- [ ] Add `insertTextInCell`, `deleteTextInCell`, `applyStyleInCell` to DocStore interface
-- [ ] Implement in MemDocStore using existing block-helpers
-- [ ] Add tests to `memory.test.ts`
+- [x] Add `getBlocksArrayForPath()` for cell-internal split/merge cache updates
+- [x] Verify `splitBlock` works for cell-internal blocks
+- [x] Verify `mergeBlock` works for cell-internal blocks
+- [x] Unit tests: cell split, cell merge, split without affecting other cells
+- [x] Concurrent test: split + text insert in same cell
 
-### Task 2: Implement table cell variants in YorkieDocStore
+## Doc class LWW routing cleanup — ✅ Done
 
-- [ ] Implement `insertTextInCell` with character-level editByPath at deep path
-- [ ] Implement `deleteTextInCell` with character-level editByPath + empty inline cleanup
-- [ ] Implement `applyStyleInCell` with block replacement (same as top-level applyStyle)
-- [ ] Verify path format: `[tIdx, rowIdx, colIdx, cellBlockIdx, inlineIdx, charOffset]`
+- [x] Route `Doc.insertText` through `store.insertText` (not `updateBlockInStore`)
+- [x] Route `Doc.deleteText` through `store.deleteText`
+- [x] Route `Doc.applyInlineStyle` same-block through `store.applyStyle`
+- [x] Route `Doc.applyInlineStyle` cross-block same-cell through `store.applyStyle` per block
+- [x] Route `Doc.applyInlineStyle` cross-block table-in-range through `store.applyStyle` per cell block
+- [x] Route `Doc.mergeBlocks` through `store.mergeBlock` (remove cell branch)
+- [x] Remove `splitBlockInCellInternal()` and exclusive helpers
+- [x] Remove `applyStyleToBlock()` (no longer used)
+- [x] Fix nested-table test to sync store after direct mutation
 
-### Task 3: Wire Doc methods to cell variants via blockParentMap
+## Key finding
 
-- [ ] Update `Doc.insertText` cell path to use `store.insertTextInCell`
-- [ ] Update `Doc.deleteText` cell path to use `store.deleteTextInCell`
-- [ ] Update `Doc.applyInlineStyle` cell path to use `store.applyStyleInCell`
-- [ ] Add `getCellBlockIndex` helper to Doc
-
-### Task 4: UI testing
-
-- [ ] Table cell typing preserves concurrent edits (two users in same cell)
-- [ ] Table cell Backspace/Delete works correctly
-- [ ] Bold/Italic in table cells persists after refresh
-- [ ] Existing table structural ops (row/column insert/delete) unaffected
+`Doc.insertText`/`deleteText` were using `store.updateBlock` (full block
+replacement) even for top-level blocks. Phase 1-3's character-level
+`store.insertText`/`deleteText` were only reachable from tests, not the UI.
+The Doc cleanup commit fixes this — all text/style operations now route
+through fine-grained store methods for both top-level and cell blocks.

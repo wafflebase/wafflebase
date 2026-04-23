@@ -121,8 +121,47 @@ divergence cannot be fully ruled out until these are resolved upstream.
 | 1 | Text insert/delete (character-level) | ✅ Shipped |
 | 2 | Inline styling (native CRDT, SDK 0.7.6) | ✅ Shipped |
 | 3 | Structural editing — split/merge (native CRDT, SDK 0.7.4) | ✅ Shipped |
-| 4 | Table cell internal edits (extend Phase 1–3) | Planned |
+| 4 | Table cell internal edits (extend Phase 1–3) | ✅ Shipped |
 | 5 | Yorkie-native undo/redo (feature-flagged) | Planned |
+
+### Phase 4: Table Cell Internal Edits
+
+Extend Phase 1–3 character-level CRDT editing into table cells. Instead of
+adding `*InCell` methods to DocStore, the existing `insertText`, `deleteText`,
+`applyStyle`, `splitBlock`, `mergeBlock` are extended to handle cell-internal
+blocks transparently.
+
+**Strategy: Unified blockId resolution (approach B-2)**
+
+`resolveBlockTreePath(blockId)` is extended to DFS the Yorkie Tree, finding
+blocks inside table cells and nested tables. The returned path includes the
+full chain: `[...tablePath, rowIdx, cellIdx, blockIdx]`. All existing methods
+then operate on cell-internal blocks identically to top-level blocks — the
+only difference is the longer path prefix.
+
+This eliminates the current LWW pattern where `Doc.updateBlockInStore()`
+replaces the entire root table via `store.updateBlock(rootTableId)` for
+cell-internal edits.
+
+**Path format:**
+```
+Top-level block:    [bodyOffset + blockIdx]
+Cell block:         [bodyOffset + tableIdx, rowIdx, cellIdx, blockIdx]
+Nested cell block:  [...outerPath, rowIdx, cellIdx, tableIdx, rowIdx, cellIdx, blockIdx]
+```
+
+**Implementation steps:**
+
+| Step | Scope | Description |
+|------|-------|-------------|
+| 1 | `insertText` / `deleteText` | Extend `resolveBlockTreePath()` with DFS, remove Doc LWW routing |
+| 2 | `applyStyle` | Reuse Step 1 path resolution for native CRDT cell styling |
+| 3 | `splitBlock` / `mergeBlock` | Remove `splitBlockInCellInternal()`, unify cell split/merge |
+
+**Doc class cleanup (per step):**
+- Step 1: Remove cell branch in `updateBlockInStore()` for text edits
+- Step 2: Remove cell branch in `applyInlineStyle()` routing
+- Step 3: Remove `splitBlockInCellInternal()` and cell branch in `mergeBlocks()`
 
 ## Known Issues
 
@@ -145,3 +184,5 @@ divergence cannot be fully ruled out until these are resolved upstream.
 | Yorkie Tree undo unstable for mixed ops | Feature-flagged; SDK 0.7.3 includes fix for mixed char+block undo |
 | Performance regression | Benchmark per-character ops vs block replacement |
 | Native split divergence on concurrent split+edit | Uniform splitLevel=2 on flat block list; concurrent integration tests added |
+| DFS tree traversal cost for cell block lookup | Tables are small; optimize with index cache if profiling shows regression |
+| Doc routing cleanup breaks existing cell editing | Each step is independently testable; unit + concurrent tests per step |
