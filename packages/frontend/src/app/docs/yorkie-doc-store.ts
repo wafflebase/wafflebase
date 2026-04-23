@@ -773,6 +773,35 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
+   * Get the Block[] array that contains the target block.
+   * For top-level blocks, returns doc.blocks (or header/footer blocks).
+   * For cell-internal blocks, returns cell.blocks of the parent cell.
+   */
+  private getBlocksArrayForPath(
+    doc: Document,
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): Block[] {
+    const { blocks, topIndex } = this.getRegionBlocks(doc, blockPath, region);
+    if (!this.isCellBlockPath(blockPath, region)) {
+      return blocks;
+    }
+    // Navigate into the table cell and return cell.blocks
+    const cellPath = this.getCellSubPath(blockPath, region);
+    let block = blocks[topIndex];
+    // Walk through nested tables, stopping before the last (r, c, b) triplet
+    for (let i = 0; i < cellPath.length - 3; i += 3) {
+      const r = cellPath[i];
+      const c = cellPath[i + 1];
+      const b = cellPath[i + 2];
+      block = block.tableData!.rows[r].cells[c].blocks[b];
+    }
+    const lastR = cellPath[cellPath.length - 3];
+    const lastC = cellPath[cellPath.length - 2];
+    return block.tableData!.rows[lastR].cells[lastC].blocks;
+  }
+
+  /**
    * Check if a block path points to a cell-internal block.
    * Cell paths have more than 1 element (body) or 2 elements (header/footer).
    */
@@ -1179,18 +1208,10 @@ export class YorkieDocStore implements DocStore {
 
     // Update cache in-place using the pure-function result
     const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
-    const blockIndex = blockPath[blockPath.length - 1];
-    if (region === 'header') {
-      currentDoc.header!.blocks[blockIndex] = before;
-      currentDoc.header!.blocks.splice(blockIndex + 1, 0, after);
-    } else if (region === 'footer') {
-      currentDoc.footer!.blocks[blockIndex] = before;
-      currentDoc.footer!.blocks.splice(blockIndex + 1, 0, after);
-    } else {
-      const bodyIdx = blockPath[0] - this.bodyTreeOffset(currentDoc);
-      currentDoc.blocks[bodyIdx] = before;
-      currentDoc.blocks.splice(bodyIdx + 1, 0, after);
-    }
+    const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
+    const localIdx = blockPath[blockPath.length - 1];
+    blocksArray[localIdx] = before;
+    blocksArray.splice(localIdx + 1, 0, after);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
@@ -1226,18 +1247,11 @@ export class YorkieDocStore implements DocStore {
     const merged = applyMergeBlocks(firstBlock, nextBlock);
 
     // Update cache in-place
-    if (region === 'header') {
-      currentDoc.header!.blocks[blockLastIdx] = merged;
-      currentDoc.header!.blocks.splice(nextLastIdx, 1);
-    } else if (region === 'footer') {
-      currentDoc.footer!.blocks[blockLastIdx] = merged;
-      currentDoc.footer!.blocks.splice(nextLastIdx, 1);
-    } else {
-      const bodyIdx = blockPath[0] - this.bodyTreeOffset(currentDoc);
-      const nextBodyIdx = nextPath[0] - this.bodyTreeOffset(currentDoc);
-      currentDoc.blocks[bodyIdx] = merged;
-      currentDoc.blocks.splice(nextBodyIdx, 1);
-    }
+    const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
+    const localIdx = blockPath[blockPath.length - 1];
+    const nextLocalIdx = nextPath[nextPath.length - 1];
+    blocksArray[localIdx] = merged;
+    blocksArray.splice(nextLocalIdx, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
