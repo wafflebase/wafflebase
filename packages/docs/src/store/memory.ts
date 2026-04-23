@@ -66,6 +66,11 @@ export class MemDocStore implements DocStore {
     this.doc.blocks.splice(index, 0, JSON.parse(JSON.stringify(block)));
   }
 
+  insertBlockAfter(siblingBlockId: string, block: Block): void {
+    const { blocks, index } = this.findBlockInAnyArray(siblingBlockId);
+    blocks.splice(index + 1, 0, JSON.parse(JSON.stringify(block)));
+  }
+
   deleteBlock(id: string): void {
     const { blocks, index } = this.findBlockInAnyArray(id);
     blocks.splice(index, 1);

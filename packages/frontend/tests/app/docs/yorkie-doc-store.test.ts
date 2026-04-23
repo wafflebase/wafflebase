@@ -1258,4 +1258,91 @@ describe('YorkieDocStore', () => {
       assert.ok(fullText.includes('\uFFFC'), 'Image char should be present');
     });
   });
+
+  describe('insertBlockAfter', () => {
+    it('should insert a block after a top-level sibling', () => {
+      const b1 = makeBlock('First');
+      const b2 = makeBlock('Second');
+      store.setDocument({ blocks: [b1, b2] });
+
+      const newBlock = makeBlock('Inserted');
+      store.insertBlockAfter(b1.id, newBlock);
+
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 3);
+      assert.equal(result.blocks[0].inlines[0].text, 'First');
+      assert.equal(result.blocks[1].inlines[0].text, 'Inserted');
+      assert.equal(result.blocks[2].inlines[0].text, 'Second');
+    });
+
+    it('should insert a block after a cell-internal sibling', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      const cellBlockId = tableBlock.tableData!.rows[0].cells[0].blocks[0].id;
+      const newBlock = makeBlock('CellInserted');
+      store.insertBlockAfter(cellBlockId, newBlock);
+
+      const result = store.getDocument();
+      const cell = result.blocks[1].tableData!.rows[0].cells[0];
+      assert.equal(cell.blocks.length, 2);
+      assert.equal(cell.blocks[1].inlines[0].text, 'CellInserted');
+    });
+
+    it('should insert a block after a body sibling when header exists', () => {
+      const b1 = makeBlock('Body1');
+      const b2 = makeBlock('Body2');
+      const headerBlock = makeBlock('Header');
+      store.setDocument({
+        blocks: [b1, b2],
+        header: { blocks: [headerBlock], marginFromEdge: 48 },
+      });
+
+      const newBlock = makeBlock('Inserted');
+      store.insertBlockAfter(b1.id, newBlock);
+
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 3);
+      assert.equal(result.blocks[0].inlines[0].text, 'Body1');
+      assert.equal(result.blocks[1].inlines[0].text, 'Inserted');
+      assert.equal(result.blocks[2].inlines[0].text, 'Body2');
+      // Header should be unchanged
+      assert.equal(result.header!.blocks.length, 1);
+      assert.equal(result.header!.blocks[0].inlines[0].text, 'Header');
+    });
+
+    it('should insert a table block after a cell-internal sibling', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      const cellBlockId = tableBlock.tableData!.rows[0].cells[0].blocks[0].id;
+      const nestedTable = createTableBlock(2, 2);
+      store.insertBlockAfter(cellBlockId, nestedTable);
+
+      const result = store.getDocument();
+      const cell = result.blocks[1].tableData!.rows[0].cells[0];
+      assert.equal(cell.blocks.length, 2);
+      assert.equal(cell.blocks[1].type, 'table');
+      assert.equal(cell.blocks[1].tableData!.rows.length, 2);
+    });
+  });
+
+  describe('deleteBlock (cell-internal)', () => {
+    it('should delete a cell-internal block when multiple blocks exist', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      // Add a second block to the cell
+      const secondBlock = makeBlock('Second');
+      tableBlock.tableData!.rows[0].cells[0].blocks.push(secondBlock);
+      store.setDocument(doc);
+
+      // Delete the first block
+      const firstBlockId = tableBlock.tableData!.rows[0].cells[0].blocks[0].id;
+      store.deleteBlock(firstBlockId);
+
+      const result = store.getDocument();
+      const cell = result.blocks[1].tableData!.rows[0].cells[0];
+      assert.equal(cell.blocks.length, 1);
+      assert.equal(cell.blocks[0].inlines[0].text, 'Second');
+    });
+  });
 });

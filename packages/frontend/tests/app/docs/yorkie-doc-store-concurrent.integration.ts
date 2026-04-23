@@ -786,4 +786,58 @@ describe('YorkieDocStore concurrent table cell edits', { skip: !shouldRun }, () 
       await ctx.cleanup();
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 8: Cell structural edits — concurrent insertBlockAfter + text edit
+  // -------------------------------------------------------------------------
+
+  it('concurrent insertBlockAfter in cell and text insert in same cell should both be preserved', async () => {
+    const tableBlock = createTableBlock(2, 2);
+    const cellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'Hello', style: {} }];
+
+    const ctx = await createTwoUserDocs('cell-insert-block-and-text', [tableBlock]);
+    try {
+      // Client A: insert a new block after the cell block
+      const newBlock: Block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'NewBlock', style: {} }],
+        style: { alignment: 'left', lineHeight: 1.15, marginTop: 0, marginBottom: 0, textIndent: 0, marginLeft: 0 },
+      };
+      ctx.storeA.insertBlockAfter(cellBlock.id, newBlock);
+
+      // Client B: insert text into the same cell block
+      ctx.storeB.insertText(cellBlock.id, 5, 'World');
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      // Both clients should see 2 blocks in the cell
+      const cellA = docA.blocks[0].tableData!.rows[0].cells[0];
+      const cellB = docB.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cellA.blocks.length, 2, `Cell should have 2 blocks, got ${cellA.blocks.length}`);
+      assert.equal(cellB.blocks.length, 2, `Cell should have 2 blocks, got ${cellB.blocks.length}`);
+
+      // Original block should have both original text and inserted text
+      const origTextA = cellA.blocks[0].inlines.map((i) => i.text).join('');
+      assert.ok(origTextA.includes('Hello'), `Original text should be preserved, got "${origTextA}"`);
+      assert.ok(origTextA.includes('World'), `Inserted text should be preserved, got "${origTextA}"`);
+
+      // New block should be present
+      const newBlockTextA = cellA.blocks[1].inlines.map((i) => i.text).join('');
+      assert.equal(newBlockTextA, 'NewBlock', `New block text should be preserved, got "${newBlockTextA}"`);
+
+      // Both clients should converge
+      assert.deepEqual(
+        cellA.blocks.map((b) => b.inlines.map((i) => i.text).join('')),
+        cellB.blocks.map((b) => b.inlines.map((i) => i.text).join('')),
+        'Cell blocks should converge across clients',
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
 });
