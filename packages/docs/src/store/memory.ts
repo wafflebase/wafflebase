@@ -1,7 +1,7 @@
-import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, Inline, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
-import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper, applySplitBlock, applyMergeBlocks } from './block-helpers.js';
+import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper, applyInsertInline, applySplitBlock, applyMergeBlocks } from './block-helpers.js';
 
 /**
  * Deep clone a document for snapshot-based undo/redo.
@@ -233,6 +233,11 @@ export class MemDocStore implements DocStore {
     const block = this.findBlock(tableBlockId);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
     cell.style = { ...cell.style, ...style };
+  }
+
+  insertImageInline(blockId: string, offset: number, inline: Inline): void {
+    const { blocks, index } = this.findBlockInAnyArray(blockId);
+    blocks[index] = applyInsertInline(blocks[index], offset, inline);
   }
 
   private findBlock(id: string): Block {

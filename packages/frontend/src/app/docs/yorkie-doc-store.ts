@@ -27,6 +27,7 @@ import {
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
+  applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
 } from '@wafflebase/docs';
@@ -1000,6 +1001,51 @@ export class YorkieDocStore implements DocStore {
     // Update cache
     block.style = merged;
     this.setBlockByRegion(currentDoc, blockPath, region, block);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
+  insertImageInline(blockId: string, offset: number, inline: Inline): void {
+    const currentDoc = this.getDocument();
+    const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
+    const block = this.getBlockByRegion(currentDoc, blockPath, region);
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      const treeRoot = tree.getRootTreeNode();
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
+
+      const newNode = buildInlineNode(inline);
+
+      if (charOffset === 0) {
+        // Insert before current inline
+        tree.editByPath(
+          [...blockPath, inlineIndex],
+          [...blockPath, inlineIndex],
+          newNode,
+        );
+      } else {
+        // Split at charOffset, then insert after the first half
+        tree.editByPath(
+          [...blockPath, inlineIndex, charOffset],
+          [...blockPath, inlineIndex, charOffset],
+          undefined,
+          1,
+        );
+        tree.editByPath(
+          [...blockPath, inlineIndex + 1],
+          [...blockPath, inlineIndex + 1],
+          newNode,
+        );
+      }
+    });
+
+    // Update cache
+    const updated = applyInsertInline(block, offset, inline);
+    this.setBlockByRegion(currentDoc, blockPath, region, updated);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }

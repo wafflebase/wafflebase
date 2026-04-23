@@ -1,4 +1,4 @@
-import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, Inline, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -87,4 +87,6 @@ export interface DocStore {
     tableBlockId: string, rowIndex: number, colIndex: number,
     style: Partial<CellStyle>,
   ): void;
+  /** Insert an image inline at a block-level character offset. */
+  insertImageInline(blockId: string, offset: number, inline: Inline): void;
 }

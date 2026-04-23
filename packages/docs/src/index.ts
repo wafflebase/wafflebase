@@ -65,6 +65,7 @@ export {
   applyInsertText,
   applyDeleteText,
   applyInlineStyle as applyInlineStyleHelper,
+  applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
 } from './store/block-helpers.js';
