@@ -1098,6 +1098,110 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('deleteRow with spanning cells', () => {
+    it('should decrement rowSpan when deleting a row spanned by a cell above', () => {
+      const tableBlock = createTableBlock(3, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      // Set rowSpan=2 on cell (0,0) — spans rows 0-1
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 2 });
+      // Mark cell (1,0) as covered
+      store.applyCellSpan(tableBlock.id, 1, 0, { colSpan: 0 });
+
+      // Delete row 1 — rowSpan should shrink to 1 (removed)
+      // Simulate Doc.deleteRow: adjust spans then delete row
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 1 });
+      store.deleteTableRow(tableBlock.id, 1);
+
+      const doc = store.getDocument();
+      const td = doc.blocks[0].tableData!;
+      assert.equal(td.rows.length, 2);
+      assert.equal(td.rows[0].cells[0].rowSpan, undefined);
+    });
+
+    it('should decrement rowSpan from 3 to 2 when deleting a middle spanned row', () => {
+      const tableBlock = createTableBlock(4, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      // Set rowSpan=3 on cell (0,0) — spans rows 0-2
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 3 });
+
+      // Delete row 1 — rowSpan should shrink to 2
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 2 });
+      store.deleteTableRow(tableBlock.id, 1);
+
+      const doc = store.getDocument();
+      assert.equal(doc.blocks[0].tableData!.rows.length, 3);
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan, 2);
+    });
+  });
+
+  describe('deleteColumn with spanning cells', () => {
+    it('should decrement colSpan when deleting a column spanned by a cell to the left', () => {
+      const tableBlock = createTableBlock(2, 3);
+      store.setDocument({ blocks: [tableBlock] });
+      // Set colSpan=2 on cell (0,0) — spans cols 0-1
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2 });
+      store.applyCellSpan(tableBlock.id, 0, 1, { colSpan: 0 });
+
+      // Delete col 1 — colSpan should shrink to 1 (removed)
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 1 });
+      store.deleteTableColumn(tableBlock.id, 1);
+
+      const doc = store.getDocument();
+      const td = doc.blocks[0].tableData!;
+      assert.equal(td.rows[0].cells.length, 2);
+      assert.equal(td.rows[0].cells[0].colSpan, undefined);
+    });
+
+    it('should decrement colSpan from 3 to 2 when deleting a middle spanned column', () => {
+      const tableBlock = createTableBlock(2, 4);
+      store.setDocument({ blocks: [tableBlock] });
+      // Set colSpan=3 on cell (0,0) — spans cols 0-2
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 3 });
+
+      // Delete col 1 — colSpan should shrink to 2
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2 });
+      store.deleteTableColumn(tableBlock.id, 1);
+
+      const doc = store.getDocument();
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells.length, 3);
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].colSpan, 2);
+    });
+  });
+
+  describe('splitCell via applyCellSpan', () => {
+    it('should clear spans on top-left cell and restore covered cells', () => {
+      const tableBlock = createTableBlock(3, 3);
+      store.setDocument({ blocks: [tableBlock] });
+
+      // Simulate merge: set colSpan=2, rowSpan=2 on top-left, mark covered cells
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2, rowSpan: 2 });
+      store.applyCellSpan(tableBlock.id, 0, 1, { colSpan: 0 });
+      store.applyCellSpan(tableBlock.id, 1, 0, { colSpan: 0 });
+      store.applyCellSpan(tableBlock.id, 1, 1, { colSpan: 0 });
+
+      // Verify merge state
+      const merged = store.getDocument();
+      assert.equal(merged.blocks[0].tableData!.rows[0].cells[0].colSpan, 2);
+      assert.equal(merged.blocks[0].tableData!.rows[0].cells[0].rowSpan, 2);
+      assert.equal(merged.blocks[0].tableData!.rows[0].cells[1].colSpan, 0);
+
+      // Simulate splitCell: clear spans on all cells
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 1, rowSpan: 1 });
+      store.applyCellSpan(tableBlock.id, 0, 1, { colSpan: 1 });
+      store.applyCellSpan(tableBlock.id, 1, 0, { colSpan: 1 });
+      store.applyCellSpan(tableBlock.id, 1, 1, { colSpan: 1 });
+
+      // All cells should have no span attributes
+      const doc = store.getDocument();
+      const td = doc.blocks[0].tableData!;
+      assert.equal(td.rows[0].cells[0].colSpan, undefined);
+      assert.equal(td.rows[0].cells[0].rowSpan, undefined);
+      assert.equal(td.rows[0].cells[1].colSpan, undefined);
+      assert.equal(td.rows[1].cells[0].colSpan, undefined);
+      assert.equal(td.rows[1].cells[1].colSpan, undefined);
+    });
+  });
+
   describe('insertImageInline', () => {
     it('should insert an image inline at offset', () => {
       const block = makeBlock('Hello');

@@ -92,6 +92,35 @@ describe('Doc table operations', () => {
       doc.deleteRow(tableId, 1);
       expect(doc.getBlock(tableId).tableData!.rows).toHaveLength(2);
     });
+
+    it('should decrement rowSpan when deleting a row spanned by a cell above', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 3, 2);
+      // Merge rows 0-1 in column 0
+      doc.mergeCells(tableId, { start: { rowIndex: 0, colIndex: 0 }, end: { rowIndex: 1, colIndex: 0 } });
+      const block = doc.getBlock(tableId);
+      expect(block.tableData!.rows[0].cells[0].rowSpan).toBe(2);
+
+      // Delete row 1 — rowSpan should shrink to 1 (removed)
+      doc.deleteRow(tableId, 1);
+      const after = doc.getBlock(tableId);
+      expect(after.tableData!.rows).toHaveLength(2);
+      expect(after.tableData!.rows[0].cells[0].rowSpan).toBeUndefined();
+    });
+
+    it('should decrement rowSpan from 3 to 2 when deleting a middle spanned row', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 4, 2);
+      // Merge rows 0-2 in column 0 (rowSpan=3)
+      doc.mergeCells(tableId, { start: { rowIndex: 0, colIndex: 0 }, end: { rowIndex: 2, colIndex: 0 } });
+      expect(doc.getBlock(tableId).tableData!.rows[0].cells[0].rowSpan).toBe(3);
+
+      // Delete row 1 — rowSpan should shrink to 2
+      doc.deleteRow(tableId, 1);
+      const after = doc.getBlock(tableId);
+      expect(after.tableData!.rows).toHaveLength(3);
+      expect(after.tableData!.rows[0].cells[0].rowSpan).toBe(2);
+    });
   });
 
   describe('insertColumn', () => {
@@ -117,6 +146,34 @@ describe('Doc table operations', () => {
       expect(block.tableData!.rows[0].cells).toHaveLength(2);
       const sum = block.tableData!.columnWidths.reduce((a, b) => a + b, 0);
       expect(sum).toBeCloseTo(1.0);
+    });
+
+    it('should decrement colSpan when deleting a column spanned by a cell to the left', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 3);
+      // Merge columns 0-1 in row 0
+      doc.mergeCells(tableId, { start: { rowIndex: 0, colIndex: 0 }, end: { rowIndex: 0, colIndex: 1 } });
+      expect(doc.getBlock(tableId).tableData!.rows[0].cells[0].colSpan).toBe(2);
+
+      // Delete column 1 — colSpan should shrink to 1 (removed)
+      doc.deleteColumn(tableId, 1);
+      const after = doc.getBlock(tableId);
+      expect(after.tableData!.columnWidths).toHaveLength(2);
+      expect(after.tableData!.rows[0].cells[0].colSpan).toBeUndefined();
+    });
+
+    it('should decrement colSpan from 3 to 2 when deleting a middle spanned column', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 4);
+      // Merge columns 0-2 in row 0 (colSpan=3)
+      doc.mergeCells(tableId, { start: { rowIndex: 0, colIndex: 0 }, end: { rowIndex: 0, colIndex: 2 } });
+      expect(doc.getBlock(tableId).tableData!.rows[0].cells[0].colSpan).toBe(3);
+
+      // Delete column 1 — colSpan should shrink to 2
+      doc.deleteColumn(tableId, 1);
+      const after = doc.getBlock(tableId);
+      expect(after.tableData!.columnWidths).toHaveLength(3);
+      expect(after.tableData!.rows[0].cells[0].colSpan).toBe(2);
     });
   });
 
