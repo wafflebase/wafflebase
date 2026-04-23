@@ -858,6 +858,54 @@ describe('YorkieDocStore', () => {
       assert.equal(result.headingLevel, undefined);
     });
 
+    it('should remove stale headingLevel from tree when changing to list-item', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'heading',
+        inlines: [{ text: 'Title', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        headingLevel: 2,
+      };
+      store.setDocument({ blocks: [block] });
+      store.setBlockType(block.id, 'list-item', { listKind: 'ordered', listLevel: 0 });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.type, 'list-item');
+      assert.equal(result.headingLevel, undefined, 'headingLevel should be removed');
+      assert.equal(result.listKind, 'ordered');
+    });
+
+    it('should remove stale listKind/listLevel from tree when changing to paragraph', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        inlines: [{ text: 'Item', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        listKind: 'unordered',
+        listLevel: 1,
+      };
+      store.setDocument({ blocks: [block] });
+      store.setBlockType(block.id, 'paragraph');
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.type, 'paragraph');
+      assert.equal(result.listKind, undefined, 'listKind should be removed');
+      assert.equal(result.listLevel, undefined, 'listLevel should be removed');
+    });
+
+    it('should change heading level on existing heading', () => {
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'heading',
+        inlines: [{ text: 'Title', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        headingLevel: 1,
+      };
+      store.setDocument({ blocks: [block] });
+      store.setBlockType(block.id, 'heading', { headingLevel: 3 });
+      const result = store.getBlock(block.id)!;
+      assert.equal(result.type, 'heading');
+      assert.equal(result.headingLevel, 3);
+    });
+
     it('should change to list-item with kind and level', () => {
       const block = makeBlock('Item');
       store.setDocument({ blocks: [block] });

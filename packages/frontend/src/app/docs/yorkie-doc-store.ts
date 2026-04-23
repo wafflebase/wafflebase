@@ -928,11 +928,8 @@ export class YorkieDocStore implements DocStore {
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
 
-    // Build the updated attributes
-    const attrs: Record<string, string> = {
-      type,
-      ...serializeBlockStyle(block.style),
-    };
+    // Build only type-specific attributes (not style — it's unchanged)
+    const attrs: Record<string, string> = { type };
     if (type === 'heading') {
       attrs.headingLevel = String(opts?.headingLevel ?? 1);
     }
@@ -941,10 +938,22 @@ export class YorkieDocStore implements DocStore {
       attrs.listLevel = String(opts?.listLevel ?? 0);
     }
 
+    // Determine stale attributes to remove (styleByPath merges, not replaces)
+    const toRemove: string[] = [];
+    if (type !== 'heading') toRemove.push('headingLevel');
+    if (type !== 'list-item') toRemove.push('listKind', 'listLevel');
+
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.styleByPath(blockPath, attrs);
+
+      // Remove stale type-specific attributes from previous block type
+      if (toRemove.length > 0) {
+        const endPath = [...blockPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(blockPath, endPath, toRemove);
+      }
 
       // For HR/page-break, clear all inlines
       if (type === 'horizontal-rule' || type === 'page-break') {
@@ -1638,7 +1647,6 @@ export class YorkieDocStore implements DocStore {
     const block = this.resolveTableBlock(tablePath, currentDoc);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
     const merged = { ...cell.style, ...style };
-    cell.style = merged;
 
     // Build serialized attributes for the cell node
     const attrs = serializeCellStyle({ ...cell, style: merged });
@@ -1648,6 +1656,9 @@ export class YorkieDocStore implements DocStore {
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.styleByPath([...tablePath, rowIndex, colIndex], attrs);
     });
+
+    // Update cache after Yorkie update succeeds
+    cell.style = merged;
 
     this.cachedDoc = currentDoc;
     this.dirty = false;
