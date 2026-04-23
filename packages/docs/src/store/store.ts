@@ -88,6 +88,13 @@ export interface DocStore {
     tableBlockId: string, rowIndex: number, colIndex: number,
     style: Partial<CellStyle>,
   ): void;
+  /** Update colSpan/rowSpan on a cell node via styleByPath.
+   *  Value of 1 (default) removes the attribute from the tree.
+   *  Only specified properties are changed; omitted ones are untouched. */
+  applyCellSpan(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    span: { colSpan?: number; rowSpan?: number },
+  ): void;
   /** Insert an image inline at a block-level character offset. */
   insertImageInline(blockId: string, offset: number, inline: Inline): void;
 }

@@ -995,6 +995,109 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('applyCellSpan', () => {
+    it('should set colSpan on a cell', () => {
+      const tableBlock = createTableBlock(2, 3);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2 });
+      const doc = store.getDocument();
+      const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cell.colSpan, 2);
+    });
+
+    it('should set rowSpan on a cell', () => {
+      const tableBlock = createTableBlock(3, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 3 });
+      const doc = store.getDocument();
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan, 3);
+    });
+
+    it('should set both colSpan and rowSpan', () => {
+      const tableBlock = createTableBlock(3, 3);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2, rowSpan: 2 });
+      const doc = store.getDocument();
+      const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cell.colSpan, 2);
+      assert.equal(cell.rowSpan, 2);
+    });
+
+    it('should remove colSpan when set to 1 (default)', () => {
+      const tableBlock = createTableBlock(2, 3);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 3 });
+      assert.equal(store.getDocument().blocks[0].tableData!.rows[0].cells[0].colSpan, 3);
+      // Setting to 1 removes it (default)
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 1 });
+      const doc = store.getDocument();
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].colSpan, undefined);
+    });
+
+    it('should remove rowSpan when set to 1 (default)', () => {
+      const tableBlock = createTableBlock(3, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 2 });
+      assert.equal(store.getDocument().blocks[0].tableData!.rows[0].cells[0].rowSpan, 2);
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 1 });
+      const doc = store.getDocument();
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan, undefined);
+    });
+
+    it('should set colSpan=0 for covered cells', () => {
+      const tableBlock = createTableBlock(2, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 1, { colSpan: 0 });
+      const doc = store.getDocument();
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells[1].colSpan, 0);
+    });
+
+    it('should not affect other cell properties', () => {
+      const tableBlock = createTableBlock(2, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000' });
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2 });
+      const doc = store.getDocument();
+      const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cell.colSpan, 2);
+      assert.equal(cell.style.backgroundColor, '#ff0000');
+    });
+
+    it('should only update specified span property', () => {
+      const tableBlock = createTableBlock(3, 3);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2, rowSpan: 3 });
+      // Update only rowSpan, colSpan should remain
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 2 });
+      const doc = store.getDocument();
+      const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cell.colSpan, 2);
+      assert.equal(cell.rowSpan, 2);
+    });
+
+    it('should clear both spans (splitCell scenario)', () => {
+      const tableBlock = createTableBlock(3, 3);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 2, rowSpan: 2 });
+      // Simulate splitCell: clear both spans
+      store.applyCellSpan(tableBlock.id, 0, 0, { colSpan: 1, rowSpan: 1 });
+      const doc = store.getDocument();
+      const cell = doc.blocks[0].tableData!.rows[0].cells[0];
+      assert.equal(cell.colSpan, undefined);
+      assert.equal(cell.rowSpan, undefined);
+    });
+
+    it('should decrement rowSpan (deleteRow scenario)', () => {
+      const tableBlock = createTableBlock(3, 2);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 3 });
+      // Simulate deleteRow: decrement rowSpan
+      store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 2 });
+      const doc = store.getDocument();
+      assert.equal(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan, 2);
+    });
+  });
+
   describe('insertImageInline', () => {
     it('should insert an image inline at offset', () => {
       const block = makeBlock('Hello');

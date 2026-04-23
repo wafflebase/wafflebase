@@ -1678,6 +1678,59 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
+  applyCellSpan(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    span: { colSpan?: number; rowSpan?: number },
+  ): void {
+    const tablePath = this.resolveTableTreePath(tableBlockId);
+    const currentDoc = this.getDocument();
+    const block = this.resolveTableBlock(tablePath, currentDoc);
+    const cell = block.tableData!.rows[rowIndex].cells[colIndex];
+
+    const cellPath = [...tablePath, rowIndex, colIndex];
+    const attrsToSet: Record<string, string> = {};
+    const attrsToRemove: string[] = [];
+
+    if (span.colSpan !== undefined) {
+      if (span.colSpan !== 1) {
+        attrsToSet.colSpan = String(span.colSpan);
+      } else {
+        attrsToRemove.push('colSpan');
+      }
+    }
+    if (span.rowSpan !== undefined) {
+      if (span.rowSpan !== 1) {
+        attrsToSet.rowSpan = String(span.rowSpan);
+      } else {
+        attrsToRemove.push('rowSpan');
+      }
+    }
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      if (Object.keys(attrsToSet).length > 0) {
+        tree.styleByPath(cellPath, attrsToSet);
+      }
+      if (attrsToRemove.length > 0) {
+        const endPath = [...cellPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(cellPath, endPath, attrsToRemove);
+      }
+    });
+
+    // Update cache after Yorkie update succeeds
+    if (span.colSpan !== undefined) {
+      cell.colSpan = span.colSpan === 1 ? undefined : span.colSpan;
+    }
+    if (span.rowSpan !== undefined) {
+      cell.rowSpan = span.rowSpan === 1 ? undefined : span.rowSpan;
+    }
+
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
   updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: (number | undefined)[] }): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const currentDoc = this.getDocument();
