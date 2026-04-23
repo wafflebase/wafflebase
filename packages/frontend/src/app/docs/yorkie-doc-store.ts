@@ -1739,14 +1739,20 @@ export class YorkieDocStore implements DocStore {
     if (attrs.rowHeights !== undefined) {
       block.tableData!.rowHeights = attrs.rowHeights;
     }
+
+    const nodeAttrs: Record<string, string> = {
+      cols: attrs.cols.join(','),
+    };
+    if (attrs.rowHeights !== undefined) {
+      nodeAttrs.rowHeights = attrs.rowHeights.map(h => h ?? '').join(',');
+    }
+
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      // For the replace range, increment the last path segment by 1
-      const endPath = [...tablePath];
-      endPath[endPath.length - 1] += 1;
-      tree.editByPath(tablePath, endPath, buildBlockNode(block));
+      tree.styleByPath(tablePath, nodeAttrs);
     });
+
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }

@@ -680,4 +680,71 @@ describe('YorkieDocStore concurrent table cell edits', { skip: !shouldRun }, () 
       await ctx.cleanup();
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Concurrent updateTableAttrs + text insert (Phase 7)
+  // -------------------------------------------------------------------------
+
+  it('concurrent updateTableAttrs and text insert should both be preserved', async () => {
+    const table = createTableBlock(2, 2);
+    const cellBlock = table.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'Hello', style: {} }];
+    const ctx = await createTwoUserDocs('table-attrs-text', [table]);
+    try {
+      // Client A: resize columns
+      ctx.storeA.updateTableAttrs(table.id, { cols: [0.7, 0.3] });
+
+      // Client B: insert text in a cell
+      ctx.storeB.insertText(cellBlock.id, 5, ' World');
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      // Column widths should converge
+      assert.deepEqual(docA.blocks[0].tableData!.columnWidths, [0.7, 0.3]);
+      assert.deepEqual(docB.blocks[0].tableData!.columnWidths, [0.7, 0.3]);
+
+      // Text should be preserved
+      const textA = docA.blocks[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text;
+      const textB = docB.blocks[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text;
+      assert.equal(textA, 'Hello World');
+      assert.equal(textB, 'Hello World');
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('concurrent updateTableAttrs with rowHeights and applyCellStyle should both be preserved', async () => {
+    const table = createTableBlock(2, 2);
+    const ctx = await createTwoUserDocs('table-attrs-style', [table]);
+    try {
+      // Client A: set row heights
+      ctx.storeA.updateTableAttrs(table.id, {
+        cols: [0.5, 0.5],
+        rowHeights: [40, undefined],
+      });
+
+      // Client B: apply cell background
+      ctx.storeB.applyCellStyle(table.id, 0, 0, { backgroundColor: '#ff0000' });
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+
+      // Row heights should converge
+      assert.deepEqual(docA.blocks[0].tableData!.rowHeights, [40, undefined]);
+      assert.deepEqual(docB.blocks[0].tableData!.rowHeights, [40, undefined]);
+
+      // Cell style should be preserved
+      const cellStyleA = docA.blocks[0].tableData!.rows[0].cells[0].style;
+      const cellStyleB = docB.blocks[0].tableData!.rows[0].cells[0].style;
+      assert.equal(cellStyleA?.backgroundColor, '#ff0000');
+      assert.equal(cellStyleB?.backgroundColor, '#ff0000');
+    } finally {
+      await ctx.cleanup();
+    }
+  });
 });
