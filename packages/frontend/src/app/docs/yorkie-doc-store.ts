@@ -1098,9 +1098,27 @@ export class YorkieDocStore implements DocStore {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
-      // Resolve offset from the actual Yorkie tree structure
       const treeRoot = tree.getRootTreeNode();
       const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
+      const el = blockNode as ElementNode;
+      const hasInlineChildren = (el.children ?? []).some(
+        (c) => c.type === 'inline',
+      );
+
+      // If the block has no inline children (e.g. empty block left after
+      // a split or concurrent edit), insert a new inline node with the text.
+      if (!hasInlineChildren) {
+        const { image: _, ...style } = targetInline?.style ?? {};
+        void _;
+        tree.editByPath(
+          [...blockPath, 0],
+          [...blockPath, 0],
+          buildInlineNode({ text, style }),
+        );
+        return;
+      }
+
+      // Resolve offset from the actual Yorkie tree structure
       const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
 
       if (targetInline.style.image) {
@@ -1410,40 +1428,76 @@ export class YorkieDocStore implements DocStore {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
-      // Resolve offset from the actual Yorkie tree, not the cache.
       const treeRoot = tree.getRootTreeNode();
       const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
-      const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
-
-      // Native CRDT split: single atomic operation at splitLevel=2.
-      // splitLevel=2 because the text position is 2 levels below block:
-      //   doc → block → inline → text(charOffset)
-      // Two splits are needed: text→inline split + inline→block split.
-      tree.editByPath(
-        [...blockPath, inlineIndex, charOffset],
-        [...blockPath, inlineIndex, charOffset],
-        undefined,
-        2,
+      const el = blockNode as ElementNode;
+      const hasInlineChildren = (el.children ?? []).some(
+        (c) => c.type === 'inline',
       );
 
-      // The split duplicated all attributes. Update the "after" block.
       const afterPath = [...blockPath];
       afterPath[afterPath.length - 1] += 1;
-      const afterAttrs: Record<string, string> = {
-        id: newBlockId,
-        type: newBlockType,
-        ...serializeBlockStyle(block.style),
-      };
-      if (newBlockType === 'list-item' && block.listKind !== undefined) {
-        afterAttrs.listKind = block.listKind;
-        if (block.listLevel !== undefined) {
-          afterAttrs.listLevel = String(block.listLevel);
+
+      if (!hasInlineChildren) {
+        // Block has no inline children — can't use CRDT split.
+        // Ensure the current block has an inline, then insert a new block.
+        tree.editByPath(
+          [...blockPath, 0],
+          [...blockPath, 0],
+          buildInlineNode({ text: '', style: {} }),
+        );
+        const afterAttrs: Record<string, string> = {
+          id: newBlockId,
+          type: newBlockType,
+          ...serializeBlockStyle(block.style),
+        };
+        if (newBlockType === 'list-item' && block.listKind !== undefined) {
+          afterAttrs.listKind = block.listKind;
+          if (block.listLevel !== undefined) {
+            afterAttrs.listLevel = String(block.listLevel);
+          }
         }
+        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
+          afterAttrs.headingLevel = String(block.headingLevel);
+        }
+        tree.editByPath(afterPath, afterPath, buildBlockNode({
+          id: newBlockId,
+          type: newBlockType,
+          inlines: [{ text: '', style: {} }],
+          style: block.style,
+        }));
+        tree.styleByPath(afterPath, afterAttrs);
+      } else {
+        // Resolve offset from the actual Yorkie tree, not the cache.
+        const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
+
+        // Native CRDT split: single atomic operation at splitLevel=2.
+        // splitLevel=2 because the text position is 2 levels below block:
+        //   doc → block → inline → text(charOffset)
+        // Two splits are needed: text→inline split + inline→block split.
+        tree.editByPath(
+          [...blockPath, inlineIndex, charOffset],
+          [...blockPath, inlineIndex, charOffset],
+          undefined,
+          2,
+        );
+
+        const afterAttrs: Record<string, string> = {
+          id: newBlockId,
+          type: newBlockType,
+          ...serializeBlockStyle(block.style),
+        };
+        if (newBlockType === 'list-item' && block.listKind !== undefined) {
+          afterAttrs.listKind = block.listKind;
+          if (block.listLevel !== undefined) {
+            afterAttrs.listLevel = String(block.listLevel);
+          }
+        }
+        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
+          afterAttrs.headingLevel = String(block.headingLevel);
+        }
+        tree.styleByPath(afterPath, afterAttrs);
       }
-      if (newBlockType === 'heading' && block.headingLevel !== undefined) {
-        afterAttrs.headingLevel = String(block.headingLevel);
-      }
-      tree.styleByPath(afterPath, afterAttrs);
     });
 
     // Update cache in-place using the pure-function result

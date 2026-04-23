@@ -380,6 +380,102 @@ describe('YorkieDocStore', () => {
       assert.equal(result.blocks[1].inlines[0].text, '');
     });
 
+    it('should allow insertText into the empty block created by split-at-end', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'paragraph');
+      const after = store.getDocument();
+      const emptyBlockId = after.blocks[1].id;
+      // This must not throw "unacceptable path"
+      store.insertText(emptyBlockId, 0, 'World');
+      const result = store.getDocument();
+      assert.equal(result.blocks[1].inlines[0].text, 'World');
+    });
+
+    it('should allow insertText after splitting an empty block (double Enter)', () => {
+      // Simulates: type "Hello" → Enter → Enter → type "World" in middle empty block
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+
+      // First Enter: split at end of "Hello"
+      store.splitBlock(block.id, 5, 'empty-block-1', 'paragraph');
+      const step1 = store.getDocument();
+      assert.equal(step1.blocks.length, 2);
+
+      // Second Enter: split the empty block at offset 0
+      store.splitBlock('empty-block-1', 0, 'empty-block-2', 'paragraph');
+      const step2 = store.getDocument();
+      assert.equal(step2.blocks.length, 3);
+
+      // Now try to insert text into the first empty block (block index 1)
+      // This must not throw "YorkieError: unacceptable path"
+      store.insertText('empty-block-1', 0, 'World');
+      const result = store.getDocument();
+      assert.equal(result.blocks[1].inlines[0].text, 'World');
+    });
+
+    it('should splitBlock on a block with no inline children in Yorkie tree', () => {
+      // A block with no inline children should be splittable (Enter key).
+      const blockId = 'orphan-block';
+      store.setDocument({
+        blocks: [
+          {
+            id: blockId,
+            type: 'paragraph',
+            inlines: [{ text: '', style: {} }],
+            style: { ...DEFAULT_BLOCK_STYLE },
+          },
+        ],
+      });
+
+      // Remove the inline child from the Yorkie tree
+      doc.update((root) => {
+        root.content.editByPath([0, 0], [0, 1]);
+      });
+
+      // This must not throw "YorkieError: unacceptable path"
+      store.splitBlock(blockId, 0, 'new-block', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 2);
+    });
+
+    it('should insertText into a block with no inline children in Yorkie tree', () => {
+      // Reproduce the production bug: a block exists in the Yorkie tree
+      // with no inline children (e.g. due to prior edits or GC).
+      const blockId = 'orphan-block';
+      // Set up a normal document first
+      store.setDocument({
+        blocks: [
+          {
+            id: blockId,
+            type: 'paragraph',
+            inlines: [{ text: '', style: {} }],
+            style: { ...DEFAULT_BLOCK_STYLE },
+          },
+        ],
+      });
+
+      // Now manually remove the inline child from the Yorkie tree
+      // to simulate the production state where a block has no inlines.
+      doc.update((root) => {
+        const tree = root.content;
+        // Remove the inline child at path [0, 0] to [0, 1]
+        tree.editByPath([0, 0], [0, 1]);
+      });
+
+      // Verify the Yorkie tree block has no inline children
+      const tree = doc.getRoot().content;
+      const treeRoot = tree.getRootTreeNode();
+      const blockNode = treeRoot.children[0];
+      const inlines = (blockNode.children || []).filter((c) => c.type === 'inline');
+      assert.equal(inlines.length, 0, 'block should have no inline children');
+
+      // This must not throw "YorkieError: unacceptable path"
+      store.insertText(blockId, 0, 'Hello');
+      const result = store.getDocument();
+      assert.equal(result.blocks[0].inlines[0].text, 'Hello');
+    });
+
     it('should preserve surrounding blocks', () => {
       const b1 = makeBlock('Before');
       const b2 = makeBlock('SplitMe');
