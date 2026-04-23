@@ -11,7 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTwoUserDocs, makeBlock } from '../../helpers/two-user-docs-yorkie.ts';
-import { generateBlockId } from '@wafflebase/docs';
+import { generateBlockId, createTableBlock } from '@wafflebase/docs';
 import type { Block } from '@wafflebase/docs';
 
 const shouldRun = Boolean(process.env.YORKIE_RPC_ADDR);
@@ -406,6 +406,122 @@ describe('YorkieDocStore concurrent inline styling', { skip: !shouldRun }, () =>
       // All text preserved
       const fullText = docA.blocks.map((b) => b.inlines.map((i) => i.text).join('')).join('');
       assert.equal(fullText, 'HelloWorld', 'All text should be preserved');
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Table cell concurrent editing
+// ---------------------------------------------------------------------------
+
+function getCellText(blocks: Block[], tableIdx: number, rowIdx: number, colIdx: number): string {
+  const table = blocks[tableIdx];
+  const cell = table.tableData!.rows[rowIdx].cells[colIdx];
+  return cell.blocks.flatMap((b) => b.inlines.map((i) => i.text)).join('');
+}
+
+describe('YorkieDocStore concurrent table cell edits', { skip: !shouldRun }, () => {
+
+  it('concurrent text inserts in same cell should merge', async () => {
+    const table = createTableBlock(2, 2);
+    const cellBlock = table.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'Hello', style: {} }];
+    const ctx = await createTwoUserDocs('cell-insert-insert', [table]);
+    try {
+      // Client A: insert at start
+      ctx.storeA.insertText(cellBlock.id, 0, 'A');
+      // Client B: insert at end
+      ctx.storeB.insertText(cellBlock.id, 5, 'B');
+
+      await ctx.sync();
+
+      const textA = getCellText(ctx.storeA.getDocument().blocks, 0, 0, 0);
+      const textB = getCellText(ctx.storeB.getDocument().blocks, 0, 0, 0);
+      assert.equal(textA, textB, 'Both clients should converge');
+      assert.equal(textA.length, 7, 'Both inserts should be preserved');
+      assert.ok(textA.includes('A'), 'Insert A preserved');
+      assert.ok(textA.includes('B'), 'Insert B preserved');
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('concurrent edits in different cells should not conflict', async () => {
+    const table = createTableBlock(2, 2);
+    const cell00 = table.tableData!.rows[0].cells[0].blocks[0];
+    const cell11 = table.tableData!.rows[1].cells[1].blocks[0];
+    cell00.inlines = [{ text: 'AAA', style: {} }];
+    cell11.inlines = [{ text: 'BBB', style: {} }];
+    const ctx = await createTwoUserDocs('cell-different-cells', [table]);
+    try {
+      // Client A edits cell [0][0]
+      ctx.storeA.insertText(cell00.id, 3, '111');
+      // Client B edits cell [1][1]
+      ctx.storeB.insertText(cell11.id, 3, '222');
+
+      await ctx.sync();
+
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+      assert.equal(getCellText(docA.blocks, 0, 0, 0), 'AAA111');
+      assert.equal(getCellText(docA.blocks, 0, 1, 1), 'BBB222');
+      assert.equal(getCellText(docB.blocks, 0, 0, 0), 'AAA111');
+      assert.equal(getCellText(docB.blocks, 0, 1, 1), 'BBB222');
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('concurrent text insert and bold in same cell should both be preserved', async () => {
+    const table = createTableBlock(1, 1);
+    const cellBlock = table.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'HelloWorld', style: {} }];
+    const ctx = await createTwoUserDocs('cell-insert-style', [table]);
+    try {
+      // Client A: bold "World" (offset 5..10)
+      ctx.storeA.applyStyle(cellBlock.id, 5, 10, { bold: true });
+      // Client B: insert text at offset 3
+      ctx.storeB.insertText(cellBlock.id, 3, 'XX');
+
+      await ctx.sync();
+
+      const textA = getCellText(ctx.storeA.getDocument().blocks, 0, 0, 0);
+      const textB = getCellText(ctx.storeB.getDocument().blocks, 0, 0, 0);
+      assert.equal(textA, textB, 'Both clients should converge');
+      assert.equal(textA.length, 12, 'Insert should be preserved');
+      assert.ok(textA.includes('XX'), 'Inserted text preserved');
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  it('concurrent split in cell and text insert in same cell should converge', async () => {
+    const table = createTableBlock(1, 1);
+    const cellBlock = table.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'HelloWorld', style: {} }];
+    const ctx = await createTwoUserDocs('cell-split-insert', [table]);
+    try {
+      // Client A: split at offset 5 (Enter key in cell)
+      ctx.storeA.splitBlock(cellBlock.id, 5, generateBlockId(), 'paragraph');
+      // Client B: insert text at offset 3
+      ctx.storeB.insertText(cellBlock.id, 3, 'XX');
+
+      await ctx.sync();
+
+      // Both clients should converge
+      const docA = ctx.storeA.getDocument();
+      const docB = ctx.storeB.getDocument();
+      const cellA = docA.blocks[0].tableData!.rows[0].cells[0];
+      const cellB = docB.blocks[0].tableData!.rows[0].cells[0];
+
+      const fullTextA = cellA.blocks.flatMap((b) => b.inlines.map((i) => i.text)).join('');
+      const fullTextB = cellB.blocks.flatMap((b) => b.inlines.map((i) => i.text)).join('');
+      assert.equal(fullTextA, fullTextB, 'Text should converge');
+      assert.ok(cellA.blocks.length >= 2, 'Split should produce ≥2 blocks in cell');
+      assert.equal(fullTextA.length, 12, 'Both insert and split should be preserved');
+      assert.ok(fullTextA.includes('XX'), 'Inserted text should be preserved');
     } finally {
       await ctx.cleanup();
     }
