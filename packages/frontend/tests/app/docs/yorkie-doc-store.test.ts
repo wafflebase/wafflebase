@@ -1289,6 +1289,28 @@ describe('YorkieDocStore', () => {
       assert.equal(cell.blocks[1].inlines[0].text, 'CellInserted');
     });
 
+    it('should insert a block after a body sibling when header exists', () => {
+      const b1 = makeBlock('Body1');
+      const b2 = makeBlock('Body2');
+      const headerBlock = makeBlock('Header');
+      store.setDocument({
+        blocks: [b1, b2],
+        header: { blocks: [headerBlock], marginFromEdge: 48 },
+      });
+
+      const newBlock = makeBlock('Inserted');
+      store.insertBlockAfter(b1.id, newBlock);
+
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 3);
+      assert.equal(result.blocks[0].inlines[0].text, 'Body1');
+      assert.equal(result.blocks[1].inlines[0].text, 'Inserted');
+      assert.equal(result.blocks[2].inlines[0].text, 'Body2');
+      // Header should be unchanged
+      assert.equal(result.header!.blocks.length, 1);
+      assert.equal(result.header!.blocks[0].inlines[0].text, 'Header');
+    });
+
     it('should insert a table block after a cell-internal sibling', () => {
       const { tableBlock, doc } = makeTableDoc();
       store.setDocument(doc);

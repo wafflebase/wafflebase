@@ -381,13 +381,13 @@ git commit -m $'Add concurrent integration test for cell block insert + text edi
 
 In `docs/design/docs/docs-intent-preserving-edits.md`, change:
 
-```
+```text
 | 8 | Cell structural edits (editByPath) | In Progress |
 ```
 
 to:
 
-```
+```text
 | 8 | Cell structural edits (editByPath) | ✅ Shipped |
 ```
 

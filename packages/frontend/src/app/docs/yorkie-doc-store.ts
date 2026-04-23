@@ -1345,7 +1345,9 @@ export class YorkieDocStore implements DocStore {
 
     // Update cache in-place
     const blocksArray = this.getBlocksArrayForPath(currentDoc, siblingPath, region);
-    const localIdx = siblingPath[siblingPath.length - 1];
+    const localIdx = this.isCellBlockPath(siblingPath, region)
+      ? siblingPath[siblingPath.length - 1]
+      : this.getRegionBlocks(currentDoc, siblingPath, region).topIndex;
     blocksArray.splice(localIdx + 1, 0, block);
     this.cachedDoc = currentDoc;
     this.dirty = false;
