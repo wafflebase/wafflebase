@@ -125,7 +125,7 @@ divergence cannot be fully ruled out until these are resolved upstream.
 | 5 | Block/cell attribute edits (styleByPath) | ✅ Shipped |
 | 6 | Cell span attributes (styleByPath) | ✅ Shipped |
 | 7 | Table-level attributes (styleByPath on block) | ✅ Shipped |
-| 8 | Cell structural edits (editByPath) | Planned |
+| 8 | Cell structural edits (editByPath) | ✅ Shipped |
 | 9 | Yorkie-native undo/redo (feature-flagged) | Planned |
 
 ### Phase 4: Table Cell Internal Edits
@@ -216,16 +216,48 @@ Attributes are serialized as comma-separated strings on the block node
 
 ### Phase 8: Cell Structural Edits
 
-Insert or remove blocks inside a cell, or merge content across cells.
-Use `editByPath` at block level within cell containers.
+Migrate cell-internal block insert/delete from `updateTableCell` (full cell
+replacement) to `editByPath` (block-level CRDT operations). Operations where
+full replacement IS the intent (`mergeCells` covered cell reset,
+`updateBlockDirect` paste) remain unchanged.
 
-| Call site | Trigger | Current method |
-|-----------|---------|----------------|
-| `splitBlock()` (HR/page-break in cell) | non-splittable block in cell | `store.updateTableCell` |
-| `insertTableInCell()` | nested table insertion | `store.updateTableCell` |
-| `deleteTableInCell()` | nested table deletion | `store.updateTableCell` |
-| `mergeCells()` | multi-cell content consolidation | `store.updateTableCell` (loop) |
-| `updateBlockDirect()` | external inline modification | `store.updateBlock` |
+**Strategy: Unified blockId resolution (approach B)**
+
+Reuse the Phase 4 `resolveBlockTreePath(blockId)` DFS to resolve cell-internal
+blocks transparently. One new store method `insertBlockAfter(siblingBlockId,
+block)` handles all insertion cases. Existing `deleteBlock(id)` is extended
+to handle cell-internal blocks.
+
+**New store method:**
+
+```typescript
+insertBlockAfter(siblingBlockId: string, block: Block): void;
+```
+
+- `resolveBlockTreePath(siblingBlockId)` resolves the sibling path
+- YorkieDocStore: `editByPath([...path+1], [...path+1], buildBlockNode(block))`
+- MemDocStore: `findBlockInAnyArray(siblingBlockId)` → `splice(index+1, 0, block)`
+
+**Migrated call sites:**
+
+| Call site | Before | After |
+|-----------|--------|-------|
+| `splitBlock()` HR/page-break in cell | `store.updateTableCell` (whole cell) | `store.insertBlockAfter(blockId, newBlock)` |
+| `insertTableInCell()` | `store.updateTableCell` (whole cell) | `store.insertBlockAfter(blockId, newTable)` |
+| `deleteTableInCell()` | `store.updateTableCell` (whole cell) | `store.deleteBlock(tableBlockId)` |
+
+**Retained LWW call sites (full replacement is the intent):**
+
+| Call site | Reason |
+|-----------|--------|
+| `mergeCells()` covered cell reset | Deliberately clearing cell content |
+| `splitCell()` covered cell reset | Deliberately resetting to empty |
+| `updateBlockDirect()` paste | Replacing entire block content |
+
+**deleteTableInCell empty-cell guard:** After deleting the last block in a
+cell, the cell must retain at least one block. When the deleted block is the
+only block, replace it with an empty paragraph via `updateBlock` instead of
+deleting.
 
 ## Known Issues
 

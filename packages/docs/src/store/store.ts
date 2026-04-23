@@ -97,4 +97,6 @@ export interface DocStore {
   ): void;
   /** Insert an image inline at a block-level character offset. */
   insertImageInline(blockId: string, offset: number, inline: Inline): void;
+  /** Insert a block after the given sibling block (works for top-level and cell-internal blocks). */
+  insertBlockAfter(siblingBlockId: string, block: Block): void;
 }

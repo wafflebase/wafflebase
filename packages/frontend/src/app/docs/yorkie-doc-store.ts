@@ -1329,6 +1329,28 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
+  insertBlockAfter(siblingBlockId: string, block: Block): void {
+    const currentDoc = this.getDocument();
+    const { path: siblingPath, region } = this.resolveBlockTreePath(siblingBlockId, currentDoc);
+
+    // Insert position is immediately after the sibling
+    const insertPath = [...siblingPath];
+    insertPath[insertPath.length - 1] += 1;
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.editByPath(insertPath, insertPath, buildBlockNode(block));
+    });
+
+    // Update cache in-place
+    const blocksArray = this.getBlocksArrayForPath(currentDoc, siblingPath, region);
+    const localIdx = siblingPath[siblingPath.length - 1];
+    blocksArray.splice(localIdx + 1, 0, block);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
   deleteBlock(id: string): void {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(id, currentDoc);

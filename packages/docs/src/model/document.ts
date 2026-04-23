@@ -276,11 +276,7 @@ export class Doc {
       };
       const cellInfo = this._blockParentMap.get(blockId);
       if (cellInfo) {
-        const tableBlock = this.getBlock(cellInfo.tableBlockId);
-        const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
-        const idx = cell.blocks.findIndex((b) => b.id === blockId);
-        cell.blocks.splice(idx + 1, 0, newBlock);
-        this.store.updateTableCell(cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell);
+        this.store.insertBlockAfter(blockId, newBlock);
       } else {
         const blockIndex = this.getBlockIndex(blockId);
         this.store.insertBlock(blockIndex + 1, newBlock);
@@ -553,15 +549,9 @@ export class Doc {
     if (!cellInfo) {
       throw new Error(`Block ${blockId} is not inside a table cell`);
     }
-    const tableBlock = this.getBlock(cellInfo.tableBlockId);
-    const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
-    const blockIndex = cell.blocks.findIndex((b) => b.id === blockId);
 
     const newTable = createTableBlock(rows, cols);
-    cell.blocks.splice(blockIndex + 1, 0, newTable);
-    this.store.updateTableCell(
-      cellInfo.tableBlockId, cellInfo.rowIndex, cellInfo.colIndex, cell,
-    );
+    this.store.insertBlockAfter(blockId, newTable);
     this.refresh();
     return newTable;
   }
@@ -578,20 +568,24 @@ export class Doc {
     }
     const parentTableBlock = this.getBlock(parentCellInfo.tableBlockId);
     const parentCell = parentTableBlock.tableData!.rows[parentCellInfo.rowIndex].cells[parentCellInfo.colIndex];
-    const idx = parentCell.blocks.findIndex((b) => b.id === tableBlockId);
-    if (idx !== -1) {
-      parentCell.blocks.splice(idx, 1);
-    }
-    // Ensure cell still has at least one block
-    if (parentCell.blocks.length === 0) {
+    const cellBlockCount = parentCell.blocks.length;
+
+    if (cellBlockCount <= 1) {
+      // Only block in cell — replace with empty paragraph instead of deleting
       const emptyBlock = createTableCell().blocks[0];
-      parentCell.blocks.push(emptyBlock);
+      this.store.updateBlock(tableBlockId, emptyBlock);
+      this.refresh();
+      return emptyBlock.id;
     }
-    this.store.updateTableCell(
-      parentCellInfo.tableBlockId, parentCellInfo.rowIndex, parentCellInfo.colIndex, parentCell,
-    );
+
+    // Multiple blocks — safe to delete; find cursor target before removal
+    const idx = parentCell.blocks.findIndex((b) => b.id === tableBlockId);
+    const cursorBlockId = idx > 0
+      ? parentCell.blocks[idx - 1].id
+      : parentCell.blocks[1].id;
+    this.store.deleteBlock(tableBlockId);
     this.refresh();
-    return parentCell.blocks[0].id;
+    return cursorBlockId;
   }
 
   /**
