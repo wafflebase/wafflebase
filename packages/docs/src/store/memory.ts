@@ -1,4 +1,4 @@
-import type { Block, BlockStyle, Document, HeadingLevel, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
 import type { DocStore } from './store.js';
 import { applyInsertText, applyDeleteText, applyInlineStyle as applyInlineStyleHelper, applySplitBlock, applyMergeBlocks } from './block-helpers.js';
@@ -224,6 +224,15 @@ export class MemDocStore implements DocStore {
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void {
     const block = this.findBlock(blockId);
     block.style = normalizeBlockStyle({ ...block.style, ...style });
+  }
+
+  applyCellStyle(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    style: Partial<CellStyle>,
+  ): void {
+    const block = this.findBlock(tableBlockId);
+    const cell = block.tableData!.rows[rowIndex].cells[colIndex];
+    cell.style = { ...cell.style, ...style };
   }
 
   private findBlock(id: string): Block {

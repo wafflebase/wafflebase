@@ -817,10 +817,7 @@ export class Doc {
     cell: CellAddress,
     style: Partial<CellStyle>,
   ): void {
-    const block = this.getBlock(blockId);
-    const tableCell = this.getTableCell(block, cell);
-    tableCell.style = { ...tableCell.style, ...style };
-    this.store.updateTableCell(blockId, cell.rowIndex, cell.colIndex, tableCell);
+    this.store.applyCellStyle(blockId, cell.rowIndex, cell.colIndex, style);
     this.refresh();
   }
 
@@ -902,14 +899,6 @@ export class Doc {
     const parentInfo = this._blockParentMap.get(tableBlockId);
     if (!parentInfo) return tableBlockId;
     return this.findRootTableId(parentInfo.tableBlockId);
-  }
-
-  /**
-   * Get a table cell from a block, throwing if the block has no table data.
-   */
-  private getTableCell(block: Block, cell: CellAddress): TableCell {
-    if (!block.tableData) throw new Error('Block is not a table');
-    return block.tableData.rows[cell.rowIndex].cells[cell.colIndex];
   }
 
   /**

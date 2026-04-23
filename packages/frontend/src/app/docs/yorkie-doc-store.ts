@@ -1583,6 +1583,30 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
+  applyCellStyle(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    style: Partial<CellStyle>,
+  ): void {
+    const tablePath = this.resolveTableTreePath(tableBlockId);
+    const currentDoc = this.getDocument();
+    const block = this.resolveTableBlock(tablePath, currentDoc);
+    const cell = block.tableData!.rows[rowIndex].cells[colIndex];
+    const merged = { ...cell.style, ...style };
+    cell.style = merged;
+
+    // Build serialized attributes for the cell node
+    const attrs = serializeCellStyle({ ...cell, style: merged });
+
+    this.doc.update((root) => {
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.styleByPath([...tablePath, rowIndex, colIndex], attrs);
+    });
+
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
   updateTableAttrs(tableBlockId: string, attrs: { cols: number[]; rowHeights?: (number | undefined)[] }): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const currentDoc = this.getDocument();

@@ -1,4 +1,4 @@
-import type { Block, BlockStyle, Document, HeadingLevel, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
+import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
 
 /**
  * DocStore interface — persistence abstraction for documents.
@@ -82,4 +82,9 @@ export interface DocStore {
   ): void;
   /** Apply partial block-level style (alignment, margins, etc.) via styleByPath. */
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void;
+  /** Apply partial cell style (background, borders, alignment) via styleByPath. */
+  applyCellStyle(
+    tableBlockId: string, rowIndex: number, colIndex: number,
+    style: Partial<CellStyle>,
+  ): void;
 }
