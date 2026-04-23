@@ -927,10 +927,6 @@ export class Doc {
   }
 
   /**
-   * Merge adjacent inlines with identical styles.
-   * Removes empty inlines (keeping at least one).
-   */
-  /**
    * Get a table cell from a block, throwing if the block has no table data.
    */
   private getTableCell(block: Block, cell: CellAddress): TableCell {

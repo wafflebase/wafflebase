@@ -732,9 +732,9 @@ export class YorkieDocStore implements DocStore {
     region: 'header' | 'body' | 'footer',
   ): { blocks: Block[]; topIndex: number } {
     if (region === 'header') {
-      return { blocks: doc.header!.blocks, topIndex: blockPath[blockPath.length === 1 ? 0 : 1] };
+      return { blocks: doc.header!.blocks, topIndex: blockPath[1] };
     } else if (region === 'footer') {
-      return { blocks: doc.footer!.blocks, topIndex: blockPath[blockPath.length === 1 ? 0 : 1] };
+      return { blocks: doc.footer!.blocks, topIndex: blockPath[1] };
     }
     return { blocks: doc.blocks, topIndex: blockPath[0] - this.bodyTreeOffset(doc) };
   }
@@ -1126,14 +1126,9 @@ export class YorkieDocStore implements DocStore {
     });
 
     // Update cache in-place
-    if (region === 'header') {
-      currentDoc.header!.blocks.splice(blockPath[blockPath.length - 1], 1);
-    } else if (region === 'footer') {
-      currentDoc.footer!.blocks.splice(blockPath[blockPath.length - 1], 1);
-    } else {
-      const index = blockPath[0] - this.bodyTreeOffset(currentDoc);
-      currentDoc.blocks.splice(index, 1);
-    }
+    const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
+    const localIdx = blockPath[blockPath.length - 1];
+    blocksArray.splice(localIdx, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
   }
