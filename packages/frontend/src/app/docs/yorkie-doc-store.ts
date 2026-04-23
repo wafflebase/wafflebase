@@ -1295,14 +1295,21 @@ export class YorkieDocStore implements DocStore {
       throw new Error('Blocks to merge must be adjacent and in order');
     }
 
-    const firstBlockInlineCount = firstBlock.inlines.length;
     this.doc.update((root) => {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      // Read inline count from the actual tree, not the cache, because
+      // previous split/merge operations can leave the tree with a different
+      // number of inline nodes than the cache (e.g. split fragments).
+      const treeRoot = tree.getRootTreeNode();
+      const blockNode = this.getTreeBlockNode(treeRoot, blockPath) as ElementNode;
+      const treeInlineCount = (blockNode.children ?? []).filter(
+        (c) => c.type === 'inline',
+      ).length;
       // Delete the boundary between the two blocks. This range starts just
       // past the last inline of the first block and ends just before the
       // first inline of the next block, causing Yorkie Tree to merge them.
-      tree.editByPath([...blockPath, firstBlockInlineCount], [...nextPath, 0]);
+      tree.editByPath([...blockPath, treeInlineCount], [...nextPath, 0]);
     });
 
     const merged = applyMergeBlocks(firstBlock, nextBlock);
