@@ -124,7 +124,7 @@ divergence cannot be fully ruled out until these are resolved upstream.
 | 4 | Table cell internal edits (extend Phase 1–3) | ✅ Shipped |
 | 5 | Block/cell attribute edits (styleByPath) | ✅ Shipped |
 | 6 | Cell span attributes (styleByPath) | ✅ Shipped |
-| 7 | Table-level attributes (styleByPath on block) | Planned |
+| 7 | Table-level attributes (styleByPath on block) | ✅ Shipped |
 | 8 | Cell structural edits (editByPath) | Planned |
 | 9 | Yorkie-native undo/redo (feature-flagged) | Planned |
 
@@ -196,20 +196,23 @@ pattern as Phase 5's `applyCellStyle`.
 to clear them (value 1 = default = remove from tree). Covered cell block reset
 in `splitCell` still uses `updateTableCell` (Phase 8).
 
-### Phase 7: Table-Level Attributes
+### Phase 7: Table-Level Attributes ✅
 
 Column widths and row heights are block-level attributes on the table node.
-Migrate `updateTableAttrs` to `styleByPath` on the block node.
+Migrated `updateTableAttrs` from `editByPath` (full block replacement) to
+`styleByPath` on the block node.
 
-| Call site | Trigger | Current method |
-|-----------|---------|----------------|
-| `insertRow()` | rowHeights update | `store.updateTableAttrs` |
-| `deleteRow()` | rowHeights update | `store.updateTableAttrs` |
-| `insertColumn()` | columnWidths update | `store.updateTableAttrs` |
-| `deleteColumn()` | columnWidths update | `store.updateTableAttrs` |
-| `setColumnWidth()` | single column resize | `store.updateTableAttrs` |
-| `setColumnWidthPair()` | adjacent column resize | `store.updateTableAttrs` |
-| `setRowHeight()` | row height resize | `store.updateTableAttrs` |
+| Before | After |
+|--------|-------|
+| `editByPath(tablePath, endPath, buildBlockNode(block))` | `styleByPath(tablePath, { cols, rowHeights })` |
+
+All 7 call sites (`insertRow`, `deleteRow`, `insertColumn`, `deleteColumn`,
+`setColumnWidth`, `resizeColumn`, `setRowHeight`) are routed through the
+same `updateTableAttrs` store method — no Doc-level changes needed.
+
+Attributes are serialized as comma-separated strings on the block node
+(`cols: "0.5,0.5"`, `rowHeights: "40,"`), matching the existing
+`buildBlockNode` format.
 
 ### Phase 8: Cell Structural Edits
 
