@@ -207,7 +207,6 @@ export class Doc {
    * The image inline uses \uFFFC as its text character.
    */
   insertImageInline(blockId: string, offset: number, imageInline: Inline): void {
-    this.store.snapshot();
     this.store.insertImageInline(blockId, offset, imageInline);
     this.refresh();
   }

@@ -82,7 +82,8 @@ export interface DocStore {
   ): void;
   /** Apply partial block-level style (alignment, margins, etc.) via styleByPath. */
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void;
-  /** Apply partial cell style (background, borders, alignment) via styleByPath. */
+  /** Apply partial cell style (background, borders, alignment) via styleByPath.
+   *  Additive only — setting a property to undefined will not remove it from the tree. */
   applyCellStyle(
     tableBlockId: string, rowIndex: number, colIndex: number,
     style: Partial<CellStyle>,

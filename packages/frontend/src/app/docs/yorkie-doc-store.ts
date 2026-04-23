@@ -1029,11 +1029,25 @@ export class YorkieDocStore implements DocStore {
 
       const newNode = buildInlineNode(inline);
 
+      // Determine inline text length to detect end boundary
+      const inlineEl = ((blockNode as ElementNode).children ?? [])
+        .filter((c): c is ElementNode => c.type === 'inline')[inlineIndex];
+      const inlineTextLen = (inlineEl?.children ?? [])
+        .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+        .reduce((sum, t) => sum + t.value.length, 0);
+
       if (charOffset === 0) {
         // Insert before current inline
         tree.editByPath(
           [...blockPath, inlineIndex],
           [...blockPath, inlineIndex],
+          newNode,
+        );
+      } else if (charOffset === inlineTextLen) {
+        // At inline end boundary: insert after without splitting
+        tree.editByPath(
+          [...blockPath, inlineIndex + 1],
+          [...blockPath, inlineIndex + 1],
           newNode,
         );
       } else {

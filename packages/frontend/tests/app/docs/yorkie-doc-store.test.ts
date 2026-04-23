@@ -1023,6 +1023,22 @@ describe('YorkieDocStore', () => {
       assert.ok(result.inlines[0].style.image);
     });
 
+    it('should insert image at end of block without empty trailing inline', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.insertImageInline(block.id, 5, {
+        text: '\uFFFC',
+        style: { image: { src: 'end.png', width: 100, height: 50 } },
+      });
+      const result = store.getBlock(block.id)!;
+      const fullText = result.inlines.map((i) => i.text).join('');
+      assert.equal(fullText, 'Hello\uFFFC');
+      // No empty trailing inline should exist
+      for (const il of result.inlines) {
+        assert.ok(il.text.length > 0, `Inline should not be empty: "${il.text}"`);
+      }
+    });
+
     it('should work for cell-internal blocks', () => {
       const { tableBlock, cellBlockId } = makeTableWithText();
       store.setDocument({ blocks: [tableBlock] });
