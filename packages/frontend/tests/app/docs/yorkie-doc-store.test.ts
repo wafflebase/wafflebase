@@ -491,6 +491,60 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('deleteText', () => {
+    it('should keep at least one inline when deleting all text from a block with multiple empty inlines', () => {
+      // Reproduce the production bug (server_seq=630):
+      // 1. Block has 2 empty inlines (from split producing split fragments)
+      // 2. Text is inserted into the first inline
+      // 3. Text is deleted — cleanup loop should keep at least 1 inline
+      const b1 = makeBlock('Hello');
+      const b2 = makeBlock('World');
+      store.setDocument({ blocks: [b1, b2] });
+
+      // Split b1 at end → creates a new empty block between b1 and b2
+      const newBlockId = generateBlockId();
+      store.splitBlock(b1.id, 5, newBlockId, 'paragraph');
+
+      // Now manually add a second empty inline to simulate split fragments
+      // (production scenario: split on a block that already had an empty inline)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      doc.update((root: any) => {
+        const tree = root.content;
+        tree.editByPath([1, 1], [1, 1], {
+          type: 'inline',
+          attributes: {},
+          children: [],
+        });
+      });
+
+      // Verify the block now has 2 empty inlines in the Yorkie tree
+      const treeBefore = doc.getRoot().content;
+      const rootBefore = treeBefore.getRootTreeNode();
+      const blockBefore = rootBefore.children[1];
+      const inlinesBefore = (blockBefore.children || []).filter(
+        (c: { type: string }) => c.type === 'inline',
+      );
+      assert.equal(inlinesBefore.length, 2, 'block should have 2 empty inlines');
+
+      // Insert text into the block, then delete it
+      store.insertText(newBlockId, 0, 'X');
+      store.deleteText(newBlockId, 0, 1);
+
+      // The block must still have at least 1 inline child
+      const treeAfter = doc.getRoot().content;
+      const rootAfter = treeAfter.getRootTreeNode();
+      const blockAfter = rootAfter.children[1];
+      const inlinesAfter = (blockAfter.children || []).filter(
+        (c: { type: string }) => c.type === 'inline',
+      );
+      assert.equal(inlinesAfter.length, 1, `block should have exactly 1 inline, got ${inlinesAfter.length}`);
+
+      // getDocument should also work without errors
+      const result = store.getDocument();
+      assert.equal(result.blocks[1].inlines.length, 1);
+    });
+  });
+
   describe('mergeBlock', () => {
     it('should merge two adjacent blocks into one', () => {
       const b1 = makeBlock('Hello');
