@@ -1183,16 +1183,16 @@ export class YorkieDocStore implements DocStore {
         [...blockPath, treeEnd.inlineIndex, treeEnd.charOffset],
       );
 
-      // Remove any inlines that became empty after deletion
+      // Remove any inlines that became empty after deletion, but keep at least 1
       const updatedBlockNode = this.getTreeBlockNode(tree.getRootTreeNode(), blockPath) as ElementNode;
       const inlines = (updatedBlockNode.children ?? []).filter((c) => c.type === 'inline') as ElementNode[];
-      for (let i = inlines.length - 1; i >= 0; i--) {
-        if (inlines.length <= 1) break; // keep at least one
+      for (let i = inlines.length - 1; i >= 0 && inlines.length > 1; i--) {
         const textLen = (inlines[i].children ?? [])
           .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
           .reduce((sum, t) => sum + t.value.length, 0);
         if (textLen === 0) {
           tree.editByPath([...blockPath, i], [...blockPath, i + 1]);
+          inlines.splice(i, 1);
         }
       }
     });
