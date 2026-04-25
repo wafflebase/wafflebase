@@ -756,6 +756,37 @@ export class YorkieDocStore implements DocStore {
     return { inlineIndex: Math.max(0, lastIdx), charOffset: lastLen };
   }
 
+  /**
+   * Like resolveBlockNodeOffset but skips image inlines to prevent
+   * splitLevel=2 from splitting through an image element.
+   * When the resolved inline has image attributes, we move to the
+   * start of the next inline so the image stays in the "before" block.
+   */
+  private resolveBlockNodeOffsetForSplit(
+    blockNode: TreeNode,
+    offset: number,
+  ): { inlineIndex: number; charOffset: number } {
+    const result = this.resolveBlockNodeOffset(blockNode, offset);
+    const el = blockNode as ElementNode;
+    const inlineChildren = (el.children ?? []).filter(
+      (c): c is ElementNode => c.type === 'inline',
+    );
+    const resolved = inlineChildren[result.inlineIndex];
+    const hasImage = resolved?.attributes && Object.keys(resolved.attributes).some(
+      (k) => k.startsWith('image.'),
+    );
+    const textLen = (resolved?.children ?? [])
+      .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+      .reduce((sum, t) => sum + t.value.length, 0);
+    // Only skip when charOffset equals textLen (the end-of-image boundary
+    // caused by resolveOffset's <= semantics).  charOffset < textLen means
+    // the cursor is before the image and should not be moved.
+    if (hasImage && result.charOffset === textLen && result.inlineIndex + 1 < inlineChildren.length) {
+      return { inlineIndex: result.inlineIndex + 1, charOffset: 0 };
+    }
+    return result;
+  }
+
   /** Log the Yorkie Tree state at a given block path for debugging. */
   private logTreeState(op: string, blockPath: number[]): void {
     try {
@@ -1469,7 +1500,8 @@ export class YorkieDocStore implements DocStore {
         tree.styleByPath(afterPath, afterAttrs);
       } else {
         // Resolve offset from the actual Yorkie tree, not the cache.
-        const { inlineIndex, charOffset } = this.resolveBlockNodeOffset(blockNode, offset);
+        // Use the split-aware resolver to skip image inlines.
+        const { inlineIndex, charOffset } = this.resolveBlockNodeOffsetForSplit(blockNode, offset);
 
         // Native CRDT split: single atomic operation at splitLevel=2.
         // splitLevel=2 because the text position is 2 levels below block:

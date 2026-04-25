@@ -146,6 +146,24 @@ export function resolveStyleRange(
 }
 
 /**
+ * Like `resolveOffset` but treats an offset at the exact end of an
+ * image inline as belonging to the NEXT inline instead.  This prevents
+ * `splitLevel=2` from splitting through the image element.
+ */
+export function resolveOffsetForSplit(block: Block, offset: number): InlinePosition {
+  const result = resolveOffset(block, offset);
+  const inline = block.inlines[result.inlineIndex];
+  if (
+    inline?.style.image &&
+    result.charOffset === inline.text.length &&
+    result.inlineIndex + 1 < block.inlines.length
+  ) {
+    return { inlineIndex: result.inlineIndex + 1, charOffset: 0 };
+  }
+  return result;
+}
+
+/**
  * Get the inline style at a split point so empty sides preserve formatting.
  */
 function getSplitPointStyle(inlines: Inline[], offset: number): InlineStyle {

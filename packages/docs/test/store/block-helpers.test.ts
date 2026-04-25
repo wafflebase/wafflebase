@@ -1,7 +1,7 @@
 // packages/docs/test/store/block-helpers.test.ts
 import { describe, it, expect } from 'vitest';
-import { resolveOffset, resolveDeleteRange, applyInsertText, applyDeleteText, resolveStyleRange, applyInlineStyle, applySplitBlock, applyMergeBlocks } from '../../src/store/block-helpers.js';
-import type { Block } from '../../src/model/types.js';
+import { resolveOffset, resolveDeleteRange, applyInsertText, applyDeleteText, resolveStyleRange, applyInlineStyle, applySplitBlock, applyMergeBlocks, resolveOffsetForSplit } from '../../src/store/block-helpers.js';
+import type { Block, ImageData } from '../../src/model/types.js';
 import { DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 
 function makeBlock(...inlines: Array<{ text: string; style?: Record<string, unknown> }>): Block {
@@ -266,6 +266,95 @@ describe('applySplitBlock', () => {
     expect(before.inlines[1]).toEqual({ text: 'C', style: { italic: true } });
     expect(after.inlines).toHaveLength(1);
     expect(after.inlines[0]).toEqual({ text: 'D', style: { italic: true } });
+  });
+});
+
+const IMG: ImageData = { src: 'https://example.com/img.jpg', width: 100, height: 100 };
+
+describe('resolveOffsetForSplit — image skip', () => {
+  it('returns same as resolveOffset for text inlines', () => {
+    const block = makeBlock({ text: 'Hello' });
+    expect(resolveOffsetForSplit(block, 3)).toEqual({ inlineIndex: 0, charOffset: 3 });
+  });
+
+  it('skips image inline when offset resolves to end of image', () => {
+    // "AB"(2) + image(1) + "CD"(2).
+    // offset=3 → resolveOffset maps to {1, 1} (end of image inline).
+    // resolveOffsetForSplit must skip to {2, 0} (start of "CD") so
+    // splitLevel=2 never splits through the image element.
+    const block = makeBlock(
+      { text: 'AB' },
+      { text: '\uFFFC', style: { image: IMG } },
+      { text: 'CD' },
+    );
+    expect(resolveOffset(block, 3)).toEqual({ inlineIndex: 1, charOffset: 1 });
+    expect(resolveOffsetForSplit(block, 3)).toEqual({ inlineIndex: 2, charOffset: 0 });
+  });
+
+  it('does not skip when offset resolves to text inline before image', () => {
+    // offset=2 → resolveOffset maps to {0, 2} (end of "AB"), not image.
+    const block = makeBlock(
+      { text: 'AB' },
+      { text: '\uFFFC', style: { image: IMG } },
+      { text: 'CD' },
+    );
+    expect(resolveOffsetForSplit(block, 2)).toEqual({ inlineIndex: 0, charOffset: 2 });
+  });
+
+  it('does not skip when image is last inline (no next inline to skip to)', () => {
+    const block = makeBlock(
+      { text: 'Hello' },
+      { text: '\uFFFC', style: { image: IMG } },
+    );
+    // offset=6 → {1, 1} on image, but no next inline
+    expect(resolveOffsetForSplit(block, 6)).toEqual({ inlineIndex: 1, charOffset: 1 });
+  });
+
+  it('does not skip for text inline after image', () => {
+    const block = makeBlock(
+      { text: '\uFFFC', style: { image: IMG } },
+      { text: 'Hello' },
+    );
+    // offset=3 → resolveOffset maps to {1, 2} (text inline, not image)
+    expect(resolveOffsetForSplit(block, 3)).toEqual({ inlineIndex: 1, charOffset: 2 });
+  });
+});
+
+describe('applySplitBlock — image boundary (cache path)', () => {
+  it('keeps image in before-block when offset is at image end', () => {
+    // offset=3 is at image inlineEnd. applySplitBlock uses (inlineEnd <= offset)
+    // which correctly puts the image in before-block.
+    const block = makeBlock(
+      { text: 'AB' },
+      { text: '\uFFFC', style: { image: IMG } },
+      { text: 'CD' },
+    );
+    const [before, after] = applySplitBlock(block, 3, 'b2', 'paragraph');
+
+    expect(before.inlines).toHaveLength(2);
+    expect(before.inlines[0].text).toBe('AB');
+    expect(before.inlines[1].text).toBe('\uFFFC');
+    expect(before.inlines[1].style.image).toEqual(IMG);
+
+    expect(after.inlines).toHaveLength(1);
+    expect(after.inlines[0].text).toBe('CD');
+    expect(after.inlines[0].style.image).toBeUndefined();
+  });
+
+  it('keeps image in before-block when image is at end of block', () => {
+    const block = makeBlock(
+      { text: 'Hello' },
+      { text: '\uFFFC', style: { image: IMG } },
+    );
+    const [before, after] = applySplitBlock(block, 6, 'b2', 'paragraph');
+
+    expect(before.inlines).toHaveLength(2);
+    expect(before.inlines[1].text).toBe('\uFFFC');
+    expect(before.inlines[1].style.image).toEqual(IMG);
+
+    expect(after.inlines).toHaveLength(1);
+    expect(after.inlines[0].text).toBe('');
+    expect(after.inlines[0].style.image).toBeUndefined();
   });
 });
 
