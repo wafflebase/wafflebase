@@ -892,6 +892,25 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
+   * Resolve the local array index for a block within its containing
+   * Block[] (doc.blocks, header.blocks, footer.blocks, or cell.blocks).
+   *
+   * For cell-internal blocks the last path segment is already relative
+   * to the cell's blocks array.  For top-level blocks we need
+   * `getRegionBlocks().topIndex` which adjusts for the header tree
+   * offset in the body region.
+   */
+  private localBlockIndex(
+    doc: Document,
+    blockPath: number[],
+    region: 'header' | 'body' | 'footer',
+  ): number {
+    return this.isCellBlockPath(blockPath, region)
+      ? blockPath[blockPath.length - 1]
+      : this.getRegionBlocks(doc, blockPath, region).topIndex;
+  }
+
+  /**
    * Extract the cell sub-path from a full block path.
    * For body: [tableTreeIdx, r, c, b, ...] → [r, c, b, ...]
    * For header/footer: [regionIdx, tableIdx, r, c, b, ...] → [r, c, b, ...]
@@ -1394,9 +1413,7 @@ export class YorkieDocStore implements DocStore {
 
     // Update cache in-place
     const blocksArray = this.getBlocksArrayForPath(currentDoc, siblingPath, region);
-    const localIdx = this.isCellBlockPath(siblingPath, region)
-      ? siblingPath[siblingPath.length - 1]
-      : this.getRegionBlocks(currentDoc, siblingPath, region).topIndex;
+    const localIdx = this.localBlockIndex(currentDoc, siblingPath, region);
     blocksArray.splice(localIdx + 1, 0, block);
     this.cachedDoc = currentDoc;
     this.dirty = false;
@@ -1417,7 +1434,7 @@ export class YorkieDocStore implements DocStore {
 
     // Update cache in-place
     const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
-    const localIdx = blockPath[blockPath.length - 1];
+    const localIdx = this.localBlockIndex(currentDoc, blockPath, region);
     blocksArray.splice(localIdx, 1);
     this.cachedDoc = currentDoc;
     this.dirty = false;
@@ -1535,7 +1552,7 @@ export class YorkieDocStore implements DocStore {
     // Update cache in-place using the pure-function result
     const [before, after] = applySplitBlock(block, offset, newBlockId, newBlockType);
     const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
-    const localIdx = blockPath[blockPath.length - 1];
+    const localIdx = this.localBlockIndex(currentDoc, blockPath, region);
     blocksArray[localIdx] = before;
     blocksArray.splice(localIdx + 1, 0, after);
     this.cachedDoc = currentDoc;
@@ -1590,8 +1607,8 @@ export class YorkieDocStore implements DocStore {
 
     // Update cache in-place
     const blocksArray = this.getBlocksArrayForPath(currentDoc, blockPath, region);
-    const localIdx = blockPath[blockPath.length - 1];
-    const nextLocalIdx = nextPath[nextPath.length - 1];
+    const localIdx = this.localBlockIndex(currentDoc, blockPath, region);
+    const nextLocalIdx = this.localBlockIndex(currentDoc, nextPath, nextRegion);
     blocksArray[localIdx] = merged;
     blocksArray.splice(nextLocalIdx, 1);
     this.cachedDoc = currentDoc;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
 import { generateBlockId, DEFAULT_BLOCK_STYLE, createTableBlock, createTableCell } from '@wafflebase/docs';
-import type { Block, TableRow, TableCell as TCell } from '@wafflebase/docs';
+import type { Block, Inline, TableRow, TableCell as TCell } from '@wafflebase/docs';
 
 function makeBlock(text: string, style?: Partial<Block['style']>): Block {
   return {
@@ -803,6 +803,53 @@ describe('YorkieDocStore', () => {
       assert.equal(result.blocks[1].inlines[0].style.bold, true);
       assert.equal(result.blocks[1].inlines[0].style.italic, true);
       assert.equal(result.blocks[1].inlines[0].style.fontSize, 18);
+    });
+  });
+
+  describe('cache index with header offset', () => {
+    it('splitBlock should not duplicate body content when header exists', () => {
+      // When a header is present, tree path [1] maps to body blocks[0].
+      // The cache update must use the body-relative index, not the tree path.
+      const header = makeBlock('Header');
+      const body = makeBlock('asdf');
+      const trailing = makeBlock('');
+      store.setDocument({ blocks: [body, trailing] });
+      store.setHeader({ blocks: [header], marginFromEdge: 48 });
+
+      store.splitBlock(body.id, 4, 'new-id', 'paragraph');
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 3);
+      const text0 = result.blocks[0].inlines.map((i: Inline) => i.text).join('');
+      const text1 = result.blocks[1].inlines.map((i: Inline) => i.text).join('');
+      assert.equal(text0, 'asdf', 'First body block should keep "asdf"');
+      assert.equal(text1, '', 'New block should be empty, not duplicated');
+    });
+
+    it('mergeBlock should merge correct body blocks when header exists', () => {
+      const header = makeBlock('Header');
+      const b1 = makeBlock('Hello');
+      const b2 = makeBlock('World');
+      store.setDocument({ blocks: [b1, b2] });
+      store.setHeader({ blocks: [header], marginFromEdge: 48 });
+
+      store.mergeBlock(b1.id, b2.id);
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 1);
+      const text = result.blocks[0].inlines.map((i: Inline) => i.text).join('');
+      assert.equal(text, 'HelloWorld');
+    });
+
+    it('deleteBlock should delete correct body block when header exists', () => {
+      const header = makeBlock('Header');
+      const b1 = makeBlock('Keep');
+      const b2 = makeBlock('Delete');
+      store.setDocument({ blocks: [b1, b2] });
+      store.setHeader({ blocks: [header], marginFromEdge: 48 });
+
+      store.deleteBlock(b2.id);
+      const result = store.getDocument();
+      assert.equal(result.blocks.length, 1);
+      assert.equal(result.blocks[0].inlines[0].text, 'Keep');
     });
   });
 
