@@ -68,6 +68,7 @@ export {
   applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
+  resolveOffsetForSplit,
 } from './store/block-helpers.js';
 export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
 
