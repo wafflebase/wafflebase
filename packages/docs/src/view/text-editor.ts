@@ -1,7 +1,7 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
-import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
 import type { DocumentLayout } from './layout.js';
@@ -795,6 +795,17 @@ export class TextEditor {
     if (!this.shiftHeld) {
       const html = e.clipboardData?.getData('text/html');
       if (html) {
+        // Try HTML table first
+        const tableCells = parseHtmlTableToTableCells(html);
+        if (tableCells) {
+          this.saveSnapshot();
+          this.deleteSelection();
+          this.pasteTableCells(tableCells);
+          this.selection.setRange(null);
+          this.requestRender();
+          return;
+        }
+
         const blocks = parseHtmlToBlocks(html);
         if (blocks.length > 0) {
           this.saveSnapshot();
@@ -810,6 +821,17 @@ export class TextEditor {
     // Fall through to plain text handling
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
+
+    // Try markdown table
+    const mdTableCells = parseMarkdownTableToTableCells(text);
+    if (mdTableCells) {
+      this.saveSnapshot();
+      this.deleteSelection();
+      this.pasteTableCells(mdTableCells);
+      this.selection.setRange(null);
+      this.requestRender();
+      return;
+    }
 
     this.saveSnapshot();
     this.deleteSelection();

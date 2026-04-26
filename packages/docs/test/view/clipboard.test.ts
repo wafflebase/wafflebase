@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TableCell } from '../../src/model/types.js';
-import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines } from '../../src/view/clipboard.js';
+import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlTableToTableCells, parseMarkdownTableToTableCells } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
   it('should round-trip blocks with formatting', () => {
@@ -293,5 +293,161 @@ describe('cloneTableCells', () => {
     const cloned = cloneTableCells(cells);
     cells[0][0].style.padding = 99;
     expect(cloned[0][0].style.padding).toBe(8);
+  });
+});
+
+describe('parseHtmlTableToTableCells', () => {
+  it('should parse a simple HTML table', () => {
+    const html = '<table><tr><td>A1</td><td>B1</td></tr><tr><td>A2</td><td>B2</td></tr></table>';
+    const cells = parseHtmlTableToTableCells(html);
+    expect(cells).not.toBeNull();
+    expect(cells).toHaveLength(2);
+    expect(cells![0]).toHaveLength(2);
+    expect(cells![0][0].blocks[0].inlines[0].text).toBe('A1');
+    expect(cells![0][1].blocks[0].inlines[0].text).toBe('B1');
+    expect(cells![1][0].blocks[0].inlines[0].text).toBe('A2');
+    expect(cells![1][1].blocks[0].inlines[0].text).toBe('B2');
+  });
+
+  it('should preserve inline formatting in cells', () => {
+    const html = '<table><tr><td><b>bold</b></td><td><i>italic</i></td></tr></table>';
+    const cells = parseHtmlTableToTableCells(html);
+    expect(cells).not.toBeNull();
+    expect(cells![0][0].blocks[0].inlines[0].style.bold).toBe(true);
+    expect(cells![0][1].blocks[0].inlines[0].style.italic).toBe(true);
+  });
+
+  it('should handle th elements', () => {
+    const html = '<table><tr><th>Header</th></tr><tr><td>Data</td></tr></table>';
+    const cells = parseHtmlTableToTableCells(html);
+    expect(cells).not.toBeNull();
+    expect(cells).toHaveLength(2);
+    expect(cells![0][0].blocks[0].inlines[0].text).toBe('Header');
+    expect(cells![1][0].blocks[0].inlines[0].text).toBe('Data');
+  });
+
+  it('should handle thead/tbody wrappers', () => {
+    const html = '<table><thead><tr><th>H</th></tr></thead><tbody><tr><td>D</td></tr></tbody></table>';
+    const cells = parseHtmlTableToTableCells(html);
+    expect(cells).not.toBeNull();
+    expect(cells).toHaveLength(2);
+    expect(cells![0][0].blocks[0].inlines[0].text).toBe('H');
+    expect(cells![1][0].blocks[0].inlines[0].text).toBe('D');
+  });
+
+  it('should pad ragged rows', () => {
+    const html = '<table><tr><td>A</td><td>B</td><td>C</td></tr><tr><td>D</td></tr></table>';
+    const cells = parseHtmlTableToTableCells(html);
+    expect(cells).not.toBeNull();
+    expect(cells![0]).toHaveLength(3);
+    expect(cells![1]).toHaveLength(3);
+    expect(cells![1][1].blocks[0].inlines[0].text).toBe('');
+  });
+
+  it('should return null for non-table HTML', () => {
+    const html = '<p>Just a paragraph</p>';
+    expect(parseHtmlTableToTableCells(html)).toBeNull();
+  });
+
+  it('should return null for mixed table + paragraph content', () => {
+    const html = '<p>Some text</p><table><tr><td>A</td></tr></table>';
+    expect(parseHtmlTableToTableCells(html)).toBeNull();
+  });
+
+  it('should return null for empty string', () => {
+    expect(parseHtmlTableToTableCells('')).toBeNull();
+  });
+
+  it('should allow meta/style tags alongside table (Google Sheets)', () => {
+    const html = '<meta charset="utf-8"><style>td{}</style><table><tr><td>A</td></tr></table>';
+    const cells = parseHtmlTableToTableCells(html);
+    expect(cells).not.toBeNull();
+    expect(cells![0][0].blocks[0].inlines[0].text).toBe('A');
+  });
+
+  it('should handle empty cells', () => {
+    const html = '<table><tr><td></td><td>B</td></tr></table>';
+    const cells = parseHtmlTableToTableCells(html);
+    expect(cells).not.toBeNull();
+    expect(cells![0][0].blocks[0].inlines[0].text).toBe('');
+    expect(cells![0][1].blocks[0].inlines[0].text).toBe('B');
+  });
+
+  it('should handle links in cells', () => {
+    const html = '<table><tr><td><a href="https://example.com">link</a></td></tr></table>';
+    const cells = parseHtmlTableToTableCells(html);
+    expect(cells).not.toBeNull();
+    expect(cells![0][0].blocks[0].inlines[0].style.href).toBe('https://example.com');
+    expect(cells![0][0].blocks[0].inlines[0].text).toBe('link');
+  });
+});
+
+describe('parseMarkdownTableToTableCells', () => {
+  it('should parse a simple markdown table', () => {
+    const text = '| A | B |\n| --- | --- |\n| 1 | 2 |';
+    const cells = parseMarkdownTableToTableCells(text);
+    expect(cells).not.toBeNull();
+    expect(cells).toHaveLength(2); // header + 1 data row
+    expect(cells![0][0].blocks[0].inlines[0].text).toBe('A');
+    expect(cells![0][1].blocks[0].inlines[0].text).toBe('B');
+    expect(cells![1][0].blocks[0].inlines[0].text).toBe('1');
+    expect(cells![1][1].blocks[0].inlines[0].text).toBe('2');
+  });
+
+  it('should handle multiple data rows', () => {
+    const text = '| H1 | H2 |\n| --- | --- |\n| A | B |\n| C | D |';
+    const cells = parseMarkdownTableToTableCells(text);
+    expect(cells).not.toBeNull();
+    expect(cells).toHaveLength(3);
+    expect(cells![2][0].blocks[0].inlines[0].text).toBe('C');
+    expect(cells![2][1].blocks[0].inlines[0].text).toBe('D');
+  });
+
+  it('should handle alignment separators', () => {
+    const text = '| L | C | R |\n| :--- | :---: | ---: |\n| a | b | c |';
+    const cells = parseMarkdownTableToTableCells(text);
+    expect(cells).not.toBeNull();
+    expect(cells).toHaveLength(2);
+  });
+
+  it('should pad ragged rows', () => {
+    const text = '| A | B | C |\n| --- | --- | --- |\n| 1 |';
+    const cells = parseMarkdownTableToTableCells(text);
+    expect(cells).not.toBeNull();
+    expect(cells![1]).toHaveLength(3);
+    expect(cells![1][1].blocks[0].inlines[0].text).toBe('');
+  });
+
+  it('should return null for non-table text', () => {
+    expect(parseMarkdownTableToTableCells('Just some text')).toBeNull();
+  });
+
+  it('should return null for text without separator line', () => {
+    expect(parseMarkdownTableToTableCells('| A | B |\n| C | D |')).toBeNull();
+  });
+
+  it('should return null for empty string', () => {
+    expect(parseMarkdownTableToTableCells('')).toBeNull();
+  });
+
+  it('should return null for single line', () => {
+    expect(parseMarkdownTableToTableCells('| A | B |')).toBeNull();
+  });
+
+  it('should handle tables without leading/trailing pipes', () => {
+    const text = 'A | B\n--- | ---\n1 | 2';
+    const cells = parseMarkdownTableToTableCells(text);
+    expect(cells).not.toBeNull();
+    expect(cells![0][0].blocks[0].inlines[0].text).toBe('A');
+    expect(cells![1][1].blocks[0].inlines[0].text).toBe('2');
+  });
+
+  it('should handle empty cells in markdown', () => {
+    const text = '| A | |\n| --- | --- |\n| | B |';
+    const cells = parseMarkdownTableToTableCells(text);
+    expect(cells).not.toBeNull();
+    expect(cells![0][1].blocks[0].inlines[0].text).toBe('');
+    expect(cells![1][0].blocks[0].inlines[0].text).toBe('');
+    expect(cells![1][1].blocks[0].inlines[0].text).toBe('B');
   });
 });
