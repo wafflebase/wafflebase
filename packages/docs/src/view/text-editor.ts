@@ -2991,7 +2991,17 @@ export class TextEditor {
     // If cursor is on a non-editable block, split to create a text block first
     this.ensureEditableBlock();
     const pos = this.cursor.position;
-    if (blocks.length === 1) {
+    if (blocks.length === 1 && blocks[0].type === 'table') {
+      // Single table block: insert as a new block (cannot merge into current)
+      this.invalidateLayout();
+      const blockIdx = this.doc.getBlockIndex(pos.blockId);
+      const newBlock: Block = { ...blocks[0], id: generateBlockId() };
+      this.doc.insertBlockAt(blockIdx + 1, newBlock);
+      const firstCellBlock = newBlock.tableData?.rows[0]?.cells[0]?.blocks[0];
+      if (firstCellBlock) {
+        this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');
+      }
+    } else if (blocks.length === 1) {
       // Single block: merge pasted inlines into the current block at cursor
       const pastedInlines = blocks[0].inlines;
       const pastedTextLen = pastedInlines.reduce((sum, il) => sum + il.text.length, 0);

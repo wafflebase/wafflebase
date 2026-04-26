@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TableCell } from '../../src/model/types.js';
-import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables } from '../../src/view/clipboard.js';
+import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
   it('should round-trip blocks with formatting', () => {
@@ -249,6 +249,24 @@ describe('HTML paste parsing', () => {
     expect(inlines).toHaveLength(1);
     expect(inlines[0].text).toBe('hello world');
   });
+
+  it('should not insert empty paragraphs between list items', () => {
+    const blocks = parseHtmlToBlocks('<ul>\n<li>Item 1</li>\n<li>Item 2</li>\n</ul>');
+    // Should produce exactly 2 list-item blocks, no empty paragraphs between them
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].type).toBe('list-item');
+    expect(blocks[0].inlines[0].text).toBe('Item 1');
+    expect(blocks[1].type).toBe('list-item');
+    expect(blocks[1].inlines[0].text).toBe('Item 2');
+  });
+
+  it('should preserve spaces between inline elements', () => {
+    const inlines = parseHtmlToInlines('<b>hello</b> <i>world</i>');
+    expect(inlines).toHaveLength(3);
+    expect(inlines[0].text).toBe('hello');
+    expect(inlines[1].text).toBe(' ');
+    expect(inlines[2].text).toBe('world');
+  });
 });
 
 describe('cloneTableCells', () => {
@@ -379,6 +397,53 @@ describe('parseHtmlTableToTableCells', () => {
     expect(cells).not.toBeNull();
     expect(cells![0][0].blocks[0].inlines[0].style.href).toBe('https://example.com');
     expect(cells![0][0].blocks[0].inlines[0].text).toBe('link');
+  });
+});
+
+describe('parseHtmlToBlocks with tables', () => {
+  it('should convert inline <table> to table block in mixed HTML', () => {
+    const html = '<p>Before</p><table><tr><td>A</td><td>B</td></tr><tr><td>1</td><td>2</td></tr></table><p>After</p>';
+    const blocks = parseHtmlToBlocks(html);
+    const tableBlock = blocks.find(b => b.type === 'table');
+    expect(tableBlock).toBeDefined();
+    expect(tableBlock!.tableData).toBeDefined();
+    expect(tableBlock!.tableData!.rows).toHaveLength(2);
+    expect(tableBlock!.tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(tableBlock!.tableData!.rows[1].cells[1].blocks[0].inlines[0].text).toBe('2');
+
+    // Text blocks should also exist
+    const textBlocks = blocks.filter(b => b.type === 'paragraph' && b.inlines[0].text.length > 0);
+    const texts = textBlocks.map(b => b.inlines[0].text);
+    expect(texts).toContain('Before');
+    expect(texts).toContain('After');
+  });
+
+  it('should handle multiple tables in mixed HTML', () => {
+    const html = '<p>Intro</p><table><tr><td>T1</td></tr></table><p>Middle</p><table><tr><td>T2</td></tr></table>';
+    const blocks = parseHtmlToBlocks(html);
+    const tables = blocks.filter(b => b.type === 'table');
+    expect(tables).toHaveLength(2);
+    expect(tables[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('T1');
+    expect(tables[1].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('T2');
+  });
+
+  it('should preserve inline formatting inside table cells', () => {
+    const html = '<table><tr><td><strong>bold</strong> text</td></tr></table>';
+    const blocks = parseHtmlToBlocks(html);
+    const tableBlock = blocks.find(b => b.type === 'table');
+    expect(tableBlock).toBeDefined();
+    const inlines = tableBlock!.tableData!.rows[0].cells[0].blocks[0].inlines;
+    expect(inlines[0].style.bold).toBe(true);
+    expect(inlines[0].text).toBe('bold');
+    expect(inlines[1].text).toBe(' text');
+  });
+
+  it('should handle thead/tbody wrappers in mixed HTML', () => {
+    const html = '<h1>Title</h1><table><thead><tr><th>H</th></tr></thead><tbody><tr><td>D</td></tr></tbody></table>';
+    const blocks = parseHtmlToBlocks(html);
+    const tableBlock = blocks.find(b => b.type === 'table');
+    expect(tableBlock).toBeDefined();
+    expect(tableBlock!.tableData!.rows).toHaveLength(2);
   });
 });
 

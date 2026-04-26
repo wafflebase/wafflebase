@@ -175,6 +175,19 @@ function resolveInlineCSS(el: Element, style: InlineStyle): void {
 }
 
 /**
+ * Check whether an element has any child element that is a block-level tag.
+ * Used to distinguish insignificant whitespace (between block siblings)
+ * from meaningful whitespace (between inline siblings like `<b>` and `<i>`).
+ */
+function parentHasBlockChild(parent: Element | null): boolean {
+  if (!parent) return false;
+  for (const child of Array.from(parent.children)) {
+    if (BLOCK_TAGS.has(child.tagName.toLowerCase())) return true;
+  }
+  return false;
+}
+
+/**
  * Parse an HTML string into an array of Block objects, preserving both
  * inline formatting and block-level semantics (headings, list items, etc.).
  */
@@ -199,6 +212,12 @@ export function parseHtmlToBlocks(html: string): Block[] {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent ?? '';
       if (text.length > 0) {
+        // Skip whitespace-only text nodes between block-level elements
+        // (e.g. "\n" between <li> tags inside <ul>). These are insignificant
+        // in HTML but would otherwise produce empty paragraph blocks.
+        if (/^\s+$/.test(text) && parentHasBlockChild(node.parentElement)) {
+          return;
+        }
         currentInlines.push({ text, style: { ...inherited } });
       }
       return;
@@ -219,6 +238,16 @@ export function parseHtmlToBlocks(html: string): Block[] {
     if (tag === 'ul' || tag === 'ol') {
       for (const child of Array.from(node.childNodes)) {
         walk(child, inherited);
+      }
+      return;
+    }
+
+    // <table> → flush current content, then emit a table block
+    if (tag === 'table') {
+      flushBlock();
+      const tableBlock = parseHtmlTableElement(el);
+      if (tableBlock) {
+        blocks.push(tableBlock);
       }
       return;
     }
@@ -269,6 +298,15 @@ export function parseHtmlToBlocks(html: string): Block[] {
   // Flush any remaining inline content
   if (currentInlines.length > 0) {
     blocks.push(makeBlock(currentInlines, currentMeta));
+  }
+
+  // insertBlocks merges the first and last blocks with surrounding text.
+  // Table blocks cannot be merged, so pad with empty paragraphs if needed.
+  if (blocks.length > 0 && blocks[0].type === 'table') {
+    blocks.unshift(makeBlock([]));
+  }
+  if (blocks.length > 0 && blocks[blocks.length - 1].type === 'table') {
+    blocks.push(makeBlock([]));
   }
 
   return blocks;
@@ -356,6 +394,52 @@ function makeCellFromInlines(inlines: Inline[], cellStyle?: Partial<CellStyle>):
     }],
     style: { padding: 4, ...cellStyle },
   };
+}
+
+/**
+ * Convert a `<table>` DOM element into a table Block.
+ * Returns null if the table has no rows.
+ */
+function parseHtmlTableElement(tableEl: Element): Block | null {
+  const rows: TableCell[][] = [];
+  const trs = tableEl.querySelectorAll('tr');
+
+  for (const tr of Array.from(trs)) {
+    const cells: TableCell[] = [];
+    const tds = tr.querySelectorAll(':scope > td, :scope > th');
+
+    for (const td of Array.from(tds)) {
+      const inlines = collectInlines(td, {});
+      const cellStyle: Partial<CellStyle> = {};
+      if (td instanceof HTMLElement && td.style.backgroundColor) {
+        cellStyle.backgroundColor = td.style.backgroundColor;
+      }
+      cells.push(makeCellFromInlines(inlines, cellStyle));
+    }
+
+    if (cells.length > 0) {
+      rows.push(cells);
+    }
+  }
+
+  if (rows.length === 0) return null;
+
+  // Pad short rows
+  const maxCols = Math.max(...rows.map(r => r.length));
+  for (const row of rows) {
+    while (row.length < maxCols) {
+      row.push(makeCellFromInlines([], {}));
+    }
+  }
+
+  const block = createTableBlock(rows.length, maxCols);
+  const td = block.tableData!;
+  for (let r = 0; r < rows.length; r++) {
+    for (let c = 0; c < rows[r].length; c++) {
+      td.rows[r].cells[c] = rows[r][c];
+    }
+  }
+  return block;
 }
 
 // ---------------------------------------------------------------------------
