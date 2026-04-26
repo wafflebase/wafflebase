@@ -1665,5 +1665,36 @@ describe('YorkieDocStore', () => {
       yStore.undo();
       assert.equal(yStore.canRedo(), true);
     });
+
+    it('falls back gracefully when Yorkie history throws', () => {
+      const block = makeBlock('Hello');
+      yStore.setDocument({ blocks: [block] });
+      yStore.insertText(block.id, 5, '!');
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello!');
+
+      // Sabotage history to force a throw
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const origUndo = (yStore as any).doc.history.undo;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (yStore as any).doc.history.undo = () => { throw new Error('simulated'); };
+
+      // undo should not crash — it disables Yorkie undo and returns
+      yStore.undo();
+      // Text unchanged because snapshot stack is empty (no fallback data)
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello!');
+
+      // After fallback, canUndo should report false (empty snapshot stack)
+      assert.equal(yStore.canUndo(), false);
+
+      // Restore and verify snapshot-based undo works for new operations
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (yStore as any).doc.history.undo = origUndo;
+      yStore.snapshot();
+      yStore.insertText(block.id, 6, '?');
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello!?');
+
+      yStore.undo();
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello!');
+    });
   });
 });

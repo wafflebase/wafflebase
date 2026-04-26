@@ -1934,8 +1934,11 @@ export class YorkieDocStore implements DocStore {
         this.cachedDoc = null;
         return;
       } catch (e) {
-        console.warn('Yorkie undo failed, falling back to snapshot:', e);
+        console.warn('Yorkie undo failed, disabling Yorkie undo:', e);
         this.useYorkieUndo = false;
+        // Snapshot stacks are empty since snapshot() was a no-op.
+        // Undo is unavailable until new snapshots accumulate.
+        return;
       }
     }
 
@@ -1957,8 +1960,9 @@ export class YorkieDocStore implements DocStore {
         this.cachedDoc = null;
         return;
       } catch (e) {
-        console.warn('Yorkie redo failed, falling back to snapshot:', e);
+        console.warn('Yorkie redo failed, disabling Yorkie undo:', e);
         this.useYorkieUndo = false;
+        return;
       }
     }
 
