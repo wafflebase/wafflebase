@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TableCell } from '../../src/model/types.js';
-import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlTableToTableCells, parseMarkdownTableToTableCells } from '../../src/view/clipboard.js';
+import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
   it('should round-trip blocks with formatting', () => {
@@ -449,5 +449,85 @@ describe('parseMarkdownTableToTableCells', () => {
     expect(cells![0][1].blocks[0].inlines[0].text).toBe('');
     expect(cells![1][0].blocks[0].inlines[0].text).toBe('');
     expect(cells![1][1].blocks[0].inlines[0].text).toBe('B');
+  });
+});
+
+describe('parseMarkdownWithTables', () => {
+  it('should parse mixed text and table', () => {
+    const text = 'Some intro text\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nSome outro text';
+    const blocks = parseMarkdownWithTables(text);
+    expect(blocks).not.toBeNull();
+
+    // Find the table block
+    const tableBlock = blocks!.find(b => b.type === 'table');
+    expect(tableBlock).toBeDefined();
+    expect(tableBlock!.tableData).toBeDefined();
+    expect(tableBlock!.tableData!.rows).toHaveLength(2);
+    expect(tableBlock!.tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(tableBlock!.tableData!.rows[1].cells[1].blocks[0].inlines[0].text).toBe('2');
+
+    // Text blocks should exist
+    const textBlocks = blocks!.filter(b => b.type === 'paragraph' && b.inlines[0].text.length > 0);
+    const texts = textBlocks.map(b => b.inlines[0].text);
+    expect(texts).toContain('Some intro text');
+    expect(texts).toContain('Some outro text');
+  });
+
+  it('should handle multiple tables in text', () => {
+    const text = 'Before\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\nMiddle\n\n| C | D |\n| --- | --- |\n| 3 | 4 |\n\nAfter';
+    const blocks = parseMarkdownWithTables(text);
+    expect(blocks).not.toBeNull();
+
+    const tables = blocks!.filter(b => b.type === 'table');
+    expect(tables).toHaveLength(2);
+    expect(tables[0].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('A');
+    expect(tables[1].tableData!.rows[0].cells[0].blocks[0].inlines[0].text).toBe('C');
+  });
+
+  it('should return null when no tables present', () => {
+    const text = 'Just some plain text\nWith multiple lines';
+    expect(parseMarkdownWithTables(text)).toBeNull();
+  });
+
+  it('should pad with empty paragraph when table is first', () => {
+    const text = '| A | B |\n| --- | --- |\n| 1 | 2 |\n\nAfter text';
+    const blocks = parseMarkdownWithTables(text);
+    expect(blocks).not.toBeNull();
+    // First block should be an empty paragraph (padding for insertBlocks)
+    expect(blocks![0].type).toBe('paragraph');
+    expect(blocks![0].inlines[0].text).toBe('');
+  });
+
+  it('should pad with empty paragraph when table is last', () => {
+    const text = 'Before text\n\n| A | B |\n| --- | --- |\n| 1 | 2 |';
+    const blocks = parseMarkdownWithTables(text);
+    expect(blocks).not.toBeNull();
+    const last = blocks![blocks!.length - 1];
+    expect(last.type).toBe('paragraph');
+    expect(last.inlines[0].text).toBe('');
+  });
+
+  it('should return null for empty string', () => {
+    expect(parseMarkdownWithTables('')).toBeNull();
+  });
+
+  it('should handle table at start and end of text', () => {
+    const text = '| A |\n| --- |\n| 1 |\n\n| B |\n| --- |\n| 2 |';
+    const blocks = parseMarkdownWithTables(text);
+    expect(blocks).not.toBeNull();
+    const tables = blocks!.filter(b => b.type === 'table');
+    expect(tables).toHaveLength(2);
+    // Should be padded at start and end
+    expect(blocks![0].type).toBe('paragraph');
+    expect(blocks![blocks!.length - 1].type).toBe('paragraph');
+  });
+
+  it('should preserve blank lines as empty paragraphs', () => {
+    const text = 'Line 1\n\nLine 2\n\n| A |\n| --- |\n| 1 |';
+    const blocks = parseMarkdownWithTables(text);
+    expect(blocks).not.toBeNull();
+    // Should have paragraphs for text and empty lines
+    const nonTableBlocks = blocks!.filter(b => b.type !== 'table');
+    expect(nonTableBlocks.length).toBeGreaterThanOrEqual(3);
   });
 });

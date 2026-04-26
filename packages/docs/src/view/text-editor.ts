@@ -1,7 +1,7 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
-import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
 import type { DocumentLayout } from './layout.js';
@@ -822,12 +822,23 @@ export class TextEditor {
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
 
-    // Try markdown table
+    // Try pure markdown table (enables cell-by-cell paste into existing tables)
     const mdTableCells = parseMarkdownTableToTableCells(text);
     if (mdTableCells) {
       this.saveSnapshot();
       this.deleteSelection();
       this.pasteTableCells(mdTableCells);
+      this.selection.setRange(null);
+      this.requestRender();
+      return;
+    }
+
+    // Try mixed markdown with tables (e.g. full document with tables)
+    const mdBlocks = parseMarkdownWithTables(text);
+    if (mdBlocks) {
+      this.saveSnapshot();
+      this.deleteSelection();
+      this.insertBlocks(mdBlocks);
       this.selection.setRange(null);
       this.requestRender();
       return;

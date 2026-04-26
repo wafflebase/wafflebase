@@ -1,5 +1,5 @@
 import type { Block, BlockType, Inline, InlineStyle, HeadingLevel, TableCell, CellStyle } from '../model/types.js';
-import { generateBlockId, DEFAULT_BLOCK_STYLE, inlineStylesEqual } from '../model/types.js';
+import { generateBlockId, DEFAULT_BLOCK_STYLE, inlineStylesEqual, createTableBlock } from '../model/types.js';
 
 interface ClipboardPayload {
   version: 1;
@@ -437,15 +437,49 @@ export function parseHtmlTableToTableCells(html: string): TableCell[][] | null {
 const MD_SEPARATOR_RE = /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
 
 /**
+ * Parse a single row of pipe-delimited cells into trimmed strings.
+ */
+function parseMdRow(line: string): string[] {
+  let trimmed = line;
+  if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+  if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
+  return trimmed.split('|').map(cell => cell.trim());
+}
+
+/**
+ * Convert parsed cell strings into a padded TableCell[][] and wrap in a
+ * table Block.
+ */
+function buildTableBlockFromRows(rowTexts: string[][]): Block {
+  const maxCols = Math.max(1, ...rowTexts.map(r => r.length));
+  const cells: TableCell[][] = rowTexts.map(row => {
+    const tableCells = row.map(t => makeCellFromInlines(
+      t.length > 0 ? [{ text: t, style: {} }] : [],
+      {},
+    ));
+    // Pad short rows
+    while (tableCells.length < maxCols) {
+      tableCells.push(makeCellFromInlines([], {}));
+    }
+    return tableCells;
+  });
+
+  const block = createTableBlock(cells.length, maxCols);
+  const td = block.tableData!;
+  for (let r = 0; r < cells.length; r++) {
+    for (let c = 0; c < cells[r].length; c++) {
+      td.rows[r].cells[c] = cells[r][c];
+    }
+  }
+  return block;
+}
+
+/**
  * Parse a plain-text markdown table into TableCell[][].
  * Returns null if the text is not a valid markdown table.
  *
- * Supported format:
- * ```
- * | Header 1 | Header 2 |
- * | -------- | -------- |
- * | Cell 1   | Cell 2   |
- * ```
+ * Only succeeds when the **entire** text is a single markdown table.
+ * For mixed text+table content, use `parseMarkdownWithTables()`.
  */
 export function parseMarkdownTableToTableCells(text: string): TableCell[][] | null {
   if (!text) return null;
@@ -453,27 +487,14 @@ export function parseMarkdownTableToTableCells(text: string): TableCell[][] | nu
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length < 2) return null;
 
-  // The second line must be a separator
   if (!MD_SEPARATOR_RE.test(lines[1])) return null;
-
-  // The first line must contain at least one pipe
   if (!lines[0].includes('|')) return null;
-
-  const parseRow = (line: string): string[] => {
-    // Strip leading/trailing pipes
-    let trimmed = line;
-    if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
-    if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
-    return trimmed.split('|').map(cell => cell.trim());
-  };
 
   const rows: TableCell[][] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    // Skip separator line
-    if (i === 1) continue;
-
-    const cellTexts = parseRow(lines[i]);
+    if (i === 1) continue; // skip separator
+    const cellTexts = parseMdRow(lines[i]);
     rows.push(cellTexts.map(t => makeCellFromInlines(
       t.length > 0 ? [{ text: t, style: {} }] : [],
       {},
@@ -482,7 +503,6 @@ export function parseMarkdownTableToTableCells(text: string): TableCell[][] | nu
 
   if (rows.length === 0) return null;
 
-  // Pad short rows
   const maxCols = Math.max(...rows.map(r => r.length));
   for (const row of rows) {
     while (row.length < maxCols) {
@@ -491,4 +511,64 @@ export function parseMarkdownTableToTableCells(text: string): TableCell[][] | nu
   }
 
   return rows;
+}
+
+/**
+ * Parse plain text that may contain markdown tables interspersed with
+ * regular text.  Returns a Block[] where table regions become table blocks
+ * and text regions become paragraph blocks.
+ *
+ * Returns null if no markdown table is found (caller should fall through
+ * to plain-text paste).
+ */
+export function parseMarkdownWithTables(text: string): Block[] | null {
+  if (!text) return null;
+
+  const lines = text.split('\n');
+  const blocks: Block[] = [];
+  let i = 0;
+  let foundTable = false;
+
+  while (i < lines.length) {
+    // Detect markdown table: current line has `|` and next line is separator
+    if (
+      i + 1 < lines.length &&
+      lines[i].includes('|') &&
+      MD_SEPARATOR_RE.test(lines[i + 1].trim())
+    ) {
+      foundTable = true;
+      const rowTexts: string[][] = [parseMdRow(lines[i].trim())]; // header
+      i += 2; // skip header + separator
+
+      // Collect data rows — lines containing `|`
+      while (i < lines.length && lines[i].trim().includes('|')) {
+        rowTexts.push(parseMdRow(lines[i].trim()));
+        i++;
+      }
+
+      blocks.push(buildTableBlockFromRows(rowTexts));
+    } else {
+      const line = lines[i];
+      if (line.trim().length > 0) {
+        blocks.push(makeBlock([{ text: line, style: {} }]));
+      } else if (blocks.length > 0) {
+        // Preserve blank lines between content as empty paragraphs
+        blocks.push(makeBlock([]));
+      }
+      i++;
+    }
+  }
+
+  if (!foundTable) return null;
+
+  // insertBlocks merges the first and last blocks with surrounding text.
+  // Table blocks cannot be merged, so pad with empty paragraphs if needed.
+  if (blocks.length > 0 && blocks[0].type === 'table') {
+    blocks.unshift(makeBlock([]));
+  }
+  if (blocks.length > 0 && blocks[blocks.length - 1].type === 'table') {
+    blocks.push(makeBlock([]));
+  }
+
+  return blocks;
 }
