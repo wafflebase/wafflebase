@@ -1590,13 +1590,37 @@ export class YorkieDocStore implements DocStore {
       // number of inline nodes than the cache (e.g. split fragments).
       const treeRoot = tree.getRootTreeNode();
       const blockNode = this.getTreeBlockNode(treeRoot, blockPath) as ElementNode;
+      const nextBlockNode = this.getTreeBlockNode(treeRoot, nextPath) as ElementNode;
       const treeInlineCount = (blockNode.children ?? []).filter(
         (c) => c.type === 'inline',
       ).length;
-      // Delete the boundary between the two blocks. This range starts just
-      // past the last inline of the first block and ends just before the
-      // first inline of the next block, causing Yorkie Tree to merge them.
-      tree.editByPath([...blockPath, treeInlineCount], [...nextPath, 0]);
+
+      // Workaround for yorkie-js-sdk Phase 3 Range Narrowing bug:
+      // A single cross-boundary editByPath fails on blocks created by
+      // splitLevel>=2 because the insNextID chain causes the collection
+      // range to be narrowed to empty. Instead, decompose into two
+      // same-parent operations: (1) delete the next block, (2) insert
+      // its inline children at the end of the first block.
+      const parentPath = blockPath.slice(0, -1);
+      const inlineChildren = (nextBlockNode.children ?? []).filter(
+        (c): c is ElementNode => c.type === 'inline',
+      );
+
+      // Step 1: Delete the next block element (same-parent edit).
+      tree.editByPath(nextPath, [...parentPath, nextLastIdx + 1]);
+
+      // Step 2: Insert the next block's inlines at the end of the first
+      // block. Deep-clone nodes so Yorkie creates fresh CRDT nodes.
+      if (inlineChildren.length > 0) {
+        const cloned = inlineChildren.map((n) =>
+          JSON.parse(JSON.stringify(n)) as TreeNode,
+        );
+        tree.editBulkByPath(
+          [...blockPath, treeInlineCount],
+          [...blockPath, treeInlineCount],
+          cloned,
+        );
+      }
     });
 
     const merged = applyMergeBlocks(firstBlock, nextBlock);
