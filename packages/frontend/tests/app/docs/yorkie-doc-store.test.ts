@@ -255,6 +255,48 @@ describe('YorkieDocStore', () => {
       store.undo();
       assert.equal(store.canRedo(), true);
     });
+
+    it('undo should restore cursor position via presence', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.setCursorForHistory({ blockId: block.id, offset: 5 });
+      store.insertText(block.id, 5, ' World');
+      store.undo();
+      const restored = store.getPresenceCursorPos();
+      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
+    });
+
+    it('redo should restore post-mutation cursor position via presence', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.setCursorForHistory({ blockId: block.id, offset: 5 });
+      store.insertText(block.id, 5, ' World');
+      store.undo();
+      store.redo();
+      const restored = store.getPresenceCursorPos();
+      assert.deepEqual(restored, { blockId: block.id, offset: 11 });
+    });
+
+    it('undo deleteText should restore cursor position', () => {
+      const block = makeBlock('Hello World');
+      store.setDocument({ blocks: [block] });
+      store.setCursorForHistory({ blockId: block.id, offset: 5 });
+      store.deleteText(block.id, 5, 6);
+      store.undo();
+      const restored = store.getPresenceCursorPos();
+      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
+    });
+
+    it('undo splitBlock should restore cursor position', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.setCursorForHistory({ blockId: block.id, offset: 5 });
+      const newId = 'new-block-for-cursor';
+      store.splitBlock(block.id, 5, newId, 'paragraph');
+      store.undo();
+      const restored = store.getPresenceCursorPos();
+      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
+    });
   });
 
   describe('caching', () => {
