@@ -822,26 +822,29 @@ export class TextEditor {
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
 
-    // Try pure markdown table (enables cell-by-cell paste into existing tables)
-    const mdTableCells = parseMarkdownTableToTableCells(text);
-    if (mdTableCells) {
-      this.saveSnapshot();
-      this.deleteSelection();
-      this.pasteTableCells(mdTableCells);
-      this.selection.setRange(null);
-      this.requestRender();
-      return;
-    }
+    // Try markdown table parsers (skip when shift is held — force plain-text)
+    if (!this.shiftHeld) {
+      // Try pure markdown table (enables cell-by-cell paste into existing tables)
+      const mdTableCells = parseMarkdownTableToTableCells(text);
+      if (mdTableCells) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.pasteTableCells(mdTableCells);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
 
-    // Try mixed markdown with tables (e.g. full document with tables)
-    const mdBlocks = parseMarkdownWithTables(text);
-    if (mdBlocks) {
-      this.saveSnapshot();
-      this.deleteSelection();
-      this.insertBlocks(mdBlocks);
-      this.selection.setRange(null);
-      this.requestRender();
-      return;
+      // Try mixed markdown with tables (e.g. full document with tables)
+      const mdBlocks = parseMarkdownWithTables(text);
+      if (mdBlocks) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.insertBlocks(mdBlocks);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
     }
 
     this.saveSnapshot();

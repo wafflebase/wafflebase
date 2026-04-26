@@ -402,7 +402,9 @@ function makeCellFromInlines(inlines: Inline[], cellStyle?: Partial<CellStyle>):
  */
 function parseHtmlTableElement(tableEl: Element): Block | null {
   const rows: TableCell[][] = [];
-  const trs = tableEl.querySelectorAll('tr');
+  const trs = tableEl.querySelectorAll(
+    ':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr',
+  );
 
   for (const tr of Array.from(trs)) {
     const cells: TableCell[] = [];
@@ -480,7 +482,9 @@ export function parseHtmlTableToTableCells(html: string): TableCell[][] | null {
   }
 
   const rows: TableCell[][] = [];
-  const trs = table.querySelectorAll('tr');
+  const trs = table.querySelectorAll(
+    ':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr',
+  );
 
   for (const tr of Array.from(trs)) {
     const cells: TableCell[] = [];
