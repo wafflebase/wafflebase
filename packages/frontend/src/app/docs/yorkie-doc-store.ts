@@ -2192,19 +2192,18 @@ export class YorkieDocStore implements DocStore {
    */
   getPresenceCursorPos(): { blockId: string; offset: number } | undefined {
     // In attached mode getMyPresence() works, but in offline/test mode
-    // the public API returns {}. Fall back to reading the internal
-    // presences map directly via the actor ID.
+    // the public API returns {}. Fall back to getPresenceForTest() which
+    // returns presence regardless of online status.
     const presence = this.doc.getMyPresence();
     const fromPublic = (presence as Record<string, unknown>)?.activeCursorPos as
       | { blockId: string; offset: number }
       | undefined;
     if (fromPublic) return fromPublic;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = this.doc as any;
-    const actorId = d.changeID?.actor;
-    if (actorId && d.presences instanceof Map) {
-      return d.presences.get(actorId)?.activeCursorPos as
+    const actorId = this.doc.getChangeID().getActorID();
+    if (actorId) {
+      const testPresence = this.doc.getPresenceForTest(actorId);
+      return (testPresence as Record<string, unknown>)?.activeCursorPos as
         | { blockId: string; offset: number }
         | undefined;
     }
