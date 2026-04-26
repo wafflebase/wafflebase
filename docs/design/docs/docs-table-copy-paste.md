@@ -145,67 +145,84 @@ markdown table syntax — into `TableCell[][]`, then reuse the existing
 
 ### Non-Goals
 
-- Parsing mixed content (table + paragraphs) as a table — only pure-table HTML triggers table paste
 - colSpan/rowSpan from external HTML (Phase 1 already defers this)
 - Markdown cell formatting (bold `**text**`, etc.) — cells are plain text
 
 ### New Functions in `clipboard.ts`
 
+#### `parseHtmlTableElement(tableEl: Element): Block | null` (private)
+
+Converts a single `<table>` DOM element into a table `Block`. Used by
+`parseHtmlToBlocks` when it encounters a `<table>` tag inline, and by
+`parseHtmlTableToTableCells` for pure-table clipboard content.
+
+Uses scoped `:scope >` selectors to avoid matching `<tr>` from nested tables.
+
 #### `parseHtmlTableToTableCells(html: string): TableCell[][] | null`
 
-1. Parse HTML with `DOMParser`, find the first `<table>` element
-2. If no `<table>` found or the HTML contains significant non-table content, return `null`
-3. Walk `<tr>` rows, then `<td>`/`<th>` cells within each row
-4. For each cell, reuse the existing inline-walk logic to produce `Inline[]`
-   with formatting (bold, italic, color, links, etc.)
-5. Wrap each cell's inlines in a single paragraph `Block` inside a `TableCell`
-6. Return the 2D `TableCell[][]` array
+For pure-table HTML (no surrounding paragraphs). Returns `TableCell[][]` for
+use with `pasteTableCells()` (enables cell-by-cell paste into existing tables).
 
 #### `parseMarkdownTableToTableCells(text: string): TableCell[][] | null`
 
-1. Split text into lines, trim each line
-2. Validate markdown table structure:
-   - At least 2 lines (header + separator)
-   - Lines start and/or contain `|` delimiters
-   - Second line matches separator pattern (`---`, `:---:`, etc.)
-3. Skip the separator line, parse remaining lines by splitting on `|`
-4. Each cell becomes a `TableCell` with a single paragraph block containing
-   plain-text inline
-5. Return the 2D `TableCell[][]` array, or `null` if not a valid markdown table
+For pure markdown tables (no surrounding text). Same cell-by-cell paste path.
 
-### `handlePaste` Flow Change
+#### `parseMarkdownWithTables(text: string): Block[] | null`
+
+For mixed markdown content (text + tables). Detects markdown table regions
+within the text and returns `Block[]` where table regions become table blocks
+and text regions become paragraph blocks. Pads first/last with empty paragraphs
+if they are table blocks (required by `insertBlocks` merge semantics).
+
+#### `parseHtmlToBlocks` — enhanced with `<table>` handling
+
+The existing `parseHtmlToBlocks` now handles `<table>` tags inline via
+`parseHtmlTableElement()`. This is the primary path for pasting rendered
+markdown from sources like Claude chat, which provide both `text/html` and
+`text/plain` on the clipboard.
+
+Also skips whitespace-only text nodes between block-level siblings
+(e.g. `\n` between `<li>` tags) to avoid spurious empty paragraphs.
+
+### `handlePaste` Flow
 
 ```
 1. Image file         → existing handler
 2. WAFFLEDOCS_MIME    → existing handler
 3. text/html (no shift):
    a. parseHtmlTableToTableCells(html)
-      → if non-null: saveSnapshot → deleteSelection → pasteTableCells() → return
+      → pure table: pasteTableCells() (cell-by-cell into existing table)
    b. parseHtmlToBlocks(html)
-      → existing block paste
-4. text/plain:
+      → mixed content: tables become table blocks inline, text becomes paragraphs
+4. text/plain (no shift):
    a. parseMarkdownTableToTableCells(text)
-      → if non-null: saveSnapshot → deleteSelection → pasteTableCells() → return
-   b. insertPlainText(text)
-      → existing plain-text paste
+      → pure table: pasteTableCells()
+   b. parseMarkdownWithTables(text)
+      → mixed: tables + paragraphs via insertBlocks()
+   c. insertPlainText(text)
+      → fallback plain text
 ```
+
+Shift+paste bypasses all table parsers (HTML and markdown) and forces plain text.
 
 ### Changed Files
 
 | File | Change |
 |------|--------|
-| `clipboard.ts` | Add `parseHtmlTableToTableCells()`, `parseMarkdownTableToTableCells()` |
-| `text-editor.ts` | Update `handlePaste` to try table parsers before existing fallbacks |
-| `clipboard.test.ts` | Tests for both parsers: basic tables, formatting, edge cases, rejection |
+| `clipboard.ts` | `parseHtmlTableElement()`, `parseHtmlTableToTableCells()`, `parseMarkdownTableToTableCells()`, `parseMarkdownWithTables()`, `collectInlines()`, `parentHasBlockChild()`, `<table>` handling in `parseHtmlToBlocks` |
+| `text-editor.ts` | `handlePaste` flow with table parsers, single-table-block handling in `insertBlocks` |
+| `clipboard.test.ts` | Tests for all parsers including mixed HTML/markdown, whitespace, nested tables |
 
 ### Risks and Mitigation
 
 | Risk | Mitigation |
 |------|------------|
-| HTML with mixed table + paragraph content | Return `null` from table parser — fall through to existing `parseHtmlToBlocks` |
+| Nested tables in HTML | Scoped `:scope >` selectors prevent inner table rows leaking into outer table |
+| Mixed HTML (table + paragraphs) | `parseHtmlToBlocks` handles `<table>` inline; `parseHtmlTableToTableCells` returns null for mixed content |
 | Malformed markdown tables (ragged columns) | Pad short rows with empty cells to match the widest row |
 | Google Sheets pastes `<table>` with heavy inline styles | `resolveInlineCSS()` already handles common CSS properties |
 | Plain text that looks like a markdown table but isn't | Require separator line (`---`) as a mandatory signal |
+| Table block as first/last in insertBlocks | Auto-pad with empty paragraphs to prevent merge corruption |
 
 ## Future Phases
 
