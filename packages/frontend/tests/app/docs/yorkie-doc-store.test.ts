@@ -1542,4 +1542,128 @@ describe('YorkieDocStore', () => {
       assert.equal(cell.blocks[0].inlines[0].text, 'Second');
     });
   });
+
+  describe('Yorkie-native undo/redo (useYorkieUndo)', () => {
+    let yStore: YorkieDocStore;
+
+    beforeEach(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const yDoc = new yorkie.Document<any>(`test-yorkie-undo-${Date.now()}-${Math.random()}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      yDoc.update((root: any) => {
+        root.content = new yorkie.Tree({ type: 'doc', children: [] });
+      });
+      yStore = new YorkieDocStore(yDoc, { useYorkieUndo: true });
+    });
+
+    it('insertText → undo → text disappears', () => {
+      const block = makeBlock('Hello');
+      yStore.setDocument({ blocks: [block] });
+
+      yStore.insertText(block.id, 5, ' World');
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello World');
+
+      yStore.undo();
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello');
+    });
+
+    it('insertText → undo → redo → text restored', () => {
+      const block = makeBlock('Hello');
+      yStore.setDocument({ blocks: [block] });
+
+      yStore.insertText(block.id, 5, ' World');
+      yStore.undo();
+      yStore.redo();
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello World');
+    });
+
+    it('applyStyle → undo → style removed', () => {
+      const block = makeBlock('Hello');
+      yStore.setDocument({ blocks: [block] });
+
+      yStore.applyStyle(block.id, 0, 5, { bold: true });
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].style.bold, true);
+
+      yStore.undo();
+      const afterUndo = yStore.getBlock(block.id)!;
+      const text = afterUndo.inlines.map((i) => i.text).join('');
+      assert.equal(text, 'Hello');
+      assert.notEqual(afterUndo.inlines[0].style.bold, true);
+    });
+
+    it('splitBlock → undo → blocks merged back', () => {
+      const block = makeBlock('HelloWorld');
+      yStore.setDocument({ blocks: [block] });
+
+      const newId = generateBlockId();
+      yStore.splitBlock(block.id, 5, newId, 'paragraph');
+      assert.equal(yStore.getDocument().blocks.length, 2);
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello');
+
+      yStore.undo();
+      const doc = yStore.getDocument();
+      assert.equal(doc.blocks.length, 1);
+      assert.equal(doc.blocks[0].inlines[0].text, 'HelloWorld');
+    });
+
+    // TODO(yorkie-undo): mergeBlock undo not yet supported by Yorkie Tree —
+    // editByPath merge cannot be reversed. Re-enable when SDK supports it.
+    it.skip('mergeBlock → undo → blocks restored', () => {
+      const b1 = makeBlock('Hello');
+      const b2 = makeBlock(' World');
+      yStore.setDocument({ blocks: [b1, b2] });
+
+      yStore.mergeBlock(b1.id, b2.id);
+      assert.equal(yStore.getDocument().blocks.length, 1);
+
+      yStore.undo();
+      const doc = yStore.getDocument();
+      assert.equal(doc.blocks.length, 2);
+    });
+
+    it('multiple undos → redo all → original state restored', () => {
+      const block = makeBlock('A');
+      yStore.setDocument({ blocks: [block] });
+
+      yStore.insertText(block.id, 1, 'B');
+      yStore.insertText(block.id, 2, 'C');
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'ABC');
+
+      yStore.undo();
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'AB');
+
+      yStore.undo();
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'A');
+
+      yStore.redo();
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'AB');
+
+      yStore.redo();
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'ABC');
+    });
+
+    it('snapshot is no-op — canUndo still works via Yorkie history', () => {
+      const block = makeBlock('Hello');
+      yStore.setDocument({ blocks: [block] });
+
+      yStore.snapshot(); // should be no-op
+      yStore.insertText(block.id, 5, '!');
+      assert.equal(yStore.canUndo(), true);
+
+      yStore.undo();
+      assert.equal(yStore.getBlock(block.id)?.inlines[0].text, 'Hello');
+    });
+
+    it('canUndo/canRedo reflect Yorkie history state', () => {
+      const block = makeBlock('Hello');
+      yStore.setDocument({ blocks: [block] });
+
+      // setDocument creates an undo entry
+      assert.equal(yStore.canUndo(), true);
+      assert.equal(yStore.canRedo(), false);
+
+      yStore.undo();
+      assert.equal(yStore.canRedo(), true);
+    });
+  });
 });
