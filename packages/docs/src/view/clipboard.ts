@@ -1,5 +1,5 @@
-import type { Block, BlockType, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
-import { generateBlockId, DEFAULT_BLOCK_STYLE, inlineStylesEqual } from '../model/types.js';
+import type { Block, BlockType, Inline, InlineStyle, HeadingLevel, TableCell, CellStyle } from '../model/types.js';
+import { generateBlockId, DEFAULT_BLOCK_STYLE, inlineStylesEqual, createTableBlock } from '../model/types.js';
 
 interface ClipboardPayload {
   version: 1;
@@ -175,6 +175,19 @@ function resolveInlineCSS(el: Element, style: InlineStyle): void {
 }
 
 /**
+ * Check whether an element has any child element that is a block-level tag.
+ * Used to distinguish insignificant whitespace (between block siblings)
+ * from meaningful whitespace (between inline siblings like `<b>` and `<i>`).
+ */
+function parentHasBlockChild(parent: Element | null): boolean {
+  if (!parent) return false;
+  for (const child of Array.from(parent.children)) {
+    if (BLOCK_TAGS.has(child.tagName.toLowerCase())) return true;
+  }
+  return false;
+}
+
+/**
  * Parse an HTML string into an array of Block objects, preserving both
  * inline formatting and block-level semantics (headings, list items, etc.).
  */
@@ -199,6 +212,12 @@ export function parseHtmlToBlocks(html: string): Block[] {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent ?? '';
       if (text.length > 0) {
+        // Skip whitespace-only text nodes between block-level elements
+        // (e.g. "\n" between <li> tags inside <ul>). These are insignificant
+        // in HTML but would otherwise produce empty paragraph blocks.
+        if (/^\s+$/.test(text) && parentHasBlockChild(node.parentElement)) {
+          return;
+        }
         currentInlines.push({ text, style: { ...inherited } });
       }
       return;
@@ -219,6 +238,16 @@ export function parseHtmlToBlocks(html: string): Block[] {
     if (tag === 'ul' || tag === 'ol') {
       for (const child of Array.from(node.childNodes)) {
         walk(child, inherited);
+      }
+      return;
+    }
+
+    // <table> → flush current content, then emit a table block
+    if (tag === 'table') {
+      flushBlock();
+      const tableBlock = parseHtmlTableElement(el);
+      if (tableBlock) {
+        blocks.push(tableBlock);
       }
       return;
     }
@@ -271,6 +300,15 @@ export function parseHtmlToBlocks(html: string): Block[] {
     blocks.push(makeBlock(currentInlines, currentMeta));
   }
 
+  // insertBlocks merges the first and last blocks with surrounding text.
+  // Table blocks cannot be merged, so pad with empty paragraphs if needed.
+  if (blocks.length > 0 && blocks[0].type === 'table') {
+    blocks.unshift(makeBlock([]));
+  }
+  if (blocks.length > 0 && blocks[blocks.length - 1].type === 'table') {
+    blocks.push(makeBlock([]));
+  }
+
   return blocks;
 }
 
@@ -281,4 +319,344 @@ export function parseHtmlToBlocks(html: string): Block[] {
 export function parseHtmlToInlines(html: string): Inline[] {
   const blocks = parseHtmlToBlocks(html);
   return blocks.flatMap((b) => b.inlines);
+}
+
+// ---------------------------------------------------------------------------
+// Inline extraction helper (reused by table parsers)
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk an HTML element's children and collect formatted Inline runs.
+ * Reuses the same tag/CSS resolution logic as parseHtmlToBlocks.
+ */
+function collectInlines(root: Node, inherited: InlineStyle): Inline[] {
+  const inlines: Inline[] = [];
+
+  function walk(node: Node, style: InlineStyle): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? '';
+      if (text.length > 0) {
+        inlines.push({ text, style: { ...style } });
+      }
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+
+    // Skip table structural tags — we only want inline content
+    if (tag === 'table' || tag === 'thead' || tag === 'tbody' || tag === 'tfoot' || tag === 'tr' || tag === 'td' || tag === 'th') {
+      for (const child of Array.from(node.childNodes)) {
+        walk(child, style);
+      }
+      return;
+    }
+
+    if (tag === 'br') {
+      inlines.push({ text: '\n', style: { ...style } });
+      return;
+    }
+
+    const childStyle: InlineStyle = { ...style };
+    const tagStyle = TAG_STYLE_MAP[tag];
+    if (tagStyle) {
+      Object.assign(childStyle, tagStyle);
+    }
+    if (tag === 'a') {
+      const href = el.getAttribute('href');
+      if (href) {
+        childStyle.href = href;
+      }
+    }
+    resolveInlineCSS(el, childStyle);
+
+    for (const child of Array.from(node.childNodes)) {
+      walk(child, childStyle);
+    }
+  }
+
+  walk(root, inherited);
+  return mergeInlines(inlines);
+}
+
+/**
+ * Build a TableCell from an array of Inlines.
+ */
+function makeCellFromInlines(inlines: Inline[], cellStyle?: Partial<CellStyle>): TableCell {
+  const merged = mergeInlines(inlines);
+  return {
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: merged.length > 0 ? merged : [{ text: '', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+    style: { padding: 4, ...cellStyle },
+  };
+}
+
+/**
+ * Convert a `<table>` DOM element into a table Block.
+ * Returns null if the table has no rows.
+ */
+function parseHtmlTableElement(tableEl: Element): Block | null {
+  const rows: TableCell[][] = [];
+  const trs = tableEl.querySelectorAll(
+    ':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr',
+  );
+
+  for (const tr of Array.from(trs)) {
+    const cells: TableCell[] = [];
+    const tds = tr.querySelectorAll(':scope > td, :scope > th');
+
+    for (const td of Array.from(tds)) {
+      const inlines = collectInlines(td, {});
+      const cellStyle: Partial<CellStyle> = {};
+      if (td instanceof HTMLElement && td.style.backgroundColor) {
+        cellStyle.backgroundColor = td.style.backgroundColor;
+      }
+      cells.push(makeCellFromInlines(inlines, cellStyle));
+    }
+
+    if (cells.length > 0) {
+      rows.push(cells);
+    }
+  }
+
+  if (rows.length === 0) return null;
+
+  // Pad short rows
+  const maxCols = Math.max(...rows.map(r => r.length));
+  for (const row of rows) {
+    while (row.length < maxCols) {
+      row.push(makeCellFromInlines([], {}));
+    }
+  }
+
+  const block = createTableBlock(rows.length, maxCols);
+  const td = block.tableData!;
+  for (let r = 0; r < rows.length; r++) {
+    for (let c = 0; c < rows[r].length; c++) {
+      td.rows[r].cells[c] = rows[r][c];
+    }
+  }
+  return block;
+}
+
+// ---------------------------------------------------------------------------
+// HTML table paste
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse an HTML string and extract the first `<table>` as TableCell[][].
+ * Returns null if the HTML does not contain a table or contains significant
+ * non-table content (mixed content falls through to parseHtmlToBlocks).
+ */
+export function parseHtmlTableToTableCells(html: string): TableCell[][] | null {
+  if (!html) return null;
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  const table = doc.querySelector('table');
+  if (!table) return null;
+
+  // Check for significant non-table content — if there are block-level
+  // elements outside the table, fall through to block parsing instead.
+  for (const child of Array.from(doc.body.childNodes)) {
+    if (child === table) continue;
+    if (child.nodeType === Node.ELEMENT_NODE) {
+      const tag = (child as Element).tagName.toLowerCase();
+      // Allow wrapper elements that just contain the table (e.g. Google Sheets
+      // wraps tables in <meta>/<style> tags)
+      if (tag !== 'meta' && tag !== 'style' && tag !== 'br' && tag !== 'colgroup') {
+        // There's meaningful non-table content — abort
+        const text = (child as Element).textContent?.trim() ?? '';
+        if (text.length > 0) return null;
+      }
+    } else if (child.nodeType === Node.TEXT_NODE) {
+      const text = child.textContent?.trim() ?? '';
+      if (text.length > 0) return null;
+    }
+  }
+
+  const rows: TableCell[][] = [];
+  const trs = table.querySelectorAll(
+    ':scope > tr, :scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr',
+  );
+
+  for (const tr of Array.from(trs)) {
+    const cells: TableCell[] = [];
+    const tds = tr.querySelectorAll(':scope > td, :scope > th');
+
+    for (const td of Array.from(tds)) {
+      const inlines = collectInlines(td, {});
+      const cellStyle: Partial<CellStyle> = {};
+      if (td instanceof HTMLElement && td.style.backgroundColor) {
+        cellStyle.backgroundColor = td.style.backgroundColor;
+      }
+      cells.push(makeCellFromInlines(inlines, cellStyle));
+    }
+
+    if (cells.length > 0) {
+      rows.push(cells);
+    }
+  }
+
+  if (rows.length === 0) return null;
+
+  // Pad short rows to the maximum column count
+  const maxCols = Math.max(...rows.map(r => r.length));
+  for (const row of rows) {
+    while (row.length < maxCols) {
+      row.push(makeCellFromInlines([], {}));
+    }
+  }
+
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Markdown table paste
+// ---------------------------------------------------------------------------
+
+/** Match a markdown table separator line: `| --- | :---: | ---: |` etc. */
+const MD_SEPARATOR_RE = /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+
+/**
+ * Parse a single row of pipe-delimited cells into trimmed strings.
+ */
+function parseMdRow(line: string): string[] {
+  let trimmed = line;
+  if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+  if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
+  return trimmed.split('|').map(cell => cell.trim());
+}
+
+/**
+ * Convert parsed cell strings into a padded TableCell[][] and wrap in a
+ * table Block.
+ */
+function buildTableBlockFromRows(rowTexts: string[][]): Block {
+  const maxCols = Math.max(1, ...rowTexts.map(r => r.length));
+  const cells: TableCell[][] = rowTexts.map(row => {
+    const tableCells = row.map(t => makeCellFromInlines(
+      t.length > 0 ? [{ text: t, style: {} }] : [],
+      {},
+    ));
+    // Pad short rows
+    while (tableCells.length < maxCols) {
+      tableCells.push(makeCellFromInlines([], {}));
+    }
+    return tableCells;
+  });
+
+  const block = createTableBlock(cells.length, maxCols);
+  const td = block.tableData!;
+  for (let r = 0; r < cells.length; r++) {
+    for (let c = 0; c < cells[r].length; c++) {
+      td.rows[r].cells[c] = cells[r][c];
+    }
+  }
+  return block;
+}
+
+/**
+ * Parse a plain-text markdown table into TableCell[][].
+ * Returns null if the text is not a valid markdown table.
+ *
+ * Only succeeds when the **entire** text is a single markdown table.
+ * For mixed text+table content, use `parseMarkdownWithTables()`.
+ */
+export function parseMarkdownTableToTableCells(text: string): TableCell[][] | null {
+  if (!text) return null;
+
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length < 2) return null;
+
+  if (!MD_SEPARATOR_RE.test(lines[1])) return null;
+  if (!lines[0].includes('|')) return null;
+
+  const rows: TableCell[][] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (i === 1) continue; // skip separator
+    const cellTexts = parseMdRow(lines[i]);
+    rows.push(cellTexts.map(t => makeCellFromInlines(
+      t.length > 0 ? [{ text: t, style: {} }] : [],
+      {},
+    )));
+  }
+
+  if (rows.length === 0) return null;
+
+  const maxCols = Math.max(...rows.map(r => r.length));
+  for (const row of rows) {
+    while (row.length < maxCols) {
+      row.push(makeCellFromInlines([], {}));
+    }
+  }
+
+  return rows;
+}
+
+/**
+ * Parse plain text that may contain markdown tables interspersed with
+ * regular text.  Returns a Block[] where table regions become table blocks
+ * and text regions become paragraph blocks.
+ *
+ * Returns null if no markdown table is found (caller should fall through
+ * to plain-text paste).
+ */
+export function parseMarkdownWithTables(text: string): Block[] | null {
+  if (!text) return null;
+
+  const lines = text.split('\n');
+  const blocks: Block[] = [];
+  let i = 0;
+  let foundTable = false;
+
+  while (i < lines.length) {
+    // Detect markdown table: current line has `|` and next line is separator
+    if (
+      i + 1 < lines.length &&
+      lines[i].includes('|') &&
+      MD_SEPARATOR_RE.test(lines[i + 1].trim())
+    ) {
+      foundTable = true;
+      const rowTexts: string[][] = [parseMdRow(lines[i].trim())]; // header
+      i += 2; // skip header + separator
+
+      // Collect data rows — lines containing `|`
+      while (i < lines.length && lines[i].trim().includes('|')) {
+        rowTexts.push(parseMdRow(lines[i].trim()));
+        i++;
+      }
+
+      blocks.push(buildTableBlockFromRows(rowTexts));
+    } else {
+      const line = lines[i];
+      if (line.trim().length > 0) {
+        blocks.push(makeBlock([{ text: line, style: {} }]));
+      } else if (blocks.length > 0) {
+        // Preserve blank lines between content as empty paragraphs
+        blocks.push(makeBlock([]));
+      }
+      i++;
+    }
+  }
+
+  if (!foundTable) return null;
+
+  // insertBlocks merges the first and last blocks with surrounding text.
+  // Table blocks cannot be merged, so pad with empty paragraphs if needed.
+  if (blocks.length > 0 && blocks[0].type === 'table') {
+    blocks.unshift(makeBlock([]));
+  }
+  if (blocks.length > 0 && blocks[blocks.length - 1].type === 'table') {
+    blocks.push(makeBlock([]));
+  }
+
+  return blocks;
 }

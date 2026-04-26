@@ -1,7 +1,7 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
-import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, WAFFLEDOCS_MIME } from './clipboard.js';
+import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
 import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
 import type { DocumentLayout } from './layout.js';
@@ -795,6 +795,17 @@ export class TextEditor {
     if (!this.shiftHeld) {
       const html = e.clipboardData?.getData('text/html');
       if (html) {
+        // Try HTML table first
+        const tableCells = parseHtmlTableToTableCells(html);
+        if (tableCells) {
+          this.saveSnapshot();
+          this.deleteSelection();
+          this.pasteTableCells(tableCells);
+          this.selection.setRange(null);
+          this.requestRender();
+          return;
+        }
+
         const blocks = parseHtmlToBlocks(html);
         if (blocks.length > 0) {
           this.saveSnapshot();
@@ -810,6 +821,31 @@ export class TextEditor {
     // Fall through to plain text handling
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
+
+    // Try markdown table parsers (skip when shift is held — force plain-text)
+    if (!this.shiftHeld) {
+      // Try pure markdown table (enables cell-by-cell paste into existing tables)
+      const mdTableCells = parseMarkdownTableToTableCells(text);
+      if (mdTableCells) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.pasteTableCells(mdTableCells);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
+
+      // Try mixed markdown with tables (e.g. full document with tables)
+      const mdBlocks = parseMarkdownWithTables(text);
+      if (mdBlocks) {
+        this.saveSnapshot();
+        this.deleteSelection();
+        this.insertBlocks(mdBlocks);
+        this.selection.setRange(null);
+        this.requestRender();
+        return;
+      }
+    }
 
     this.saveSnapshot();
     this.deleteSelection();
@@ -2958,7 +2994,17 @@ export class TextEditor {
     // If cursor is on a non-editable block, split to create a text block first
     this.ensureEditableBlock();
     const pos = this.cursor.position;
-    if (blocks.length === 1) {
+    if (blocks.length === 1 && blocks[0].type === 'table') {
+      // Single table block: insert as a new block (cannot merge into current)
+      this.invalidateLayout();
+      const blockIdx = this.doc.getBlockIndex(pos.blockId);
+      const newBlock: Block = { ...blocks[0], id: generateBlockId() };
+      this.doc.insertBlockAt(blockIdx + 1, newBlock);
+      const firstCellBlock = newBlock.tableData?.rows[0]?.cells[0]?.blocks[0];
+      if (firstCellBlock) {
+        this.cursor.moveTo({ blockId: firstCellBlock.id, offset: 0 }, 'forward');
+      }
+    } else if (blocks.length === 1) {
       // Single block: merge pasted inlines into the current block at cursor
       const pastedInlines = blocks[0].inlines;
       const pastedTextLen = pastedInlines.reduce((sum, il) => sum + il.text.length, 0);
