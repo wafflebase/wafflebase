@@ -434,25 +434,14 @@ export class YorkieDocStore implements DocStore {
   private cachedDoc: Document | null = null;
   private dirty = true;
 
-  // Local snapshot-based undo/redo (Phase 1 fallback)
-  private undoStack: Document[] = [];
-  private redoStack: Document[] = [];
-
-  /** When true, use Yorkie's native doc.history undo/redo instead of snapshots. */
-  private useYorkieUndo: boolean;
-
   /**
    * Optional callback invoked when a remote change is detected.
    * The host component should set this to trigger a re-render.
    */
   onRemoteChange?: () => void;
 
-  constructor(
-    doc: YorkieDocument<YorkieDocsRoot>,
-    options?: { useYorkieUndo?: boolean },
-  ) {
+  constructor(doc: YorkieDocument<YorkieDocsRoot>) {
     this.doc = doc;
-    this.useYorkieUndo = options?.useYorkieUndo ?? false;
 
     // Invalidate cache on remote changes
     doc.subscribe((event) => {
@@ -1911,81 +1900,33 @@ export class YorkieDocStore implements DocStore {
   }
 
   // -----------------------------------------------------------------------
-  // Undo / Redo
+  // Undo / Redo (Yorkie-native via doc.history)
   // -----------------------------------------------------------------------
 
   snapshot(): void {
-    if (this.useYorkieUndo) {
-      // Yorkie tracks undo units via doc.update() — no-op here.
-      return;
-    }
-    const current = this.getDocument();
-    this.undoStack.push(cloneDocument(current));
-    this.redoStack = [];
+    // Yorkie tracks undo units via doc.update() — no-op.
   }
 
   undo(): void {
     if (!this.canUndo()) return;
-
-    if (this.useYorkieUndo) {
-      try {
-        this.doc.history.undo();
-        this.dirty = true;
-        this.cachedDoc = null;
-        return;
-      } catch (e) {
-        console.warn('Yorkie undo failed, disabling Yorkie undo:', e);
-        this.useYorkieUndo = false;
-        // Snapshot stacks are empty since snapshot() was a no-op.
-        // Undo is unavailable until new snapshots accumulate.
-        return;
-      }
-    }
-
-    const current = this.getDocument();
-    this.redoStack.push(cloneDocument(current));
-    const previous = this.undoStack.pop()!;
-    this.writeFullDocument(previous);
+    this.doc.history.undo();
     this.dirty = true;
     this.cachedDoc = null;
   }
 
   redo(): void {
     if (!this.canRedo()) return;
-
-    if (this.useYorkieUndo) {
-      try {
-        this.doc.history.redo();
-        this.dirty = true;
-        this.cachedDoc = null;
-        return;
-      } catch (e) {
-        console.warn('Yorkie redo failed, disabling Yorkie undo:', e);
-        this.useYorkieUndo = false;
-        return;
-      }
-    }
-
-    const current = this.getDocument();
-    this.undoStack.push(cloneDocument(current));
-    const next = this.redoStack.pop()!;
-    this.writeFullDocument(next);
+    this.doc.history.redo();
     this.dirty = true;
     this.cachedDoc = null;
   }
 
   canUndo(): boolean {
-    if (this.useYorkieUndo) {
-      return this.doc.history.canUndo();
-    }
-    return this.undoStack.length > 0;
+    return this.doc.history.canUndo();
   }
 
   canRedo(): boolean {
-    if (this.useYorkieUndo) {
-      return this.doc.history.canRedo();
-    }
-    return this.redoStack.length > 0;
+    return this.doc.history.canRedo();
   }
 
   // -----------------------------------------------------------------------
