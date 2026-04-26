@@ -434,10 +434,6 @@ export class YorkieDocStore implements DocStore {
   private cachedDoc: Document | null = null;
   private dirty = true;
 
-  // Local snapshot-based undo/redo (Phase 1)
-  private undoStack: Document[] = [];
-  private redoStack: Document[] = [];
-
   /**
    * Optional callback invoked when a remote change is detected.
    * The host component should set this to trigger a re-render.
@@ -1904,41 +1900,33 @@ export class YorkieDocStore implements DocStore {
   }
 
   // -----------------------------------------------------------------------
-  // Undo / Redo (local snapshot stack — Phase 1)
+  // Undo / Redo (Yorkie-native via doc.history)
   // -----------------------------------------------------------------------
 
   snapshot(): void {
-    const current = this.getDocument();
-    this.undoStack.push(cloneDocument(current));
-    this.redoStack = [];
+    // Yorkie tracks undo units via doc.update() — no-op.
   }
 
   undo(): void {
     if (!this.canUndo()) return;
-    const current = this.getDocument();
-    this.redoStack.push(cloneDocument(current));
-    const previous = this.undoStack.pop()!;
-    this.writeFullDocument(previous);
+    this.doc.history.undo();
     this.dirty = true;
     this.cachedDoc = null;
   }
 
   redo(): void {
     if (!this.canRedo()) return;
-    const current = this.getDocument();
-    this.undoStack.push(cloneDocument(current));
-    const next = this.redoStack.pop()!;
-    this.writeFullDocument(next);
+    this.doc.history.redo();
     this.dirty = true;
     this.cachedDoc = null;
   }
 
   canUndo(): boolean {
-    return this.undoStack.length > 0;
+    return this.doc.history.canUndo();
   }
 
   canRedo(): boolean {
-    return this.redoStack.length > 0;
+    return this.doc.history.canRedo();
   }
 
   // -----------------------------------------------------------------------
