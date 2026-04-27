@@ -434,6 +434,8 @@ export class YorkieDocStore implements DocStore {
   private cachedDoc: Document | null = null;
   private dirty = true;
   private pendingCursorPos: { blockId: string; offset: number } | null = null;
+  /** Undo stack depth after setDocument — users cannot undo past this point. */
+  private undoFloor = 0;
 
   /**
    * Optional callback invoked when a remote change is detected.
@@ -618,6 +620,10 @@ export class YorkieDocStore implements DocStore {
     // (e.g., stale documents whose content field was a plain object).
     this.cachedDoc = cloneDocument(doc);
     this.dirty = false;
+    // Mark the undo stack depth so users cannot undo past the initial
+    // document load. Yorkie's CRDT redo of writeFullDocument can
+    // conflict with subsequent text insertions.
+    this.undoFloor = this.doc.getUndoStackForTest().length;
   }
 
   replaceDocument(doc: Document): void {
@@ -2095,7 +2101,8 @@ export class YorkieDocStore implements DocStore {
   }
 
   canUndo(): boolean {
-    return this.doc.history.canUndo();
+    return this.doc.history.canUndo() &&
+      this.doc.getUndoStackForTest().length > this.undoFloor;
   }
 
   canRedo(): boolean {

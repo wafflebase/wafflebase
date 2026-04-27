@@ -247,13 +247,69 @@ describe('YorkieDocStore', () => {
       assert.equal(store.getBlock(block.id)?.inlines[0].text, 'ABC');
     });
 
+    it('type + splitBlock + undo all + redo all should not throw', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+
+      // Type "asdf" character by character
+      store.setCursorForHistory({ blockId: block.id, offset: 0 });
+      store.insertText(block.id, 0, 'a');
+      store.setCursorForHistory({ blockId: block.id, offset: 1 });
+      store.insertText(block.id, 1, 's');
+      store.setCursorForHistory({ blockId: block.id, offset: 2 });
+      store.insertText(block.id, 2, 'd');
+      store.setCursorForHistory({ blockId: block.id, offset: 3 });
+      store.insertText(block.id, 3, 'f');
+      assert.equal(store.getBlock(block.id)?.inlines[0].text, 'asdf');
+
+      // Enter (splitBlock)
+      const newBlockId = 'block-2';
+      store.setCursorForHistory({ blockId: block.id, offset: 4 });
+      store.splitBlock(block.id, 4, newBlockId, 'paragraph');
+      assert.equal(store.getDocument().blocks.length, 2);
+
+      // Type "asdf" in second block
+      store.setCursorForHistory({ blockId: newBlockId, offset: 0 });
+      store.insertText(newBlockId, 0, 'a');
+      store.setCursorForHistory({ blockId: newBlockId, offset: 1 });
+      store.insertText(newBlockId, 1, 's');
+      store.setCursorForHistory({ blockId: newBlockId, offset: 2 });
+      store.insertText(newBlockId, 2, 'd');
+      store.setCursorForHistory({ blockId: newBlockId, offset: 3 });
+      store.insertText(newBlockId, 3, 'f');
+      assert.equal(store.getBlock(newBlockId)?.inlines[0].text, 'asdf');
+
+      // Undo all user operations (canUndo stops at setDocument floor)
+      while (store.canUndo()) store.undo();
+
+      // After undoing all user ops, should be back to empty block
+      const afterUndo = store.getDocument();
+      assert.equal(afterUndo.blocks.length, 1);
+      assert.equal(afterUndo.blocks[0].inlines[0].text, '');
+
+      // Redo all — should not throw
+      while (store.canRedo()) store.redo();
+
+      // Verify final state matches what we had
+      const doc = store.getDocument();
+      assert.equal(doc.blocks.length, 2, `Expected 2 blocks, got ${doc.blocks.length}`);
+      assert.equal(doc.blocks[0].inlines[0].text, 'asdf');
+      assert.equal(doc.blocks[1].inlines[0].text, 'asdf');
+    });
+
     it('canUndo/canRedo reflect Yorkie history state', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
-      assert.equal(store.canUndo(), true);
+      // setDocument sets the undo floor — can't undo past initial load
+      assert.equal(store.canUndo(), false);
       assert.equal(store.canRedo(), false);
+      // After a mutation, canUndo should be true
+      store.insertText(block.id, 5, '!');
+      assert.equal(store.canUndo(), true);
       store.undo();
       assert.equal(store.canRedo(), true);
+      // After undoing the mutation, can't undo past setDocument
+      assert.equal(store.canUndo(), false);
     });
 
     it('undo should restore cursor position via presence', () => {
