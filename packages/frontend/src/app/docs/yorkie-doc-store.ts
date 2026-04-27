@@ -433,6 +433,9 @@ export class YorkieDocStore implements DocStore {
   private doc: YorkieDocument<YorkieDocsRoot>;
   private cachedDoc: Document | null = null;
   private dirty = true;
+  private pendingCursorPos: { blockId: string; offset: number } | null = null;
+  /** Undo stack depth after setDocument — users cannot undo past this point. */
+  private undoFloor = 0;
 
   /**
    * Optional callback invoked when a remote change is detected.
@@ -617,6 +620,10 @@ export class YorkieDocStore implements DocStore {
     // (e.g., stale documents whose content field was a plain object).
     this.cachedDoc = cloneDocument(doc);
     this.dirty = false;
+    // Mark the undo stack depth so users cannot undo past the initial
+    // document load. Yorkie's CRDT redo of writeFullDocument can
+    // conflict with subsequent text insertions.
+    this.undoFloor = this.doc.getUndoStackForTest().length;
   }
 
   replaceDocument(doc: Document): void {
@@ -962,7 +969,14 @@ export class YorkieDocStore implements DocStore {
     const endPath = [...blockPath];
     endPath[endPath.length - 1] += 1;
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath(blockPath, endPath, buildBlockNode(block));
@@ -997,7 +1011,14 @@ export class YorkieDocStore implements DocStore {
     if (type !== 'heading') toRemove.push('headingLevel');
     if (type !== 'list-item') toRemove.push('listKind', 'listLevel');
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.styleByPath(blockPath, attrs);
@@ -1055,7 +1076,14 @@ export class YorkieDocStore implements DocStore {
     const merged = normalizeBlockStyle({ ...block.style, ...style });
     const attrs = serializeBlockStyle(merged);
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.styleByPath(blockPath, attrs);
@@ -1073,7 +1101,14 @@ export class YorkieDocStore implements DocStore {
     const { path: blockPath, region } = this.resolveBlockTreePath(blockId, currentDoc);
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: { blockId, offset: offset + 1 } } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
@@ -1140,7 +1175,14 @@ export class YorkieDocStore implements DocStore {
     const cacheResolved = resolveOffset(block, offset);
     const targetInline = block.inlines[cacheResolved.inlineIndex];
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: { blockId, offset: offset + text.length } } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
@@ -1213,7 +1255,14 @@ export class YorkieDocStore implements DocStore {
       console.log(`[DOC]   cache BEFORE: ${describeBlock(block)}`);
     }
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: { blockId, offset } } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
@@ -1266,7 +1315,14 @@ export class YorkieDocStore implements DocStore {
 
     const updated = applyInlineStyleHelper(block, fromOffset, toOffset, style);
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
@@ -1382,7 +1438,14 @@ export class YorkieDocStore implements DocStore {
   insertBlock(index: number, block: Block): void {
     const currentDoc = this.getDocument();
     const off = this.bodyTreeOffset(currentDoc);
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath([index + off], [index + off], buildBlockNode(block));
@@ -1401,7 +1464,14 @@ export class YorkieDocStore implements DocStore {
     const insertPath = [...siblingPath];
     insertPath[insertPath.length - 1] += 1;
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath(insertPath, insertPath, buildBlockNode(block));
@@ -1422,7 +1492,14 @@ export class YorkieDocStore implements DocStore {
     const endPath = [...blockPath];
     endPath[endPath.length - 1] += 1;
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath(blockPath, endPath);
@@ -1439,7 +1516,14 @@ export class YorkieDocStore implements DocStore {
   deleteBlockByIndex(index: number): void {
     const currentDoc = this.getDocument();
     const off = this.bodyTreeOffset(currentDoc);
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.editByPath([index + off], [index + off + 1]);
@@ -1468,7 +1552,14 @@ export class YorkieDocStore implements DocStore {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
     }
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: { blockId: newBlockId, offset: 0 } } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
 
@@ -1512,36 +1603,82 @@ export class YorkieDocStore implements DocStore {
         }));
         tree.styleByPath(afterPath, afterAttrs);
       } else {
-        // Resolve offset from the actual Yorkie tree, not the cache.
-        // Use the split-aware resolver to skip image inlines.
+        // Manual two-step split (avoids splitLevel=2 which breaks undo/redo):
+        // Step 1: Delete "after" content from the original block
+        // Step 2: Insert a new block with that content
         const { inlineIndex, charOffset } = this.resolveBlockNodeOffsetForSplit(blockNode, offset);
-
-        // Native CRDT split: single atomic operation at splitLevel=2.
-        // splitLevel=2 because the text position is 2 levels below block:
-        //   doc → block → inline → text(charOffset)
-        // Two splits are needed: text→inline split + inline→block split.
-        tree.editByPath(
-          [...blockPath, inlineIndex, charOffset],
-          [...blockPath, inlineIndex, charOffset],
-          undefined,
-          2,
+        const inlineChildren = (el.children ?? []).filter(
+          (c): c is ElementNode => c.type === 'inline',
         );
 
-        const afterAttrs: Record<string, string> = {
-          id: newBlockId,
-          type: newBlockType,
-          ...serializeBlockStyle(block.style),
-        };
-        if (newBlockType === 'list-item' && block.listKind !== undefined) {
-          afterAttrs.listKind = block.listKind;
-          if (block.listLevel !== undefined) {
-            afterAttrs.listLevel = String(block.listLevel);
+        // Build the "after" inlines from the tree data
+        const afterInlines: Inline[] = [];
+        for (let i = inlineIndex; i < inlineChildren.length; i++) {
+          const inl = inlineChildren[i];
+          const text = (inl.children ?? [])
+            .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+            .map((c) => c.value)
+            .join('');
+          const style = parseInlineStyle(inl.attributes as Record<string, string> | undefined);
+          if (i === inlineIndex) {
+            // Only the portion after charOffset
+            const afterText = text.slice(charOffset);
+            if (afterText.length > 0 || i === inlineChildren.length - 1) {
+              afterInlines.push({ text: afterText, style });
+            }
+          } else {
+            afterInlines.push({ text, style });
           }
         }
-        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
-          afterAttrs.headingLevel = String(block.headingLevel);
+        if (afterInlines.length === 0) {
+          afterInlines.push({ text: '', style: {} });
         }
-        tree.styleByPath(afterPath, afterAttrs);
+
+        // Step 1: Delete text from split point to end of block.
+        const lastInlineIdx = inlineChildren.length - 1;
+        const lastText = (inlineChildren[lastInlineIdx].children ?? [])
+          .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+          .reduce((sum, t) => sum + t.value.length, 0);
+
+        if (inlineIndex === 0 && charOffset === 0) {
+          // Split at start: delete all inlines, then add empty one
+          tree.editByPath([...blockPath, 0], [...blockPath, inlineChildren.length]);
+          tree.editByPath([...blockPath, 0], [...blockPath, 0], buildInlineNode({ text: '', style: {} }));
+        } else if (charOffset === 0) {
+          // Split at inline boundary: delete from inlineIndex to end
+          tree.editByPath([...blockPath, inlineIndex], [...blockPath, inlineChildren.length]);
+        } else {
+          // Split mid-inline: delete text after charOffset, then remove subsequent inlines
+          tree.editByPath(
+            [...blockPath, inlineIndex, charOffset],
+            [...blockPath, lastInlineIdx, lastText],
+          );
+          // Remove any now-empty inlines after the split inline
+          const updatedBlockNode = this.getTreeBlockNode(tree.getRootTreeNode(), blockPath) as ElementNode;
+          const updatedInlines = (updatedBlockNode.children ?? []).filter((c) => c.type === 'inline') as ElementNode[];
+          for (let i = updatedInlines.length - 1; i > inlineIndex && updatedInlines.length > 1; i--) {
+            const tLen = (updatedInlines[i].children ?? [])
+              .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+              .reduce((sum, t) => sum + t.value.length, 0);
+            if (tLen === 0) {
+              tree.editByPath([...blockPath, i], [...blockPath, i + 1]);
+            }
+          }
+        }
+
+        // Step 2: Insert new block with the "after" content
+        tree.editByPath(afterPath, afterPath, buildBlockNode({
+          id: newBlockId,
+          type: newBlockType,
+          inlines: afterInlines,
+          style: block.style,
+          ...(newBlockType === 'list-item' && block.listKind !== undefined
+            ? { listKind: block.listKind, listLevel: block.listLevel }
+            : {}),
+          ...(newBlockType === 'heading' && block.headingLevel !== undefined
+            ? { headingLevel: block.headingLevel }
+            : {}),
+        }));
       }
     });
 
@@ -1582,7 +1719,15 @@ export class YorkieDocStore implements DocStore {
       throw new Error('Blocks to merge must be adjacent and in order');
     }
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        const mergeOffset = firstBlock.inlines.reduce((sum, i) => sum + i.text.length, 0);
+        p.set(
+          { activeCursorPos: { blockId, offset: mergeOffset } } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       // Read inline count from the actual tree, not the cache, because
@@ -1726,7 +1871,14 @@ export class YorkieDocStore implements DocStore {
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const rowNode = buildRowNode(row);
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       root.content.editByPath([...tablePath, atIndex], [...tablePath, atIndex], rowNode);
     });
     const currentDoc = this.getDocument();
@@ -1738,7 +1890,14 @@ export class YorkieDocStore implements DocStore {
 
   deleteTableRow(tableBlockId: string, rowIndex: number): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       root.content.editByPath([...tablePath, rowIndex], [...tablePath, rowIndex + 1]);
     });
     const currentDoc = this.getDocument();
@@ -1750,7 +1909,14 @@ export class YorkieDocStore implements DocStore {
 
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       for (let r = 0; r < cells.length; r++) {
         tree.editByPath(
@@ -1775,7 +1941,14 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const block = this.resolveTableBlock(tablePath, currentDoc);
     const rowCount = block.tableData!.rows.length;
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       for (let r = 0; r < rowCount; r++) {
         tree.editByPath([...tablePath, r, colIndex], [...tablePath, r, colIndex + 1]);
@@ -1793,7 +1966,14 @@ export class YorkieDocStore implements DocStore {
   ): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const cellNode = buildCellNode(cell);
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       root.content.editByPath(
         [...tablePath, rowIndex, colIndex],
         [...tablePath, rowIndex, colIndex + 1],
@@ -1820,7 +2000,14 @@ export class YorkieDocStore implements DocStore {
     // Build serialized attributes for the cell node
     const attrs = serializeCellStyle({ ...cell, style: merged });
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.styleByPath([...tablePath, rowIndex, colIndex], attrs);
@@ -1861,7 +2048,14 @@ export class YorkieDocStore implements DocStore {
       }
     }
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       if (Object.keys(attrsToSet).length > 0) {
@@ -1901,7 +2095,14 @@ export class YorkieDocStore implements DocStore {
     //   tree.removeStyleByPath(tablePath, endPath, ['rowHeights']);
     const nodeAttrs = serializeTableAttrs(attrs.cols, attrs.rowHeights);
 
-    this.doc.update((root) => {
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        p.set(
+          { activeCursorPos: cursorForHistory } as Partial<DocsPresence>,
+          { addToHistory: true },
+        );
+      }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       tree.styleByPath(tablePath, nodeAttrs);
@@ -1946,7 +2147,8 @@ export class YorkieDocStore implements DocStore {
   }
 
   canUndo(): boolean {
-    return this.doc.history.canUndo();
+    return this.doc.history.canUndo() &&
+      this.doc.getUndoStackForTest().length > this.undoFloor;
   }
 
   canRedo(): boolean {
@@ -2027,6 +2229,50 @@ export class YorkieDocStore implements DocStore {
         };
       }
     });
+  }
+
+  /**
+   * Save the current cursor position so the next mutation includes it in
+   * Yorkie's undo history. Called by the editor before each mutation.
+   */
+  setCursorForHistory(pos: { blockId: string; offset: number }): void {
+    this.pendingCursorPos = pos;
+  }
+
+  /**
+   * Read the cursor position from Yorkie presence. After undo/redo,
+   * this returns the restored cursor position.
+   */
+  getPresenceCursorPos(): { blockId: string; offset: number } | undefined {
+    // In attached mode getMyPresence() works, but in offline/test mode
+    // the public API returns {}. Fall back to getPresenceForTest() which
+    // returns presence regardless of online status.
+    const presence = this.doc.getMyPresence();
+    const fromPublic = (presence as Record<string, unknown>)?.activeCursorPos as
+      | { blockId: string; offset: number }
+      | undefined;
+    if (fromPublic) return fromPublic;
+
+    const actorId = this.doc.getChangeID().getActorID();
+    if (actorId) {
+      const testPresence = this.doc.getPresenceForTest(actorId);
+      return (testPresence as Record<string, unknown>)?.activeCursorPos as
+        | { blockId: string; offset: number }
+        | undefined;
+    }
+    return undefined;
+  }
+
+  /**
+   * Consume the pending cursor position, returning it (or null).
+   * The caller includes it in the mutation's `doc.update()` via
+   * `p.set({ activeCursorPos: postCursor }, { addToHistory: true })`.
+   * Yorkie automatically saves the pre-mutation presence as the reverse.
+   */
+  private consumePendingCursor(): { blockId: string; offset: number } | null {
+    const cursor = this.pendingCursorPos;
+    this.pendingCursorPos = null;
+    return cursor;
   }
 
   /**

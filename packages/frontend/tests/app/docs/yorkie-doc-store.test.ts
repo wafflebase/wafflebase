@@ -247,13 +247,120 @@ describe('YorkieDocStore', () => {
       assert.equal(store.getBlock(block.id)?.inlines[0].text, 'ABC');
     });
 
+    it('splitBlock → undo → redo round-trip', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+
+      const newId = 'split-redo-test';
+      store.splitBlock(block.id, 5, newId, 'paragraph');
+      const afterSplit = store.getDocument();
+      assert.equal(afterSplit.blocks.length, 2);
+      assert.equal(afterSplit.blocks[0].inlines[0].text, 'Hello');
+      assert.equal(afterSplit.blocks[1].inlines[0].text, 'World');
+
+      store.undo();
+      const afterUndo = store.getDocument();
+      assert.equal(afterUndo.blocks.length, 1);
+      assert.equal(afterUndo.blocks[0].inlines[0].text, 'HelloWorld');
+
+      store.redo();
+      const afterRedo = store.getDocument();
+      assert.equal(afterRedo.blocks.length, 2, `Expected 2 blocks, got ${afterRedo.blocks.length}`);
+      assert.equal(afterRedo.blocks[0].inlines[0].text, 'Hello');
+      assert.equal(afterRedo.blocks[1].inlines[0].text, 'World');
+    });
+
+    // TODO(yorkie-undo): Yorkie SDK redo duplicates text inserted into
+    // split-created blocks. The CRDT redo of block creation revives
+    // text nodes that were independently undone, causing duplication
+    // when the insertText redo fires.
+    it.skip('splitBlock + insertText(new block) + undo all + redo all', () => {
+      const block = makeBlock('asdf');
+      store.setDocument({ blocks: [block] });
+      const newBlockId = 'block-set-split';
+      store.splitBlock(block.id, 4, newBlockId, 'paragraph');
+      store.insertText(newBlockId, 0, 'xyz');
+      while (store.canUndo()) store.undo();
+      while (store.canRedo()) store.redo();
+      const d = store.getDocument();
+      assert.equal(d.blocks.length, 2);
+      assert.equal(d.blocks[0].inlines[0].text, 'asdf');
+      assert.equal(d.blocks[1].inlines[0].text, 'xyz');
+    });
+
+    it('insertText + splitBlock (no second insert) + undo all + redo all', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      store.insertText(block.id, 0, 'asdf');
+      store.splitBlock(block.id, 4, 'block-no-insert', 'paragraph');
+      while (store.canUndo()) store.undo();
+      while (store.canRedo()) store.redo();
+      const d = store.getDocument();
+      assert.equal(d.blocks.length, 2, `Expected 2, got ${d.blocks.length}`);
+      assert.equal(d.blocks[0].inlines[0].text, 'asdf');
+      assert.equal(d.blocks[1].inlines[0].text, '');
+    });
+
     it('canUndo/canRedo reflect Yorkie history state', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
-      assert.equal(store.canUndo(), true);
+      // setDocument sets the undo floor — can't undo past initial load
+      assert.equal(store.canUndo(), false);
       assert.equal(store.canRedo(), false);
+      // After a mutation, canUndo should be true
+      store.insertText(block.id, 5, '!');
+      assert.equal(store.canUndo(), true);
       store.undo();
       assert.equal(store.canRedo(), true);
+      // After undoing the mutation, can't undo past setDocument
+      assert.equal(store.canUndo(), false);
+    });
+
+    it('undo should restore cursor position via presence', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      // Simulate editor flow: updateCursorPos sets presence, then mutation
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+      store.setCursorForHistory({ blockId: block.id, offset: 5 });
+      store.insertText(block.id, 5, ' World');
+      store.undo();
+      const restored = store.getPresenceCursorPos();
+      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
+    });
+
+    it('redo should restore post-mutation cursor position via presence', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+      store.setCursorForHistory({ blockId: block.id, offset: 5 });
+      store.insertText(block.id, 5, ' World');
+      store.undo();
+      store.redo();
+      const restored = store.getPresenceCursorPos();
+      assert.deepEqual(restored, { blockId: block.id, offset: 11 });
+    });
+
+    it('undo deleteText should restore cursor position', () => {
+      const block = makeBlock('Hello World');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+      store.setCursorForHistory({ blockId: block.id, offset: 5 });
+      store.deleteText(block.id, 5, 6);
+      store.undo();
+      const restored = store.getPresenceCursorPos();
+      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
+    });
+
+    it('undo splitBlock should restore cursor position', () => {
+      const block = makeBlock('HelloWorld');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
+      store.setCursorForHistory({ blockId: block.id, offset: 5 });
+      const newId = 'new-block-for-cursor';
+      store.splitBlock(block.id, 5, newId, 'paragraph');
+      store.undo();
+      const restored = store.getPresenceCursorPos();
+      assert.deepEqual(restored, { blockId: block.id, offset: 5 });
     });
   });
 
