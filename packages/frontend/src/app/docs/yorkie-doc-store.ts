@@ -1603,36 +1603,82 @@ export class YorkieDocStore implements DocStore {
         }));
         tree.styleByPath(afterPath, afterAttrs);
       } else {
-        // Resolve offset from the actual Yorkie tree, not the cache.
-        // Use the split-aware resolver to skip image inlines.
+        // Manual two-step split (avoids splitLevel=2 which breaks undo/redo):
+        // Step 1: Delete "after" content from the original block
+        // Step 2: Insert a new block with that content
         const { inlineIndex, charOffset } = this.resolveBlockNodeOffsetForSplit(blockNode, offset);
-
-        // Native CRDT split: single atomic operation at splitLevel=2.
-        // splitLevel=2 because the text position is 2 levels below block:
-        //   doc → block → inline → text(charOffset)
-        // Two splits are needed: text→inline split + inline→block split.
-        tree.editByPath(
-          [...blockPath, inlineIndex, charOffset],
-          [...blockPath, inlineIndex, charOffset],
-          undefined,
-          2,
+        const inlineChildren = (el.children ?? []).filter(
+          (c): c is ElementNode => c.type === 'inline',
         );
 
-        const afterAttrs: Record<string, string> = {
-          id: newBlockId,
-          type: newBlockType,
-          ...serializeBlockStyle(block.style),
-        };
-        if (newBlockType === 'list-item' && block.listKind !== undefined) {
-          afterAttrs.listKind = block.listKind;
-          if (block.listLevel !== undefined) {
-            afterAttrs.listLevel = String(block.listLevel);
+        // Build the "after" inlines from the tree data
+        const afterInlines: Inline[] = [];
+        for (let i = inlineIndex; i < inlineChildren.length; i++) {
+          const inl = inlineChildren[i];
+          const text = (inl.children ?? [])
+            .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+            .map((c) => c.value)
+            .join('');
+          const style = parseInlineStyle(inl.attributes as Record<string, string> | undefined);
+          if (i === inlineIndex) {
+            // Only the portion after charOffset
+            const afterText = text.slice(charOffset);
+            if (afterText.length > 0 || i === inlineChildren.length - 1) {
+              afterInlines.push({ text: afterText, style });
+            }
+          } else {
+            afterInlines.push({ text, style });
           }
         }
-        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
-          afterAttrs.headingLevel = String(block.headingLevel);
+        if (afterInlines.length === 0) {
+          afterInlines.push({ text: '', style: {} });
         }
-        tree.styleByPath(afterPath, afterAttrs);
+
+        // Step 1: Delete text from split point to end of block.
+        const lastInlineIdx = inlineChildren.length - 1;
+        const lastText = (inlineChildren[lastInlineIdx].children ?? [])
+          .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+          .reduce((sum, t) => sum + t.value.length, 0);
+
+        if (inlineIndex === 0 && charOffset === 0) {
+          // Split at start: delete all inlines, then add empty one
+          tree.editByPath([...blockPath, 0], [...blockPath, inlineChildren.length]);
+          tree.editByPath([...blockPath, 0], [...blockPath, 0], buildInlineNode({ text: '', style: {} }));
+        } else if (charOffset === 0) {
+          // Split at inline boundary: delete from inlineIndex to end
+          tree.editByPath([...blockPath, inlineIndex], [...blockPath, inlineChildren.length]);
+        } else {
+          // Split mid-inline: delete text after charOffset, then remove subsequent inlines
+          tree.editByPath(
+            [...blockPath, inlineIndex, charOffset],
+            [...blockPath, lastInlineIdx, lastText],
+          );
+          // Remove any now-empty inlines after the split inline
+          const updatedBlockNode = this.getTreeBlockNode(tree.getRootTreeNode(), blockPath) as ElementNode;
+          const updatedInlines = (updatedBlockNode.children ?? []).filter((c) => c.type === 'inline') as ElementNode[];
+          for (let i = updatedInlines.length - 1; i > inlineIndex && updatedInlines.length > 1; i--) {
+            const tLen = (updatedInlines[i].children ?? [])
+              .filter((c): c is { type: 'text'; value: string } => c.type === 'text')
+              .reduce((sum, t) => sum + t.value.length, 0);
+            if (tLen === 0) {
+              tree.editByPath([...blockPath, i], [...blockPath, i + 1]);
+            }
+          }
+        }
+
+        // Step 2: Insert new block with the "after" content
+        tree.editByPath(afterPath, afterPath, buildBlockNode({
+          id: newBlockId,
+          type: newBlockType,
+          inlines: afterInlines,
+          style: block.style,
+          ...(newBlockType === 'list-item' && block.listKind !== undefined
+            ? { listKind: block.listKind, listLevel: block.listLevel }
+            : {}),
+          ...(newBlockType === 'heading' && block.headingLevel !== undefined
+            ? { headingLevel: block.headingLevel }
+            : {}),
+        }));
       }
     });
 

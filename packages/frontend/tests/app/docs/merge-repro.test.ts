@@ -91,7 +91,9 @@ describe('mergeByPath fixes split-created block merge', () => {
     assert.equal(treeCount, 1, 'editByPath works on non-split blocks');
   });
 
-  it('editByPath on split blocks fails (demonstrates the bug)', () => {
+  it('editByPath on split blocks works after manual split', () => {
+    // With manual two-step split (no splitLevel=2), editByPath
+    // cross-boundary merge now works correctly.
     const block = makeBlock('asdf');
     store.setDocument({ blocks: [block] });
 
@@ -104,7 +106,7 @@ describe('mergeByPath fixes split-created block merge', () => {
 
     const treeCount = getTreeBlockCount(doc);
     console.log('editByPath on split:', treeCount, 'blocks, texts:', getTreeBlockTexts(doc));
-    assert.equal(treeCount, 2, 'BUG: editByPath does NOT merge split blocks');
+    assert.equal(treeCount, 1, 'editByPath merges manual-split blocks');
   });
 
   it('mergeByPath after split, insert, then merge full scenario', () => {
