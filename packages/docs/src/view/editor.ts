@@ -1036,6 +1036,10 @@ export function initialize(
 
   ruler.onIndentChange((style) => {
     docStore.snapshot();
+    if ('setCursorForHistory' in docStore) {
+      (docStore as { setCursorForHistory(pos: { blockId: string; offset: number }): void })
+        .setCursorForHistory(cursor.position);
+    }
     doc.applyBlockStyle(cursor.position.blockId, style);
     markDirty(cursor.position.blockId);
     render();
@@ -1053,9 +1057,20 @@ export function initialize(
       doc.refresh();
       textEditor?.setEditContext('body');
       layoutCache = undefined;
-      if (doc.document.blocks.length > 0) {
+
+      // Restore cursor from Yorkie presence (automatically restored by undo)
+      const restoredPos = 'getPresenceCursorPos' in docStore
+        ? (docStore as { getPresenceCursorPos(): { blockId: string; offset: number } | undefined })
+            .getPresenceCursorPos()
+        : undefined;
+      if (restoredPos && doc.findBlock(restoredPos.blockId)) {
+        const block = doc.getBlock(restoredPos.blockId);
+        const maxOffset = block.inlines.reduce((sum, i) => sum + i.text.length, 0);
+        cursor.moveTo({ blockId: restoredPos.blockId, offset: Math.min(restoredPos.offset, maxOffset) });
+      } else if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+
       needsScrollIntoView = true;
       render();
     }
@@ -1066,9 +1081,20 @@ export function initialize(
       doc.refresh();
       textEditor?.setEditContext('body');
       layoutCache = undefined;
-      if (doc.document.blocks.length > 0) {
+
+      // Restore cursor from Yorkie presence (automatically restored by redo)
+      const restoredPos = 'getPresenceCursorPos' in docStore
+        ? (docStore as { getPresenceCursorPos(): { blockId: string; offset: number } | undefined })
+            .getPresenceCursorPos()
+        : undefined;
+      if (restoredPos && doc.findBlock(restoredPos.blockId)) {
+        const block = doc.getBlock(restoredPos.blockId);
+        const maxOffset = block.inlines.reduce((sum, i) => sum + i.text.length, 0);
+        cursor.moveTo({ blockId: restoredPos.blockId, offset: Math.min(restoredPos.offset, maxOffset) });
+      } else if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
+
       needsScrollIntoView = true;
       render();
     }
@@ -1130,7 +1156,13 @@ export function initialize(
     () => scaleFactor,
     () => canvas.getBoundingClientRect().top - container.getBoundingClientRect().top,
     renderWithScroll,
-    () => docStore.snapshot(),
+    () => {
+      docStore.snapshot();
+      if ('setCursorForHistory' in docStore) {
+        (docStore as { setCursorForHistory(pos: { blockId: string; offset: number }): void })
+          .setCursorForHistory(cursor.position);
+      }
+    },
     undoFn,
     redoFn,
     markDirty,
