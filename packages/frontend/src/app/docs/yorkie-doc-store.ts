@@ -2218,20 +2218,14 @@ export class YorkieDocStore implements DocStore {
   }
 
   /**
-   * Consume the pending cursor and, if set, write it to presence so that
-   * the subsequent `doc.update()` can capture it as the undo-reverse value.
-   * Returns the consumed cursor (or null).
+   * Consume the pending cursor position, returning it (or null).
+   * The caller includes it in the mutation's `doc.update()` via
+   * `p.set({ activeCursorPos: postCursor }, { addToHistory: true })`.
+   * Yorkie automatically saves the pre-mutation presence as the reverse.
    */
   private consumePendingCursor(): { blockId: string; offset: number } | null {
     const cursor = this.pendingCursorPos;
     this.pendingCursorPos = null;
-    if (cursor) {
-      // Write pre-cursor to presence (no addToHistory) so the next
-      // p.set(..., { addToHistory: true }) captures it as the reverse.
-      this.doc.update((_, p) => {
-        p.set({ activeCursorPos: cursor } as Partial<DocsPresence>);
-      });
-    }
     return cursor;
   }
 

@@ -315,6 +315,8 @@ describe('YorkieDocStore', () => {
     it('undo should restore cursor position via presence', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
+      // Simulate editor flow: updateCursorPos sets presence, then mutation
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
       store.setCursorForHistory({ blockId: block.id, offset: 5 });
       store.insertText(block.id, 5, ' World');
       store.undo();
@@ -325,6 +327,7 @@ describe('YorkieDocStore', () => {
     it('redo should restore post-mutation cursor position via presence', () => {
       const block = makeBlock('Hello');
       store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
       store.setCursorForHistory({ blockId: block.id, offset: 5 });
       store.insertText(block.id, 5, ' World');
       store.undo();
@@ -336,6 +339,7 @@ describe('YorkieDocStore', () => {
     it('undo deleteText should restore cursor position', () => {
       const block = makeBlock('Hello World');
       store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
       store.setCursorForHistory({ blockId: block.id, offset: 5 });
       store.deleteText(block.id, 5, 6);
       store.undo();
@@ -346,6 +350,7 @@ describe('YorkieDocStore', () => {
     it('undo splitBlock should restore cursor position', () => {
       const block = makeBlock('HelloWorld');
       store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 5 });
       store.setCursorForHistory({ blockId: block.id, offset: 5 });
       const newId = 'new-block-for-cursor';
       store.splitBlock(block.id, 5, newId, 'paragraph');
