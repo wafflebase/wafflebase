@@ -108,6 +108,21 @@ index mapping rules as cells:
 This keeps style behavior stable across structural edits while reducing patch
 count growth.
 
+Per-cell custom borders (`bt/bl/br/bb`) — produced by `setRangeBorders` — are
+stored on individual cells, not as range patches, so the range-expansion rule
+above does not apply to them directly. Instead, after a row/column insert, the
+sheet scans the two cells flanking the insertion seam in each populated
+column/row and writes the borders that were continuous across the seam onto
+the inserted cells:
+
+- row insert: shared `bl`/`br` between row `index-1` and row `index+count`
+  extends into every inserted row at that column
+- column insert: shared `bt`/`bb` between column `index-1` and column
+  `index+count` extends into every inserted column at that row
+
+The result matches Google Sheets: an outer border drawn around `A1:B2` stays
+unbroken when a row is inserted between rows 1 and 2.
+
 ## Copy/Paste
 
 Internal copy buffer includes clipped `rangeStyles` intersecting copied range.
