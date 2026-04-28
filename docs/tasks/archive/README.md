@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 141
+Total archived tasks: 142
 
-## 2026/04 (27 tasks)
+## 2026/04 (28 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| border outline extension (2026-04-28) | [20260428-border-outline-extension-todo.md](./2026/04/20260428-border-outline-extension-todo.md) | - |
 | block attr intent preserving (2026-04-23) | [20260423-block-attr-intent-preserving-todo.md](./2026/04/20260423-block-attr-intent-preserving-todo.md) | [20260423-block-attr-intent-preserving-lessons.md](./2026/04/20260423-block-attr-intent-preserving-lessons.md) |
 | cell structural edits (2026-04-23) | [20260423-cell-structural-edits-todo.md](./2026/04/20260423-cell-structural-edits-todo.md) | [20260423-cell-structural-edits-lessons.md](./2026/04/20260423-cell-structural-edits-lessons.md) |
 | inline style tests (2026-04-23) | [20260423-inline-style-tests-todo.md](./20260423-inline-style-tests-todo.md) | - |

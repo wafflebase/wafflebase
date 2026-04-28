@@ -1092,6 +1092,12 @@ export class Sheet {
     // Batch the freeze pane adjustment and formula recalculation together
     this.store.beginBatch();
     try {
+      // Extend continuous outline borders into newly inserted rows/columns
+      // so an outer border that ran across the insertion seam stays unbroken.
+      if (count > 0) {
+        await this.extendBordersAcrossInsertion(axis, index, count);
+      }
+
       // Adjust freeze pane when inserting/deleting near the freeze boundary
       const frozen = axis === 'row' ? this.frozenRows : this.frozenCols;
       if (frozen > 0) {
@@ -1127,6 +1133,85 @@ export class Sheet {
       }
     } finally {
       this.store.endBatch();
+    }
+  }
+
+  /**
+   * `extendBordersAcrossInsertion` writes continuous outline borders into
+   * rows/columns just inserted by `shiftCells`. When both cells flanking
+   * the insertion seam share a vertical border (for row inserts) or a
+   * horizontal border (for column inserts), the inserted cells inherit
+   * that border so the outline does not break — matching the behavior of
+   * Google Sheets.
+   */
+  private async extendBordersAcrossInsertion(
+    axis: Axis,
+    index: number,
+    count: number,
+  ): Promise<void> {
+    if (count <= 0 || index <= 1) return;
+
+    // Border keys that span the insertion seam:
+    //   row insert -> vertical borders (bl, br) running through the seam
+    //   col insert -> horizontal borders (bt, bb) running through the seam
+    const keys: Array<'bt' | 'bb' | 'bl' | 'br'> =
+      axis === 'row' ? ['bl', 'br'] : ['bt', 'bb'];
+
+    // `cellsInRange` only iterates populated rows/cols, so an open-ended
+    // bound here just means "every populated cell on this seam line".
+    const upper = Number.MAX_SAFE_INTEGER;
+    const beforeRange: Range = axis === 'row'
+      ? [{ r: index - 1, c: 1 }, { r: index - 1, c: upper }]
+      : [{ r: 1, c: index - 1 }, { r: upper, c: index - 1 }];
+    const afterRange: Range = axis === 'row'
+      ? [{ r: index + count, c: 1 }, { r: index + count, c: upper }]
+      : [{ r: 1, c: index + count }, { r: upper, c: index + count }];
+
+    const before = await this.store.getGrid(beforeRange);
+    const after = await this.store.getGrid(afterRange);
+
+    const candidates = new Set<number>();
+    for (const sref of before.keys()) {
+      const ref = parseRef(sref);
+      candidates.add(axis === 'row' ? ref.c : ref.r);
+    }
+    for (const sref of after.keys()) {
+      const ref = parseRef(sref);
+      candidates.add(axis === 'row' ? ref.c : ref.r);
+    }
+
+    for (const other of candidates) {
+      const beforeRef: Ref = axis === 'row'
+        ? { r: index - 1, c: other }
+        : { r: other, c: index - 1 };
+      const afterRef: Ref = axis === 'row'
+        ? { r: index + count, c: other }
+        : { r: other, c: index + count };
+
+      const beforeStyle = await this.getStyle(beforeRef);
+      const afterStyle = await this.getStyle(afterRef);
+
+      const inheritedKeys = keys.filter(
+        (key) => beforeStyle?.[key] === true && afterStyle?.[key] === true,
+      );
+      if (inheritedKeys.length === 0) continue;
+
+      for (let i = 0; i < count; i++) {
+        const insertedRef: Ref = axis === 'row'
+          ? { r: index + i, c: other }
+          : { r: other, c: index + i };
+        const existing = await this.getStyle(insertedRef);
+
+        const patch: Partial<CellStyle> = {};
+        for (const key of inheritedKeys) {
+          if (existing?.[key] !== true) {
+            patch[key] = true;
+          }
+        }
+        if (Object.keys(patch).length > 0) {
+          await this.setStyle(insertedRef, patch);
+        }
+      }
     }
   }
 

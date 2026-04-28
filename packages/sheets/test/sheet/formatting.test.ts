@@ -375,6 +375,134 @@ describe('Sheet.Formatting', () => {
     sheet.selectColumn(1);
     expect(await sheet.setRangeBorders('all')).toBe(false);
   });
+
+  // Google Sheets-like outline extension: when a row/column is inserted
+  // inside an outer-bordered range, borders that run continuously across
+  // the insertion seam are inherited by the new cells so the outline does
+  // not break.
+  it('should extend the left/right outline borders into a row inserted inside the range', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    await sheet.setRangeBorders('outer');
+
+    // Insert a row between row 1 and row 2.
+    await sheet.insertRows(2, 1);
+
+    // Original top row keeps its corner borders.
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      bt: true,
+      bl: true,
+      br: false,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
+      bt: true,
+      bl: false,
+      br: true,
+      bb: false,
+    });
+
+    // New middle row inherits left edge in column 1 and right edge in column 2.
+    const newLeft = await sheet.getStyle({ r: 2, c: 1 });
+    const newRight = await sheet.getStyle({ r: 2, c: 2 });
+    expect(newLeft?.bl).toBe(true);
+    expect(newRight?.br).toBe(true);
+    // No spurious top/bottom borders inside the box.
+    expect(newLeft?.bt).not.toBe(true);
+    expect(newLeft?.bb).not.toBe(true);
+    expect(newRight?.bt).not.toBe(true);
+    expect(newRight?.bb).not.toBe(true);
+
+    // Original bottom row shifts to row 3 with its borders intact.
+    expect(await sheet.getStyle({ r: 3, c: 1 })).toEqual({
+      bt: false,
+      bl: true,
+      br: false,
+      bb: true,
+    });
+    expect(await sheet.getStyle({ r: 3, c: 2 })).toEqual({
+      bt: false,
+      bl: false,
+      br: true,
+      bb: true,
+    });
+  });
+
+  it('should extend the top/bottom outline borders into a column inserted inside the range', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    await sheet.setRangeBorders('outer');
+
+    // Insert a column between column A and column B.
+    await sheet.insertColumns(2, 1);
+
+    // Original left column keeps its borders.
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      bt: true,
+      bl: true,
+      br: false,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
+      bt: false,
+      bl: true,
+      br: false,
+      bb: true,
+    });
+
+    // New middle column inherits top edge in row 1 and bottom edge in row 2.
+    const newTop = await sheet.getStyle({ r: 1, c: 2 });
+    const newBottom = await sheet.getStyle({ r: 2, c: 2 });
+    expect(newTop?.bt).toBe(true);
+    expect(newBottom?.bb).toBe(true);
+    expect(newTop?.bl).not.toBe(true);
+    expect(newTop?.br).not.toBe(true);
+    expect(newBottom?.bl).not.toBe(true);
+    expect(newBottom?.br).not.toBe(true);
+
+    // Original right column shifts to column C with its borders intact.
+    expect(await sheet.getStyle({ r: 1, c: 3 })).toEqual({
+      bt: true,
+      bl: false,
+      br: true,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 2, c: 3 })).toEqual({
+      bt: false,
+      bl: false,
+      br: true,
+      bb: true,
+    });
+  });
+
+  it('should not extend borders into rows inserted outside the bordered range', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 2, c: 2 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.setRangeBorders('outer');
+
+    // Insert a row above the bordered range — should NOT inherit borders.
+    await sheet.insertRows(1, 1);
+
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 1, c: 3 })).toBeUndefined();
+
+    // The bordered range shifts down intact.
+    expect(await sheet.getStyle({ r: 3, c: 2 })).toEqual({
+      bt: true,
+      bl: true,
+      br: false,
+      bb: false,
+    });
+    expect(await sheet.getStyle({ r: 4, c: 3 })).toEqual({
+      bt: false,
+      bl: false,
+      br: true,
+      bb: true,
+    });
+  });
 });
 
 describe('Sheet.ColumnRowSheetStyles', () => {
