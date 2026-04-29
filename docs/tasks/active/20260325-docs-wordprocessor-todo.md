@@ -1,6 +1,6 @@
 # Docs Word Processor Roadmap — Task Tracking
 
-Design doc: [docs-wordprocessor-roadmap.md](../../design/docs-wordprocessor-roadmap.md)
+Design doc: [docs-wordprocessor-roadmap.md](../../design/docs/docs-wordprocessor-roadmap.md)
 
 ## Phase 1: Block Type Extensions ✅
 

@@ -1,6 +1,6 @@
 # Docs Word Processor — Lessons
 
-Design doc: [docs-wordprocessor-roadmap.md](../../design/docs-wordprocessor-roadmap.md)
+Design doc: [docs-wordprocessor-roadmap.md](../../design/docs/docs-wordprocessor-roadmap.md)
 
 ## Lessons
 

@@ -19,7 +19,7 @@ single hybrid slot whose label/icon/disabled state follow the result.
 
 **Tech Stack:** TypeScript, Vitest, React (frontend menu), Tabler icons.
 
-**Design:** [docs-tables.md — Cell Range Normalization & Cell Merge UX](../../design/docs/docs-tables.md#cell-range-normalization)
+**Design:** [docs-tables.md — Cell Range Normalization & Cell Merge UX](../../../../design/docs/docs-tables.md#cell-range-normalization)
 **Lessons:** [20260411-docs-table-merge-ux-lessons.md](20260411-docs-table-merge-ux-lessons.md)
 
 ---

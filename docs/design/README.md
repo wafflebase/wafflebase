@@ -39,6 +39,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-table-resize.md](docs/docs-table-resize.md)                                | Docs table resize — column/row border drag handles, guideline rendering                           |
 | [docs-nested-tables.md](docs/docs-nested-tables.md)                              | Nested tables — recursive nesting, layout, rendering, editing, CRDT synchronization               |
 | [docs-image-editing.md](docs/docs-image-editing.md)                              | Docs image editing — toolbar insert, selection handles, resize, rotation, crop, Image Options panel |
+| [docs-docx-import-export.md](docs/docs-docx-import-export.md)                    | DOCX import/export — round-trip mapping between DOCX and the Docs data model                       |
 | [docs-frontend-integration.md](docs/docs-frontend-integration.md)                | Docs frontend integration — document type field, list UI, routing, backend API changes            |
 | [docs-collaboration.md](docs/docs-collaboration.md)                              | Docs collaboration design                                                                         |
 | [docs-remote-cursor.md](docs/docs-remote-cursor.md)                              | Docs remote cursor — peer cursor carets + name labels in collaborative docs editor                |
@@ -67,7 +68,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 
 ## Template
 
-Design documents use YAML frontmatter and follow this structure:
+New design documents should be based on [template.md](template.md). YAML frontmatter and structure:
 
 ```markdown
 ---

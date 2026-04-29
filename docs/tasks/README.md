@@ -4,8 +4,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Layout
 
-- Active tasks: `docs/tasks/active/`
-- Archived tasks: `docs/tasks/archive/YYYY/MM/`
+- [Active tasks](active/README.md) — `docs/tasks/active/`
+- [Archived tasks](archive/README.md) — `docs/tasks/archive/YYYY/MM/`
 - Regenerate indexes: `pnpm tasks:index`
 - Archive completed tasks: `pnpm tasks:archive`
 
