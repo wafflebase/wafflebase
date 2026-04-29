@@ -123,6 +123,11 @@ Total archived tasks: 142
 | workspace delete (2026-03-01) | [20260301-workspace-delete-todo.md](./2026/03/20260301-workspace-delete-todo.md) | [20260301-workspace-delete-lessons.md](./2026/03/20260301-workspace-delete-lessons.md) |
 | workspace ui improvements (2026-03-01) | [20260301-workspace-ui-improvements-todo.md](./2026/03/20260301-workspace-ui-improvements-todo.md) | [20260301-workspace-ui-improvements-lessons.md](./2026/03/20260301-workspace-ui-improvements-lessons.md) |
 
+### Pre-todo plans (legacy `-plan` naming)
+
+- [docs-site (2026-03-14)](./2026/03/20260314-docs-site-plan.md) — VitePress documentation site implementation plan
+- [docs-arrow-pixel-accuracy (2026-03-25)](./2026/03/20260325-docs-arrow-pixel-accuracy-plan.md) — Arrow Up/Down pixel accuracy implementation plan
+
 ## 2026/02 (37 tasks)
 
 | Task | Todo | Lessons |

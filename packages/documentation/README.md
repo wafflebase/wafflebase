@@ -1,6 +1,6 @@
 # @wafflebase/documentation
 
-VitePress-based documentation site for Wafflebase. Serves user guides and developer documentation at the `/docs/` subpath.
+VitePress-based documentation site for Wafflebase. Serves user guides and developer documentation at the `/docs/` subpath. The site root is [`index.md`](index.md), which redirects to the Getting Started guide.
 
 ## Content
 

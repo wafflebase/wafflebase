@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Canvas 2D API, Vitest
 
-**Design doc:** [docs-header-footer.md](../../design/docs/docs-header-footer.md)
+**Design doc:** [docs-header-footer.md](../../../../design/docs/docs-header-footer.md)
 
 ---
 

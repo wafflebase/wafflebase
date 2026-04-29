@@ -50,15 +50,12 @@ real-time collaboration and scalable performance for handling large datasets.
 
 ## Project Structure
 
-```
-packages/
-  sheets/          — Core spreadsheet engine (data model, formulas, Canvas rendering)
-  docs/            — Canvas-based document editor (rich text, inline formatting)
-  frontend/        — React web app (pages, components, hooks)
-  backend/         — NestJS API server (auth, documents, data sources)
-  cli/             — Command-line interface for Wafflebase API
-  documentation/   — VitePress documentation site (wafflebase.io/docs)
-```
+- [packages/sheets/](packages/sheets/README.md) — Core spreadsheet engine (data model, formulas, Canvas rendering)
+- [packages/docs/](packages/docs/README.md) — Canvas-based document editor (rich text, inline formatting)
+- [packages/frontend/](packages/frontend/README.md) — React web app (pages, components, hooks)
+- [packages/backend/](packages/backend/README.md) — NestJS API server (auth, documents, data sources)
+- packages/cli/ — Command-line interface for Wafflebase API ([skills](packages/cli/skills/SKILL.md))
+- [packages/documentation/](packages/documentation/README.md) — VitePress documentation site (wafflebase.io/docs)
 
 The frontend depends on `@wafflebase/sheets` and `@wafflebase/docs` as
 workspace dependencies.
@@ -151,6 +148,12 @@ detached.
 
 - Subject line: what changed, max 70 characters
 - Body: why, wrapped at 80 characters
+
+## Documentation
+
+- [docs/](docs/README.md) — design documents, architecture, and task tracking
+- [MAINTAINING.md](MAINTAINING.md) — release and maintenance procedures
+- [CLAUDE.md](CLAUDE.md) — agent instructions for AI-assisted development (also exposed as `AGENTS.md` via symlink)
 
 ## License
 
