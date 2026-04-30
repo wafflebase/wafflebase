@@ -207,23 +207,7 @@ export function computeLayout(
       lines = cache!.blocks.get(block.id)!.lines;
     } else {
       lines = layoutBlock(effectiveBlock, ctx, availableWidth);
-      const lineHeightMultiplier = effectiveBlock.style.lineHeight ?? 1.5;
-
-      let blockY = 0;
-      for (const line of lines) {
-        const maxFontSize = getLineMaxFontSizePx(line, effectiveBlock);
-        let lineHeight = lineHeightMultiplier * maxFontSize;
-        // Any image runs on this line force the line height to accommodate
-        // the tallest image.
-        for (const run of line.runs) {
-          if (run.imageHeight !== undefined && run.imageHeight > lineHeight) {
-            lineHeight = run.imageHeight;
-          }
-        }
-        line.y = blockY;
-        line.height = lineHeight;
-        blockY += lineHeight;
-      }
+      assignLineHeights(lines, effectiveBlock);
 
       const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
       for (let li = 0; li < lines.length; li++) {
@@ -273,7 +257,7 @@ export function computeCharOffsets(
 /**
  * Layout a single block into wrapped lines.
  */
-function layoutBlock(
+export function layoutBlock(
   block: Block,
   ctx: CanvasRenderingContext2D,
   maxWidth: number,
@@ -419,6 +403,30 @@ function layoutBlock(
   }
 
   return lines;
+}
+
+/**
+ * Set `line.y` and `line.height` for each line based on the block's
+ * lineHeight multiplier, the tallest run font size, and image runs.
+ *
+ * Body paragraphs and cell paragraphs both use this so wrapped-line
+ * heights are computed identically.
+ */
+export function assignLineHeights(lines: LayoutLine[], block: Block): void {
+  const lineHeightMultiplier = block.style.lineHeight ?? 1.5;
+  let blockY = 0;
+  for (const line of lines) {
+    const maxFontSize = getLineMaxFontSizePx(line, block);
+    let lineHeight = lineHeightMultiplier * maxFontSize;
+    for (const run of line.runs) {
+      if (run.imageHeight !== undefined && run.imageHeight > lineHeight) {
+        lineHeight = run.imageHeight;
+      }
+    }
+    line.y = blockY;
+    line.height = lineHeight;
+    blockY += lineHeight;
+  }
 }
 
 /**
