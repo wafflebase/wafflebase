@@ -77,7 +77,10 @@ describe('PdfFonts', () => {
   });
 
   it('throws a clear error when source is missing', async () => {
+    // Latin sans-regular has no default source (StandardFonts handle it
+    // outside PdfFonts.load), so requesting it through PdfFonts directly
+    // surfaces the "no source" error path.
     const fonts = new PdfFonts({ sources: {} });
-    await expect(fonts.load('kr-sans-regular' as any)).rejects.toThrow(/no source/i);
+    await expect(fonts.load('sans-regular' as any)).rejects.toThrow(/no source/i);
   });
 });

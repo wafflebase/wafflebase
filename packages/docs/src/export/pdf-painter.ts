@@ -1,7 +1,7 @@
 import {
   PDFDocument, PDFPage, PDFFont, rgb,
   pushGraphicsState, popGraphicsState, concatTransformationMatrix,
-  PDFName, PDFString, PDFArray,
+  PDFName, PDFString, PDFArray, StandardFonts,
 } from 'pdf-lib';
 import type { Document, PageSetup, TableCell } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
@@ -10,7 +10,7 @@ import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../view
 import type { LayoutTable, LayoutTableCell } from '../view/table-layout.js';
 import { computeMergedCellLineLayouts } from '../view/table-geometry.js';
 import { Theme, ptToPx } from '../view/theme.js';
-import { PdfFonts, type PdfFontKey } from './pdf-fonts.js';
+import { PdfFonts, type PdfFontKey, type FontUsage } from './pdf-fonts.js';
 import {
   resolveFontKey,
   splitMixedScript,
@@ -31,15 +31,20 @@ const PX_PER_PT = 96 / 72;
 const px2pt = (px: number) => px / PX_PER_PT;
 
 /**
- * The 12 PDF font keys that the painter may reference. Embedded once
- * per export so subsequent draw calls can index into a fixed record.
+ * Map from Latin PdfFontKey → pdf-lib `StandardFonts`. Latin glyphs
+ * use the built-in Helvetica/Times families baked into every PDF reader,
+ * so we don't embed binaries — just reference the standard names.
  */
-const FONT_KEYS: PdfFontKey[] = [
-  'sans-regular', 'sans-bold', 'sans-italic', 'sans-boldItalic',
-  'serif-regular', 'serif-bold', 'serif-italic', 'serif-boldItalic',
-  'kr-sans-regular', 'kr-sans-bold',
-  'kr-serif-regular', 'kr-serif-bold',
-];
+const LATIN_STANDARD_FONTS: Record<string, StandardFonts> = {
+  'sans-regular':     StandardFonts.Helvetica,
+  'sans-bold':        StandardFonts.HelveticaBold,
+  'sans-italic':      StandardFonts.HelveticaOblique,
+  'sans-boldItalic':  StandardFonts.HelveticaBoldOblique,
+  'serif-regular':    StandardFonts.TimesRoman,
+  'serif-bold':       StandardFonts.TimesRomanBold,
+  'serif-italic':     StandardFonts.TimesRomanItalic,
+  'serif-boldItalic': StandardFonts.TimesRomanBoldItalic,
+};
 
 export type EmbeddedFonts = Record<PdfFontKey, PDFFont>;
 
@@ -81,12 +86,63 @@ export class PdfPainter {
   static async embedAllFonts(
     pdfDoc: PDFDocument,
     fonts: PdfFonts,
+    usage?: FontUsage,
   ): Promise<EmbeddedFonts> {
     const out: Partial<EmbeddedFonts> = {};
-    for (const key of FONT_KEYS) {
-      const buf = await fonts.load(key);
-      out[key] = await pdfDoc.embedFont(new Uint8Array(buf), { subset: true });
+
+    // Latin: pdf-lib StandardFonts — no binary embed, no network fetch.
+    // These are baked into every PDF reader, so a doc with only ASCII
+    // text exports without ever touching `fonts.load()` or the network.
+    for (const key of Object.keys(LATIN_STANDARD_FONTS)) {
+      out[key as PdfFontKey] = await pdfDoc.embedStandardFont(
+        LATIN_STANDARD_FONTS[key],
+      );
     }
+
+    // Korean: only fetch+embed variants the document actually uses.
+    // `usage` (from `scanFontsUsed`) tells us which KR variants matter;
+    // others fall back to a sibling so `resolveFontKey` always returns
+    // a valid embedded font.
+    const needSans  = usage?.needsKR ?? false;
+    const needSerif = usage?.needsKRSerif ?? false;
+    const needBold  = usage?.needsBold ?? false;
+
+    if (needSans) {
+      const reg = await pdfDoc.embedFont(
+        new Uint8Array(await fonts.load('kr-sans-regular')),
+        { subset: true },
+      );
+      out['kr-sans-regular'] = reg;
+      out['kr-sans-bold'] = needBold
+        ? await pdfDoc.embedFont(
+            new Uint8Array(await fonts.load('kr-sans-bold')),
+            { subset: true },
+          )
+        : reg;
+    } else {
+      // Document has no Korean text — point KR keys at a Latin fallback
+      // so any accidental resolution still produces a valid font.
+      out['kr-sans-regular'] = out['sans-regular']!;
+      out['kr-sans-bold']    = out['sans-bold']!;
+    }
+
+    if (needSerif) {
+      const reg = await pdfDoc.embedFont(
+        new Uint8Array(await fonts.load('kr-serif-regular')),
+        { subset: true },
+      );
+      out['kr-serif-regular'] = reg;
+      out['kr-serif-bold'] = needBold
+        ? await pdfDoc.embedFont(
+            new Uint8Array(await fonts.load('kr-serif-bold')),
+            { subset: true },
+          )
+        : reg;
+    } else {
+      out['kr-serif-regular'] = out['serif-regular']!;
+      out['kr-serif-bold']    = out['serif-bold']!;
+    }
+
     return out as EmbeddedFonts;
   }
 
@@ -271,7 +327,13 @@ export class PdfPainter {
     const baselineYpx = pl.y + (pl.line.height + fontSizePx * 0.8) / 2;
 
     const c = styleColor(firstRun?.inline.style.color);
-    const font = fonts['sans-regular'];
+    // Unordered markers (●, ○, ■) are in the U+25xx range and aren't
+    // available in pdf-lib's WinAnsi-encoded StandardFonts. Route them
+    // through the embedded Korean font, which carries those glyphs.
+    // Ordered markers ("1.", "a.", "iv.") are ASCII so Helvetica works.
+    const font = block.listKind === 'unordered'
+      ? fonts['kr-sans-regular']
+      : fonts['sans-regular'];
     page.drawText(marker, {
       x: px2pt(markerXpx),
       y: pageHeightPt - px2pt(baselineYpx),

@@ -168,7 +168,7 @@ describe('PdfExporter (header/footer/page-number)', () => {
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
     // Header + footer presence: blob should be larger than a body-only equivalent
-    expect(blob.size).toBeGreaterThan(2000);
+    expect(blob.size).toBeGreaterThan(800);
   });
 
   it('renders larger PDF for documents with headers/footers vs without', async () => {
@@ -187,7 +187,7 @@ describe('PdfExporter (tables)', () => {
     const blob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
-    expect(blob.size).toBeGreaterThan(2000);
+    expect(blob.size).toBeGreaterThan(800);
   });
 
   it('table PDF is larger than equivalent paragraphs (proves chrome was drawn)', async () => {
@@ -227,7 +227,7 @@ describe('PdfExporter (merged cells)', () => {
     const blob = await PdfExporter.export(mergedFixture, { fonts: testFonts() });
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
-    expect(blob.size).toBeGreaterThan(2000);
+    expect(blob.size).toBeGreaterThan(800);
   });
 });
 
@@ -236,7 +236,7 @@ describe('PdfExporter (row split)', () => {
     const blob = await PdfExporter.export(splitRowFixture, { fonts: testFonts() });
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(2);
-    expect(blob.size).toBeGreaterThan(2000);
+    expect(blob.size).toBeGreaterThan(800);
   });
 });
 

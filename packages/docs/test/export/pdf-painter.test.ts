@@ -105,7 +105,16 @@ async function renderWithStyle(
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
 
-  const fonts = await PdfPainter.embedAllFonts(pdfDoc, fontsForTest());
+  // Tell embedAllFonts the test text might contain Korean so it
+  // embeds the test CJK font for the kr-* keys instead of falling
+  // back to Helvetica (which can't encode 한글 / list-marker glyphs).
+  const fonts = await PdfPainter.embedAllFonts(pdfDoc, fontsForTest(), {
+    needsKR: true,
+    needsKRSerif: true,
+    needsLatinSerif: true,
+    needsBold: true,
+    needsItalic: true,
+  });
 
   const doc: Document = {
     blocks: [{

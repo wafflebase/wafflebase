@@ -29,6 +29,12 @@ export function scanFontsUsed(doc: Document): FontUsage {
 }
 
 function visitBlock(block: Block, u: FontUsage): void {
+  // Unordered list markers (●, ○, ■) live in the U+25xx range — outside
+  // pdf-lib's WinAnsi-only StandardFonts coverage. Force a Korean font
+  // load so the painter has a binary that contains those glyphs.
+  if (block.type === 'list-item' && block.listKind === 'unordered') {
+    u.needsKR = true;
+  }
   if (block.tableData) {
     for (const row of block.tableData.rows) {
       for (const cell of row.cells) {
@@ -68,12 +74,36 @@ export interface PdfFontsOptions {
   sources?: Partial<Record<PdfFontKey, FontSource>>;
 }
 
-const DEFAULT_URLS: Partial<Record<PdfFontKey, string>> = {
-  // Resolved via Google Fonts CSS API. Pinned URLs may rotate; if so,
-  // update them or self-host. The PdfFonts.idb cache means a one-time
-  // breakage isn't catastrophic for users who already exported once.
-  // Tests inject sources so they don't rely on these.
+/**
+ * Google Fonts CSS2 API requests for each Korean variant. The CSS API
+ * resolves a stable URL for the actual font binary at fetch time, so
+ * we don't have to pin gstatic URLs that rotate every few months. The
+ * one-time CSS roundtrip cost is amortized by the IDB cache.
+ *
+ * The `text=` parameter could subset further but pdf-lib's fontkit
+ * subsets at embed time anyway, so we fetch the full font.
+ */
+const GOOGLE_FONTS_QUERIES: Partial<Record<PdfFontKey, string>> = {
+  'kr-sans-regular':  'family=Noto+Sans+KR:wght@400',
+  'kr-sans-bold':     'family=Noto+Sans+KR:wght@700',
+  'kr-serif-regular': 'family=Noto+Serif+KR:wght@400',
+  'kr-serif-bold':    'family=Noto+Serif+KR:wght@700',
 };
+
+async function resolveGoogleFontsUrl(query: string): Promise<string> {
+  const css = await fetch(`https://fonts.googleapis.com/css2?${query}`, {
+    // Spoof a desktop UA so Google Fonts returns the woff2/ttf URL
+    // (without this, it serves a different font format that fontkit
+    // may not parse cleanly).
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  }).then((r) => {
+    if (!r.ok) throw new Error(`Google Fonts CSS fetch failed: ${r.status}`);
+    return r.text();
+  });
+  const match = /url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/.exec(css);
+  if (!match) throw new Error(`Could not parse font URL from CSS: ${query}`);
+  return match[1];
+}
 
 const IDB_NAME = 'wafflebase-pdf-fonts';
 const IDB_STORE = 'fonts';
@@ -105,9 +135,10 @@ export class PdfFonts {
   }
 
   private defaultSource(key: PdfFontKey): FontSource | undefined {
-    const url = DEFAULT_URLS[key];
-    if (!url) return undefined;
+    const query = GOOGLE_FONTS_QUERIES[key];
+    if (!query) return undefined;
     return async () => {
+      const url = await resolveGoogleFontsUrl(query);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Font fetch failed: ${url}`);
       return res.arrayBuffer();

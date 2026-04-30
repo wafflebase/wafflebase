@@ -78,7 +78,7 @@ export class PdfExporter {
     pdfDoc.setProducer('Wafflebase Docs');
     pdfDoc.setCreator('Wafflebase Docs');
 
-    const embeddedFonts = await PdfPainter.embedAllFonts(pdfDoc, fonts);
+    const embeddedFonts = await PdfPainter.embedAllFonts(pdfDoc, fonts, usage);
 
     // 5. Image fetch + embed. Walks the body, header, and footer block
     // lists for image inlines, fetches each unique src via the caller-
