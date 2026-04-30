@@ -130,7 +130,7 @@ describe('computeTableLayout', () => {
     expect(result.totalHeight).toBe(sumRowHeights);
   });
 
-  it.fails('shifts runs when cell paragraph has marginLeft', () => {
+  it('shifts runs when cell paragraph has marginLeft', () => {
     const block = createTableBlock(1, 1);
     const cellBlock = block.tableData!.rows[0].cells[0].blocks[0];
     cellBlock.inlines = [{ text: 'Hi', style: {} }];
@@ -140,7 +140,7 @@ describe('computeTableLayout', () => {
     expect(firstRun.x).toBeGreaterThanOrEqual(36);
   });
 
-  it.fails('honors textIndent on first line of cell paragraph', () => {
+  it('honors textIndent on first line of cell paragraph', () => {
     const block = createTableBlock(1, 1);
     const cellBlock = block.tableData!.rows[0].cells[0].blocks[0];
     cellBlock.inlines = [{ text: 'A B', style: {} }];
@@ -150,7 +150,7 @@ describe('computeTableLayout', () => {
     expect(firstRun.x).toBeGreaterThanOrEqual(24);
   });
 
-  it.fails('uses block lineHeight inside cell', () => {
+  it('uses block lineHeight inside cell', () => {
     const baseBlock = createTableBlock(1, 1);
     baseBlock.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'X', style: { fontSize: 10 } }];
     const baseHeight = computeTableLayout(baseBlock.tableData!, 'tbl', stubCtx(), 200)
@@ -166,7 +166,7 @@ describe('computeTableLayout', () => {
     expect(tallHeight).toBeGreaterThan(baseHeight * 1.5);
   });
 
-  it.fails('applies heading defaults to font size inside cell', () => {
+  it('applies heading defaults to font size inside cell', () => {
     const baseBlock = createTableBlock(1, 1);
     baseBlock.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'Heading', style: {} }];
     const baseHeight = computeTableLayout(baseBlock.tableData!, 'tbl', stubCtx(), 400)
