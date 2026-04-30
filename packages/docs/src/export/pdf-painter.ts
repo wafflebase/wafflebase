@@ -1,6 +1,7 @@
 import {
   PDFDocument, PDFPage, PDFFont, rgb,
   pushGraphicsState, popGraphicsState, concatTransformationMatrix,
+  PDFName, PDFString, PDFArray,
 } from 'pdf-lib';
 import type { Document, PageSetup } from '../model/types.js';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
@@ -255,9 +256,54 @@ export class PdfPainter {
         });
       }
 
+      // Hyperlink annotation: pdf-lib has no high-level Link API, so we
+      // construct the dictionary ourselves and append a PDFRef to the
+      // page's Annots array. Rect uses the same baseline/ascent/descent
+      // box as the background rectangle so click targets line up with
+      // the visible glyph cell.
+      if (style.href) {
+        const x1Pt = px2pt(xpx);
+        const y1Pt = pageHeightPt - px2pt(drawBaselineYpx + drawDescentPx);
+        const x2Pt = px2pt(xpx) + segWidthPt;
+        const y2Pt = pageHeightPt - px2pt(drawBaselineYpx - drawAscentPx);
+        addLinkAnnotation(page, [x1Pt, y1Pt, x2Pt, y2Pt], style.href);
+      }
+
       // Advance by the glyph width in the embedded font, converted
       // back to px so we stay in layout-space for the next segment.
       xpx += segWidthPt * PX_PER_PT;
     }
+  }
+}
+
+/**
+ * Append a Link annotation with a URI action to a page's `Annots`
+ * array. Creates the array if it doesn't already exist. Used for
+ * inline runs whose `style.href` is set; the rect should match the
+ * drawn glyph box so click targets align with the rendered text.
+ */
+function addLinkAnnotation(
+  page: PDFPage,
+  rect: [number, number, number, number],
+  uri: string,
+): void {
+  const ctx = page.doc.context;
+  const annot = ctx.obj({
+    Type: 'Annot',
+    Subtype: 'Link',
+    Rect: rect,
+    Border: [0, 0, 0],
+    A: ctx.obj({
+      Type: 'Action',
+      S: 'URI',
+      URI: PDFString.of(uri),
+    }),
+  });
+  const annotRef = ctx.register(annot);
+  const existing = page.node.get(PDFName.of('Annots'));
+  if (existing instanceof PDFArray) {
+    existing.push(annotRef);
+  } else {
+    page.node.set(PDFName.of('Annots'), ctx.obj([annotRef]));
   }
 }

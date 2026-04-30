@@ -3,9 +3,10 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { PdfPainter } from '../../src/export/pdf-painter.js';
+import { PdfExporter } from '../../src/export/pdf-exporter.js';
 import { PdfFonts, type PdfFontKey } from '../../src/export/pdf-fonts.js';
 import { computeLayout } from '../../src/view/layout.js';
 import { paginateLayout } from '../../src/view/pagination.js';
@@ -46,6 +47,8 @@ function fontsForTest(): PdfFonts {
   for (const k of ALL_KEYS) sources[k] = () => Promise.resolve(TEST_FONT);
   return new PdfFonts({ sources });
 }
+
+const testFonts = fontsForTest;
 
 function mockCtx(): CanvasRenderingContext2D {
   return {
@@ -176,5 +179,32 @@ describe('PdfPainter inline styles', () => {
     const bytes = await renderWithStyle({ italic: true }, '안녕');
     const reloaded = await PDFDocument.load(bytes);
     expect(reloaded.getPageCount()).toBe(1);
+  });
+
+  it('emits link annotations for href runs', async () => {
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.registerFontkit(fontkit);
+    await PdfPainter.embedAllFonts(pdfDoc, fontsForTest());
+
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'click here', style: { href: 'https://example.com' } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+      pageSetup: { ...DEFAULT_PAGE_SETUP },
+    };
+
+    const blob = await PdfExporter.export(doc, { fonts: testFonts() });
+    const reloaded = await PDFDocument.load(await blob.arrayBuffer());
+    const page = reloaded.getPage(0);
+    const annotsRef = page.node.get(PDFName.of('Annots'));
+    expect(annotsRef).toBeDefined();
+    // pdf-lib auto-creates an empty Annots array on every page, so we
+    // additionally assert the page actually has at least one annotation.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const size = (annotsRef as any).size?.() ?? (annotsRef as any).array?.length ?? 0;
+    expect(size).toBeGreaterThan(0);
   });
 });
