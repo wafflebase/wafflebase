@@ -17,40 +17,23 @@ export interface FontUsage {
   needsLatinSerif: boolean;
   needsBold: boolean;
   needsItalic: boolean;
-  /**
-   * Concatenation of every non-Latin character that appeared in the
-   * document (plus list-marker glyphs). Forwarded as Google Fonts'
-   * `text=` parameter so the CSS API returns a single subsetted font
-   * containing exactly these glyphs — without it, the API splits the
-   * font into multiple `unicode-range` chunks and we'd lose Hangul.
-   */
-  subsetText: string;
 }
 
 export function scanFontsUsed(doc: Document): FontUsage {
-  const subsetChars = new Set<string>();
   const usage: FontUsage = {
     needsKR: false, needsKRSerif: false,
     needsLatinSerif: false, needsBold: false, needsItalic: false,
-    subsetText: '',
   };
   const visit = (blocks: Block[]) => {
-    for (const block of blocks) visitBlock(block, usage, subsetChars);
+    for (const block of blocks) visitBlock(block, usage);
   };
   visit(doc.blocks);
   if (doc.header) visit(doc.header.blocks);
   if (doc.footer) visit(doc.footer.blocks);
-
-  // Bullet markers live in U+25xx — outside any inline text but still
-  // need to be in the subset so list-item glyphs render.
-  if (usage.needsKR) {
-    for (const ch of '●○■') subsetChars.add(ch);
-  }
-  usage.subsetText = Array.from(subsetChars).join('');
   return usage;
 }
 
-function visitBlock(block: Block, u: FontUsage, subsetChars: Set<string>): void {
+function visitBlock(block: Block, u: FontUsage): void {
   // Unordered list markers (●, ○, ■) live in the U+25xx range — outside
   // pdf-lib's WinAnsi-only StandardFonts coverage. Force a Korean font
   // load so the painter has a binary that contains those glyphs.
@@ -60,24 +43,19 @@ function visitBlock(block: Block, u: FontUsage, subsetChars: Set<string>): void 
   if (block.tableData) {
     for (const row of block.tableData.rows) {
       for (const cell of row.cells) {
-        for (const cellBlock of cell.blocks ?? []) visitBlock(cellBlock, u, subsetChars);
+        for (const cellBlock of cell.blocks ?? []) visitBlock(cellBlock, u);
       }
     }
   }
-  for (const inline of block.inlines) visitInline(inline, u, subsetChars);
+  for (const inline of block.inlines) visitInline(inline, u);
 }
 
-function visitInline(inline: Inline, u: FontUsage, subsetChars: Set<string>): void {
+function visitInline(inline: Inline, u: FontUsage): void {
   const hasNonLatin = NEEDS_CJK_FONT.test(inline.text);
   const isSerif = SERIF_FAMILIES.has(inline.style.fontFamily ?? '');
   if (hasNonLatin) {
     u.needsKR = true;
     if (isSerif) u.needsKRSerif = true;
-    // Collect every non-Latin character (each contributes a glyph the
-    // painter will need at draw time).
-    for (const ch of inline.text) {
-      if (NEEDS_CJK_FONT.test(ch)) subsetChars.add(ch);
-    }
   } else if (isSerif) {
     u.needsLatinSerif = true;
   }
@@ -102,116 +80,68 @@ export interface PdfFontsOptions {
 }
 
 /**
- * Google Fonts CSS2 API requests for each Korean variant. Without a
- * `text=` parameter the CSS API splits the font into many `unicode-range`
- * chunks and returns one URL per chunk — fetching only the first chunk
- * yields a Latin-only font that lacks Hangul glyphs (the symptom: text
- * is in the PDF but doesn't render visually). With `text=` the API
- * returns a single subsetted file containing exactly the glyphs we
- * pass in, which is what we want for embed.
+ * Direct OTF URLs for each Korean variant. We download the full subset
+ * OTF (each ~5-7 MB) once per font variant; fontkit then subsets it
+ * further at embed time so only glyphs the document references end up
+ * in the resulting PDF.
+ *
+ * Why not Google Fonts CSS API: that endpoint serves WOFF2 to modern
+ * user-agents, and `@pdf-lib/fontkit` doesn't include a Brotli decoder —
+ * loading WOFF2 produced gibberish glyphs. Going to OTF directly avoids
+ * the format-detection mess.
+ *
+ * jsdelivr mirrors `notofonts/noto-cjk` from GitHub and serves the same
+ * SubsetOTF/KR files. If jsdelivr changes its routing, swap in raw
+ * GitHub URLs (same path under `https://raw.githubusercontent.com/...`)
+ * or self-host.
  */
-const GOOGLE_FONTS_QUERIES: Partial<Record<PdfFontKey, string>> = {
-  'kr-sans-regular':  'family=Noto+Sans+KR:wght@400',
-  'kr-sans-bold':     'family=Noto+Sans+KR:wght@700',
-  'kr-serif-regular': 'family=Noto+Serif+KR:wght@400',
-  'kr-serif-bold':    'family=Noto+Serif+KR:wght@700',
+const DEFAULT_URLS: Partial<Record<PdfFontKey, string>> = {
+  'kr-sans-regular':  'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf',
+  'kr-sans-bold':     'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/KR/NotoSansKR-Bold.otf',
+  'kr-serif-regular': 'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Serif/SubsetOTF/KR/NotoSerifKR-Regular.otf',
+  'kr-serif-bold':    'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Serif/SubsetOTF/KR/NotoSerifKR-Bold.otf',
 };
-
-async function resolveGoogleFontsUrl(query: string): Promise<string> {
-  const css = await fetch(`https://fonts.googleapis.com/css2?${query}`, {
-    // Spoof a desktop UA so Google Fonts returns the woff2/ttf URL
-    // (without this, it serves a different font format that fontkit
-    // may not parse cleanly).
-    headers: { 'User-Agent': 'Mozilla/5.0' },
-  }).then((r) => {
-    if (!r.ok) throw new Error(`Google Fonts CSS fetch failed: ${r.status}`);
-    return r.text();
-  });
-  const match = /url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/.exec(css);
-  if (!match) throw new Error(`Could not parse font URL from CSS: ${query}`);
-  return match[1];
-}
-
-/**
- * Cheap deterministic hash for cache keys (djb2). Used so distinct
- * subset-text payloads don't collide in IDB while identical payloads
- * (e.g., the same document re-exported) hit cache.
- */
-function djb2(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
-}
-
-/**
- * Reduce a free-form character set to a canonical sorted-deduped string
- * so two documents with the same unique non-Latin chars share a cache.
- */
-function canonicalSubset(text: string): string {
-  return Array.from(new Set(text)).sort().join('');
-}
 
 const IDB_NAME = 'wafflebase-pdf-fonts';
 const IDB_STORE = 'fonts';
 
 export class PdfFonts {
-  private cache = new Map<string, ArrayBuffer>();
+  private cache = new Map<PdfFontKey, ArrayBuffer>();
   private sources: Partial<Record<PdfFontKey, FontSource>>;
 
   constructor(opts: PdfFontsOptions = {}) {
     this.sources = opts.sources ?? {};
   }
 
-  /**
-   * Load a font binary, optionally subsetted to a specific character set.
-   *
-   * `subsetText` (when provided) is forwarded to the Google Fonts CSS API
-   * via `&text=`, returning a single file with exactly the glyphs needed.
-   * Without it, Google's API would split the font into multiple
-   * `unicode-range` chunks and we'd only fetch the first — losing Hangul.
-   *
-   * Cache key is `${key}|${hash(canonical subset)}` so different subsets
-   * stay distinct while two docs with the same character set share cache.
-   */
-  async load(key: PdfFontKey, subsetText?: string): Promise<ArrayBuffer> {
-    const subset = subsetText ? canonicalSubset(subsetText) : '';
-    const cacheKey = subset ? `${key}|${djb2(subset)}` : key;
+  async load(key: PdfFontKey): Promise<ArrayBuffer> {
+    const cached = this.cache.get(key);
+    if (cached) return cached;
 
-    const memHit = this.cache.get(cacheKey);
-    if (memHit) return memHit;
-
-    const idbHit = await this.idbGet(cacheKey);
+    const idbHit = await this.idbGet(key);
     if (idbHit) {
-      this.cache.set(cacheKey, idbHit);
+      this.cache.set(key, idbHit);
       return idbHit;
     }
 
-    // Custom-injected sources (tests, alternate CDNs) don't take a
-    // subset hint — they're expected to return a complete font binary.
-    // Only the default Google Fonts source applies the subset.
-    const source = this.sources[key] ?? this.defaultSource(key, subset);
+    const source = this.sources[key] ?? this.defaultSource(key);
     if (!source) throw new Error(`PdfFonts: no source for "${key}"`);
     const buf = await source();
-    this.cache.set(cacheKey, buf);
-    void this.idbPut(cacheKey, buf);
+    this.cache.set(key, buf);
+    void this.idbPut(key, buf);
     return buf;
   }
 
-  private defaultSource(key: PdfFontKey, subset: string): FontSource | undefined {
-    const baseQuery = GOOGLE_FONTS_QUERIES[key];
-    if (!baseQuery) return undefined;
-    const query = subset
-      ? `${baseQuery}&text=${encodeURIComponent(subset)}`
-      : baseQuery;
+  private defaultSource(key: PdfFontKey): FontSource | undefined {
+    const url = DEFAULT_URLS[key];
+    if (!url) return undefined;
     return async () => {
-      const url = await resolveGoogleFontsUrl(query);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Font fetch failed: ${url}`);
       return res.arrayBuffer();
     };
   }
 
-  private async idbGet(key: string): Promise<ArrayBuffer | null> {
+  private async idbGet(key: PdfFontKey): Promise<ArrayBuffer | null> {
     if (typeof indexedDB === 'undefined') return null;
     return new Promise((resolve) => {
       const open = indexedDB.open(IDB_NAME, 1);
@@ -226,7 +156,7 @@ export class PdfFonts {
     });
   }
 
-  private async idbPut(key: string, buf: ArrayBuffer): Promise<void> {
+  private async idbPut(key: PdfFontKey, buf: ArrayBuffer): Promise<void> {
     if (typeof indexedDB === 'undefined') return;
     return new Promise((resolve) => {
       const open = indexedDB.open(IDB_NAME, 1);

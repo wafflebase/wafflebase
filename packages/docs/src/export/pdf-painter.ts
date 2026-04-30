@@ -107,16 +107,15 @@ export class PdfPainter {
     const needSerif = usage?.needsKRSerif ?? false;
     const needBold  = usage?.needsBold ?? false;
 
-    const subset = usage?.subsetText;
     if (needSans) {
       const reg = await pdfDoc.embedFont(
-        new Uint8Array(await fonts.load('kr-sans-regular', subset)),
+        new Uint8Array(await fonts.load('kr-sans-regular')),
         { subset: true },
       );
       out['kr-sans-regular'] = reg;
       out['kr-sans-bold'] = needBold
         ? await pdfDoc.embedFont(
-            new Uint8Array(await fonts.load('kr-sans-bold', subset)),
+            new Uint8Array(await fonts.load('kr-sans-bold')),
             { subset: true },
           )
         : reg;
@@ -129,13 +128,13 @@ export class PdfPainter {
 
     if (needSerif) {
       const reg = await pdfDoc.embedFont(
-        new Uint8Array(await fonts.load('kr-serif-regular', subset)),
+        new Uint8Array(await fonts.load('kr-serif-regular')),
         { subset: true },
       );
       out['kr-serif-regular'] = reg;
       out['kr-serif-bold'] = needBold
         ? await pdfDoc.embedFont(
-            new Uint8Array(await fonts.load('kr-serif-bold', subset)),
+            new Uint8Array(await fonts.load('kr-serif-bold')),
             { subset: true },
           )
         : reg;

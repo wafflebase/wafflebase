@@ -114,7 +114,6 @@ async function renderWithStyle(
     needsLatinSerif: true,
     needsBold: true,
     needsItalic: true,
-    subsetText: '',
   });
 
   const doc: Document = {
