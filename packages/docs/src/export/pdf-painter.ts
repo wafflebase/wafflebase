@@ -134,20 +134,40 @@ export class PdfPainter {
     const segments = splitMixedScript(run.text);
     let xpx = lineXpx + run.x;
 
-    // Approximate font metrics. Matches the canvas renderer's implicit
-    // assumption that ascent ~= 0.8 * fontSize and descent ~= 0.2 *
-    // fontSize. Used both for background rectangle height and for
-    // strikethrough placement.
-    const ascentPx = fontSizePx * 0.8;
-    const descentPx = fontSizePx * 0.2;
+    // Superscript/subscript scale text to ~70% of the run's font size and
+    // shift the baseline relative to the original. The shift is expressed
+    // in px so it composes with the layout's px-based baselineYpx; pdf-lib
+    // y grows upward, so a negative `yOffsetPx` (toward page top) becomes
+    // `-yOffsetPx` after the `pageHeightPt - px2pt(...)` flip, which means
+    // we add yOffsetPx to baselineYpx in layout space and the final y on
+    // the page moves accordingly.
+    const ascentPxForOffset = fontSizePx * 0.8;
+    let drawSizePt = sizePt;
+    let yOffsetPx = 0;
+    if (style.superscript) {
+      drawSizePt = sizePt * 0.7;
+      yOffsetPx = -ascentPxForOffset * 0.4;
+    } else if (style.subscript) {
+      drawSizePt = sizePt * 0.7;
+      yOffsetPx = ascentPxForOffset * 0.2;
+    }
+    const drawSizePx = ptToPx(drawSizePt);
+    const drawBaselineYpx = baselineYpx + yOffsetPx;
+
+    // Approximate font metrics derived from the *effective* draw size so
+    // sup/sub backgrounds, underlines, and strikethroughs hug the smaller
+    // glyphs at their shifted baseline.
+    const drawAscentPx = drawSizePx * 0.8;
+    const drawDescentPx = drawSizePx * 0.2;
 
     for (const seg of segments) {
       if (seg.text.length === 0) continue;
       const key = resolveFontKey(style, seg.isCJK);
       const font = fonts[key];
       // Compute the segment width once; reused for background, advance,
-      // underline, and strikethrough draws below.
-      const segWidthPt = font.widthOfTextAtSize(seg.text, sizePt);
+      // underline, and strikethrough draws below. Width must be measured
+      // at the effective draw size so sup/sub advance matches the glyphs.
+      const segWidthPt = font.widthOfTextAtSize(seg.text, drawSizePt);
 
       // Background must be drawn first so the text and decorations
       // appear on top of it. PDF rectangles are anchored at the bottom
@@ -157,17 +177,17 @@ export class PdfPainter {
         const bg = styleColor(style.backgroundColor);
         page.drawRectangle({
           x: px2pt(xpx),
-          y: pageHeightPt - px2pt(baselineYpx + descentPx),
+          y: pageHeightPt - px2pt(drawBaselineYpx + drawDescentPx),
           width: segWidthPt,
-          height: px2pt(ascentPx + descentPx),
+          height: px2pt(drawAscentPx + drawDescentPx),
           color: rgb(bg.r, bg.g, bg.b),
         });
       }
 
       page.drawText(seg.text, {
         x: px2pt(xpx),
-        y: pageHeightPt - px2pt(baselineYpx),
-        size: sizePt,
+        y: pageHeightPt - px2pt(drawBaselineYpx),
+        size: drawSizePt,
         font,
         color: rgb(c.r, c.g, c.b),
       });
@@ -176,11 +196,11 @@ export class PdfPainter {
       // renderer's `baselineY + 2` approximation, scaled down to keep
       // the line tight against the glyphs in PDF output).
       if (style.underline) {
-        const underlineYpx = baselineYpx + 1;
+        const underlineYpx = drawBaselineYpx + 1;
         page.drawLine({
           start: { x: px2pt(xpx), y: pageHeightPt - px2pt(underlineYpx) },
           end: { x: px2pt(xpx) + segWidthPt, y: pageHeightPt - px2pt(underlineYpx) },
-          thickness: Math.max(0.5, sizePt / 16),
+          thickness: Math.max(0.5, drawSizePt / 16),
           color: rgb(c.r, c.g, c.b),
         });
       }
@@ -188,11 +208,11 @@ export class PdfPainter {
       // Strikethrough crosses the glyphs at roughly the x-height,
       // approximated as half the ascent above the baseline.
       if (style.strikethrough) {
-        const strikeYpx = baselineYpx - ascentPx / 2;
+        const strikeYpx = drawBaselineYpx - drawAscentPx / 2;
         page.drawLine({
           start: { x: px2pt(xpx), y: pageHeightPt - px2pt(strikeYpx) },
           end: { x: px2pt(xpx) + segWidthPt, y: pageHeightPt - px2pt(strikeYpx) },
-          thickness: Math.max(0.5, sizePt / 16),
+          thickness: Math.max(0.5, drawSizePt / 16),
           color: rgb(c.r, c.g, c.b),
         });
       }

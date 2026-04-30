@@ -150,4 +150,16 @@ describe('PdfPainter inline styles', () => {
     const styled = await renderWithStyle({ strikethrough: true });
     expect(styled.byteLength).toBeGreaterThan(plain.byteLength);
   });
+
+  it('renders superscript with smaller size and y-offset', async () => {
+    const plain = await renderWithStyle({});
+    const sup = await renderWithStyle({ superscript: true });
+    expect(sup).not.toEqual(plain);
+  });
+
+  it('renders subscript with smaller size and y-offset', async () => {
+    const plain = await renderWithStyle({});
+    const sub = await renderWithStyle({ subscript: true });
+    expect(sub).not.toEqual(plain);
+  });
 });
