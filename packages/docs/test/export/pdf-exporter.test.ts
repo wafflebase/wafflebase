@@ -97,6 +97,13 @@ const tableFixture = JSON.parse(
   ),
 ) as Document;
 
+const mergedFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/with-merged-cells.json'),
+    'utf8',
+  ),
+) as Document;
+
 describe('PdfExporter (full pipeline)', () => {
   it('exports the simple-paragraph fixture', async () => {
     const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
@@ -187,6 +194,15 @@ describe('PdfExporter (tables)', () => {
     const emptyBlob = await PdfExporter.export(empty as Document, { fonts: testFonts() });
     const fullBlob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
     expect(fullBlob.size).toBeGreaterThan(emptyBlob.size);
+  });
+});
+
+describe('PdfExporter (merged cells)', () => {
+  it('exports a table with colSpan and rowSpan without erroring', async () => {
+    const blob = await PdfExporter.export(mergedFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBe(1);
+    expect(blob.size).toBeGreaterThan(2000);
   });
 });
 
