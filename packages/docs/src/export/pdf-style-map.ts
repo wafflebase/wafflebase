@@ -1,8 +1,21 @@
 import type { InlineStyle } from '../model/types.js';
 import type { PdfFontKey } from './pdf-fonts.js';
 
-const KR_RANGE_GLOBAL = /[\u3000-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF]+|[^\u3000-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF]+/g;
-const KR_RANGE = /[\u3000-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF]/;
+// "Latin-safe" character class: code points pdf-lib's WinAnsi-encoded
+// StandardFonts (Helvetica, Times, Courier) can encode without throwing.
+// Everything outside this set — Korean, Japanese, Chinese, CJK punctuation
+// like ※, 「」, geometric shapes (●○■), etc. — must route through the
+// embedded Korean font that carries those glyphs.
+//
+// Coverage: Basic Latin + Latin-1 Supplement (U+0000–U+00FF) plus the
+// individual code points WinAnsi additionally encodes via the standard
+// PDF text-state encoding table.
+const LATIN_SAFE_CHARS = '\\u0000-\\u00FF\\u0152\\u0153\\u0160\\u0161\\u017D\\u017E\\u0192\\u02C6\\u02DC\\u2013\\u2014\\u2018-\\u201E\\u2020-\\u2022\\u2026\\u2030\\u2039\\u203A\\u20AC\\u2122';
+const NEEDS_CJK_FONT = new RegExp(`[^${LATIN_SAFE_CHARS}]`);
+const SCRIPT_SPLIT = new RegExp(
+  `[^${LATIN_SAFE_CHARS}]+|[${LATIN_SAFE_CHARS}]+`,
+  'g',
+);
 const SERIF_FAMILIES = new Set([
   '바탕', 'Batang', 'Noto Serif KR',
   'Times New Roman', 'Times', 'Georgia',
@@ -14,15 +27,18 @@ export interface ScriptSegment {
 }
 
 /**
- * Split a string into runs of CJK and non-CJK so the painter can use
- * different fonts per segment (Helvetica for Latin, Noto KR for CJK).
+ * Split a string into runs that need the CJK-capable embedded font vs
+ * those the WinAnsi-encoded StandardFonts can render. The classification
+ * key is whether each character can be encoded by Helvetica/Times — not
+ * a strict "is this Hangul" check — so CJK punctuation (※, 「」) and
+ * geometric shapes (●○■) route correctly.
  */
 export function splitMixedScript(text: string): ScriptSegment[] {
   if (!text) return [];
   const segments: ScriptSegment[] = [];
-  for (const match of text.matchAll(KR_RANGE_GLOBAL)) {
+  for (const match of text.matchAll(SCRIPT_SPLIT)) {
     const seg = match[0];
-    segments.push({ text: seg, isCJK: KR_RANGE.test(seg) });
+    segments.push({ text: seg, isCJK: NEEDS_CJK_FONT.test(seg) });
   }
   return segments;
 }

@@ -1,6 +1,11 @@
 import type { Document, Block, Inline } from '../model/types.js';
 
-const KR_RANGE = /[\u3000-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF]/;
+// Match `splitMixedScript`'s definition in pdf-style-map.ts: any character
+// pdf-lib's WinAnsi-encoded StandardFonts cannot encode. Detecting these
+// here triggers Korean font embed so the painter has glyphs for CJK
+// punctuation (※, 「」), geometric shapes (●○■), and Hangul/Han characters.
+const LATIN_SAFE_CHARS = '\\u0000-\\u00FF\\u0152\\u0153\\u0160\\u0161\\u017D\\u017E\\u0192\\u02C6\\u02DC\\u2013\\u2014\\u2018-\\u201E\\u2020-\\u2022\\u2026\\u2030\\u2039\\u203A\\u20AC\\u2122';
+const NEEDS_CJK_FONT = new RegExp(`[^${LATIN_SAFE_CHARS}]`);
 const SERIF_FAMILIES = new Set([
   '바탕', 'Batang', 'Noto Serif KR',
   'Times New Roman', 'Times', 'Georgia',
@@ -46,9 +51,9 @@ function visitBlock(block: Block, u: FontUsage): void {
 }
 
 function visitInline(inline: Inline, u: FontUsage): void {
-  const hasKR = KR_RANGE.test(inline.text);
+  const hasNonLatin = NEEDS_CJK_FONT.test(inline.text);
   const isSerif = SERIF_FAMILIES.has(inline.style.fontFamily ?? '');
-  if (hasKR) {
+  if (hasNonLatin) {
     u.needsKR = true;
     if (isSerif) u.needsKRSerif = true;
   } else if (isSerif) {
