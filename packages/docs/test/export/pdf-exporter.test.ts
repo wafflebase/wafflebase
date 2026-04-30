@@ -92,3 +92,19 @@ describe('PdfExporter (full pipeline)', () => {
     expect(blob.size).toBeGreaterThan(1000);
   });
 });
+
+describe('PdfExporter (multi-page)', () => {
+  it('produces multiple pages for long content', async () => {
+    const longDoc: Document = {
+      blocks: Array.from({ length: 200 }, (_, i) => ({
+        id: `p${i}`,
+        type: 'paragraph' as const,
+        inlines: [{ text: `Paragraph ${i}: lorem ipsum dolor sit amet consectetur adipiscing elit.`, style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      })),
+    };
+    const blob = await PdfExporter.export(longDoc, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(2);
+  });
+});
