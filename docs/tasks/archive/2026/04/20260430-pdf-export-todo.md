@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** not-started
+**Status:** completed (2026-04-30)
 **Spec:** [`docs/design/docs/docs-pdf-export.md`](../../design/docs/docs-pdf-export.md)
 **Lessons:** `docs/tasks/active/20260430-pdf-export-lessons.md` (created during execution)
 
@@ -74,28 +74,28 @@ packages/frontend/src/app/docs/
 - Modify: `packages/docs/package.json`
 - Modify: `pnpm-lock.yaml` (auto)
 
-- [ ] **1.1.1** Add deps to `packages/docs/package.json` under `"dependencies"`:
+- [x] **1.1.1** Add deps to `packages/docs/package.json` under `"dependencies"`:
 
 ```json
 "@pdf-lib/fontkit": "^1.1.1",
 "pdf-lib": "^1.17.1"
 ```
 
-- [ ] **1.1.2** Install:
+- [x] **1.1.2** Install:
 
 ```bash
 pnpm install
 ```
 Expected: lockfile updated, `node_modules/pdf-lib` present.
 
-- [ ] **1.1.3** Verify import works (transient sanity check, no commit):
+- [x] **1.1.3** Verify import works (transient sanity check, no commit):
 
 ```bash
 node -e "import('pdf-lib').then(m => console.log(Object.keys(m).slice(0,5)))"
 ```
 Expected: prints `['PDFDocument', 'PDFPage', ...]`.
 
-- [ ] **1.1.4** Commit:
+- [x] **1.1.4** Commit:
 
 ```bash
 git add packages/docs/package.json pnpm-lock.yaml
@@ -110,7 +110,7 @@ git commit -m "Add pdf-lib + fontkit deps to docs package"
 - Create: `packages/docs/test/export/fixtures/fonts/test-cjk.ttf`
 - Create: `packages/docs/test/export/fixtures/fonts/README.md`
 
-- [ ] **1.2.1** Download a small public-domain or SIL-OFL CJK font for tests. Use `Noto Sans KR Regular` subset (or fontTools subset locally) limited to ASCII + 한글 자모 + a handful of common 한자 (~50 KB):
+- [x] **1.2.1** Download a small public-domain or SIL-OFL CJK font for tests. Use `Noto Sans KR Regular` subset (or fontTools subset locally) limited to ASCII + 한글 자모 + a handful of common 한자 (~50 KB):
 
 ```bash
 # Option A: pre-subsetted Noto via Google Fonts CSS API (text= parameter)
@@ -121,7 +121,7 @@ curl -L "https://fonts.googleapis.com/css2?family=Noto+Sans+KR&text=가나다라
 
 If the above shape changes (Google rotates URLs), substitute manually with a public-domain CJK font (e.g., `UnDotum`, ~50 KB).
 
-- [ ] **1.2.2** Write `packages/docs/test/export/fixtures/fonts/README.md`:
+- [x] **1.2.2** Write `packages/docs/test/export/fixtures/fonts/README.md`:
 
 ```markdown
 # Test Fonts
@@ -133,14 +133,14 @@ pdf-fonts and pdf-painter. Not bundled into the production package.
 Subset to ~80 glyphs (ASCII + common Hangul) for repository size.
 ```
 
-- [ ] **1.2.3** Verify font loads with fontkit (sanity, no commit):
+- [x] **1.2.3** Verify font loads with fontkit (sanity, no commit):
 
 ```bash
 node -e "import('@pdf-lib/fontkit').then(async fk => { const fs = await import('fs'); const font = fk.default.create(fs.readFileSync('packages/docs/test/export/fixtures/fonts/test-cjk.ttf')); console.log(font.familyName); })"
 ```
 Expected: prints a font family name (e.g., `"Noto Sans KR"`).
 
-- [ ] **1.2.4** Commit:
+- [x] **1.2.4** Commit:
 
 ```bash
 git add packages/docs/test/export/fixtures/fonts/
@@ -155,7 +155,7 @@ git commit -m "Add test CJK font fixture for pdf export tests"
 - Create: `packages/docs/src/export/pdf-fonts.ts`
 - Create: `packages/docs/test/export/pdf-fonts.test.ts`
 
-- [ ] **1.3.1** Write the failing test:
+- [x] **1.3.1** Write the failing test:
 
 ```ts
 // packages/docs/test/export/pdf-fonts.test.ts
@@ -207,13 +207,13 @@ describe('scanFontsUsed', () => {
 });
 ```
 
-- [ ] **1.3.2** Run, expect FAIL (module missing):
+- [x] **1.3.2** Run, expect FAIL (module missing):
 
 ```bash
 pnpm --filter @wafflebase/docs test pdf-fonts -- --run
 ```
 
-- [ ] **1.3.3** Implement minimal module:
+- [x] **1.3.3** Implement minimal module:
 
 ```ts
 // packages/docs/src/export/pdf-fonts.ts
@@ -272,13 +272,13 @@ function visitInline(inline: Inline, u: FontUsage): void {
 }
 ```
 
-- [ ] **1.3.4** Run, expect PASS:
+- [x] **1.3.4** Run, expect PASS:
 
 ```bash
 pnpm --filter @wafflebase/docs test pdf-fonts -- --run
 ```
 
-- [ ] **1.3.5** Commit:
+- [x] **1.3.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-fonts.ts packages/docs/test/export/pdf-fonts.test.ts
@@ -293,7 +293,7 @@ git commit -m "Add scanFontsUsed for pdf export font analysis"
 - Modify: `packages/docs/src/export/pdf-fonts.ts`
 - Modify: `packages/docs/test/export/pdf-fonts.test.ts`
 
-- [ ] **1.4.1** Write the failing tests:
+- [x] **1.4.1** Write the failing tests:
 
 ```ts
 // Append to pdf-fonts.test.ts
@@ -331,9 +331,9 @@ describe('PdfFonts', () => {
 });
 ```
 
-- [ ] **1.4.2** Run, expect FAIL.
+- [x] **1.4.2** Run, expect FAIL.
 
-- [ ] **1.4.3** Append PdfFonts class to `pdf-fonts.ts`:
+- [x] **1.4.3** Append PdfFonts class to `pdf-fonts.ts`:
 
 ```ts
 export type PdfFontKey =
@@ -438,9 +438,9 @@ export class PdfFonts {
 
 > **NOTE for executor**: the URLs in `DEFAULT_URLS` are placeholders. Verify them against `https://fonts.googleapis.com/css2?family=Noto+Sans+KR` and `Noto+Serif+KR` at implementation time and pin to the resolved `.woff2`/`.ttf` URLs. Prefer self-hosted (S3 bucket) once we settle on a permanent solution — track in the lessons file.
 
-- [ ] **1.4.4** Run, expect PASS.
+- [x] **1.4.4** Run, expect PASS.
 
-- [ ] **1.4.5** Commit:
+- [x] **1.4.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-fonts.ts packages/docs/test/export/pdf-fonts.test.ts
@@ -455,7 +455,7 @@ git commit -m "Add PdfFonts class with IDB cache and DI sources"
 - Create: `packages/docs/src/export/pdf-exporter.ts` (skeleton)
 - Create: `packages/docs/test/export/pdf-exporter.test.ts`
 
-- [ ] **1.5.1** Write the failing integration test:
+- [x] **1.5.1** Write the failing integration test:
 
 ```ts
 // packages/docs/test/export/pdf-exporter.test.ts
@@ -525,9 +525,9 @@ describe('PdfExporter (hello world)', () => {
 });
 ```
 
-- [ ] **1.5.2** Run, expect FAIL.
+- [x] **1.5.2** Run, expect FAIL.
 
-- [ ] **1.5.3** Implement minimum exporter:
+- [x] **1.5.3** Implement minimum exporter:
 
 ```ts
 // packages/docs/src/export/pdf-exporter.ts
@@ -580,9 +580,9 @@ export class PdfExporter {
 }
 ```
 
-- [ ] **1.5.4** Run, expect PASS.
+- [x] **1.5.4** Run, expect PASS.
 
-- [ ] **1.5.5** Commit:
+- [x] **1.5.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-exporter.ts packages/docs/test/export/pdf-exporter.test.ts
@@ -599,7 +599,7 @@ git commit -m "Add PdfExporter skeleton with hello-world Korean output"
 - Create: `packages/docs/src/export/pdf-style-map.ts`
 - Create: `packages/docs/test/export/pdf-style-map.test.ts`
 
-- [ ] **2.1.1** Write tests:
+- [x] **2.1.1** Write tests:
 
 ```ts
 // packages/docs/test/export/pdf-style-map.test.ts
@@ -663,9 +663,9 @@ describe('isItalicShim', () => {
 });
 ```
 
-- [ ] **2.1.2** Run, expect FAIL.
+- [x] **2.1.2** Run, expect FAIL.
 
-- [ ] **2.1.3** Implement:
+- [x] **2.1.3** Implement:
 
 ```ts
 // packages/docs/src/export/pdf-style-map.ts
@@ -732,9 +732,9 @@ export function styleColor(hex: string | undefined): { r: number; g: number; b: 
 }
 ```
 
-- [ ] **2.1.4** Run, expect PASS.
+- [x] **2.1.4** Run, expect PASS.
 
-- [ ] **2.1.5** Commit:
+- [x] **2.1.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-style-map.ts packages/docs/test/export/pdf-style-map.test.ts
@@ -749,7 +749,7 @@ git commit -m "Add pdf-style-map with font key resolution and run splitting"
 - Create: `packages/docs/src/export/pdf-painter.ts`
 - Create: `packages/docs/test/export/pdf-painter.test.ts`
 
-- [ ] **2.2.1** Write the failing test:
+- [x] **2.2.1** Write the failing test:
 
 ```ts
 // packages/docs/test/export/pdf-painter.test.ts
@@ -810,9 +810,9 @@ describe('PdfPainter', () => {
 });
 ```
 
-- [ ] **2.2.2** Run, expect FAIL.
+- [x] **2.2.2** Run, expect FAIL.
 
-- [ ] **2.2.3** Implement skeleton + simple-text path:
+- [x] **2.2.3** Implement skeleton + simple-text path:
 
 ```ts
 // packages/docs/src/export/pdf-painter.ts
@@ -908,9 +908,9 @@ export class PdfPainter {
 
 > **NOTE for executor:** `LayoutRun.x`, `pl.line.baseline`, and the per-line structure assume the public shape of `view/layout.ts` and `view/pagination.ts`. If the field names differ (e.g., `runs` vs `inlineRuns`), adapt locally and document the actual shape in the lessons file.
 
-- [ ] **2.2.4** Run, expect PASS.
+- [x] **2.2.4** Run, expect PASS.
 
-- [ ] **2.2.5** Commit:
+- [x] **2.2.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-painter.ts packages/docs/test/export/pdf-painter.test.ts
@@ -925,7 +925,7 @@ git commit -m "Add PdfPainter for paragraph + simple text run"
 - Modify: `packages/docs/src/export/pdf-painter.ts`
 - Modify: `packages/docs/test/export/pdf-painter.test.ts`
 
-- [ ] **2.3.1** Add a parameterized helper and three tests (background, underline, strike):
+- [x] **2.3.1** Add a parameterized helper and three tests (background, underline, strike):
 
 ```ts
 // Append to pdf-painter.test.ts
@@ -975,9 +975,9 @@ it('draws strike line for strikethrough runs', async () => {
 });
 ```
 
-- [ ] **2.3.2** Run — initial structural fail expected.
+- [x] **2.3.2** Run — initial structural fail expected.
 
-- [ ] **2.3.3** Implement underline + strike + background. In `paintRun`, before drawing text:
+- [x] **2.3.3** Implement underline + strike + background. In `paintRun`, before drawing text:
 
 ```ts
 // Background rectangle — draw before text so text overlays it
@@ -1021,13 +1021,13 @@ if (style.strikethrough) {
 
 > **Note:** `run.ascent` / `run.descent` may not be on `LayoutRun` directly — read them from the embedded font metrics (`font.heightAtSize(sizePt) * ratio`) if absent. Adapt at implementation time.
 
-- [ ] **2.3.4** Run the painter tests, expect PASS:
+- [x] **2.3.4** Run the painter tests, expect PASS:
 
 ```bash
 pnpm --filter @wafflebase/docs test pdf-painter -- --run
 ```
 
-- [ ] **2.3.5** Commit:
+- [x] **2.3.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-painter.ts packages/docs/test/export/pdf-painter.test.ts
@@ -1038,11 +1038,11 @@ git commit -m "Draw background, underline, strikethrough in PDF painter"
 
 ### Task 2.4: Superscript / subscript
 
-- [ ] **2.4.1** Add a test that compares run y-position when `superscript: true` is set vs not (PDF text matrix x/y appears in raw bytes — assert distinct outputs).
+- [x] **2.4.1** Add a test that compares run y-position when `superscript: true` is set vs not (PDF text matrix x/y appears in raw bytes — assert distinct outputs).
 
-- [ ] **2.4.2** Run, expect FAIL.
+- [x] **2.4.2** Run, expect FAIL.
 
-- [ ] **2.4.3** In `paintRun`, before the text draw:
+- [x] **2.4.3** In `paintRun`, before the text draw:
 
 ```ts
 let drawSize = sizePt;
@@ -1057,9 +1057,9 @@ if (style.superscript) {
 // ... pass drawSize and drawY to drawText
 ```
 
-- [ ] **2.4.4** Run, expect PASS.
+- [x] **2.4.4** Run, expect PASS.
 
-- [ ] **2.4.5** Commit:
+- [x] **2.4.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-painter.ts packages/docs/test/export/pdf-painter.test.ts
@@ -1070,11 +1070,11 @@ git commit -m "Add superscript/subscript scaling and y-offset"
 
 ### Task 2.5: Italic Korean (oblique transform)
 
-- [ ] **2.5.1** Add a test that confirms `italic: true` on Korean text still produces a valid PDF (re-loadable, page count 1) and is byte-different from non-italic equivalent.
+- [x] **2.5.1** Add a test that confirms `italic: true` on Korean text still produces a valid PDF (re-loadable, page count 1) and is byte-different from non-italic equivalent.
 
-- [ ] **2.5.2** Run, expect FAIL.
+- [x] **2.5.2** Run, expect FAIL.
 
-- [ ] **2.5.3** In `paintRun`, when `isItalicShim(style, seg.isCJK)`, push a text matrix with horizontal skew before drawing, then pop:
+- [x] **2.5.3** In `paintRun`, when `isItalicShim(style, seg.isCJK)`, push a text matrix with horizontal skew before drawing, then pop:
 
 ```ts
 import { pushGraphicsState, popGraphicsState, concatTransformationMatrix } from 'pdf-lib';
@@ -1095,9 +1095,9 @@ if (isItalicShim(style, seg.isCJK)) {
 
 > **Note for executor:** the matrix tx/ty are dependent on the chosen origin; verify visually in Phase 1's hello-world output. The `(skew * y)` offset compensates for the y-shift introduced by skew.
 
-- [ ] **2.5.4** Run, expect PASS.
+- [x] **2.5.4** Run, expect PASS.
 
-- [ ] **2.5.5** Commit:
+- [x] **2.5.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-painter.ts packages/docs/test/export/pdf-painter.test.ts
@@ -1114,7 +1114,7 @@ git commit -m "Shim italic Korean via PDF text matrix skew"
 - Create: `packages/docs/test/export/fixtures/pdf/simple-paragraph.json`
 - Create: `packages/docs/test/export/fixtures/pdf/mixed-korean-english.json`
 
-- [ ] **2.6.1** Create fixtures:
+- [x] **2.6.1** Create fixtures:
 
 ```json
 // packages/docs/test/export/fixtures/pdf/simple-paragraph.json
@@ -1144,7 +1144,7 @@ git commit -m "Shim italic Korean via PDF text matrix skew"
 }
 ```
 
-- [ ] **2.6.2** Write fixture-driven tests:
+- [x] **2.6.2** Write fixture-driven tests:
 
 ```ts
 // Append to pdf-exporter.test.ts
@@ -1165,9 +1165,9 @@ it('exports the mixed-korean-english fixture', async () => {
 });
 ```
 
-- [ ] **2.6.3** Run, expect FAIL (current exporter only draws first inline naively).
+- [x] **2.6.3** Run, expect FAIL (current exporter only draws first inline naively).
 
-- [ ] **2.6.4** Replace the body of `PdfExporter.export` with the full pipeline:
+- [x] **2.6.4** Replace the body of `PdfExporter.export` with the full pipeline:
 
 ```ts
 import { layoutDocument } from '../view/layout.js';
@@ -1217,7 +1217,7 @@ async function ensureCanvasFontsLoaded(usage: ReturnType<typeof scanFontsUsed>):
 }
 ```
 
-- [ ] **2.6.5** Stub `pdf-image-painter.ts` to keep imports happy (full impl in Phase 5):
+- [x] **2.6.5** Stub `pdf-image-painter.ts` to keep imports happy (full impl in Phase 5):
 
 ```ts
 // packages/docs/src/export/pdf-image-painter.ts
@@ -1226,9 +1226,9 @@ export async function collectImages() {
 }
 ```
 
-- [ ] **2.6.6** Run, expect PASS.
+- [x] **2.6.6** Run, expect PASS.
 
-- [ ] **2.6.7** Commit:
+- [x] **2.6.7** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-exporter.ts packages/docs/src/export/pdf-image-painter.ts \
@@ -1240,7 +1240,7 @@ git commit -m "Wire PdfExporter pipeline through layout + paginate + painter"
 
 ### Task 2.7: Hyperlink annotations on `href` runs
 
-- [ ] **2.7.1** Add a test using a fixture with an `href` run; reload PDF and assert the page has `Annots` referencing a `Link` annotation:
+- [x] **2.7.1** Add a test using a fixture with an `href` run; reload PDF and assert the page has `Annots` referencing a `Link` annotation:
 
 ```ts
 it('emits link annotations for href runs', async () => {
@@ -1258,9 +1258,9 @@ it('emits link annotations for href runs', async () => {
 });
 ```
 
-- [ ] **2.7.2** Run, expect FAIL.
+- [x] **2.7.2** Run, expect FAIL.
 
-- [ ] **2.7.3** In `paintRun`, after drawing each segment:
+- [x] **2.7.3** In `paintRun`, after drawing each segment:
 
 ```ts
 import { PDFName, PDFString } from 'pdf-lib';
@@ -1283,9 +1283,9 @@ if (style.href) {
 }
 ```
 
-- [ ] **2.7.4** Run, expect PASS.
+- [x] **2.7.4** Run, expect PASS.
 
-- [ ] **2.7.5** Commit:
+- [x] **2.7.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-painter.ts packages/docs/test/export/pdf-painter.test.ts
@@ -1302,7 +1302,7 @@ git commit -m "Emit link annotations for href inline runs"
 - Create: `packages/docs/test/export/fixtures/pdf/multi-page.json`
 - Modify: `packages/docs/test/export/pdf-exporter.test.ts`
 
-- [ ] **3.1.1** Create a fixture with enough text to span 3 pages. Generate programmatically:
+- [x] **3.1.1** Create a fixture with enough text to span 3 pages. Generate programmatically:
 
 ```ts
 // In the test file, before the multi-page test:
@@ -1316,7 +1316,7 @@ const longDoc: Document = {
 };
 ```
 
-- [ ] **3.1.2** Add the test:
+- [x] **3.1.2** Add the test:
 
 ```ts
 it('produces multiple pages for long content', async () => {
@@ -1326,9 +1326,9 @@ it('produces multiple pages for long content', async () => {
 });
 ```
 
-- [ ] **3.1.3** Run. If the existing pipeline already produces multiple pages, this passes immediately — record that in lessons. If only 1 page, debug `paginateLayout` integration.
+- [x] **3.1.3** Run. If the existing pipeline already produces multiple pages, this passes immediately — record that in lessons. If only 1 page, debug `paginateLayout` integration.
 
-- [ ] **3.1.4** Commit (assertion-only, no source change expected):
+- [x] **3.1.4** Commit (assertion-only, no source change expected):
 
 ```bash
 git add packages/docs/test/export/pdf-exporter.test.ts
@@ -1343,7 +1343,7 @@ git commit -m "Add multi-page integration test"
 - Modify: `packages/docs/src/export/pdf-painter.ts`
 - Create: `packages/docs/test/export/fixtures/pdf/with-header-footer-pagenumber.json`
 
-- [ ] **3.2.1** Create fixture with `header` + `footer` containing `{ pageNumber: true }` inline:
+- [x] **3.2.1** Create fixture with `header` + `footer` containing `{ pageNumber: true }` inline:
 
 ```json
 {
@@ -1368,11 +1368,11 @@ git commit -m "Add multi-page integration test"
 }
 ```
 
-- [ ] **3.2.2** Add an integration test that exports the fixture, asserts `getPageCount() >= 1` and that the resulting PDF size is larger than the version with empty header/footer (proving header/footer drew text).
+- [x] **3.2.2** Add an integration test that exports the fixture, asserts `getPageCount() >= 1` and that the resulting PDF size is larger than the version with empty header/footer (proving header/footer drew text).
 
-- [ ] **3.2.3** Run, expect FAIL (header/footer not drawn).
+- [x] **3.2.3** Run, expect FAIL (header/footer not drawn).
 
-- [ ] **3.2.4** Extend `PdfPainter.paintPage` to render header/footer regions. The `LayoutPage` does **not** include header/footer lines today — `view/pagination.ts` exposes `getHeaderYStart` / `getFooterYStart` and the doc-canvas re-lays out header/footer per page (see `doc-canvas.ts`). Mirror that:
+- [x] **3.2.4** Extend `PdfPainter.paintPage` to render header/footer regions. The `LayoutPage` does **not** include header/footer lines today — `view/pagination.ts` exposes `getHeaderYStart` / `getFooterYStart` and the doc-canvas re-lays out header/footer per page (see `doc-canvas.ts`). Mirror that:
 
 ```ts
 import { layoutDocument } from '../view/layout.js';
@@ -1400,11 +1400,11 @@ static paintPage(page, layoutPage, pageSetup, fonts, ctx) {
 
 > **Note for executor:** the `layoutDocument` and `paginateLayout` API on header/footer subdocs may need a small adapter — verify against the actual signatures and adjust. This is the largest "shape uncertainty" task — record findings in lessons.
 
-- [ ] **3.2.5** In `paintRun`, when run inline has `style.pageNumber === true`, substitute its text with `String(ctx.pageNumber)` before splitMixedScript.
+- [x] **3.2.5** In `paintRun`, when run inline has `style.pageNumber === true`, substitute its text with `String(ctx.pageNumber)` before splitMixedScript.
 
-- [ ] **3.2.6** Run, expect PASS.
+- [x] **3.2.6** Run, expect PASS.
 
-- [ ] **3.2.7** Commit:
+- [x] **3.2.7** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-painter.ts packages/docs/test/export/pdf-exporter.test.ts \
@@ -1420,13 +1420,13 @@ git commit -m "Render headers/footers and substitute page numbers"
 - Modify: `packages/docs/src/export/pdf-painter.ts`
 - Create: `packages/docs/test/export/fixtures/pdf/with-list.json`
 
-- [ ] **3.3.1** Create a fixture with bullet + numbered list items.
+- [x] **3.3.1** Create a fixture with bullet + numbered list items.
 
-- [ ] **3.3.2** Add a test asserting export succeeds and PDF size > equivalent flat paragraph version (proves marker drew).
+- [x] **3.3.2** Add a test asserting export succeeds and PDF size > equivalent flat paragraph version (proves marker drew).
 
-- [ ] **3.3.3** Run, expect FAIL.
+- [x] **3.3.3** Run, expect FAIL.
 
-- [ ] **3.3.4** In `paintPage`, before painting body lines, compute the list-counter map once per document and pass into the painter:
+- [x] **3.3.4** In `paintPage`, before painting body lines, compute the list-counter map once per document and pass into the painter:
 
 ```ts
 import { computeListCounters } from '../view/layout.js';
@@ -1449,9 +1449,9 @@ if (block?.type === 'list-item' && pl.lineIndex === 0) {
 }
 ```
 
-- [ ] **3.3.5** Run, expect PASS.
+- [x] **3.3.5** Run, expect PASS.
 
-- [ ] **3.3.6** Commit:
+- [x] **3.3.6** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-painter.ts packages/docs/test/export/pdf-exporter.test.ts \
@@ -1470,12 +1470,12 @@ git commit -m "Draw list markers in PDF painter"
 - Modify: `packages/docs/src/view/table-renderer.ts`
 - Modify: `packages/docs/test/view/*` (only if tests directly exercise the moved code)
 
-- [ ] **4.1.1** Identify pure-geometry helpers in `table-renderer.ts`:
+- [x] **4.1.1** Identify pure-geometry helpers in `table-renderer.ts`:
   - `computeTableRangeForPageLine` (already shown in `doc-canvas.ts`-imported APIs)
   - cell rect helpers (col x-offset, row y-offset, cell width/height)
   - merged-cell coverage check
 
-- [ ] **4.1.2** Create `view/table-geometry.ts` and copy the helpers verbatim:
+- [x] **4.1.2** Create `view/table-geometry.ts` and copy the helpers verbatim:
 
 ```ts
 // packages/docs/src/view/table-geometry.ts
@@ -1491,16 +1491,16 @@ export function cellOriginPx(tableData: any, row: number, col: number): { x: num
 }
 ```
 
-- [ ] **4.1.3** In `table-renderer.ts`, replace the duplicated bodies with imports from `table-geometry.ts`. Keep behavior identical.
+- [x] **4.1.3** In `table-renderer.ts`, replace the duplicated bodies with imports from `table-geometry.ts`. Keep behavior identical.
 
-- [ ] **4.1.4** Run all docs tests:
+- [x] **4.1.4** Run all docs tests:
 
 ```bash
 pnpm --filter @wafflebase/docs test -- --run
 ```
 Expected: all 622+ tests still PASS.
 
-- [ ] **4.1.5** Commit:
+- [x] **4.1.5** Commit:
 
 ```bash
 git add packages/docs/src/view/table-geometry.ts packages/docs/src/view/table-renderer.ts
@@ -1516,13 +1516,13 @@ git commit -m "Extract pure table geometry helpers into view/table-geometry"
 - Create: `packages/docs/test/export/pdf-table-painter.test.ts`
 - Create: `packages/docs/test/export/fixtures/pdf/with-table.json`
 
-- [ ] **4.2.1** Create fixture with a 3x3 table.
+- [x] **4.2.1** Create fixture with a 3x3 table.
 
-- [ ] **4.2.2** Write a test asserting the exported PDF has 1 page and size > a no-table baseline (proves rectangles + lines were drawn).
+- [x] **4.2.2** Write a test asserting the exported PDF has 1 page and size > a no-table baseline (proves rectangles + lines were drawn).
 
-- [ ] **4.2.3** Run, expect FAIL.
+- [x] **4.2.3** Run, expect FAIL.
 
-- [ ] **4.2.4** Implement `pdf-table-painter.ts`:
+- [x] **4.2.4** Implement `pdf-table-painter.ts`:
 
 ```ts
 // packages/docs/src/export/pdf-table-painter.ts
@@ -1611,11 +1611,11 @@ function drawCellBorders(page: PDFPage, cell: any, x: number, y: number, w: numb
 interface Rect { x: number; y: number; w: number; h: number; }
 ```
 
-- [ ] **4.2.5** Wire into `PdfPainter.paintPage`: when a `PageLine` belongs to a table block (its corresponding `LayoutBlock.block.tableData` is set), delegate to `paintTablePageRange` and skip ahead by the range size.
+- [x] **4.2.5** Wire into `PdfPainter.paintPage`: when a `PageLine` belongs to a table block (its corresponding `LayoutBlock.block.tableData` is set), delegate to `paintTablePageRange` and skip ahead by the range size.
 
-- [ ] **4.2.6** Run, expect PASS.
+- [x] **4.2.6** Run, expect PASS.
 
-- [ ] **4.2.7** Commit:
+- [x] **4.2.7** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-table-painter.ts packages/docs/src/export/pdf-painter.ts \
@@ -1627,13 +1627,13 @@ git commit -m "Paint table backgrounds and borders in PDF"
 
 ### Task 4.3: Cell content (recursive paint)
 
-- [ ] **4.3.1** In `paintTablePageRange`, the `paintCellContent` callback delegates back to `PdfPainter.paintLine` per cell-block-line. Implement using a cell-local layout (call `layoutDocument` on `cell.blocks` with cell width as the effective width).
+- [x] **4.3.1** In `paintTablePageRange`, the `paintCellContent` callback delegates back to `PdfPainter.paintLine` per cell-block-line. Implement using a cell-local layout (call `layoutDocument` on `cell.blocks` with cell width as the effective width).
 
-- [ ] **4.3.2** Add a test asserting that text content of cells appears in the PDF (size >= empty-cells baseline + delta).
+- [x] **4.3.2** Add a test asserting that text content of cells appears in the PDF (size >= empty-cells baseline + delta).
 
-- [ ] **4.3.3** Run, expect PASS.
+- [x] **4.3.3** Run, expect PASS.
 
-- [ ] **4.3.4** Commit:
+- [x] **4.3.4** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-table-painter.ts packages/docs/test/export/pdf-table-painter.test.ts
@@ -1647,13 +1647,13 @@ git commit -m "Recursively paint cell content in PDF tables"
 **Files:**
 - Create: `packages/docs/test/export/fixtures/pdf/with-merged-cells.json`
 
-- [ ] **4.4.1** Create fixture with a 3×3 table containing one `colSpan: 2` and one `rowSpan: 2`.
+- [x] **4.4.1** Create fixture with a 3×3 table containing one `colSpan: 2` and one `rowSpan: 2`.
 
-- [ ] **4.4.2** Add test asserting export succeeds (1 page, size > non-merged baseline) and that re-loading the PDF doesn't error.
+- [x] **4.4.2** Add test asserting export succeeds (1 page, size > non-merged baseline) and that re-loading the PDF doesn't error.
 
-- [ ] **4.4.3** Run; the previous geometry handling should already support merged cells (the geometry helper extracted in 4.1 covers this). If not, debug.
+- [x] **4.4.3** Run; the previous geometry handling should already support merged cells (the geometry helper extracted in 4.1 covers this). If not, debug.
 
-- [ ] **4.4.4** Commit:
+- [x] **4.4.4** Commit:
 
 ```bash
 git add packages/docs/test/export/pdf-table-painter.test.ts packages/docs/test/export/fixtures/pdf/with-merged-cells.json
@@ -1667,17 +1667,17 @@ git commit -m "Add merged-cells PDF table integration test"
 **Files:**
 - Create: `packages/docs/test/export/fixtures/pdf/with-split-row.json`
 
-- [ ] **4.5.1** Create fixture: a table with one tall row (lots of text in a cell) such that it forces a row split across two pages.
+- [x] **4.5.1** Create fixture: a table with one tall row (lots of text in a cell) such that it forces a row split across two pages.
 
-- [ ] **4.5.2** Add test asserting `getPageCount() === 2` and both pages have non-trivial size.
+- [x] **4.5.2** Add test asserting `getPageCount() === 2` and both pages have non-trivial size.
 
-- [ ] **4.5.3** Run, expect FAIL or PASS depending on whether `pl.rowSplitOffset/rowSplitHeight` is currently honored.
+- [x] **4.5.3** Run, expect FAIL or PASS depending on whether `pl.rowSplitOffset/rowSplitHeight` is currently honored.
 
-- [ ] **4.5.4** If FAIL: in `paintTablePageRange`, when `pl.rowSplitOffset !== undefined`, clip the cell rect's vertical span using `pl.rowSplitOffset` and `pl.rowSplitHeight` and translate the cell-content origin accordingly. Use `pdf-lib` graphics state push/pop with a clip rectangle.
+- [x] **4.5.4** If FAIL: in `paintTablePageRange`, when `pl.rowSplitOffset !== undefined`, clip the cell rect's vertical span using `pl.rowSplitOffset` and `pl.rowSplitHeight` and translate the cell-content origin accordingly. Use `pdf-lib` graphics state push/pop with a clip rectangle.
 
-- [ ] **4.5.5** Run, expect PASS.
+- [x] **4.5.5** Run, expect PASS.
 
-- [ ] **4.5.6** Commit:
+- [x] **4.5.6** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-table-painter.ts packages/docs/test/export/pdf-table-painter.test.ts \
@@ -1697,11 +1697,11 @@ git commit -m "Honor row split offsets when painting tables across pages"
 - Create: `packages/docs/test/export/fixtures/pdf/with-image.json`
 - Create: `packages/docs/test/export/fixtures/pdf/test-image.png` (small PNG)
 
-- [ ] **5.1.1** Create a tiny test PNG (e.g., 10×10 red square via `Buffer` literal, or commit a small file).
+- [x] **5.1.1** Create a tiny test PNG (e.g., 10×10 red square via `Buffer` literal, or commit a small file).
 
-- [ ] **5.1.2** Create fixture `with-image.json` with a single inline whose `style.image = { src: 'test://image1', width: 100, height: 100 }`.
+- [x] **5.1.2** Create fixture `with-image.json` with a single inline whose `style.image = { src: 'test://image1', width: 100, height: 100 }`.
 
-- [ ] **5.1.3** Add test:
+- [x] **5.1.3** Add test:
 
 ```ts
 it('embeds an image inline', async () => {
@@ -1717,9 +1717,9 @@ it('embeds an image inline', async () => {
 });
 ```
 
-- [ ] **5.1.4** Run, expect FAIL.
+- [x] **5.1.4** Run, expect FAIL.
 
-- [ ] **5.1.5** Replace `pdf-image-painter.ts` stub:
+- [x] **5.1.5** Replace `pdf-image-painter.ts` stub:
 
 ```ts
 // packages/docs/src/export/pdf-image-painter.ts
@@ -1797,9 +1797,9 @@ function collectSrcs(blocks: Block[], out: Set<string>): void {
 }
 ```
 
-- [ ] **5.1.6** In `PdfExporter.export`, call `collectAndEmbedImages(doc, pdfDoc, opts.imageFetcher)` and pass the result through `ctx.imageMap`.
+- [x] **5.1.6** In `PdfExporter.export`, call `collectAndEmbedImages(doc, pdfDoc, opts.imageFetcher)` and pass the result through `ctx.imageMap`.
 
-- [ ] **5.1.7** In `PdfPainter.paintRun`, when `style.image` is set, draw via `page.drawImage`:
+- [x] **5.1.7** In `PdfPainter.paintRun`, when `style.image` is set, draw via `page.drawImage`:
 
 ```ts
 if (style.image) {
@@ -1816,9 +1816,9 @@ if (style.image) {
 }
 ```
 
-- [ ] **5.1.8** Run, expect PASS.
+- [x] **5.1.8** Run, expect PASS.
 
-- [ ] **5.1.9** Commit:
+- [x] **5.1.9** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-image-painter.ts packages/docs/src/export/pdf-painter.ts \
@@ -1837,7 +1837,7 @@ git commit -m "Embed and draw inline images in PDF export"
 - Modify: `packages/docs/src/export/pdf-exporter.ts`
 - Modify: `packages/docs/test/export/pdf-exporter.test.ts`
 
-- [ ] **6.1.1** Add test:
+- [x] **6.1.1** Add test:
 
 ```ts
 it('writes title and author into PDF metadata', async () => {
@@ -1851,9 +1851,9 @@ it('writes title and author into PDF metadata', async () => {
 });
 ```
 
-- [ ] **6.1.2** Run, expect FAIL.
+- [x] **6.1.2** Run, expect FAIL.
 
-- [ ] **6.1.3** In `PdfExporter.export`, after creating `pdfDoc`:
+- [x] **6.1.3** In `PdfExporter.export`, after creating `pdfDoc`:
 
 ```ts
 if (opts.metadata?.title) pdfDoc.setTitle(opts.metadata.title);
@@ -1866,9 +1866,9 @@ pdfDoc.setProducer('Wafflebase Docs');
 pdfDoc.setCreator('Wafflebase Docs');
 ```
 
-- [ ] **6.1.4** Run, expect PASS.
+- [x] **6.1.4** Run, expect PASS.
 
-- [ ] **6.1.5** Commit:
+- [x] **6.1.5** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-exporter.ts packages/docs/test/export/pdf-exporter.test.ts
@@ -1883,9 +1883,9 @@ git commit -m "Set PDF metadata fields from options"
 - Create: `packages/docs/test/export/fixtures/pdf/with-headings-and-links.json`
 - Modify: `packages/docs/src/export/pdf-exporter.ts`
 
-- [ ] **6.2.1** Create fixture with 3 heading blocks (levels 1, 2, 2).
+- [x] **6.2.1** Create fixture with 3 heading blocks (levels 1, 2, 2).
 
-- [ ] **6.2.2** Add test asserting that the PDF Catalog has an `Outlines` entry with at least 3 children:
+- [x] **6.2.2** Add test asserting that the PDF Catalog has an `Outlines` entry with at least 3 children:
 
 ```ts
 it('emits a heading outline tree', async () => {
@@ -1897,9 +1897,9 @@ it('emits a heading outline tree', async () => {
 });
 ```
 
-- [ ] **6.2.3** Run, expect FAIL.
+- [x] **6.2.3** Run, expect FAIL.
 
-- [ ] **6.2.4** Implement `addOutlineFromHeadings` in `pdf-exporter.ts`:
+- [x] **6.2.4** Implement `addOutlineFromHeadings` in `pdf-exporter.ts`:
 
 ```ts
 import { PDFDict, PDFName, PDFRef, PDFString, PDFArray, PDFNumber } from 'pdf-lib';
@@ -1948,9 +1948,9 @@ function addOutlineFromHeadings(
 
 Build `blockToPage` while paginating: in the per-page paint loop, record the first occurrence of each `pl.blockIndex` per page.
 
-- [ ] **6.2.5** Run, expect PASS.
+- [x] **6.2.5** Run, expect PASS.
 
-- [ ] **6.2.6** Commit:
+- [x] **6.2.6** Commit:
 
 ```bash
 git add packages/docs/src/export/pdf-exporter.ts packages/docs/test/export/pdf-exporter.test.ts \
@@ -1968,7 +1968,7 @@ git commit -m "Emit PDF outline tree from heading blocks"
 - Create: `packages/frontend/src/app/docs/export-utils.ts`
 - Modify: `packages/frontend/src/app/docs/docx-actions.ts`
 
-- [ ] **7.1.1** Create `export-utils.ts` with the shared helpers from `docx-actions.ts`:
+- [x] **7.1.1** Create `export-utils.ts` with the shared helpers from `docx-actions.ts`:
 
 ```ts
 // packages/frontend/src/app/docs/export-utils.ts
@@ -2029,7 +2029,7 @@ export function safeFilename(title: string, ext: 'docx' | 'pdf'): string {
 }
 ```
 
-- [ ] **7.1.2** Refactor `docx-actions.ts` to import from `export-utils.ts`:
+- [x] **7.1.2** Refactor `docx-actions.ts` to import from `export-utils.ts`:
 
 ```ts
 // docx-actions.ts (replace duplicate code with imports)
@@ -2054,14 +2054,14 @@ export async function exportDocxAndDownload(doc: DocsDocument, title: string): P
 }
 ```
 
-- [ ] **7.1.3** Run frontend tests:
+- [x] **7.1.3** Run frontend tests:
 
 ```bash
 pnpm --filter @wafflebase/frontend test -- --run
 ```
 Expected: PASS.
 
-- [ ] **7.1.4** Commit:
+- [x] **7.1.4** Commit:
 
 ```bash
 git add packages/frontend/src/app/docs/export-utils.ts packages/frontend/src/app/docs/docx-actions.ts
@@ -2075,7 +2075,7 @@ git commit -m "Extract shared export-utils from docx-actions"
 **Files:**
 - Create: `packages/frontend/src/app/docs/pdf-actions.ts`
 
-- [ ] **7.2.1** Create:
+- [x] **7.2.1** Create:
 
 ```ts
 // packages/frontend/src/app/docs/pdf-actions.ts
@@ -2097,7 +2097,7 @@ export async function exportPdfAndDownload(
 }
 ```
 
-- [ ] **7.2.2** Add a sub-export to the docs package so the dynamic import works:
+- [x] **7.2.2** Add a sub-export to the docs package so the dynamic import works:
 
 ```jsonc
 // packages/docs/package.json — add to "exports"
@@ -2110,13 +2110,13 @@ export async function exportPdfAndDownload(
 
 (Or alternately export `PdfExporter` from the main index and accept that pdf-lib gets bundled — discuss tradeoff in task 7.5.)
 
-- [ ] **7.2.3** Build the docs package and verify the new entry exists:
+- [x] **7.2.3** Build the docs package and verify the new entry exists:
 
 ```bash
 pnpm --filter @wafflebase/docs build
 ```
 
-- [ ] **7.2.4** Commit:
+- [x] **7.2.4** Commit:
 
 ```bash
 git add packages/frontend/src/app/docs/pdf-actions.ts packages/docs/package.json
@@ -2130,14 +2130,14 @@ git commit -m "Add pdf-actions with dynamic import"
 **Files:**
 - Modify: existing menu component in `packages/frontend/src/app/docs/` (locate via search at start of task)
 
-- [ ] **7.3.1** Find the current "Export DOCX" trigger:
+- [x] **7.3.1** Find the current "Export DOCX" trigger:
 
 ```bash
 # Run via Grep tool, not Bash:
 # pattern: exportDocxAndDownload, files in packages/frontend
 ```
 
-- [ ] **7.3.2** Replace the single button with a dropdown (Radix `DropdownMenu` if already in the project, else a simple `<details>`/`<button>` group):
+- [x] **7.3.2** Replace the single button with a dropdown (Radix `DropdownMenu` if already in the project, else a simple `<details>`/`<button>` group):
 
 ```tsx
 <DropdownMenu>
@@ -2153,7 +2153,7 @@ git commit -m "Add pdf-actions with dynamic import"
 </DropdownMenu>
 ```
 
-- [ ] **7.3.3** Run dev server, manually verify the menu opens and both export paths work:
+- [x] **7.3.3** Run dev server, manually verify the menu opens and both export paths work:
 
 ```bash
 pnpm dev
@@ -2161,13 +2161,13 @@ pnpm dev
 # Open the resulting .pdf in macOS Preview and verify text renders.
 ```
 
-- [ ] **7.3.4** Run frontend tests:
+- [x] **7.3.4** Run frontend tests:
 
 ```bash
 pnpm --filter @wafflebase/frontend test -- --run
 ```
 
-- [ ] **7.3.5** Commit:
+- [x] **7.3.5** Commit:
 
 ```bash
 git add packages/frontend/src/app/docs/<menu-file>.tsx
@@ -2181,7 +2181,7 @@ git commit -m "Add PDF item to Docs export dropdown"
 **Files:**
 - Modify: `packages/docs/src/index.ts`
 
-- [ ] **7.4.1** Add re-exports to `packages/docs/src/index.ts`:
+- [x] **7.4.1** Add re-exports to `packages/docs/src/index.ts`:
 
 ```ts
 export { PdfExporter } from './export/pdf-exporter.js';
@@ -2190,14 +2190,14 @@ export { PdfFonts } from './export/pdf-fonts.js';
 export type { PdfFontKey, FontUsage } from './export/pdf-fonts.js';
 ```
 
-- [ ] **7.4.2** Run the project-wide pre-commit gate:
+- [x] **7.4.2** Run the project-wide pre-commit gate:
 
 ```bash
 pnpm verify:fast
 ```
 Expected: lint + all unit tests PASS.
 
-- [ ] **7.4.3** Commit:
+- [x] **7.4.3** Commit:
 
 ```bash
 git add packages/docs/src/index.ts
@@ -2208,34 +2208,34 @@ git commit -m "Re-export PdfExporter from docs package index"
 
 ### Task 7.5: Manual verification + docs
 
-- [ ] **7.5.1** Run the manual verification checklist (record results in the lessons file):
-  - [ ] Adobe Reader: Korean renders correctly
-  - [ ] macOS Preview: Korean renders correctly
-  - [ ] Cmd+C / Cmd+V: produces real Unicode
-  - [ ] Cmd+F search finds Korean and Latin
-  - [ ] Hyperlink click opens browser
-  - [ ] Outline panel shows headings
-  - [ ] Print preview pagination matches on-screen
-  - [ ] 30-page mixed document exports under 5s
+- [x] **7.5.1** Run the manual verification checklist (record results in the lessons file):
+  - [x] Adobe Reader: Korean renders correctly
+  - [x] macOS Preview: Korean renders correctly
+  - [x] Cmd+C / Cmd+V: produces real Unicode
+  - [x] Cmd+F search finds Korean and Latin
+  - [x] Hyperlink click opens browser
+  - [x] Outline panel shows headings
+  - [x] Print preview pagination matches on-screen
+  - [x] 30-page mixed document exports under 5s
 
-- [ ] **7.5.2** If the design doc needs updates (any deviations from the spec discovered during implementation), edit `docs/design/docs/docs-pdf-export.md` to match what was actually built.
+- [x] **7.5.2** If the design doc needs updates (any deviations from the spec discovered during implementation), edit `docs/design/docs/docs-pdf-export.md` to match what was actually built.
 
-- [ ] **7.5.3** Run `pnpm verify:fast` once more to confirm everything still passes.
+- [x] **7.5.3** Run `pnpm verify:fast` once more to confirm everything still passes.
 
-- [ ] **7.5.4** Update the active task index:
+- [x] **7.5.4** Update the active task index:
 
 ```bash
 pnpm tasks:index
 ```
 
-- [ ] **7.5.5** Archive when done:
+- [x] **7.5.5** Archive when done:
 
 ```bash
 pnpm tasks:archive   # moves todo + lessons to docs/tasks/archive/
 pnpm tasks:index
 ```
 
-- [ ] **7.5.6** Final commit:
+- [x] **7.5.6** Final commit:
 
 ```bash
 git add docs/design/docs/docs-pdf-export.md docs/tasks/
