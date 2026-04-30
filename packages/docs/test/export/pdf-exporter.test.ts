@@ -61,3 +61,34 @@ describe('PdfExporter (hello world)', () => {
     expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(1);
   });
 });
+
+const simpleFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/simple-paragraph.json'),
+    'utf8',
+  ),
+) as Document;
+
+const mixedFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/mixed-korean-english.json'),
+    'utf8',
+  ),
+) as Document;
+
+describe('PdfExporter (full pipeline)', () => {
+  it('exports the simple-paragraph fixture', async () => {
+    const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBe(1);
+    const pages = pdfDoc.getPages();
+    expect(pages[0].getWidth()).toBeGreaterThan(0);
+  });
+
+  it('exports the mixed-korean-english fixture', async () => {
+    const blob = await PdfExporter.export(mixedFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBe(1);
+    expect(blob.size).toBeGreaterThan(1000);
+  });
+});
