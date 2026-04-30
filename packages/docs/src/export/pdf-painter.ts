@@ -18,6 +18,7 @@ import {
   isItalicShim,
 } from './pdf-style-map.js';
 import { paintTablePageRange, type CellRect } from './pdf-table-painter.js';
+import type { EmbeddedImage } from './pdf-image-painter.js';
 
 /**
  * Forward-slant approximation (~12°) used to fake italic for Korean
@@ -44,7 +45,7 @@ export type EmbeddedFonts = Record<PdfFontKey, PDFFont>;
 
 export interface PaintContext {
   doc: Document;
-  imageMap: Map<string, { embedded: unknown; width: number; height: number }>;
+  imageMap: Map<string, EmbeddedImage>;
   pageNumber?: number;
   /**
    * Pre-computed header/footer layouts. Computed once by `PdfExporter`
@@ -473,8 +474,28 @@ export class PdfPainter {
   ): void {
     const style = run.inline.style;
 
-    // Image runs are handled separately in a later task.
-    if (style.image) return;
+    // Image runs draw the embedded PDFImage in place of the U+FFFC
+    // placeholder text. We mirror the canvas renderer's bottom-aligned
+    // placement (`y = lineY + lineHeight - drawHeight`) so the image
+    // sits flush with the line's text baseline row. `run.width` /
+    // `run.imageHeight` already account for any layout-time scale-to-
+    // fit, so we just translate them into PDF (bottom-left, points)
+    // coordinates and call drawImage.
+    if (style.image) {
+      const entry = ctx.imageMap.get(style.image.src);
+      if (!entry) return;
+      const drawWidthPx = run.width;
+      const drawHeightPx = run.imageHeight ?? lineHeightPx;
+      const imageBottomYpx = lineYpx + lineHeightPx;
+      const xPx = lineXpx + run.x;
+      page.drawImage(entry.embedded, {
+        x: px2pt(xPx),
+        y: pageHeightPt - px2pt(imageBottomYpx),
+        width: px2pt(drawWidthPx),
+        height: px2pt(drawHeightPx),
+      });
+      return;
+    }
 
     const sizePt = style.fontSize ?? Theme.defaultFontSize;
     const fontSizePx = ptToPx(sizePt);

@@ -111,6 +111,17 @@ const splitRowFixture = JSON.parse(
   ),
 ) as Document;
 
+const imageFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/with-image.json'),
+    'utf8',
+  ),
+) as Document;
+
+const TEST_PNG = fs.readFileSync(
+  path.resolve(__dirname, 'fixtures/pdf/test-image.png'),
+);
+
 describe('PdfExporter (full pipeline)', () => {
   it('exports the simple-paragraph fixture', async () => {
     const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
@@ -219,6 +230,43 @@ describe('PdfExporter (row split)', () => {
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(2);
     expect(blob.size).toBeGreaterThan(2000);
+  });
+});
+
+describe('PdfExporter (images)', () => {
+  it('embeds an image inline', async () => {
+    let fetchCount = 0;
+    const blob = await PdfExporter.export(imageFixture, {
+      fonts: testFonts(),
+      imageFetcher: async (src: string) => {
+        fetchCount++;
+        expect(src).toBe('test://image1');
+        return new Blob([TEST_PNG], { type: 'image/png' });
+      },
+    });
+    expect(fetchCount).toBe(1);
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBe(1);
+    expect(blob.size).toBeGreaterThan(TEST_PNG.byteLength);
+
+    // Compare against the same fixture with the image inline stripped:
+    // the embedded-image PDF must be meaningfully larger.
+    const noImage: Document = {
+      blocks: imageFixture.blocks.map(b => ({
+        ...b,
+        inlines: b.inlines.filter(i => !i.style.image),
+      })),
+    };
+    const noImageBlob = await PdfExporter.export(noImage, {
+      fonts: testFonts(),
+    });
+    expect(blob.size).toBeGreaterThan(noImageBlob.size + 50);
+  });
+
+  it('throws when image inline exists but no fetcher provided', async () => {
+    await expect(
+      PdfExporter.export(imageFixture, { fonts: testFonts() }),
+    ).rejects.toThrow(/imageFetcher/i);
   });
 });
 

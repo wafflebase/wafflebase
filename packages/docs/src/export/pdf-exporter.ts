@@ -6,12 +6,16 @@ import { PdfFonts, scanFontsUsed, type FontUsage } from './pdf-fonts.js';
 import { computeLayout, computeListCounters } from '../view/layout.js';
 import { paginateLayout } from '../view/pagination.js';
 import { PdfPainter } from './pdf-painter.js';
+import {
+  collectAndEmbedImages,
+  type ImageFetcher,
+} from './pdf-image-painter.js';
 
 const PX_PER_PT = 96 / 72;
 
 export interface PdfExportOptions {
   fonts?: PdfFonts;
-  imageFetcher?: (url: string) => Promise<Blob>;
+  imageFetcher?: ImageFetcher;
   metadata?: { title?: string; author?: string; subject?: string; keywords?: string[] };
 }
 
@@ -47,11 +51,8 @@ export class PdfExporter {
       ? computeLayout(doc.footer.blocks, ctx, contentWidth).layout
       : null;
 
-    // 3. Image fetch (Phase 5 — stub for now)
-    const imageMap = new Map<string, { embedded: unknown; width: number; height: number }>();
-
-    // Ordered list counters: computed once over the body block list so
-    // every page sees the same item numbers regardless of where the
+    // 3. Ordered list counters: computed once over the body block list
+    // so every page sees the same item numbers regardless of where the
     // block falls in pagination.
     const listCounters = computeListCounters(doc.blocks);
 
@@ -60,7 +61,15 @@ export class PdfExporter {
     pdfDoc.registerFontkit(fontkit);
     const embeddedFonts = await PdfPainter.embedAllFonts(pdfDoc, fonts);
 
-    // 5. Per-page paint
+    // 5. Image fetch + embed. Walks the body, header, and footer block
+    // lists for image inlines, fetches each unique src via the caller-
+    // supplied fetcher, and embeds them into the PDF up-front so the
+    // painter can look them up by src in O(1) per draw.
+    const imageMap = await collectAndEmbedImages(
+      doc, pdfDoc, opts.imageFetcher,
+    );
+
+    // 6. Per-page paint
     for (let i = 0; i < pagination.pages.length; i++) {
       const lp = pagination.pages[i];
       const pageWidthPt = lp.width / PX_PER_PT;
