@@ -95,7 +95,10 @@ describe('PdfPainter', () => {
   });
 });
 
-async function renderWithStyle(style: InlineStyle): Promise<Uint8Array> {
+async function renderWithStyle(
+  style: InlineStyle,
+  text: string = 'Sample',
+): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.registerFontkit(fontkit);
 
@@ -105,7 +108,7 @@ async function renderWithStyle(style: InlineStyle): Promise<Uint8Array> {
     blocks: [{
       id: generateBlockId(),
       type: 'paragraph',
-      inlines: [{ text: 'Sample', style }],
+      inlines: [{ text, style }],
       style: { ...DEFAULT_BLOCK_STYLE },
     }],
     pageSetup: { ...DEFAULT_PAGE_SETUP },
@@ -161,5 +164,17 @@ describe('PdfPainter inline styles', () => {
     const plain = await renderWithStyle({});
     const sub = await renderWithStyle({ subscript: true });
     expect(sub).not.toEqual(plain);
+  });
+
+  it('applies oblique transform for italic Korean text', async () => {
+    const koreanRegular = await renderWithStyle({}, '안녕');
+    const koreanItalic = await renderWithStyle({ italic: true }, '안녕');
+    expect(koreanItalic).not.toEqual(koreanRegular);
+  });
+
+  it('produces a valid PDF for italic Korean (re-loadable)', async () => {
+    const bytes = await renderWithStyle({ italic: true }, '안녕');
+    const reloaded = await PDFDocument.load(bytes);
+    expect(reloaded.getPageCount()).toBe(1);
   });
 });

@@ -1,10 +1,25 @@
-import { PDFDocument, PDFPage, PDFFont, rgb } from 'pdf-lib';
+import {
+  PDFDocument, PDFPage, PDFFont, rgb,
+  pushGraphicsState, popGraphicsState, concatTransformationMatrix,
+} from 'pdf-lib';
 import type { Document, PageSetup } from '../model/types.js';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { LayoutLine, LayoutRun } from '../view/layout.js';
 import { Theme, ptToPx } from '../view/theme.js';
 import { PdfFonts, type PdfFontKey } from './pdf-fonts.js';
-import { resolveFontKey, splitMixedScript, styleColor } from './pdf-style-map.js';
+import {
+  resolveFontKey,
+  splitMixedScript,
+  styleColor,
+  isItalicShim,
+} from './pdf-style-map.js';
+
+/**
+ * Forward-slant approximation (~12°) used to fake italic for Korean
+ * fonts that lack an italic variant. Applied as the `c` skew factor of
+ * a PDF text-state transformation matrix.
+ */
+const ITALIC_SHIM_SKEW = Math.tan((12 * Math.PI) / 180);
 
 const PX_PER_PT = 96 / 72;
 const px2pt = (px: number) => px / PX_PER_PT;
@@ -184,13 +199,36 @@ export class PdfPainter {
         });
       }
 
-      page.drawText(seg.text, {
-        x: px2pt(xpx),
-        y: pageHeightPt - px2pt(drawBaselineYpx),
-        size: drawSizePt,
-        font,
-        color: rgb(c.r, c.g, c.b),
-      });
+      // Korean italic shim: Noto Sans/Serif KR have no italic variant,
+      // so we synthesize one with a CTM skew. We translate to the run's
+      // baseline, apply the skew about y=0 there, draw at (0, 0), then
+      // pop the graphics state so background/underline/strike stay
+      // upright. Background and decoration draws sit *outside* this
+      // block intentionally.
+      if (isItalicShim(style, seg.isCJK)) {
+        const tx = px2pt(xpx);
+        const ty = pageHeightPt - px2pt(drawBaselineYpx);
+        page.pushOperators(pushGraphicsState());
+        page.pushOperators(
+          concatTransformationMatrix(1, 0, ITALIC_SHIM_SKEW, 1, tx, ty),
+        );
+        page.drawText(seg.text, {
+          x: 0,
+          y: 0,
+          size: drawSizePt,
+          font,
+          color: rgb(c.r, c.g, c.b),
+        });
+        page.pushOperators(popGraphicsState());
+      } else {
+        page.drawText(seg.text, {
+          x: px2pt(xpx),
+          y: pageHeightPt - px2pt(drawBaselineYpx),
+          size: drawSizePt,
+          font,
+          color: rgb(c.r, c.g, c.b),
+        });
+      }
 
       // Underline sits ~1px below the baseline (matching the canvas
       // renderer's `baselineY + 2` approximation, scaled down to keep
