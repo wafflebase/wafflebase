@@ -5,7 +5,7 @@ import {
 } from 'pdf-lib';
 import type { Document, PageSetup } from '../model/types.js';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
-import type { LayoutLine, LayoutRun } from '../view/layout.js';
+import type { DocumentLayout, LayoutLine, LayoutRun } from '../view/layout.js';
 import { Theme, ptToPx } from '../view/theme.js';
 import { PdfFonts, type PdfFontKey } from './pdf-fonts.js';
 import {
@@ -42,6 +42,14 @@ export interface PaintContext {
   doc: Document;
   imageMap: Map<string, { embedded: unknown; width: number; height: number }>;
   pageNumber?: number;
+  /**
+   * Pre-computed header/footer layouts. Computed once by `PdfExporter`
+   * (they don't depend on the body's pagination) and reused on every
+   * page so each page can paint its own header/footer with the correct
+   * `pageNumber` substitution.
+   */
+  headerLayout?: DocumentLayout | null;
+  footerLayout?: DocumentLayout | null;
 }
 
 export class PdfPainter {
@@ -72,13 +80,95 @@ export class PdfPainter {
   static paintPage(
     page: PDFPage,
     layoutPage: LayoutPage,
-    _pageSetup: PageSetup,
+    pageSetup: PageSetup,
     fonts: EmbeddedFonts,
     ctx: PaintContext,
   ): void {
     const pageHeightPt = page.getHeight();
+
+    // Body lines
     for (const pl of layoutPage.lines) {
       PdfPainter.paintLine(page, pl, pageHeightPt, fonts, ctx);
+    }
+
+    // Header/footer regions. Page-local Y is computed directly here
+    // because the canvas-side helpers (`getHeaderYStart` /
+    // `getFooterYStart`) return canvas-absolute coordinates that include
+    // `Theme.pageGap` between pages — that has no analog in the PDF
+    // file, where each page is its own coordinate space. The canvas
+    // formula collapses to:
+    //   header page-local Y = marginFromEdge
+    //   footer page-local Y = pageHeight - marginFromEdge - footerLayout.totalHeight
+    PdfPainter.paintHeaderFooter(
+      page, layoutPage, pageSetup, pageHeightPt, fonts, ctx,
+    );
+  }
+
+  /**
+   * Lay out the (already-measured) header and footer block lists on this
+   * page. Each line is rewrapped as a synthetic `PageLine` so it flows
+   * through the same `paintLine` → `paintRun` pipeline as body content.
+   * That means page-number substitution, font-shim italic, hyperlinks,
+   * etc. all work in headers/footers without duplicating draw code.
+   */
+  private static paintHeaderFooter(
+    page: PDFPage,
+    layoutPage: LayoutPage,
+    pageSetup: PageSetup,
+    pageHeightPt: number,
+    fonts: EmbeddedFonts,
+    ctx: PaintContext,
+  ): void {
+    const { margins } = pageSetup;
+    const pageHeightPx = layoutPage.height;
+
+    const header = ctx.doc.header;
+    if (header && ctx.headerLayout && ctx.headerLayout.blocks.length > 0) {
+      const regionTopPx = header.marginFromEdge;
+      PdfPainter.paintHFRegion(
+        page, ctx.headerLayout, margins.left, regionTopPx,
+        pageHeightPt, fonts, ctx,
+      );
+    }
+
+    const footer = ctx.doc.footer;
+    if (footer && ctx.footerLayout && ctx.footerLayout.blocks.length > 0) {
+      const regionTopPx = pageHeightPx - footer.marginFromEdge
+        - ctx.footerLayout.totalHeight;
+      PdfPainter.paintHFRegion(
+        page, ctx.footerLayout, margins.left, regionTopPx,
+        pageHeightPt, fonts, ctx,
+      );
+    }
+  }
+
+  /**
+   * Walk a header/footer `DocumentLayout` and paint every line at the
+   * given region origin. `regionTopPx` is the page-local Y of the
+   * region's first block; line Y values are then `regionTopPx + lb.y +
+   * line.y`, mirroring how `doc-canvas` composes header/footer Ys.
+   */
+  private static paintHFRegion(
+    page: PDFPage,
+    layout: DocumentLayout,
+    xPx: number,
+    regionTopPx: number,
+    pageHeightPt: number,
+    fonts: EmbeddedFonts,
+    ctx: PaintContext,
+  ): void {
+    for (const lb of layout.blocks) {
+      for (let li = 0; li < lb.lines.length; li++) {
+        const line = lb.lines[li];
+        const pseudoPl: PageLine = {
+          blockIndex: 0,
+          lineIndex: li,
+          line,
+          x: xPx,
+          y: regionTopPx + lb.y + line.y,
+        };
+        PdfPainter.paintLine(page, pseudoPl, pageHeightPt, fonts, ctx);
+      }
     }
   }
 
@@ -129,7 +219,7 @@ export class PdfPainter {
     lineHeightPx: number,
     pageHeightPt: number,
     fonts: EmbeddedFonts,
-    _ctx: PaintContext,
+    ctx: PaintContext,
   ): void {
     const style = run.inline.style;
 
@@ -147,7 +237,16 @@ export class PdfPainter {
     const baselineYpx = lineYpx + (lineHeightPx + fontSizePx * 0.8) / 2;
 
     const c = styleColor(style.color);
-    const segments = splitMixedScript(run.text);
+
+    // Page-number substitution: the layout was computed once over the
+    // header/footer block list with the inline's literal text (e.g.
+    // `"X"`); on each per-page paint we swap in the actual page number.
+    // We don't re-measure the run's `x`/`width`, mirroring the canvas
+    // renderer's behaviour — the literal placeholder defines the slot.
+    const runText = style.pageNumber && ctx.pageNumber !== undefined
+      ? String(ctx.pageNumber)
+      : run.text;
+    const segments = splitMixedScript(runText);
     let xpx = lineXpx + run.x;
 
     // Superscript/subscript scale text to ~70% of the run's font size and

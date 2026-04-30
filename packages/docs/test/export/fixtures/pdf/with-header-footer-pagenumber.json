@@ -1,0 +1,35 @@
+{
+  "blocks": [
+    {
+      "id": "b1",
+      "type": "paragraph",
+      "inlines": [{ "text": "Body line 1", "style": {} }],
+      "style": { "alignment": "left", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 8, "textIndent": 0, "marginLeft": 0 }
+    }
+  ],
+  "header": {
+    "blocks": [
+      {
+        "id": "h1",
+        "type": "paragraph",
+        "inlines": [{ "text": "My Document", "style": {} }],
+        "style": { "alignment": "right", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 0, "textIndent": 0, "marginLeft": 0 }
+      }
+    ],
+    "marginFromEdge": 48
+  },
+  "footer": {
+    "blocks": [
+      {
+        "id": "f1",
+        "type": "paragraph",
+        "inlines": [
+          { "text": "Page ", "style": {} },
+          { "text": "X", "style": { "pageNumber": true } }
+        ],
+        "style": { "alignment": "center", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 0, "textIndent": 0, "marginLeft": 0 }
+      }
+    ],
+    "marginFromEdge": 48
+  }
+}

@@ -36,6 +36,17 @@ export class PdfExporter {
     const { layout } = computeLayout(doc.blocks, ctx, contentWidth);
     const pagination = paginateLayout(layout, setup);
 
+    // Header/footer block lists are independent of body pagination —
+    // their layout is computed once here and reused by every page so
+    // headers/footers appear identically across the document (with only
+    // `pageNumber` substituted per page in the painter).
+    const headerLayout = doc.header && doc.header.blocks.length > 0
+      ? computeLayout(doc.header.blocks, ctx, contentWidth).layout
+      : null;
+    const footerLayout = doc.footer && doc.footer.blocks.length > 0
+      ? computeLayout(doc.footer.blocks, ctx, contentWidth).layout
+      : null;
+
     // 3. Image fetch (Phase 5 — stub for now)
     const imageMap = new Map<string, { embedded: unknown; width: number; height: number }>();
 
@@ -51,7 +62,11 @@ export class PdfExporter {
       const pageHeightPt = lp.height / PX_PER_PT;
       const page = pdfDoc.addPage([pageWidthPt, pageHeightPt]);
       PdfPainter.paintPage(page, lp, pagination.pageSetup, embeddedFonts, {
-        doc, imageMap, pageNumber: i + 1,
+        doc,
+        imageMap,
+        pageNumber: i + 1,
+        headerLayout,
+        footerLayout,
       });
     }
 

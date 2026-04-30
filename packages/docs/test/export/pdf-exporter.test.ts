@@ -76,6 +76,13 @@ const mixedFixture = JSON.parse(
   ),
 ) as Document;
 
+const hfFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/with-header-footer-pagenumber.json'),
+    'utf8',
+  ),
+) as Document;
+
 describe('PdfExporter (full pipeline)', () => {
   it('exports the simple-paragraph fixture', async () => {
     const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
@@ -106,5 +113,25 @@ describe('PdfExporter (multi-page)', () => {
     const blob = await PdfExporter.export(longDoc, { fonts: testFonts() });
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('PdfExporter (header/footer/page-number)', () => {
+  it('exports the with-header-footer-pagenumber fixture', async () => {
+    const blob = await PdfExporter.export(hfFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBe(1);
+    // Header + footer presence: blob should be larger than a body-only equivalent
+    expect(blob.size).toBeGreaterThan(2000);
+  });
+
+  it('renders larger PDF for documents with headers/footers vs without', async () => {
+    const bodyOnly: Document = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      blocks: hfFixture.blocks.map(b => ({ ...b, style: { ...b.style } } as any)),
+    };
+    const a = await PdfExporter.export(bodyOnly, { fonts: testFonts() });
+    const b = await PdfExporter.export(hfFixture, { fonts: testFonts() });
+    expect(b.size).toBeGreaterThan(a.size);
   });
 });
