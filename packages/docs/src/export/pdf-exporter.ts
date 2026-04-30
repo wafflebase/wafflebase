@@ -56,9 +56,21 @@ export class PdfExporter {
     // block falls in pagination.
     const listCounters = computeListCounters(doc.blocks);
 
-    // 4. PDF setup
-    const pdfDoc = await PDFDocument.create();
+    // 4. PDF setup. `updateMetadata: false` keeps pdf-lib from
+    // overwriting Producer/Creator with its own default during save().
+    const pdfDoc = await PDFDocument.create({ updateMetadata: false });
     pdfDoc.registerFontkit(fontkit);
+
+    // Set metadata
+    if (opts.metadata?.title) pdfDoc.setTitle(opts.metadata.title);
+    if (opts.metadata?.author) pdfDoc.setAuthor(opts.metadata.author);
+    if (opts.metadata?.subject) pdfDoc.setSubject(opts.metadata.subject);
+    if (opts.metadata?.keywords) pdfDoc.setKeywords(opts.metadata.keywords);
+    pdfDoc.setCreationDate(new Date());
+    pdfDoc.setModificationDate(new Date());
+    pdfDoc.setProducer('Wafflebase Docs');
+    pdfDoc.setCreator('Wafflebase Docs');
+
     const embeddedFonts = await PdfPainter.embedAllFonts(pdfDoc, fonts);
 
     // 5. Image fetch + embed. Walks the body, header, and footer block

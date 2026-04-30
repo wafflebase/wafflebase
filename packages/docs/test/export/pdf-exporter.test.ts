@@ -289,3 +289,25 @@ describe('PdfExporter (list markers)', () => {
     expect(blob.size).toBeGreaterThan(flatBlob.size);
   });
 });
+
+describe('PdfExporter (metadata)', () => {
+  it('writes title and author into PDF metadata', async () => {
+    const blob = await PdfExporter.export(simpleFixture, {
+      fonts: testFonts(),
+      metadata: { title: 'My Doc', author: 'Alice' },
+    });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getTitle()).toBe('My Doc');
+    expect(pdfDoc.getAuthor()).toBe('Alice');
+  });
+
+  it('sets producer/creator when no metadata provided', async () => {
+    const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
+    // updateMetadata: false prevents pdf-lib from overwriting the Producer
+    // field with its own default during the load() call.
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      updateMetadata: false,
+    });
+    expect(pdfDoc.getProducer()).toMatch(/wafflebase/i);
+  });
+});
