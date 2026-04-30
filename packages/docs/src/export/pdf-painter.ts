@@ -3,10 +3,12 @@ import {
   pushGraphicsState, popGraphicsState, concatTransformationMatrix,
   PDFName, PDFString, PDFArray,
 } from 'pdf-lib';
-import type { Document, PageSetup } from '../model/types.js';
+import type { Document, PageSetup, TableCell } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../view/layout.js';
+import type { LayoutTable, LayoutTableCell } from '../view/table-layout.js';
+import { computeMergedCellLineLayouts } from '../view/table-geometry.js';
 import { Theme, ptToPx } from '../view/theme.js';
 import { PdfFonts, type PdfFontKey } from './pdf-fonts.js';
 import {
@@ -15,7 +17,7 @@ import {
   styleColor,
   isItalicShim,
 } from './pdf-style-map.js';
-import { paintTablePageRange } from './pdf-table-painter.js';
+import { paintTablePageRange, type CellRect } from './pdf-table-painter.js';
 
 /**
  * Forward-slant approximation (~12°) used to fake italic for Korean
@@ -114,8 +116,11 @@ export class PdfPainter {
       if (lb && lb.block.type === 'table' && lb.layoutTable) {
         paintTablePageRange(
           page, layoutPage, pl, i, lb, pageHeightPt,
-          () => {
-            // Cell content painting is Task 4.3 — chrome only for now.
+          (cell, layoutCell, layoutTable, r, _c, rect) => {
+            PdfPainter.paintCellContent(
+              page, cell, layoutCell, layoutTable, r, rect,
+              pageHeightPt, fonts, ctx,
+            );
           },
         );
         // Advance past every consecutive PageLine that belongs to this
@@ -306,6 +311,148 @@ export class PdfPainter {
         fonts,
         ctx,
       );
+    }
+  }
+
+  /**
+   * Paint a single table cell's content onto the page. Mirrors the
+   * canvas-side `renderTableContent` text path: vertical alignment
+   * (`top`/`middle`/`bottom`), merged-cell line redistribution for
+   * `top`-aligned `rowSpan > 1` cells, and per-block list markers.
+   *
+   * `layoutCell.lines` is already laid out (wrapping, alignment,
+   * sup/sub) by `computeTableLayout` against `cellWidth - padding * 2`,
+   * so this method just walks lines and reuses `paintLine` to draw
+   * runs at `cellContentX + run.x, cellContentY + line.y`.
+   */
+  static paintCellContent(
+    page: PDFPage,
+    cell: TableCell,
+    layoutCell: LayoutTableCell,
+    layoutTable: LayoutTable,
+    row: number,
+    rect: CellRect,
+    pageHeightPt: number,
+    fonts: EmbeddedFonts,
+    ctx: PaintContext,
+  ): void {
+    const padding = cell.style?.padding ?? 4;
+    const cellX = rect.x;
+    const cellY = rect.y;
+    const cellHeight = rect.h;
+
+    const verticalAlign = cell.style?.verticalAlign ?? 'top';
+    const totalTextHeight = layoutCell.lines.reduce((s, l) => s + l.height, 0);
+
+    // Cell-local Y of the first line's top (before line.y is added).
+    let textYOffset: number;
+    if (verticalAlign === 'middle') {
+      textYOffset = padding + (cellHeight - padding * 2 - totalTextHeight) / 2;
+    } else if (verticalAlign === 'bottom') {
+      textYOffset = cellHeight - padding - totalTextHeight;
+    } else {
+      textYOffset = padding;
+    }
+
+    const rowSpan = cell.rowSpan ?? 1;
+    const mergedLineLayouts =
+      rowSpan > 1 && verticalAlign === 'top'
+        ? computeMergedCellLineLayouts(
+            layoutCell.lines,
+            row,
+            rowSpan,
+            padding,
+            layoutTable.rowYOffsets,
+            layoutTable.rowHeights,
+          )
+        : undefined;
+
+    // tableY = page-local Y of the table's top edge (rect.y is in
+    // page-local coordinates, and rect.y - rowYOffsets[row] === tableY).
+    const tableY = cellY - layoutTable.rowYOffsets[row];
+
+    // 1. Lines.
+    for (let li = 0; li < layoutCell.lines.length; li++) {
+      const line = layoutCell.lines[li];
+      let lineYpx: number;
+      if (mergedLineLayouts) {
+        lineYpx = tableY + mergedLineLayouts[li].runLineY;
+      } else {
+        lineYpx = cellY + textYOffset + line.y;
+      }
+      // Nested table painting is out of scope for Task 4.3 — the canvas
+      // recurses here, but in PDF the nested-table fragment is not yet
+      // wired through. Skip cleanly so the cell at least renders its
+      // text lines without crashing.
+      if (line.nestedTable) continue;
+
+      const pseudoPl: PageLine = {
+        blockIndex: 0,
+        lineIndex: li,
+        line,
+        x: cellX + padding,
+        y: lineYpx,
+      };
+      PdfPainter.paintLine(page, pseudoPl, pageHeightPt, fonts, ctx);
+    }
+
+    // 2. List markers for list-item blocks inside the cell. Tracks an
+    // ordered counter per level (resets on non-list-item blocks and
+    // when the kind changes), mirroring the canvas pass.
+    const { blockBoundaries } = layoutCell;
+    if (cell.blocks && blockBoundaries.length > 0) {
+      const listCounters = new Map<number, number>();
+      for (let bi = 0; bi < cell.blocks.length; bi++) {
+        const cellBlock = cell.blocks[bi];
+        if (cellBlock.type !== 'list-item') {
+          listCounters.clear();
+          continue;
+        }
+        const level = cellBlock.listLevel ?? 0;
+        for (const [k] of listCounters) {
+          if (k > level) listCounters.delete(k);
+        }
+        if (cellBlock.listKind === 'unordered') {
+          listCounters.delete(level);
+        }
+        const count = cellBlock.listKind === 'ordered'
+          ? (listCounters.get(level) ?? 0) + 1
+          : 0;
+        if (cellBlock.listKind === 'ordered') {
+          listCounters.set(level, count);
+        }
+
+        const firstLineIdx = blockBoundaries[bi];
+        if (firstLineIdx === undefined || firstLineIdx >= layoutCell.lines.length) continue;
+        const firstLine = layoutCell.lines[firstLineIdx];
+
+        let markerLineY: number;
+        if (mergedLineLayouts) {
+          markerLineY = tableY + mergedLineLayouts[firstLineIdx].runLineY;
+        } else {
+          markerLineY = cellY + textYOffset + firstLine.y;
+        }
+
+        const markerIndent = LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
+        const markerXpx = cellX + padding + markerIndent;
+
+        const marker = cellBlock.listKind === 'unordered'
+          ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
+          : `${count}.`;
+
+        const sizePt = cellBlock.inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
+        const fontSizePx = ptToPx(sizePt);
+        const baselineYpx = markerLineY + (firstLine.height + fontSizePx * 0.8) / 2;
+        const c = styleColor(cellBlock.inlines[0]?.style.color);
+        const font = fonts['sans-regular'];
+        page.drawText(marker, {
+          x: px2pt(markerXpx),
+          y: pageHeightPt - px2pt(baselineYpx),
+          size: sizePt,
+          font,
+          color: rgb(c.r, c.g, c.b),
+        });
+      }
     }
   }
 

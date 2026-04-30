@@ -14,6 +14,7 @@
 import { PDFPage, rgb } from 'pdf-lib';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { LayoutBlock } from '../view/layout.js';
+import type { LayoutTable, LayoutTableCell } from '../view/table-layout.js';
 import type { TableCell, BorderStyle } from '../model/types.js';
 import {
   computeTableRangeForPageLine,
@@ -39,11 +40,20 @@ export interface CellRect {
 }
 
 /**
- * Caller-supplied paint hook for a single cell's content. Task 4.2
- * leaves this empty (background + borders only); Task 4.3 will fill it
- * in by recursively painting the cell's `block.blocks`.
+ * Caller-supplied paint hook for a single cell's content. Receives the
+ * cell's data (`TableCell`), its already-computed layout
+ * (`LayoutTableCell`), the parent `LayoutTable` (for `rowYOffsets` /
+ * `rowHeights` lookups when distributing merged-cell lines), the
+ * row/col indices, and the cell's page-local rect.
  */
-export type PaintCellContent = (cell: TableCell, rect: CellRect) => void;
+export type PaintCellContent = (
+  cell: TableCell,
+  layoutCell: LayoutTableCell,
+  layoutTable: LayoutTable,
+  row: number,
+  col: number,
+  rect: CellRect,
+) => void;
 
 /**
  * Paint the chrome (backgrounds, then borders) for a contiguous span of
@@ -106,8 +116,10 @@ export function paintTablePageRange(
     const cells = tableData.rows[r]?.cells ?? [];
     for (let c = 0; c < cells.length; c++) {
       if (isCellCovered(layoutTable, r, c)) continue;
+      const layoutCell = layoutTable.cells[r]?.[c];
+      if (!layoutCell) continue;
       const { x, y, w, h } = cellOriginPx(layoutTable, tableData, r, c);
-      paintCellContent(cells[c], {
+      paintCellContent(cells[c], layoutCell, layoutTable, r, c, {
         x: tableX + x,
         y: tableY + y,
         w,

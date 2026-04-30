@@ -175,6 +175,19 @@ describe('PdfExporter (tables)', () => {
     const tableBlob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
     expect(tableBlob.size).toBeGreaterThan(flatBlob.size);
   });
+
+  it('table cell content text appears in PDF (size delta)', async () => {
+    // Same fixture but with empty cell text
+    const empty = JSON.parse(JSON.stringify(tableFixture));
+    for (const row of empty.blocks[0].tableData.rows) {
+      for (const cell of row.cells) {
+        cell.blocks = [];
+      }
+    }
+    const emptyBlob = await PdfExporter.export(empty as Document, { fonts: testFonts() });
+    const fullBlob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
+    expect(fullBlob.size).toBeGreaterThan(emptyBlob.size);
+  });
 });
 
 describe('PdfExporter (list markers)', () => {
