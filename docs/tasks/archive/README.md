@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 142
+Total archived tasks: 143
 
-## 2026/04 (28 tasks)
+## 2026/04 (29 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| cell paragraph layout unification (2026-04-30) | [20260430-cell-paragraph-layout-unification-todo.md](./2026/04/20260430-cell-paragraph-layout-unification-todo.md) | [20260430-cell-paragraph-layout-unification-lessons.md](./2026/04/20260430-cell-paragraph-layout-unification-lessons.md) |
 | border outline extension (2026-04-28) | [20260428-border-outline-extension-todo.md](./2026/04/20260428-border-outline-extension-todo.md) | - |
 | block attr intent preserving (2026-04-23) | [20260423-block-attr-intent-preserving-todo.md](./2026/04/20260423-block-attr-intent-preserving-todo.md) | [20260423-block-attr-intent-preserving-lessons.md](./2026/04/20260423-block-attr-intent-preserving-lessons.md) |
 | cell structural edits (2026-04-23) | [20260423-cell-structural-edits-todo.md](./2026/04/20260423-cell-structural-edits-todo.md) | [20260423-cell-structural-edits-lessons.md](./2026/04/20260423-cell-structural-edits-lessons.md) |
@@ -122,11 +123,6 @@ Total archived tasks: 142
 | radix ui improvements (2026-03-01) | [20260301-radix-ui-improvements-todo.md](./2026/03/20260301-radix-ui-improvements-todo.md) | [20260301-radix-ui-improvements-lessons.md](./2026/03/20260301-radix-ui-improvements-lessons.md) |
 | workspace delete (2026-03-01) | [20260301-workspace-delete-todo.md](./2026/03/20260301-workspace-delete-todo.md) | [20260301-workspace-delete-lessons.md](./2026/03/20260301-workspace-delete-lessons.md) |
 | workspace ui improvements (2026-03-01) | [20260301-workspace-ui-improvements-todo.md](./2026/03/20260301-workspace-ui-improvements-todo.md) | [20260301-workspace-ui-improvements-lessons.md](./2026/03/20260301-workspace-ui-improvements-lessons.md) |
-
-### Pre-todo plans (legacy `-plan` naming)
-
-- [docs-site (2026-03-14)](./2026/03/20260314-docs-site-plan.md) — VitePress documentation site implementation plan
-- [docs-arrow-pixel-accuracy (2026-03-25)](./2026/03/20260325-docs-arrow-pixel-accuracy-plan.md) — Arrow Up/Down pixel accuracy implementation plan
 
 ## 2026/02 (37 tasks)
 

@@ -4,8 +4,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Layout
 
-- [Active tasks](active/README.md) — `docs/tasks/active/`
-- [Archived tasks](archive/README.md) — `docs/tasks/archive/YYYY/MM/`
+- Active tasks: `docs/tasks/active/`
+- Archived tasks: `docs/tasks/archive/YYYY/MM/`
 - Regenerate indexes: `pnpm tasks:index`
 - Archive completed tasks: `pnpm tasks:archive`
 
@@ -24,7 +24,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 142
+- Archived task count: 143
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: docx table style followup (2026-04-12)

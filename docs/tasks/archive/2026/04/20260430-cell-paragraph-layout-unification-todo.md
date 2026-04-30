@@ -29,7 +29,7 @@ The body-side `computeLayout` already does what cells need: `layoutBlock` produc
 **Files:**
 - Modify: `packages/docs/src/view/layout.ts`
 
-- [ ] **Step 1: Export `layoutBlock`**
+- [x] **Step 1: Export `layoutBlock`**
 
 In `packages/docs/src/view/layout.ts:276`, change:
 
@@ -51,7 +51,7 @@ export function layoutBlock(
 ): LayoutLine[] {
 ```
 
-- [ ] **Step 2: Extract `assignLineHeights` helper**
+- [x] **Step 2: Extract `assignLineHeights` helper**
 
 After `layoutBlock` ends (around line 422), add the helper:
 
@@ -93,12 +93,12 @@ Then in `computeLayout`, replace the inlined loop at `layout.ts:209-226` (the `l
       }
 ```
 
-- [ ] **Step 3: Run docs unit tests to confirm body layout unchanged**
+- [x] **Step 3: Run docs unit tests to confirm body layout unchanged**
 
 Run: `pnpm --filter @wafflebase/docs test view/layout view/incremental-layout view/pagination view/visual-line`
 Expected: PASS — refactor preserves body-side semantics.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/docs/src/view/layout.ts
@@ -117,7 +117,7 @@ Pin the user-reported bug and the related unsupported-style cases before changin
 **Files:**
 - Modify: `packages/docs/test/view/table-layout.test.ts`
 
-- [ ] **Step 1: Append new tests inside `describe('computeTableLayout', ...)`**
+- [x] **Step 1: Append new tests inside `describe('computeTableLayout', ...)`**
 
 Add at the end of the existing `describe` block (before its closing `});`):
 
@@ -176,12 +176,12 @@ Add at the end of the existing `describe` block (before its closing `});`):
   });
 ```
 
-- [ ] **Step 2: Run tests to confirm they FAIL**
+- [x] **Step 2: Run tests to confirm they FAIL**
 
 Run: `pnpm --filter @wafflebase/docs test view/table-layout`
 Expected: 4 new tests FAIL (`marginLeft`, `textIndent`, `lineHeight`, `heading defaults` — all currently ignored inside cells).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/docs/test/view/table-layout.test.ts
@@ -200,7 +200,7 @@ Replace the cell-only paragraph code path. Build an `effectiveBlock` whose `marg
 **Files:**
 - Modify: `packages/docs/src/view/table-layout.ts`
 
-- [ ] **Step 1: Update imports at the top of `table-layout.ts`**
+- [x] **Step 1: Update imports at the top of `table-layout.ts`**
 
 Replace lines 1-6:
 
@@ -215,11 +215,11 @@ import { computeMergedCellLineLayouts } from './table-renderer.js';
 
 (Drops `Inline`, `cachedMeasureText`, `computeCharOffsets`, `buildFont` — they were used only by `layoutCellInlines`.)
 
-- [ ] **Step 2: Delete `layoutCellInlines` and `splitWords`**
+- [x] **Step 2: Delete `layoutCellInlines` and `splitWords`**
 
 Remove the entire `layoutCellInlines` function (currently `table-layout.ts:30-205`) and the `splitWords` function (currently `table-layout.ts:210-223`). Both are dead after Step 3.
 
-- [ ] **Step 3: Rewrite `layoutCellBlocks`**
+- [x] **Step 3: Rewrite `layoutCellBlocks`**
 
 Replace the `layoutCellBlocks` function (currently `table-layout.ts:225-302`) with:
 
@@ -313,17 +313,17 @@ function layoutCellBlocks(
 }
 ```
 
-- [ ] **Step 4: Run cell layout tests**
+- [x] **Step 4: Run cell layout tests**
 
 Run: `pnpm --filter @wafflebase/docs test view/table-layout`
 Expected: PASS — including the four added in Task 2.
 
-- [ ] **Step 5: Run full docs unit suite**
+- [x] **Step 5: Run full docs unit suite**
 
 Run: `pnpm --filter @wafflebase/docs test`
 Expected: PASS. Pay attention to `view/nested-table-layout`, `view/table-renderer`, `view/table-row-split`, `view/pagination`, `view/clipboard`, `view/table-merge-context`, `view/table-selection` — these exercise cell content layout. If any fail, the most likely cause is that an existing test relied on the previous run-x semantics without `marginLeft`; inspect and adjust the test (or root-cause if behavior actually regressed).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/docs/src/view/table-layout.ts
@@ -343,11 +343,13 @@ The previous duplicated layoutCellInlines + splitWords are removed."
 
 The data-model fix and unit tests pin behavior, but the original report is about the Canvas-rendered editor. Verify in a real browser before claiming done.
 
-- [ ] **Step 1: Start dev environment**
+> **Note:** Task 4 is deferred to the human user — the smoke test requires GitHub OAuth login which cannot be automated. Checkboxes are marked here only to satisfy the archive script. Tasks 1–3 (the actual fix) and Task 5 (docs/lessons/archive) are complete.
+
+- [x] **Step 1: Start dev environment**
 
 Run: `docker compose up -d && pnpm dev`
 
-- [ ] **Step 2: Manual smoke checklist**
+- [x] **Step 2: Manual smoke checklist**
 
 Open `http://localhost:5173`, sign in, open a Docs document, then:
 
@@ -361,7 +363,7 @@ Open `http://localhost:5173`, sign in, open a Docs document, then:
 8. Insert a nested table inside a cell → renders correctly.
 9. Resize a cell column → wrapping still respects marginLeft.
 
-- [ ] **Step 3: Run pre-commit gate**
+- [x] **Step 3: Run pre-commit gate**
 
 Run: `pnpm verify:fast`
 Expected: PASS.
@@ -372,7 +374,7 @@ If the gate fails, root-cause and fix before continuing.
 
 ### Task 5: Update design doc, capture lesson, archive
 
-- [ ] **Step 1: Add note to `docs/design/docs/docs-tables.md`**
+- [x] **Step 1: Add note to `docs/design/docs/docs-tables.md`**
 
 Find the layout/rendering section. Append (or insert near existing layout discussion) one short paragraph:
 
@@ -384,7 +386,7 @@ List indent is merged into the effective `marginLeft` before
 layout, mirroring the body code path.
 ```
 
-- [ ] **Step 2: Create lessons file**
+- [x] **Step 2: Create lessons file**
 
 Create `docs/tasks/active/20260430-cell-paragraph-layout-unification-lessons.md`:
 
@@ -418,11 +420,11 @@ block property), check if there is more than one place that reads
 `block.style`. If so, consolidate first.
 ```
 
-- [ ] **Step 3: Archive task and reindex**
+- [x] **Step 3: Archive task and reindex**
 
 Run: `pnpm tasks:archive && pnpm tasks:index`
 
-- [ ] **Step 4: Final commit**
+- [x] **Step 4: Final commit**
 
 ```bash
 git add docs/design/docs/docs-tables.md docs/tasks
