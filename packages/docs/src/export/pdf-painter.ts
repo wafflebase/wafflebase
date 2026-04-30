@@ -4,6 +4,7 @@ import {
   PDFName, PDFString, PDFArray,
 } from 'pdf-lib';
 import type { Document, PageSetup } from '../model/types.js';
+import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { DocumentLayout, LayoutLine, LayoutRun } from '../view/layout.js';
 import { Theme, ptToPx } from '../view/theme.js';
@@ -50,6 +51,13 @@ export interface PaintContext {
    */
   headerLayout?: DocumentLayout | null;
   footerLayout?: DocumentLayout | null;
+  /**
+   * Display strings for ordered list-items (blockId → marker like "1.").
+   * Computed once over the body's block list by `PdfExporter`. Unordered
+   * list markers are derived directly from `block.listLevel` against
+   * `UNORDERED_MARKERS` so they don't need to live in this map.
+   */
+  listCounters?: Map<string, string>;
 }
 
 export class PdfPainter {
@@ -88,6 +96,7 @@ export class PdfPainter {
 
     // Body lines
     for (const pl of layoutPage.lines) {
+      PdfPainter.paintListMarker(page, pl, pageHeightPt, fonts, ctx);
       PdfPainter.paintLine(page, pl, pageHeightPt, fonts, ctx);
     }
 
@@ -170,6 +179,65 @@ export class PdfPainter {
         PdfPainter.paintLine(page, pseudoPl, pageHeightPt, fonts, ctx);
       }
     }
+  }
+
+  /**
+   * Draw the bullet/number marker for a body list-item line, when this
+   * is the line that opens the block (`lineIndex === 0`). Wrapped lines
+   * inside the same block are skipped — Word/Docs convention is to
+   * render the marker once per item, in the gutter to the left of the
+   * text. Unordered markers come from `UNORDERED_MARKERS` cycled by
+   * `listLevel`; ordered markers come from `ctx.listCounters` (computed
+   * once in `PdfExporter`). The marker uses `sans-regular` regardless
+   * of the body run's style — this matches the typical Word/Docs
+   * convention and keeps the gutter visually neutral.
+   *
+   * Header/footer pseudo-PageLines pass `blockIndex: 0` and a region
+   * relative `x`/`y`, but their lines don't index into `ctx.doc.blocks`
+   * — `paintHFRegion` is the only caller that produces those, and it
+   * doesn't go through `paintPage`, so this method is naturally limited
+   * to body lines.
+   */
+  private static paintListMarker(
+    page: PDFPage,
+    pl: PageLine,
+    pageHeightPt: number,
+    fonts: EmbeddedFonts,
+    ctx: PaintContext,
+  ): void {
+    if (pl.lineIndex !== 0) return;
+    const block = ctx.doc.blocks[pl.blockIndex];
+    if (!block || block.type !== 'list-item') return;
+
+    const level = block.listLevel ?? 0;
+    const marker = block.listKind === 'unordered'
+      ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
+      : (ctx.listCounters?.get(block.id) ?? '1.');
+    if (!marker) return;
+
+    // Match canvas: markerX = pageX + margins.left + LIST_INDENT_PX *
+    // level + LIST_INDENT_PX / 2 - 4. In PDF land each page is its own
+    // coord space (no `pageX`), and `pl.x === margins.left` for body
+    // lines — so the equivalent is `pl.x + LIST_INDENT_PX * level +
+    // LIST_INDENT_PX / 2 - 4`.
+    const markerXpx = pl.x + LIST_INDENT_PX * level + LIST_INDENT_PX / 2 - 4;
+
+    const firstRun = pl.line.runs[0];
+    const sizePt = firstRun?.inline.style.fontSize ?? Theme.defaultFontSize;
+    const fontSizePx = ptToPx(sizePt);
+    // Same baseline formula as `paintRun` so the marker sits on the
+    // body's baseline.
+    const baselineYpx = pl.y + (pl.line.height + fontSizePx * 0.8) / 2;
+
+    const c = styleColor(firstRun?.inline.style.color);
+    const font = fonts['sans-regular'];
+    page.drawText(marker, {
+      x: px2pt(markerXpx),
+      y: pageHeightPt - px2pt(baselineYpx),
+      size: sizePt,
+      font,
+      color: rgb(c.r, c.g, c.b),
+    });
   }
 
   /**

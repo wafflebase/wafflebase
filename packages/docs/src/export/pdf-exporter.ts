@@ -3,7 +3,7 @@ import fontkit from '@pdf-lib/fontkit';
 import type { Document } from '../model/types.js';
 import { DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../model/types.js';
 import { PdfFonts, scanFontsUsed, type FontUsage } from './pdf-fonts.js';
-import { computeLayout } from '../view/layout.js';
+import { computeLayout, computeListCounters } from '../view/layout.js';
 import { paginateLayout } from '../view/pagination.js';
 import { PdfPainter } from './pdf-painter.js';
 
@@ -50,6 +50,11 @@ export class PdfExporter {
     // 3. Image fetch (Phase 5 — stub for now)
     const imageMap = new Map<string, { embedded: unknown; width: number; height: number }>();
 
+    // Ordered list counters: computed once over the body block list so
+    // every page sees the same item numbers regardless of where the
+    // block falls in pagination.
+    const listCounters = computeListCounters(doc.blocks);
+
     // 4. PDF setup
     const pdfDoc = await PDFDocument.create();
     pdfDoc.registerFontkit(fontkit);
@@ -67,6 +72,7 @@ export class PdfExporter {
         pageNumber: i + 1,
         headerLayout,
         footerLayout,
+        listCounters,
       });
     }
 

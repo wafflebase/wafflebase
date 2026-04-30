@@ -83,6 +83,13 @@ const hfFixture = JSON.parse(
   ),
 ) as Document;
 
+const listFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/with-list.json'),
+    'utf8',
+  ),
+) as Document;
+
 describe('PdfExporter (full pipeline)', () => {
   it('exports the simple-paragraph fixture', async () => {
     const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
@@ -133,5 +140,25 @@ describe('PdfExporter (header/footer/page-number)', () => {
     const a = await PdfExporter.export(bodyOnly, { fonts: testFonts() });
     const b = await PdfExporter.export(hfFixture, { fonts: testFonts() });
     expect(b.size).toBeGreaterThan(a.size);
+  });
+});
+
+describe('PdfExporter (list markers)', () => {
+  it('exports list items with markers', async () => {
+    const blob = await PdfExporter.export(listFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBe(1);
+
+    // Equivalent doc with paragraphs (no markers) should yield smaller PDF
+    const flatDoc: Document = {
+      blocks: listFixture.blocks.map(b => ({
+        ...b,
+        type: 'paragraph' as const,
+        listKind: undefined,
+        listLevel: undefined,
+      })),
+    };
+    const flatBlob = await PdfExporter.export(flatDoc, { fonts: testFonts() });
+    expect(blob.size).toBeGreaterThan(flatBlob.size);
   });
 });

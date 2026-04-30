@@ -1,0 +1,28 @@
+{
+  "blocks": [
+    {
+      "id": "l1",
+      "type": "list-item",
+      "listKind": "unordered",
+      "listLevel": 0,
+      "inlines": [{ "text": "First item", "style": {} }],
+      "style": { "alignment": "left", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 4, "textIndent": 0, "marginLeft": 0 }
+    },
+    {
+      "id": "l2",
+      "type": "list-item",
+      "listKind": "unordered",
+      "listLevel": 0,
+      "inlines": [{ "text": "Second item", "style": {} }],
+      "style": { "alignment": "left", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 4, "textIndent": 0, "marginLeft": 0 }
+    },
+    {
+      "id": "l3",
+      "type": "list-item",
+      "listKind": "ordered",
+      "listLevel": 0,
+      "inlines": [{ "text": "Third item", "style": {} }],
+      "style": { "alignment": "left", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 4, "textIndent": 0, "marginLeft": 0 }
+    }
+  ]
+}
