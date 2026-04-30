@@ -104,6 +104,13 @@ const mergedFixture = JSON.parse(
   ),
 ) as Document;
 
+const splitRowFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/with-split-row.json'),
+    'utf8',
+  ),
+) as Document;
+
 describe('PdfExporter (full pipeline)', () => {
   it('exports the simple-paragraph fixture', async () => {
     const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
@@ -202,6 +209,15 @@ describe('PdfExporter (merged cells)', () => {
     const blob = await PdfExporter.export(mergedFixture, { fonts: testFonts() });
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
+    expect(blob.size).toBeGreaterThan(2000);
+  });
+});
+
+describe('PdfExporter (row split)', () => {
+  it('exports a table with a row that splits across pages', async () => {
+    const blob = await PdfExporter.export(splitRowFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(2);
     expect(blob.size).toBeGreaterThan(2000);
   });
 });

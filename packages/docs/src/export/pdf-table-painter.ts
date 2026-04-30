@@ -11,7 +11,11 @@
 // canvas renderer through `view/table-geometry.ts`, so any change to the
 // row-range semantics applies to both backends.
 
-import { PDFPage, rgb } from 'pdf-lib';
+import {
+  PDFPage, rgb,
+  pushGraphicsState, popGraphicsState,
+  rectangle, clip, endPath,
+} from 'pdf-lib';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { LayoutBlock } from '../view/layout.js';
 import type { LayoutTable, LayoutTableCell } from '../view/table-layout.js';
@@ -84,8 +88,35 @@ export function paintTablePageRange(
   // y for the first PageLine, but the table-logical y is `tl.rowYOffsets[
   // pl.lineIndex]`. Subtracting gives the page-local y of the table's
   // top edge — which is what `cellOriginPx` returns relative to.
+  //
+  // For split-row fragments, `pl.y` refers to the top of the fragment on
+  // this page; the row's content actually starts `rowSplitOffset` pixels
+  // above that. Subtract it so that table-logical Y of `rowSplitOffset`
+  // maps to `pl.y` on the page. A clip rectangle below hides the parts of
+  // the row that fall outside this fragment.
+  const splitOffset = pl.rowSplitOffset ?? 0;
+  const splitHeight = pl.rowSplitHeight;
   const tableX = pl.x;
-  const tableY = pl.y - layoutTable.rowYOffsets[pl.lineIndex];
+  const tableY = pl.y - layoutTable.rowYOffsets[pl.lineIndex] - splitOffset;
+
+  // For split fragments, install a PDF clip path covering only the
+  // fragment's vertical band on the page. Backgrounds, content, and
+  // borders that extend past the band (the parts of the row that belong
+  // on adjacent pages) get clipped away — matching the Canvas
+  // `ctx.clip()` pass in `renderTableBackgrounds` / `renderTableContent`.
+  const isSplit = pl.rowSplitOffset !== undefined && splitHeight !== undefined;
+  if (isSplit) {
+    const clipXpt = px2pt(pl.x);
+    const clipYpt = pageHeightPt - px2pt(pl.y + splitHeight);
+    const clipWpt = px2pt(layoutTable.totalWidth);
+    const clipHpt = px2pt(splitHeight);
+    page.pushOperators(
+      pushGraphicsState(),
+      rectangle(clipXpt, clipYpt, clipWpt, clipHpt),
+      clip(),
+      endPath(),
+    );
+  }
 
   // 1. Backgrounds first so cell text and borders draw over them.
   for (let r = range.renderStartRow; r < range.endRowIndex; r++) {
@@ -145,6 +176,10 @@ export function paintTablePageRange(
         pageHeightPt,
       );
     }
+  }
+
+  if (isSplit) {
+    page.pushOperators(popGraphicsState());
   }
 }
 
