@@ -1,6 +1,6 @@
 import type { Block } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
-import type { PaginatedLayout, LayoutPage, PageLine } from './pagination.js';
+import type { PaginatedLayout, LayoutPage } from './pagination.js';
 import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart } from './pagination.js';
 import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
@@ -8,6 +8,7 @@ import { computeListCounters } from './layout.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 import { renderTableBackgrounds, renderTableContent } from './table-renderer.js';
+import { computeTableRangeForPageLine } from './table-geometry.js';
 import { getOrLoadImage } from './image-cache.js';
 import { drawImageSelection, drawResizeHud, type ImageRect } from './image-selection-overlay.js';
 
@@ -30,58 +31,6 @@ interface TableRenderRange {
   endRowIndex: number;
   rowSplitOffset?: number;
   rowSplitHeight?: number;
-}
-
-/**
- * Compute the row range + origin for a table block rooted at a given
- * PageLine on a page. Used by both the background pre-pass and the
- * content pass so their row-range logic stays in lockstep.
- *
- * - `endRowIndex` extends forward over every consecutive PageLine that
- *   belongs to the same table block on this page (a single page can
- *   host any number of rows from the same table).
- * - `renderStartRow` extends backward over rowSpan owners whose
- *   logical top row started on a previous page — the owner must be
- *   visited even though its PageLine is off-page, so the merged cell
- *   gets drawn on the current page.
- */
-function computeTableRangeForPageLine(
-  page: LayoutPage,
-  layoutBlock: LayoutBlock,
-  pl: PageLine,
-  plIndex: number,
-): { pageStartRow: number; renderStartRow: number; endRowIndex: number } {
-  const pageStartRow = pl.lineIndex;
-  let endRowIndex = pageStartRow + 1;
-  // Split fragments render only their own row — don't extend to
-  // subsequent rows, which would incorrectly include them in the
-  // clipped split pass.
-  if (pl.rowSplitOffset === undefined) {
-    for (let k = plIndex + 1; k < page.lines.length; k++) {
-      const nextPl = page.lines[k];
-      if (nextPl.blockIndex === pl.blockIndex) {
-        // Stop before split fragments — they get their own render pass
-        if (nextPl.rowSplitOffset !== undefined) break;
-        endRowIndex = nextPl.lineIndex + 1;
-      } else {
-        break;
-      }
-    }
-  }
-  let renderStartRow = pageStartRow;
-  const tableData = layoutBlock.block.tableData;
-  if (tableData) {
-    for (let r = 0; r < pageStartRow; r++) {
-      for (let c = 0; c < tableData.rows[r].cells.length; c++) {
-        const cell = tableData.rows[r].cells[c];
-        const rs = cell.rowSpan ?? 1;
-        if (rs > 1 && r + rs > pageStartRow) {
-          renderStartRow = Math.min(renderStartRow, r);
-        }
-      }
-    }
-  }
-  return { pageStartRow, renderStartRow, endRowIndex };
 }
 
 /**
