@@ -20,6 +20,7 @@ import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { LayoutBlock } from '../view/layout.js';
 import type { LayoutTable, LayoutTableCell } from '../view/table-layout.js';
 import type { TableCell, BorderStyle } from '../model/types.js';
+import { DEFAULT_BORDER_STYLE } from '../model/types.js';
 import {
   computeTableRangeForPageLine,
   cellOriginPx,
@@ -199,10 +200,15 @@ function drawCellBorders(
   h: number,
   pageHeightPt: number,
 ): void {
-  drawEdge(page, cellStyle?.borderTop, x, y, x + w, y, pageHeightPt);
-  drawEdge(page, cellStyle?.borderBottom, x, y + h, x + w, y + h, pageHeightPt);
-  drawEdge(page, cellStyle?.borderLeft, x, y, x, y + h, pageHeightPt);
-  drawEdge(page, cellStyle?.borderRight, x + w, y, x + w, y + h, pageHeightPt);
+  // Fall back to the theme default (1px black solid) when a cell omits
+  // an explicit border, matching `view/table-renderer.ts:481-485`. Without
+  // this fallback, tables built without per-cell border configuration —
+  // i.e., the default insertion case — render as invisible grids in PDF.
+  const fb = DEFAULT_BORDER_STYLE;
+  drawEdge(page, cellStyle?.borderTop ?? fb,    x,     y,     x + w, y,     pageHeightPt);
+  drawEdge(page, cellStyle?.borderBottom ?? fb, x,     y + h, x + w, y + h, pageHeightPt);
+  drawEdge(page, cellStyle?.borderLeft ?? fb,   x,     y,     x,     y + h, pageHeightPt);
+  drawEdge(page, cellStyle?.borderRight ?? fb,  x + w, y,     x + w, y + h, pageHeightPt);
 }
 
 function drawEdge(

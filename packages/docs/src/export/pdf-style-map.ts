@@ -32,11 +32,20 @@ export interface ScriptSegment {
  * key is whether each character can be encoded by Helvetica/Times — not
  * a strict "is this Hangul" check — so CJK punctuation (※, 「」) and
  * geometric shapes (●○■) route correctly.
+ *
+ * C0 control characters (\n, \r, \t, etc.) are stripped: WinAnsi has no
+ * encoding for them and they have no visual representation at draw time.
+ * Layout/pagination already breaks lines at logical boundaries, so any
+ * control char surviving into a `LayoutRun.text` is a paste-time artifact
+ * we can drop without losing meaning.
  */
 export function splitMixedScript(text: string): ScriptSegment[] {
   if (!text) return [];
+  // eslint-disable-next-line no-control-regex
+  const cleaned = text.replace(/[\u0000-\u001F\u007F]/g, '');
+  if (!cleaned) return [];
   const segments: ScriptSegment[] = [];
-  for (const match of text.matchAll(SCRIPT_SPLIT)) {
+  for (const match of cleaned.matchAll(SCRIPT_SPLIT)) {
     const seg = match[0];
     segments.push({ text: seg, isCJK: NEEDS_CJK_FONT.test(seg) });
   }
