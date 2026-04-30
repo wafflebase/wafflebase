@@ -44,6 +44,7 @@ import {
 } from "@tabler/icons-react";
 import { TableGridPicker } from "./table-grid-picker";
 import { exportDocxAndDownload } from "./docx-actions";
+import { exportPdfAndDownload } from "./pdf-actions";
 import { insertImageFromFile, insertImageFromUrl } from "./image-insert";
 import { toast } from "sonner";
 
@@ -295,6 +296,22 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
       await exportDocxAndDownload(doc, documentTitle ?? "document");
     } catch (err) {
       console.error("DOCX export failed", err);
+      toast.error(
+        err instanceof Error ? `Export failed: ${err.message}` : "Export failed",
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [editor, documentTitle, exporting]);
+
+  const handleExportPdf = useCallback(async () => {
+    if (!editor || exporting) return;
+    setExporting(true);
+    try {
+      const doc = editor.getStore().getDocument();
+      await exportPdfAndDownload(doc, documentTitle ?? "document");
+    } catch (err) {
+      console.error("PDF export failed", err);
       toast.error(
         err instanceof Error ? `Export failed: ${err.message}` : "Export failed",
       );
@@ -699,20 +716,31 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
 
           <ToolbarSeparator />
 
-          {/* ── Export DOCX ── */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:opacity-50"
-                onClick={handleExportDocx}
-                disabled={!editor || exporting}
-                aria-label="Export as DOCX"
-              >
-                <IconFileDownload size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Export as DOCX</TooltipContent>
-          </Tooltip>
+          {/* ── Export ── */}
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:opacity-50"
+                    disabled={!editor || exporting}
+                    aria-label="Export"
+                  >
+                    <IconFileDownload size={16} />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Export</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportDocx} disabled={!editor || exporting}>
+                Word (.docx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportPdf} disabled={!editor || exporting}>
+                PDF (.pdf)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </>
       )}
 
@@ -813,9 +841,14 @@ export function DocsFormattingToolbar({ editor, editContext = 'body', documentTi
                 Increase indent
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuLabel>Export</DropdownMenuLabel>
               <DropdownMenuItem onClick={handleExportDocx} disabled={!editor || exporting}>
                 <IconFileDownload size={16} className="mr-2" />
-                Export as DOCX
+                Word (.docx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportPdf} disabled={!editor || exporting}>
+                <IconFileDownload size={16} className="mr-2" />
+                PDF (.pdf)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
