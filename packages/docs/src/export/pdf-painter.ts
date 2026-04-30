@@ -134,10 +134,36 @@ export class PdfPainter {
     const segments = splitMixedScript(run.text);
     let xpx = lineXpx + run.x;
 
+    // Approximate font metrics. Matches the canvas renderer's implicit
+    // assumption that ascent ~= 0.8 * fontSize and descent ~= 0.2 *
+    // fontSize. Used both for background rectangle height and for
+    // strikethrough placement.
+    const ascentPx = fontSizePx * 0.8;
+    const descentPx = fontSizePx * 0.2;
+
     for (const seg of segments) {
       if (seg.text.length === 0) continue;
       const key = resolveFontKey(style, seg.isCJK);
       const font = fonts[key];
+      // Compute the segment width once; reused for background, advance,
+      // underline, and strikethrough draws below.
+      const segWidthPt = font.widthOfTextAtSize(seg.text, sizePt);
+
+      // Background must be drawn first so the text and decorations
+      // appear on top of it. PDF rectangles are anchored at the bottom
+      // edge in page-up coordinates; the bottom sits `descent` below
+      // the baseline.
+      if (style.backgroundColor) {
+        const bg = styleColor(style.backgroundColor);
+        page.drawRectangle({
+          x: px2pt(xpx),
+          y: pageHeightPt - px2pt(baselineYpx + descentPx),
+          width: segWidthPt,
+          height: px2pt(ascentPx + descentPx),
+          color: rgb(bg.r, bg.g, bg.b),
+        });
+      }
+
       page.drawText(seg.text, {
         x: px2pt(xpx),
         y: pageHeightPt - px2pt(baselineYpx),
@@ -145,10 +171,35 @@ export class PdfPainter {
         font,
         color: rgb(c.r, c.g, c.b),
       });
+
+      // Underline sits ~1px below the baseline (matching the canvas
+      // renderer's `baselineY + 2` approximation, scaled down to keep
+      // the line tight against the glyphs in PDF output).
+      if (style.underline) {
+        const underlineYpx = baselineYpx + 1;
+        page.drawLine({
+          start: { x: px2pt(xpx), y: pageHeightPt - px2pt(underlineYpx) },
+          end: { x: px2pt(xpx) + segWidthPt, y: pageHeightPt - px2pt(underlineYpx) },
+          thickness: Math.max(0.5, sizePt / 16),
+          color: rgb(c.r, c.g, c.b),
+        });
+      }
+
+      // Strikethrough crosses the glyphs at roughly the x-height,
+      // approximated as half the ascent above the baseline.
+      if (style.strikethrough) {
+        const strikeYpx = baselineYpx - ascentPx / 2;
+        page.drawLine({
+          start: { x: px2pt(xpx), y: pageHeightPt - px2pt(strikeYpx) },
+          end: { x: px2pt(xpx) + segWidthPt, y: pageHeightPt - px2pt(strikeYpx) },
+          thickness: Math.max(0.5, sizePt / 16),
+          color: rgb(c.r, c.g, c.b),
+        });
+      }
+
       // Advance by the glyph width in the embedded font, converted
       // back to px so we stay in layout-space for the next segment.
-      const widthPt = font.widthOfTextAtSize(seg.text, sizePt);
-      xpx += widthPt * PX_PER_PT;
+      xpx += segWidthPt * PX_PER_PT;
     }
   }
 }

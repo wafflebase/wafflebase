@@ -15,7 +15,7 @@ import {
   generateBlockId,
   getEffectiveDimensions,
 } from '../../src/model/types.js';
-import type { Document } from '../../src/model/types.js';
+import type { Document, InlineStyle } from '../../src/model/types.js';
 
 if (typeof Blob.prototype.arrayBuffer !== 'function') {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -92,5 +92,62 @@ describe('PdfPainter', () => {
     const bytes = await pdfDoc.save();
     const reloaded = await PDFDocument.load(bytes);
     expect(reloaded.getPageCount()).toBe(1);
+  });
+});
+
+async function renderWithStyle(style: InlineStyle): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+
+  const fonts = await PdfPainter.embedAllFonts(pdfDoc, fontsForTest());
+
+  const doc: Document = {
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: 'Sample', style }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+    pageSetup: { ...DEFAULT_PAGE_SETUP },
+  };
+
+  const pageSetup = doc.pageSetup!;
+  const { width: effectiveWidth } = getEffectiveDimensions(pageSetup);
+  const contentWidth =
+    effectiveWidth - pageSetup.margins.left - pageSetup.margins.right;
+
+  const { layout } = computeLayout(doc.blocks, mockCtx(), contentWidth);
+  const pagination = paginateLayout(layout, pageSetup);
+  const lp = pagination.pages[0];
+  const page = pdfDoc.addPage([
+    (lp.width / 96) * 72,
+    (lp.height / 96) * 72,
+  ]);
+
+  PdfPainter.paintPage(page, lp, pagination.pageSetup, fonts, {
+    doc,
+    imageMap: new Map(),
+  });
+
+  return await pdfDoc.save();
+}
+
+describe('PdfPainter inline styles', () => {
+  it('draws underline below baseline for underlined runs', async () => {
+    const plain = await renderWithStyle({});
+    const styled = await renderWithStyle({ underline: true });
+    expect(styled.byteLength).toBeGreaterThan(plain.byteLength);
+  });
+
+  it('draws background rectangle for backgroundColor runs', async () => {
+    const plain = await renderWithStyle({});
+    const styled = await renderWithStyle({ backgroundColor: '#FFFF00' });
+    expect(styled.byteLength).toBeGreaterThan(plain.byteLength);
+  });
+
+  it('draws strike line for strikethrough runs', async () => {
+    const plain = await renderWithStyle({});
+    const styled = await renderWithStyle({ strikethrough: true });
+    expect(styled.byteLength).toBeGreaterThan(plain.byteLength);
   });
 });
