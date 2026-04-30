@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { scanFontsUsed } from '../../src/export/pdf-fonts.js';
+import { scanFontsUsed, PdfFonts } from '../../src/export/pdf-fonts.js';
 import type { Document } from '../../src/model/types.js';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '../../src/model/types.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const TEST_FONT = fs.readFileSync(
+  path.resolve(__dirname, 'fixtures/fonts/test-cjk.ttf'),
+);
 
 const para = (text: string, style: any = {}, fontFamily?: string): Document => ({
   blocks: [{
@@ -42,5 +52,32 @@ describe('scanFontsUsed', () => {
     };
     const result = scanFontsUsed(doc);
     expect(result.needsKR).toBe(true);
+  });
+});
+
+describe('PdfFonts', () => {
+  it('returns ArrayBuffer from injected sources', async () => {
+    const fonts = new PdfFonts({
+      sources: { 'kr-sans-regular': () => Promise.resolve(TEST_FONT.buffer as ArrayBuffer) },
+    });
+    const buf = await fonts.load('kr-sans-regular');
+    expect(buf.byteLength).toBe(TEST_FONT.byteLength);
+  });
+
+  it('caches a font after first load (no second source call)', async () => {
+    let calls = 0;
+    const fonts = new PdfFonts({
+      sources: {
+        'kr-sans-regular': () => { calls++; return Promise.resolve(TEST_FONT.buffer as ArrayBuffer); },
+      },
+    });
+    await fonts.load('kr-sans-regular');
+    await fonts.load('kr-sans-regular');
+    expect(calls).toBe(1);
+  });
+
+  it('throws a clear error when source is missing', async () => {
+    const fonts = new PdfFonts({ sources: {} });
+    await expect(fonts.load('kr-sans-regular' as any)).rejects.toThrow(/no source/i);
   });
 });
