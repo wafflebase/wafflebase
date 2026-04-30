@@ -1,0 +1,62 @@
+{
+  "blocks": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "inlines": [{ "text": "Chapter One", "style": {} }],
+      "style": {
+        "alignment": "left",
+        "lineHeight": 1.5,
+        "marginTop": 0,
+        "marginBottom": 8,
+        "textIndent": 0,
+        "marginLeft": 0
+      },
+      "headingLevel": 1
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "inlines": [
+        { "text": "Some intro text. Visit ", "style": {} },
+        { "text": "example.com", "style": { "href": "https://example.com" } }
+      ],
+      "style": {
+        "alignment": "left",
+        "lineHeight": 1.5,
+        "marginTop": 0,
+        "marginBottom": 8,
+        "textIndent": 0,
+        "marginLeft": 0
+      }
+    },
+    {
+      "id": "h2",
+      "type": "heading",
+      "inlines": [{ "text": "Section 1.1", "style": {} }],
+      "style": {
+        "alignment": "left",
+        "lineHeight": 1.5,
+        "marginTop": 0,
+        "marginBottom": 8,
+        "textIndent": 0,
+        "marginLeft": 0
+      },
+      "headingLevel": 2
+    },
+    {
+      "id": "h3",
+      "type": "heading",
+      "inlines": [{ "text": "Section 1.2", "style": {} }],
+      "style": {
+        "alignment": "left",
+        "lineHeight": 1.5,
+        "marginTop": 0,
+        "marginBottom": 8,
+        "textIndent": 0,
+        "marginLeft": 0
+      },
+      "headingLevel": 2
+    }
+  ]
+}

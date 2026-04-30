@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFDict, PDFArray } from 'pdf-lib';
 import { PdfExporter } from '../../src/export/pdf-exporter.js';
 import { PdfFonts, type PdfFontKey } from '../../src/export/pdf-fonts.js';
 import { DEFAULT_BLOCK_STYLE, generateBlockId } from '../../src/model/types.js';
@@ -114,6 +114,13 @@ const splitRowFixture = JSON.parse(
 const imageFixture = JSON.parse(
   fs.readFileSync(
     path.resolve(__dirname, 'fixtures/pdf/with-image.json'),
+    'utf8',
+  ),
+) as Document;
+
+const headingFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/with-headings-and-links.json'),
     'utf8',
   ),
 ) as Document;
@@ -309,5 +316,68 @@ describe('PdfExporter (metadata)', () => {
       updateMetadata: false,
     });
     expect(pdfDoc.getProducer()).toMatch(/wafflebase/i);
+  });
+});
+
+describe('PdfExporter (outline)', () => {
+  it('emits a heading outline tree', async () => {
+    const blob = await PdfExporter.export(headingFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      updateMetadata: false,
+    });
+    const catalog = pdfDoc.catalog;
+    const outlines = catalog.lookup(PDFName.of('Outlines'));
+    expect(outlines).toBeDefined();
+    // Drill into the dictionary to verify it has First/Last
+    const outlinesDict = outlines as PDFDict;
+    expect(outlinesDict.get(PDFName.of('First'))).toBeDefined();
+    expect(outlinesDict.get(PDFName.of('Last'))).toBeDefined();
+  });
+
+  it('outline contains the heading titles in document order', async () => {
+    const blob = await PdfExporter.export(headingFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      updateMetadata: false,
+    });
+    const outlinesDict = pdfDoc.catalog.lookup(PDFName.of('Outlines')) as PDFDict;
+
+    // Walk the linked list of outline items via First/Next.
+    const titles: string[] = [];
+    let cur: PDFDict | undefined = outlinesDict.lookup(
+      PDFName.of('First'), PDFDict,
+    ) as PDFDict | undefined;
+    while (cur) {
+      const titleObj = cur.get(PDFName.of('Title'));
+      // pdf-lib stores PDFString and PDFHexString — both expose .decodeText()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      titles.push((titleObj as any).decodeText());
+      // Resolve Next manually: the typed lookup throws when missing,
+      // but a plain `lookup` returns undefined for absent keys.
+      const next = cur.lookup(PDFName.of('Next'));
+      cur = next instanceof PDFDict ? next : undefined;
+    }
+    expect(titles).toEqual(['Chapter One', 'Section 1.1', 'Section 1.2']);
+  });
+
+  it('outline items reference page destinations', async () => {
+    const blob = await PdfExporter.export(headingFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      updateMetadata: false,
+    });
+    const outlinesDict = pdfDoc.catalog.lookup(PDFName.of('Outlines')) as PDFDict;
+    const first = outlinesDict.lookup(PDFName.of('First'), PDFDict) as PDFDict;
+    const dest = first.lookup(PDFName.of('Dest'), PDFArray) as PDFArray;
+    expect(dest).toBeDefined();
+    // First entry should be /Fit on the first (and only) page.
+    expect(dest.lookup(1, PDFName)).toBe(PDFName.of('Fit'));
+  });
+
+  it('omits the outline tree for documents with no headings', async () => {
+    const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      updateMetadata: false,
+    });
+    const outlines = pdfDoc.catalog.lookup(PDFName.of('Outlines'));
+    expect(outlines).toBeUndefined();
   });
 });

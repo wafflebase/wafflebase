@@ -1,4 +1,11 @@
-import { PDFDocument } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  type PDFObject,
+  type PDFRef,
+} from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { Document } from '../model/types.js';
 import { DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../model/types.js';
@@ -81,7 +88,10 @@ export class PdfExporter {
       doc, pdfDoc, opts.imageFetcher,
     );
 
-    // 6. Per-page paint
+    // 6. Per-page paint. While painting we also build a mapping from
+    // body block id → page index (the first page on which the block
+    // appears) so the outline tree can later resolve heading targets.
+    const blockIdToPage = new Map<string, number>();
     for (let i = 0; i < pagination.pages.length; i++) {
       const lp = pagination.pages[i];
       const pageWidthPt = lp.width / PX_PER_PT;
@@ -96,13 +106,82 @@ export class PdfExporter {
         listCounters,
         layoutBlocks: layout.blocks,
       });
+
+      for (const pl of lp.lines) {
+        const block = layout.blocks[pl.blockIndex]?.block;
+        if (block && !blockIdToPage.has(block.id)) {
+          blockIdToPage.set(block.id, i);
+        }
+      }
     }
+
+    // 7. Outline tree. Built after all pages exist so getPage(i) works.
+    addOutlineFromHeadings(pdfDoc, doc, blockIdToPage);
 
     const bytes = await pdfDoc.save();
     // pdf-lib types `bytes` as `Uint8Array<ArrayBufferLike>` which the lib DOM
     // typings refuse to accept as a BlobPart. Cast to a concrete view.
     return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
   }
+}
+
+/**
+ * Build a flat PDF outline (bookmark) tree from heading blocks.
+ *
+ * Phase 1: every heading is a sibling of the root regardless of
+ * `headingLevel` — nesting by level is a follow-up. Each item links
+ * to the first page on which the heading appears via a `[page /Fit]`
+ * destination array.
+ *
+ * The outline tree is a doubly-linked list of `/Outlines` items where
+ * each item carries `Title`, `Parent`, `Dest`, optional `Prev`/`Next`,
+ * and the root carries `First`/`Last`/`Count`. We allocate refs up
+ * front via `ctx.nextRef()` so siblings can reference each other
+ * before they are written, then `ctx.assign()` the dictionaries.
+ */
+function addOutlineFromHeadings(
+  pdfDoc: PDFDocument,
+  doc: Document,
+  blockIdToPage: Map<string, number>,
+): void {
+  const headings = doc.blocks
+    .filter(b => b.type === 'heading')
+    .map(b => ({
+      title: b.inlines.map(i => i.text).join(''),
+      level: b.headingLevel ?? 1,
+      page: blockIdToPage.get(b.id) ?? 0,
+    }))
+    .filter(h => h.title.trim().length > 0);
+
+  if (headings.length === 0) return;
+
+  const ctx = pdfDoc.context;
+  const outlinesRef = ctx.nextRef();
+  const itemRefs = headings.map(() => ctx.nextRef());
+
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i];
+    const pageRef = pdfDoc.getPage(h.page).ref;
+    const dest = ctx.obj([pageRef, PDFName.of('Fit')]);
+    // PDFHexString.fromText handles non-ASCII safely (UTF-16 BE w/ BOM).
+    const itemDict: { [name: string]: PDFObject | PDFRef } = {
+      Title: PDFHexString.fromText(h.title),
+      Parent: outlinesRef,
+      Dest: dest,
+    };
+    if (i > 0) itemDict.Prev = itemRefs[i - 1];
+    if (i < headings.length - 1) itemDict.Next = itemRefs[i + 1];
+    ctx.assign(itemRefs[i], ctx.obj(itemDict));
+  }
+
+  const outlinesDict = ctx.obj({
+    Type: PDFName.of('Outlines'),
+    First: itemRefs[0],
+    Last: itemRefs[itemRefs.length - 1],
+    Count: PDFNumber.of(headings.length),
+  });
+  ctx.assign(outlinesRef, outlinesDict);
+  pdfDoc.catalog.set(PDFName.of('Outlines'), outlinesRef);
 }
 
 async function ensureCanvasFontsLoaded(usage: FontUsage): Promise<void> {
