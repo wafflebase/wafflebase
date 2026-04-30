@@ -129,4 +129,57 @@ describe('computeTableLayout', () => {
     const sumRowHeights = result.rowHeights.reduce((s, h) => s + h, 0);
     expect(result.totalHeight).toBe(sumRowHeights);
   });
+
+  it('shifts runs when cell paragraph has marginLeft', () => {
+    const block = createTableBlock(1, 1);
+    const cellBlock = block.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'Hi', style: {} }];
+    cellBlock.style = { ...DEFAULT_BLOCK_STYLE, marginLeft: 36 };
+    const result = computeTableLayout(block.tableData!, 'tbl', stubCtx(), 200);
+    const firstRun = result.cells[0][0].lines[0].runs[0];
+    expect(firstRun.x).toBeGreaterThanOrEqual(36);
+  });
+
+  it('honors textIndent on first line of cell paragraph', () => {
+    const block = createTableBlock(1, 1);
+    const cellBlock = block.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'A B', style: {} }];
+    cellBlock.style = { ...DEFAULT_BLOCK_STYLE, textIndent: 24 };
+    const result = computeTableLayout(block.tableData!, 'tbl', stubCtx(), 200);
+    const firstRun = result.cells[0][0].lines[0].runs[0];
+    expect(firstRun.x).toBeGreaterThanOrEqual(24);
+  });
+
+  it('uses block lineHeight inside cell', () => {
+    const baseBlock = createTableBlock(1, 1);
+    baseBlock.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'X', style: { fontSize: 10 } }];
+    const baseHeight = computeTableLayout(baseBlock.tableData!, 'tbl', stubCtx(), 200)
+      .cells[0][0].lines[0].height;
+
+    const tallBlock = createTableBlock(1, 1);
+    const tallCell = tallBlock.tableData!.rows[0].cells[0].blocks[0];
+    tallCell.inlines = [{ text: 'X', style: { fontSize: 10 } }];
+    tallCell.style = { ...DEFAULT_BLOCK_STYLE, lineHeight: 3 };
+    const tallHeight = computeTableLayout(tallBlock.tableData!, 'tbl', stubCtx(), 200)
+      .cells[0][0].lines[0].height;
+
+    expect(tallHeight).toBeGreaterThan(baseHeight * 1.5);
+  });
+
+  it('applies heading defaults to font size inside cell', () => {
+    const baseBlock = createTableBlock(1, 1);
+    baseBlock.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'Heading', style: {} }];
+    const baseHeight = computeTableLayout(baseBlock.tableData!, 'tbl', stubCtx(), 400)
+      .cells[0][0].lines[0].height;
+
+    const headingBlock = createTableBlock(1, 1);
+    const headingCell = headingBlock.tableData!.rows[0].cells[0].blocks[0];
+    headingCell.type = 'heading';
+    headingCell.headingLevel = 1;
+    headingCell.inlines = [{ text: 'Heading', style: {} }];
+    const headingHeight = computeTableLayout(headingBlock.tableData!, 'tbl', stubCtx(), 400)
+      .cells[0][0].lines[0].height;
+
+    expect(headingHeight).toBeGreaterThan(baseHeight);
+  });
 });
