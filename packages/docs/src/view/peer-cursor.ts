@@ -237,6 +237,23 @@ export function resolvePositionPixel(
           }
         }
 
+        // Empty-line fallback: when the resolved line has no runs (e.g.,
+        // an empty bullet or empty paragraph with marginLeft), the
+        // run-loop above leaves cursorX at 0. Mirror the body-side path
+        // and place the caret at the block's effective marginLeft so the
+        // cursor sits to the right of the list marker.
+        if (targetLineIdx >= 0) {
+          const targetLine = cell.lines[targetLineIdx];
+          const cellBlock = cellData?.blocks[effectiveCbi];
+          if (targetLine && targetLine.runs.length === 0 && cellBlock) {
+            let marginLeft = cellBlock.style.marginLeft ?? 0;
+            if (cellBlock.type === 'list-item') {
+              marginLeft += LIST_INDENT_PX * ((cellBlock.listLevel ?? 0) + 1);
+            }
+            cursorX = marginLeft;
+          }
+        }
+
         const targetLayout = lineLayouts[targetLineIdx];
         if (!targetLayout) return undefined;
         const ownerRow = targetLayout.ownerRow;
