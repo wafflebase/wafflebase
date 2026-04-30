@@ -90,6 +90,13 @@ const listFixture = JSON.parse(
   ),
 ) as Document;
 
+const tableFixture = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, 'fixtures/pdf/with-table.json'),
+    'utf8',
+  ),
+) as Document;
+
 describe('PdfExporter (full pipeline)', () => {
   it('exports the simple-paragraph fixture', async () => {
     const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
@@ -140,6 +147,33 @@ describe('PdfExporter (header/footer/page-number)', () => {
     const a = await PdfExporter.export(bodyOnly, { fonts: testFonts() });
     const b = await PdfExporter.export(hfFixture, { fonts: testFonts() });
     expect(b.size).toBeGreaterThan(a.size);
+  });
+});
+
+describe('PdfExporter (tables)', () => {
+  it('exports a table fixture with backgrounds and borders', async () => {
+    const blob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBe(1);
+    expect(blob.size).toBeGreaterThan(2000);
+  });
+
+  it('table PDF is larger than equivalent paragraphs (proves chrome was drawn)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tableBlock = tableFixture.blocks[0] as any;
+    const flat: Document = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      blocks: tableBlock.tableData.rows.flatMap((r: any) =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        r.cells.map((c: any) => ({
+          ...c.blocks[0],
+          id: `flat-${Math.random().toString(36).slice(2, 8)}`,
+        })),
+      ),
+    };
+    const flatBlob = await PdfExporter.export(flat, { fonts: testFonts() });
+    const tableBlob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
+    expect(tableBlob.size).toBeGreaterThan(flatBlob.size);
   });
 });
 

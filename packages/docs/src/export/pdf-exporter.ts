@@ -73,6 +73,7 @@ export class PdfExporter {
         headerLayout,
         footerLayout,
         listCounters,
+        layoutBlocks: layout.blocks,
       });
     }
 

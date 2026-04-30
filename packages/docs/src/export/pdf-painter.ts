@@ -6,7 +6,7 @@ import {
 import type { Document, PageSetup } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
-import type { DocumentLayout, LayoutLine, LayoutRun } from '../view/layout.js';
+import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../view/layout.js';
 import { Theme, ptToPx } from '../view/theme.js';
 import { PdfFonts, type PdfFontKey } from './pdf-fonts.js';
 import {
@@ -15,6 +15,7 @@ import {
   styleColor,
   isItalicShim,
 } from './pdf-style-map.js';
+import { paintTablePageRange } from './pdf-table-painter.js';
 
 /**
  * Forward-slant approximation (~12°) used to fake italic for Korean
@@ -58,6 +59,13 @@ export interface PaintContext {
    * `UNORDERED_MARKERS` so they don't need to live in this map.
    */
   listCounters?: Map<string, string>;
+  /**
+   * Per-block layout (including `layoutTable` for table blocks). The
+   * table painter looks up `layoutBlocks[pl.blockIndex]` to get the
+   * `LayoutTable` it needs to compute cell rectangles. Indexed by
+   * `blockIndex` exactly as the body lines reference.
+   */
+  layoutBlocks?: LayoutBlock[];
 }
 
 export class PdfPainter {
@@ -94,10 +102,37 @@ export class PdfPainter {
   ): void {
     const pageHeightPt = page.getHeight();
 
-    // Body lines
-    for (const pl of layoutPage.lines) {
+    // Body lines. Table blocks span N PageLines (one per row, plus extras
+    // for split rows) — when we hit the first PageLine of a table on this
+    // page we delegate to `paintTablePageRange` and then skip ahead past
+    // every PageLine the table consumes, so the table is painted as a
+    // single fragment instead of once per row.
+    let i = 0;
+    while (i < layoutPage.lines.length) {
+      const pl = layoutPage.lines[i];
+      const lb = ctx.layoutBlocks?.[pl.blockIndex];
+      if (lb && lb.block.type === 'table' && lb.layoutTable) {
+        paintTablePageRange(
+          page, layoutPage, pl, i, lb, pageHeightPt,
+          () => {
+            // Cell content painting is Task 4.3 — chrome only for now.
+          },
+        );
+        // Advance past every consecutive PageLine that belongs to this
+        // table block. `paintTablePageRange` already covered them all
+        // via `computeTableRangeForPageLine`, so painting them again
+        // would draw the chrome multiple times.
+        i++;
+        while (i < layoutPage.lines.length
+            && layoutPage.lines[i].blockIndex === pl.blockIndex) {
+          i++;
+        }
+        continue;
+      }
+
       PdfPainter.paintListMarker(page, pl, pageHeightPt, fonts, ctx);
       PdfPainter.paintLine(page, pl, pageHeightPt, fonts, ctx);
+      i++;
     }
 
     // Header/footer regions. Page-local Y is computed directly here
