@@ -107,16 +107,23 @@ export class PdfPainter {
     const needSerif = usage?.needsKRSerif ?? false;
     const needBold  = usage?.needsBold ?? false;
 
+    // Korean OTFs use CFF (PostScript) outlines, and @pdf-lib/fontkit's
+    // CFF subset encoder fails with "value argument is out of bounds" on
+    // larger CJK fonts. Embed the full font instead (subset: false). The
+    // PDF gets bigger (~5-7 MB per variant) but renders reliably; future
+    // optimization would swap in a TrueType-outline Korean font that
+    // subsets cleanly.
+    const KR_EMBED = { subset: false };
     if (needSans) {
       const reg = await pdfDoc.embedFont(
         new Uint8Array(await fonts.load('kr-sans-regular')),
-        { subset: true },
+        KR_EMBED,
       );
       out['kr-sans-regular'] = reg;
       out['kr-sans-bold'] = needBold
         ? await pdfDoc.embedFont(
             new Uint8Array(await fonts.load('kr-sans-bold')),
-            { subset: true },
+            KR_EMBED,
           )
         : reg;
     } else {
@@ -129,13 +136,13 @@ export class PdfPainter {
     if (needSerif) {
       const reg = await pdfDoc.embedFont(
         new Uint8Array(await fonts.load('kr-serif-regular')),
-        { subset: true },
+        KR_EMBED,
       );
       out['kr-serif-regular'] = reg;
       out['kr-serif-bold'] = needBold
         ? await pdfDoc.embedFont(
             new Uint8Array(await fonts.load('kr-serif-bold')),
-            { subset: true },
+            KR_EMBED,
           )
         : reg;
     } else {
