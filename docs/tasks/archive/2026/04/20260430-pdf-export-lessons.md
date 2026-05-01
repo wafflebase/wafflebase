@@ -146,13 +146,38 @@ deltas proving draw calls happened). The following need a human eye in a real PD
 - [ ] Italic Korean slant looks natural (12° skew is the design choice)
 - [ ] Image positioning visually matches Canvas
 
+## Korean font format / subset trade-off (current state)
+
+Settled after multiple local-test iterations. Tried four configurations — only one
+produces correct glyphs reliably across documents:
+
+| Source | Format | `subset` | Result |
+|---|---|---|---|
+| Google Fonts CSS API (UA spoof, `text=` subset) | WOFF2 | `true` | Garbled glyphs — `@pdf-lib/fontkit` has no Brotli decoder, reads compressed bytes raw |
+| `notofonts/noto-cjk` SubsetOTF/KR (jsdelivr) | OTF (CFF) | `true` | `RangeError: value argument is out of bounds` in `CFFSubset.encode` |
+| `notofonts/noto-cjk` SubsetOTF/KR (jsdelivr) | OTF (CFF) | `false` | ✅ Correct glyphs, ~5–7 MB embedded font per variant |
+| `google/fonts` variable TTF (raw GitHub) | TTF (variable wght) | `true` | Glyphs render *intermittently* — fontkit appears to drop characters when subsetting variable outlines (e.g., "오픈소스" → only "소" visible) |
+
+Current `pdf-fonts.ts` uses the third row: full Noto Sans/Serif KR OTF embedded with
+`subset: false`. Trade-off: every Korean export carries the full font binary (~5–7 MB
+each for the 4 Korean variants used). Acceptable for now; reduces to design-time concern.
+
+Future paths if PDF size becomes a problem:
+- Find a static-instance Korean TTF (not variable) and re-enable subsetting.
+- Build a Korean font subsetter on the backend that returns a per-document TTF.
+- Try a newer fontkit release that fixes the CFF subset bug; pdf-lib hasn't bumped its
+  fontkit fork since the bug was filed.
+
 ## Follow-ups (not blocking ship)
 
-- Self-host Noto Sans/Serif KR (currently the `DEFAULT_URLS` map is empty — production
-  must inject sources via `PdfFonts({ sources })`. Decide CDN vs self-host vs backend proxy.)
-- Nested tables inside cells (currently skipped: `if (line.nestedTable) continue;`)
-- Image rotation + cropping
-- Heading-level outline nesting (currently flat sibling chain)
+- Self-host Noto Sans/Serif KR for stability (currently jsdelivr-served from
+  `notofonts/noto-cjk@main` — fine while the upstream tag is stable).
+- Resolve the size trade-off above so PDFs stop carrying ~25 MB of fonts.
+- Nested tables inside cells (currently skipped: `if (line.nestedTable) continue;`).
+- Image rotation + cropping.
+- Heading-level outline nesting (currently flat sibling chain).
 - Sub-path export (`@wafflebase/docs/pdf-exporter`) if bundle audit shows static-side
-  imports drag PDF code into the main chunk
-- Updated default font CDN URLs once we settle on a permanent home for Noto KR
+  imports drag PDF code into the main chunk.
+- Verify the chunk-size gate (`harness.config.json`) accepts the new dynamic-import
+  PDF chunk before pushing to CI; or split out a worker / sub-route to keep within the
+  710 KB threshold.
