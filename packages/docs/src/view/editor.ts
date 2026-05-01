@@ -946,23 +946,32 @@ export function initialize(
       dragImageRun,
     );
 
-    // Draw drag guideline if active
+    // Draw drag guideline if active. Guideline coords are in unscaled
+    // document space, but this draws after `docCanvas.render()` has
+    // already restored the canvas context to identity. Convert to canvas
+    // pixels manually so the line stays under the cursor regardless of
+    // scroll or zoom; otherwise vertical scroll on page 2+ pushes the
+    // horizontal (row) guideline off-screen — only the column guideline
+    // ever appeared because horizontal scroll happens to be zero.
     if (dragGuideline) {
       const ctx = docCanvas.getContext();
+      const scrollX = container.scrollLeft / scaleFactor;
       ctx.save();
       ctx.setLineDash([4, 4]);
       ctx.strokeStyle = '#4285F4';
       ctx.lineWidth = 1;
       if (dragGuideline.x != null) {
+        const x = (dragGuideline.x - scrollX) * scaleFactor;
         ctx.beginPath();
-        ctx.moveTo(dragGuideline.x, 0);
-        ctx.lineTo(dragGuideline.x, canvasHeight);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvasHeight);
         ctx.stroke();
       }
       if (dragGuideline.y != null) {
+        const y = (dragGuideline.y - scrollY) * scaleFactor;
         ctx.beginPath();
-        ctx.moveTo(0, dragGuideline.y);
-        ctx.lineTo(canvasWidth, dragGuideline.y);
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
         ctx.stroke();
       }
       ctx.restore();
@@ -1177,6 +1186,10 @@ export function initialize(
       dragGuideline = pos;
       renderPaintOnly();
     };
+    // Layout-only re-render that does NOT scroll the cursor into view.
+    // Used by table border resize so resizing on page 2 with the caret
+    // on page 1 doesn't snap the viewport back to page 1.
+    textEditor.requestRenderNoCursorScroll = render;
 
     // Image selection key routing. Delete/Backspace delete the selected
     // image inline and return to text mode; Escape clears the image

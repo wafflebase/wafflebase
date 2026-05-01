@@ -185,6 +185,34 @@ export function getPageYOffset(
 }
 
 /**
+ * Reconstruct the canvas Y where the table's logical row 0 would sit
+ * for rendering or hit-testing on the page that contains `pl`.
+ *
+ * For a non-split row the math is just `pageY + pl.y - rowYOffsets[lineIndex]`;
+ * for a split-fragment continuation we additionally subtract
+ * `rowSplitOffset` so the fragment lines up with where the row was
+ * already drawn on the previous page. Renderer and resolver share this
+ * helper so they cannot drift apart on split fragments.
+ */
+export function getTableOriginYForPageLine(
+  pageY: number,
+  pl: PageLine,
+  rowYOffsets: number[],
+): number {
+  if (pl.lineIndex < 0 || pl.lineIndex >= rowYOffsets.length) {
+    // An out-of-bounds lineIndex would silently yield NaN and corrupt
+    // every downstream coordinate (renderer + hit-test). Fail loudly
+    // so a future split-rendering bug surfaces immediately instead of
+    // turning into invisible widgets or off-by-N misclicks.
+    throw new RangeError(
+      `getTableOriginYForPageLine: lineIndex ${pl.lineIndex} out of bounds (rowYOffsets length ${rowYOffsets.length})`,
+    );
+  }
+  const splitOffset = pl.rowSplitOffset ?? 0;
+  return pageY + pl.y - rowYOffsets[pl.lineIndex] - splitOffset;
+}
+
+/**
  * Get the total scrollable height of the paginated document.
  */
 export function getTotalHeight(paginatedLayout: PaginatedLayout): number {

@@ -1,7 +1,7 @@
 import type { Block } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { PaginatedLayout, LayoutPage } from './pagination.js';
-import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart } from './pagination.js';
+import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine } from './pagination.js';
 import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
@@ -81,8 +81,7 @@ export function collectTableRenderRanges(
       continue;
     }
     const range = computeTableRangeForPageLine(page, lb, pl, plIndex);
-    const splitOffset = pl.rowSplitOffset ?? 0;
-    const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex] - splitOffset;
+    const tableOriginY = getTableOriginYForPageLine(pageY, pl, lb.layoutTable.rowYOffsets);
     ranges.push({
       layoutBlock: lb,
       tableX: pageX + margins.left,
@@ -451,8 +450,7 @@ export class DocCanvas {
             // lockstep.
             if (shouldStartTableRender(page, plIndex)) {
               const range = computeTableRangeForPageLine(page, lb, pl, plIndex);
-              const splitOffset = pl.rowSplitOffset ?? 0;
-              const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex] - splitOffset;
+              const tableOriginY = getTableOriginYForPageLine(pageY, pl, lb.layoutTable.rowYOffsets);
               renderTableContent(
                 this.ctx,
                 lb.block.tableData,

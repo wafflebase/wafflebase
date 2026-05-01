@@ -6,7 +6,7 @@ import { Cursor } from './cursor.js';
 import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selection.js';
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
-import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, resolveClickTarget } from './pagination.js';
+import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine, resolveClickTarget } from './pagination.js';
 import { buildFont } from './theme.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
@@ -93,6 +93,20 @@ export class TextEditor {
   private getScaleFactor: () => number;
   private getCanvasOffsetTop: () => number;
   private requestRender: () => void;
+  /**
+   * Render variant for layout-only changes that do NOT move the caret
+   * (e.g. table border resize). The default `requestRender` pulls the
+   * cursor into view, which causes the viewport to jump back to the
+   * cursor's page when the user resizes a row on a different page than
+   * where the caret lives.
+   *
+   * IMPORTANT: hosts MUST wire this. The fallback to `requestRender`
+   * exists only so the editor still functions if the wiring is missed
+   * during refactors — but it silently re-introduces the page-snap
+   * bug. Treat unset as a wiring error and add the assignment in
+   * `editor.ts`.
+   */
+  requestRenderNoCursorScroll?: () => void;
   private saveSnapshot: () => void;
   private undoAction: () => void;
   private redoAction: () => void;
@@ -898,15 +912,23 @@ export class TextEditor {
         }
         if (!firstPl || !lastPl) continue;
 
+        // bandTop/bandBottom must hug the actually rendered area on
+        // this page. When the last PageLine is a split fragment that
+        // continues onto the next page, use rowSplitHeight (the
+        // fragment's painted height) instead of line.height (the full
+        // logical row height) so the hit area stops at the page break
+        // rather than spilling into the next page.
         const bandTop = pageY + firstPl.y;
-        const bandBottom = pageY + lastPl.y + lastPl.line.height;
+        const lastHeight = lastPl.rowSplitHeight ?? lastPl.line.height;
+        const bandBottom = pageY + lastPl.y + lastHeight;
         if (mouseY < bandTop || mouseY > bandBottom) continue;
 
-        // Convert mouseY to table-logical Y based on the first row in
-        // this band. The virtual tableOriginY is reconstructed so
-        // `localY = mouseY - tableOriginY` lands inside rowYOffsets of a
-        // row physically on this page.
-        const tableOriginY = bandTop - tl.rowYOffsets[firstPl.lineIndex];
+        // Reconstruct the virtual tableOriginY using the same formula
+        // as the renderer. For a split-fragment continuation as the
+        // first PageLine on the page, this subtracts rowSplitOffset so
+        // localY = mouseY - tableOriginY lines up with rowYOffsets[r]
+        // for rows actually drawn on this page.
+        const tableOriginY = getTableOriginYForPageLine(pageY, firstPl, tl.rowYOffsets);
         return {
           tableBlockId: lb.block.id,
           localX: mouseX - tableOriginX,
@@ -1261,7 +1283,10 @@ export class TextEditor {
     }
 
     this.markDirty(drag.tableBlockId);
-    this.requestRender();
+    // Resize doesn't move the caret, so don't pull the viewport back
+    // to where the cursor lives. Fall back to the regular render if
+    // the host hasn't wired the no-scroll variant.
+    (this.requestRenderNoCursorScroll ?? this.requestRender)();
   }
 
   private updateDragSelection(clientX: number, clientY: number): void {
