@@ -222,6 +222,12 @@ interface LayoutTableCell {
 4. Compute cumulative Y offsets for rows
 5. Store result as `LayoutTable` in the `LayoutBlock`
 
+Cell paragraph layout reuses `layoutBlock` from `layout.ts`. Cells
+honor `block.style.marginLeft`, `textIndent`, `lineHeight`, and
+heading/title/subtitle defaults the same way body paragraphs do.
+List indent is merged into the effective `marginLeft` before
+layout, mirroring the body code path.
+
 ### Rendering Order (DocCanvas)
 
 1. **Cell backgrounds**: Fill merged-cell-aware rectangles with

@@ -1,8 +1,8 @@
-import type { TableData, Inline, Block, BlockCellInfo } from '../model/types.js';
+import type { TableData, Block, BlockCellInfo } from '../model/types.js';
 import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
-import { cachedMeasureText, applyAlignment, computeCharOffsets } from './layout.js';
-import { buildFont, ptToPx, Theme } from './theme.js';
+import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
+import { ptToPx, Theme } from './theme.js';
 import { computeMergedCellLineLayouts } from './table-geometry.js';
 
 export interface LayoutTableCell {
@@ -28,202 +28,9 @@ const DEFAULT_CELL_PADDING = 4;
 const MIN_ROW_HEIGHT = 20;
 
 /**
- * Layout inlines within a table cell into wrapped lines.
- */
-function layoutCellInlines(
-  inlines: Inline[],
-  ctx: CanvasRenderingContext2D,
-  maxWidth: number,
-): LayoutLine[] {
-  if (inlines.length === 0) {
-    const defaultHeight = ptToPx(Theme.defaultFontSize) * 1.5;
-    return [{ runs: [], y: 0, height: defaultHeight, width: 0 }];
-  }
-
-  // Check if all inlines are empty text
-  const totalText = inlines.reduce((s, i) => s + i.text, '');
-  if (totalText.length === 0) {
-    const fontSize = inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
-    const defaultHeight = ptToPx(fontSize) * 1.5;
-    return [{ runs: [], y: 0, height: defaultHeight, width: 0 }];
-  }
-
-  const lines: LayoutLine[] = [];
-  let currentRuns: LayoutLine['runs'] = [];
-  let lineWidth = 0;
-  let lineMaxFontSize = 0;
-  // Tallest image on the current line, in pixels. Tracked separately from
-  // lineMaxFontSize so it is not multiplied by the 1.5 text line-height
-  // factor — the final line height is max(textHeight, imageHeight).
-  let lineMaxImageHeight = 0;
-
-  const flushCurrentLine = (fallbackFontSizePx: number) => {
-    const textLineHeight = (lineMaxFontSize || fallbackFontSizePx) * 1.5;
-    const lineHeight = Math.max(textLineHeight, lineMaxImageHeight);
-    lines.push({
-      runs: currentRuns,
-      y: 0,
-      height: lineHeight,
-      width: lineWidth,
-    });
-    currentRuns = [];
-    lineWidth = 0;
-    lineMaxFontSize = 0;
-    lineMaxImageHeight = 0;
-  };
-
-  for (let i = 0; i < inlines.length; i++) {
-    const inline = inlines[i];
-    const fontSize = inline.style.fontSize ?? Theme.defaultFontSize;
-    const fontSizePx = ptToPx(fontSize);
-    const font = buildFont(
-      inline.style.fontSize,
-      inline.style.fontFamily,
-      inline.style.bold,
-      inline.style.italic,
-    );
-
-    // Image inlines are a single unbreakable run. Scale down to fit the
-    // cell width if necessary, and force line height to accommodate the
-    // image. Mirrors the image path in layoutBlock / measureSegments.
-    if (inline.style.image) {
-      const image = inline.style.image;
-      let displayWidth = image.width;
-      let displayHeight = image.height;
-      if (maxWidth > 0 && displayWidth > maxWidth) {
-        const scale = maxWidth / displayWidth;
-        displayWidth = maxWidth;
-        displayHeight = image.height * scale;
-      }
-      // Wrap to next line if the scaled image won't fit next to existing runs.
-      if (lineWidth + displayWidth > maxWidth && currentRuns.length > 0) {
-        flushCurrentLine(fontSizePx);
-      }
-      currentRuns.push({
-        inline,
-        text: inline.text,
-        x: lineWidth,
-        width: displayWidth,
-        inlineIndex: i,
-        charStart: 0,
-        charEnd: inline.text.length,
-        // Single-character placeholder: charOffsets has one entry equal to width.
-        charOffsets: inline.text.length > 0 ? [displayWidth] : [],
-        imageHeight: displayHeight,
-      });
-      lineWidth += displayWidth;
-      if (displayHeight > lineMaxImageHeight) lineMaxImageHeight = displayHeight;
-      continue;
-    }
-
-    // Split text into words (keep trailing spaces with preceding word)
-    const words = splitWords(inline.text);
-    let charPos = 0;
-
-    for (const word of words) {
-      const wordWidth = cachedMeasureText(ctx, word, font);
-
-      // Wrap if adding this word exceeds maxWidth and line is not empty
-      if (lineWidth + wordWidth > maxWidth && currentRuns.length > 0) {
-        flushCurrentLine(fontSizePx);
-      }
-
-      // Character-level break: if a single word is wider than maxWidth,
-      // split it into chunks that fit. This prevents text from
-      // overflowing cell boundaries (matches Google Docs behavior).
-      if (wordWidth > maxWidth && maxWidth > 0) {
-        let remaining = word;
-        let remainCharPos = charPos;
-        while (remaining.length > 0) {
-          // Find how many characters fit in the remaining line width
-          const availWidth = maxWidth - lineWidth;
-          let fitLen = 0;
-          let fitWidth = 0;
-          for (let ci = 1; ci <= remaining.length; ci++) {
-            const w = cachedMeasureText(ctx, remaining.slice(0, ci), font);
-            if (w > availWidth && fitLen > 0) break;
-            fitLen = ci;
-            fitWidth = w;
-          }
-          // At least one character per chunk to avoid infinite loop
-          if (fitLen === 0) {
-            fitLen = 1;
-            fitWidth = cachedMeasureText(ctx, remaining.slice(0, 1), font);
-          }
-          const chunk = remaining.slice(0, fitLen);
-          currentRuns.push({
-            inline,
-            text: chunk,
-            x: lineWidth,
-            width: fitWidth,
-            inlineIndex: i,
-            charStart: remainCharPos,
-            charEnd: remainCharPos + chunk.length,
-            charOffsets: computeCharOffsets(ctx, chunk, font),
-          });
-          lineWidth += fitWidth;
-          if (fontSizePx > lineMaxFontSize) lineMaxFontSize = fontSizePx;
-          remainCharPos += chunk.length;
-          remaining = remaining.slice(fitLen);
-          if (remaining.length > 0) {
-            flushCurrentLine(fontSizePx);
-          }
-        }
-        charPos = remainCharPos;
-        continue;
-      }
-
-      currentRuns.push({
-        inline,
-        text: word,
-        x: lineWidth,
-        width: wordWidth,
-        inlineIndex: i,
-        charStart: charPos,
-        charEnd: charPos + word.length,
-        charOffsets: computeCharOffsets(ctx, word, font),
-      });
-      lineWidth += wordWidth;
-      if (fontSizePx > lineMaxFontSize) lineMaxFontSize = fontSizePx;
-      charPos += word.length;
-    }
-  }
-
-  // Flush remaining runs
-  if (currentRuns.length > 0) {
-    flushCurrentLine(ptToPx(Theme.defaultFontSize));
-  }
-
-  // Set cumulative y offsets
-  let y = 0;
-  for (const line of lines) {
-    line.y = y;
-    y += line.height;
-  }
-
-  return lines;
-}
-
-/**
- * Split text into words, keeping trailing spaces with the word.
- */
-function splitWords(text: string): string[] {
-  if (text.length === 0) return [];
-  const words: string[] = [];
-  let current = '';
-  for (let i = 0; i < text.length; i++) {
-    current += text[i];
-    if (text[i] === ' ' && i + 1 < text.length && text[i + 1] !== ' ') {
-      words.push(current);
-      current = '';
-    }
-  }
-  if (current.length > 0) words.push(current);
-  return words;
-}
-
-/**
  * Layout blocks within a table cell into wrapped lines.
+ * Mirrors the body-side path in `computeLayout`: list indent is merged
+ * into `marginLeft`, then the shared `layoutBlock` produces lines.
  * Returns lines and blockBoundaries (line index where each block starts).
  */
 function layoutCellBlocks(
@@ -246,52 +53,59 @@ function layoutCellBlocks(
   for (const block of blocks) {
     blockBoundaries.push(allLines.length);
 
-    // Handle nested table blocks
     if (block.type === 'table' && block.tableData) {
       const nestedLayout = computeTableLayout(
-        block.tableData, block.id, ctx, maxWidth,
+        block.tableData,
+        block.id,
+        ctx,
+        maxWidth,
       );
-      // Merge inner blockParentMap into outer
       if (blockParentMap) {
         for (const [k, v] of nestedLayout.blockParentMap) {
           blockParentMap.set(k, v);
         }
       }
-      const tableLine: LayoutLine = {
+      allLines.push({
         runs: [],
         y: 0,
         height: nestedLayout.totalHeight,
         width: nestedLayout.totalWidth,
         nestedTable: nestedLayout,
-      };
-      allLines.push(tableLine);
+      });
       continue;
     }
 
-    // Reserve space for list marker indent
-    const listIndent = block.type === 'list-item'
-      ? LIST_INDENT_PX * ((block.listLevel ?? 0) + 1)
-      : 0;
-    const effectiveWidth = maxWidth - listIndent;
-    const blockLines = layoutCellInlines(block.inlines, ctx, effectiveWidth);
-    // Apply horizontal alignment
-    const alignment = block.style?.alignment ?? 'left';
+    const listIndent =
+      block.type === 'list-item'
+        ? LIST_INDENT_PX * ((block.listLevel ?? 0) + 1)
+        : 0;
+    const effectiveBlock: Block = listIndent === 0
+      ? block
+      : {
+          ...block,
+          style: {
+            ...block.style,
+            marginLeft: (block.style.marginLeft ?? 0) + listIndent,
+          },
+        };
+
+    const blockLines = layoutBlock(effectiveBlock, ctx, maxWidth);
+    assignLineHeights(blockLines, effectiveBlock);
+
+    const alignWidth = maxWidth - (effectiveBlock.style.marginLeft ?? 0);
+    const alignment = effectiveBlock.style.alignment ?? 'left';
     for (let li = 0; li < blockLines.length; li++) {
-      applyAlignment(blockLines[li], effectiveWidth, alignment, li === blockLines.length - 1);
+      applyAlignment(
+        blockLines[li],
+        alignWidth,
+        alignment,
+        li === blockLines.length - 1,
+      );
     }
-    // Shift runs right by the list indent
-    if (listIndent > 0) {
-      for (const line of blockLines) {
-        for (const run of line.runs) {
-          run.x += listIndent;
-        }
-        line.width += listIndent;
-      }
-    }
+
     allLines.push(...blockLines);
   }
 
-  // Recalculate cumulative y offsets
   let y = 0;
   for (const line of allLines) {
     line.y = y;
