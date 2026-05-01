@@ -413,7 +413,11 @@ export function layoutBlock(
  * heights are computed identically.
  */
 export function assignLineHeights(lines: LayoutLine[], block: Block): void {
-  const lineHeightMultiplier = block.style.lineHeight ?? 1.5;
+  // Floor at 1.0: a sub-1.0 multiplier collapses the line below the font's
+  // own pixel height, so characters from adjacent lines overlap. The DOCX
+  // import path can plant such values when <w:spacing w:line="N"
+  // w:lineRule="exact|atLeast"/> is read as a 240ths-of-a-line multiplier.
+  const lineHeightMultiplier = Math.max(1, block.style.lineHeight ?? 1.5);
   let blockY = 0;
   for (const line of lines) {
     const maxFontSize = getLineMaxFontSizePx(line, block);
