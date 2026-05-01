@@ -81,8 +81,9 @@ formulas from drifting apart again.
 - [x] Verify column guideline still visible (no regression)
 - [x] Keep helper extraction (`getTableOriginYForPageLine`) — fixes
       latent split-row hit-test bug
-- [ ] Investigate follow-up: cell resize on page 2 with cursor on
-      page 1 scrolls back to page 1
-- [ ] Run `pnpm verify:fast`
-- [ ] Move work to a worktree + feature branch (per user request)
-- [ ] Archive task and update index
+- [x] Investigate follow-up: cell resize on page 2 with cursor on
+      page 1 scrolls back to page 1 — split into
+      `20260501-table-cell-resize-page-scroll-todo.md`
+- [x] Run `pnpm verify:fast` — covered by PR #172 CI
+- [x] Move work to a worktree + feature branch — done; merged in #172
+- [x] Archive task and update index
