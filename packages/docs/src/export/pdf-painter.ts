@@ -622,7 +622,7 @@ export class PdfPainter {
 
     for (const seg of segments) {
       if (seg.text.length === 0) continue;
-      const key = resolveFontKey(style, seg.isCJK);
+      const key = resolveFontKey(style, seg.needsCustomFont);
       const font = fonts[key];
       // Compute the segment width once; reused for background, advance,
       // underline, and strikethrough draws below. Width must be measured
@@ -650,7 +650,7 @@ export class PdfPainter {
       // pop the graphics state so background/underline/strike stay
       // upright. Background and decoration draws sit *outside* this
       // block intentionally.
-      if (isItalicShim(style, seg.isCJK)) {
+      if (isItalicShim(style, seg.needsCustomFont)) {
         const tx = px2pt(xpx);
         const ty = pageHeightPt - px2pt(drawBaselineYpx);
         page.pushOperators(pushGraphicsState());

@@ -23,7 +23,16 @@ const SERIF_FAMILIES = new Set([
 
 export interface ScriptSegment {
   text: string;
-  isCJK: boolean;
+  /**
+   * True when this segment must be drawn with the embedded Korean font
+   * because at least one character is outside pdf-lib's WinAnsi-encoded
+   * StandardFonts. Despite the name, this also covers Cyrillic, Arabic,
+   * emoji, etc. — anything not in Latin-1 + WinAnsi specials. Those
+   * scripts will render as `.notdef` glyphs (boxes) since Noto KR only
+   * carries Korean + CJK + basic Latin; full Unicode coverage is a
+   * separate font-strategy task.
+   */
+  needsCustomFont: boolean;
 }
 
 /**
@@ -47,7 +56,7 @@ export function splitMixedScript(text: string): ScriptSegment[] {
   const segments: ScriptSegment[] = [];
   for (const match of cleaned.matchAll(SCRIPT_SPLIT)) {
     const seg = match[0];
-    segments.push({ text: seg, isCJK: NEEDS_CJK_FONT.test(seg) });
+    segments.push({ text: seg, needsCustomFont: NEEDS_CJK_FONT.test(seg) });
   }
   return segments;
 }
@@ -58,11 +67,11 @@ export function splitMixedScript(text: string): ScriptSegment[] {
  * Korean italic falls back to regular (Noto KR has no italic). Use
  * `isItalicShim` to know when to apply a manual oblique transform.
  */
-export function resolveFontKey(style: InlineStyle, isCJK: boolean): PdfFontKey {
+export function resolveFontKey(style: InlineStyle, needsCustomFont: boolean): PdfFontKey {
   const isSerif = SERIF_FAMILIES.has(style.fontFamily ?? 'Arial');
   const isBold = !!style.bold;
   const isItalic = !!style.italic;
-  if (isCJK) {
+  if (needsCustomFont) {
     if (isSerif) return isBold ? 'kr-serif-bold' : 'kr-serif-regular';
     return isBold ? 'kr-sans-bold' : 'kr-sans-regular';
   }
@@ -82,8 +91,8 @@ export function resolveFontKey(style: InlineStyle, isCJK: boolean): PdfFontKey {
  * True when the painter must apply an oblique transform because the
  * resolved Korean font has no italic variant.
  */
-export function isItalicShim(style: InlineStyle, isCJK: boolean): boolean {
-  return !!style.italic && isCJK;
+export function isItalicShim(style: InlineStyle, needsCustomFont: boolean): boolean {
+  return !!style.italic && needsCustomFont;
 }
 
 /**

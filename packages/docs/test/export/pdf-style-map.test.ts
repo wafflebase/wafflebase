@@ -27,14 +27,14 @@ describe('resolveFontKey', () => {
 describe('splitMixedScript', () => {
   it('returns single segment for ASCII-only', () => {
     const out = splitMixedScript('Hello World');
-    expect(out).toEqual([{ text: 'Hello World', isCJK: false }]);
+    expect(out).toEqual([{ text: 'Hello World', needsCustomFont: false }]);
   });
   it('splits at script boundaries', () => {
     const out = splitMixedScript('Hello 안녕 World');
     expect(out).toEqual([
-      { text: 'Hello ', isCJK: false },
-      { text: '안녕', isCJK: true },
-      { text: ' World', isCJK: false },
+      { text: 'Hello ', needsCustomFont: false },
+      { text: '안녕', needsCustomFont: true },
+      { text: ' World', needsCustomFont: false },
     ]);
   });
   it('returns empty array for empty input', () => {

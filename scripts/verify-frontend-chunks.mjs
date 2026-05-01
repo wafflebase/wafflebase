@@ -58,7 +58,13 @@ function readConfiguredBudget(config, key, fallback) {
 
 function readChunkOverrides(config) {
   const raw = config?.frontend?.chunkBudgets?.overrides;
-  if (!Array.isArray(raw)) return [];
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    console.error(
+      "[verify:frontend:chunks] harness.config.json frontend.chunkBudgets.overrides must be an array.",
+    );
+    process.exit(1);
+  }
   return raw.map((entry, index) => {
     if (!entry || typeof entry !== "object") {
       console.error(
