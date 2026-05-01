@@ -56,6 +56,37 @@ function readConfiguredBudget(config, key, fallback) {
   );
 }
 
+function readChunkOverrides(config) {
+  const raw = config?.frontend?.chunkBudgets?.overrides;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      console.error(
+        `[verify:frontend:chunks] overrides[${index}] must be an object.`,
+      );
+      process.exit(1);
+    }
+    if (typeof entry.pattern !== "string" || entry.pattern.length === 0) {
+      console.error(
+        `[verify:frontend:chunks] overrides[${index}].pattern must be a non-empty string.`,
+      );
+      process.exit(1);
+    }
+    const maxKb = parsePositiveNumber(
+      `harness.config.json frontend.chunkBudgets.overrides[${index}].maxKb`,
+      entry.maxKb,
+    );
+    return { regex: new RegExp(entry.pattern), maxKb };
+  });
+}
+
+function effectiveLimitForChunk(name, defaultLimit, overrides) {
+  for (const override of overrides) {
+    if (override.regex.test(name)) return override.maxKb;
+  }
+  return defaultLimit;
+}
+
 function parsePositiveLimit(name, fallback) {
   const value = process.env[name];
   if (!value) {
@@ -100,6 +131,7 @@ const defaultChunkCountLimit = readConfiguredBudget(
   "maxChunkCount",
   HardDefaultChunkCountLimit,
 );
+const chunkOverrides = readChunkOverrides(harnessConfig);
 
 const chunkLimitKb = parsePositiveLimit(
   "FRONTEND_CHUNK_LIMIT_KB",
@@ -137,7 +169,10 @@ if (chunks.length > chunkCountLimit) {
   process.exit(1);
 }
 
-const overBudgetChunks = chunks.filter((chunk) => chunk.sizeKb > chunkLimitKb);
+const overBudgetChunks = chunks.filter((chunk) => {
+  const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
+  return chunk.sizeKb > limit;
+});
 
 if (overBudgetChunks.length > 0) {
   console.error(
@@ -145,7 +180,8 @@ if (overBudgetChunks.length > 0) {
       `${chunkLimitKb} kB:`,
   );
   for (const chunk of overBudgetChunks) {
-    console.error(`- ${formatChunk(chunk)}`);
+    const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
+    console.error(`- ${formatChunk(chunk)} > ${limit} kB`);
   }
   process.exit(1);
 }
