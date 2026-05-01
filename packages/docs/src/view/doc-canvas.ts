@@ -22,7 +22,7 @@ function peerColorToSelectionColor(hex: string): string {
   return `rgba(${r}, ${g}, ${b}, 0.2)`;
 }
 
-interface TableRenderRange {
+export interface TableRenderRange {
   layoutBlock: LayoutBlock;
   tableX: number;
   tableOriginY: number;
@@ -34,11 +34,38 @@ interface TableRenderRange {
 }
 
 /**
+ * Decide whether the PageLine at `plIndex` should kick off a fresh
+ * table render pass on this page. Both the background pre-pass
+ * (`collectTableRenderRanges`) and the body content pass call this so
+ * they stay in lockstep — divergence would produce backgrounds without
+ * borders/text or vice versa.
+ *
+ * A render starts when:
+ * - it's the first PageLine on the page, OR
+ * - the previous PageLine belonged to a different block, OR
+ * - this PageLine is a split fragment (always renders on its own), OR
+ * - the previous PageLine was a split fragment of the same block —
+ *   that prior render only covered its own row (the sweep in
+ *   `computeTableRangeForPageLine` is suppressed for split fragments),
+ *   so the follow-up rows need their own sweep here, otherwise they
+ *   would be silently skipped.
+ */
+export function shouldStartTableRender(page: LayoutPage, plIndex: number): boolean {
+  if (plIndex === 0) return true;
+  const pl = page.lines[plIndex];
+  const prev = page.lines[plIndex - 1];
+  if (prev.blockIndex !== pl.blockIndex) return true;
+  if (pl.rowSplitOffset !== undefined) return true;
+  if (prev.rowSplitOffset !== undefined) return true;
+  return false;
+}
+
+/**
  * Collect render args for every table block that has at least one row
  * on this page. Returns one entry per table (deduped across PageLines)
  * so the background pre-pass touches each table once per page.
  */
-function collectTableRenderRanges(
+export function collectTableRenderRanges(
   page: LayoutPage,
   layout: DocumentLayout,
   pageX: number,
@@ -47,14 +74,8 @@ function collectTableRenderRanges(
 ): TableRenderRange[] {
   const ranges: TableRenderRange[] = [];
   for (let plIndex = 0; plIndex < page.lines.length; plIndex++) {
+    if (!shouldStartTableRender(page, plIndex)) continue;
     const pl = page.lines[plIndex];
-    // Only act on the first PageLine of a block on this page — the
-    // range computation sweeps forward from there, so subsequent rows
-    // of the same block are handled by the sweep.
-    if (plIndex > 0 && page.lines[plIndex - 1]?.blockIndex === pl.blockIndex) {
-      // Allow split fragments through — each needs its own render range
-      if (pl.rowSplitOffset === undefined) continue;
-    }
     const lb = layout.blocks[pl.blockIndex];
     if (!lb || lb.block.type !== 'table' || !lb.layoutTable || !lb.block.tableData) {
       continue;
@@ -425,10 +446,10 @@ export class DocCanvas {
 
           const lb = layout.blocks[pl.blockIndex];
           if (lb && lb.block.type === 'table' && lb.layoutTable && lb.block.tableData) {
-            // Only render on the first row PageLine of this table block,
-            // so we touch each table once per page. Split fragments (with
-            // rowSplitOffset) must not be deduped — each gets its own pass.
-            if (plIndex === 0 || page.lines[plIndex - 1]?.blockIndex !== pl.blockIndex || pl.rowSplitOffset !== undefined) {
+            // Mirror the predicate used by `collectTableRenderRanges`
+            // (background pass) so backgrounds and content stay in
+            // lockstep.
+            if (shouldStartTableRender(page, plIndex)) {
               const range = computeTableRangeForPageLine(page, lb, pl, plIndex);
               const splitOffset = pl.rowSplitOffset ?? 0;
               const tableOriginY = pageY + pl.y - lb.layoutTable.rowYOffsets[pl.lineIndex] - splitOffset;

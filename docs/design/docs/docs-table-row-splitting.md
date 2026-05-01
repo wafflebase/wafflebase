@@ -138,6 +138,28 @@ When a cell contains a nested table that is itself split, the cell
 renderer delegates to the table renderer recursively.  Each nested
 fragment follows the same clip + translate + border rules.
 
+#### 2.5 Render-pass dedup with split fragments
+
+Both passes (`collectTableRenderRanges` for backgrounds and the body
+loop in `DocCanvas.render` for content) skip subsequent PageLines that
+belong to the same table block as the previous PageLine, on the
+assumption that the first PageLine's render swept forward over them.
+
+That assumption breaks when the **first** PageLine on a page is a
+split fragment: split fragments only render their own row (the sweep
+in `computeTableRangeForPageLine` is intentionally suppressed so the
+clipped split pass does not also include subsequent rows). Without
+extra handling, follow-up non-split rows of the same block on the same
+page are silently dropped — they have valid layout positions (search
+highlights and selection still work) but nothing is painted, leaving
+a gap.
+
+Fix: allow a non-split PageLine to start its own render pass when the
+**previous** PageLine on the page was a split fragment of the same
+block. The non-split PageLine then runs the regular sweep and covers
+the remaining rows in a single call. Apply the same rule symmetrically
+in both passes so backgrounds and content stay in lockstep.
+
 ### 3. Interaction Layer
 
 Files: `packages/docs/src/view/text-editor.ts`,
