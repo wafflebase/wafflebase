@@ -514,7 +514,12 @@ export class PdfPainter {
         const fontSizePx = ptToPx(sizePt);
         const baselineYpx = markerLineY + (firstLine.height + fontSizePx * 0.8) / 2;
         const c = styleColor(cellBlock.inlines[0]?.style.color);
-        const font = fonts['sans-regular'];
+        // Mirror the body painter at line ~330: unordered markers (●○■) live
+        // in U+25xx and aren't in Helvetica's WinAnsi coverage, so route them
+        // through the embedded Korean font.
+        const font = cellBlock.listKind === 'unordered'
+          ? fonts['kr-sans-regular']
+          : fonts['sans-regular'];
         page.drawText(marker, {
           x: px2pt(markerXpx),
           y: pageHeightPt - px2pt(baselineYpx),

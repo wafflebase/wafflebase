@@ -76,7 +76,17 @@ function readChunkOverrides(config) {
       `harness.config.json frontend.chunkBudgets.overrides[${index}].maxKb`,
       entry.maxKb,
     );
-    return { regex: new RegExp(entry.pattern), maxKb };
+    let regex;
+    try {
+      regex = new RegExp(entry.pattern);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[verify:frontend:chunks] overrides[${index}].pattern is not a valid RegExp: ${message}`,
+      );
+      process.exit(1);
+    }
+    return { regex, maxKb };
   });
 }
 

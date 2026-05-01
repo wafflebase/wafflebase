@@ -9,7 +9,9 @@ const BACKEND_BASE = import.meta.env.VITE_BACKEND_API_URL ?? "";
  * port than the frontend.
  */
 export function resolveImageUrl(url: string): string {
-  if (/^https?:\/\//i.test(url)) return url;
+  // Preserve any absolute URL — http(s):, data:, blob:, file:, etc.
+  // Only relative paths get prefixed with the backend base.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
   if (!BACKEND_BASE) return url;
   return `${BACKEND_BASE.replace(/\/$/, "")}${url.startsWith("/") ? url : `/${url}`}`;
 }
@@ -113,6 +115,9 @@ export function pickFile(accept: string): Promise<File | null> {
  * Adds the extension if not already present.
  */
 export function safeFilename(title: string, ext: "docx" | "pdf"): string {
-  const safe = (title || "document").replace(/[\\/:*?"<>|]+/g, "_").trim();
+  // Strip filesystem-unsafe characters; if nothing usable is left,
+  // fall back to "document" so we don't return a hidden file like ".pdf".
+  const sanitized = (title || "").replace(/[\\/:*?"<>|]+/g, "_").trim();
+  const safe = sanitized || "document";
   return safe.toLowerCase().endsWith(`.${ext}`) ? safe : `${safe}.${ext}`;
 }

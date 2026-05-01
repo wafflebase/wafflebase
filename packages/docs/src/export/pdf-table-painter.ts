@@ -161,19 +161,34 @@ export function paintTablePageRange(
   }
 
   // 3. Borders last so they sit on top of fills and content.
+  //
+  // For a split row, the cell's natural top/bottom extend past the
+  // fragment band installed above and would be clipped away by the
+  // PDF clip path — leaving the row's top border missing on the
+  // continuation page and the bottom border missing on the previous
+  // page. Recompute the rect to the fragment-visible bounds (top =
+  // `pl.y`, height = `splitHeight`) so all four borders sit inside
+  // the clip and render. Mirrors `view/table-renderer.ts`'s
+  // `visibleStart`/`visibleEnd` logic.
   for (let r = range.renderStartRow; r < range.endRowIndex; r++) {
     const cells = tableData.rows[r]?.cells ?? [];
     for (let c = 0; c < cells.length; c++) {
       if (isCellCovered(layoutTable, r, c)) continue;
       const cell = cells[c];
       const { x, y, w, h } = cellOriginPx(layoutTable, tableData, r, c);
+      let by = tableY + y;
+      let bh = h;
+      if (isSplit && splitHeight !== undefined && r === pl.lineIndex) {
+        by = pl.y;
+        bh = splitHeight;
+      }
       drawCellBorders(
         page,
         cell.style,
         tableX + x,
-        tableY + y,
+        by,
         w,
-        h,
+        bh,
         pageHeightPt,
       );
     }
