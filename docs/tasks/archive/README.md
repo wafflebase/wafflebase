@@ -6,16 +6,17 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 146
+Total archived tasks: 148
 
-## 2026/05 (2 tasks)
+## 2026/05 (3 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pdf export parity (2026-05-01) | [20260501-pdf-export-parity-todo.md](./2026/05/20260501-pdf-export-parity-todo.md) | [20260501-pdf-export-parity-lessons.md](./2026/05/20260501-pdf-export-parity-lessons.md) |
 | table resize row split (2026-05-01) | [20260501-table-resize-row-split-todo.md](./2026/05/20260501-table-resize-row-split-todo.md) | [20260501-table-resize-row-split-lessons.md](./2026/05/20260501-table-resize-row-split-lessons.md) |
 | table split followup rows (2026-05-01) | [20260501-table-split-followup-rows-todo.md](./2026/05/20260501-table-split-followup-rows-todo.md) | - |
 
-## 2026/04 (30 tasks)
+## 2026/04 (31 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -48,6 +49,7 @@ Total archived tasks: 146
 | header footer (2026-04-08) | [20260408-header-footer-todo.md](./2026/04/20260408-header-footer-todo.md) | - |
 | page break (2026-04-08) | [20260408-page-break-todo.md](./2026/04/20260408-page-break-todo.md) | - |
 | intent preserving phase4 table cells (2026-04-03) | [20260403-intent-preserving-phase4-table-cells-todo.md](./2026/04/20260403-intent-preserving-phase4-table-cells-todo.md) | - |
+| intent preserving phase9 undo redo (2026-04-03) | [20260403-intent-preserving-phase9-undo-redo-todo.md](./2026/04/20260403-intent-preserving-phase9-undo-redo-todo.md) | - |
 | intent preserving phase1 3 (2026-04-02) | [20260402-intent-preserving-phase1-3-todo.md](./2026/04/20260402-intent-preserving-phase1-3-todo.md) | [20260402-intent-preserving-phase1-3-lessons.md](./2026/04/20260402-intent-preserving-phase1-3-lessons.md) |
 
 ## 2026/03 (77 tasks)

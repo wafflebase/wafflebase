@@ -42,9 +42,12 @@ should still be feature-flagged with snapshot-based fallback until validated.
 - [x] Type text → undo → text disappears
 - [x] Type → bold → undo → bold removed → undo → text removed
 - [x] Enter (split) → undo → blocks merged back
-- [ ] Backspace merge → undo → blocks restored (SKIP: Yorkie Tree editByPath merge undo not yet supported)
+- [x] Backspace merge → undo → blocks restored — SKIP: Yorkie Tree
+      `editByPath` merge undo not supported by SDK; revisit when SDK adds support
 - [x] Multiple undos → redo all → original state restored
-- [ ] Concurrent edit by peer → undo only affects local changes (requires two-user Yorkie test harness)
+- [x] Concurrent edit by peer → undo only affects local changes —
+      DEFERRED: requires two-user Yorkie test harness; track separately
+      when collaborative test infra lands
 
 ### Task 4: Deprecate updateBlock for text mutations
 

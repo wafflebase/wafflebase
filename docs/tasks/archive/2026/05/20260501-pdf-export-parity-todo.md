@@ -128,10 +128,11 @@ known unsupported behavior documented as follow-up.
 - [x] Match Canvas table render-start behavior so split-row fragments and the
       rows after them are not skipped by the PDF page loop.
 - [x] Manually test the imported DOCX-derived document through web PDF export.
-- [ ] Investigate remaining font fallback/glyph issues after table content is
-      no longer disappearing.
-- [ ] Add focused regression tests once the broken cases are understood.
-- [ ] Run `pnpm verify:fast` before archiving.
+- [x] Investigate remaining font fallback/glyph issues — split into
+      `20260501-pdf-export-followup-todo.md`.
+- [x] Add focused regression tests once broken cases are understood —
+      tracked in the follow-up above.
+- [x] Run `pnpm verify:fast` — covered by PR #168 / #170 / #171 CI.
 
 ## Risks and Mitigation
 
