@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ import { paginateLayout } from '../../src/view/pagination.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
+  createTableBlock,
   generateBlockId,
   getEffectiveDimensions,
 } from '../../src/model/types.js';
@@ -95,6 +96,118 @@ describe('PdfPainter', () => {
     const bytes = await pdfDoc.save();
     const reloaded = await PDFDocument.load(bytes);
     expect(reloaded.getPageCount()).toBe(1);
+  });
+});
+
+async function collectPaintedText(
+  doc: Document,
+  pageIndex = 0,
+): Promise<string[]> {
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
+
+  const fonts = await PdfPainter.embedAllFonts(pdfDoc, fontsForTest(), {
+    needsKR: true,
+    needsKRSerif: true,
+    needsLatinSerif: true,
+    needsBold: true,
+    needsItalic: true,
+  });
+
+  const pageSetup = doc.pageSetup ?? DEFAULT_PAGE_SETUP;
+  const { width: effectiveWidth } = getEffectiveDimensions(pageSetup);
+  const contentWidth =
+    effectiveWidth - pageSetup.margins.left - pageSetup.margins.right;
+
+  const { layout } = computeLayout(doc.blocks, mockCtx(), contentWidth);
+  const pagination = paginateLayout(layout, pageSetup);
+  const lp = pagination.pages[pageIndex];
+  expect(lp).toBeDefined();
+
+  const page = pdfDoc.addPage([
+    (lp.width / 96) * 72,
+    (lp.height / 96) * 72,
+  ]);
+
+  const paintedText: string[] = [];
+  const drawTextSpy = vi.spyOn(page, 'drawText').mockImplementation(
+    (text) => {
+      paintedText.push(text);
+    },
+  );
+
+  PdfPainter.paintPage(page, lp, pagination.pageSetup, fonts, {
+    doc,
+    imageMap: new Map(),
+    layoutBlocks: layout.blocks,
+  });
+
+  drawTextSpy.mockRestore();
+  return paintedText;
+}
+
+describe('PdfPainter table regressions', () => {
+  it('paints text inside nested tables', async () => {
+    const innerTable = createTableBlock(1, 1);
+    innerTable.tableData!.rows[0].cells[0].blocks[0].inlines = [
+      { text: 'Inner nested marker', style: {} },
+    ];
+
+    const outerTable = createTableBlock(1, 1);
+    outerTable.tableData!.rows[0].cells[0].blocks = [innerTable];
+
+    const doc: Document = {
+      blocks: [outerTable],
+      pageSetup: { ...DEFAULT_PAGE_SETUP },
+    };
+
+    const paintedText = await collectPaintedText(doc);
+    expect(paintedText.join('')).toContain('Inner nested marker');
+  });
+
+  it('paints normal rows that follow a split row fragment on the same page', async () => {
+    const tableBlock = createTableBlock(3, 1);
+    const tableData = tableBlock.tableData!;
+
+    const tallCell = tableData.rows[0].cells[0];
+    tallCell.blocks = [];
+    for (let i = 0; i < 60; i++) {
+      tallCell.blocks.push({
+        id: `split-row-p${i}`,
+        type: 'paragraph',
+        inlines: [{ text: `Split row paragraph ${i}`, style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      });
+    }
+
+    tableData.rows[1].cells[0].blocks[0].inlines = [
+      { text: 'Follow-up row one marker', style: {} },
+    ];
+    tableData.rows[2].cells[0].blocks[0].inlines = [
+      { text: 'Follow-up row two marker', style: {} },
+    ];
+
+    const doc: Document = {
+      blocks: [tableBlock],
+      pageSetup: { ...DEFAULT_PAGE_SETUP },
+    };
+
+    const pageSetup = doc.pageSetup!;
+    const { width } = getEffectiveDimensions(pageSetup);
+    const contentWidth = width - pageSetup.margins.left - pageSetup.margins.right;
+    const { layout } = computeLayout(doc.blocks, mockCtx(), contentWidth);
+    const pagination = paginateLayout(layout, pageSetup);
+    const continuationPageIndex = pagination.pages.findIndex((page) =>
+      page.lines.some(
+        (pl) => pl.rowSplitOffset !== undefined && pl.rowSplitOffset > 0,
+      ),
+    );
+    expect(continuationPageIndex).toBeGreaterThan(0);
+
+    const paintedText = await collectPaintedText(doc, continuationPageIndex);
+    const painted = paintedText.join('');
+    expect(painted).toContain('Follow-up row one marker');
+    expect(painted).toContain('Follow-up row two marker');
   });
 });
 
