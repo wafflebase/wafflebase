@@ -41,6 +41,7 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-image-editing.md](docs/docs-image-editing.md)                              | Docs image editing — toolbar insert, selection handles, resize, rotation, crop, Image Options panel |
 | [docs-docx-import-export.md](docs/docs-docx-import-export.md)                    | DOCX import/export — round-trip mapping between DOCX and the Docs data model                       |
 | [docs-pdf-export.md](docs/docs-pdf-export.md)                                    | PDF export — vector PDF via pdf-lib + fontkit, reuses `paginateLayout`, lazy Noto KR fonts        |
+| [docs-pdf-export-parity.md](docs/docs-pdf-export-parity.md)                      | PDF export parity — feature-focused plan for fonts, tables, images, and layout fidelity           |
 | [docs-frontend-integration.md](docs/docs-frontend-integration.md)                | Docs frontend integration — document type field, list UI, routing, backend API changes            |
 | [docs-collaboration.md](docs/docs-collaboration.md)                              | Docs collaboration design                                                                         |
 | [docs-remote-cursor.md](docs/docs-remote-cursor.md)                              | Docs remote cursor — peer cursor carets + name labels in collaborative docs editor                |
