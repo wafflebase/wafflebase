@@ -119,3 +119,9 @@ export { DocxImporter } from './import/docx-importer.js';
 export type { ImageUploader } from './import/docx-importer.js';
 export { DocxExporter } from './export/docx-exporter.js';
 export type { ImageFetcher } from './export/docx-exporter.js';
+
+// Export (PDF)
+export { PdfExporter } from './export/pdf-exporter.js';
+export type { PdfExportOptions } from './export/pdf-exporter.js';
+export { PdfFonts } from './export/pdf-fonts.js';
+export type { PdfFontKey, FontUsage } from './export/pdf-fonts.js';

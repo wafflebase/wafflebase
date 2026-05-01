@@ -1,0 +1,12 @@
+{
+  "blocks": [{
+    "id": "b1",
+    "type": "paragraph",
+    "inlines": [
+      { "text": "Before ", "style": {} },
+      { "text": "\uFFFC", "style": { "image": { "src": "test://image1", "width": 100, "height": 100 } } },
+      { "text": " After", "style": {} }
+    ],
+    "style": { "alignment": "left", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 8, "textIndent": 0, "marginLeft": 0 }
+  }]
+}

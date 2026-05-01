@@ -1,0 +1,12 @@
+{
+  "blocks": [{
+    "id": "b1",
+    "type": "paragraph",
+    "inlines": [
+      { "text": "Hello ", "style": {} },
+      { "text": "안녕하세요", "style": { "bold": true } },
+      { "text": " World", "style": { "italic": true } }
+    ],
+    "style": { "alignment": "left", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 8, "textIndent": 0, "marginLeft": 0 }
+  }]
+}

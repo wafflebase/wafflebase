@@ -3,7 +3,7 @@ import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
 import { ptToPx, Theme } from './theme.js';
-import { computeMergedCellLineLayouts } from './table-renderer.js';
+import { computeMergedCellLineLayouts } from './table-geometry.js';
 
 export interface LayoutTableCell {
   lines: LayoutLine[];

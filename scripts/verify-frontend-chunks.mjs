@@ -56,6 +56,53 @@ function readConfiguredBudget(config, key, fallback) {
   );
 }
 
+function readChunkOverrides(config) {
+  const raw = config?.frontend?.chunkBudgets?.overrides;
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    console.error(
+      "[verify:frontend:chunks] harness.config.json frontend.chunkBudgets.overrides must be an array.",
+    );
+    process.exit(1);
+  }
+  return raw.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      console.error(
+        `[verify:frontend:chunks] overrides[${index}] must be an object.`,
+      );
+      process.exit(1);
+    }
+    if (typeof entry.pattern !== "string" || entry.pattern.length === 0) {
+      console.error(
+        `[verify:frontend:chunks] overrides[${index}].pattern must be a non-empty string.`,
+      );
+      process.exit(1);
+    }
+    const maxKb = parsePositiveNumber(
+      `harness.config.json frontend.chunkBudgets.overrides[${index}].maxKb`,
+      entry.maxKb,
+    );
+    let regex;
+    try {
+      regex = new RegExp(entry.pattern);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[verify:frontend:chunks] overrides[${index}].pattern is not a valid RegExp: ${message}`,
+      );
+      process.exit(1);
+    }
+    return { regex, maxKb };
+  });
+}
+
+function effectiveLimitForChunk(name, defaultLimit, overrides) {
+  for (const override of overrides) {
+    if (override.regex.test(name)) return override.maxKb;
+  }
+  return defaultLimit;
+}
+
 function parsePositiveLimit(name, fallback) {
   const value = process.env[name];
   if (!value) {
@@ -100,6 +147,7 @@ const defaultChunkCountLimit = readConfiguredBudget(
   "maxChunkCount",
   HardDefaultChunkCountLimit,
 );
+const chunkOverrides = readChunkOverrides(harnessConfig);
 
 const chunkLimitKb = parsePositiveLimit(
   "FRONTEND_CHUNK_LIMIT_KB",
@@ -137,15 +185,18 @@ if (chunks.length > chunkCountLimit) {
   process.exit(1);
 }
 
-const overBudgetChunks = chunks.filter((chunk) => chunk.sizeKb > chunkLimitKb);
+const overBudgetChunks = chunks.filter((chunk) => {
+  const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
+  return chunk.sizeKb > limit;
+});
 
 if (overBudgetChunks.length > 0) {
   console.error(
-    "[verify:frontend:chunks] Found chunk(s) above the allowed limit of " +
-      `${chunkLimitKb} kB:`,
+    "[verify:frontend:chunks] Found chunk(s) above their allowed limit:",
   );
   for (const chunk of overBudgetChunks) {
-    console.error(`- ${formatChunk(chunk)}`);
+    const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
+    console.error(`- ${formatChunk(chunk)} > ${limit} kB`);
   }
   process.exit(1);
 }

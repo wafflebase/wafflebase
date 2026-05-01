@@ -1,0 +1,8 @@
+{
+  "blocks": [{
+    "id": "b1",
+    "type": "paragraph",
+    "inlines": [{ "text": "The quick brown fox.", "style": {} }],
+    "style": { "alignment": "left", "lineHeight": 1.5, "marginTop": 0, "marginBottom": 8, "textIndent": 0, "marginLeft": 0 }
+  }]
+}

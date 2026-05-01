@@ -1,65 +1,26 @@
-import type { LayoutTable, LayoutTableCell } from './table-layout.js';
+import type { LayoutTable } from './table-layout.js';
 import type { LayoutRun } from './layout.js';
 import type { TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
+import {
+  computeMergedCellLineLayouts,
+  getBlockIndexForLine,
+} from './table-geometry.js';
 
-/**
- * Per-line placement for a merged cell: which spanned row the line
- * belongs to and the line's absolute Y in table-logical coordinates.
- */
-export interface MergedCellLineLayout {
-  ownerRow: number;
-  runLineY: number;
-}
-
-/**
- * Distribute a merged cell's lines across the rows it spans, using a
- * content-flow model: a line occupies the next free slot in the current
- * row; if it does not fit, advance to the next row and start from that
- * row's top padding. This lines up well with a user's expectation that
- * N lines merged into N rows show one line per row, and cleanly answers
- * "which page does this line belong to" even when `rowHeights` have slack
- * (previously the center-in-range heuristic collapsed late lines into
- * an earlier row whenever the rows were taller than the lines).
- *
- * Returned positions are in table-logical Y (relative to the table's
- * top-left). Callers add their page origin to draw or to anchor a cursor.
- * For `rowSpan <= 1` the result matches the old `cellY + padding + line.y`
- * formula so non-merged cells render unchanged.
- */
-export function computeMergedCellLineLayouts(
-  cellLines: LayoutTableCell['lines'],
-  cellTopRow: number,
-  rowSpan: number,
-  cellPadding: number,
-  rowYOffsets: number[],
-  rowHeights: number[],
-): MergedCellLineLayout[] {
-  const numRows = rowYOffsets.length;
-  const spanEnd = Math.min(cellTopRow + rowSpan, numRows);
-  const result: MergedCellLineLayout[] = [];
-  let currentRow = cellTopRow;
-  let yInRow = cellPadding;
-
-  for (const line of cellLines) {
-    if (
-      rowSpan > 1 &&
-      currentRow + 1 < spanEnd &&
-      yInRow + line.height > rowHeights[currentRow] - cellPadding
-    ) {
-      currentRow++;
-      yInRow = cellPadding;
-    }
-    result.push({
-      ownerRow: currentRow,
-      runLineY: rowYOffsets[currentRow] + yInRow,
-    });
-    yInRow += line.height;
-  }
-  return result;
-}
+// Re-export the shared geometry helpers and types so existing call
+// sites that import them from `./table-renderer` keep working without
+// touching every consumer. New code (notably the PDF table painter)
+// should import directly from `./table-geometry`.
+export {
+  computeMergedCellLineLayouts,
+  getBlockIndexForLine,
+  cellOriginPx,
+  computeTableRangeForPageLine,
+  isCellCovered,
+} from './table-geometry.js';
+export type { MergedCellLineLayout } from './table-geometry.js';
 
 /**
  * Render a table on the Canvas using pre-computed layout data.
@@ -534,18 +495,6 @@ export function renderTableContent(
   if (isSplit) {
     ctx.restore();
   }
-}
-
-/**
- * Return the block index that owns the given line index, using the
- * pre-computed `blockBoundaries` array (each entry is the first line
- * index of the corresponding block).
- */
-function getBlockIndexForLine(blockBoundaries: number[], lineIndex: number): number {
-  for (let bi = blockBoundaries.length - 1; bi >= 0; bi--) {
-    if (lineIndex >= blockBoundaries[bi]) return bi;
-  }
-  return 0;
 }
 
 /**

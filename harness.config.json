@@ -2,7 +2,14 @@
   "frontend": {
     "chunkBudgets": {
       "maxChunkKb": 710,
-      "maxChunkCount": 70
+      "maxChunkCount": 70,
+      "overrides": [
+        {
+          "pattern": "^pending-imports-",
+          "maxKb": 1500,
+          "reason": "PDF export bundle (pdf-lib + fontkit), loaded only when user clicks Export PDF"
+        }
+      ]
     }
   },
   "entropy": {
