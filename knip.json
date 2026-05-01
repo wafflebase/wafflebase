@@ -10,6 +10,10 @@
       "project": ["src/**/*.ts", "test/**/*.ts"],
       "ignoreBinaries": ["scripts/fix-antlr-ts.sh"]
     },
+    "packages/docs": {
+      "entry": ["src/index.ts", "test/**/*.test.ts", "scripts/*.mjs"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
     "packages/frontend": {
       "entry": ["src/main.tsx", "tests/**/*.test.ts"],
       "project": ["src/**/*.{ts,tsx}", "tests/**/*.test.ts"]
