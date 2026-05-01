@@ -388,7 +388,13 @@ export function renderTableContent(
           ctx.fillStyle = style.color || Theme.defaultColor;
           ctx.textBaseline = 'alphabetic';
 
-          const baselineY = runLineY + line.height * 0.75;
+          // Centered-baseline formula, matching doc-canvas's body path and
+          // the list-marker path below. The old `runLineY + line.height *
+          // 0.75` leaked the glyph ~0.05 * fontSize above runLineY for
+          // tight line heights (lineHeight ≈ 1.0), so a line clipped
+          // exactly at its top — the case at a paginated row split —
+          // bled a sliver onto the previous page.
+          const baselineY = Math.round(runLineY + (line.height + fontSizePx * 0.8) / 2);
 
           // Text background highlight
           if (style.backgroundColor) {

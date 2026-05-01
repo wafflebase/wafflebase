@@ -166,6 +166,23 @@ describe('computeTableLayout', () => {
     expect(tallHeight).toBeGreaterThan(baseHeight * 1.5);
   });
 
+  it('floors cell paragraph lineHeight at 1.0 to prevent overlap', () => {
+    // DOCX's <w:spacing w:line="N" w:lineRule="exact|atLeast"/> can land in
+    // block.style.lineHeight as a sub-1.0 multiplier (the import path
+    // unconditionally divides line by 240). Honoring it literally collapses
+    // each line below the font's natural height, causing characters from
+    // adjacent lines to overlap. Clamp to >= 1.0 so text stays legible.
+    const block = createTableBlock(1, 1);
+    const cellBlock = block.tableData!.rows[0].cells[0].blocks[0];
+    cellBlock.inlines = [{ text: 'X', style: { fontSize: 12 } }];
+    cellBlock.style = { ...DEFAULT_BLOCK_STYLE, lineHeight: 0.7 };
+    const result = computeTableLayout(block.tableData!, 'tbl', stubCtx(), 200);
+    const lineHeight = result.cells[0][0].lines[0].height;
+    // 12pt -> 16px. At lineHeight 0.7 the raw value is 11.2px (overlap);
+    // the floor lifts it back to at least the font's pixel height.
+    expect(lineHeight).toBeGreaterThanOrEqual(16);
+  });
+
   it('applies heading defaults to font size inside cell', () => {
     const baseBlock = createTableBlock(1, 1);
     baseBlock.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'Heading', style: {} }];
