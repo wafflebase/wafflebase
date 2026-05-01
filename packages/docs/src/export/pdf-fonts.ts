@@ -80,26 +80,26 @@ export interface PdfFontsOptions {
 }
 
 /**
- * Direct TTF URLs for each Korean variant. These are TrueType-outline
- * variable fonts hosted in `google/fonts`; fontkit can subset them
- * cleanly (unlike CFF-flavored OTFs, which trigger a "value argument
- * out of bounds" RangeError in `@pdf-lib/fontkit`'s CFF subset encoder).
+ * Direct OTF URLs for each Korean variant. We download the full subset
+ * OTF (each ~5-7 MB) once per font variant; fontkit then subsets it
+ * further at embed time so only glyphs the document references end up
+ * in the resulting PDF.
  *
- * The files carry a `wght` axis from 100 to 900. fontkit instantiates
- * at the axis default (400) when subsetting, so bold runs currently
- * inherit the regular weight visually. A future improvement would feed
- * fontkit an explicit `wght=700` instance for the bold keys.
+ * Why not Google Fonts CSS API: that endpoint serves WOFF2 to modern
+ * user-agents, and `@pdf-lib/fontkit` doesn't include a Brotli decoder —
+ * loading WOFF2 produced gibberish glyphs. Going to OTF directly avoids
+ * the format-detection mess.
  *
- * Both `Sans` and `Serif` variable TTFs return 200 from
- * raw.githubusercontent.com. jsdelivr's `gh` mirror returns 403 on the
- * Serif file (presumably hitting a per-file size threshold), so we
- * use raw.githubusercontent for both to keep the source consistent.
+ * jsdelivr mirrors `notofonts/noto-cjk` from GitHub and serves the same
+ * SubsetOTF/KR files. If jsdelivr changes its routing, swap in raw
+ * GitHub URLs (same path under `https://raw.githubusercontent.com/...`)
+ * or self-host.
  */
 const DEFAULT_URLS: Partial<Record<PdfFontKey, string>> = {
-  'kr-sans-regular':  'https://raw.githubusercontent.com/google/fonts/main/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf',
-  'kr-sans-bold':     'https://raw.githubusercontent.com/google/fonts/main/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf',
-  'kr-serif-regular': 'https://raw.githubusercontent.com/google/fonts/main/ofl/notoserifkr/NotoSerifKR%5Bwght%5D.ttf',
-  'kr-serif-bold':    'https://raw.githubusercontent.com/google/fonts/main/ofl/notoserifkr/NotoSerifKR%5Bwght%5D.ttf',
+  'kr-sans-regular':  'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf',
+  'kr-sans-bold':     'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/KR/NotoSansKR-Bold.otf',
+  'kr-serif-regular': 'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Serif/SubsetOTF/KR/NotoSerifKR-Regular.otf',
+  'kr-serif-bold':    'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Serif/SubsetOTF/KR/NotoSerifKR-Bold.otf',
 };
 
 const IDB_NAME = 'wafflebase-pdf-fonts';
