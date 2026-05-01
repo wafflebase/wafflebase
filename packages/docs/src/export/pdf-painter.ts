@@ -8,7 +8,10 @@ import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../view/layout.js';
 import type { LayoutTable, LayoutTableCell } from '../view/table-layout.js';
-import { computeMergedCellLineLayouts } from '../view/table-geometry.js';
+import {
+  computeMergedCellLineLayouts,
+  getBlockIndexForLine,
+} from '../view/table-geometry.js';
 import { Theme, ptToPx } from '../view/theme.js';
 import { PdfFonts, type PdfFontKey, type FontUsage } from './pdf-fonts.js';
 import {
@@ -17,7 +20,11 @@ import {
   styleColor,
   isItalicShim,
 } from './pdf-style-map.js';
-import { paintTablePageRange, type CellRect } from './pdf-table-painter.js';
+import {
+  paintTablePageRange,
+  paintTableRows,
+  type CellRect,
+} from './pdf-table-painter.js';
 import type { EmbeddedImage } from './pdf-image-painter.js';
 import { isSafeUrl } from '../view/url-detect.js';
 
@@ -169,34 +176,27 @@ export class PdfPainter {
   ): void {
     const pageHeightPt = page.getHeight();
 
-    // Body lines. Table blocks span N PageLines (one per row, plus extras
-    // for split rows) — when we hit the first PageLine of a table on this
-    // page we delegate to `paintTablePageRange` and then skip ahead past
-    // every PageLine the table consumes, so the table is painted as a
-    // single fragment instead of once per row.
+    // Body lines. Table blocks can span multiple PageLines. A plain run
+    // of rows is painted from the first PageLine only, but split-row
+    // fragments each need their own pass because their clip rectangles
+    // differ. This mirrors the Canvas table renderer's start predicate.
     let i = 0;
     while (i < layoutPage.lines.length) {
       const pl = layoutPage.lines[i];
       const lb = ctx.layoutBlocks?.[pl.blockIndex];
       if (lb && lb.block.type === 'table' && lb.layoutTable) {
-        paintTablePageRange(
-          page, layoutPage, pl, i, lb, pageHeightPt,
-          (cell, layoutCell, layoutTable, r, _c, rect) => {
-            PdfPainter.paintCellContent(
-              page, cell, layoutCell, layoutTable, r, rect,
-              pageHeightPt, fonts, ctx,
-            );
-          },
-        );
-        // Advance past every consecutive PageLine that belongs to this
-        // table block. `paintTablePageRange` already covered them all
-        // via `computeTableRangeForPageLine`, so painting them again
-        // would draw the chrome multiple times.
-        i++;
-        while (i < layoutPage.lines.length
-            && layoutPage.lines[i].blockIndex === pl.blockIndex) {
-          i++;
+        if (shouldStartTableRender(layoutPage, i)) {
+          paintTablePageRange(
+            page, layoutPage, pl, i, lb, pageHeightPt,
+            (cell, layoutCell, layoutTable, r, _c, rect, pageStartRow, endRowIndex) => {
+              PdfPainter.paintCellContent(
+                page, cell, layoutCell, layoutTable, r, rect,
+                pageStartRow, endRowIndex, pageHeightPt, fonts, ctx,
+              );
+            },
+          );
         }
+        i++;
         continue;
       }
 
@@ -407,6 +407,8 @@ export class PdfPainter {
     layoutTable: LayoutTable,
     row: number,
     rect: CellRect,
+    pageStartRow: number,
+    endRowIndex: number,
     pageHeightPt: number,
     fonts: EmbeddedFonts,
     ctx: PaintContext,
@@ -451,15 +453,60 @@ export class PdfPainter {
       const line = layoutCell.lines[li];
       let lineYpx: number;
       if (mergedLineLayouts) {
-        lineYpx = tableY + mergedLineLayouts[li].runLineY;
+        const lineLayout = mergedLineLayouts[li];
+        if (
+          lineLayout.ownerRow < pageStartRow ||
+          lineLayout.ownerRow >= endRowIndex
+        ) {
+          continue;
+        }
+        lineYpx = tableY + lineLayout.runLineY;
       } else {
         lineYpx = cellY + textYOffset + line.y;
       }
-      // Nested table painting is out of scope for Task 4.3 — the canvas
-      // recurses here, but in PDF the nested-table fragment is not yet
-      // wired through. Skip cleanly so the cell at least renders its
-      // text lines without crashing.
-      if (line.nestedTable) continue;
+      if (line.nestedTable) {
+        const nestedTable = line.nestedTable;
+        const blockIndex = getBlockIndexForLine(layoutCell.blockBoundaries, li);
+        const nestedBlock = cell.blocks?.[blockIndex];
+        if (nestedBlock?.tableData) {
+          paintTableRows(
+            page,
+            nestedBlock.tableData,
+            nestedTable,
+            cellX + padding,
+            lineYpx,
+            pageHeightPt,
+            {
+              renderStartRow: 0,
+              pageStartRow: 0,
+              endRowIndex: nestedTable.rowHeights.length,
+            },
+            (
+              nestedCell,
+              nestedLayoutCell,
+              nestedLayoutTable,
+              nestedRow,
+              _nestedCol,
+              nestedRect,
+            ) => {
+              PdfPainter.paintCellContent(
+                page,
+                nestedCell,
+                nestedLayoutCell,
+                nestedLayoutTable,
+                nestedRow,
+                nestedRect,
+                0,
+                nestedTable.rowHeights.length,
+                pageHeightPt,
+                fonts,
+                ctx,
+              );
+            },
+          );
+        }
+        continue;
+      }
 
       const pseudoPl: PageLine = {
         blockIndex: 0,
@@ -503,7 +550,14 @@ export class PdfPainter {
 
         let markerLineY: number;
         if (mergedLineLayouts) {
-          markerLineY = tableY + mergedLineLayouts[firstLineIdx].runLineY;
+          const lineLayout = mergedLineLayouts[firstLineIdx];
+          if (
+            lineLayout.ownerRow < pageStartRow ||
+            lineLayout.ownerRow >= endRowIndex
+          ) {
+            continue;
+          }
+          markerLineY = tableY + lineLayout.runLineY;
         } else {
           markerLineY = cellY + textYOffset + firstLine.y;
         }
@@ -727,6 +781,16 @@ export class PdfPainter {
       xpx += segWidthPt * PX_PER_PT;
     }
   }
+}
+
+function shouldStartTableRender(page: LayoutPage, plIndex: number): boolean {
+  if (plIndex === 0) return true;
+  const pl = page.lines[plIndex];
+  const prev = page.lines[plIndex - 1];
+  if (prev.blockIndex !== pl.blockIndex) return true;
+  if (pl.rowSplitOffset !== undefined) return true;
+  if (prev.rowSplitOffset !== undefined) return true;
+  return false;
 }
 
 /**

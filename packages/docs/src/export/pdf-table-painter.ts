@@ -19,7 +19,7 @@ import {
 import type { LayoutPage, PageLine } from '../view/pagination.js';
 import type { LayoutBlock } from '../view/layout.js';
 import type { LayoutTable, LayoutTableCell } from '../view/table-layout.js';
-import type { TableCell, BorderStyle } from '../model/types.js';
+import type { BorderStyle, TableCell, TableData } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE } from '../model/types.js';
 import {
   computeTableRangeForPageLine,
@@ -58,7 +58,16 @@ export type PaintCellContent = (
   row: number,
   col: number,
   rect: CellRect,
+  pageStartRow: number,
+  endRowIndex: number,
 ) => void;
+
+export interface PaintTableRowsOptions {
+  renderStartRow: number;
+  pageStartRow: number;
+  endRowIndex: number;
+  clip?: { x: number; y: number; width: number; height: number };
+}
 
 /**
  * Paint the chrome (backgrounds, then borders) for a contiguous span of
@@ -106,11 +115,47 @@ export function paintTablePageRange(
   // on adjacent pages) get clipped away — matching the Canvas
   // `ctx.clip()` pass in `renderTableBackgrounds` / `renderTableContent`.
   const isSplit = pl.rowSplitOffset !== undefined && splitHeight !== undefined;
-  if (isSplit) {
-    const clipXpt = px2pt(pl.x);
-    const clipYpt = pageHeightPt - px2pt(pl.y + splitHeight);
-    const clipWpt = px2pt(layoutTable.totalWidth);
-    const clipHpt = px2pt(splitHeight);
+  paintTableRows(
+    page,
+    tableData,
+    layoutTable,
+    tableX,
+    tableY,
+    pageHeightPt,
+    {
+      renderStartRow: range.renderStartRow,
+      pageStartRow: range.pageStartRow,
+      endRowIndex: range.endRowIndex,
+      ...(isSplit && splitHeight !== undefined
+        ? {
+            clip: {
+              x: pl.x,
+              y: pl.y,
+              width: layoutTable.totalWidth,
+              height: splitHeight,
+            },
+          }
+        : {}),
+    },
+    paintCellContent,
+  );
+}
+
+export function paintTableRows(
+  page: PDFPage,
+  tableData: TableData,
+  layoutTable: LayoutTable,
+  tableX: number,
+  tableY: number,
+  pageHeightPt: number,
+  options: PaintTableRowsOptions,
+  paintCellContent: PaintCellContent,
+): void {
+  if (options.clip) {
+    const clipXpt = px2pt(options.clip.x);
+    const clipYpt = pageHeightPt - px2pt(options.clip.y + options.clip.height);
+    const clipWpt = px2pt(options.clip.width);
+    const clipHpt = px2pt(options.clip.height);
     page.pushOperators(
       pushGraphicsState(),
       rectangle(clipXpt, clipYpt, clipWpt, clipHpt),
@@ -120,7 +165,7 @@ export function paintTablePageRange(
   }
 
   // 1. Backgrounds first so cell text and borders draw over them.
-  for (let r = range.renderStartRow; r < range.endRowIndex; r++) {
+  for (let r = options.renderStartRow; r < options.endRowIndex; r++) {
     const cells = tableData.rows[r]?.cells ?? [];
     for (let c = 0; c < cells.length; c++) {
       if (isCellCovered(layoutTable, r, c)) continue;
@@ -144,19 +189,34 @@ export function paintTablePageRange(
   // 2. Cell content (delegated). Painting content before borders means a
   // border drawn on the cell edge sits on top of any text that grazes
   // it — matching the canvas renderer's order in `renderTable`.
-  for (let r = range.renderStartRow; r < range.endRowIndex; r++) {
+  for (let r = options.renderStartRow; r < options.endRowIndex; r++) {
     const cells = tableData.rows[r]?.cells ?? [];
     for (let c = 0; c < cells.length; c++) {
       if (isCellCovered(layoutTable, r, c)) continue;
+      const cell = cells[c];
+      const rowSpan = cell.rowSpan ?? 1;
+      // A non-merged cell from a swept-back row belongs to an earlier
+      // page. Canvas skips it in this case; PDF should do the same so
+      // content is not drawn into a clipped/incorrect fragment.
+      if (rowSpan === 1 && r < options.pageStartRow) continue;
       const layoutCell = layoutTable.cells[r]?.[c];
       if (!layoutCell) continue;
       const { x, y, w, h } = cellOriginPx(layoutTable, tableData, r, c);
-      paintCellContent(cells[c], layoutCell, layoutTable, r, c, {
-        x: tableX + x,
-        y: tableY + y,
-        w,
-        h,
-      });
+      paintCellContent(
+        cell,
+        layoutCell,
+        layoutTable,
+        r,
+        c,
+        {
+          x: tableX + x,
+          y: tableY + y,
+          w,
+          h,
+        },
+        options.pageStartRow,
+        options.endRowIndex,
+      );
     }
   }
 
@@ -170,7 +230,7 @@ export function paintTablePageRange(
   // `pl.y`, height = `splitHeight`) so all four borders sit inside
   // the clip and render. Mirrors `view/table-renderer.ts`'s
   // `visibleStart`/`visibleEnd` logic.
-  for (let r = range.renderStartRow; r < range.endRowIndex; r++) {
+  for (let r = options.renderStartRow; r < options.endRowIndex; r++) {
     const cells = tableData.rows[r]?.cells ?? [];
     for (let c = 0; c < cells.length; c++) {
       if (isCellCovered(layoutTable, r, c)) continue;
@@ -178,9 +238,12 @@ export function paintTablePageRange(
       const { x, y, w, h } = cellOriginPx(layoutTable, tableData, r, c);
       let by = tableY + y;
       let bh = h;
-      if (isSplit && splitHeight !== undefined && r === pl.lineIndex) {
-        by = pl.y;
-        bh = splitHeight;
+      if (
+        options.clip &&
+        r === options.pageStartRow
+      ) {
+        by = options.clip.y;
+        bh = options.clip.height;
       }
       drawCellBorders(
         page,
@@ -194,7 +257,7 @@ export function paintTablePageRange(
     }
   }
 
-  if (isSplit) {
+  if (options.clip) {
     page.pushOperators(popGraphicsState());
   }
 }
