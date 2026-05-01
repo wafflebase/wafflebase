@@ -3,8 +3,8 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** completed (2026-04-30)
-**Spec:** [`docs/design/docs/docs-pdf-export.md`](../../design/docs/docs-pdf-export.md)
-**Lessons:** `docs/tasks/active/20260430-pdf-export-lessons.md` (created during execution)
+**Spec:** `docs/design/docs/docs-pdf-export.md`
+**Lessons:** `docs/tasks/archive/2026/04/20260430-pdf-export-lessons.md`
 
 **Goal:** Add a vector PDF export path to the Docs editor alongside existing DOCX export, producing selectable/searchable PDFs with embedded Korean fonts and PDF-native features (bookmarks, hyperlinks, page numbers).
 

@@ -135,9 +135,15 @@ painter yet; Canvas's simple text path doesn't apply them either. Track as follo
 ## Things we deferred to manual verification
 
 Automated tests cover **structural correctness** (re-loadable PDF, page count, byte-size
-deltas proving draw calls happened). The following need a human eye in a real PDF reader:
+deltas proving draw calls happened). The following need a human eye in a real PDF reader.
+Items marked `[x]` were verified during local testing of a Korean document with table,
+list markers, and CJK punctuation; the rest are the remaining checklist for reviewers:
 
-- [ ] Korean text renders correctly in Adobe Reader / macOS Preview
+- [x] Korean text renders correctly in macOS Preview
+- [x] CJK punctuation (※, etc.) renders correctly
+- [x] Bullet markers (●○■) render correctly in body and table cells
+- [x] Table borders render including default 1px black on cells with no per-edge style
+- [ ] Korean text renders correctly in Adobe Reader (only Preview tested locally)
 - [ ] Cmd+C copies real Unicode (not glyph IDs)
 - [ ] Cmd+F finds Korean and Latin
 - [ ] Hyperlinks click open in browser

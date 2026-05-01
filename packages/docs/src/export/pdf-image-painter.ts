@@ -45,18 +45,47 @@ export async function collectAndEmbedImages(
   for (const src of srcs) {
     const blob = await fetcher(src);
     const buf = await blob.arrayBuffer();
-    const mime = (blob.type || '').toLowerCase();
+    const bytes = new Uint8Array(buf);
+    // `Blob.type` is empty when the response lacked a Content-Type
+    // header — common for static asset hosts and direct file fetches.
+    // Fall back to magic-byte sniffing so real PNG/JPEG payloads don't
+    // get routed through the browser-only Canvas conversion path.
+    const mime = (blob.type || sniffImageMime(bytes) || '').toLowerCase();
     let img: PDFImage;
     if (mime === 'image/png') {
-      img = await pdfDoc.embedPng(new Uint8Array(buf));
+      img = await pdfDoc.embedPng(bytes);
     } else if (mime === 'image/jpeg' || mime === 'image/jpg') {
-      img = await pdfDoc.embedJpg(new Uint8Array(buf));
+      img = await pdfDoc.embedJpg(bytes);
     } else {
       img = await embedAsPng(pdfDoc, buf, mime || 'image/png');
     }
     out.set(src, { embedded: img, width: img.width, height: img.height });
   }
   return out;
+}
+
+/**
+ * Detect PNG and JPEG payloads by inspecting their magic-byte signatures.
+ * Returns undefined for anything else, which falls through to the Canvas
+ * conversion path (or fails there in non-browser environments).
+ */
+function sniffImageMime(bytes: Uint8Array): string | undefined {
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x89 && bytes[1] === 0x50 &&
+    bytes[2] === 0x4e && bytes[3] === 0x47
+  ) {
+    return 'image/png';
+  }
+  // JPEG (any flavor): FF D8 FF
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+  ) {
+    return 'image/jpeg';
+  }
+  return undefined;
 }
 
 /**

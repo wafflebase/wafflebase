@@ -90,16 +90,19 @@ export interface PdfFontsOptions {
  * loading WOFF2 produced gibberish glyphs. Going to OTF directly avoids
  * the format-detection mess.
  *
- * jsdelivr mirrors `notofonts/noto-cjk` from GitHub and serves the same
- * SubsetOTF/KR files. If jsdelivr changes its routing, swap in raw
- * GitHub URLs (same path under `https://raw.githubusercontent.com/...`)
- * or self-host.
+ * URLs pin to specific release tags (`Sans2.004` / `Serif2.003`) rather
+ * than `@main` so first-time exports can't break on upstream changes
+ * to noto-cjk's main branch. When a newer release ships, bump these
+ * tags after smoke-testing the new fonts in dev. jsdelivr mirrors the
+ * tags identically; raw.githubusercontent serves the same paths under
+ * `https://raw.githubusercontent.com/notofonts/noto-cjk/<tag>/...` if
+ * jsdelivr changes its routing.
  */
 const DEFAULT_URLS: Partial<Record<PdfFontKey, string>> = {
-  'kr-sans-regular':  'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf',
-  'kr-sans-bold':     'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/KR/NotoSansKR-Bold.otf',
-  'kr-serif-regular': 'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Serif/SubsetOTF/KR/NotoSerifKR-Regular.otf',
-  'kr-serif-bold':    'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Serif/SubsetOTF/KR/NotoSerifKR-Bold.otf',
+  'kr-sans-regular':  'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@Sans2.004/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf',
+  'kr-sans-bold':     'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@Sans2.004/Sans/SubsetOTF/KR/NotoSansKR-Bold.otf',
+  'kr-serif-regular': 'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@Serif2.003/Serif/SubsetOTF/KR/NotoSerifKR-Regular.otf',
+  'kr-serif-bold':    'https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@Serif2.003/Serif/SubsetOTF/KR/NotoSerifKR-Bold.otf',
 };
 
 const IDB_NAME = 'wafflebase-pdf-fonts';

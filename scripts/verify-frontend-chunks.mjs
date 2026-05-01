@@ -186,8 +186,7 @@ const overBudgetChunks = chunks.filter((chunk) => {
 
 if (overBudgetChunks.length > 0) {
   console.error(
-    "[verify:frontend:chunks] Found chunk(s) above the allowed limit of " +
-      `${chunkLimitKb} kB:`,
+    "[verify:frontend:chunks] Found chunk(s) above their allowed limit:",
   );
   for (const chunk of overBudgetChunks) {
     const limit = effectiveLimitForChunk(chunk.name, chunkLimitKb, chunkOverrides);
