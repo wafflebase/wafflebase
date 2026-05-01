@@ -40,6 +40,26 @@ describe('splitMixedScript', () => {
   it('returns empty array for empty input', () => {
     expect(splitMixedScript('')).toEqual([]);
   });
+  it('strips C0 control characters (LF, CR, TAB, NUL)', () => {
+    // WinAnsi can't encode these and they have no visual rendering.
+    // Stripping happens before classification, so a control-only
+    // string yields no segments.
+    expect(splitMixedScript('\u0000\t\r\n')).toEqual([]);
+    expect(splitMixedScript('Hello\nWorld')).toEqual([
+      { text: 'HelloWorld', needsCustomFont: false },
+    ]);
+  });
+  it('preserves U+FFFC (Object Replacement Character) for image runs', () => {
+    // Image inlines carry U+FFFC as placeholder text. The painter
+    // routes image runs before splitMixedScript is called, but the
+    // function must NOT strip OBJ as part of "control char cleanup"
+    // or width measurements for image-adjacent text would desync.
+    // (U+FFFC sits outside LATIN_SAFE_CHARS, so the script splitter
+    // separates it from neighboring Latin segments — the contract is
+    // preservation, not coalescence.)
+    const out = splitMixedScript('a\uFFFCb');
+    expect(out.map((s) => s.text).join('')).toBe('a\uFFFCb');
+  });
 });
 
 describe('styleColor', () => {

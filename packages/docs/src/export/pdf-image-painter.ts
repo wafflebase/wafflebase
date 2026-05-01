@@ -31,14 +31,25 @@ export async function collectAndEmbedImages(
   fetcher?: ImageFetcher,
 ): Promise<Map<string, EmbeddedImage>> {
   const out = new Map<string, EmbeddedImage>();
+  // Dedup is by URL string only — same image referenced via two
+  // different absolute URLs (e.g. `/images/abc` vs
+  // `https://backend/images/abc`) gets fetched and embedded twice.
+  // Acceptable for the typical Docs path where the editor inserts a
+  // single canonical URL; future work would sniff the bytes and
+  // dedup by content hash for imported docs that mix forms.
   const srcs = new Set<string>();
   collectSrcs(doc.blocks, srcs);
   if (doc.header) collectSrcs(doc.header.blocks, srcs);
   if (doc.footer) collectSrcs(doc.footer.blocks, srcs);
+  // Drop empty-string `src` early — a malformed image inline would
+  // otherwise call the fetcher with `""` and surface a less obvious
+  // "Failed to fetch" instead of being skipped silently.
+  srcs.delete('');
   if (srcs.size === 0) return out;
   if (!fetcher) {
     throw new Error(
-      'imageFetcher required: document contains image inlines',
+      `imageFetcher required: document contains ${srcs.size} image inline(s); ` +
+        `first: ${[...srcs][0]}`,
     );
   }
 

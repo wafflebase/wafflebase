@@ -47,6 +47,13 @@ export interface ScriptSegment {
  * Layout/pagination already breaks lines at logical boundaries, so any
  * control char surviving into a `LayoutRun.text` is a paste-time artifact
  * we can drop without losing meaning.
+ *
+ * IMPORTANT: U+FFFC (Object Replacement Character) is the placeholder
+ * text for image inlines and MUST NOT be added to the strip range here.
+ * Image runs are handled in `pdf-painter.ts:paintRun` before
+ * `splitMixedScript` is called, but the `LayoutRun.text` for an image
+ * still carries U+FFFC, and stripping it here would shift width
+ * measurements and run advance calculations.
  */
 export function splitMixedScript(text: string): ScriptSegment[] {
   if (!text) return [];

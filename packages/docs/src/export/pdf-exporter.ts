@@ -201,7 +201,8 @@ async function ensureCanvasFontsLoaded(usage: FontUsage): Promise<void> {
  * enough for unit tests, NOT for production.
  */
 function getMeasurementCtx(): CanvasRenderingContext2D {
-  if (typeof document !== 'undefined') {
+  const inBrowser = typeof document !== 'undefined';
+  if (inBrowser) {
     const canvas = document.createElement('canvas');
     const realCtx = canvas.getContext('2d');
     if (realCtx && typeof realCtx.measureText === 'function') {
@@ -212,6 +213,16 @@ function getMeasurementCtx(): CanvasRenderingContext2D {
         }
       } catch { /* fall through to mock */ }
     }
+    // We're in a real browser but the canvas probe failed — likely a
+    // font-loading race or a browser bug. Falling back to the 8-px-per-
+    // char mock would silently produce a PDF with wrong line breaks
+    // and text positions, so warn the developer instead of failing
+    // quietly. (Tests run in jsdom, where this branch never fires.)
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[PdfExporter] Canvas measureText probe returned 0 in a browser context; ' +
+        'falling back to approximate metrics. Resulting PDF layout will not match on-screen pagination.',
+    );
   }
   // jsdom fallback: 8 px per char
   return {

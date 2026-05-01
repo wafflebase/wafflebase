@@ -148,6 +148,10 @@ list markers, and CJK punctuation; the rest are the remaining checklist for revi
 - [ ] Cmd+F finds Korean and Latin
 - [ ] Hyperlinks click open in browser
 - [ ] Outline panel shows headings as a tree (currently flat sibling chain — Phase 2 nesting)
+- [ ] Outline destination granularity: every entry uses `[/Fit]`, which scrolls
+      to the page top regardless of where the heading sits on the page. Multiple
+      headings on the same page all jump to the same Y. Phase 2 work should
+      switch to `[/XYZ left top zoom]` for Y-precise destinations.
 - [ ] Print preview pagination matches on-screen
 - [ ] Italic Korean slant looks natural (12° skew is the design choice)
 - [ ] Image positioning visually matches Canvas

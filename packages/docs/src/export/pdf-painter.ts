@@ -19,6 +19,7 @@ import {
 } from './pdf-style-map.js';
 import { paintTablePageRange, type CellRect } from './pdf-table-painter.js';
 import type { EmbeddedImage } from './pdf-image-painter.js';
+import { isSafeUrl } from '../view/url-detect.js';
 
 /**
  * Forward-slant approximation (~12°) used to fake italic for Korean
@@ -338,6 +339,10 @@ export class PdfPainter {
     // available in pdf-lib's WinAnsi-encoded StandardFonts. Route them
     // through the embedded Korean font, which carries those glyphs.
     // Ordered markers ("1.", "a.", "iv.") are ASCII so Helvetica works.
+    // CONTRACT: `scanFontsUsed` in `pdf-fonts.ts:visitBlock` sets
+    // `needsKR=true` whenever an unordered list-item appears, so
+    // `kr-sans-regular` is guaranteed to be embedded by the time we
+    // get here. Both sites must change together.
     const font = block.listKind === 'unordered'
       ? fonts['kr-sans-regular']
       : fonts['sans-regular'];
@@ -705,7 +710,11 @@ export class PdfPainter {
       // page's Annots array. Rect uses the same baseline/ascent/descent
       // box as the background rectangle so click targets line up with
       // the visible glyph cell.
-      if (style.href) {
+      //
+      // Filter against `isSafeUrl` (the same gate the editor uses on
+      // user input) so an imported document or paste-time mishap can't
+      // smuggle a `javascript:` / `data:` URI into a downloaded PDF.
+      if (style.href && isSafeUrl(style.href)) {
         const x1Pt = px2pt(xpx);
         const y1Pt = pageHeightPt - px2pt(drawBaselineYpx + drawDescentPx);
         const x2Pt = px2pt(xpx) + segWidthPt;

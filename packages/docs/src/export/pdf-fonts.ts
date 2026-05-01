@@ -37,6 +37,11 @@ function visitBlock(block: Block, u: FontUsage): void {
   // Unordered list markers (●, ○, ■) live in the U+25xx range — outside
   // pdf-lib's WinAnsi-only StandardFonts coverage. Force a Korean font
   // load so the painter has a binary that contains those glyphs.
+  // CONTRACT: `pdf-painter.ts:paintListMarker` (and the cell-content
+  // marker draw inside `paintCellContent`) reach into
+  // `fonts['kr-sans-regular']` for unordered markers. Both sides depend
+  // on this flag being set, so any future change to either site must
+  // keep them in sync.
   if (block.type === 'list-item' && block.listKind === 'unordered') {
     u.needsKR = true;
   }
