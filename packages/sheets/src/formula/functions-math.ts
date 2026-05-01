@@ -1853,6 +1853,45 @@ export function randbetweenFunc(
   return { t: 'num', v: Math.floor(Math.random() * (high - low + 1)) + low };
 }
 
+// Lookup tables for ROMAN/ARABIC — each entry is [value, symbol], sorted descending.
+// Rule 0: classic strict notation (I-V/X, X-L/C, C-D/M only).
+// Rule 1–4: progressively allow additional subtractive pairs.
+const ROMAN_TABLES: ReadonlyArray<ReadonlyArray<readonly [number, string]>> = [
+  [ // Rule 0
+    [1000, 'M'],  [900, 'CM'], [500, 'D'],  [400, 'CD'],
+    [100,  'C'],  [90,  'XC'], [50,  'L'],  [40,  'XL'],
+    [10,   'X'],  [9,   'IX'], [5,   'V'],  [4,   'IV'],  [1, 'I'],
+  ],
+  [ // Rule 1: additionally V-L=45, V-C=95, L-D=450, L-M=950.
+    [1000, 'M'],  [950, 'LM'], [900, 'CM'],
+    [500,  'D'],  [450, 'LD'], [400, 'CD'],
+    [100,  'C'],  [95,  'VC'], [90,  'XC'],
+    [50,   'L'],  [45,  'VL'], [40,  'XL'],
+    [10,   'X'],  [9,   'IX'], [5,    'V'], [4,   'IV'], [1, 'I'],
+  ],
+  [ // Rule 2: additionally I-L=49, I-C=99, X-D=490, X-M=990.
+    [1000, 'M'],  [990, 'XM'], [950, 'LM'], [900, 'CM'],
+    [500,  'D'],  [490, 'XD'], [450, 'LD'], [400, 'CD'],
+    [100,  'C'],  [99,  'IC'], [95,  'VC'], [90,  'XC'],
+    [50,   'L'],  [49,  'IL'], [45,  'VL'], [40,  'XL'],
+    [10,   'X'],  [9,   'IX'], [5,    'V'], [4,   'IV'], [1, 'I'],
+  ],
+  [ // Rule 3: additionally V-D=495, V-M=995.
+    [1000, 'M'],  [995, 'VM'], [990, 'XM'], [950, 'LM'], [900, 'CM'],
+    [500,  'D'],  [495, 'VD'], [490, 'XD'], [450, 'LD'], [400, 'CD'],
+    [100,  'C'],  [99,  'IC'], [95,  'VC'], [90,  'XC'],
+    [50,   'L'],  [49,  'IL'], [45,  'VL'], [40,  'XL'],
+    [10,   'X'],  [9,   'IX'], [5,    'V'], [4,   'IV'], [1, 'I'],
+  ],
+  [ // Rule 4: additionally I-D=499, I-M=999.
+    [1000, 'M'],  [999, 'IM'], [995, 'VM'], [990, 'XM'], [950, 'LM'], [900, 'CM'],
+    [500,  'D'],  [499, 'ID'], [495, 'VD'], [490, 'XD'], [450, 'LD'], [400, 'CD'],
+    [100,  'C'],  [99,  'IC'], [95,  'VC'], [90,  'XC'],
+    [50,   'L'],  [49,  'IL'], [45,  'VL'], [40,  'XL'],
+    [10,   'X'],  [9,   'IX'], [5,    'V'], [4,   'IV'], [1, 'I'],
+  ],
+];
+
 /**
  * ARABIC(roman_numeral) — converts Roman numeral text to a number.
  */
@@ -1868,21 +1907,39 @@ export function arabicFunc(
   const node = visit(exprs[0]);
   const strResult = toStr(node, grid);
   if (strResult.t === 'err') return strResult;
+
+  if (strResult.v === '') return { t: 'num', v: 0 };
+  if (!/^-?[MDCLXVI]*$/i.test(strResult.v)) return ErrNode.VALUE;
+
   const text = strResult.v.toUpperCase();
+  const negative = text[0] === '-';
+  const body = negative ? text.slice(1) : text;
 
   const romanValues: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+
   let result = 0;
-  for (let i = 0; i < text.length; i++) {
-    const current = romanValues[text[i]];
-    const next = i + 1 < text.length ? romanValues[text[i + 1]] : 0;
-    if (current === undefined) return ErrNode.VALUE;
-    if (current < next) {
-      result -= current;
-    } else {
-      result += current;
-    }
+  for (let i = 0; i < body.length; i++) {
+    const current = romanValues[body[i]];
+    const next = i + 1 < body.length ? romanValues[body[i + 1]] : 0;
+    result += current < next ? -current : current;
   }
-  return { t: 'num', v: result };
+
+  const value = negative ? -result : result;
+  if (Math.abs(value) > 3999) return ErrNode.VALUE;
+
+  // Validate by round-trip: input must be the canonical form for some rule 0–4.
+  const abs = Math.abs(value);
+  const valid = ROMAN_TABLES.some(table => {
+    let s = '';
+    let rem = abs;
+    for (const [v, sym] of table) {
+      while (rem >= v) { s += sym; rem -= v; }
+    }
+    return s === body;
+  });
+  if (!valid) return ErrNode.VALUE;
+
+  return { t: 'num', v: value };
 }
 
 /**
@@ -1904,13 +1961,20 @@ export function romanFunc(
   if (num < 0 || num > 3999) return ErrNode.VALUE;
   if (num === 0) return { t: 'str', v: '' };
 
-  const values = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
-  const symbols = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
+  let rule = 0;
+  if (exprs.length === 2) {
+    const ruleNode = NumberArgs.map(visit(exprs[1]), grid);
+    if (ruleNode.t === 'err') return ruleNode;
+    rule = Math.trunc(ruleNode.v);
+    if (rule < 0 || rule > 4) return ErrNode.VALUE;
+  }
+
+  const table = ROMAN_TABLES[rule];
   let result = '';
-  for (let i = 0; i < values.length; i++) {
-    while (num >= values[i]) {
-      result += symbols[i];
-      num -= values[i];
+  for (const [value, symbol] of table) {
+    while (num >= value) {
+      result += symbol;
+      num -= value;
     }
   }
   return { t: 'str', v: result };

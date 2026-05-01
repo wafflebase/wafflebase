@@ -1953,12 +1953,64 @@ describe('Formula', () => {
     expect(evaluate('=ARABIC("XIV")')).toBe('14');
     expect(evaluate('=ARABIC("MCMXCIX")')).toBe('1999');
     expect(evaluate('=ARABIC("IV")')).toBe('4');
+    // lowercase input
+    expect(evaluate('=ARABIC("xiv")')).toBe('14');
+    // empty string → 0
+    expect(evaluate('=ARABIC("")')).toBe('0');
+    // negative prefix
+    expect(evaluate('=ARABIC("-XIV")')).toBe('-14');
+    expect(evaluate('=ARABIC("-MCMXCIX")')).toBe('-1999');
+    expect(evaluate('=ARABIC("-I")')).toBe('-1');
+    // minus sign only → 0
+    expect(evaluate('=ARABIC("-")')).toBe('0');
+    // invalid character → #VALUE!
+    expect(evaluate('=ARABIC("XIVZ")')).toBe('#VALUE!');
+    // non-canonical forms → #VALUE! (round-trip check: must match ROMAN(n, rule) for some rule 0–4)
+    expect(evaluate('=ARABIC("VV")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("VVV")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("LL")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("LLL")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("DD")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("DDD")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("IIII")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("XXXX")')).toBe('#VALUE!');
+    // M can repeat but result must be ≤ 3999
+    expect(evaluate('=ARABIC("MMMCMXCIX")')).toBe('3999');
+    expect(evaluate('=ARABIC("MMMM")')).toBe('#VALUE!');
+    // subtractive pair must be exactly one prefix char before one target char
+    expect(evaluate('=ARABIC("IIV")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("IIIV")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("IIX")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("XXL")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("ILL")')).toBe('#VALUE!');
+    expect(evaluate('=ARABIC("XDD")')).toBe('#VALUE!');
+    // rule-4 relaxed subtractive pairs
+    expect(evaluate('=ARABIC("ID")')).toBe('499');
+    expect(evaluate('=ARABIC("IM")')).toBe('999');
+    expect(evaluate('=ARABIC("VD")')).toBe('495');
+    expect(evaluate('=ARABIC("VM")')).toBe('995');
+    expect(evaluate('=ARABIC("XD")')).toBe('490');
+    expect(evaluate('=ARABIC("IL")')).toBe('49');
   });
 
   it('should correctly evaluate ROMAN function', () => {
+    // rule 0 (default)
     expect(evaluate('=ROMAN(14)')).toBe('XIV');
     expect(evaluate('=ROMAN(1999)')).toBe('MCMXCIX');
     expect(evaluate('=ROMAN(4)')).toBe('IV');
+    expect(evaluate('=ROMAN(499,0)')).toBe('CDXCIX');
+    // rule 1
+    expect(evaluate('=ROMAN(499,1)')).toBe('LDVLIV');
+    // rule 2
+    expect(evaluate('=ROMAN(499,2)')).toBe('XDIX');
+    // rule 3
+    expect(evaluate('=ROMAN(499,3)')).toBe('VDIV');
+    // rule 4
+    expect(evaluate('=ROMAN(499,4)')).toBe('ID');
+    expect(evaluate('=ROMAN(999,4)')).toBe('IM');
+    // edge cases
+    expect(evaluate('=ROMAN(0)')).toBe('');
+    expect(evaluate('=ROMAN(3999)')).toBe('MMMCMXCIX');
   });
 
   it('should correctly evaluate MULTINOMIAL function', () => {
