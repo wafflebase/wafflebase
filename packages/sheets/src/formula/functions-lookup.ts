@@ -16,6 +16,7 @@ import {
   isFormulaError,
   getRefsFromExpression,
   getReferenceMatrixFromExpression,
+  type MatrixResult,
   lookupValueFromNode,
   lookupValueFromRef,
   equalLookupValues,
@@ -51,6 +52,9 @@ export function matchFunc(
   const matrix = getReferenceMatrixFromExpression(exprs[1], visit, grid);
   if (matrix.t === 'err') {
     return matrix;
+  }
+  if (matrix.t !== 'matrix') {
+    return ErrNode.VALUE;
   }
   if (matrix.v.rowCount > 1 && matrix.v.colCount > 1) {
     return ErrNode.NA;
@@ -129,21 +133,19 @@ export function indexFunc(
     return ErrNode.NA;
   }
 
-  const matrix = getReferenceMatrixFromExpression(exprs[0], visit, grid);
-  if (matrix.t === 'err') {
-    return matrix;
-  }
+  const mat: MatrixResult | ErrNode = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if (mat.t === 'err') return mat;
+
+  const rowCount = mat.t === 'arrmat' ? mat.rowCount : mat.v.rowCount;
+  const colCount = mat.t === 'arrmat' ? mat.colCount : mat.v.colCount;
 
   let row = 1;
   let col = 1;
   if (exprs.length >= 2) {
     const rowNode = NumberArgs.map(visit(exprs[1]), grid);
-    if (rowNode.t === 'err') {
-      return rowNode;
-    }
+    if (rowNode.t === 'err') return rowNode;
     const rowArg = Math.trunc(rowNode.v);
-
-    if (exprs.length === 2 && matrix.v.rowCount === 1 && matrix.v.colCount > 1) {
+    if (exprs.length === 2 && rowCount === 1 && colCount > 1) {
       col = rowArg;
     } else {
       row = rowArg;
@@ -152,23 +154,19 @@ export function indexFunc(
 
   if (exprs.length === 3) {
     const colNode = NumberArgs.map(visit(exprs[2]), grid);
-    if (colNode.t === 'err') {
-      return colNode;
-    }
+    if (colNode.t === 'err') return colNode;
     col = Math.trunc(colNode.v);
   }
 
-  if (row <= 0 || col <= 0) {
-    return ErrNode.VALUE;
-  }
-  if (row > matrix.v.rowCount || col > matrix.v.colCount) {
-    return ErrNode.REF;
+  if (row <= 0 || col <= 0) return ErrNode.VALUE;
+
+  if (mat.t === 'arrmat') {
+    if (row > mat.rowCount || col > mat.colCount) return ErrNode.REF;
+    return mat.values[row - 1]?.[col - 1] ?? ErrNode.REF;
   }
 
-  return {
-    t: 'ref',
-    v: matrix.v.refs[(row - 1) * matrix.v.colCount + (col - 1)],
-  };
+  if (row > mat.v.rowCount || col > mat.v.colCount) return ErrNode.REF;
+  return { t: 'ref', v: mat.v.refs[(row - 1) * mat.v.colCount + (col - 1)] };
 }
 
 /**
@@ -198,6 +196,9 @@ export function vlookupFunc(
   const matrix = getReferenceMatrixFromExpression(exprs[1], visit, grid);
   if (matrix.t === 'err') {
     return matrix;
+  }
+  if (matrix.t !== 'matrix') {
+    return ErrNode.VALUE;
   }
 
   const indexNode = NumberArgs.map(visit(exprs[2]), grid);
@@ -287,6 +288,9 @@ export function hlookupFunc(
   const matrix = getReferenceMatrixFromExpression(exprs[1], visit, grid);
   if (matrix.t === 'err') {
     return matrix;
+  }
+  if (matrix.t !== 'matrix') {
+    return ErrNode.VALUE;
   }
 
   const indexNode = NumberArgs.map(visit(exprs[2]), grid);
