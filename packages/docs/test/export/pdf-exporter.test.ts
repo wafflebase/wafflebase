@@ -42,15 +42,16 @@ function testFonts(): PdfFonts {
   return new PdfFonts({ sources });
 }
 
-// Deterministic measurer used by every export() call below. Without this,
-// PdfExporter falls through to its 8-px-per-char fallback inside jsdom and
-// the layout step emits a noisy "Canvas measureText probe returned 0"
-// warning that distracts from real test signal.
-const testMeasurer: import('../../src/view/measurer.js').TextMeasurer = {
-  measureWidth: (text: string) => text.length * 8,
-};
+// Deterministic measurer used by every export() call below. Required —
+// PdfExporter throws without `opts.measurer` and we want goldens, not
+// jsdom canvas surprises.
+import { stubMeasurer } from '../view/_stub-measurer.js';
 
-function exportOpts(extra: Parameters<typeof PdfExporter.export>[1] = {}): Parameters<typeof PdfExporter.export>[1] {
+const testMeasurer = stubMeasurer();
+
+type ExportOpts = Parameters<typeof PdfExporter.export>[1];
+
+function exportOpts(extra: Partial<ExportOpts> = {}): ExportOpts {
   return { fonts: testFonts(), measurer: testMeasurer, ...extra };
 }
 
