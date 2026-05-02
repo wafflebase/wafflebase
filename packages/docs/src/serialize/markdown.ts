@@ -1,0 +1,212 @@
+import type {
+  Block,
+  Document,
+  HeaderFooter,
+  Inline,
+  TableCell,
+  TableData,
+} from '../model/types.js';
+
+/**
+ * Options for the Markdown serializer.
+ *
+ * - `inlineImages` — when `false` (default), `data:` URLs are replaced
+ *   with the `[image]` placeholder so the produced Markdown stays
+ *   readable in a terminal. When `true`, the full `src` is emitted as
+ *   the link target (useful when piping to a Markdown renderer).
+ * - `includeHeaderFooter` — emit the document header before, and footer
+ *   after, the body. Defaults to `false`; headers/footers are page-level
+ *   chrome and don't fit a single linear stream.
+ */
+export interface MarkdownOptions {
+  inlineImages?: boolean;
+  includeHeaderFooter?: boolean;
+}
+
+/**
+ * Serialize a `Document` to GitHub-Flavoured Markdown per design § 5.1.
+ *
+ * Lossy by intention — alignment, indent, line-height, color, font
+ * choice, sup/sub, underline, table merges, and nested tables are all
+ * dropped. The CLI prints a one-line stderr notice on first use; this
+ * pure function does **not** print to stderr.
+ */
+export function serializeMarkdown(
+  doc: Document,
+  opts: MarkdownOptions = {},
+): string {
+  const includeHF = opts.includeHeaderFooter === true;
+  const sections: string[] = [];
+
+  if (includeHF && doc.header) {
+    sections.push(serializeHeaderFooter(doc.header, opts));
+  }
+
+  sections.push(serializeBlocks(doc.blocks, opts));
+
+  if (includeHF && doc.footer) {
+    sections.push(serializeHeaderFooter(doc.footer, opts));
+  }
+
+  // Block-level entries inside a section are joined with a single \n;
+  // the whole sections (header/body/footer) get a blank line between
+  // them so they render as separate Markdown blocks.
+  return sections.filter((s) => s.length > 0).join('\n\n');
+}
+
+function serializeHeaderFooter(
+  region: HeaderFooter,
+  opts: MarkdownOptions,
+): string {
+  return serializeBlocks(region.blocks, opts);
+}
+
+function serializeBlocks(blocks: Block[], opts: MarkdownOptions): string {
+  return blocks.map((b) => blockToMarkdown(b, opts)).join('\n');
+}
+
+function blockToMarkdown(block: Block, opts: MarkdownOptions): string {
+  const text = inlinesToMarkdown(block.inlines, opts);
+
+  switch (block.type) {
+    case 'title':
+      return `# ${text}`;
+
+    case 'subtitle':
+      // Italic paragraph; treat empty subtitles as bare * to avoid `**`.
+      return text.length > 0 ? `*${text}*` : '*';
+
+    case 'heading': {
+      const level = clampHeadingLevel(block.headingLevel);
+      return `${'#'.repeat(level)} ${text}`;
+    }
+
+    case 'paragraph':
+      return text;
+
+    case 'list-item': {
+      const indent = '  '.repeat(Math.max(0, block.listLevel ?? 0));
+      const marker = block.listKind === 'ordered' ? '1.' : '-';
+      return `${indent}${marker} ${text}`;
+    }
+
+    case 'horizontal-rule':
+      return '---';
+
+    case 'page-break':
+      return '<!-- pagebreak -->';
+
+    case 'table':
+      return tableToMarkdown(block.tableData, opts);
+  }
+}
+
+function clampHeadingLevel(level: number | undefined): number {
+  if (typeof level !== 'number' || level < 1) return 1;
+  if (level > 6) return 6;
+  return Math.floor(level);
+}
+
+function tableToMarkdown(
+  tableData: TableData | undefined,
+  opts: MarkdownOptions,
+): string {
+  if (!tableData || tableData.rows.length === 0) return '';
+
+  const rows = tableData.rows.map((row) =>
+    row.cells.map((cell) => cellToMarkdown(cell, opts)),
+  );
+
+  // Pad shorter rows with empty cells so the column count is uniform —
+  // GFM tables require it. We can't faithfully represent merges (the
+  // design explicitly drops them), so this is the most honest choice.
+  const colCount = Math.max(...rows.map((r) => r.length));
+  for (const r of rows) {
+    while (r.length < colCount) r.push('');
+  }
+
+  const [header, ...body] = rows;
+  const sep = Array.from({ length: colCount }, () => '---');
+
+  const lines = [
+    `| ${header.join(' | ')} |`,
+    `| ${sep.join(' | ')} |`,
+    ...body.map((r) => `| ${r.join(' | ')} |`),
+  ];
+  return lines.join('\n');
+}
+
+function cellToMarkdown(cell: TableCell, opts: MarkdownOptions): string {
+  // Cells may hold multiple blocks. For GFM table compatibility we
+  // collapse them to a single line — newlines inside a cell would break
+  // the table layout. Nested tables are replaced with a placeholder per
+  // design § 5.1.
+  const parts: string[] = [];
+  for (const inner of cell.blocks) {
+    if (inner.type === 'table') {
+      parts.push('[nested table]');
+      continue;
+    }
+    parts.push(inlinesToMarkdown(inner.inlines, opts));
+  }
+  // Pipe characters inside cell text would break the table syntax.
+  return parts.join(' ').replace(/\|/g, '\\|');
+}
+
+/**
+ * Convert a flat list of inlines to a Markdown text fragment, applying
+ * formatting markers around adjacent same-styled runs. Image and
+ * page-number inlines are special-cased ahead of any text-style logic
+ * since they shouldn't be wrapped in `**`/`*`/`~~`.
+ */
+function inlinesToMarkdown(inlines: Inline[], opts: MarkdownOptions): string {
+  let out = '';
+  for (const inline of inlines) {
+    out += inlineToMarkdown(inline, opts);
+  }
+  return out;
+}
+
+function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
+  const { style, text } = inline;
+
+  if (style.image) {
+    return imageInline(style.image, opts);
+  }
+  if (style.pageNumber) {
+    return '#';
+  }
+
+  // Strip stray ORC characters that aren't carrying a special role.
+  let body = text.replace(/\uFFFC/g, '');
+
+  if (body.length === 0) {
+    return '';
+  }
+
+  if (style.href) {
+    body = `[${body}](${style.href})`;
+  }
+  if (style.strikethrough) {
+    body = `~~${body}~~`;
+  }
+  if (style.italic) {
+    body = `*${body}*`;
+  }
+  if (style.bold) {
+    body = `**${body}**`;
+  }
+  return body;
+}
+
+function imageInline(
+  image: NonNullable<Inline['style']['image']>,
+  opts: MarkdownOptions,
+): string {
+  const alt = image.alt ?? '';
+  const isDataUri = image.src.startsWith('data:');
+  if (isDataUri && !opts.inlineImages) {
+    return '[image]';
+  }
+  return `![${alt}](${image.src})`;
+}

@@ -67,6 +67,7 @@ function makePaginatedLayout(blocks: LayoutBlock[]): PaginatedLayout {
       line,
       x: 96, // margins.left
       y: 96 + li * line.height, // margins.top + offset
+      pageIndex: 1,
     }))
   );
   return {

@@ -241,7 +241,7 @@ export class PdfPainter {
       const regionTopPx = header.marginFromEdge;
       PdfPainter.paintHFRegion(
         page, ctx.headerLayout, margins.left, regionTopPx,
-        pageHeightPt, fonts, ctx,
+        pageHeightPt, fonts, ctx, layoutPage.pageIndex + 1,
       );
     }
 
@@ -251,7 +251,7 @@ export class PdfPainter {
         - ctx.footerLayout.totalHeight;
       PdfPainter.paintHFRegion(
         page, ctx.footerLayout, margins.left, regionTopPx,
-        pageHeightPt, fonts, ctx,
+        pageHeightPt, fonts, ctx, layoutPage.pageIndex + 1,
       );
     }
   }
@@ -270,6 +270,7 @@ export class PdfPainter {
     pageHeightPt: number,
     fonts: EmbeddedFonts,
     ctx: PaintContext,
+    pageIndex: number,
   ): void {
     for (const lb of layout.blocks) {
       for (let li = 0; li < lb.lines.length; li++) {
@@ -280,6 +281,7 @@ export class PdfPainter {
           line,
           x: xPx,
           y: regionTopPx + lb.y + line.y,
+          pageIndex,
         };
         PdfPainter.paintLine(page, pseudoPl, pageHeightPt, fonts, ctx);
       }
@@ -514,6 +516,9 @@ export class PdfPainter {
         line,
         x: cellX + padding,
         y: lineYpx,
+        // Cell-local pseudo lines aren't read for page math, but the
+        // 1-based page number is the only sensible value for this slot.
+        pageIndex: 1,
       };
       PdfPainter.paintLine(page, pseudoPl, pageHeightPt, fonts, ctx);
     }

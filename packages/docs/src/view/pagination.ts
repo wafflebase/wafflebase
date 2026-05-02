@@ -12,6 +12,17 @@ export interface PageLine {
   x: number;
   y: number;
 
+  /**
+   * 1-based page number this line is laid out on. Surfaced here (rather
+   * than only on the enclosing `LayoutPage`) so consumers walking blocks
+   * — Markdown serialization, page slicing, the CLI — can read the page
+   * for a line without having to keep the parent page in scope.
+   *
+   * 1-based to match user-facing page-range syntax (`--pages 1-3`); the
+   * `LayoutPage.pageIndex` field stays 0-based for renderer math.
+   */
+  pageIndex: number;
+
   /** For split table rows: vertical offset into the row where this
       page fragment starts (0 for the first fragment). */
   rowSplitOffset?: number;
@@ -80,6 +91,7 @@ export function paginateLayout(
           currentLines.push({
             blockIndex: bi, lineIndex: ri, line: rowLine,
             x: margins.left, y: margins.top + currentY,
+            pageIndex: pages.length + 1,
           });
           currentY += rowHeight;
           isPageTop = false;
@@ -116,6 +128,7 @@ export function paginateLayout(
           currentLines.push({
             blockIndex: bi, lineIndex: ri, line: rowLine,
             x: margins.left, y: margins.top + currentY,
+            pageIndex: pages.length + 1,
             ...(needsSplit ? { rowSplitOffset: consumed, rowSplitHeight: fragHeight } : {}),
           });
           consumed += fragHeight;
@@ -142,6 +155,7 @@ export function paginateLayout(
           line,
           x: margins.left,
           y: margins.top + currentY,
+          pageIndex: pages.length + 1,
         });
 
         currentY += line.height;

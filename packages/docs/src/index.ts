@@ -116,6 +116,14 @@ export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
 export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';
 
+// Serialize (Markdown / text / JSON)
+export { serializeMarkdown } from './serialize/markdown.js';
+export type { MarkdownOptions } from './serialize/markdown.js';
+export { serializeText } from './serialize/text.js';
+export type { TextOptions } from './serialize/text.js';
+export { serializeJson } from './serialize/json.js';
+export type { BlockPageMeta, SerializedJson } from './serialize/json.js';
+
 // Import / Export (DOCX)
 export { DocxImporter } from './import/docx-importer.js';
 export type { ImageUploader } from './import/docx-importer.js';

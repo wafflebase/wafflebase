@@ -210,6 +210,7 @@ describe('collectImageRects', () => {
               line: lb.lines[0],
               x: DEFAULT_PAGE_SETUP.margins.left, // 96
               y: DEFAULT_PAGE_SETUP.margins.top,  // 96
+              pageIndex: 1,
             },
           ],
         },
@@ -286,6 +287,7 @@ describe('collectImageRects', () => {
               line: lb.lines[0],
               x: DEFAULT_PAGE_SETUP.margins.left,
               y: DEFAULT_PAGE_SETUP.margins.top,
+              pageIndex: 1,
             },
           ],
         },
@@ -403,6 +405,7 @@ describe('collectImageRects', () => {
               line: lb.lines[0],
               x: DEFAULT_PAGE_SETUP.margins.left,
               y: DEFAULT_PAGE_SETUP.margins.top,
+              pageIndex: 1,
             },
           ],
         },
@@ -520,6 +523,7 @@ describe('collectImageRects', () => {
               line: lb.lines[0],
               x: DEFAULT_PAGE_SETUP.margins.left,
               y: DEFAULT_PAGE_SETUP.margins.top,
+              pageIndex: 1,
             },
           ],
         },
