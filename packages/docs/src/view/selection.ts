@@ -213,10 +213,9 @@ function positionToPagePixel(
       if (run.imageHeight !== undefined) {
         xOffset = localOff > 0 ? run.width : 0;
       } else {
-        const isSuperOrSub = !!(run.inline.style.superscript || run.inline.style.subscript);
         xOffset = measurer.measureWidth(
           run.text.slice(0, localOff),
-          resolveInlineFont(run.inline.style, isSuperOrSub),
+          resolveInlineFont(run.inline.style),
         );
       }
       const x = pageX + pageLine.x + run.x + xOffset;

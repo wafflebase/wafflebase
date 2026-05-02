@@ -366,9 +366,8 @@ export function resolvePositionPixel(
         xOffset = localOffset > 0 ? run.width : 0;
       } else {
         const textBefore = run.text.slice(0, localOffset);
-        const isSuperOrSub = !!(run.inline.style.superscript || run.inline.style.subscript);
         xOffset = measurer.measureWidth(
-          textBefore, resolveInlineFont(run.inline.style, isSuperOrSub),
+          textBefore, resolveInlineFont(run.inline.style),
         );
       }
       const x = pageX + pageLine.x + run.x + xOffset;

@@ -69,18 +69,19 @@ export function clearMeasureCache(): void {
 }
 
 /**
- * Convert an `InlineStyle` (and an optional super/subscript flag) into the
- * `ResolvedFont` measurement structure used by `TextMeasurer`. Centralised
- * here so layout, table-layout, and hit-testing share the same conversion
- * rules — getting these inconsistent quietly miscalculates line widths.
+ * Convert an `InlineStyle` into the `ResolvedFont` measurement structure
+ * used by `TextMeasurer`. Centralised here so layout, table-layout, and
+ * hit-testing share the same conversion rules — getting these
+ * inconsistent quietly miscalculates line widths.
  *
- * Sup/sub runs measure at 60% of the inline's font size; the original
- * pt-based fontSize is converted to pixels via `ptToPx`.
+ * Sup/sub runs measure at 60% of the inline's font size. The flag is
+ * derived from the style so callers cannot forget to pass it (header
+ * and footer hit-test paths used to omit it, silently measuring
+ * superscript text at full size). The pt-based fontSize is converted
+ * to pixels via `ptToPx`.
  */
-export function resolveInlineFont(
-  style: InlineStyle,
-  isSuperOrSub?: boolean,
-): ResolvedFont {
+export function resolveInlineFont(style: InlineStyle): ResolvedFont {
+  const isSuperOrSub = !!(style.superscript || style.subscript);
   const baseSizePt = style.fontSize ?? Theme.defaultFontSize;
   const sizePt = isSuperOrSub ? baseSizePt * 0.6 : baseSizePt;
   return {
@@ -495,9 +496,9 @@ function measureSegments(
 
   for (let i = 0; i < inlines.length; i++) {
     const inline = inlines[i];
-    // Superscript/subscript runs use 60% of the original font size for measurement
-    const isSuperOrSub = !!(inline.style.superscript || inline.style.subscript);
-    const font = resolveInlineFont(inline.style, isSuperOrSub);
+    // Superscript/subscript runs use 60% of the original font size for
+    // measurement; resolveInlineFont derives that flag from the style.
+    const font = resolveInlineFont(inline.style);
 
     // Image inlines are a single unbreakable segment spanning the entire
     // inline text (the Object Replacement Character placeholder). Width
