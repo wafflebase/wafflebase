@@ -3142,6 +3142,35 @@ describe('Formula', () => {
     expect(evaluate('=MMULT(A1:B2,C1:D2)', grid)).toBe('19');
   });
 
+  it('INDEX(MMULT(...)) accesses correct result element', () => {
+    const grid = new Map<string, Cell>();
+    // 3x3 matrix A (A2:C4)
+    grid.set('A2', { v: '1' } as Cell); grid.set('B2', { v: '2' } as Cell); grid.set('C2', { v: '3' } as Cell);
+    grid.set('A3', { v: '4' } as Cell); grid.set('B3', { v: '5' } as Cell); grid.set('C3', { v: '6' } as Cell);
+    grid.set('A4', { v: '7' } as Cell); grid.set('B4', { v: '8' } as Cell); grid.set('C4', { v: '9' } as Cell);
+    // 3x3 matrix B (A7:C9)
+    grid.set('A7', { v: '9' } as Cell); grid.set('B7', { v: '8' } as Cell); grid.set('C7', { v: '7' } as Cell);
+    grid.set('A8', { v: '6' } as Cell); grid.set('B8', { v: '5' } as Cell); grid.set('C8', { v: '4' } as Cell);
+    grid.set('A9', { v: '3' } as Cell); grid.set('B9', { v: '2' } as Cell); grid.set('C9', { v: '1' } as Cell);
+    // A·B [1,1] = 1*9+2*6+3*3 = 9+12+9 = 30
+    expect(evaluate('=INDEX(MMULT(A2:C4,A7:C9),1,1)', grid)).toBe('30');
+    // A·B [1,2] = 1*8+2*5+3*2 = 8+10+6 = 24
+    expect(evaluate('=INDEX(MMULT(A2:C4,A7:C9),1,2)', grid)).toBe('24');
+    // A·B [2,1] = 4*9+5*6+6*3 = 36+30+18 = 84
+    expect(evaluate('=INDEX(MMULT(A2:C4,A7:C9),2,1)', grid)).toBe('84');
+  });
+
+  it('INDEX(MINVERSE(...)) accesses all elements of the inverse', () => {
+    const grid = new Map<string, Cell>();
+    // [[2,1],[1,1]] — det=1, inverse = [[1,-1],[-1,2]]
+    grid.set('A1', { v: '2' } as Cell); grid.set('B1', { v: '1' } as Cell);
+    grid.set('A2', { v: '1' } as Cell); grid.set('B2', { v: '1' } as Cell);
+    expect(evaluate('=INDEX(MINVERSE(A1:B2),1,1)', grid)).toBe('1');
+    expect(evaluate('=INDEX(MINVERSE(A1:B2),1,2)', grid)).toBe('-1');
+    expect(evaluate('=INDEX(MINVERSE(A1:B2),2,1)', grid)).toBe('-1');
+    expect(evaluate('=INDEX(MINVERSE(A1:B2),2,2)', grid)).toBe('2');
+  });
+
   it('should correctly evaluate MINVERSE function', () => {
     const grid = new Map<string, Cell>();
     // 2x2 identity matrix
@@ -3151,6 +3180,34 @@ describe('Formula', () => {
     grid.set('B2', { v: '1' } as Cell);
     // Inverse of identity is identity, top-left = 1
     expect(evaluate('=MINVERSE(A1:B2)', grid)).toBe('1');
+  });
+
+  it('MMULT(MMULT(...)) composes nested matrix products', () => {
+    const grid = new Map<string, Cell>();
+    // A = [[1,2],[3,4]]
+    grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: '2' } as Cell);
+    grid.set('A2', { v: '3' } as Cell); grid.set('B2', { v: '4' } as Cell);
+    // B = [[5,6],[7,8]]
+    grid.set('C1', { v: '5' } as Cell); grid.set('D1', { v: '6' } as Cell);
+    grid.set('C2', { v: '7' } as Cell); grid.set('D2', { v: '8' } as Cell);
+    // A×B = [[19,22],[43,50]]; (A×B)×A [1,1] = 19*1+22*3 = 85, [2,2] = 43*2+50*4 = 286
+    expect(evaluate('=INDEX(MMULT(MMULT(A1:B2,C1:D2),A1:B2),1,1)', grid)).toBe('85');
+    expect(evaluate('=INDEX(MMULT(MMULT(A1:B2,C1:D2),A1:B2),2,2)', grid)).toBe('286');
+  });
+
+  it('MINVERSE(MMULT(...)) inverts a computed matrix product', () => {
+    const grid = new Map<string, Cell>();
+    // I = [[1,0],[0,1]]
+    grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: '0' } as Cell);
+    grid.set('A2', { v: '0' } as Cell); grid.set('B2', { v: '1' } as Cell);
+    // D = [[2,0],[0,2]]
+    grid.set('C1', { v: '2' } as Cell); grid.set('D1', { v: '0' } as Cell);
+    grid.set('C2', { v: '0' } as Cell); grid.set('D2', { v: '2' } as Cell);
+    // MMULT(I, D) = D; MINVERSE(D) = [[0.5,0],[0,0.5]]
+    expect(evaluate('=INDEX(MINVERSE(MMULT(A1:B2,C1:D2)),1,1)', grid)).toBe('0.5');
+    expect(evaluate('=INDEX(MINVERSE(MMULT(A1:B2,C1:D2)),1,2)', grid)).toBe('0');
+    expect(evaluate('=INDEX(MINVERSE(MMULT(A1:B2,C1:D2)),2,1)', grid)).toBe('0');
+    expect(evaluate('=INDEX(MINVERSE(MMULT(A1:B2,C1:D2)),2,2)', grid)).toBe('0.5');
   });
 
   it('should correctly evaluate XMATCH function', () => {

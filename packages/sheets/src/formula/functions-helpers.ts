@@ -27,6 +27,10 @@ export type ReferenceMatrix = {
   colCount: number;
 };
 
+export type MatrixResult =
+  | { t: 'matrix'; v: ReferenceMatrix }
+  | { t: 'arrmat'; values: EvalNode[][]; rowCount: number; colCount: number };
+
 export type LookupValue = {
   normalized: string;
   numericValue?: number;
@@ -78,10 +82,13 @@ export function getReferenceMatrixFromExpression(
   expr: ParseTree,
   visit: (tree: ParseTree) => EvalNode,
   grid?: Grid,
-): { t: 'matrix'; v: ReferenceMatrix } | FormulaError {
+): MatrixResult | FormulaError {
   const node = visit(expr);
   if (node.t === 'err') {
     return node;
+  }
+  if (node.t === 'arr') {
+    return { t: 'arrmat', values: node.v, rowCount: node.rows, colCount: node.cols };
   }
   if (node.t !== 'ref' || !grid) {
     return ErrNode.VALUE;
