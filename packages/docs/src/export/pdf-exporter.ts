@@ -223,7 +223,7 @@ function defaultMeasurer(): TextMeasurer {
       try {
         const probe = ctx.measureText('M');
         if (probe && typeof probe.width === 'number' && probe.width > 0) {
-          return new CanvasTextMeasurer(ctx);
+          return CanvasTextMeasurer.fromContext(ctx);
         }
       } catch { /* fall through to mock */ }
     }

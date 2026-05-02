@@ -409,10 +409,10 @@ export function initialize(
 
   const docCanvas = new DocCanvas(canvas);
   // The measurer is shared across recomputeLayout, header/footer layout, hit
-  // testing, and cursor/selection rendering. Reusing the same instance lets
-  // its internal `lastFont` cache survive across calls so a sequence of
-  // measurements at one font does not thrash `ctx.font`.
-  const measurer = new CanvasTextMeasurer(docCanvas.getContext());
+  // testing, and cursor/selection rendering. It owns a private OffscreenCanvas
+  // ctx so its `lastFont` cache stays valid across calls regardless of what
+  // paint code does to the visible canvas's ctx.font in between.
+  const measurer = new CanvasTextMeasurer();
   const ruler = new Ruler(container, canvas, readOnly);
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();

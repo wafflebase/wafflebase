@@ -18,25 +18,47 @@ function fontToCss(font: ResolvedFont): string {
  * PDF exporter in the browser; the CLI uses a `fontkit`-based measurer
  * instead so it can run in Node without a native canvas dep.
  *
+ * The measurer **always owns a private 2D context** (an `OffscreenCanvas`
+ * by default, falling back to a detached `<canvas>` element on older
+ * Safari). This isolation matters: paint code mutates `ctx.font` while
+ * drawing, and the measurer memoises the last-set CSS font string to
+ * avoid thrashing `ctx.font`. If the measurer shared the visible
+ * canvas's ctx with paint, a stale `lastFont` could short-circuit the
+ * font reset and `measureText` would silently run against whatever font
+ * paint last assigned.
+ *
  * Construction is lazy — we don't allocate the offscreen canvas until
  * the first `measureWidth` call so test and Node code paths that build
- * an editor without rendering pay nothing. The instance memoises the
- * last-set CSS font string so a sequence of measurements at one font
- * does not thrash `ctx.font` (which on some browsers re-resolves the
- * font face every assignment).
+ * an editor without rendering pay nothing. Because the OffscreenCanvas
+ * is owned by the measurer instance, the `lastFont` cache survives
+ * across calls regardless of what paint does to its own ctx.
  */
 export class CanvasTextMeasurer implements TextMeasurer {
   private ctx: CanvasRenderingContext2D | null = null;
   private lastFont: string | null = null;
 
   /**
-   * Optional override for tests / advanced callers that already own a
-   * 2D context. When omitted, the measurer creates an `OffscreenCanvas`
-   * lazily, falling back to a detached `<canvas>` element if the host
-   * lacks `OffscreenCanvas` (older Safari).
+   * Production constructor: the measurer creates and owns its own
+   * `OffscreenCanvas` (or detached `<canvas>`) lazily. There is no
+   * public ctx-injection path — sharing a ctx with paint code is unsafe
+   * because paint mutates `ctx.font` mid-frame.
+   *
+   * Tests that need to introspect the underlying ctx (font assignments,
+   * measureText calls) should use {@link fromContext}.
    */
-  constructor(ctx?: CanvasRenderingContext2D) {
-    if (ctx) this.ctx = ctx;
+  constructor() {}
+
+  /**
+   * Test-only escape hatch: build a measurer that uses a caller-supplied
+   * 2D context. Production code must never share a paint ctx with a
+   * measurer — see the class-level note. This factory is split from the
+   * default constructor so the unsafe path is visible at every call
+   * site.
+   */
+  static fromContext(ctx: CanvasRenderingContext2D): CanvasTextMeasurer {
+    const m = new CanvasTextMeasurer();
+    m.ctx = ctx;
+    return m;
   }
 
   measureWidth(text: string, font: ResolvedFont): number {
@@ -72,7 +94,8 @@ export class CanvasTextMeasurer implements TextMeasurer {
     if (!ctx) {
       throw new Error(
         'CanvasTextMeasurer: no Canvas 2D context available. ' +
-          'Construct with an explicit ctx, or use a non-Canvas TextMeasurer.',
+          'Use CanvasTextMeasurer.fromContext(ctx) with a known-good ctx, ' +
+          'or use a non-Canvas TextMeasurer.',
       );
     }
     this.ctx = ctx;

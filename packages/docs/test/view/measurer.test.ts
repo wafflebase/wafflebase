@@ -24,9 +24,7 @@ function injectedCtxMeasurer(): {
       return { width: text.length * 8 } as TextMetrics;
     },
   } as unknown as CanvasRenderingContext2D;
-  // Spread the closure-captured counter back through getters.
-  Object.defineProperty(ctx, '__calls', { get: () => calls });
-  const measurer = new CanvasTextMeasurer(ctx);
+  const measurer = CanvasTextMeasurer.fromContext(ctx);
   return {
     measurer,
     fonts,
