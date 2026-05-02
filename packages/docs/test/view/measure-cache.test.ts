@@ -1,42 +1,47 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { cachedMeasureText, clearMeasureCache } from '../../src/view/layout.js';
+import type { ResolvedFont, TextMeasurer } from '../../src/view/measurer.js';
+
+const baseFont: ResolvedFont = {
+  family: 'sans-serif', size: 16, weight: 'normal', style: 'normal',
+};
+const boldFont: ResolvedFont = { ...baseFont, weight: 'bold' };
 
 describe('cachedMeasureText', () => {
   let callCount: number;
-  let mockCtx: CanvasRenderingContext2D;
+  let measurer: TextMeasurer;
 
   beforeEach(() => {
     clearMeasureCache();
     callCount = 0;
-    mockCtx = {
-      font: '',
-      measureText: (text: string) => {
+    measurer = {
+      measureWidth(text: string) {
         callCount++;
-        return { width: text.length * 8 } as TextMetrics;
+        return text.length * 8;
       },
-    } as unknown as CanvasRenderingContext2D;
+    };
   });
 
   it('returns measured width', () => {
-    const width = cachedMeasureText(mockCtx, 'hello', '16px sans-serif');
+    const width = cachedMeasureText(measurer, 'hello', baseFont);
     expect(width).toBe(40);
   });
 
   it('caches result on second call with same args', () => {
-    cachedMeasureText(mockCtx, 'hello', '16px sans-serif');
-    cachedMeasureText(mockCtx, 'hello', '16px sans-serif');
+    cachedMeasureText(measurer, 'hello', baseFont);
+    cachedMeasureText(measurer, 'hello', baseFont);
     expect(callCount).toBe(1);
   });
 
   it('distinguishes different fonts', () => {
-    cachedMeasureText(mockCtx, 'hello', '16px sans-serif');
-    cachedMeasureText(mockCtx, 'hello', 'bold 16px sans-serif');
+    cachedMeasureText(measurer, 'hello', baseFont);
+    cachedMeasureText(measurer, 'hello', boldFont);
     expect(callCount).toBe(2);
   });
 
   it('distinguishes different text', () => {
-    cachedMeasureText(mockCtx, 'hello', '16px sans-serif');
-    cachedMeasureText(mockCtx, 'world', '16px sans-serif');
+    cachedMeasureText(measurer, 'hello', baseFont);
+    cachedMeasureText(measurer, 'world', baseFont);
     expect(callCount).toBe(2);
   });
 });

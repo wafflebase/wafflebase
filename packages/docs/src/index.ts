@@ -97,6 +97,8 @@ export type {
 } from './view/pagination.js';
 export { Theme, buildFont, ptToPx, setThemeMode, getTheme } from './view/theme.js';
 export type { ThemeMode, DocTheme } from './view/theme.js';
+export type { TextMeasurer, ResolvedFont } from './view/measurer.js';
+export { CanvasTextMeasurer } from './view/canvas-measurer.js';
 export { DocCanvas } from './view/doc-canvas.js';
 export { Cursor } from './view/cursor.js';
 export {

@@ -2,13 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { computeTableLayout } from '../../src/view/table-layout.js';
 import { computeMergedCellLineLayouts } from '../../src/view/table-renderer.js';
 import { createTableBlock, DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
+import { stubMeasurer } from './_stub-measurer.js';
 
-function stubCtx(): CanvasRenderingContext2D {
-  return {
-    font: '',
-    measureText: (text: string) => ({ width: text.length * 7 }),
-  } as unknown as CanvasRenderingContext2D;
-}
+const stubCtx = () => stubMeasurer(7);
 
 describe('computeTableLayout', () => {
   it('should compute column pixel widths from ratios', () => {

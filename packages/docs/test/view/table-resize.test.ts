@@ -2,13 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { detectTableBorder } from '../../src/view/table-resize.js';
 import { computeTableLayout } from '../../src/view/table-layout.js';
 import { createTableBlock } from '../../src/model/types.js';
+import { stubMeasurer } from './_stub-measurer.js';
 
-function stubCtx(): CanvasRenderingContext2D {
-  return {
-    font: '',
-    measureText: (text: string) => ({ width: text.length * 7 }),
-  } as unknown as CanvasRenderingContext2D;
-}
+const stubCtx = () => stubMeasurer(7);
 
 function makeLayout() {
   const block = createTableBlock(3, 3);

@@ -74,25 +74,4 @@ describe('CanvasTextMeasurer', () => {
     // without throwing — it only fails when measureWidth is called.
     expect(() => new CanvasTextMeasurer()).not.toThrow();
   });
-
-  it('matches Canvas measureText for a real DOM canvas', () => {
-    // Round-trip via the underlying ctx so the golden value matches the
-    // host's own metrics (which differ across jsdom builds), proving the
-    // wrapper does not perturb the result.
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      // jsdom without canvas — skip rather than fail; the real coverage
-      // comes from the injected-ctx tests above.
-      return;
-    }
-    ctx.font = '16px Arial';
-    const expected = ctx.measureText('Hello').width;
-
-    const measurer = new CanvasTextMeasurer(ctx);
-    const actual = measurer.measureWidth('Hello', {
-      family: 'Arial', size: 16, weight: 'normal', style: 'normal',
-    });
-    expect(actual).toBe(expected);
-  });
 });

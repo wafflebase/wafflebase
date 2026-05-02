@@ -2,13 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { computeTableLayout } from '../../src/view/table-layout.js';
 import { createTableBlock, createTableCell } from '../../src/model/types.js';
 import type { TableData } from '../../src/model/types.js';
+import { stubMeasurer } from './_stub-measurer.js';
 
-function stubCtx(): CanvasRenderingContext2D {
-  return {
-    measureText: (text: string) => ({ width: text.length * 8 }),
-    font: '',
-  } as unknown as CanvasRenderingContext2D;
-}
+const stubCtx = () => stubMeasurer();
 
 function makeNestedTableData(): { outer: TableData; innerBlockId: string } {
   const innerTable = createTableBlock(2, 2);

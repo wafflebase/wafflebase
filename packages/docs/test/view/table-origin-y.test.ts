@@ -11,13 +11,9 @@ import {
   getEffectiveDimensions,
   DEFAULT_BLOCK_STYLE,
 } from '../../src/model/types.js';
+import { stubMeasurer } from './_stub-measurer.js';
 
-function stubCtx(): CanvasRenderingContext2D {
-  return {
-    font: '',
-    measureText: (text: string) => ({ width: text.length * 7 }),
-  } as unknown as CanvasRenderingContext2D;
-}
+const stubCtx = () => stubMeasurer(7);
 
 /**
  * Regression: when a table row splits across pages and the

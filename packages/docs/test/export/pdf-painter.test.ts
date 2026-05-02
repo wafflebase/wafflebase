@@ -51,11 +51,12 @@ function fontsForTest(): PdfFonts {
 
 const testFonts = fontsForTest;
 
-function mockCtx(): CanvasRenderingContext2D {
+import type { TextMeasurer } from '../../src/view/measurer.js';
+
+function mockCtx(): TextMeasurer {
   return {
-    font: '',
-    measureText: (text: string) => ({ width: text.length * 8 }),
-  } as unknown as CanvasRenderingContext2D;
+    measureWidth: (text: string) => text.length * 8,
+  };
 }
 
 describe('PdfPainter', () => {
@@ -318,7 +319,7 @@ describe('PdfPainter inline styles', () => {
       pageSetup: { ...DEFAULT_PAGE_SETUP },
     };
 
-    const blob = await PdfExporter.export(doc, { fonts: testFonts() });
+    const blob = await PdfExporter.export(doc, { fonts: testFonts(), measurer: mockCtx() });
     const reloaded = await PDFDocument.load(await blob.arrayBuffer());
     const page = reloaded.getPage(0);
     const annotsRef = page.node.get(PDFName.of('Annots'));

@@ -12,6 +12,8 @@ import { DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../model/types.js';
 import { PdfFonts, scanFontsUsed, type FontUsage } from './pdf-fonts.js';
 import { computeLayout, computeListCounters } from '../view/layout.js';
 import { paginateLayout } from '../view/pagination.js';
+import { CanvasTextMeasurer } from '../view/canvas-measurer.js';
+import type { TextMeasurer } from '../view/measurer.js';
 import { PdfPainter } from './pdf-painter.js';
 import {
   collectAndEmbedImages,
@@ -24,6 +26,14 @@ export interface PdfExportOptions {
   fonts?: PdfFonts;
   imageFetcher?: ImageFetcher;
   metadata?: { title?: string; author?: string; subject?: string; keywords?: string[] };
+  /**
+   * Override the text measurer used for layout. The default uses a
+   * `CanvasTextMeasurer` in the browser and a deterministic 8-px-per-
+   * char fallback in environments without DOM Canvas (jsdom unit tests,
+   * Node CLI). The future Docs CLI passes its own `fontkit`-backed
+   * measurer here.
+   */
+  measurer?: TextMeasurer;
 }
 
 export class PdfExporter {
@@ -39,12 +49,15 @@ export class PdfExporter {
     // 1. Pre-load Noto KR into document.fonts so Canvas measureText is consistent.
     await ensureCanvasFontsLoaded(usage);
 
-    // 2. Compute layout. Need a CanvasRenderingContext2D for measureText.
+    // 2. Compute layout. The measurer may be supplied by the caller
+    // (CLI passes a fontkit-backed one); otherwise fall back to the
+    // browser default Canvas measurer or an 8-px-per-char approximation
+    // when neither is available (jsdom unit tests).
     const setup = doc.pageSetup ?? DEFAULT_PAGE_SETUP;
     const { width: wPx } = getEffectiveDimensions(setup);
     const contentWidth = wPx - setup.margins.left - setup.margins.right;
-    const ctx = getMeasurementCtx();
-    const { layout } = computeLayout(doc.blocks, ctx, contentWidth);
+    const measurer = opts.measurer ?? defaultMeasurer();
+    const { layout } = computeLayout(doc.blocks, measurer, contentWidth);
     const pagination = paginateLayout(layout, setup);
 
     // Header/footer block lists are independent of body pagination —
@@ -52,10 +65,10 @@ export class PdfExporter {
     // headers/footers appear identically across the document (with only
     // `pageNumber` substituted per page in the painter).
     const headerLayout = doc.header && doc.header.blocks.length > 0
-      ? computeLayout(doc.header.blocks, ctx, contentWidth).layout
+      ? computeLayout(doc.header.blocks, measurer, contentWidth).layout
       : null;
     const footerLayout = doc.footer && doc.footer.blocks.length > 0
-      ? computeLayout(doc.footer.blocks, ctx, contentWidth).layout
+      ? computeLayout(doc.footer.blocks, measurer, contentWidth).layout
       : null;
 
     // 3. Ordered list counters: computed once over the body block list
@@ -195,21 +208,22 @@ async function ensureCanvasFontsLoaded(usage: FontUsage): Promise<void> {
 }
 
 /**
- * In a real browser, returns a canvas 2D context for text measurement.
- * In jsdom (or any env without canvas), returns a minimal mock that
- * approximates measureText using a constant per-char width — good
- * enough for unit tests, NOT for production.
+ * Pick a measurer when the caller did not supply one. Tries
+ * `CanvasTextMeasurer` first (real browsers); falls back to the
+ * 8-px-per-char approximation used by the unit tests when no DOM
+ * Canvas is available. A real-browser path that fails the probe
+ * warns rather than silently producing a wrong-looking PDF.
  */
-function getMeasurementCtx(): CanvasRenderingContext2D {
+function defaultMeasurer(): TextMeasurer {
   const inBrowser = typeof document !== 'undefined';
   if (inBrowser) {
     const canvas = document.createElement('canvas');
-    const realCtx = canvas.getContext('2d');
-    if (realCtx && typeof realCtx.measureText === 'function') {
+    const ctx = canvas.getContext('2d');
+    if (ctx && typeof ctx.measureText === 'function') {
       try {
-        const probe = realCtx.measureText('M');
+        const probe = ctx.measureText('M');
         if (probe && typeof probe.width === 'number' && probe.width > 0) {
-          return realCtx;
+          return new CanvasTextMeasurer(ctx);
         }
       } catch { /* fall through to mock */ }
     }
@@ -224,9 +238,8 @@ function getMeasurementCtx(): CanvasRenderingContext2D {
         'falling back to approximate metrics. Resulting PDF layout will not match on-screen pagination.',
     );
   }
-  // jsdom fallback: 8 px per char
+  // jsdom / Node fallback: 8 px per char.
   return {
-    measureText: (text: string) => ({ width: text.length * 8 }),
-    font: '',
-  } as unknown as CanvasRenderingContext2D;
+    measureWidth: (text: string) => text.length * 8,
+  };
 }
