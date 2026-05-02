@@ -42,16 +42,16 @@ export function SiteHeader({
   return (
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
       <div className="flex w-full items-center justify-between gap-1 px-4 lg:gap-2 lg:px-6 min-h-[3.5rem]">
-        <div className="flex items-center gap-1 lg:gap-2">
-          <SidebarTrigger className="-ml-1" />
+        <div className="flex min-w-0 flex-1 items-center gap-1 lg:gap-2">
+          <SidebarTrigger className="-ml-1 shrink-0" />
           <Separator
             orientation="vertical"
-            className="mx-2 data-[orientation=vertical]:h-4"
+            className="mx-2 shrink-0 data-[orientation=vertical]:h-4"
           />
           {editing ? (
             <input
               ref={inputRef}
-              className="text-base font-medium bg-transparent border-b border-primary px-1 min-w-[120px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+              className="text-base font-medium bg-transparent border-b border-primary px-1 min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
               value={editValue}
               aria-label="Document title"
               onChange={(e) => setEditValue(e.target.value)}
@@ -66,7 +66,7 @@ export function SiteHeader({
             />
           ) : (
             <h1
-              className={`text-base font-medium ${editable ? "cursor-pointer hover:bg-muted/50 px-1 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""}`}
+              className={`text-base font-medium truncate min-w-0 ${editable ? "cursor-pointer hover:bg-muted/50 px-1 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""}`}
               onClick={() => {
                 if (editable) setEditing(true);
               }}
@@ -86,7 +86,7 @@ export function SiteHeader({
         </div>
 
         {/* Always reserve space for children to prevent layout shift */}
-        <div className="flex items-center min-w-0">{children}</div>
+        <div className="flex shrink-0 items-center">{children}</div>
       </div>
     </header>
   );
