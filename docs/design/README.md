@@ -62,6 +62,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [sharing.md](sharing.md)                               | URL-based token sharing with anonymous access and role-based permissions                           |
 | [context-menu.md](context-menu.md)                     | Unified context menu — Radix ContextMenu, desktop/mobile parity, menu items                       |
 | [rest-api-and-cli.md](rest-api-and-cli.md)             | REST API, API key auth, and CLI — external access, Yorkie service, Go CLI tool                     |
+| [docs-cli.md](docs-cli.md)                             | Docs CLI support and namespace restructure — `docs`/`sheets` plural namespaces, content/export/import for Docs |
 | [cli-oauth-login.md](cli-oauth-login.md)               | CLI OAuth login — browser-based GitHub auth, JWT session storage, workspace context switching      |
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
