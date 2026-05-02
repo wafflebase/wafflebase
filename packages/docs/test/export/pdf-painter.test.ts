@@ -51,13 +51,10 @@ function fontsForTest(): PdfFonts {
 
 const testFonts = fontsForTest;
 
-import type { TextMeasurer } from '../../src/view/measurer.js';
+import { stubMeasurer } from '../view/_stub-measurer.js';
 
-function mockCtx(): TextMeasurer {
-  return {
-    measureWidth: (text: string) => text.length * 8,
-  };
-}
+// Alias so the existing `mockCtx()` call sites keep reading naturally.
+const mockCtx = () => stubMeasurer();
 
 describe('PdfPainter', () => {
   it('paints a simple paragraph onto a PDF page', async () => {

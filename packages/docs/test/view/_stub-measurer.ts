@@ -7,9 +7,15 @@ import type { ResolvedFont, TextMeasurer } from '../../src/view/measurer.js';
  * don't depend on jsdom's missing Canvas 2D context. The default 8 px
  * matches the long-standing `mockCtx` used across the docs test suite.
  *
- * Pass `respectFontSize` when a test cares that sup/sub renders at 60%
- * of the inline's font size — the resulting per-char width then scales
- * with `font.size`, mirroring the real Canvas behaviour.
+ * The two modes are **mutually exclusive**:
+ *   - default: every char measures `charWidth` px
+ *   - `respectFontSize: true`: every char measures `font.size` px (the
+ *     constructor's `charWidth` is ignored, since tests in this mode
+ *     specifically care about how sup/sub scales the font size)
+ *
+ * `respectFontSize` mode mirrors the real Canvas behaviour where width
+ * scales with the rendered font size — the only thing layout tests for
+ * sup/sub need to verify.
  */
 export class StubMeasurer implements TextMeasurer {
   constructor(
@@ -19,6 +25,7 @@ export class StubMeasurer implements TextMeasurer {
 
   measureWidth(text: string, font: ResolvedFont): number {
     if (this.opts.respectFontSize) {
+      // charWidth intentionally ignored in this mode — see class JSDoc.
       return text.length * font.size;
     }
     return text.length * this.charWidth;
