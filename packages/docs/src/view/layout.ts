@@ -22,24 +22,50 @@ function fontKey(font: ResolvedFont): string {
   return `${font.style}|${font.weight}|${font.size}|${font.family}`;
 }
 
-const measureCache = new Map<string, number>();
+/**
+ * Per-measurer width cache. Each `TextMeasurer` instance gets its own
+ * `Map<fontKey|text, width>` so two measurers (e.g., Canvas + fontkit
+ * in tests or a future SSR path) cannot pollute each other's results.
+ *
+ * A `WeakMap` keyed by the measurer reference means an unused measurer
+ * is garbage-collected without explicit cleanup. `clearMeasureCache`
+ * still works globally — we keep a separate registry of every
+ * per-measurer Map so we can drain them all at once.
+ */
+const perMeasurerCache = new WeakMap<TextMeasurer, Map<string, number>>();
+const knownCaches = new Set<Map<string, number>>();
+
+function cacheFor(measurer: TextMeasurer): Map<string, number> {
+  let cache = perMeasurerCache.get(measurer);
+  if (!cache) {
+    cache = new Map<string, number>();
+    perMeasurerCache.set(measurer, cache);
+    knownCaches.add(cache);
+  }
+  return cache;
+}
 
 export function cachedMeasureText(
   measurer: TextMeasurer,
   text: string,
   font: ResolvedFont,
 ): number {
+  const cache = cacheFor(measurer);
   const key = `${fontKey(font)}\t${text}`;
-  let width = measureCache.get(key);
+  let width = cache.get(key);
   if (width === undefined) {
     width = measurer.measureWidth(text, font);
-    measureCache.set(key, width);
+    cache.set(key, width);
   }
   return width;
 }
 
 export function clearMeasureCache(): void {
-  measureCache.clear();
+  // Drain every known per-measurer cache. We can't iterate the WeakMap,
+  // so the parallel `knownCaches` set tracks each Map we've handed out.
+  for (const cache of knownCaches) {
+    cache.clear();
+  }
 }
 
 /**
