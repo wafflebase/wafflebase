@@ -173,8 +173,15 @@ The Sheet class keeps `activeCell: Ref` and `ranges: Ranges` as-is. Changes:
 
 ```typescript
 interface Store {
-  // Replace updateActiveCell
-  updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]): void;
+  // Replace updateActiveCell. `activeCell` may be null when the cell sits
+  // beyond axis-ID coverage (e.g. after Cmd+Down on an empty sheet).
+  // `activeCellRef` is always provided so the legacy Sref can be emitted
+  // for peer rendering fallback even without an anchor.
+  updateSelection(
+    activeCell: CellAnchor | null,
+    ranges: RangeAnchor[],
+    activeCellRef: Ref,
+  ): void;
 
   // Replace getPresences return type
   getPresences(): Array<{
@@ -214,7 +221,13 @@ instead of the new `selection: SelectionPresence`.
 - If `activeCell` is a string (old format), parse it as `Sref → Ref` directly
   (existing behavior).
 - If `selection` exists (new format), use the axis ID conversion path.
-- Once all clients are updated, the old `activeCell` field can be removed.
+
+Note: the legacy `activeCell` Sref is also retained **permanently** as a
+fallback for cells beyond axis-ID coverage. When activeCell sits outside the
+materialized `rowOrder`/`colOrder` (e.g. after Cmd+Down on an empty sheet),
+`presence.selection` is `undefined` but `presence.activeCell` carries the
+visual position. Peer renderers must keep the dual-format path; the legacy
+field is no longer just a migration tool.
 
 ## Risks and Mitigation
 
@@ -222,5 +235,6 @@ instead of the new `selection: SelectionPresence`.
 |------|--------|------------|
 | Presence payload size with many ranges | Increased sync traffic | Cap `ranges` array to a reasonable limit (e.g. 32). Multi-select beyond that is rare. |
 | `indexOf` on `rowOrder` for every render | O(n) per lookup on large sheets | Build a `Map<string, number>` index from `rowOrder` on change, not on every render. Already done for cell lookups in `getWorksheetEntries`. |
+| `ensureAxisOrder` extending to dimension boundary on Cmd+Down/Right | Multi-second freeze from ~1M Yorkie pushes | Only ranges drive axis-order extension; activeCell never extends. activeCell beyond coverage falls back to legacy Sref via `overlay.ts` dual-format path. |
 | Deleted axis ID detection requires previous state | Complexity in tracking deletions | Cache previous `rowOrder` snapshot on each remote sync. Diff is cheap (array comparison). |
 | Mixed old/new client presence during rollout | Rendering glitches | Dual-format presence parsing with fallback. |

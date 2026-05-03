@@ -10,7 +10,6 @@ import {
   getWorksheetEntries,
   getWorksheetKeys,
   createWorksheetAxisId,
-  anchorToRef,
   isCrossSheetRef,
   cloneConditionalFormatRule,
   normalizeConditionalFormatRule,
@@ -607,13 +606,18 @@ export class YorkieStore implements Store {
     return result;
   }
 
-  updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]) {
-    // Also emit legacy activeCell string for user-presence.tsx jump feature
-    const ref = anchorToRef(activeCell, this.getRowOrder(), this.getColOrder());
+  updateSelection(
+    activeCell: CellAnchor | null,
+    ranges: RangeAnchor[],
+    activeCellRef: Ref,
+  ) {
+    // Always emit the legacy activeCell Sref so peer cursors render even
+    // when activeCell sits beyond axis-ID coverage (e.g. after Cmd+Down on
+    // an empty sheet). Emit `selection` only when an anchor is available.
     this.doc.update((_, p) => {
       p.set({
-        selection: { activeCell, ranges },
-        activeCell: ref ? toSref(ref) : undefined,
+        selection: activeCell ? { activeCell, ranges } : undefined,
+        activeCell: toSref(activeCellRef),
         activeTabId: this.tabId,
       });
     });

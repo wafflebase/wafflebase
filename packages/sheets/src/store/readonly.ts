@@ -149,7 +149,11 @@ export class ReadOnlyStore implements Store {
     return [];
   }
 
-  updateSelection(_activeCell: CellAnchor, _ranges: RangeAnchor[]): void {
+  updateSelection(
+    _activeCell: CellAnchor | null,
+    _ranges: RangeAnchor[],
+    _activeCellRef: Ref,
+  ): void {
     // no-op
   }
 

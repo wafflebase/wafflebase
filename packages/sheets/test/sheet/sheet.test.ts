@@ -119,6 +119,94 @@ describe('Sheet.Selection', () => {
     await sheet.moveToEdge('right');
     expect(sheet.getActiveCell()).toEqual({ r: 1, c: 6 });
   });
+
+  it('should not extend axis order to dimension boundary on Cmd+Arrow into empty space', async () => {
+    // Regression: moveToEdge into an empty row/column jumped activeCell to
+    // the dimension boundary (row 1M / col 18K). syncSelectionToPresence
+    // then called ensureAxisOrder(1M, 18K), causing a multi-second freeze
+    // as Yorkie generated and pushed ~1M axis IDs into rowOrder.
+    const calls: Array<{ minRows: number; minCols: number }> = [];
+    class TrackingStore extends MemStore {
+      override ensureAxisOrder(minRows: number, minCols: number): void {
+        calls.push({ minRows, minCols });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    await sheet.moveToEdge('down');
+    await sheet.moveToEdge('right');
+
+    for (const { minRows, minCols } of calls) {
+      expect(minRows).toBeLessThan(1000);
+      expect(minCols).toBeLessThan(1000);
+    }
+  });
+
+  it('should not extend axis order on Cmd+A (selectAll) on an empty sheet', async () => {
+    // Same regression class as Cmd+Arrow into empty space: selectAll()
+    // on an empty sheet hits the isSameRange branch and sets ranges to
+    // the full dimensionRange. Without a full-dimension guard,
+    // syncSelectionToPresence would call ensureAxisOrder(1M, 18K).
+    const calls: Array<{ minRows: number; minCols: number }> = [];
+    class TrackingStore extends MemStore {
+      override ensureAxisOrder(minRows: number, minCols: number): void {
+        calls.push({ minRows, minCols });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    await sheet.selectAll();
+
+    for (const { minRows, minCols } of calls) {
+      expect(minRows).toBeLessThan(1000);
+      expect(minCols).toBeLessThan(1000);
+    }
+  });
+
+  it('should emit legacy activeCell Sref even when anchor is null', async () => {
+    // Contract: when activeCell sits beyond axis-ID coverage (e.g. after
+    // Cmd+Down on an empty sheet), updateSelection is still invoked with a
+    // null anchor and a real activeCellRef so peer rendering can fall back
+    // to the legacy Sref via overlay.ts dual-format dispatch.
+    const calls: Array<{
+      activeCell: ReturnType<typeof Object> | null;
+      activeCellRef: { r: number; c: number };
+    }> = [];
+    class TrackingStore extends MemStore {
+      override updateSelection(
+        activeCell: Parameters<MemStore['updateSelection']>[0],
+        _ranges: Parameters<MemStore['updateSelection']>[1],
+        activeCellRef: Parameters<MemStore['updateSelection']>[2],
+      ): void {
+        calls.push({ activeCell, activeCellRef });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    await sheet.moveToEdge('down');
+
+    const last = calls[calls.length - 1];
+    expect(last.activeCell).toBeNull();
+    expect(last.activeCellRef.r).toBeGreaterThan(1);
+  });
+
+  it('should still extend axis order for column/row range selection', () => {
+    // Preserves the fix from `923c5073`: selecting column E when only A-B
+    // have data must extend colOrder so the selection's colId is non-null
+    // (otherwise the range would be misinterpreted as select-all).
+    const calls: Array<{ minRows: number; minCols: number }> = [];
+    class TrackingStore extends MemStore {
+      override ensureAxisOrder(minRows: number, minCols: number): void {
+        calls.push({ minRows, minCols });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    sheet.selectColumn(5);
+
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall.minCols).toBeGreaterThanOrEqual(5);
+  });
 });
 
 describe('Sheet.SelectAll', async () => {

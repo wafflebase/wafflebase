@@ -2633,17 +2633,28 @@ export class Sheet {
   }
 
   private syncSelectionToPresence(): void {
-    // Ensure axis orders cover the activeCell and the non-null axes of
-    // the selection.  For column selection only cols need extending (not
-    // all 100 rows); for row selection only rows.
-    const minRow = this.activeCell.r;
-    const minCol = this.activeCell.c;
-    let maxRow = minRow;
-    let maxCol = minCol;
+    // Only ranges drive axis-order extension. activeCell alone never
+    // extends the axis: Cmd+Down/Right on an empty sheet would otherwise
+    // push ~1M axis IDs into rowOrder in a single CRDT transaction.
+    // Ranges that cover the full dimension (e.g. selectAll) are likewise
+    // skipped — they semantically mean "all" regardless of selectionType
+    // and never need axis-ID materialization.
+    // When activeCell sits beyond the axis coverage, the anchor is null and
+    // peer rendering falls back to the legacy Sref field via overlay.ts.
+    let maxRow = 0;
+    let maxCol = 0;
     const isRow = this.selectionType === 'row';
     const isCol = this.selectionType === 'column';
     const isAll = this.selectionType === 'all';
+    const dimRows = this.dimension.rows;
+    const dimCols = this.dimension.columns;
     for (const [start, end] of this.ranges) {
+      const coversFullDimension =
+        start.r === 1 &&
+        start.c === 1 &&
+        end.r === dimRows &&
+        end.c === dimCols;
+      if (coversFullDimension) continue;
       if (!isCol && !isAll) {
         maxRow = Math.max(maxRow, start.r, end.r);
       }
@@ -2656,18 +2667,16 @@ export class Sheet {
     const rowOrder = this.store.getRowOrder();
     const colOrder = this.store.getColOrder();
 
-    // Resolve activeCell anchor (bootstrap on first call or after axis extension)
     const freshAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
     if (freshAnchor) {
       this.activeCellAnchor = freshAnchor;
     }
-    if (!this.activeCellAnchor) return;
 
     const rangeAnchors = this.ranges.map((range) =>
       rangeToRangeAnchor(range, rowOrder, colOrder, this.selectionType),
     );
     this.rangeAnchors = rangeAnchors;
-    this.store.updateSelection(this.activeCellAnchor, rangeAnchors);
+    this.store.updateSelection(freshAnchor, rangeAnchors, this.activeCell);
   }
 
   /**
