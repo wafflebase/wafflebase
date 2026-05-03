@@ -1,6 +1,9 @@
 # CLI
 
-The Wafflebase CLI lets you manage documents and cells from the terminal.
+The Wafflebase CLI lets you manage spreadsheets and word-processor
+documents from the terminal — read/write cells, import/export CSV and
+JSON, render docs as Markdown or PDF, and round-trip `.docx` files
+through the same Yorkie-backed store the editor uses.
 
 ## Installation
 
@@ -56,7 +59,7 @@ wafflebase ctx switch e98ff707
 For non-interactive environments, use API keys:
 
 ```bash
-wafflebase --api-key wfb_xxx document list
+wafflebase --api-key wfb_xxx docs list
 # Or via environment variable:
 export WAFFLEBASE_API_KEY=wfb_xxx
 ```
@@ -82,7 +85,7 @@ profiles:
 You can define multiple profiles and switch between them with `--profile`:
 
 ```bash
-wafflebase --profile production document list
+wafflebase --profile production docs list
 ```
 
 ### Environment Variables
@@ -101,139 +104,229 @@ export WAFFLEBASE_WORKSPACE=your-workspace-id
 | `--api-key <key>` | API key | — |
 | `--workspace <id>` | Workspace ID | — |
 | `--profile <name>` | Config profile | `default` |
-| `--format <fmt>` | Output format: `json`, `table`, `csv` | `json` |
+| `--format <fmt>` | Output format: `json`, `table`, `csv` (also `md` / `text` on `docs content`, `pdf` / `docx` on `docs export`) | `json` |
 | `--quiet` | Suppress output | `false` |
 | `--verbose` | Verbose output | `false` |
 | `--dry-run` | Show request without executing | `false` |
 
-## Commands
+## Namespace Layout (v0.3.7)
 
-### document (alias: doc)
+The command tree groups commands under plural namespaces:
 
-Manage documents.
+- **`docs`** — manage and read both spreadsheet and word-processor documents
+- **`sheets`** — spreadsheet-specific operations (tabs, cells, CSV/JSON import/export)
+- **`api-keys`** — workspace API key management
+- **`ctx`**, **`schema`**, **`login`/`logout`/`status`** — top-level utilities
+
+Singular forms (`doc`, `sheet`, `tab`, `cell`, `api-key`) work as
+aliases for back-compat with earlier scripts; new code should prefer
+the plural canonical names.
+
+## docs (aliases: doc, document, documents)
+
+Manage documents and read their content. Works for both spreadsheets
+(`type: sheet`) and word-processor docs (`type: doc`).
+
+### Document management
 
 ```bash
 # List all documents
-wafflebase document list
+wafflebase docs list
+wafflebase docs list --type doc        # only word-processor docs
+wafflebase docs list --type sheet      # only spreadsheets
 
 # Create a new sheet (default)
-wafflebase document create "Q1 Report"
+wafflebase docs create "Q1 Report"
 
-# Create a new document
-wafflebase document create "Meeting Notes" --type doc
+# Create a new word-processor document
+wafflebase docs create "Meeting Notes" --type doc
 
 # Get document metadata
-wafflebase document get <doc-id>
+wafflebase docs get <doc-id>
 
 # Rename a document
-wafflebase document rename <doc-id> "New Title"
+wafflebase docs rename <doc-id> "New Title"
 
 # Delete a document
-wafflebase document delete <doc-id>
+wafflebase docs delete <doc-id>
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--type <type>` | Document type: `sheet` or `doc` | `sheet` |
+| `--type <type>` | Document type: `sheet` or `doc` (on `list`/`create`) | `sheet` (`create`) |
 
-::: info
-The `tab` and `cell` commands below apply to sheet documents only.
-:::
+### docs content
 
-### tab
-
-Manage tabs within a document.
+Read a word-processor document as JSON, Markdown, or plain text.
 
 ```bash
-# List tabs in a document
-wafflebase tab list <doc-id>
+# Default JSON
+wafflebase docs content <doc-id>
+
+# GitHub-Flavoured Markdown for human reading or LLM input
+wafflebase docs content <doc-id> --format md
+
+# Plain text (one block per line, no formatting)
+wafflebase docs content <doc-id> --format text
+
+# Slice by page range (1-based; clamps with stderr warning)
+wafflebase docs content <doc-id> --pages 1-3,5
+
+# Include header/footer regions (md/text only — JSON always includes them)
+wafflebase docs content <doc-id> --format md --include-header-footer
+
+# Inline data: image URLs (md only)
+wafflebase docs content <doc-id> --format md --inline-images
+
+# Save to a file (refuses to overwrite without --force)
+wafflebase docs content <doc-id> --format md --out summary.md
+wafflebase docs content <doc-id> --format md --out summary.md --force
 ```
 
-### cell
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format <fmt>` | `json`, `md`, `text` | `json` |
+| `--pages <range>` | Page selection (e.g. `1-3,5`) | all pages |
+| `--include-header-footer` | Emit header/footer in `md`/`text` | `false` |
+| `--inline-images` | Emit `data:` image URLs verbatim (md only) | `false` |
+| `--out <file>` | Write to file (`-` for stdout) | stdout |
+| `--force` | Overwrite existing output file | `false` |
 
-Read and write cell data.
+::: info
+On a spreadsheet document, `docs content` returns a structured
+`TYPE_MISMATCH` error pointing at `sheets cells get` instead.
+:::
+
+### docs export
+
+Export a word-processor document to PDF or DOCX.
+
+```bash
+# Whole-document PDF (auto-detected from extension)
+wafflebase docs export <doc-id> output.pdf
+
+# PDF page subset (full PDF rendered, then non-selected pages dropped)
+wafflebase docs export <doc-id> output.pdf --pages 1-3
+
+# DOCX export (full document only — DOCX has no page concept)
+wafflebase docs export <doc-id> output.docx
+
+# Pipe binary to stdout
+wafflebase docs export <doc-id> - --format pdf > out.pdf
+
+# Overwrite an existing file
+wafflebase docs export <doc-id> output.pdf --force
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format <fmt>` | `pdf` or `docx`; auto-detected from filename extension | from extension |
+| `--pages <range>` | Page selection (PDF only — DOCX warns + ignores) | all pages |
+| `--include-header-footer` | Include header/footer regions | `true` |
+| `--force` | Overwrite existing target file | `false` |
+
+::: info
+First-time PDF export on a Korean document downloads Noto Sans/Serif
+KR (~5 MB per variant) once. The font is cached for subsequent runs.
+:::
+
+### docs import
+
+Import a `.docx` as a new document or replace an existing one.
+
+```bash
+# Default — POST a new doc + PUT its content
+wafflebase docs import draft.docx
+wafflebase docs import draft.docx --title "Final Draft"
+
+# Read from stdin
+cat draft.docx | wafflebase docs import -
+
+# Replace an existing doc (destructive — requires --yes on non-TTY)
+wafflebase docs import revision.docx --replace <doc-id> --yes
+
+# Preview the requests without executing
+wafflebase docs import draft.docx --dry-run
+wafflebase docs import revision.docx --replace <doc-id> --dry-run
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--title <title>` | New document title | file basename (or `Untitled` for stdin) |
+| `--replace <doc-id>` | Existing document to overwrite | — |
+| `--yes` | Skip the confirmation prompt under `--replace` | `false` |
+
+`--replace` without `--yes` on a non-TTY shell exits 1 with
+`{"error":{"code":"CONFIRMATION_REQ"}}`.
+
+## sheets (aliases: sheet, spreadsheet, spreadsheets)
+
+Spreadsheet-specific commands. The `tabs` and `cells` subcommands work
+on documents of `type: sheet`; on a doc-typed document the backend
+returns `TYPE_MISMATCH`.
+
+### sheets tabs
+
+```bash
+# List tabs in a spreadsheet
+wafflebase sheets tabs list <doc-id>
+```
+
+### sheets cells
 
 ```bash
 # Get all cells (default tab)
-wafflebase cell get <doc-id>
+wafflebase sheets cells get <doc-id>
 
 # Get a specific cell
-wafflebase cell get <doc-id> A1
+wafflebase sheets cells get <doc-id> A1
 
 # Get a range
-wafflebase cell get <doc-id> A1:C10
+wafflebase sheets cells get <doc-id> A1:C10
 
 # Specify a tab
-wafflebase cell get <doc-id> A1:C10 --tab tab-2
+wafflebase sheets cells get <doc-id> A1:C10 --tab tab-2
 
 # Set a cell value
-wafflebase cell set <doc-id> A1 "Revenue"
+wafflebase sheets cells set <doc-id> A1 "Revenue"
 
 # Set a formula
-wafflebase cell set <doc-id> B2 "=SUM(A1:A10)" --formula
+wafflebase sheets cells set <doc-id> B2 "=SUM(A1:A10)" --formula
 
 # Delete a cell
-wafflebase cell delete <doc-id> A1
+wafflebase sheets cells delete <doc-id> A1
 
 # Batch update (inline JSON)
-wafflebase cell batch <doc-id> \
+wafflebase sheets cells batch <doc-id> \
   --data '{"A1": {"value": "Name"}, "B1": {"value": "Score"}}'
 
 # Batch update (from stdin)
 echo '{"A1": {"value": "1"}, "A2": {"value": "2"}}' | \
-  wafflebase cell batch <doc-id>
+  wafflebase sheets cells batch <doc-id>
 ```
 
-### api-key
-
-Manage API keys for programmatic access.
-
-```bash
-# Create a new API key
-wafflebase api-key create "My Integration"
-
-# List API keys
-wafflebase api-key list
-
-# Revoke an API key
-wafflebase api-key revoke <key-id>
-```
-
-### schema
-
-Inspect available commands and their parameters.
-
-```bash
-# List all commands
-wafflebase schema
-
-# Describe a specific command
-wafflebase schema document.list
-wafflebase schema cell.get
-```
-
-### import
+### sheets import
 
 Import CSV or JSON data into a spreadsheet tab.
 
 ```bash
 # Import a CSV file
-wafflebase import <doc-id> data.csv
+wafflebase sheets import <doc-id> data.csv
 
 # Import a JSON file
-wafflebase import <doc-id> data.json
+wafflebase sheets import <doc-id> data.json
 
 # Import from stdin
-cat data.csv | wafflebase import <doc-id> -
+cat data.csv | wafflebase sheets import <doc-id> -
 
 # Import starting at a specific cell
-wafflebase import <doc-id> data.csv --start C5
+wafflebase sheets import <doc-id> data.csv --start C5
 
 # Target a specific tab
-wafflebase import <doc-id> data.csv --tab tab-2
+wafflebase sheets import <doc-id> data.csv --tab tab-2
 
 # Preview without writing
-wafflebase import <doc-id> data.csv --dry-run
+wafflebase sheets import <doc-id> data.csv --dry-run
 ```
 
 | Option | Description | Default |
@@ -251,22 +344,22 @@ JSON input accepts an array of arrays or an array of objects:
 ]
 ```
 
-### export
+### sheets export
 
 Export tab data to a CSV or JSON file.
 
 ```bash
 # Export to CSV
-wafflebase export <doc-id> output.csv
+wafflebase sheets export <doc-id> output.csv
 
 # Export to JSON
-wafflebase export <doc-id> output.json
+wafflebase sheets export <doc-id> output.json
 
 # Export a specific range
-wafflebase export <doc-id> output.csv --range A1:D100
+wafflebase sheets export <doc-id> output.csv --range A1:D100
 
 # Export to stdout (pipe-friendly)
-wafflebase export <doc-id> - --file-format csv | head -20
+wafflebase sheets export <doc-id> - --file-format csv | head -20
 ```
 
 | Option | Description | Default |
@@ -275,34 +368,72 @@ wafflebase export <doc-id> - --file-format csv | head -20
 | `--range <range>` | Cell range to export | all data |
 | `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
 
+## api-keys (alias: api-key)
+
+Manage API keys for programmatic access.
+
+```bash
+# Create a new API key (printed once — copy it now)
+wafflebase api-keys create "My Integration"
+
+# List API keys (raw key never re-shown)
+wafflebase api-keys list
+
+# Revoke an API key
+wafflebase api-keys revoke <key-id>
+```
+
+## schema
+
+Inspect available commands and their parameters. Aliases resolve to
+the canonical plural name.
+
+```bash
+# List all commands
+wafflebase schema
+
+# Describe a specific command
+wafflebase schema docs.content
+wafflebase schema sheets.cells.get
+
+# Singular aliases also resolve
+wafflebase schema cell.get        # → sheets.cells.get
+wafflebase schema doc.list        # → docs.list
+```
+
+`docs.import` exposes a `variants` field that spells out the safety
+split — `default → write` (creates a new doc), `--replace given →
+destructive` (overwrites in place) — so AI agents know when to
+prompt for extra confirmation.
+
 ## Output Formats
 
 ### JSON (default)
 
 ```bash
-$ wafflebase document list
+$ wafflebase docs list
 [
-  {"id": "abc-123", "title": "Q1 Report"},
-  {"id": "def-456", "title": "Budget"}
+  {"id": "abc-123", "title": "Q1 Report", "type": "sheet"},
+  {"id": "def-456", "title": "Meeting Notes", "type": "doc"}
 ]
 ```
 
 ### Table
 
 ```bash
-$ wafflebase --format table document list
-┌─────────┬───────────┐
-│ ID      │ Title     │
-├─────────┼───────────┤
-│ abc-123 │ Q1 Report │
-│ def-456 │ Budget    │
-└─────────┴───────────┘
+$ wafflebase --format table docs list
+┌─────────┬───────────────┬───────┐
+│ ID      │ Title         │ Type  │
+├─────────┼───────────────┼───────┤
+│ abc-123 │ Q1 Report     │ sheet │
+│ def-456 │ Meeting Notes │ doc   │
+└─────────┴───────────────┴───────┘
 ```
 
 ### CSV
 
 ```bash
-$ wafflebase --format csv cell get abc-123 A1:B3
+$ wafflebase --format csv sheets cells get abc-123 A1:B3
 A1,Revenue
 A2,1000
 B1,Expenses
@@ -315,25 +446,39 @@ B2,500
 
 ```bash
 # Import raw data
-wafflebase import abc-123 sales.csv
+wafflebase sheets import abc-123 sales.csv
 
 # Add a SUM formula
-wafflebase cell set abc-123 C1 "=SUM(B2:B100)" --formula
+wafflebase sheets cells set abc-123 C1 "=SUM(B2:B100)" --formula
 
 # Export results
-wafflebase export abc-123 report.csv --range A1:C100
+wafflebase sheets export abc-123 report.csv --range A1:C100
 ```
 
-### Export to CSV (cell get)
+### DOCX → Wafflebase → PDF round-trip
 
 ```bash
-wafflebase --format csv cell get abc-123 A1:Z100 > report.csv
+# Import .docx as a new document, capture id
+DOC_ID=$(wafflebase docs import draft.docx --format json | jq -r '.id')
+
+# Optional: eyeball the imported content as Markdown
+wafflebase docs content "$DOC_ID" --format md
+
+# Render to PDF (consistent fonts, regardless of local Word install)
+wafflebase docs export "$DOC_ID" final.pdf
 ```
 
-### Script: Populate from data
+### Doc → Markdown → LLM analysis
 
 ```bash
-wafflebase cell batch abc-123 --data '{
+wafflebase docs content <doc-id> --format md --quiet > /tmp/doc.md
+cat /tmp/doc.md | claude "Summarize this in 5 bullet points"
+```
+
+### Script: populate a sheet from inline data
+
+```bash
+wafflebase sheets cells batch abc-123 --data '{
   "A1": {"value": "Name"},
   "B1": {"value": "Email"},
   "A2": {"value": "Alice"},
@@ -344,11 +489,23 @@ wafflebase cell batch abc-123 --data '{
 ### Dry-run mode
 
 ```bash
-$ wafflebase --dry-run cell set abc-123 A1 "Hello"
+$ wafflebase --dry-run sheets cells set abc-123 A1 "Hello"
 {
   "dry_run": true,
   "method": "PUT",
-  "url": "http://localhost:3000/api/v1/workspaces/.../cells/A1",
+  "url": "http://localhost:3000/api/v1/workspaces/.../tabs/tab-1/cells/A1",
   "body": { "value": "Hello" }
 }
 ```
+
+## Skills (for AI Agents)
+
+The CLI ships namespace-prefixed skill files in
+`packages/cli/skills/` so AI agents (Claude Code, Cursor, etc.) can
+discover commands by intent: `sheets-read-cells.md`,
+`sheets-write-cells.md`, `docs-manage.md`, `docs-read-content.md`,
+`docs-export-pdf.md`, `docs-export-docx.md`, `docs-import-docx.md`,
+plus recipes (`recipe-csv-pipeline.md`, `recipe-docx-to-pdf.md`,
+`recipe-doc-to-markdown.md`, …). See `skills/SKILL.md` for the index
+and how the safety levels (`read-only` / `write` / `destructive`) map
+to agent confirmation behavior.

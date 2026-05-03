@@ -20,22 +20,24 @@ curl -X PUT ${API}/\\
   -d '{"formula": "=SUM(A1:B1)"}'`;
 
 const cliCode = `# List documents
-$ wafflebase document list
+$ wafflebase docs list
 [
   {"id": "abc-123",
-   "title": "Q1 Report"}
+   "title": "Q1 Report",
+   "type": "sheet"}
 ]
 
 # Read cells (range or single)
-$ wafflebase cell get abc-123 A1:C10
-$ wafflebase cell get abc-123 A1
+$ wafflebase sheets cells get abc-123 A1:C10
+$ wafflebase sheets cells get abc-123 A1
 
 # Write a cell value
-$ wafflebase cell set abc-123 A1 "Revenue"
+$ wafflebase sheets cells set abc-123 \\
+    A1 "Revenue"
 
-# Write a formula
-$ wafflebase cell set abc-123 B2 \\
-    "=SUM(A1:A10)" --formula`;
+# Render a doc as Markdown
+$ wafflebase docs content abc-123 \\
+    --format md`;
 
 type TokenType =
   | "comment"
