@@ -113,3 +113,11 @@ export type { PdfFontKey, FontUsage, PdfFontsOptions } from './export/pdf-fonts.
 export { DocxExporter } from './export/docx-exporter.js';
 export type { ImageFetcher as DocxImageFetcher } from './export/docx-exporter.js';
 export type { ImageFetcher as PdfImageFetcher } from './export/pdf-image-painter.js';
+
+// DOCX import — used by `wafflebase docs import`. The importer reaches
+// for `DOMParser` at runtime, so Node consumers (the CLI) must install
+// a polyfill (e.g., `@xmldom/xmldom`) before calling
+// `DocxImporter.import`. The CLI's `dom-polyfill.ts` does this as a
+// side-effect import.
+export { DocxImporter } from './import/docx-importer.js';
+export type { ImageUploader } from './import/docx-importer.js';

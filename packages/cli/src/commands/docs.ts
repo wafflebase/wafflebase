@@ -8,6 +8,7 @@ import { exportPdf } from '../docs/pdf-export.js';
 import { exportDocx } from '../docs/docx-export.js';
 import { parsePageRange } from '../docs/page-range.js';
 import { writeBinary } from '../output/binary.js';
+import { runDocsImport } from '../docs/import.js';
 
 type DocType = 'doc' | 'sheet';
 
@@ -288,10 +289,47 @@ export function registerDocsCommand(program: Command) {
         outputError(e, opts.quiet);
       }
     });
+
+  registerDocsImportCommand(doc);
 }
 
 async function pdfPageCount(bytes: Uint8Array): Promise<number> {
   const { PDFDocument } = await import('pdf-lib');
   const pdf = await PDFDocument.load(bytes);
   return pdf.getPageCount();
+}
+
+interface ImportOpts {
+  title?: string;
+  replace?: string;
+  yes: boolean;
+}
+
+export function registerDocsImportCommand(doc: Command) {
+  doc
+    .command('import <file>')
+    .description('Import a .docx file as a new (or replacement) document')
+    .option('--title <title>', 'Document title (default: file basename)')
+    .option('--replace <doc-id>', 'Replace content of an existing document')
+    .option('--yes', 'Skip --replace confirmation prompt', false)
+    .action(async function (this: Command, file: string) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<ImportOpts>();
+      try {
+        const result = await runDocsImport(
+          {
+            file,
+            title: local.title,
+            replace: local.replace,
+            yes: local.yes,
+            quiet: opts.quiet,
+            dryRun: opts.dryRun,
+          },
+          getClient(opts),
+        );
+        if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      } catch (e) {
+        outputError(e, opts.quiet);
+      }
+    });
 }

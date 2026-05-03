@@ -156,6 +156,13 @@ export class HttpClient {
       `/documents/${docId}/content`,
     );
   }
+  putDocContent(docId: string, doc: Document) {
+    return this.request<Document>(
+      'PUT',
+      `/documents/${docId}/content`,
+      doc,
+    );
+  }
 
   // Tabs
   listTabs(docId: string) {
