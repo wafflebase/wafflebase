@@ -13,6 +13,8 @@ const DEMO_DOC_TOKEN =
 
 type Tab = "sheet" | "doc";
 
+const TAB_ORDER: Tab[] = ["sheet", "doc"];
+
 export function DemoSection() {
   const { resolvedTheme } = useTheme();
   const sheetIframeRef = useRef<HTMLIFrameElement>(null);
@@ -51,6 +53,18 @@ export function DemoSection() {
     postTheme(docIframeRef, docState === "loaded", resolvedTheme);
   }, [resolvedTheme, sheetState, docState]);
 
+  const handleTabKey = (e: React.KeyboardEvent, key: Tab) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const idx = TAB_ORDER.indexOf(key);
+    const next =
+      e.key === "ArrowRight"
+        ? TAB_ORDER[(idx + 1) % TAB_ORDER.length]
+        : TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length];
+    setTab(next);
+    document.getElementById(`demo-tab-${next}`)?.focus();
+  };
+
   return (
     <section
       id="demo"
@@ -72,6 +86,8 @@ export function DemoSection() {
         >
           {/* Tab bar */}
           <div
+            role="tablist"
+            aria-label="Live demo surface"
             className="flex items-center gap-1 px-2 pt-2 border-b border-[color:var(--wb-rule)]"
             style={{
               background:
@@ -81,14 +97,20 @@ export function DemoSection() {
             <DemoTab
               active={tab === "sheet"}
               onClick={() => setTab("sheet")}
+              onKeyDown={(e) => handleTabKey(e, "sheet")}
               icon={<SheetIcon />}
               label="Spreadsheet"
+              tabId="demo-tab-sheet"
+              panelId="demo-panel-sheet"
             />
             <DemoTab
               active={tab === "doc"}
               onClick={() => setTab("doc")}
+              onKeyDown={(e) => handleTabKey(e, "doc")}
               icon={<DocIcon />}
               label="Word processor"
+              tabId="demo-tab-doc"
+              panelId="demo-panel-doc"
             />
             <span className="flex-1" />
           </div>
@@ -102,6 +124,8 @@ export function DemoSection() {
               src={sheetUrl}
               title="Wafflebase live demo spreadsheet"
               state={sheetState}
+              panelId="demo-panel-sheet"
+              tabId="demo-tab-sheet"
               onLoad={() => setSheetState("loaded")}
               onError={() => setSheetState("error")}
             />
@@ -112,6 +136,8 @@ export function DemoSection() {
                 src={docUrl}
                 title="Wafflebase live demo document"
                 state={docState}
+                panelId="demo-panel-doc"
+                tabId="demo-tab-doc"
                 onLoad={() => setDocState("loaded")}
                 onError={() => setDocState("error")}
               />
@@ -157,6 +183,8 @@ type DemoFrameProps = {
   src: string;
   title: string;
   state: "loading" | "loaded" | "error";
+  panelId: string;
+  tabId: string;
   onLoad: () => void;
   onError: () => void;
 };
@@ -167,11 +195,20 @@ function DemoFrame({
   src,
   title,
   state,
+  panelId,
+  tabId,
   onLoad,
   onError,
 }: DemoFrameProps) {
   return (
-    <div className="absolute inset-0" style={{ display: visible ? "block" : "none" }}>
+    <div
+      role="tabpanel"
+      id={panelId}
+      aria-labelledby={tabId}
+      hidden={!visible}
+      className="absolute inset-0"
+      style={{ display: visible ? "block" : "none" }}
+    >
       {state === "loading" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[color:var(--wb-paper)] gap-3">
           <div className="size-6 border-2 border-[color:var(--wb-rule)] border-t-[color:var(--wb-syrup)] rounded-full animate-spin" />
@@ -201,15 +238,32 @@ function DemoFrame({
 type DemoTabProps = {
   active: boolean;
   onClick: () => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
   icon: React.ReactNode;
   label: string;
+  tabId: string;
+  panelId: string;
 };
 
-function DemoTab({ active, onClick, icon, label }: DemoTabProps) {
+function DemoTab({
+  active,
+  onClick,
+  onKeyDown,
+  icon,
+  label,
+  tabId,
+  panelId,
+}: DemoTabProps) {
   return (
     <button
       type="button"
+      role="tab"
+      id={tabId}
+      aria-selected={active}
+      aria-controls={panelId}
+      tabIndex={active ? 0 : -1}
       onClick={onClick}
+      onKeyDown={onKeyDown}
       className={cn(
         "inline-flex items-center gap-2 px-3.5 pt-2.5 pb-3 -mb-px font-body text-[13.5px] font-medium border-b-2 rounded-t-lg cursor-pointer transition-colors",
         active

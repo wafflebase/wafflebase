@@ -254,6 +254,6 @@ and the existing `ThemeProvider`.
 | Risk | Mitigation |
 |---|---|
 | Google Fonts blocked by network policy | `display=swap` + system serif/sans/mono fallbacks declared in the `--font-*` tokens |
-| Iframe blocked by X-Frame-Options / CSP | Same-origin iframe; fallback to a static screenshot from `public/images/` |
+| Iframe blocked by X-Frame-Options / CSP | Same-origin iframe; on iframe `error`, `<DemoFrame>` swaps to an inline message ("Demo unavailable. Try refreshing the page.") instead of a static screenshot, keeping the surface text-only |
 | Iframe loads slowly on first visit | `loading="lazy"`, skeleton placeholder while loading |
 | Shared demo token expires or data changes | Dedicated demo document with stable read-only content |

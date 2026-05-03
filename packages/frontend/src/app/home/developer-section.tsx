@@ -177,6 +177,18 @@ export function DeveloperSection() {
   const [tab, setTab] = useState<TabKey>("rest");
   const active = TABS.find((t) => t.key === tab) ?? TABS[0];
 
+  const handleTabKey = (e: React.KeyboardEvent, key: TabKey) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const idx = TABS.findIndex((t) => t.key === key);
+    const next =
+      e.key === "ArrowRight"
+        ? TABS[(idx + 1) % TABS.length]
+        : TABS[(idx - 1 + TABS.length) % TABS.length];
+    setTab(next.key);
+    document.getElementById(`dev-tab-${next.key}`)?.focus();
+  };
+
   return (
     <section
       id="developers"
@@ -218,6 +230,7 @@ export function DeveloperSection() {
                 aria-controls={`dev-panel-${t.key}`}
                 tabIndex={tab === t.key ? 0 : -1}
                 onClick={() => setTab(t.key)}
+                onKeyDown={(e) => handleTabKey(e, t.key)}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 py-3.5 -mb-px font-code text-[13px] border-b-2 cursor-pointer transition-colors",
                   tab === t.key

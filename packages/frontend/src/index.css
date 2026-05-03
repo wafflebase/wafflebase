@@ -49,9 +49,11 @@
   --color-wb-butter: var(--wb-butter);
   --color-wb-berry: var(--wb-berry);
   --color-wb-leaf: var(--wb-leaf);
+  /* stylelint-disable value-keyword-case */
   --font-display: "Fraunces", ui-serif, Georgia, serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* stylelint-enable value-keyword-case */
 }
 
 :root {
