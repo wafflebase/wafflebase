@@ -371,6 +371,22 @@ describe('applyDeleteText — image inline', () => {
     expect(result.inlines[0].text).toBe('');
     expect(result.inlines[0].style.image).toBeUndefined();
   });
+
+  it('preserves non-image styles on the fallback when the last image inline is deleted', () => {
+    // Only the image attribute is meaningless on an empty inline; sibling
+    // styles (bold, color, etc.) on the cursor's anchor should survive so
+    // typing into the now-empty block continues with the prior formatting.
+    const block = makeBlock({
+      text: '\uFFFC',
+      style: { image: IMG, bold: true, color: '#ff0000' },
+    });
+    const result = applyDeleteText(block, 0, 1);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('');
+    expect(result.inlines[0].style.image).toBeUndefined();
+    expect(result.inlines[0].style.bold).toBe(true);
+    expect(result.inlines[0].style.color).toBe('#ff0000');
+  });
 });
 
 describe('applyMergeBlocks', () => {

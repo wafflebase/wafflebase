@@ -351,9 +351,11 @@ function treeNodeToBlock(node: TreeNode): Block {
   const inlines = (el.children ?? [])
     .filter((c) => c.type === 'inline')
     .map(treeNodeToInline)
-    // Drop empty-text inlines that retain image style — these are stale
-    // CRDT residue from a pre-fix split-after-image bug and would render as
-    // a ghost duplicate of the real image.
+    // Invariant: an empty-text inline must never carry style.image.
+    // layout.ts:507 emits an image segment for any inline with style.image
+    // regardless of text length, so a ghost would render. Drop here as a
+    // defense in depth (also normalizes legacy CRDTs from a pre-fix
+    // split-after-image bug that wrote such inlines into the tree).
     .filter((inl) => !(inl.text.length === 0 && inl.style.image));
   const block: Block = {
     id: attrs.id ?? '',

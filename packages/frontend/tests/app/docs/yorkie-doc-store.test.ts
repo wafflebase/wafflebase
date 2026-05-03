@@ -652,23 +652,31 @@ describe('YorkieDocStore', () => {
 
       store.splitBlock(blockId, 1, 'after-image', 'paragraph');
 
-      // Read fresh from the Yorkie tree (bypass the cache) to mirror what a
-      // remote peer / page reload would observe.
+      // Pin the producer fix: the second <block>'s inline must have no
+      // image.* attributes in the Yorkie tree itself. (The read-time filter
+      // would otherwise mask a regression here.)
+      const treeRoot = doc.getRoot().content.getRootTreeNode();
+      const newBlockNode = treeRoot.children[1];
+      const newInlines = (newBlockNode.children ?? []).filter(
+        (c: { type: string }) => c.type === 'inline',
+      );
+      assert.equal(newInlines.length, 1, 'new block has exactly one inline');
+      const treeAttrs = (newInlines[0].attributes ?? {}) as Record<string, string>;
+      const treeImageKeys = Object.keys(treeAttrs).filter((k) => k.startsWith('image.'));
+      assert.deepEqual(
+        treeImageKeys,
+        [],
+        `new block inline must have no image.* attributes; saw ${treeImageKeys.join(', ')}`,
+      );
+
+      // Read fresh through the filter to mirror a peer / reload view.
       const fresh = new YorkieDocStore(doc);
       const result = fresh.getDocument();
       assert.equal(result.blocks.length, 2);
-      assert.equal(result.blocks[0].inlines.length, 1);
       assert.equal(result.blocks[0].inlines[0].text, '\uFFFC');
       assert.ok(result.blocks[0].inlines[0].style.image, 'before block keeps image');
-
-      // The new block must not carry image style on its empty trailing inline
-      assert.equal(result.blocks[1].inlines.length, 1);
       assert.equal(result.blocks[1].inlines[0].text, '');
-      assert.equal(
-        result.blocks[1].inlines[0].style.image,
-        undefined,
-        'after block must not duplicate the image style',
-      );
+      assert.equal(result.blocks[1].inlines[0].style.image, undefined);
     });
 
     it('split at end of a block whose last inline is an image preserves only one image', () => {
@@ -687,15 +695,27 @@ describe('YorkieDocStore', () => {
       // offset 6 = end of "Hello" (5) + image (1)
       store.splitBlock(blockId, 6, 'after-image', 'paragraph');
 
-      // Read fresh from the Yorkie tree to mirror a peer / reload view.
+      // Pin the producer fix at the tree level.
+      const treeRoot = doc.getRoot().content.getRootTreeNode();
+      const newBlockNode = treeRoot.children[1];
+      const newInlines = (newBlockNode.children ?? []).filter(
+        (c: { type: string }) => c.type === 'inline',
+      );
+      for (const inl of newInlines) {
+        const attrs = (inl.attributes ?? {}) as Record<string, string>;
+        const keys = Object.keys(attrs).filter((k) => k.startsWith('image.'));
+        assert.deepEqual(
+          keys,
+          [],
+          `new block inline must not carry image.*; saw ${keys.join(', ')}`,
+        );
+      }
+
       const fresh = new YorkieDocStore(doc);
       const result = fresh.getDocument();
       assert.equal(result.blocks.length, 2);
-      // Before block keeps text + image
       const beforeImage = result.blocks[0].inlines.find((i) => i.style.image);
       assert.ok(beforeImage, 'before block has the image');
-      assert.equal(beforeImage.text, '\uFFFC');
-      // After block must not contain a second image
       const afterImage = result.blocks[1].inlines.find((i) => i.style.image);
       assert.equal(afterImage, undefined, 'after block must not duplicate the image style');
     });
