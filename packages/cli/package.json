@@ -22,11 +22,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@wafflebase/docs": "workspace:*",
     "commander": "^13.0.0",
+    "fontkit": "^2.0.4",
     "open": "^11.0.0",
     "yaml": "^2.0.0"
   },
   "devDependencies": {
+    "@types/fontkit": "^2.0.0",
     "@types/node": "^25.4.0",
     "@vitest/coverage-v8": "3.1.1",
     "eslint": "^9.18.0",

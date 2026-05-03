@@ -260,9 +260,9 @@ can paginate without a Canvas.
 
 ## Phase 5 — CLI Fontkit Measurer and Page Utilities
 
-- [ ] 5.1 Add `fontkit` to `packages/cli/package.json` `dependencies` and
+- [x] 5.1 Add `fontkit` to `packages/cli/package.json` `dependencies` and
       `@wafflebase/docs` as `workspace:*`. Run `pnpm install`.
-- [ ] 5.2 Create `packages/cli/src/docs/fontkit-measurer.ts`:
+- [x] 5.2 Create `packages/cli/src/docs/fontkit-measurer.ts`:
       ```ts
       import fontkit from 'fontkit';
       import type { TextMeasurer, ResolvedFont } from '@wafflebase/docs';
@@ -272,10 +272,13 @@ can paginate without a Canvas.
       Key impl: glyph advance ÷ unitsPerEm × size, with an LRU
       `${family}|${weight}|${style}` font cache. Lazy-load NotoKR by calling
       the existing `PdfFonts` helper.
-- [ ] 5.3 Add `test/fontkit-measurer.spec.ts`. Use a fixed font fixture
+- [x] 5.3 Add `test/fontkit-measurer.spec.ts`. Use a fixed font fixture
       (e.g., one of the PdfFonts NotoKR variants) and assert width within
       ±1 px of an oracle Canvas measurement captured offline.
-- [ ] 5.4 Create `packages/cli/src/docs/page-range.ts`:
+      → Reused `packages/docs/test/export/fixtures/fonts/test-cjk.ttf`.
+      Assertions use exact font-unit math (29.472 px for 'Hello' @ 12px,
+      30.72 px for '한글' @ 16px).
+- [x] 5.4 Create `packages/cli/src/docs/page-range.ts`:
       ```ts
       export interface PageRange { pages: ReadonlySet<number> }
       export function parsePageRange(input: string, totalPages: number): PageRange;
@@ -283,10 +286,13 @@ can paginate without a Canvas.
       Accept `"1-3,5,7-9"`, `"2"`, `"1,3,5"`, `"1-3,5,7-9"`. Throw on
       malformed (`"0"`, `"3-1"`, `"abc"`). Clamp upper bound to `totalPages`
       with a stderr warning message returned alongside.
-- [ ] 5.5 Add `test/page-range.spec.ts` covering: simple range, single page,
+- [x] 5.5 Add `test/page-range.spec.ts` covering: simple range, single page,
       mixed, malformed (each → throws), clamp (returns warning + clamped
       set).
-- [ ] 5.6 Create `packages/cli/src/docs/page-slice.ts`:
+      → 14 tests in `test/page-range.test.ts` covering single, range,
+      mixed, dedupe, clamp, drop-out-of-range, 0-page rejection,
+      reversed range, non-numeric, empty, empty-token, zero-totalPages.
+- [x] 5.6 Create `packages/cli/src/docs/page-slice.ts`:
       ```ts
       export type SliceFormat = 'json' | 'md' | 'text';
       export function sliceBlocksByPages(
@@ -300,11 +306,17 @@ can paginate without a Canvas.
       Per § 5.2 of the design: include any block whose lines intersect the
       requested pages; for `json`, attach `pageMeta`; for `md`/`text`, no
       meta.
-- [ ] 5.7 Add `test/page-slice.spec.ts` with fixture document spanning 3
+- [x] 5.7 Add `test/page-slice.spec.ts` with fixture document spanning 3
       pages: assert `--pages 1-2` selection by format, assert spanning
       blocks appear once.
+      → 8 tests in `test/page-slice.test.ts` against a 4-block / 3-page
+      fixture: includes spanning blocks once, preserves order across
+      multi-page selections, attaches `pageMeta` only for json, drops
+      ghost blocks with no layout lines.
 - [ ] 5.8 Run `pnpm --filter @wafflebase/cli test`. Commit:
       `Add fontkit measurer and page-range/page-slice utilities`.
+      → CLI tests: 11 files / 96 tests pass. `verify:fast`: 44 files /
+      737 tests pass.
 
 ## Phase 6 — `wafflebase docs content`
 
