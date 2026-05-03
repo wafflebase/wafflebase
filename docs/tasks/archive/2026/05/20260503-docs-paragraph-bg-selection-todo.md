@@ -48,8 +48,10 @@ run backgrounds.
 - [x] Verified: image runs are unaffected (skipped via `style.image` check
       in both the body pre-pass and the cell pre-pass)
 - [x] `pnpm verify:fast` green (44 test files / 739 tests passed)
-- [ ] Manual: type into a paragraph, give it a yellow highlight, drag-select
-      across it, confirm the blue selection band is visible over the yellow
+
+Manual visual check (deferred to PR reviewer in #181): type into a
+paragraph, apply a yellow highlight, drag-select across it, confirm
+the blue selection band is visible over the yellow.
 
 ## Risks / Notes
 
