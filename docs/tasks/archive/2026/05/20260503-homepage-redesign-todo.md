@@ -6,9 +6,9 @@ status: done
 
 # Homepage redesign — Butter & Maple landing page
 
-Apply the locked design from
-`/Users/hackerwins/Downloads/design_handoff_wafflebase_landing/` to the
-existing landing page at `packages/frontend/src/app/home/`.
+Apply the locked design from the `design_handoff_wafflebase_landing`
+bundle (high-fidelity reference HTML / JSX / CSS shared by the design
+team) to the existing landing page at `packages/frontend/src/app/home/`.
 
 The handoff is **high-fidelity** — colors, typography, spacing, copy, and
 interactions are locked. The reference HTML/JSX/CSS are prototypes, not
@@ -263,6 +263,6 @@ Maple identity. Yes:
 
 ## References
 
-- Handoff: `/Users/hackerwins/Downloads/design_handoff_wafflebase_landing/README.md`
+- Handoff: `design_handoff_wafflebase_landing/README.md` (shared bundle)
 - Design doc to update: `docs/design/homepage.md`
 - Current code: `packages/frontend/src/app/home/`

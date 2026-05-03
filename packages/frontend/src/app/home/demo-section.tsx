@@ -26,8 +26,17 @@ export function DemoSection() {
     "loading",
   );
 
-  const sheetUrl = `${window.location.origin}/shared/${DEMO_SHEET_TOKEN}?theme=${resolvedTheme}`;
-  const docUrl = `${window.location.origin}/shared/${DEMO_DOC_TOKEN}?theme=${resolvedTheme}`;
+  // Lock the iframe URLs to the initial theme so subsequent theme changes
+  // don't mutate the `src` prop and trigger a full reload — theme updates
+  // flow through postMessage instead (see effect below).
+  const [sheetUrl] = useState(
+    () =>
+      `${window.location.origin}/shared/${DEMO_SHEET_TOKEN}?theme=${resolvedTheme}`,
+  );
+  const [docUrl] = useState(
+    () =>
+      `${window.location.origin}/shared/${DEMO_DOC_TOKEN}?theme=${resolvedTheme}`,
+  );
 
   // Mount the doc iframe lazily, on first activation of the doc tab,
   // so the initial pageload only fetches the sheet iframe.

@@ -1,8 +1,16 @@
+import { useId } from "react";
+
 type BigWaffleProps = {
   className?: string;
 };
 
 export function BigWaffle({ className }: BigWaffleProps) {
+  const baseId = useId();
+  const bodyId = `${baseId}-body`;
+  const shadeId = `${baseId}-shade`;
+  const butterId = `${baseId}-butter`;
+  const shadowId = `${baseId}-shadow`;
+
   const cell = 44;
   const gap = 6;
   const offset = 22;
@@ -27,7 +35,7 @@ export function BigWaffle({ className }: BigWaffleProps) {
             width={cell - 2}
             height={cell - 2}
             rx="5"
-            fill="url(#wb-pocket-shade)"
+            fill={`url(#${shadeId})`}
             opacity="0.35"
           />
           <rect
@@ -52,20 +60,20 @@ export function BigWaffle({ className }: BigWaffleProps) {
       className={className}
     >
       <defs>
-        <linearGradient id="wb-waffle-body" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={bodyId} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="var(--wb-butter)" />
           <stop offset="100%" stopColor="var(--wb-syrup)" stopOpacity="0.6" />
         </linearGradient>
-        <linearGradient id="wb-pocket-shade" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={shadeId} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="var(--wb-syrup-deep)" stopOpacity="0" />
           <stop offset="100%" stopColor="var(--wb-syrup-deep)" stopOpacity="1" />
         </linearGradient>
-        <linearGradient id="wb-butter-face" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={butterId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#FFF8DC" />
           <stop offset="100%" stopColor="#F4D67A" />
         </linearGradient>
         <filter
-          id="wb-soft-shadow"
+          id={shadowId}
           x="-20%"
           y="-20%"
           width="140%"
@@ -88,7 +96,7 @@ export function BigWaffle({ className }: BigWaffleProps) {
         width="224"
         height="224"
         rx="28"
-        fill="url(#wb-waffle-body)"
+        fill={`url(#${bodyId})`}
         stroke="var(--wb-syrup-deep)"
         strokeWidth="2"
       />
@@ -113,7 +121,7 @@ export function BigWaffle({ className }: BigWaffleProps) {
           rx="5"
           fill="var(--wb-syrup-deep)"
           opacity="0.22"
-          filter="url(#wb-soft-shadow)"
+          filter={`url(#${shadowId})`}
         />
         <rect
           x="76"
@@ -121,7 +129,7 @@ export function BigWaffle({ className }: BigWaffleProps) {
           width="84"
           height="56"
           rx="5"
-          fill="url(#wb-butter-face)"
+          fill={`url(#${butterId})`}
           stroke="var(--wb-syrup-deep)"
           strokeWidth="1.4"
         />

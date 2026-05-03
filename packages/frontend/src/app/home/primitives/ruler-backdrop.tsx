@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { cn } from "@/lib/utils";
 
 type RulerBackdropProps = {
@@ -11,6 +12,7 @@ type RulerBackdropProps = {
  * artifact in dark mode, matches the handoff spec.
  */
 export function RulerBackdrop({ className }: RulerBackdropProps) {
+  const patternId = useId();
   return (
     <div
       aria-hidden="true"
@@ -28,7 +30,7 @@ export function RulerBackdrop({ className }: RulerBackdropProps) {
       <svg width="100%" height="100%">
         <defs>
           <pattern
-            id="wb-ruler-pat"
+            id={patternId}
             x="0"
             y="0"
             width="48"
@@ -100,7 +102,7 @@ export function RulerBackdrop({ className }: RulerBackdropProps) {
             />
           </pattern>
         </defs>
-        <rect width="100%" height="100%" fill="url(#wb-ruler-pat)" />
+        <rect width="100%" height="100%" fill={`url(#${patternId})`} />
         <line
           x1="80"
           y1="0"

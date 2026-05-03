@@ -118,13 +118,15 @@ function pushWord(word: string, tokens: Token[]) {
 }
 
 const TOKEN_CLASSES: Record<TokenType, string> = {
-  comment: "italic text-[color:color-mix(in_srgb,var(--wb-paper)_38%,transparent)]",
+  comment:
+    "italic text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_38%,transparent)]",
   string: "text-[color:var(--wb-butter)]",
   flag: "text-[color:var(--wb-leaf)]",
   cmd: "text-[color:var(--wb-berry)] font-semibold",
   method: "text-[color:var(--wb-berry)] font-semibold",
-  prompt: "text-[color:color-mix(in_srgb,var(--wb-paper)_55%,transparent)]",
-  text: "text-[color:color-mix(in_srgb,var(--wb-paper)_90%,transparent)]",
+  prompt:
+    "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_55%,transparent)]",
+  text: "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_90%,transparent)]",
 };
 
 function highlightCode(code: string): ReactNode[] {
@@ -188,7 +190,7 @@ export function DeveloperSection() {
         />
 
         <div
-          className="max-w-[880px] mx-auto rounded-2xl overflow-hidden bg-[color:var(--wb-ink)]"
+          className="max-w-[880px] mx-auto rounded-2xl overflow-hidden bg-[color:var(--wb-terminal-bg)]"
           style={{
             boxShadow:
               "0 30px 60px -30px color-mix(in srgb, var(--wb-syrup-deep) 30%, transparent)",
@@ -196,24 +198,31 @@ export function DeveloperSection() {
         >
           {/* Tabs */}
           <div
+            role="tablist"
+            aria-label="Developer integration examples"
             className="flex items-center px-2 border-b"
             style={{
               background:
-                "color-mix(in srgb, var(--wb-ink) 90%, var(--wb-syrup-deep))",
+                "color-mix(in srgb, var(--wb-terminal-bg) 90%, var(--wb-syrup-deep))",
               borderBottomColor:
-                "color-mix(in srgb, var(--wb-paper) 10%, transparent)",
+                "color-mix(in srgb, var(--wb-terminal-fg) 10%, transparent)",
             }}
           >
             {TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
+                role="tab"
+                id={`dev-tab-${t.key}`}
+                aria-selected={tab === t.key}
+                aria-controls={`dev-panel-${t.key}`}
+                tabIndex={tab === t.key ? 0 : -1}
                 onClick={() => setTab(t.key)}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 py-3.5 -mb-px font-code text-[13px] border-b-2 cursor-pointer transition-colors",
                   tab === t.key
                     ? "text-[color:var(--wb-butter)] border-[color:var(--wb-butter)]"
-                    : "text-[color:color-mix(in_srgb,var(--wb-paper)_55%,transparent)] border-transparent hover:text-[color:var(--wb-paper)]",
+                    : "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_55%,transparent)] border-transparent hover:text-[color:var(--wb-terminal-fg)]",
                 )}
               >
                 {t.label}
@@ -221,9 +230,9 @@ export function DeveloperSection() {
                   className="hidden sm:inline-block font-code text-[11px] px-1.5 py-0.5 rounded-full"
                   style={{
                     background:
-                      "color-mix(in srgb, var(--wb-paper) 8%, transparent)",
+                      "color-mix(in srgb, var(--wb-terminal-fg) 8%, transparent)",
                     color:
-                      "color-mix(in srgb, var(--wb-paper) 50%, transparent)",
+                      "color-mix(in srgb, var(--wb-terminal-fg) 50%, transparent)",
                   }}
                 >
                   {t.file}
@@ -234,7 +243,12 @@ export function DeveloperSection() {
           </div>
 
           {/* Code body */}
-          <pre className="m-0 px-6 md:px-8 py-7 overflow-x-auto font-code text-[14px] leading-7 whitespace-pre">
+          <pre
+            role="tabpanel"
+            id={`dev-panel-${active.key}`}
+            aria-labelledby={`dev-tab-${active.key}`}
+            className="m-0 px-6 md:px-8 py-7 overflow-x-auto font-code text-[14px] leading-7 whitespace-pre"
+          >
             {highlightCode(active.code)}
           </pre>
 
@@ -243,12 +257,12 @@ export function DeveloperSection() {
             className="px-6 md:px-8 py-4 border-t"
             style={{
               borderTopColor:
-                "color-mix(in srgb, var(--wb-paper) 10%, transparent)",
+                "color-mix(in srgb, var(--wb-terminal-fg) 10%, transparent)",
             }}
           >
             <a
               href={active.href}
-              className="font-body text-[14px] no-underline transition-colors text-[color:color-mix(in_srgb,var(--wb-paper)_70%,transparent)] hover:text-[color:var(--wb-butter)]"
+              className="font-body text-[14px] no-underline transition-colors text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_70%,transparent)] hover:text-[color:var(--wb-butter)]"
             >
               {active.hrefLabel}
             </a>

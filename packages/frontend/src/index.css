@@ -98,6 +98,10 @@
   --wb-butter: #f4c95d;
   --wb-berry: #c2484c;
   --wb-leaf: #5a7a3a;
+  /* Terminal palette — locked across light + dark so the dev-tools card
+     stays a dark code surface in both themes (no inversion). */
+  --wb-terminal-bg: #1c1610;
+  --wb-terminal-fg: #fbf6ec;
 }
 
 .dark {

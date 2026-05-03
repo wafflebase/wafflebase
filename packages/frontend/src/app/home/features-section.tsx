@@ -1,9 +1,7 @@
 import { BarChart3, FileText, FunctionSquare, Shield } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
-import { FeatureGlyph } from "./primitives/feature-glyph";
+import { FeatureGlyph, type GlyphKind } from "./primitives/feature-glyph";
 import { SectionHead } from "./primitives/section-head";
-
-type GlyphKind = "reactive" | "formulas" | "embed" | "sync" | "io";
 
 type HeroFeature = {
   glyph: GlyphKind;

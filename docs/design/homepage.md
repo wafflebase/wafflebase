@@ -85,7 +85,7 @@ Theme system uses the existing class-based Tailwind mechanism (`light` /
 |---|---|---|
 | 1 | NavBar | Sticky header, waffle logo, nav links, theme toggle, primary CTA |
 | 2 | Hero | Single-column centered layout: eyebrow + Fraunces H1 + sub + CTA pair + 4 product stats |
-| 3 | DemoSection | Sheet/Doc tab card — Sheet tab embeds the live iframe demo, Doc tab renders `<DocPreview>` with inline ƒ formula tokens |
+| 3 | DemoSection | Sheet/Doc tab card — both tabs embed live `/shared/{token}` iframes (Doc tab is lazy-mounted) with theme sync via `postMessage` |
 | 4 | FeaturesSection | 3 hero cards with waffle-pocket glyphs + 4 compact secondary cards |
 | 5 | UseCasesSection | 3 scenarios (Internal tools / Customer dashboards / Specs & launch plans) |
 | 6 | WhySection | Comparison table vs Google Workspace inside a paper card |
@@ -222,7 +222,7 @@ Unchanged. `/` resolves through `<HomeOrRedirect>`:
 
 ### File Structure
 
-```
+```text
 packages/frontend/src/app/home/
 ├── page.tsx                                 # Composes all sections
 ├── nav-bar.tsx

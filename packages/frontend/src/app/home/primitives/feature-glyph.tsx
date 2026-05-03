@@ -1,4 +1,4 @@
-type GlyphKind = "reactive" | "formulas" | "embed" | "sync" | "io";
+export type GlyphKind = "reactive" | "formulas" | "embed" | "sync" | "io";
 
 type PocketProps = {
   x: number;

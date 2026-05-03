@@ -36,13 +36,19 @@ export function WbButton({
   variant,
   size,
   asChild = false,
+  type,
   ...props
 }: WbButtonProps) {
   const Comp = asChild ? Slot : "button";
+  // Default native <button> to type="button" so it never submits a parent
+  // form by accident. asChild mode delegates the underlying element so we
+  // leave the type attribute alone in that path.
+  const buttonType = asChild ? type : (type ?? "button");
   return (
     <Comp
       data-slot="wb-button"
       className={cn(wbButtonVariants({ variant, size, className }))}
+      type={buttonType}
       {...props}
     />
   );
