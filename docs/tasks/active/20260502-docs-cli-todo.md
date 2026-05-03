@@ -27,14 +27,14 @@ fontkit, pdf-lib (already used), Yorkie (backend only). No native canvas dep.
 Goal: lift `ctx.measureText` calls behind an injectable interface so the CLI
 can paginate without a Canvas.
 
-- [ ] 1.1 Inventory every `ctx.measureText(...)` call site in
+- [x] 1.1 Inventory every `ctx.measureText(...)` call site in
       `packages/docs/src/view/`. Files known to have them:
       `view/layout.ts:26,252,350,352`, `view/doc-canvas.ts`, `view/editor.ts`,
       `view/text-editor.ts`, `view/peer-cursor.ts`, `view/selection.ts`,
       `view/image-selection-overlay.ts`, plus `export/pdf-image-painter.ts`,
       `export/pdf-exporter.ts`. Note which are pagination-critical (layout,
       pdf-exporter) vs. presentation-only (cursor, selection rendering).
-- [ ] 1.2 Create `packages/docs/src/view/measurer.ts`:
+- [x] 1.2 Create `packages/docs/src/view/measurer.ts`:
       ```ts
       export interface ResolvedFont {
         family: string;
@@ -46,31 +46,31 @@ can paginate without a Canvas.
         measureWidth(text: string, font: ResolvedFont): number;
       }
       ```
-- [ ] 1.3 Create `packages/docs/src/view/canvas-measurer.ts` —
+- [x] 1.3 Create `packages/docs/src/view/canvas-measurer.ts` —
       `CanvasTextMeasurer implements TextMeasurer` that wraps an
       `OffscreenCanvas` 2D context. Cache `ctx.font` strings to avoid
       thrashing.
-- [ ] 1.4 Add `view/measurer.spec.ts`: golden test asserting
+- [x] 1.4 Add `view/measurer.spec.ts`: golden test asserting
       `CanvasTextMeasurer` returns expected width for a known glyph string
       under a fixed font. Use jsdom or vitest browser env.
-- [ ] 1.5 Refactor `view/layout.ts` `computeLayout`/`computeBlockLayout` to
+- [x] 1.5 Refactor `view/layout.ts` `computeLayout`/`computeBlockLayout` to
       take `(doc, measurer, options)`. Replace each `ctx.measureText` with
       `measurer.measureWidth(text, resolvedFont)`. Keep `ctx` for paint paths
       that legitimately need Canvas (drawing).
-- [ ] 1.6 Refactor `view/pagination.ts` `paginateLayout(doc, measurer,
+- [x] 1.6 Refactor `view/pagination.ts` `paginateLayout(doc, measurer,
       options)`. Pass measurer through to `computeLayout`.
-- [ ] 1.7 Update `view/editor.ts`, `view/doc-canvas.ts`,
+- [x] 1.7 Update `view/editor.ts`, `view/doc-canvas.ts`,
       `export/pdf-exporter.ts` to construct a `CanvasTextMeasurer` once at
       initialization and pass it through. The frontend uses `initialize()`
       and the layout/pagination exports — confirm no frontend call site
       passes its own measurer (it doesn't today). If `initialize()` exposes
       a measurer override, document it but do not require it.
-- [ ] 1.8 Update `view/text-editor.ts`, `view/peer-cursor.ts`,
+- [x] 1.8 Update `view/text-editor.ts`, `view/peer-cursor.ts`,
       `view/selection.ts`, `view/image-selection-overlay.ts`,
       `export/pdf-image-painter.ts` to use the measurer where width matters,
       keep raw `ctx.measureText` only inside paint code that already owns a
       `ctx`.
-- [ ] 1.9 Update existing tests:
+- [x] 1.9 Update existing tests:
       `test/view/layout.test.ts`, `test/view/pagination.test.ts`,
       `test/view/incremental-layout.test.ts`, `test/view/table-origin-y.test.ts`,
       `test/view/table-row-split.test.ts`, `test/export/pdf-exporter.test.ts`,
@@ -78,41 +78,41 @@ can paginate without a Canvas.
       (e.g., `new StubMeasurer(charWidth = 8)`) instead of relying on jsdom's
       missing `getContext('2d')`. This eliminates the
       "Not implemented: HTMLCanvasElement's getContext()" warnings.
-- [ ] 1.10 Export `TextMeasurer`, `ResolvedFont`, `CanvasTextMeasurer` from
+- [x] 1.10 Export `TextMeasurer`, `ResolvedFont`, `CanvasTextMeasurer` from
       `packages/docs/src/index.ts`.
-- [ ] 1.11 Run `pnpm --filter @wafflebase/docs test` and
+- [x] 1.11 Run `pnpm --filter @wafflebase/docs test` and
       `pnpm verify:fast` — all green.
-- [ ] 1.12 Commit: `Refactor pagination behind TextMeasurer interface`.
+- [x] 1.12 Commit: `Refactor pagination behind TextMeasurer interface` (3b0c8f96)
 
 ## Phase 2 — Serializers and Page-Line Metadata
 
-- [ ] 2.1 Modify `view/pagination.ts` so each `LayoutLine` exposes its
+- [x] 2.1 Modify `view/pagination.ts` so each `LayoutLine` exposes its
       `pageIndex` (already implicit via `LayoutPage[]`; surface a flat
       `paginatedLayout.lines: Array<{ blockId, lineIndex, pageIndex }>` or
       add `pageIndex` to `LayoutLine` directly). Update consumers minimally.
-- [ ] 2.2 Create `packages/docs/src/serialize/markdown.ts` —
+- [x] 2.2 Create `packages/docs/src/serialize/markdown.ts` —
       `serializeMarkdown(doc: Document, opts: MarkdownOptions): string`.
       Implement the mapping table from design § 5.1 row-by-row. Options:
       `{ inlineImages?: boolean; includeHeaderFooter?: boolean }`.
-- [ ] 2.3 Add `test/serialize/markdown.test.ts`. One golden case per row of
+- [x] 2.3 Add `test/serialize/markdown.test.ts`. One golden case per row of
       the mapping table (title, subtitle, headings 1–6, paragraph, ordered
       list, unordered list, nested list, hr, page-break, GFM table, bold,
       italic, strike, link, image inline + placeholder, page-number marker,
       header/footer toggle, dropped properties).
-- [ ] 2.4 Create `packages/docs/src/serialize/text.ts` —
+- [x] 2.4 Create `packages/docs/src/serialize/text.ts` —
       `serializeText(doc, opts)`. Strip all formatting; one block per line.
       Options: `{ includeHeaderFooter?: boolean }`.
-- [ ] 2.5 Add `test/serialize/text.test.ts` with goldens for paragraphs,
+- [x] 2.5 Add `test/serialize/text.test.ts` with goldens for paragraphs,
       lists (markers stripped), tables (cells joined by tabs).
-- [ ] 2.6 Create `packages/docs/src/serialize/json.ts` —
+- [x] 2.6 Create `packages/docs/src/serialize/json.ts` —
       `serializeJson(doc, paginatedLayout?)`: returns `Document` plus an
       optional `_pageMeta: { blockId, lines: number[] }[]` when a paginated
       layout is supplied.
-- [ ] 2.7 Add `test/serialize/json.test.ts`. With layout, verify
+- [x] 2.7 Add `test/serialize/json.test.ts`. With layout, verify
       `_pageMeta` is well-formed; without layout, verify it's absent.
-- [ ] 2.8 Export the three serializers from `packages/docs/src/index.ts`.
-- [ ] 2.9 Run `pnpm --filter @wafflebase/docs test`. Commit:
-      `Add Markdown/text/JSON serializers and page-line metadata`.
+- [x] 2.8 Export the three serializers from `packages/docs/src/index.ts`.
+- [x] 2.9 Run `pnpm --filter @wafflebase/docs test`. Commit:
+      `Add Markdown/text/JSON serializers and page-line metadata` (2b55f78c)
 
 ## Phase 3 — Backend Content Endpoints
 

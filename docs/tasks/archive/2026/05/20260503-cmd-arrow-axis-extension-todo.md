@@ -33,8 +33,8 @@ single-cell positions.
 - [x] Update `docs/design/sheets/axis-id-selection.md` with new signature and
       regression-mitigation note.
 - [x] Run `pnpm verify:fast`; all green.
-- [ ] Manual smoke: open empty sheet, press Cmd+Down then Cmd+Right; no freeze,
-      cursor jumps instantly. (User to verify)
+- [x] Manual smoke: open empty sheet, press Cmd+Down then Cmd+Right; no freeze,
+      cursor jumps instantly. (Verified — PR #180 merged)
 
 ## Review
 
