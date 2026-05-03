@@ -463,20 +463,26 @@ can paginate without a Canvas.
 
 ## Phase 10 — Integration Scenario
 
-- [ ] 10.1 Add a Docs round-trip scenario to the existing
-      `pnpm verify:integration:docker` lane:
-      1. Spin up backend + Yorkie.
-      2. Create a workspace + API key.
-      3. `wafflebase docs import fixtures/sample.docx --title 'IT'`
-      4. Capture returned doc-id.
-      5. `wafflebase docs content <id> --format md` — assert non-empty,
-         contains expected heading text.
-      6. `wafflebase docs export <id> /tmp/out.pdf` — assert file exists and
-         starts with `%PDF-`.
-      7. `wafflebase docs export <id> /tmp/out.docx` — assert PK header.
-      8. `wafflebase docs import /tmp/out.docx --replace <id> --yes` —
-         assert second `content --format md` matches first.
-- [ ] 10.2 Commit: `Add docs CLI integration scenario`.
+- [x] 10.1 Add a Docs round-trip scenario to the existing
+      `pnpm verify:integration:docker` lane.
+      → `packages/backend/test/docs-cli-roundtrip.e2e-spec.ts` covers
+      the full flow against a live backend on a random port. Gated on
+      `RUN_YORKIE_INTEGRATION_TESTS=true` so CI (which only enables
+      `RUN_DB_INTEGRATION_TESTS`) skips it; local devs running
+      `docker compose up -d` get the test for free in
+      `verify:integration` / `verify:integration:docker`. Sample
+      `.docx` fixture lives at `packages/backend/test/fixtures/` and
+      is regenerated via
+      `pnpm --filter @wafflebase/cli exec tsx scripts/gen-sample-docx.mjs`.
+      Discovered and fixed a `--format` flag collision between the
+      global option and the per-command override on `docs
+      content`/`docs export` — values were landing in `opts.format`
+      while the action read `local.format`, so MD/PDF/DOCX requests
+      silently rendered as the JSON default.
+- [x] 10.2 Commit: `Add docs CLI integration scenario`.
+      → CLI: 14 files / 154 tests pass. Backend e2e (with both gates):
+      6 files / 22 tests pass. `verify:fast` exit=0
+      (frontend 1236 / cli 154 / docs 737).
 
 ## Phase 11 — Design / Docs / Version
 
