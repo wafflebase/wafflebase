@@ -70,7 +70,7 @@ fonts already bundled for PDF export.
 
 Reference flow for `wafflebase docs content abc-123 --format md --pages 1-3`:
 
-```
+```text
 1. CLI: HttpClient.getDocContent("abc-123")
 2. Backend: Yorkie attach "doc-abc-123" → return Document JSON
 3. CLI: paginateLayout(doc, FontkitMeasurer)
@@ -89,7 +89,7 @@ point.
 A single new controller, two endpoints. Both reuse `CombinedAuthGuard` and
 `WorkspaceScopeGuard` exactly like the existing `packages/backend/src/api/v1/cells.controller.ts`.
 
-```
+```text
 GET  /api/v1/workspaces/:wid/documents/:did/content
 PUT  /api/v1/workspaces/:wid/documents/:did/content
 ```
@@ -104,7 +104,7 @@ PUT  /api/v1/workspaces/:wid/documents/:did/content
 
 Files:
 
-```
+```text
 packages/backend/src/api/v1/docs-content.controller.ts          (new)
 packages/backend/src/api/v1/docs-content.controller.spec.ts     (new)
 packages/backend/src/yorkie/yorkie.types.ts                     (re-export Document, Block, Inline, …)
@@ -124,7 +124,7 @@ help and `schema` output is plural. The previous top-level Sheets commands
 under `sheets …` from v0.4.0 onward. No deprecation period; existing scripts
 must update.
 
-```
+```text
 wafflebase
   ├── login
   ├── logout
@@ -202,7 +202,7 @@ namespace.
 
 ### 4. CLI Internals and Package Layout
 
-```
+```text
 packages/cli/
   package.json                    + dependencies: @wafflebase/docs (workspace), fontkit
   src/
@@ -295,7 +295,7 @@ when a command actually paginates.
 
 The CLI does not depend on the Yorkie SDK. The DOCX import flow is:
 
-```
+```text
 default (new document):
   POST /api/v1/.../documents       { title, type: 'doc' }   → returns id
   PUT  /api/v1/.../documents/:id/content  Document JSON
@@ -313,12 +313,12 @@ payload in JSON.
 
 | Element                                    | Mapping                                                                  |
 | ------------------------------------------ | ------------------------------------------------------------------------ |
-| title                                      | `# `                                                                     |
+| title                                      | `#`                                                                      |
 | subtitle                                   | `*…*` italic paragraph                                                   |
 | heading h1–h6                              | `#` … `######`                                                           |
 | paragraph                                  | regular paragraph                                                        |
-| list-item ordered                          | `1. ` (renderer renumbers)                                               |
-| list-item unordered                        | `- `                                                                     |
+| list-item ordered                          | `1.` (renderer renumbers)                                                |
+| list-item unordered                        | `-`                                                                      |
 | nested list                                | 2 spaces of indent per `listLevel`                                       |
 | horizontal-rule                            | `---`                                                                    |
 | page-break                                 | `<!-- pagebreak -->`                                                     |
