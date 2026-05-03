@@ -167,6 +167,102 @@ describe('renderTableContent', () => {
   });
 });
 
+describe('inline run backgroundColor render order', () => {
+  // Regression: when a run inside a table cell carried
+  // `style.backgroundColor`, the bg fillRect was painted in
+  // renderTableContent — i.e. AFTER the editor's selection layer was
+  // drawn between the two passes — so the translucent selection
+  // highlight became invisible inside the colored span. Inline bg
+  // must now land in renderTableBackgrounds.
+  function makeTableWithInlineBg(): {
+    tableData: TableData;
+    layout: LayoutTable;
+  } {
+    const yellowStyle = { backgroundColor: '#ffeb3b' };
+    const tableData: TableData = {
+      rows: [
+        {
+          cells: [
+            {
+              blocks: [
+                {
+                  id: 'b1',
+                  type: 'paragraph',
+                  inlines: [{ text: 'hi', style: yellowStyle }],
+                  style: { ...DEFAULT_BLOCK_STYLE },
+                },
+              ],
+              style: { ...DEFAULT_CELL_STYLE },
+            },
+          ],
+        },
+      ],
+      columnWidths: [1],
+    };
+    const layout: LayoutTable = {
+      cells: [
+        [
+          {
+            lines: [
+              {
+                y: 0,
+                height: 16,
+                width: 40,
+                runs: [
+                  {
+                    inline: { text: 'hi', style: yellowStyle },
+                    text: 'hi',
+                    x: 0,
+                    width: 20,
+                    inlineIndex: 0,
+                    charStart: 0,
+                    charEnd: 2,
+                    charOffsets: [10, 20],
+                  },
+                ],
+              },
+            ],
+            blockBoundaries: [0],
+            width: 40,
+            height: 16,
+            merged: false,
+          },
+        ],
+      ],
+      columnXOffsets: [0],
+      columnPixelWidths: [40],
+      rowYOffsets: [0],
+      rowHeights: [16],
+      totalWidth: 40,
+      totalHeight: 16,
+      blockParentMap: new Map(),
+    };
+    return { tableData, layout };
+  }
+
+  it('paints inline run backgrounds during renderTableBackgrounds', () => {
+    const { ctx, fillRect } = makeRecordingCtx();
+    const { tableData, layout } = makeTableWithInlineBg();
+    renderTableBackgrounds(ctx, tableData, layout, 0, 0);
+    // No cell-level bg in this fixture, so the only fillRect should be
+    // the run's inline bg painted in the background pass.
+    expect(fillRect).toHaveBeenCalledTimes(1);
+    // padding=4 (default), runX = 0 + 4 + 0 = 4; lineY = 4 (top
+    // alignment, padding); width=20, height=16.
+    expect(fillRect).toHaveBeenCalledWith(4, 4, 20, 16);
+  });
+
+  it('renderTableContent skips inline run backgrounds (drawn in pre-pass)', () => {
+    const { ctx, fillRect } = makeRecordingCtx();
+    const { tableData, layout } = makeTableWithInlineBg();
+    renderTableContent(ctx, tableData, layout, 0, 0);
+    // The bg was already drawn in renderTableBackgrounds; the content
+    // pass must not redraw it, otherwise it would cover the selection
+    // layer that the editor draws between the two passes.
+    expect(fillRect).not.toHaveBeenCalled();
+  });
+});
+
 describe('renderTableContent image inlines', () => {
   // Regression: inline image runs inside a table cell were rendered with
   // fillText(run.text) where `run.text` is the Object Replacement Character
