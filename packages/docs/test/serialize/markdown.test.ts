@@ -125,6 +125,54 @@ describe('serializeMarkdown — block mapping', () => {
     expect(serializeMarkdown(doc([block('a', 'page-break', [])])))
       .toBe('<!-- pagebreak -->');
   });
+
+  it('separates adjacent paragraphs with a blank line', () => {
+    const md = serializeMarkdown(
+      doc([
+        block('a', 'paragraph', [inline('first')]),
+        block('b', 'paragraph', [inline('second')]),
+      ]),
+    );
+    expect(md).toBe('first\n\nsecond');
+  });
+
+  it('separates a paragraph and a table with a blank line', () => {
+    const tableData: TableData = {
+      rows: [
+        {
+          cells: [
+            { blocks: [block('h', 'paragraph', [inline('Header')])], style: {} },
+          ],
+        },
+      ],
+      columnWidths: [1],
+    };
+    const md = serializeMarkdown(
+      doc([
+        block('p', 'paragraph', [inline('intro')]),
+        block('t', 'table', [], { tableData }),
+      ]),
+    );
+    expect(md).toBe('intro\n\n| Header |\n| --- |');
+  });
+
+  it('keeps consecutive list items tight but separates surrounding paragraphs', () => {
+    const md = serializeMarkdown(
+      doc([
+        block('p1', 'paragraph', [inline('before')]),
+        block('l1', 'list-item', [inline('one')], {
+          listKind: 'unordered',
+          listLevel: 0,
+        }),
+        block('l2', 'list-item', [inline('two')], {
+          listKind: 'unordered',
+          listLevel: 0,
+        }),
+        block('p2', 'paragraph', [inline('after')]),
+      ]),
+    );
+    expect(md).toBe('before\n\n- one\n- two\n\nafter');
+  });
 });
 
 describe('serializeMarkdown — tables', () => {

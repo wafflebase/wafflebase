@@ -62,7 +62,22 @@ function serializeHeaderFooter(
 }
 
 function serializeBlocks(blocks: Block[], opts: MarkdownOptions): string {
-  return blocks.map((b) => blockToMarkdown(b, opts)).join('\n');
+  // Block-level boundaries (paragraph→paragraph, paragraph→table,
+  // list-end→paragraph, …) need a blank line between them so each side
+  // renders as its own GFM block. The one exception is consecutive
+  // list-items in the same list — they stay tight on adjacent lines so
+  // they coalesce into one list rather than fragmenting.
+  let out = '';
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (i > 0) {
+      const prev = blocks[i - 1];
+      const tight = prev.type === 'list-item' && b.type === 'list-item';
+      out += tight ? '\n' : '\n\n';
+    }
+    out += blockToMarkdown(b, opts);
+  }
+  return out;
 }
 
 function blockToMarkdown(block: Block, opts: MarkdownOptions): string {
