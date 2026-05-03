@@ -8,8 +8,13 @@
  * through proxy-wrapped objects and would catch a regression where a naive
  * spread re-introduces double-encoding for `pageSetup`.
  *
- * Gated on `RUN_DB_INTEGRATION_TESTS=true` (the project convention for
- * tests that depend on the local infra stack — Postgres + Yorkie).
+ * Gated on `RUN_YORKIE_INTEGRATION_TESTS=true` — distinct from
+ * `RUN_DB_INTEGRATION_TESTS` because this test requires both Postgres and
+ * a running Yorkie server locally (e.g., from `docker compose up -d`). CI
+ * only runs the DB-backed tests, not Yorkie-attached tests, so this gate
+ * stays off in CI and on locally for developers who have the full stack
+ * running. Opt in via:
+ *   RUN_YORKIE_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e
  */
 import { ConfigService } from '@nestjs/config';
 import { YorkieService } from 'src/yorkie/yorkie.service';
@@ -20,8 +25,9 @@ import {
 } from 'src/yorkie/docs-tree';
 import type { DocsDocument } from 'src/yorkie/yorkie.types';
 
-const runDbIntegrationTests = process.env.RUN_DB_INTEGRATION_TESTS === 'true';
-const describeAttached = runDbIntegrationTests ? describe : describe.skip;
+const runYorkieIntegrationTests =
+  process.env.RUN_YORKIE_INTEGRATION_TESTS === 'true';
+const describeAttached = runYorkieIntegrationTests ? describe : describe.skip;
 
 function createConfig(): ConfigService {
   return {

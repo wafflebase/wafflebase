@@ -71,6 +71,19 @@ before running it.
 It covers both DB-backed service integration and authenticated HTTP integration
 through JWT guards/controllers for core datasource/share-link/document flows.
 
+A separate gate `RUN_YORKIE_INTEGRATION_TESTS=true` enables tests that
+attach to a running Yorkie server (e.g., `packages/backend/test/docs-tree-attached.e2e-spec.ts`).
+These require both Postgres **and** Yorkie running locally; CI runs the
+DB-backed tests but does **not** run Yorkie-attached tests, so this gate
+stays off in CI. Local opt-in:
+
+```bash
+docker compose up -d   # PostgreSQL + Yorkie
+RUN_DB_INTEGRATION_TESTS=true \
+  RUN_YORKIE_INTEGRATION_TESTS=true \
+  pnpm --filter @wafflebase/backend test:e2e
+```
+
 If the database schema is not up-to-date, apply migrations first:
 
 ```bash
