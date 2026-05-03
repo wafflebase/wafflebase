@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode } from './formula';
+import { EvalNode, ErrNode, ArrNode, EmptyNode } from './formula';
 import { NumberArgs, BoolArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -1000,7 +1000,7 @@ export function areasFunc(
 }
 
 /**
- * SORT(range, [sort_index], [sort_order]) — for single cell returns first sorted value.
+ * SORT(range, [sort_index], [sort_order]) — sorts a range; returns first sorted value (full spill not yet implemented).
  */
 export function sortFunc(
   ctx: FunctionContext,
@@ -1029,7 +1029,7 @@ export function sortFunc(
 
 /**
  * SORTBY(array, by_array, [sort_order], ...) — sorts range by another range.
- * Returns top-left value after sorting.
+ * Sorts range by another range; returns top-left value of the sorted result (full spill not yet implemented).
  */
 export function sortbyFunc(
   ctx: FunctionContext,
@@ -1082,7 +1082,7 @@ export function sortbyFunc(
 }
 
 /**
- * FLATTEN(range) — for single cell returns the first value.
+ * FLATTEN(range) — flattens a range to a 1-D column; returns first value (full spill not yet implemented).
  */
 export function flattenFunc(
   ctx: FunctionContext,
@@ -1101,7 +1101,8 @@ export function flattenFunc(
 }
 
 /**
- * TRANSPOSE(range) — for single cell returns the value itself.
+ * TRANSPOSE(range) — swaps rows and columns of a matrix, returning an ArrNode.
+ * Use INDEX to address individual elements; spill fills the full transposed matrix.
  */
 export function transposeFunc(
   ctx: FunctionContext,
@@ -1113,15 +1114,35 @@ export function transposeFunc(
   const exprs = args.expr();
   if (exprs.length !== 1) return ErrNode.NA;
 
-  const node = visit(exprs[0]);
-  if (node.t === 'err') return node;
-  if (node.t !== 'ref' || !grid) return node;
-  return firstCellValue(node, grid);
+  const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
+  if ('t' in m && m.t === 'err') return m;
+
+  const rows = m.t === 'arrmat' ? m.rowCount : m.v.rowCount;
+  const cols = m.t === 'arrmat' ? m.colCount : m.v.colCount;
+
+  const result: EvalNode[][] = [];
+  for (let c = 0; c < cols; c++) {
+    const row: EvalNode[] = [];
+    for (let r = 0; r < rows; r++) {
+      if (m.t === 'arrmat') {
+        row.push(m.values[r]?.[c] ?? ({ t: 'empty' } satisfies EmptyNode));
+      } else {
+        const cellVal = grid?.get(m.v.refs[r * cols + c])?.v;
+        if (!cellVal || cellVal === '') {
+          row.push({ t: 'empty' } satisfies EmptyNode);
+        } else {
+          const n = Number(cellVal);
+          row.push(isNaN(n) ? { t: 'str', v: cellVal } : { t: 'num', v: n });
+        }
+      }
+    }
+    result.push(row);
+  }
+  return { t: 'arr', v: result, rows: cols, cols: rows } satisfies ArrNode;
 }
 
 /**
- * FILTER(array, include, [if_empty]) — filters rows based on criteria.
- * Returns first matching row's first value for single-cell evaluation.
+ * FILTER(array, include, [if_empty]) — filters rows based on criteria; returns first matching value (full spill not yet implemented).
  */
 export function filterFunc(
   ctx: FunctionContext,
@@ -1162,7 +1183,7 @@ export function filterFunc(
 }
 
 /**
- * SEQUENCE(rows, [columns], [start], [step]) — returns start value for single cell.
+ * SEQUENCE(rows, [columns], [start], [step]) — generates a sequence; returns first value (full spill not yet implemented).
  */
 export function sequenceFunc(
   ctx: FunctionContext,
@@ -1190,7 +1211,7 @@ export function sequenceFunc(
 }
 
 /**
- * RANDARRAY([rows], [columns], [min], [max], [whole_number]) — returns random for single cell.
+ * RANDARRAY([rows], [columns], [min], [max], [whole_number]) — generates a random array; returns one value (full spill not yet implemented).
  */
 export function randarrayFunc(
   ctx: FunctionContext,
@@ -1225,8 +1246,7 @@ export function randarrayFunc(
 }
 
 /**
- * TOCOL(array, [ignore], [scan_by_column]) — flattens a range to a single column.
- * Returns all values as comma-separated string for single-cell evaluation.
+ * TOCOL(array, [ignore], [scan_by_column]) — flattens a range to a single column; returns values as comma-separated string (full spill not yet implemented).
  */
 export function tocolFunc(
   ctx: FunctionContext,
@@ -1280,8 +1300,7 @@ export function tocolFunc(
 }
 
 /**
- * TOROW(array, [ignore], [scan_by_column]) — flattens a range to a single row.
- * Identical to TOCOL in single-cell evaluation context.
+ * TOROW(array, [ignore], [scan_by_column]) — flattens a range to a single row; returns values as comma-separated string (full spill not yet implemented).
  */
 export function torowFunc(
   ctx: FunctionContext,
@@ -1292,8 +1311,7 @@ export function torowFunc(
 }
 
 /**
- * CHOOSEROWS(array, row_num1, [row_num2], ...) — returns specified rows.
- * Returns the value at the first chosen row, first column.
+ * CHOOSEROWS(array, row_num1, [row_num2], ...) — selects rows by index; returns first chosen row's first value (full spill not yet implemented).
  */
 export function chooserowsFunc(
   ctx: FunctionContext,
@@ -1323,8 +1341,7 @@ export function chooserowsFunc(
 }
 
 /**
- * CHOOSECOLS(array, col_num1, [col_num2], ...) — returns specified columns.
- * Returns the value at the first row, first chosen column.
+ * CHOOSECOLS(array, col_num1, [col_num2], ...) — selects columns by index; returns first row's first chosen value (full spill not yet implemented).
  */
 export function choosecolsFunc(
   ctx: FunctionContext,
@@ -1354,8 +1371,7 @@ export function choosecolsFunc(
 }
 
 /**
- * TAKE(array, rows, [columns]) — returns specified number of rows/columns from start/end.
- * Positive = from start, negative = from end.
+ * TAKE(array, rows, [columns]) — takes rows/cols from start (positive) or end (negative); returns top-left value (full spill not yet implemented).
  */
 export function takeFunc(
   ctx: FunctionContext,
@@ -1399,8 +1415,7 @@ export function takeFunc(
 }
 
 /**
- * DROP(array, rows, [columns]) — removes specified number of rows/columns.
- * Positive = from start, negative = from end.
+ * DROP(array, rows, [columns]) — drops rows/cols from start (positive) or end (negative); returns top-left value (full spill not yet implemented).
  */
 export function dropFunc(
   ctx: FunctionContext,
@@ -1441,8 +1456,7 @@ export function dropFunc(
 }
 
 /**
- * HSTACK(range1, range2, ...) — appends arrays horizontally.
- * Returns top-left value of first range.
+ * HSTACK(range1, range2, ...) — appends arrays horizontally; returns top-left value of first range (full spill not yet implemented).
  */
 export function hstackFunc(
   ctx: FunctionContext,
@@ -1465,8 +1479,7 @@ export function hstackFunc(
 }
 
 /**
- * VSTACK(range1, range2, ...) — appends arrays vertically.
- * Returns top-left value of first range.
+ * VSTACK(range1, range2, ...) — appends arrays vertically; returns top-left value of first range (full spill not yet implemented).
  */
 export function vstackFunc(
   ctx: FunctionContext,
@@ -1477,8 +1490,7 @@ export function vstackFunc(
 }
 
 /**
- * WRAPCOLS(vector, wrap_count, [pad_with]) — wraps a row/column into columns.
- * Returns first value.
+ * WRAPCOLS(vector, wrap_count, [pad_with]) — reshapes a vector into columns; returns first value (full spill not yet implemented).
  */
 export function wrapcolsFunc(
   ctx: FunctionContext,
@@ -1505,8 +1517,7 @@ export function wrapcolsFunc(
 }
 
 /**
- * WRAPROWS(vector, wrap_count, [pad_with]) — wraps a row/column into rows.
- * Returns first value.
+ * WRAPROWS(vector, wrap_count, [pad_with]) — reshapes a vector into rows; returns first value (full spill not yet implemented).
  */
 export function wraprowsFunc(
   ctx: FunctionContext,
@@ -1517,8 +1528,7 @@ export function wraprowsFunc(
 }
 
 /**
- * EXPAND(array, rows, [columns], [pad_with]) — expands array to specified dimensions.
- * Returns top-left value for single-cell evaluation.
+ * EXPAND(array, rows, [columns], [pad_with]) — expands array to given dimensions; returns top-left value (full spill not yet implemented).
  */
 export function expandFunc(
   ctx: FunctionContext,

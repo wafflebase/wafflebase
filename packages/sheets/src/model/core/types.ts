@@ -134,11 +134,20 @@ export type ConditionalFormatRule = {
 
 /**
  * Cell type represents a cell in the sheet.
+ *
+ * Spill fields support dynamic-array formulas (e.g. MMULT, MINVERSE):
+ *   - The anchor cell (the one with the formula) stores `spillRows`/`spillCols`
+ *     so the calculator knows how many ghost cells to clear on recalculation.
+ *   - Each ghost cell stores `spillAnchor` pointing back to the anchor's Sref.
  */
 export type Cell = {
   v?: string;
   f?: string;
   s?: CellStyle;
+  spillRows?: number;
+  spillCols?: number;
+  spillAnchor?: Sref;
+  spillBlocked?: boolean;
 };
 
 /**

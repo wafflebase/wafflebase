@@ -207,10 +207,27 @@ export class YorkieStore implements Store {
       normalized.s = cell.s;
     }
 
+    if (cell.spillAnchor !== undefined) {
+      normalized.spillAnchor = cell.spillAnchor;
+    }
+    if (cell.spillRows !== undefined) {
+      normalized.spillRows = cell.spillRows;
+    }
+    if (cell.spillCols !== undefined) {
+      normalized.spillCols = cell.spillCols;
+    }
+    if (cell.spillBlocked !== undefined) {
+      normalized.spillBlocked = cell.spillBlocked;
+    }
+
     if (
       normalized.v === undefined &&
       normalized.f === undefined &&
-      normalized.s === undefined
+      normalized.s === undefined &&
+      normalized.spillAnchor === undefined &&
+      normalized.spillRows === undefined &&
+      normalized.spillCols === undefined &&
+      normalized.spillBlocked === undefined
     ) {
       return null;
     }

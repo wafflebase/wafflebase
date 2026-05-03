@@ -3126,6 +3126,91 @@ describe('Formula', () => {
     expect(evaluate('=CELL("address",B3)', grid)).toBe('$B$3');
   });
 
+  it('MUNIT returns full identity matrix as ArrNode', () => {
+    // 2×2 identity: [[1,0],[0,1]]
+    expect(evaluate('=INDEX(MUNIT(2),1,1)')).toBe('1');
+    expect(evaluate('=INDEX(MUNIT(2),1,2)')).toBe('0');
+    expect(evaluate('=INDEX(MUNIT(2),2,1)')).toBe('0');
+    expect(evaluate('=INDEX(MUNIT(2),2,2)')).toBe('1');
+    // 3×3 diagonal
+    expect(evaluate('=INDEX(MUNIT(3),1,1)')).toBe('1');
+    expect(evaluate('=INDEX(MUNIT(3),2,2)')).toBe('1');
+    expect(evaluate('=INDEX(MUNIT(3),3,3)')).toBe('1');
+    expect(evaluate('=INDEX(MUNIT(3),1,2)')).toBe('0');
+    expect(evaluate('=INDEX(MUNIT(3),2,1)')).toBe('0');
+    // 1×1 identity
+    expect(evaluate('=INDEX(MUNIT(1),1,1)')).toBe('1');
+    // non-integer is floored
+    expect(evaluate('=INDEX(MUNIT(2.9),1,1)')).toBe('1');
+    expect(evaluate('=INDEX(MUNIT(2.9),1,2)')).toBe('0');
+    // error cases
+    expect(evaluate('=MUNIT(0)')).toBe('#VALUE!');
+    expect(evaluate('=MUNIT(-1)')).toBe('#VALUE!');
+  });
+
+  it('MMULT(A, MUNIT(n)) equals A (identity property)', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '3' } as Cell); grid.set('B1', { v: '7' } as Cell);
+    grid.set('A2', { v: '1' } as Cell); grid.set('B2', { v: '5' } as Cell);
+    // A · I₂ = A
+    expect(evaluate('=INDEX(MMULT(A1:B2,MUNIT(2)),1,1)', grid)).toBe('3');
+    expect(evaluate('=INDEX(MMULT(A1:B2,MUNIT(2)),1,2)', grid)).toBe('7');
+    expect(evaluate('=INDEX(MMULT(A1:B2,MUNIT(2)),2,1)', grid)).toBe('1');
+    expect(evaluate('=INDEX(MMULT(A1:B2,MUNIT(2)),2,2)', grid)).toBe('5');
+  });
+
+  it('TRANSPOSE returns full transposed matrix as ArrNode', () => {
+    const grid = new Map<string, Cell>();
+    // [[1,2,3],[4,5,6]] → transposed → [[1,4],[2,5],[3,6]]
+    grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: '2' } as Cell); grid.set('C1', { v: '3' } as Cell);
+    grid.set('A2', { v: '4' } as Cell); grid.set('B2', { v: '5' } as Cell); grid.set('C2', { v: '6' } as Cell);
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C2),1,1)', grid)).toBe('1');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C2),1,2)', grid)).toBe('4');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C2),2,1)', grid)).toBe('2');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C2),2,2)', grid)).toBe('5');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C2),3,1)', grid)).toBe('3');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C2),3,2)', grid)).toBe('6');
+    // array literal: TRANSPOSE({1,2;3,4}) → [[1,3],[2,4]]
+    expect(evaluate('=INDEX(TRANSPOSE({1,2;3,4}),1,1)')).toBe('1');
+    expect(evaluate('=INDEX(TRANSPOSE({1,2;3,4}),1,2)')).toBe('3');
+    expect(evaluate('=INDEX(TRANSPOSE({1,2;3,4}),2,1)')).toBe('2');
+    expect(evaluate('=INDEX(TRANSPOSE({1,2;3,4}),2,2)')).toBe('4');
+  });
+
+  it('TRANSPOSE handles single-row and single-column ranges', () => {
+    const grid = new Map<string, Cell>();
+    // Single row [1,2,3] → transposed to single column [[1],[2],[3]]
+    grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: '2' } as Cell); grid.set('C1', { v: '3' } as Cell);
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C1),1,1)', grid)).toBe('1');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C1),2,1)', grid)).toBe('2');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:C1),3,1)', grid)).toBe('3');
+    // Single column [[10],[20]] → transposed to single row [10,20]
+    grid.set('A2', { v: '10' } as Cell); grid.set('A3', { v: '20' } as Cell);
+    expect(evaluate('=INDEX(TRANSPOSE(A2:A3),1,1)', grid)).toBe('10');
+    expect(evaluate('=INDEX(TRANSPOSE(A2:A3),1,2)', grid)).toBe('20');
+  });
+
+  it('TRANSPOSE preserves text values', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: 'hello' } as Cell); grid.set('B1', { v: 'world' } as Cell);
+    grid.set('A2', { v: '42' } as Cell);    grid.set('B2', { v: 'end' } as Cell);
+    // [[hello,world],[42,end]] → transposed → [[hello,42],[world,end]]
+    expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,1)', grid)).toBe('hello');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:B2),1,2)', grid)).toBe('42');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:B2),2,1)', grid)).toBe('world');
+    expect(evaluate('=INDEX(TRANSPOSE(A1:B2),2,2)', grid)).toBe('end');
+  });
+
+  it('TRANSPOSE(TRANSPOSE(A)) round-trips to the original', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: '2' } as Cell);
+    grid.set('A2', { v: '3' } as Cell); grid.set('B2', { v: '4' } as Cell);
+    expect(evaluate('=INDEX(TRANSPOSE(TRANSPOSE(A1:B2)),1,1)', grid)).toBe('1');
+    expect(evaluate('=INDEX(TRANSPOSE(TRANSPOSE(A1:B2)),1,2)', grid)).toBe('2');
+    expect(evaluate('=INDEX(TRANSPOSE(TRANSPOSE(A1:B2)),2,1)', grid)).toBe('3');
+    expect(evaluate('=INDEX(TRANSPOSE(TRANSPOSE(A1:B2)),2,2)', grid)).toBe('4');
+  });
+
   it('should correctly evaluate MMULT function', () => {
     const grid = new Map<string, Cell>();
     // 2x2 matrix A: [[1,2],[3,4]]
@@ -3208,6 +3293,50 @@ describe('Formula', () => {
     expect(evaluate('=INDEX(MINVERSE(MMULT(A1:B2,C1:D2)),1,2)', grid)).toBe('0');
     expect(evaluate('=INDEX(MINVERSE(MMULT(A1:B2,C1:D2)),2,1)', grid)).toBe('0');
     expect(evaluate('=INDEX(MINVERSE(MMULT(A1:B2,C1:D2)),2,2)', grid)).toBe('0.5');
+  });
+
+  it('MMULT returns #VALUE! when a matrix element is non-numeric', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: 'text' } as Cell);
+    grid.set('A2', { v: '3' } as Cell); grid.set('B2', { v: '4' } as Cell);
+    grid.set('C1', { v: '5' } as Cell); grid.set('D1', { v: '6' } as Cell);
+    grid.set('C2', { v: '7' } as Cell); grid.set('D2', { v: '8' } as Cell);
+    expect(evaluate('=MMULT(A1:B2,C1:D2)', grid)).toBe('#VALUE!');
+  });
+
+  it('MINVERSE returns #VALUE! when a matrix element is non-numeric', () => {
+    const grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: 'text' } as Cell);
+    grid.set('A2', { v: '0' } as Cell); grid.set('B2', { v: '1' } as Cell);
+    expect(evaluate('=MINVERSE(A1:B2)', grid)).toBe('#VALUE!');
+  });
+
+  it('MMULT(MMULT with non-numeric)) propagates #VALUE! to outer call', () => {
+    const grid = new Map<string, Cell>();
+    // inner MMULT will get a non-numeric element → ArrNode with err element
+    // outer INDEX should surface #VALUE!
+    grid.set('A1', { v: '1' } as Cell); grid.set('B1', { v: 'bad' } as Cell);
+    grid.set('A2', { v: '3' } as Cell); grid.set('B2', { v: '4' } as Cell);
+    grid.set('C1', { v: '5' } as Cell); grid.set('D1', { v: '6' } as Cell);
+    grid.set('C2', { v: '7' } as Cell); grid.set('D2', { v: '8' } as Cell);
+    expect(evaluate('=INDEX(MMULT(MMULT(A1:B2,C1:D2),A1:B2),1,1)', grid)).toBe('#VALUE!');
+  });
+
+  it('MMULT returns #VALUE! when an array literal element is non-numeric text', () => {
+    // getMatrixVal arrmat path: string node with non-numeric value → #VALUE!
+    expect(evaluate('=MMULT({"text",2;3,4},{1,0;0,1})')).toBe('#VALUE!');
+    expect(evaluate('=MMULT({1,0;0,1},{"bad",0;0,1})')).toBe('#VALUE!');
+  });
+
+  it('MMULT coerces numeric strings in array literals', () => {
+    // getMatrixVal arrmat path: string node with numeric value → coerced to number
+    // {{"2","3"},{"4","5"}} · [[1,0],[0,1]] = same matrix → top-left is "2"
+    expect(evaluate('=MMULT({"2","0";"0","1"},{1,0;0,1})')).toBe('2');
+  });
+
+  it('MINVERSE returns #VALUE! when an array literal element is non-numeric text', () => {
+    // getMatrixVal arrmat path for MINVERSE
+    expect(evaluate('=MINVERSE({"text",0;0,1})')).toBe('#VALUE!');
   });
 
   it('should correctly evaluate XMATCH function', () => {
