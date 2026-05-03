@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -78,6 +79,16 @@ export class ApiV1DocsContentController {
     @Param('documentId') documentId: string,
     @Body() body: DocsDocument,
   ): Promise<DocsDocument> {
+    // Hand-rolled shape guard. `@Body()` is compile-time typed only, so a
+    // malformed payload would otherwise reach `writeDocsRoot` and surface
+    // as HTTP 500. The minimum invariant the writer needs is a `blocks`
+    // array; everything beyond that is validated implicitly by the Tree
+    // builder which falls back to safe defaults for unknown attributes.
+    if (!body || !Array.isArray((body as { blocks?: unknown }).blocks)) {
+      throw new BadRequestException(
+        "Invalid docs content payload: 'blocks' must be an array",
+      );
+    }
     await this.assertDocsDocument(workspaceId, documentId);
     await this.yorkieService.withDocument<void, DocsYorkieRoot>(
       documentId,

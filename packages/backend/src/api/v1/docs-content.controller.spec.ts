@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ApiV1DocsContentController } from './docs-content.controller';
 import { DocumentService } from '../../document/document.service';
@@ -176,6 +180,20 @@ describe('ApiV1DocsContentController', () => {
           },
         },
       });
+      expect(yorkieService.withDocument).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 BadRequestException for a payload missing blocks', async () => {
+      // The controller should reject malformed input before the type check
+      // (and before any Yorkie work) so callers see a clear 400 instead of
+      // a 500 thrown from inside `writeDocsRoot`.
+      await expect(
+        controller.putContent('ws-1', 'd1', {} as never),
+      ).rejects.toMatchObject({
+        constructor: BadRequestException,
+        message: "Invalid docs content payload: 'blocks' must be an array",
+      });
+      expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
       expect(yorkieService.withDocument).not.toHaveBeenCalled();
     });
   });
