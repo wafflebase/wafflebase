@@ -6,7 +6,6 @@ import type {
   TableCell,
 } from '../model/types.js';
 
-
 /**
  * Options for the plaintext serializer.
  *

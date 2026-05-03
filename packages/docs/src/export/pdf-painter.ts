@@ -516,9 +516,9 @@ export class PdfPainter {
         line,
         x: cellX + padding,
         y: lineYpx,
-        // Cell-local pseudo lines aren't read for page math, but the
-        // 1-based page number is the only sensible value for this slot.
-        pageIndex: 1,
+        // Cell-local pseudo lines aren't read for page math; use NaN so
+        // a future reader can't silently treat this as a real page index.
+        pageIndex: NaN,
       };
       PdfPainter.paintLine(page, pseudoPl, pageHeightPt, fonts, ctx);
     }

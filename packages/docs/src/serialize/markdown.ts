@@ -88,8 +88,10 @@ function blockToMarkdown(block: Block, opts: MarkdownOptions): string {
       return `# ${text}`;
 
     case 'subtitle':
-      // Italic paragraph; treat empty subtitles as bare * to avoid `**`.
-      return text.length > 0 ? `*${text}*` : '*';
+      // Italic paragraph; an empty subtitle would emit a stray `*`,
+      // so collapse it to an empty string and let the block joiner
+      // skip past it.
+      return text.length > 0 ? `*${text}*` : '';
 
     case 'heading': {
       const level = clampHeadingLevel(block.headingLevel);

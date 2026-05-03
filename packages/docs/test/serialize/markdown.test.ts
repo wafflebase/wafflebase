@@ -52,6 +52,10 @@ describe('serializeMarkdown — block mapping', () => {
       .toBe('*Sub*');
   });
 
+  it('renders an empty subtitle as nothing rather than a stray *', () => {
+    expect(serializeMarkdown(doc([block('a', 'subtitle', [])]))).toBe('');
+  });
+
   it('renders headings 1 through 6 with the right hash count', () => {
     for (let level = 1 as HeadingLevel; level <= 6; level = (level + 1) as HeadingLevel) {
       const md = serializeMarkdown(

@@ -26,6 +26,7 @@ export interface BlockPageMeta {
  * strip it on the way back in.
  */
 export interface SerializedJson extends Document {
+  /** Omitted (not undefined) when no layout is provided. */
   _pageMeta?: BlockPageMeta[];
 }
 
