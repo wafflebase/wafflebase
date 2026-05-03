@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { parseContentFormat, runDocsContent } from '../docs/content.js';
 
 type DocType = 'doc' | 'sheet';
 
@@ -11,6 +12,15 @@ function parseType(value: string | undefined): DocType | undefined {
     throw new Error(`Invalid --type "${value}". Use "doc" or "sheet".`);
   }
   return value;
+}
+
+interface ContentOpts {
+  format: string;
+  pages?: string;
+  includeHeaderFooter: boolean;
+  inlineImages: boolean;
+  out?: string;
+  force: boolean;
 }
 
 export function registerDocsCommand(program: Command) {
@@ -110,6 +120,58 @@ export function registerDocsCommand(program: Command) {
         const res = await getClient(opts).deleteDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format, opts.quiet);
+      } catch (e) {
+        outputError(e, opts.quiet);
+      }
+    });
+
+  doc
+    .command('content <doc-id>')
+    .description('Read document content as JSON, Markdown, or plain text')
+    .option('--format <fmt>', 'Output format (json|md|text)', 'json')
+    .option('--pages <range>', 'Page range to include (e.g. 1-3,5)')
+    .option('--include-header-footer', 'Include header/footer (md/text)', false)
+    .option('--inline-images', 'Inline data: image URLs (md only)', false)
+    .option('--out <file>', 'Output file (- for stdout)')
+    .option('--force', 'Overwrite existing output file', false)
+    .action(async function (this: Command, docId: string) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<ContentOpts>();
+      try {
+        const format = parseContentFormat(local.format);
+
+        if (opts.dryRun) {
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${docId}/content`,
+          );
+          return;
+        }
+
+        const res = await getClient(opts).getDocContent(docId);
+        if (!res.ok) {
+          const body = res.data as { error?: { code?: string; message?: string } } | null;
+          if (body?.error) {
+            // Surface backend-shaped errors (e.g., TYPE_MISMATCH) verbatim
+            // so agents reading stderr can act on the `code` field.
+            console.error(JSON.stringify(body, null, 2));
+            process.exitCode = 1;
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        runDocsContent({
+          doc: res.data,
+          format,
+          pages: local.pages,
+          includeHeaderFooter: local.includeHeaderFooter,
+          inlineImages: local.inlineImages,
+          out: local.out,
+          force: local.force,
+          quiet: opts.quiet,
+        });
       } catch (e) {
         outputError(e, opts.quiet);
       }

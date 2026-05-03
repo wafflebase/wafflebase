@@ -1,3 +1,4 @@
+import type { Document } from '@wafflebase/docs';
 import type { CliConfig } from '../config/config.js';
 import {
   loadSession,
@@ -146,6 +147,14 @@ export class HttpClient {
   }
   deleteDocument(id: string) {
     return this.request('DELETE', `/documents/${id}`);
+  }
+
+  // Docs (word-processor) content
+  getDocContent(docId: string) {
+    return this.request<Document>(
+      'GET',
+      `/documents/${docId}/content`,
+    );
   }
 
   // Tabs

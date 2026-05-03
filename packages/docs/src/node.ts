@@ -72,3 +72,30 @@ export {
   getCellText,
   DEFAULT_HEADER_MARGIN_FROM_EDGE,
 } from './model/types.js';
+
+// Pagination + serialization surface used by `@wafflebase/cli` to render
+// fetched documents into JSON / Markdown / plaintext and to slice them
+// by page range. None of these modules touch the DOM — they take a
+// `TextMeasurer` instead of reaching for Canvas — so they're safe under
+// the Node entry. Adding a new symbol here requires the same DOM-free
+// audit as anything else in this file.
+export type { TextMeasurer, ResolvedFont } from './view/measurer.js';
+export { computeLayout } from './view/layout.js';
+export type {
+  DocumentLayout,
+  LayoutBlock,
+  LayoutLine,
+  LayoutRun,
+} from './view/layout.js';
+export { paginateLayout } from './view/pagination.js';
+export type {
+  PageLine,
+  LayoutPage,
+  PaginatedLayout,
+} from './view/pagination.js';
+export { serializeJson } from './serialize/json.js';
+export type { BlockPageMeta, SerializedJson } from './serialize/json.js';
+export { serializeMarkdown } from './serialize/markdown.js';
+export type { MarkdownOptions } from './serialize/markdown.js';
+export { serializeText } from './serialize/text.js';
+export type { TextOptions } from './serialize/text.js';
