@@ -154,8 +154,8 @@ function cellToMarkdown(cell: TableCell, opts: MarkdownOptions): string {
 }
 
 /**
- * Convert a flat list of inlines to a Markdown text fragment, applying
- * formatting markers around adjacent same-styled runs. Image and
+ * Convert a flat list of inlines to a Markdown text fragment, wrapping
+ * each run independently in any active formatting markers. Image and
  * page-number inlines are special-cased ahead of any text-style logic
  * since they shouldn't be wrapped in `**`/`*`/`~~`.
  */
@@ -178,14 +178,18 @@ function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
   }
 
   // Strip stray ORC characters that aren't carrying a special role.
-  let body = text.replace(/\uFFFC/g, '');
+  const stripped = text.replace(/\uFFFC/g, '');
 
-  if (body.length === 0) {
+  if (stripped.length === 0) {
     return '';
   }
 
+  // Escape Markdown special chars in plain text so a paragraph like
+  // "Use * for emphasis" doesn't accidentally turn into emphasis.
+  let body = escapeMarkdownText(stripped);
+
   if (style.href) {
-    body = `[${body}](${style.href})`;
+    body = `[${body}](${escapeMarkdownHref(style.href)})`;
   }
   if (style.strikethrough) {
     body = `~~${body}~~`;
@@ -203,10 +207,36 @@ function imageInline(
   image: NonNullable<Inline['style']['image']>,
   opts: MarkdownOptions,
 ): string {
-  const alt = image.alt ?? '';
+  const alt = escapeMarkdownAlt(image.alt ?? '');
   const isDataUri = image.src.startsWith('data:');
   if (isDataUri && !opts.inlineImages) {
     return '[image]';
   }
-  return `![${alt}](${image.src})`;
+  return `![${alt}](${escapeMarkdownHref(image.src)})`;
+}
+
+/**
+ * Backslash-escape Markdown special characters in a plain-text run so
+ * literal characters like `*`, `_`, `[`, `` ` `` survive the round trip.
+ * Backslash itself is escaped first; otherwise the escapes inserted for
+ * the other characters would themselves be unescaped on parse.
+ */
+function escapeMarkdownText(text: string): string {
+  return text.replace(/[\\*_[\]`~<]/g, (ch) => `\\${ch}`);
+}
+
+/**
+ * Escape `]` inside a link body or image alt — the only character that
+ * can prematurely close the `[...]` segment.
+ */
+function escapeMarkdownAlt(alt: string): string {
+  return alt.replace(/[\\\]]/g, (ch) => `\\${ch}`);
+}
+
+/**
+ * Escape `)` and `\` inside a link/image href so a URL like
+ * `https://x/(a)b` doesn't truncate the `(...)` segment.
+ */
+function escapeMarkdownHref(href: string): string {
+  return href.replace(/[\\)]/g, (ch) => `\\${ch}`);
 }

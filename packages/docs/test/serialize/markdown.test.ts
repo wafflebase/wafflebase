@@ -324,6 +324,63 @@ describe('serializeMarkdown — inline mapping', () => {
   });
 });
 
+describe('serializeMarkdown — escaping', () => {
+  it('escapes Markdown special characters in plain text runs', () => {
+    expect(
+      serializeMarkdown(
+        doc([
+          block('a', 'paragraph', [
+            inline('Use * _ [ ] \\ ` ~ < for emphasis'),
+          ]),
+        ]),
+      ),
+    ).toBe('Use \\* \\_ \\[ \\] \\\\ \\` \\~ \\< for emphasis');
+  });
+
+  it('escapes ] in link body', () => {
+    expect(
+      serializeMarkdown(
+        doc([
+          block('a', 'paragraph', [
+            inline('weird]label', { href: 'https://example.com' }),
+          ]),
+        ]),
+      ),
+    ).toBe('[weird\\]label](https://example.com)');
+  });
+
+  it('escapes ) and \\ in link href', () => {
+    expect(
+      serializeMarkdown(
+        doc([
+          block('a', 'paragraph', [
+            inline('go', { href: 'https://x.test/a)b\\c' }),
+          ]),
+        ]),
+      ),
+    ).toBe('[go](https://x.test/a\\)b\\\\c)');
+  });
+
+  it('escapes ] in image alt', () => {
+    expect(
+      serializeMarkdown(
+        doc([
+          block('a', 'paragraph', [
+            inline('\uFFFC', {
+              image: {
+                src: 'https://x/y.png',
+                width: 10,
+                height: 10,
+                alt: 'foo]bar',
+              },
+            }),
+          ]),
+        ]),
+      ),
+    ).toBe('![foo\\]bar](https://x/y.png)');
+  });
+});
+
 describe('serializeMarkdown — header / footer toggle', () => {
   const sample: Document = {
     blocks: [block('a', 'paragraph', [inline('Body')])],
