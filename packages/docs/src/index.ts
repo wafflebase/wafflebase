@@ -133,5 +133,5 @@ export type { ImageFetcher } from './export/docx-exporter.js';
 // Export (PDF)
 export { PdfExporter } from './export/pdf-exporter.js';
 export type { PdfExportOptions } from './export/pdf-exporter.js';
-export { PdfFonts } from './export/pdf-fonts.js';
-export type { PdfFontKey, FontUsage } from './export/pdf-fonts.js';
+export { PdfFonts, scanFontsUsed } from './export/pdf-fonts.js';
+export type { PdfFontKey, PdfFontsOptions, FontUsage } from './export/pdf-fonts.js';

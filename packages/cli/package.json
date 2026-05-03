@@ -26,6 +26,7 @@
     "commander": "^13.0.0",
     "fontkit": "^2.0.4",
     "open": "^11.0.0",
+    "pdf-lib": "^1.17.1",
     "yaml": "^2.0.0"
   },
   "devDependencies": {

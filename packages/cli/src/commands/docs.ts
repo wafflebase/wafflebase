@@ -1,8 +1,13 @@
 import { Command } from 'commander';
+import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { parseContentFormat, runDocsContent } from '../docs/content.js';
+import { exportPdf } from '../docs/pdf-export.js';
+import { exportDocx } from '../docs/docx-export.js';
+import { parsePageRange } from '../docs/page-range.js';
+import { writeBinary } from '../output/binary.js';
 
 type DocType = 'doc' | 'sheet';
 
@@ -20,6 +25,33 @@ interface ContentOpts {
   includeHeaderFooter: boolean;
   inlineImages: boolean;
   out?: string;
+  force: boolean;
+}
+
+const VALID_EXPORT_FORMATS = ['pdf', 'docx'] as const;
+type ExportFormat = (typeof VALID_EXPORT_FORMATS)[number];
+
+function detectExportFormat(file: string, formatFlag?: string): ExportFormat {
+  if (formatFlag) {
+    if (!VALID_EXPORT_FORMATS.includes(formatFlag as ExportFormat)) {
+      throw new Error(
+        `Invalid --format "${formatFlag}". Use one of: ${VALID_EXPORT_FORMATS.join(', ')}.`,
+      );
+    }
+    return formatFlag as ExportFormat;
+  }
+  const ext = extname(file).toLowerCase();
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.docx') return 'docx';
+  throw new Error(
+    `Cannot infer format from "${file}". Pass --format pdf|docx, or use a .pdf/.docx extension.`,
+  );
+}
+
+interface ExportOpts {
+  format?: string;
+  pages?: string;
+  includeHeaderFooter: boolean;
   force: boolean;
 }
 
@@ -176,4 +208,90 @@ export function registerDocsCommand(program: Command) {
         outputError(e, opts.quiet);
       }
     });
+
+  doc
+    .command('export <doc-id> <file>')
+    .description('Export a document to PDF or DOCX')
+    .option('--format <fmt>', 'Output format (pdf|docx); default from extension')
+    .option('--pages <range>', 'Page range to export (PDF only)')
+    .option('--include-header-footer', 'Include header/footer regions', true)
+    .option('--force', 'Overwrite existing output file', false)
+    .action(async function (this: Command, docId: string, file: string) {
+      const opts = getGlobalOpts(this);
+      const local = this.opts<ExportOpts>();
+      try {
+        const format = detectExportFormat(file, local.format);
+
+        if (opts.dryRun) {
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${docId}/content`,
+          );
+          return;
+        }
+
+        const res = await getClient(opts).getDocContent(docId);
+        if (!res.ok) {
+          const body = res.data as { error?: { code?: string; message?: string } } | null;
+          if (body?.error) {
+            console.error(JSON.stringify(body, null, 2));
+            process.exitCode = 1;
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const fetchedDoc = res.data;
+
+        let bytes: Uint8Array;
+        if (format === 'pdf') {
+          // Pagination uses the FontkitMeasurer's coarse Latin estimate
+          // when no Korean fonts are needed; we still pre-page to know
+          // the document's page count for `parsePageRange`. PdfExporter
+          // does the authoritative paint-time pagination internally.
+          let pageRange = undefined;
+          if (local.pages) {
+            // Resolve pages against the rendered PDF's page count
+            // (rather than running our own paginator twice). We render
+            // the full PDF first, then strip non-selected pages —
+            // see `extractPages` in pdf-export.ts.
+            const fullPdf = await exportPdf(fetchedDoc, {
+              includeHeaderFooter: local.includeHeaderFooter,
+            });
+            const total = await pdfPageCount(fullPdf);
+            pageRange = parsePageRange(local.pages, total);
+            if (!opts.quiet) {
+              for (const w of pageRange.warnings) console.error(w);
+            }
+            bytes = await exportPdf(fetchedDoc, {
+              includeHeaderFooter: local.includeHeaderFooter,
+              pages: pageRange,
+            });
+          } else {
+            bytes = await exportPdf(fetchedDoc, {
+              includeHeaderFooter: local.includeHeaderFooter,
+            });
+          }
+        } else {
+          if (local.pages && !opts.quiet) {
+            console.error(
+              'DOCX has no page concept — exporting full document, --pages ignored.',
+            );
+          }
+          bytes = await exportDocx(fetchedDoc, {
+            includeHeaderFooter: local.includeHeaderFooter,
+          });
+        }
+
+        writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
+      } catch (e) {
+        outputError(e, opts.quiet);
+      }
+    });
+}
+
+async function pdfPageCount(bytes: Uint8Array): Promise<number> {
+  const { PDFDocument } = await import('pdf-lib');
+  const pdf = await PDFDocument.load(bytes);
+  return pdf.getPageCount();
 }

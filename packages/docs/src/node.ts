@@ -99,3 +99,17 @@ export { serializeMarkdown } from './serialize/markdown.js';
 export type { MarkdownOptions } from './serialize/markdown.js';
 export { serializeText } from './serialize/text.js';
 export type { TextOptions } from './serialize/text.js';
+
+// PDF/DOCX export — used by the Docs CLI for `wafflebase docs export`.
+// PdfExporter and DocxExporter take a TextMeasurer / ImageFetcher rather
+// than reaching for Canvas/`Image` directly, so they're DOM-free for
+// PNG/JPEG content. Image formats requiring Canvas re-encode (BMP, TIFF
+// in DOCX exports) still throw at paint time — the CLI does not yet
+// support those.
+export { PdfExporter } from './export/pdf-exporter.js';
+export type { PdfExportOptions } from './export/pdf-exporter.js';
+export { PdfFonts, scanFontsUsed } from './export/pdf-fonts.js';
+export type { PdfFontKey, FontUsage, PdfFontsOptions } from './export/pdf-fonts.js';
+export { DocxExporter } from './export/docx-exporter.js';
+export type { ImageFetcher as DocxImageFetcher } from './export/docx-exporter.js';
+export type { ImageFetcher as PdfImageFetcher } from './export/pdf-image-painter.js';
