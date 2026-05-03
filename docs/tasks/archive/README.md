@@ -6,14 +6,15 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 151
+Total archived tasks: 152
 
-## 2026/05 (6 tasks)
+## 2026/05 (7 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | cmd arrow axis extension (2026-05-03) | [20260503-cmd-arrow-axis-extension-todo.md](./2026/05/20260503-cmd-arrow-axis-extension-todo.md) | [20260503-cmd-arrow-axis-extension-lessons.md](./2026/05/20260503-cmd-arrow-axis-extension-lessons.md) |
 | homepage redesign (2026-05-03) | [20260503-homepage-redesign-todo.md](./2026/05/20260503-homepage-redesign-todo.md) | - |
+| image split duplicate (2026-05-03) | [20260503-image-split-duplicate-todo.md](./2026/05/20260503-image-split-duplicate-todo.md) | - |
 | pdf export parity (2026-05-01) | [20260501-pdf-export-parity-todo.md](./2026/05/20260501-pdf-export-parity-todo.md) | [20260501-pdf-export-parity-lessons.md](./2026/05/20260501-pdf-export-parity-lessons.md) |
 | release 0.3.6 (2026-05-01) | [20260501-release-0.3.6-todo.md](./2026/05/20260501-release-0.3.6-todo.md) | - |
 | table resize row split (2026-05-01) | [20260501-table-resize-row-split-todo.md](./2026/05/20260501-table-resize-row-split-todo.md) | [20260501-table-resize-row-split-lessons.md](./2026/05/20260501-table-resize-row-split-lessons.md) |
