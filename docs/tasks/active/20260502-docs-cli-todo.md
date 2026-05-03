@@ -351,37 +351,39 @@ can paginate without a Canvas.
 
 ## Phase 7 — `wafflebase docs export`
 
-- [ ] 7.1 Create `packages/cli/src/docs/pdf-export.ts`:
+- [x] 7.1 Create `packages/cli/src/docs/pdf-export.ts`:
       `exportPdf(doc: Document, opts: { pages?: PageRange; includeHeaderFooter?: boolean }): Promise<Uint8Array>`.
       Strategy: use `PdfExporter` (from `@wafflebase/docs`) to render full
       PDF, then if `pages` is set, post-process with `pdf-lib` to extract
       requested pages. (If `PdfExporter` later gains a `pages` option, pass
       through and skip post-processing.)
-- [ ] 7.2 Create `packages/cli/src/docs/docx-export.ts`:
+- [x] 7.2 Create `packages/cli/src/docs/docx-export.ts`:
       `exportDocx(doc, { includeHeaderFooter? }): Promise<Uint8Array>`. Wraps
       `DocxExporter`. If caller passed `--pages`, emit stderr warning and
       ignore.
-- [ ] 7.3 Create `packages/cli/src/output/binary.ts`:
+- [x] 7.3 Create `packages/cli/src/output/binary.ts`:
       `writeBinary(bytes: Uint8Array, target: string | '-', { force, quiet })`.
       Refuses to overwrite existing files unless `force`; writes to
       `process.stdout` when target is `-`.
-- [ ] 7.4 Implement `docs export <doc-id> <file>` in `commands/docs.ts`.
+- [x] 7.4 Implement `docs export <doc-id> <file>` in `commands/docs.ts`.
       Flags: `--format docx|pdf` (default from extension), `--pages <range>`,
       `--include-header-footer` (default `true`), `--force`.
       Behavior:
       1. Fetch via `getDocContent`.
       2. Dispatch by format → `exportDocx` or `exportPdf`.
       3. `writeBinary` to target.
-- [ ] 7.5 Add tests `test/commands/docs-export.test.ts` (mocked HTTP):
-      - PDF export to file produces a non-empty Uint8Array starting with
-        `%PDF-` header
-      - PDF export with `--pages 1` extracts first page only (assert page
-        count via `pdf-lib` reload)
-      - DOCX export to file produces a non-empty zip-like buffer (PK header)
-      - DOCX export with `--pages` emits stderr warning, exit 0
-      - Refuse-to-overwrite path returns exit 1 unless `--force`
-      - Output `-` writes to `process.stdout`
-- [ ] 7.6 Run tests; commit: `Add docs export command (DOCX/PDF + --pages)`.
+- [x] 7.5 Add tests `test/commands/docs-export.test.ts` (mocked HTTP):
+      → 13 tests in `test/docs-export.test.ts` covering: PDF `%PDF-`
+      header, pdf-lib round-trip, Korean font embed via injected
+      sources (no network), `--pages` extraction (multi-page → 1
+      page), DOCX `PK` header + non-empty buffer, `writeBinary`
+      stdout/file/stderr-quiet/refuse-overwrite/force/fresh-file paths
+      via the IO surface. The `docs export --pages` DOCX warning is
+      validated end-to-end at the command layer rather than in this
+      file (the warning text lives in `commands/docs.ts`).
+- [x] 7.6 Run tests; commit: `Add docs export command (DOCX/PDF + --pages)`.
+      → CLI: 13 files / 129 tests pass. `verify:fast` exit=0
+      (frontend 1236 / cli 129 / docs 737).
 
 ## Phase 8 — `wafflebase docs import`
 
