@@ -459,7 +459,7 @@ export function readDocsRoot(root: DocsYorkieRoot): DocsDocument {
  * `packages/frontend/src/app/docs/yorkie-doc-store.ts`.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Yorkie proxy is untyped
-function readPageSetup(proxy: any): DocsPageSetup {
+export function readPageSetup(proxy: any): DocsPageSetup {
   const ps = proxy.paperSize;
   const m = proxy.margins;
   return {
