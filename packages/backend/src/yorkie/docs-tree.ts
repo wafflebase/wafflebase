@@ -482,11 +482,18 @@ function readPageSetup(proxy: any): DocsPageSetup {
  * Replace the entire `content` Tree on the Yorkie root with the given
  * `Document`. Caller must invoke this inside a `doc.update(root => …)` block.
  *
+ * **Destructive contract:** this is a wipe-and-rewrite, not a merge. All
+ * existing tree children are removed before the new content is inserted.
+ * Concurrent collaborator edits made between the read and the write may be
+ * lost — there is no OT/CRDT-aware diffing here, only a structural replace.
+ * The CLI import flow opts into this explicitly via `safety: destructive`;
+ * other callers should treat this as a last-write-wins primitive.
+ *
  * If `content` is missing it is created via `new Tree(...)`. Otherwise all
  * existing children are removed via `editByPath` and replaced via
  * `editBulkByPath`. Mirrors `writeFullDocument` in
  * `packages/frontend/src/app/docs/yorkie-doc-store.ts` — see file header for
- * limitations.
+ * additional limitations.
  */
 export function writeDocsRoot(
   root: DocsYorkieRoot,

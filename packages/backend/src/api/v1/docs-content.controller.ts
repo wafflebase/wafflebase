@@ -42,6 +42,10 @@ export class ApiV1DocsContentController {
     private readonly yorkieService: YorkieService,
   ) {}
 
+  // TODO(perf): each request makes two round-trips (Postgres metadata
+  // lookup + Yorkie attach). If this endpoint becomes hot we can cache the
+  // document type by id or short-circuit the type check when the caller is
+  // already known to be a docs client.
   private async assertDocsDocument(
     workspaceId: string,
     documentId: string,
@@ -84,10 +88,13 @@ export class ApiV1DocsContentController {
       },
       { docKeyPrefix: DOC_KEY_PREFIX },
     );
-    // Echo the body back so the CLI can confirm what was written. We do
-    // not re-read the Yorkie tree because Yorkie's Tree CRDT is only
-    // queryable inside an attached `doc.update` callback and the data we
-    // would re-read is, by construction, the body we just wrote.
+    // Echo the request body back so the CLI sees "what they sent" rather
+    // than a re-read of stored state. `writeDocsRoot` is currently identity
+    // on the JSON shape for valid input — every field round-trips through
+    // the writer/reader pair without normalization — so this is equivalent
+    // to a re-read for well-formed payloads. We avoid the actual re-read
+    // because Yorkie's Tree CRDT is only queryable inside an attached
+    // `doc.update` callback and that would require a second attach.
     return body;
   }
 }
