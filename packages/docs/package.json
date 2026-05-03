@@ -10,6 +10,12 @@
   "types": "dist/wafflebase-document.es.d.ts",
   "exports": {
     ".": {
+      "node": {
+        "types": "./dist/node.d.ts",
+        "import": "./dist/node.js",
+        "require": "./dist/node.cjs",
+        "default": "./dist/node.js"
+      },
       "types": "./dist/wafflebase-document.es.d.ts",
       "import": "./dist/wafflebase-document.es.js",
       "require": "./dist/wafflebase-document.cjs",
@@ -18,6 +24,7 @@
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js",
+      "require": "./dist/node.cjs",
       "default": "./dist/node.js"
     }
   },
