@@ -387,38 +387,37 @@ can paginate without a Canvas.
 
 ## Phase 8 — `wafflebase docs import`
 
-- [ ] 8.1 Add to `http-client.ts`:
+- [x] 8.1 Add to `http-client.ts`:
       ```ts
       async putDocContent(docId: string, doc: Document): Promise<HttpResponse<Document>> {
         return this.put(`/api/v1/workspaces/${this.workspace}/documents/${docId}/content`, doc);
       }
       ```
-- [ ] 8.2 Create `packages/cli/src/docs/docx-import.ts`:
+- [x] 8.2 Create `packages/cli/src/docs/docx-import.ts`:
       `importDocx(buf: Uint8Array): Promise<Document>` via `DocxImporter`
       with an inline-base64 `ImageUploader` adapter (no external upload yet).
-- [ ] 8.3 Implement `docs import <file>` in `commands/docs.ts`.
-      Flags: `--title <title>` (default basename without extension),
-      `--replace <doc-id>`, `--yes`, `--workspace <id>`.
-      Behavior:
-      - Default: `POST /documents { title, type: 'doc' }` then
-        `PUT .../content`. Output `{ id, title }` JSON.
-      - With `--replace <id>`:
-        - On TTY without `--yes`: interactive prompt
-          `"This will replace content of <id>. Continue? [y/N]"`. Decline →
-          exit 0, no changes.
-        - On non-TTY without `--yes`: exit 1 with `CONFIRMATION_REQ`.
-        - With `--yes`: skip prompt, `PUT .../content`.
-      - File `-` reads from `process.stdin`.
-- [ ] 8.4 Add tests `test/commands/docs-import.test.ts`:
-      - New-doc flow: mocks `POST /documents` and `PUT .../content`,
-        asserts both calls fire with expected payloads
-      - `--replace --yes` flow: only PUT fires, no POST
-      - `--replace` non-TTY without `--yes`: exit 1 + `CONFIRMATION_REQ`
-      - `--replace` TTY without `--yes` declined: exit 0, no PUT
-      - `--dry-run` with `--replace`: prints PUT preview, makes no requests
-      - File `-` reads stdin; `--title` default uses basename
-      - Invalid DOCX fixture → exit 1 + `INVALID_DOCX`
-- [ ] 8.5 Run tests; commit: `Add docs import command (new doc + --replace --yes)`.
+      → Done. Wraps parser errors in `InvalidDocxError` for the CLI's
+      structured error body. `inlineBase64Uploader` derives MIME from
+      the blob first, falls back to filename extension, then to
+      `application/octet-stream`. A side-effect `dom-polyfill.ts`
+      installs `@xmldom/xmldom`'s `DOMParser` on `globalThis` so
+      DocxImporter's browser-targeted XML parse works in Node.
+- [x] 8.3 Implement `docs import <file>` in `commands/docs.ts`.
+      → `runDocsImport` orchestrator lives in `docs/import.ts`; the
+      action is a thin shell. `--workspace` is intentionally not a
+      command-local flag — it's already a global CLI flag and threads
+      through `getClient()`.
+- [x] 8.4 Add tests `test/commands/docs-import.test.ts`:
+      → 16 tests in `test/docs-import.test.ts`: importDocx happy path
+      + InvalidDocxError; inlineBase64Uploader (mime from blob,
+      filename fallback, octet-stream fallback); new-doc POST+PUT,
+      `--title` override, stdin (`-`), invalid docx rejection,
+      create-failure short-circuit, `--dry-run`; `--replace --yes`
+      PUT-only, non-TTY CONFIRMATION_REQ exit 1, TTY decline exit 0,
+      TTY accept proceeds, `--dry-run --replace` PUT preview.
+- [x] 8.5 Run tests; commit: `Add docs import command (new doc + --replace --yes)`.
+      → CLI: 14 files / 145 tests pass. `verify:fast` exit=0
+      (frontend 1236 / cli 145 / docs 737).
 
 ## Phase 9 — Schema, Skills, Recipes
 
