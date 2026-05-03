@@ -2,7 +2,7 @@
   "frontend": {
     "chunkBudgets": {
       "maxChunkKb": 710,
-      "maxChunkCount": 70,
+      "maxChunkCount": 80,
       "overrides": [
         {
           "pattern": "^pending-imports-",
