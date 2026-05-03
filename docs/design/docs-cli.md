@@ -87,7 +87,7 @@ point.
 ### 2. Backend Changes
 
 A single new controller, two endpoints. Both reuse `CombinedAuthGuard` and
-`WorkspaceScopeGuard` exactly like the existing `cells.controller.ts`.
+`WorkspaceScopeGuard` exactly like the existing `packages/backend/src/api/v1/cells.controller.ts`.
 
 ```
 GET  /api/v1/workspaces/:wid/documents/:did/content
@@ -111,8 +111,8 @@ packages/backend/src/yorkie/yorkie.types.ts                     (re-export Docum
 packages/backend/src/api/v1/api-v1.module.ts                    (register controller)
 ```
 
-No changes to the existing `documents.controller.ts` (metadata),
-`tabs.controller.ts`, or `cells.controller.ts`.
+No changes to the existing `packages/backend/src/api/v1/documents.controller.ts` (metadata),
+`packages/backend/src/api/v1/tabs.controller.ts`, or `packages/backend/src/api/v1/cells.controller.ts`.
 
 ### 3. CLI Command Tree
 
@@ -284,7 +284,7 @@ re-pointed at a deterministic stub measurer.
 
 #### 4.2 `FontkitMeasurer` in the CLI
 
-`packages/cli/src/docs/fontkit-measurer.ts` implements `TextMeasurer` by
+*packages/cli/src/docs/fontkit-measurer.ts* implements `TextMeasurer` by
 loading fonts through the existing `PdfFonts` module (already a fontkit
 consumer for PDF export). Width is computed as `glyphAdvance ÷ unitsPerEm ×
 size`. A small in-memory font cache is keyed by
@@ -415,9 +415,9 @@ resolved to the canonical plural name.
 
 #### 6.4 Skills and Recipes
 
-The new skill files (`docs-manage.md`, `docs-read-content.md`,
-`docs-export-pdf.md`, `docs-export-docx.md`, `docs-import-docx.md`,
-`recipe-docx-to-pdf.md`, `recipe-doc-to-markdown.md`) follow the existing
+The new skill files (*docs-manage.md*, *docs-read-content.md*,
+*docs-export-pdf.md*, *docs-export-docx.md*, *docs-import-docx.md*,
+*recipe-docx-to-pdf.md*, *recipe-doc-to-markdown.md*) follow the existing
 SKILL.md frontmatter and structure conventions. The Sheets skill files
 are renamed and their command examples updated to the new `sheets.*`
 namespace.
@@ -448,32 +448,32 @@ command that writes a local file) to permit overwriting.
 
 `@wafflebase/docs`:
 
-- `view/measurer.spec.ts` — `CanvasTextMeasurer` and `FontkitMeasurer`
+- *view/measurer.spec.ts* — `CanvasTextMeasurer` and `FontkitMeasurer`
   agree to within ±1 px on shared font/text fixtures.
-- `view/layout.spec.ts` — `paginateLayout` results stay consistent across
+- *view/layout.spec.ts* — `paginateLayout` results stay consistent across
   measurer implementations.
 
 `@wafflebase/backend`:
 
-- `api/v1/docs-content.controller.spec.ts` — GET 200/404, type-mismatch
+- `packages/backend/src/api/v1/docs-content.controller.spec.ts` — GET 200/404, type-mismatch
   rejection, `WorkspaceScopeGuard` integration; PUT 200, body validation,
   Yorkie root replacement.
 
 `@wafflebase/cli`:
 
-- `commands/docs.content.spec.ts` — JSON/Markdown/text conversion, `--pages`
+- *commands/docs.content.spec.ts* — JSON/Markdown/text conversion, `--pages`
   slicing, exit codes (mocked HTTP).
-- `commands/docs.export.spec.ts` — PDF/DOCX binary output, PDF page subset,
+- *commands/docs.export.spec.ts* — PDF/DOCX binary output, PDF page subset,
   stdout streaming.
-- `commands/docs.import.spec.ts` — new-doc flow, `--replace --yes` flow,
+- *commands/docs.import.spec.ts* — new-doc flow, `--replace --yes` flow,
   TTY guard, dry-run.
-- `docs/markdown-serializer.spec.ts` — golden tests covering each row of
+- *docs/markdown-serializer.spec.ts* — golden tests covering each row of
   § 5.1.
-- `docs/page-range.spec.ts` — syntax parsing goldens.
-- `docs/page-slice.spec.ts` — § 5.2 format-aware rule goldens.
-- `commands/sheets.spec.ts` — existing cell/tab/import/export tests
+- *docs/page-range.spec.ts* — syntax parsing goldens.
+- *docs/page-slice.spec.ts* — § 5.2 format-aware rule goldens.
+- *commands/sheets.spec.ts* — existing cell/tab/import/export tests
   re-pointed at the `sheets.*` namespace (alias coverage included).
-- `schema/registry.spec.ts` — new entries, alias resolution.
+- *schema/registry.spec.ts* — new entries, alias resolution.
 
 Integration / E2E:
 
@@ -490,17 +490,17 @@ Integration / E2E:
    PDF exporter, frontend integration, test fixtures).
 2. `@wafflebase/docs`: implement Markdown / text / JSON serializers; expose
    `block.lines[].pageIndex`.
-3. Backend: add `docs-content.controller.ts` (GET/PUT), re-export `Document`
-   from `yorkie.types.ts`, register in `api-v1.module.ts`, write specs.
+3. Backend: add `packages/backend/src/api/v1/docs-content.controller.ts` (GET/PUT), re-export `Document`
+   from `packages/backend/src/yorkie/yorkie.types.ts`, register in `packages/backend/src/api/v1/api-v1.module.ts`, write specs.
 4. CLI: rename `cell/tab/import/export/api-key/document` files; introduce
-   `docs.ts` and `sheets.ts` namespace registrars; wire aliases.
-5. CLI: add `fontkit-measurer.ts` (reusing `PdfFonts`), `page-range.ts`,
-   `page-slice.ts`.
+   *docs.ts* and *sheets.ts* namespace registrars; wire aliases.
+5. CLI: add *fontkit-measurer.ts* (reusing `PdfFonts`), *page-range.ts*,
+   *page-slice.ts*.
 6. CLI: implement `docs content` with format dispatch.
 7. CLI: implement `docs export` (DOCX + PDF + `--pages` PDF subset).
 8. CLI: implement `docs import` (default + `--replace --yes`, TTY guard).
-9. CLI: update `schema/registry.ts`; expose `docs.import` variants.
-10. CLI: write skills and recipes; refresh `SKILL.md` index.
+9. CLI: update `packages/cli/src/schema/registry.ts`; expose `docs.import` variants.
+10. CLI: write skills and recipes; refresh `packages/cli/skills/SKILL.md` index.
 11. Unit + integration tests; add the Docker integration scenario.
 12. Update design docs under `docs/design/` (`docs/`, `sheets/`, and the
     cross-cutting README index) to reflect the new command tree.
