@@ -1,12 +1,13 @@
 import type { DocPosition, DocRange, TableCellRange, TableData, CellAddress } from '../model/types.js';
 import { getBlockTextLength } from '../model/types.js';
 import type { DocumentLayout, LayoutLine } from './layout.js';
+import { resolveInlineFont } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { findPageForPosition, findPageLine, getPageYOffset, getPageXOffset } from './pagination.js';
 import { resolvePositionPixel } from './peer-cursor.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 import { resolveNestedTableLayout } from './table-layout.js';
-import { buildFont, Theme } from './theme.js';
+import type { TextMeasurer } from './measurer.js';
 
 // --- Free helpers (used by both Selection class and computeSelectionRects) ---
 
@@ -182,7 +183,7 @@ function normalizeRange(
 function positionToPagePixel(
   paginatedLayout: PaginatedLayout,
   layout: DocumentLayout,
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   canvasWidth: number,
   blockId: string,
   offset: number,
@@ -212,15 +213,10 @@ function positionToPagePixel(
       if (run.imageHeight !== undefined) {
         xOffset = localOff > 0 ? run.width : 0;
       } else {
-        const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
-        const measureFontSize = isSuperOrSub
-          ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
-          : run.inline.style.fontSize;
-        ctx.font = buildFont(
-          measureFontSize, run.inline.style.fontFamily,
-          run.inline.style.bold, run.inline.style.italic,
+        xOffset = measurer.measureWidth(
+          run.text.slice(0, localOff),
+          resolveInlineFont(run.inline.style),
         );
-        xOffset = ctx.measureText(run.text.slice(0, localOff)).width;
       }
       const x = pageX + pageLine.x + run.x + xOffset;
       return { x, y: pageY + pageLine.y, height: pageLine.line.height };
@@ -255,7 +251,7 @@ function buildRects(
   end: DocPosition,
   paginatedLayout: PaginatedLayout,
   layout: DocumentLayout,
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
   // Cell-internal selection
@@ -263,8 +259,8 @@ function buildRects(
   const endCellInfo = layout.blockParentMap.get(end.blockId);
 
   if (startCellInfo && endCellInfo) {
-    const startPixel = resolvePositionPixel(start, 'forward', paginatedLayout, layout, ctx, canvasWidth);
-    const endPixel = resolvePositionPixel(end, 'backward', paginatedLayout, layout, ctx, canvasWidth);
+    const startPixel = resolvePositionPixel(start, 'forward', paginatedLayout, layout, measurer, canvasWidth);
+    const endPixel = resolvePositionPixel(end, 'backward', paginatedLayout, layout, measurer, canvasWidth);
 
     if (!startPixel || !endPixel) return [];
 
@@ -469,10 +465,10 @@ function buildRects(
     if (blockStart >= blockEnd) continue;
 
     const startPixel = positionToPagePixel(
-      paginatedLayout, layout, ctx, canvasWidth, lb.block.id, blockStart,
+      paginatedLayout, layout, measurer, canvasWidth, lb.block.id, blockStart,
     );
     const endPixel = positionToPagePixel(
-      paginatedLayout, layout, ctx, canvasWidth, lb.block.id, blockEnd,
+      paginatedLayout, layout, measurer, canvasWidth, lb.block.id, blockEnd,
     );
 
     if (!startPixel || !endPixel) continue;
@@ -538,7 +534,7 @@ export function computeSelectionRects(
   range: DocRange,
   paginatedLayout: PaginatedLayout,
   layout: DocumentLayout,
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
   const normalized = normalizeRange(range, layout);
@@ -551,7 +547,7 @@ export function computeSelectionRects(
 
   if (normalized.start.blockId === normalized.end.blockId &&
       normalized.start.offset === normalized.end.offset) return [];
-  return buildRects(normalized.start, normalized.end, paginatedLayout, layout, ctx, canvasWidth);
+  return buildRects(normalized.start, normalized.end, paginatedLayout, layout, measurer, canvasWidth);
 }
 
 /**
@@ -695,11 +691,11 @@ export class Selection {
   getSelectionRects(
     paginatedLayout: PaginatedLayout,
     layout: DocumentLayout,
-    ctx: CanvasRenderingContext2D,
+    measurer: TextMeasurer,
     canvasWidth: number,
   ): Array<{ x: number; y: number; width: number; height: number }> {
     if (!this.range || !this.hasSelection()) return [];
-    return computeSelectionRects(this.range, paginatedLayout, layout, ctx, canvasWidth);
+    return computeSelectionRects(this.range, paginatedLayout, layout, measurer, canvasWidth);
   }
 
   getSelectedText(layout: DocumentLayout): string {

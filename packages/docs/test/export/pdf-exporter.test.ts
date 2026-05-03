@@ -42,6 +42,19 @@ function testFonts(): PdfFonts {
   return new PdfFonts({ sources });
 }
 
+// Deterministic measurer used by every export() call below. Required —
+// PdfExporter throws without `opts.measurer` and we want goldens, not
+// jsdom canvas surprises.
+import { stubMeasurer } from '../view/_stub-measurer.js';
+
+const testMeasurer = stubMeasurer();
+
+type ExportOpts = Parameters<typeof PdfExporter.export>[1];
+
+function exportOpts(extra: Partial<ExportOpts> = {}): ExportOpts {
+  return { fonts: testFonts(), measurer: testMeasurer, ...extra };
+}
+
 describe('PdfExporter (hello world)', () => {
   it('produces a valid PDF for a single Korean line', async () => {
     const doc: Document = {
@@ -53,7 +66,7 @@ describe('PdfExporter (hello world)', () => {
       }],
     };
 
-    const blob = await PdfExporter.export(doc, { fonts: testFonts() });
+    const blob = await PdfExporter.export(doc, exportOpts());
     expect(blob.size).toBeGreaterThan(0);
     expect(blob.type).toBe('application/pdf');
 
@@ -131,7 +144,7 @@ const TEST_PNG = fs.readFileSync(
 
 describe('PdfExporter (full pipeline)', () => {
   it('exports the simple-paragraph fixture', async () => {
-    const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(simpleFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
     const pages = pdfDoc.getPages();
@@ -139,7 +152,7 @@ describe('PdfExporter (full pipeline)', () => {
   });
 
   it('exports the mixed-korean-english fixture', async () => {
-    const blob = await PdfExporter.export(mixedFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(mixedFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
     expect(blob.size).toBeGreaterThan(1000);
@@ -156,7 +169,7 @@ describe('PdfExporter (multi-page)', () => {
         style: { ...DEFAULT_BLOCK_STYLE },
       })),
     };
-    const blob = await PdfExporter.export(longDoc, { fonts: testFonts() });
+    const blob = await PdfExporter.export(longDoc, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(2);
   });
@@ -164,7 +177,7 @@ describe('PdfExporter (multi-page)', () => {
 
 describe('PdfExporter (header/footer/page-number)', () => {
   it('exports the with-header-footer-pagenumber fixture', async () => {
-    const blob = await PdfExporter.export(hfFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(hfFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
     // Header + footer presence: blob should be larger than a body-only equivalent
@@ -176,15 +189,15 @@ describe('PdfExporter (header/footer/page-number)', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       blocks: hfFixture.blocks.map(b => ({ ...b, style: { ...b.style } } as any)),
     };
-    const a = await PdfExporter.export(bodyOnly, { fonts: testFonts() });
-    const b = await PdfExporter.export(hfFixture, { fonts: testFonts() });
+    const a = await PdfExporter.export(bodyOnly, exportOpts());
+    const b = await PdfExporter.export(hfFixture, exportOpts());
     expect(b.size).toBeGreaterThan(a.size);
   });
 });
 
 describe('PdfExporter (tables)', () => {
   it('exports a table fixture with backgrounds and borders', async () => {
-    const blob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(tableFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
     expect(blob.size).toBeGreaterThan(800);
@@ -203,8 +216,8 @@ describe('PdfExporter (tables)', () => {
         })),
       ),
     };
-    const flatBlob = await PdfExporter.export(flat, { fonts: testFonts() });
-    const tableBlob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
+    const flatBlob = await PdfExporter.export(flat, exportOpts());
+    const tableBlob = await PdfExporter.export(tableFixture, exportOpts());
     expect(tableBlob.size).toBeGreaterThan(flatBlob.size);
   });
 
@@ -216,15 +229,15 @@ describe('PdfExporter (tables)', () => {
         cell.blocks = [];
       }
     }
-    const emptyBlob = await PdfExporter.export(empty as Document, { fonts: testFonts() });
-    const fullBlob = await PdfExporter.export(tableFixture, { fonts: testFonts() });
+    const emptyBlob = await PdfExporter.export(empty as Document, exportOpts());
+    const fullBlob = await PdfExporter.export(tableFixture, exportOpts());
     expect(fullBlob.size).toBeGreaterThan(emptyBlob.size);
   });
 });
 
 describe('PdfExporter (merged cells)', () => {
   it('exports a table with colSpan and rowSpan without erroring', async () => {
-    const blob = await PdfExporter.export(mergedFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(mergedFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
     expect(blob.size).toBeGreaterThan(800);
@@ -233,7 +246,7 @@ describe('PdfExporter (merged cells)', () => {
 
 describe('PdfExporter (row split)', () => {
   it('exports a table with a row that splits across pages', async () => {
-    const blob = await PdfExporter.export(splitRowFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(splitRowFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBeGreaterThanOrEqual(2);
     expect(blob.size).toBeGreaterThan(800);
@@ -243,14 +256,13 @@ describe('PdfExporter (row split)', () => {
 describe('PdfExporter (images)', () => {
   it('embeds an image inline', async () => {
     let fetchCount = 0;
-    const blob = await PdfExporter.export(imageFixture, {
-      fonts: testFonts(),
+    const blob = await PdfExporter.export(imageFixture, exportOpts({
       imageFetcher: async (src: string) => {
         fetchCount++;
         expect(src).toBe('test://image1');
         return new Blob([TEST_PNG], { type: 'image/png' });
       },
-    });
+    }));
     expect(fetchCount).toBe(1);
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
@@ -264,22 +276,20 @@ describe('PdfExporter (images)', () => {
         inlines: b.inlines.filter(i => !i.style.image),
       })),
     };
-    const noImageBlob = await PdfExporter.export(noImage, {
-      fonts: testFonts(),
-    });
+    const noImageBlob = await PdfExporter.export(noImage, exportOpts());
     expect(blob.size).toBeGreaterThan(noImageBlob.size + 50);
   });
 
   it('throws when image inline exists but no fetcher provided', async () => {
     await expect(
-      PdfExporter.export(imageFixture, { fonts: testFonts() }),
+      PdfExporter.export(imageFixture, exportOpts()),
     ).rejects.toThrow(/imageFetcher/i);
   });
 });
 
 describe('PdfExporter (list markers)', () => {
   it('exports list items with markers', async () => {
-    const blob = await PdfExporter.export(listFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(listFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getPageCount()).toBe(1);
 
@@ -292,24 +302,23 @@ describe('PdfExporter (list markers)', () => {
         listLevel: undefined,
       })),
     };
-    const flatBlob = await PdfExporter.export(flatDoc, { fonts: testFonts() });
+    const flatBlob = await PdfExporter.export(flatDoc, exportOpts());
     expect(blob.size).toBeGreaterThan(flatBlob.size);
   });
 });
 
 describe('PdfExporter (metadata)', () => {
   it('writes title and author into PDF metadata', async () => {
-    const blob = await PdfExporter.export(simpleFixture, {
-      fonts: testFonts(),
+    const blob = await PdfExporter.export(simpleFixture, exportOpts({
       metadata: { title: 'My Doc', author: 'Alice' },
-    });
+    }));
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
     expect(pdfDoc.getTitle()).toBe('My Doc');
     expect(pdfDoc.getAuthor()).toBe('Alice');
   });
 
   it('sets producer/creator when no metadata provided', async () => {
-    const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(simpleFixture, exportOpts());
     // updateMetadata: false prevents pdf-lib from overwriting the Producer
     // field with its own default during the load() call.
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
@@ -321,7 +330,7 @@ describe('PdfExporter (metadata)', () => {
 
 describe('PdfExporter (outline)', () => {
   it('emits a heading outline tree', async () => {
-    const blob = await PdfExporter.export(headingFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(headingFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
       updateMetadata: false,
     });
@@ -335,7 +344,7 @@ describe('PdfExporter (outline)', () => {
   });
 
   it('outline contains the heading titles in document order', async () => {
-    const blob = await PdfExporter.export(headingFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(headingFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
       updateMetadata: false,
     });
@@ -360,7 +369,7 @@ describe('PdfExporter (outline)', () => {
   });
 
   it('outline items reference page destinations', async () => {
-    const blob = await PdfExporter.export(headingFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(headingFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
       updateMetadata: false,
     });
@@ -373,7 +382,7 @@ describe('PdfExporter (outline)', () => {
   });
 
   it('omits the outline tree for documents with no headings', async () => {
-    const blob = await PdfExporter.export(simpleFixture, { fonts: testFonts() });
+    const blob = await PdfExporter.export(simpleFixture, exportOpts());
     const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
       updateMetadata: false,
     });

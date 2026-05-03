@@ -97,6 +97,8 @@ export type {
 } from './view/pagination.js';
 export { Theme, buildFont, ptToPx, setThemeMode, getTheme } from './view/theme.js';
 export type { ThemeMode, DocTheme } from './view/theme.js';
+export type { TextMeasurer, ResolvedFont } from './view/measurer.js';
+export { CanvasTextMeasurer } from './view/canvas-measurer.js';
 export { DocCanvas } from './view/doc-canvas.js';
 export { Cursor } from './view/cursor.js';
 export {
@@ -113,6 +115,14 @@ export type { SearchMatch, SearchOptions } from './model/types.js';
 export { isSafeUrl, normalizeLinkUrl } from './view/url-detect.js';
 export { computeScaleFactor, MOBILE_PADDING } from './view/scale.js';
 export type { LayoutTable, LayoutTableCell } from './view/table-layout.js';
+
+// Serialize (Markdown / text / JSON)
+export { serializeMarkdown } from './serialize/markdown.js';
+export type { MarkdownOptions } from './serialize/markdown.js';
+export { serializeText } from './serialize/text.js';
+export type { TextOptions } from './serialize/text.js';
+export { serializeJson } from './serialize/json.js';
+export type { BlockPageMeta, SerializedJson } from './serialize/json.js';
 
 // Import / Export (DOCX)
 export { DocxImporter } from './import/docx-importer.js';

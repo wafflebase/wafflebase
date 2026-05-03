@@ -11,6 +11,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/sheets/package.json ./packages/sheets/
+COPY packages/docs/package.json ./packages/docs/
 
 # Copy Prisma schema (needed by postinstall: prisma generate)
 COPY packages/backend/prisma ./packages/backend/prisma
@@ -20,10 +21,15 @@ RUN pnpm install --frozen-lockfile --filter @wafflebase/backend...
 
 # Copy source
 COPY packages/sheets/ ./packages/sheets/
+COPY packages/docs/ ./packages/docs/
 COPY packages/backend/ ./packages/backend/
 
 # Build sheet → platform-independent JS bundle
 WORKDIR /app/packages/sheets
+RUN pnpm run build
+
+# Build docs → platform-independent JS bundle
+WORKDIR /app/packages/docs
 RUN pnpm run build
 
 # Build backend → platform-independent JS via SWC
@@ -43,6 +49,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/sheets/package.json ./packages/sheets/
+COPY packages/docs/package.json ./packages/docs/
 
 # Copy Prisma schema (needed for prisma generate)
 COPY packages/backend/prisma ./packages/backend/prisma
@@ -58,6 +65,7 @@ RUN npx prisma@6.6.0 generate
 
 # Copy built artifacts from builder stage
 COPY --from=builder /app/packages/sheets/dist /app/packages/sheets/dist
+COPY --from=builder /app/packages/docs/dist /app/packages/docs/dist
 COPY --from=builder /app/packages/backend/dist /app/packages/backend/dist
 
 ENV NODE_ENV=production

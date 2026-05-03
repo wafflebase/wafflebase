@@ -4,13 +4,9 @@ import { createTableBlock, DEFAULT_PAGE_SETUP, getEffectiveDimensions, DEFAULT_B
 import { computeLayout } from '../../src/view/layout.js';
 import { paginateLayout } from '../../src/view/pagination.js';
 import { collectTableRenderRanges } from '../../src/view/doc-canvas.js';
+import { stubMeasurer } from './_stub-measurer.js';
 
-function stubCtx(): CanvasRenderingContext2D {
-  return {
-    font: '',
-    measureText: (text: string) => ({ width: text.length * 7 }),
-  } as unknown as CanvasRenderingContext2D;
-}
+const stubCtx = () => stubMeasurer(7);
 
 describe('findRowSplitHeight', () => {
   it('returns safe split height for a single-cell row', () => {
@@ -64,12 +60,7 @@ describe('findRowSplitHeight', () => {
 });
 
 describe('paginateLayout — row splitting', () => {
-  function stubCtxWide(): CanvasRenderingContext2D {
-    return {
-      font: '',
-      measureText: (text: string) => ({ width: text.length * 7 }),
-    } as unknown as CanvasRenderingContext2D;
-  }
+  const stubCtxWide = () => stubMeasurer(7);
 
   it('splits a tall single-row table across pages', () => {
     // DEFAULT_PAGE_SETUP: 1056px tall, 96px top/bottom margins → 864px content height
@@ -158,10 +149,7 @@ describe('collectTableRenderRanges — split fragment + follow-up rows', () => {
     td.rows[1].cells[0].blocks[0].inlines = [{ text: 'Row 1 marker', style: {} }];
     td.rows[2].cells[0].blocks[0].inlines = [{ text: 'Row 2 marker', style: {} }];
 
-    const ctx = {
-      font: '',
-      measureText: (text: string) => ({ width: text.length * 7 }),
-    } as unknown as CanvasRenderingContext2D;
+    const ctx = stubMeasurer(7);
 
     const { layout } = computeLayout([tableBlock], ctx, contentWidth);
     const paginated = paginateLayout(layout, setup);

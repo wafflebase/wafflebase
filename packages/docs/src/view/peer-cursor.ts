@@ -3,7 +3,8 @@ import { LIST_INDENT_PX } from '../model/types.js';
 import type { PageLine, PaginatedLayout } from './pagination.js';
 import { findPageForPosition, getPageYOffset, getPageXOffset } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
-import { buildFont, Theme } from './theme.js';
+import { resolveInlineFont } from './layout.js';
+import type { TextMeasurer } from './measurer.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 
 /**
@@ -98,7 +99,7 @@ export function resolvePositionPixel(
   lineAffinity: 'forward' | 'backward',
   paginatedLayout: PaginatedLayout,
   layout: DocumentLayout,
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   canvasWidth: number,
 ): PositionPixel | undefined {
   // --- Table cell cursor ---
@@ -212,11 +213,9 @@ export function resolvePositionPixel(
                   cursorX = run.x + (localOff > 0 ? run.width : 0);
                 } else {
                   const textBefore = run.text.slice(0, localOff);
-                  ctx.font = buildFont(
-                    run.inline.style.fontSize, run.inline.style.fontFamily,
-                    run.inline.style.bold, run.inline.style.italic,
+                  cursorX = run.x + measurer.measureWidth(
+                    textBefore, resolveInlineFont(run.inline.style),
                   );
-                  cursorX = run.x + ctx.measureText(textBefore).width;
                 }
                 break;
               }
@@ -367,15 +366,9 @@ export function resolvePositionPixel(
         xOffset = localOffset > 0 ? run.width : 0;
       } else {
         const textBefore = run.text.slice(0, localOffset);
-        const isSuperOrSub = run.inline.style.superscript || run.inline.style.subscript;
-        const measureFontSize = isSuperOrSub
-          ? (run.inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
-          : run.inline.style.fontSize;
-        ctx.font = buildFont(
-          measureFontSize, run.inline.style.fontFamily,
-          run.inline.style.bold, run.inline.style.italic,
+        xOffset = measurer.measureWidth(
+          textBefore, resolveInlineFont(run.inline.style),
         );
-        xOffset = ctx.measureText(textBefore).width;
       }
       const x = pageX + pageLine.x + run.x + xOffset;
       return { x, y: pageY + pageLine.y, height: pageLine.line.height };

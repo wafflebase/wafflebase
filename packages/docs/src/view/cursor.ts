@@ -1,6 +1,7 @@
 import type { DocPosition } from '../model/types.js';
 import type { PaginatedLayout } from './pagination.js';
 import type { DocumentLayout } from './layout.js';
+import type { TextMeasurer } from './measurer.js';
 import { Theme } from './theme.js';
 import { resolvePositionPixel } from './peer-cursor.js';
 
@@ -40,11 +41,11 @@ export class Cursor {
   getPixelPosition(
     paginatedLayout: PaginatedLayout,
     layout: DocumentLayout,
-    ctx: CanvasRenderingContext2D,
+    measurer: TextMeasurer,
     canvasWidth: number,
   ): { x: number; y: number; height: number; visible: boolean } | undefined {
     const pixel = resolvePositionPixel(
-      this.position, this.lineAffinity, paginatedLayout, layout, ctx, canvasWidth,
+      this.position, this.lineAffinity, paginatedLayout, layout, measurer, canvasWidth,
     );
     if (!pixel) return undefined;
     return { ...pixel, visible: this.visible };

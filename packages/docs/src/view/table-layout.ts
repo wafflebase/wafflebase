@@ -3,6 +3,7 @@ import { LIST_INDENT_PX } from '../model/types.js';
 import type { LayoutLine } from './layout.js';
 import { applyAlignment, assignLineHeights, layoutBlock } from './layout.js';
 import { ptToPx, Theme } from './theme.js';
+import type { TextMeasurer } from './measurer.js';
 import { computeMergedCellLineLayouts } from './table-geometry.js';
 
 export interface LayoutTableCell {
@@ -35,7 +36,7 @@ const MIN_ROW_HEIGHT = 20;
  */
 function layoutCellBlocks(
   blocks: Block[],
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   maxWidth: number,
   blockParentMap?: Map<string, BlockCellInfo>,
 ): { lines: LayoutLine[]; blockBoundaries: number[] } {
@@ -57,7 +58,7 @@ function layoutCellBlocks(
       const nestedLayout = computeTableLayout(
         block.tableData,
         block.id,
-        ctx,
+        measurer,
         maxWidth,
       );
       if (blockParentMap) {
@@ -89,7 +90,7 @@ function layoutCellBlocks(
           },
         };
 
-    const blockLines = layoutBlock(effectiveBlock, ctx, maxWidth);
+    const blockLines = layoutBlock(effectiveBlock, measurer, maxWidth);
     assignLineHeights(blockLines, effectiveBlock);
 
     const alignWidth = maxWidth - (effectiveBlock.style.marginLeft ?? 0);
@@ -121,7 +122,7 @@ function layoutCellBlocks(
 export function computeTableLayout(
   tableData: TableData,
   tableBlockId: string,
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   contentWidth: number,
 ): LayoutTable {
   const { rows, columnWidths } = tableData;
@@ -164,7 +165,7 @@ export function computeTableLayout(
       const padding = cell?.style?.padding ?? DEFAULT_CELL_PADDING;
       const innerWidth = Math.max(cellWidth - padding * 2, 0);
 
-      const { lines, blockBoundaries } = layoutCellBlocks(cell?.blocks ?? [], ctx, innerWidth, blockParentMap);
+      const { lines, blockBoundaries } = layoutCellBlocks(cell?.blocks ?? [], measurer, innerWidth, blockParentMap);
       const cellHeight = lines.reduce((sum, l) => sum + l.height, 0) + padding * 2;
 
       cellRow.push({ lines, blockBoundaries, width: cellWidth, height: cellHeight, merged: false });

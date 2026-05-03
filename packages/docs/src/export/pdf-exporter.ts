@@ -12,6 +12,7 @@ import { DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../model/types.js';
 import { PdfFonts, scanFontsUsed, type FontUsage } from './pdf-fonts.js';
 import { computeLayout, computeListCounters } from '../view/layout.js';
 import { paginateLayout } from '../view/pagination.js';
+import type { TextMeasurer } from '../view/measurer.js';
 import { PdfPainter } from './pdf-painter.js';
 import {
   collectAndEmbedImages,
@@ -24,6 +25,15 @@ export interface PdfExportOptions {
   fonts?: PdfFonts;
   imageFetcher?: ImageFetcher;
   metadata?: { title?: string; author?: string; subject?: string; keywords?: string[] };
+  /**
+   * Text measurer used for layout and pagination. **Required.** The
+   * browser editor passes its `CanvasTextMeasurer`; the Docs CLI passes
+   * its `fontkit`-backed measurer; tests pass a deterministic stub.
+   * No silent fallback — supplying the wrong measurer (or none) is
+   * almost always a programming error that produces a PDF whose line
+   * breaks do not match what the user sees on-screen.
+   */
+  measurer: TextMeasurer;
 }
 
 export class PdfExporter {
@@ -32,19 +42,28 @@ export class PdfExporter {
    * paginate + paint pipeline. Images are stubbed out for now;
    * Phase 5 wires `collectAndEmbedImages` in.
    */
-  static async export(doc: Document, opts: PdfExportOptions = {}): Promise<Blob> {
+  static async export(doc: Document, opts: PdfExportOptions): Promise<Blob> {
+    if (!opts || !opts.measurer) {
+      // The earlier silent fallback (8-px-per-char approximation in jsdom,
+      // Canvas probe in browsers) hid two real bugs: tests forgetting to
+      // pass a stub, and SSR/CLI callers picking up a Canvas path that
+      // would never agree with their actual renderer. Fail loudly so
+      // those mistakes surface at the call site.
+      throw new Error('PdfExporter.export requires opts.measurer');
+    }
     const fonts = opts.fonts ?? new PdfFonts();
     const usage = scanFontsUsed(doc);
 
     // 1. Pre-load Noto KR into document.fonts so Canvas measureText is consistent.
     await ensureCanvasFontsLoaded(usage);
 
-    // 2. Compute layout. Need a CanvasRenderingContext2D for measureText.
+    // 2. Compute layout using the caller-supplied measurer (browser:
+    // CanvasTextMeasurer; CLI: fontkit-backed; tests: stub).
     const setup = doc.pageSetup ?? DEFAULT_PAGE_SETUP;
     const { width: wPx } = getEffectiveDimensions(setup);
     const contentWidth = wPx - setup.margins.left - setup.margins.right;
-    const ctx = getMeasurementCtx();
-    const { layout } = computeLayout(doc.blocks, ctx, contentWidth);
+    const measurer = opts.measurer;
+    const { layout } = computeLayout(doc.blocks, measurer, contentWidth);
     const pagination = paginateLayout(layout, setup);
 
     // Header/footer block lists are independent of body pagination —
@@ -52,10 +71,10 @@ export class PdfExporter {
     // headers/footers appear identically across the document (with only
     // `pageNumber` substituted per page in the painter).
     const headerLayout = doc.header && doc.header.blocks.length > 0
-      ? computeLayout(doc.header.blocks, ctx, contentWidth).layout
+      ? computeLayout(doc.header.blocks, measurer, contentWidth).layout
       : null;
     const footerLayout = doc.footer && doc.footer.blocks.length > 0
-      ? computeLayout(doc.footer.blocks, ctx, contentWidth).layout
+      ? computeLayout(doc.footer.blocks, measurer, contentWidth).layout
       : null;
 
     // 3. Ordered list counters: computed once over the body block list
@@ -192,41 +211,4 @@ async function ensureCanvasFontsLoaded(usage: FontUsage): Promise<void> {
   await Promise.all(families.map(f =>
     document.fonts.load(`12px "${f}"`).catch(() => {/* ignore */}),
   ));
-}
-
-/**
- * In a real browser, returns a canvas 2D context for text measurement.
- * In jsdom (or any env without canvas), returns a minimal mock that
- * approximates measureText using a constant per-char width — good
- * enough for unit tests, NOT for production.
- */
-function getMeasurementCtx(): CanvasRenderingContext2D {
-  const inBrowser = typeof document !== 'undefined';
-  if (inBrowser) {
-    const canvas = document.createElement('canvas');
-    const realCtx = canvas.getContext('2d');
-    if (realCtx && typeof realCtx.measureText === 'function') {
-      try {
-        const probe = realCtx.measureText('M');
-        if (probe && typeof probe.width === 'number' && probe.width > 0) {
-          return realCtx;
-        }
-      } catch { /* fall through to mock */ }
-    }
-    // We're in a real browser but the canvas probe failed — likely a
-    // font-loading race or a browser bug. Falling back to the 8-px-per-
-    // char mock would silently produce a PDF with wrong line breaks
-    // and text positions, so warn the developer instead of failing
-    // quietly. (Tests run in jsdom, where this branch never fires.)
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[PdfExporter] Canvas measureText probe returned 0 in a browser context; ' +
-        'falling back to approximate metrics. Resulting PDF layout will not match on-screen pagination.',
-    );
-  }
-  // jsdom fallback: 8 px per char
-  return {
-    measureText: (text: string) => ({ width: text.length * 8 }),
-    font: '',
-  } as unknown as CanvasRenderingContext2D;
 }

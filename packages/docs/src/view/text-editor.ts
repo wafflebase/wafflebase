@@ -7,7 +7,8 @@ import { Selection, expandCellRangeForMerges, findMergeTopLeft } from './selecti
 import type { DocumentLayout } from './layout.js';
 import type { PaginatedLayout } from './pagination.js';
 import { paginatedPixelToPosition, findPageForPosition, getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine, resolveClickTarget } from './pagination.js';
-import { buildFont } from './theme.js';
+import { resolveInlineFont } from './layout.js';
+import type { TextMeasurer } from './measurer.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
@@ -88,7 +89,7 @@ export class TextEditor {
   private selection: Selection;
   private getLayout: () => DocumentLayout;
   private getPaginatedLayout: () => PaginatedLayout;
-  private getCtx: () => CanvasRenderingContext2D;
+  private getMeasurer: () => TextMeasurer;
   private getCanvasWidth: () => number;
   private getScaleFactor: () => number;
   private getCanvasOffsetTop: () => number;
@@ -196,7 +197,7 @@ export class TextEditor {
     selection: Selection,
     getLayout: () => DocumentLayout,
     getPaginatedLayout: () => PaginatedLayout,
-    getCtx: () => CanvasRenderingContext2D,
+    getMeasurer: () => TextMeasurer,
     getCanvasWidth: () => number,
     getScaleFactor: () => number,
     getCanvasOffsetTop: () => number,
@@ -215,7 +216,7 @@ export class TextEditor {
     this.selection = selection;
     this.getLayout = getLayout;
     this.getPaginatedLayout = getPaginatedLayout;
-    this.getCtx = getCtx;
+    this.getMeasurer = getMeasurer;
     this.getCanvasWidth = getCanvasWidth;
     this.getScaleFactor = getScaleFactor;
     this.getCanvasOffsetTop = getCanvasOffsetTop;
@@ -3685,7 +3686,7 @@ export class TextEditor {
     // Convert to layout-local coordinates
     const localX = canvasX - pageX - margins.left;
     const localY = canvasY - baseY;
-    const ctx = this.getCtx();
+    const measurer = this.getMeasurer();
 
     // Find the closest block and line
     for (const lb of hfLayout.blocks) {
@@ -3704,10 +3705,10 @@ export class TextEditor {
             const runEnd = run.x + run.width;
             if (localX <= runEnd) {
               // Binary search within run for exact character
-              ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
+              const font = resolveInlineFont(run.inline.style);
               let bestOffset = 0;
               for (let c = 0; c <= run.text.length; c++) {
-                const w = ctx.measureText(run.text.slice(0, c)).width;
+                const w = measurer.measureWidth(run.text.slice(0, c), font);
                 if (run.x + w > localX) break;
                 bestOffset = c;
               }
@@ -3973,7 +3974,7 @@ export class TextEditor {
     }
 
     // Resolve X within the target line
-    const ctx = this.getCtx();
+    const measurer = this.getMeasurer();
     const targetLine = cell.lines[targetLineIdx];
 
     // Handle nested table: resolve click into the inner table
@@ -4106,12 +4107,9 @@ export class TextEditor {
 
           if (innerTargetLine) {
             for (const run of innerTargetLine.runs) {
-              ctx.font = buildFont(
-                run.inline.style.fontSize, run.inline.style.fontFamily,
-                run.inline.style.bold, run.inline.style.italic,
-              );
+              const font = resolveInlineFont(run.inline.style);
               for (let i = 0; i <= run.text.length; i++) {
-                const w = ctx.measureText(run.text.slice(0, i)).width + run.x;
+                const w = measurer.measureWidth(run.text.slice(0, i), font) + run.x;
                 if (w >= innerCellLocalX) {
                   return { blockId: innerCellData.blocks[innerBlockIdx].id, offset: innerOffset + i };
                 }
@@ -4129,12 +4127,9 @@ export class TextEditor {
 
     if (targetLine) {
       for (const run of targetLine.runs) {
-        ctx.font = buildFont(
-          run.inline.style.fontSize, run.inline.style.fontFamily,
-          run.inline.style.bold, run.inline.style.italic,
-        );
+        const font = resolveInlineFont(run.inline.style);
         for (let i = 0; i <= run.text.length; i++) {
-          const w = ctx.measureText(run.text.slice(0, i)).width + run.x;
+          const w = measurer.measureWidth(run.text.slice(0, i), font) + run.x;
           if (w >= localX) {
             const cellBlockId = dataBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex].blocks[currentBlockIndex].id;
             return { blockId: cellBlockId, offset: offset + i };

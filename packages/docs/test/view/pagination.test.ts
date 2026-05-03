@@ -147,6 +147,20 @@ describe('paginateLayout', () => {
     expect(block2Line).toBeDefined();
     expect(block2Line!.y).toBe(96 + 100 + 20); // margins.top + line9 + marginBottom
   });
+
+  it('tags every PageLine with its 1-based pageIndex', () => {
+    const lines = Array.from({ length: 9 }, () => mockLine(100));
+    const block = mockBlock('b1', lines, 0, 0);
+    const layout: DocumentLayout = { blocks: [block], totalHeight: 900, blockParentMap: new Map() };
+    const result = paginateLayout(layout, setup);
+    expect(result.pages).toHaveLength(2);
+    for (const line of result.pages[0].lines) {
+      expect(line.pageIndex).toBe(1);
+    }
+    for (const line of result.pages[1].lines) {
+      expect(line.pageIndex).toBe(2);
+    }
+  });
 });
 
 describe('getPageYOffset', () => {

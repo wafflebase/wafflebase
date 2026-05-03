@@ -3,6 +3,7 @@ import { resolvePositionPixel, drawPeerCaret, drawPeerLabel } from '../../src/vi
 import type { DocumentLayout, LayoutBlock, LayoutLine, LayoutRun } from '../../src/view/layout.js';
 import type { PaginatedLayout } from '../../src/view/pagination.js';
 import { DEFAULT_PAGE_SETUP } from '../../src/model/types.js';
+import { stubMeasurer } from './_stub-measurer.js';
 
 function mockRun(text: string, x: number, width: number, charStart: number): LayoutRun {
   return {
@@ -66,6 +67,7 @@ function makePaginatedLayout(blocks: LayoutBlock[]): PaginatedLayout {
       line,
       x: 96, // margins.left
       y: 96 + li * line.height, // margins.top + offset
+      pageIndex: 1,
     }))
   );
   return {
@@ -81,14 +83,14 @@ describe('resolvePositionPixel', () => {
     const block = mockBlock('b1', [line]);
     const layout: DocumentLayout = { blocks: [block], totalHeight: 20, blockParentMap: new Map() };
     const paginatedLayout = makePaginatedLayout([block]);
-    const ctx = makeCtx();
+    const measurer = stubMeasurer();
 
     const result = resolvePositionPixel(
       { blockId: 'nonexistent', offset: 0 },
       'backward',
       paginatedLayout,
       layout,
-      ctx,
+      measurer,
       1200,
     );
     expect(result).toBeUndefined();
@@ -100,14 +102,14 @@ describe('resolvePositionPixel', () => {
     const block = mockBlock('b1', [line]);
     const layout: DocumentLayout = { blocks: [block], totalHeight: 20, blockParentMap: new Map() };
     const paginatedLayout = makePaginatedLayout([block]);
-    const ctx = makeCtx();
+    const measurer = stubMeasurer();
 
     const result = resolvePositionPixel(
       { blockId: 'b1', offset: 0 },
       'backward',
       paginatedLayout,
       layout,
-      ctx,
+      measurer,
       1200,
     );
     expect(result).toBeDefined();
@@ -123,14 +125,14 @@ describe('resolvePositionPixel', () => {
     const block = mockBlock('b1', [line]);
     const layout: DocumentLayout = { blocks: [block], totalHeight: 20, blockParentMap: new Map() };
     const paginatedLayout = makePaginatedLayout([block]);
-    const ctx = makeCtx();
+    const measurer = stubMeasurer();
 
     const result = resolvePositionPixel(
       { blockId: 'b1', offset: 5 },
       'backward',
       paginatedLayout,
       layout,
-      ctx,
+      measurer,
       1200,
     );
     expect(result).toBeDefined();

@@ -62,6 +62,17 @@ describe('YorkieService', () => {
       expect(mockDeactivate).toHaveBeenCalled();
     });
 
+    it('uses a custom docKeyPrefix when provided (e.g. doc- for word-processor)', async () => {
+      const callback = jest.fn().mockReturnValue('ok');
+
+      await service.withDocument('abc', callback, { docKeyPrefix: 'doc-' });
+
+      expect(mockAttach).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'doc-abc' }),
+        { syncMode: 'manual' },
+      );
+    });
+
     it('deactivates even if callback throws', async () => {
       const error = new Error('callback failed');
       const callback = jest.fn().mockRejectedValue(error);

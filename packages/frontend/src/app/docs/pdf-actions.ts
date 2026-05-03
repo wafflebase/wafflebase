@@ -16,10 +16,15 @@ export async function exportPdfAndDownload(
   metadata?: { title?: string; author?: string },
 ): Promise<void> {
   // Dynamic import keeps pdf-lib + fontkit out of the initial bundle.
-  const { PdfExporter } = await import("@wafflebase/docs");
+  const { PdfExporter, CanvasTextMeasurer } = await import("@wafflebase/docs");
+  // PdfExporter no longer falls back to an approximate measurer when the
+  // browser canvas probe fails — every caller must supply one explicitly.
+  // CanvasTextMeasurer owns its own OffscreenCanvas, so we don't have to
+  // share the editor's visible ctx (which would be unsafe anyway).
   const blob = await PdfExporter.export(doc, {
     imageFetcher: docsImageFetcher,
     metadata: { title: metadata?.title ?? title, author: metadata?.author },
+    measurer: new CanvasTextMeasurer(),
   });
   downloadBlob(blob, safeFilename(title, "pdf"));
 }

@@ -7,12 +7,14 @@ import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
 import { TextEditor } from './text-editor.js';
-import { computeLayout, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
+import { computeLayout, resolveInlineFont, type DocumentLayout, type LayoutCache, type LayoutRun } from './layout.js';
 import { paginateLayout, getTotalHeight, findPageForPosition, getPageXOffset, getPageYOffset, getHeaderYStart, getFooterYStart, paginatedPixelToPosition, type PaginatedLayout } from './pagination.js';
+import { CanvasTextMeasurer } from './canvas-measurer.js';
+import type { TextMeasurer } from './measurer.js';
 import type { DocPosition, HeaderFooter } from '../model/types.js';
 import { Ruler, RULER_SIZE } from './ruler.js';
 import { computeScaleFactor } from './scale.js';
-import { buildFont, setThemeMode, type ThemeMode } from './theme.js';
+import { setThemeMode, type ThemeMode } from './theme.js';
 import { type PeerCursor, resolvePositionPixel } from './peer-cursor.js';
 import { computeTableMergeContext, type TableMergeContext } from './table-merge-context.js';
 import { resolveNestedTableLayout } from './table-layout.js';
@@ -186,7 +188,7 @@ function computeHFCursorPixel(
   hf: HeaderFooter,
   region: 'header' | 'footer',
   paginatedLayout: PaginatedLayout,
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   canvasWidth: number,
   activePageIndex: number,
   cursorVisible: boolean,
@@ -217,11 +219,10 @@ function computeHFCursorPixel(
             cursorX = run.x + (localOff > 0 ? run.width : 0);
           } else {
             const textBefore = run.text.slice(0, localOff);
-            ctx.font = buildFont(
-              run.inline.style.fontSize, run.inline.style.fontFamily,
-              run.inline.style.bold, run.inline.style.italic,
+            cursorX = run.x + measurer.measureWidth(
+              textBefore,
+              resolveInlineFont(run.inline.style),
             );
-            cursorX = run.x + ctx.measureText(textBefore).width;
           }
           break;
         }
@@ -261,7 +262,7 @@ function computeHFSelectionRects(
   hf: HeaderFooter,
   region: 'header' | 'footer',
   paginatedLayout: PaginatedLayout,
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   canvasWidth: number,
   activePageIndex: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
@@ -318,8 +319,10 @@ function computeHFSelectionRects(
             if (run.imageHeight !== undefined) {
               x0 = run.x + (localOff > 0 ? run.width : 0);
             } else {
-              ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
-              x0 = run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+              x0 = run.x + measurer.measureWidth(
+                run.text.slice(0, localOff),
+                resolveInlineFont(run.inline.style),
+              );
             }
           }
           if (chars + runLen >= lineSelEnd) {
@@ -327,8 +330,10 @@ function computeHFSelectionRects(
             if (run.imageHeight !== undefined) {
               x1 = run.x + (localOff > 0 ? run.width : 0);
             } else {
-              ctx.font = buildFont(run.inline.style.fontSize, run.inline.style.fontFamily, run.inline.style.bold, run.inline.style.italic);
-              x1 = run.x + ctx.measureText(run.text.slice(0, localOff)).width;
+              x1 = run.x + measurer.measureWidth(
+                run.text.slice(0, localOff),
+                resolveInlineFont(run.inline.style),
+              );
             }
             break;
           }
@@ -403,6 +408,11 @@ export function initialize(
   container.appendChild(spacer);
 
   const docCanvas = new DocCanvas(canvas);
+  // The measurer is shared across recomputeLayout, header/footer layout, hit
+  // testing, and cursor/selection rendering. It owns a private OffscreenCanvas
+  // ctx so its `lastFont` cache stays valid across calls regardless of what
+  // paint code does to the visible canvas's ctx.font in between.
+  const measurer = new CanvasTextMeasurer();
   const ruler = new Ruler(container, canvas, readOnly);
   const cursor = new Cursor(doc.document.blocks[0].id);
   const selection = new Selection();
@@ -512,7 +522,7 @@ export function initialize(
     const contentWidth = dims.width - pageSetup.margins.left - pageSetup.margins.right;
     const result = computeLayout(
       doc.document.blocks,
-      docCanvas.getContext(),
+      measurer,
       contentWidth,
       dirtyBlockIds,
       layoutCache,
@@ -527,7 +537,7 @@ export function initialize(
     if (doc.document.header) {
       headerLayout = computeLayout(
         doc.document.header.blocks,
-        docCanvas.getContext(),
+        measurer,
         contentWidth,
       ).layout;
     } else {
@@ -536,7 +546,7 @@ export function initialize(
     if (doc.document.footer) {
       footerLayout = computeLayout(
         doc.document.footer.blocks,
-        docCanvas.getContext(),
+        measurer,
         contentWidth,
       ).layout;
     } else {
@@ -682,7 +692,7 @@ export function initialize(
     // Hide cursor when in cell-range selection mode
     const cursorPixel = selection.range?.tableCellRange
       ? undefined
-      : cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalCanvasWidth);
+      : cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalCanvasWidth);
 
     // Auto-scroll to keep cursor visible (only on keyboard/input-driven renders)
     if (needsScrollIntoView && cursorPixel) {
@@ -714,7 +724,7 @@ export function initialize(
     const selectionRects = selection.getSelectionRects(
       paginatedLayout,
       layout,
-      docCanvas.getContext(),
+      measurer,
       logicalCanvasWidth,
     );
 
@@ -733,7 +743,7 @@ export function initialize(
         'backward',
         paginatedLayout,
         layout,
-        docCanvas.getContext(),
+        measurer,
         logicalCanvasWidth,
       );
       if (pixel) {
@@ -788,7 +798,7 @@ export function initialize(
           peer.selection,
           paginatedLayout,
           layout,
-          docCanvas.getContext(),
+          measurer,
           logicalCanvasWidth,
         );
         if (rects.length > 0) {
@@ -808,7 +818,7 @@ export function initialize(
           },
           paginatedLayout,
           layout,
-          docCanvas.getContext(),
+          measurer,
           logicalCanvasWidth,
         ),
       );
@@ -825,13 +835,13 @@ export function initialize(
       const hfPage = textEditor?.getHFActivePageIndex() ?? 0;
       hfCursorHeader = computeHFCursorPixel(
         cursor.position, headerLayout, doc.document.header, 'header',
-        paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
+        paginatedLayout, measurer, logicalCanvasWidth,
         hfPage, cursor.isVisible(),
       );
       if (selection.hasSelection() && selection.range) {
         hfSelectionRects = computeHFSelectionRects(
           selection.range, headerLayout, doc.document.header, 'header',
-          paginatedLayout, docCanvas.getContext(), logicalCanvasWidth, hfPage,
+          paginatedLayout, measurer, logicalCanvasWidth, hfPage,
         );
       }
     }
@@ -839,13 +849,13 @@ export function initialize(
       const hfPageF = textEditor?.getHFActivePageIndex() ?? 0;
       hfCursorFooter = computeHFCursorPixel(
         cursor.position, footerLayout, doc.document.footer, 'footer',
-        paginatedLayout, docCanvas.getContext(), logicalCanvasWidth,
+        paginatedLayout, measurer, logicalCanvasWidth,
         hfPageF, cursor.isVisible(),
       );
       if (selection.hasSelection() && selection.range) {
         hfSelectionRects = computeHFSelectionRects(
           selection.range, footerLayout, doc.document.footer, 'footer',
-          paginatedLayout, docCanvas.getContext(), logicalCanvasWidth, hfPageF,
+          paginatedLayout, measurer, logicalCanvasWidth, hfPageF,
         );
       }
     }
@@ -1153,7 +1163,7 @@ export function initialize(
     selection,
     () => layout,
     () => paginatedLayout,
-    () => docCanvas.getContext(),
+    () => measurer,
     () => {
       const vw = (container.parentElement ?? container).getBoundingClientRect().width;
       const pw = paginatedLayout.pages[0]?.width ?? 0;
@@ -1820,7 +1830,7 @@ export function initialize(
       const pw = paginatedLayout.pages[0]?.width ?? 0;
       const physicalWidth = scaleFactor < 1 ? vw : Math.max(vw, pw);
       const logicalWidth = scaleFactor < 1 ? physicalWidth / scaleFactor : physicalWidth;
-      const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, docCanvas.getContext(), logicalWidth);
+      const cursorPixel = cursor.getPixelPosition(paginatedLayout, layout, measurer, logicalWidth);
       if (!cursorPixel) return undefined;
       const canvasRect = canvas.getBoundingClientRect();
       const sy = container.scrollTop / scaleFactor;
@@ -1862,7 +1872,7 @@ export function initialize(
           { anchor: { blockId: match.blockId, offset: match.startOffset }, focus: { blockId: match.blockId, offset: match.endOffset } },
           paginatedLayout,
           layout,
-          docCanvas.getContext(),
+          measurer,
           logicalCw,
         );
         if (rects.length > 0) {

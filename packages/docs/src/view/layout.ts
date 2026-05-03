@@ -9,28 +9,87 @@ import {
   type Inline,
   type InlineStyle,
 } from '../model/types.js';
-import { Theme, buildFont, ptToPx } from './theme.js';
+import { Theme, ptToPx } from './theme.js';
+import type { ResolvedFont, TextMeasurer } from './measurer.js';
 import { computeTableLayout, type LayoutTable } from './table-layout.js';
 
-const measureCache = new Map<string, number>();
+/**
+ * Stable string key for a `ResolvedFont`. Used as the prefix of the
+ * `measureCache` key — same shape as the old CSS shorthand so cache
+ * keys remain readable when debugging.
+ */
+function fontKey(font: ResolvedFont): string {
+  return `${font.style}|${font.weight}|${font.size}|${font.family}`;
+}
+
+/**
+ * Per-measurer width cache. Each `TextMeasurer` instance gets its own
+ * `Map<fontKey|text, width>` so two measurers (e.g., Canvas + fontkit
+ * in tests or a future SSR path) cannot pollute each other's results.
+ *
+ * A `WeakMap` keyed by the measurer reference means an unused measurer
+ * is garbage-collected without explicit cleanup. `clearMeasureCache`
+ * still works globally — we keep a separate registry of every
+ * per-measurer Map so we can drain them all at once.
+ */
+const perMeasurerCache = new WeakMap<TextMeasurer, Map<string, number>>();
+const knownCaches = new Set<Map<string, number>>();
+
+function cacheFor(measurer: TextMeasurer): Map<string, number> {
+  let cache = perMeasurerCache.get(measurer);
+  if (!cache) {
+    cache = new Map<string, number>();
+    perMeasurerCache.set(measurer, cache);
+    knownCaches.add(cache);
+  }
+  return cache;
+}
 
 export function cachedMeasureText(
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   text: string,
-  font: string,
+  font: ResolvedFont,
 ): number {
-  const key = `${font}\t${text}`;
-  let width = measureCache.get(key);
+  const cache = cacheFor(measurer);
+  const key = `${fontKey(font)}\t${text}`;
+  let width = cache.get(key);
   if (width === undefined) {
-    ctx.font = font;
-    width = ctx.measureText(text).width;
-    measureCache.set(key, width);
+    width = measurer.measureWidth(text, font);
+    cache.set(key, width);
   }
   return width;
 }
 
 export function clearMeasureCache(): void {
-  measureCache.clear();
+  // Drain every known per-measurer cache. We can't iterate the WeakMap,
+  // so the parallel `knownCaches` set tracks each Map we've handed out.
+  for (const cache of knownCaches) {
+    cache.clear();
+  }
+}
+
+/**
+ * Convert an `InlineStyle` into the `ResolvedFont` measurement structure
+ * used by `TextMeasurer`. Centralised here so layout, table-layout, and
+ * hit-testing share the same conversion rules — getting these
+ * inconsistent quietly miscalculates line widths.
+ *
+ * Sup/sub runs measure at 60% of the inline's font size. The flag is
+ * derived from the style so callers cannot forget to pass it (header
+ * and footer hit-test paths used to omit it, silently measuring
+ * superscript text at full size). The pt-based fontSize is converted
+ * to pixels via `ptToPx`.
+ */
+export function resolveInlineFont(style: InlineStyle): ResolvedFont {
+  const isSuperOrSub = !!(style.superscript || style.subscript);
+  const baseSizePt = style.fontSize ?? Theme.defaultFontSize;
+  const sizePt = isSuperOrSub ? baseSizePt * 0.6 : baseSizePt;
+  return {
+    family: style.fontFamily ?? Theme.defaultFontFamily,
+    size: ptToPx(sizePt),
+    weight: style.bold ? 'bold' : 'normal',
+    style: style.italic ? 'italic' : 'normal',
+  };
 }
 
 /**
@@ -127,7 +186,7 @@ interface MeasuredSegment {
   inlineIndex: number;
   charStart: number;
   charEnd: number;
-  font: string;
+  font: ResolvedFont;
   /**
    * Intrinsic image dimensions for image inlines. When present, this segment
    * is treated as unbreakable and rendered as an image run. Width is the
@@ -145,7 +204,7 @@ interface MeasuredSegment {
  */
 export function computeLayout(
   blocks: Block[],
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   contentWidth: number,
   dirtyBlockIds?: Set<string>,
   cache?: LayoutCache,
@@ -179,7 +238,7 @@ export function computeLayout(
     let lines: LayoutLine[];
 
     if (block.type === 'table' && block.tableData) {
-      const tableLayout = computeTableLayout(block.tableData, block.id, ctx, availableWidth);
+      const tableLayout = computeTableLayout(block.tableData, block.id, measurer, availableWidth);
       // Merge per-table blockParentMap into document-level map
       for (const [k, v] of tableLayout.blockParentMap) {
         blockParentMap.set(k, v);
@@ -206,7 +265,7 @@ export function computeLayout(
     } else if (canUseCache && !dirtyBlockIds!.has(block.id) && cache!.blocks.has(block.id)) {
       lines = cache!.blocks.get(block.id)!.lines;
     } else {
-      lines = layoutBlock(effectiveBlock, ctx, availableWidth);
+      lines = layoutBlock(effectiveBlock, measurer, availableWidth);
       assignLineHeights(lines, effectiveBlock);
 
       const alignWidth = availableWidth - effectiveBlock.style.marginLeft;
@@ -241,15 +300,14 @@ export function computeLayout(
  * charOffsets[i] = width of text.slice(0, i + 1).
  */
 export function computeCharOffsets(
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   text: string,
-  font: string,
+  font: ResolvedFont,
 ): number[] {
   if (text.length === 0) return [];
-  ctx.font = font;
   const offsets = new Array<number>(text.length);
   for (let i = 0; i < text.length; i++) {
-    offsets[i] = ctx.measureText(text.slice(0, i + 1)).width;
+    offsets[i] = measurer.measureWidth(text.slice(0, i + 1), font);
   }
   return offsets;
 }
@@ -259,13 +317,13 @@ export function computeCharOffsets(
  */
 export function layoutBlock(
   block: Block,
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
   maxWidth: number,
 ): LayoutLine[] {
   // Resolve heading defaults into inlines before measurement
   const inlines = resolveBlockInlines(block);
   // Measure all segments (word-level)
-  const segments = measureSegments(inlines, ctx);
+  const segments = measureSegments(inlines, measurer);
 
   if (segments.length === 0) {
     // Empty block — one empty line
@@ -334,22 +392,16 @@ export function layoutBlock(
 
     // Character-level fallback for segments wider than effectiveWidth
     if (seg.width > effectiveWidth && seg.text.length > 1) {
-      const isSuperOrSub = seg.style.superscript || seg.style.subscript;
-      const charFontSize = isSuperOrSub
-        ? (seg.style.fontSize ?? Theme.defaultFontSize) * 0.6
-        : seg.style.fontSize;
-      ctx.font = buildFont(
-        charFontSize,
-        seg.style.fontFamily,
-        seg.style.bold,
-        seg.style.italic,
-      );
+      // `seg.font` was resolved with the same sup/sub adjustment as the
+      // word-level measurement, so re-using it here keeps character
+      // widths consistent with the segment's nominal width.
+      const charFont = seg.font;
       let charIdx = 0;
       while (charIdx < seg.text.length) {
         let endIdx = charIdx + 1;
-        let runWidth = ctx.measureText(seg.text.slice(charIdx, endIdx)).width;
+        let runWidth = measurer.measureWidth(seg.text.slice(charIdx, endIdx), charFont);
         while (endIdx < seg.text.length) {
-          const nextWidth = ctx.measureText(seg.text.slice(charIdx, endIdx + 1)).width;
+          const nextWidth = measurer.measureWidth(seg.text.slice(charIdx, endIdx + 1), charFont);
           if (lineWidth + nextWidth > effectiveWidth && endIdx > charIdx + 1) break;
           runWidth = nextWidth;
           endIdx++;
@@ -368,7 +420,7 @@ export function layoutBlock(
           inlineIndex: seg.inlineIndex,
           charStart: seg.charStart + charIdx,
           charEnd: seg.charStart + endIdx,
-          charOffsets: computeCharOffsets(ctx, sliceText, seg.font),
+          charOffsets: computeCharOffsets(measurer, sliceText, charFont),
         });
         lineWidth += runWidth;
         charIdx = endIdx;
@@ -387,7 +439,7 @@ export function layoutBlock(
       inlineIndex: seg.inlineIndex,
       charStart: seg.charStart,
       charEnd: seg.charEnd,
-      charOffsets: computeCharOffsets(ctx, seg.text, seg.font),
+      charOffsets: computeCharOffsets(measurer, seg.text, seg.font),
     });
     lineWidth += seg.width;
   }
@@ -438,23 +490,15 @@ export function assignLineHeights(lines: LayoutLine[], block: Block): void {
  */
 function measureSegments(
   inlines: Inline[],
-  ctx: CanvasRenderingContext2D,
+  measurer: TextMeasurer,
 ): MeasuredSegment[] {
   const segments: MeasuredSegment[] = [];
 
   for (let i = 0; i < inlines.length; i++) {
     const inline = inlines[i];
-    // Superscript/subscript runs use 60% of the original font size for measurement
-    const isSuperOrSub = inline.style.superscript || inline.style.subscript;
-    const measureFontSize = isSuperOrSub
-      ? (inline.style.fontSize ?? Theme.defaultFontSize) * 0.6
-      : inline.style.fontSize;
-    const font = buildFont(
-      measureFontSize,
-      inline.style.fontFamily,
-      inline.style.bold,
-      inline.style.italic,
-    );
+    // Superscript/subscript runs use 60% of the original font size for
+    // measurement; resolveInlineFont derives that flag from the style.
+    const font = resolveInlineFont(inline.style);
 
     // Image inlines are a single unbreakable segment spanning the entire
     // inline text (the Object Replacement Character placeholder). Width
@@ -480,7 +524,7 @@ function measureSegments(
     let charPos = 0;
 
     for (const word of words) {
-      const width = cachedMeasureText(ctx, word, font);
+      const width = cachedMeasureText(measurer, word, font);
       segments.push({
         text: word,
         style: inline.style,

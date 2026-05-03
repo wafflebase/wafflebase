@@ -11,7 +11,8 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {
-      "@wafflebase/sheets": ["../sheets/src/index.ts"]
+      "@wafflebase/sheets": ["../sheets/src/index.ts"],
+      "@wafflebase/docs": ["../docs/src/node.ts"]
     },
     "incremental": true,
     "skipLibCheck": true,
