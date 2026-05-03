@@ -1,6 +1,6 @@
 ---
 title: rest-api-and-cli
-target-version: 0.2.0
+target-version: 0.3.7
 ---
 
 # REST API, API Key Authentication, and CLI
@@ -276,56 +276,66 @@ profiles:
 
 #### 7.3 Command Tree
 
+The v0.3.7 namespaces are plural (`docs`, `sheets`, `api-keys`); singular
+forms (`doc`, `sheet`, `tab`, `cell`, `api-key`) keep working as aliases
+for earlier scripts. Word-processor commands (`docs content`, `docs export`,
+`docs import`) live alongside the document-management ones — see
+[`docs/design/docs-cli.md`](docs-cli.md) for the design notes that drive
+the docs-side surface.
+
 ```
 wafflebase
-├── login                        Browser OAuth login → writes session
-├── logout                       Clear session
-├── status                       Show auth state
+├── login                                  Browser OAuth login → writes session
+├── logout                                 Clear session
+├── status                                 Show auth state
 │
 ├── ctx
-│   ├── list                     List workspaces (* = active)
-│   └── switch <name|id>         Switch active workspace
+│   ├── list                              List workspaces (* = active)
+│   └── switch <name|id>                  Switch active workspace
 │
-├── document (alias: doc)
-│   ├── list                    List documents in workspace
-│   ├── create <title>          Create a new document
-│   ├── get <doc-id>            Show document metadata
-│   ├── rename <doc-id> <title> Rename a document
-│   └── delete <doc-id>        Delete a document
+├── docs (aliases: doc, document, documents)
+│   ├── list [--type doc|sheet]           List documents in workspace
+│   ├── create <title> [--type doc|sheet] Create a new document (default: sheet)
+│   ├── get <doc-id>                      Show document metadata
+│   ├── rename <doc-id> <title>           Rename a document
+│   ├── delete <doc-id>                   Delete a document
+│   ├── content <doc-id>                  Read content (json|md|text + --pages)
+│   ├── export <doc-id> <file>            Export to PDF or DOCX (+ --pages for PDF)
+│   └── import <file>                     Import a .docx (default: new doc; --replace --yes to overwrite)
 │
-├── tab
-│   └── list <doc-id>          List tabs in a document
+├── sheets (aliases: sheet, spreadsheet, spreadsheets)
+│   ├── tabs (alias: tab)
+│   │   └── list <doc-id>                 List tabs in a spreadsheet
+│   ├── cells (alias: cell)
+│   │   ├── get <doc-id> [<range>]        Get cells (default: all, or A1, or A1:C10)
+│   │   ├── set <doc-id> <ref> <value>    Set a single cell value
+│   │   ├── batch <doc-id>                Batch update cells (JSON from stdin or --data)
+│   │   └── delete <doc-id> <ref>         Delete a single cell
+│   ├── import <doc-id> <file>            Import CSV/JSON into a tab
+│   │   --tab <tab-id>                    Target tab (default: tab-1)
+│   │   --file-format csv|json            Auto-detected from extension
+│   │   --start <ref>                     Top-left cell to start import (default: A1)
+│   └── export <doc-id> <file>            Export tab data to CSV/JSON
+│       --tab <tab-id>                    Source tab (default: tab-1)
+│       --range <range>                   Export range (default: all data)
+│       --file-format csv|json            Auto-detected from extension
 │
-├── cell
-│   ├── get <doc-id> [<range>]  Get cells (default: all, or A1, or A1:C10)
-│   ├── set <doc-id> <ref> <value>  Set a single cell value
-│   ├── batch <doc-id>          Batch update cells (JSON from stdin or --data)
-│   └── delete <doc-id> <ref>  Delete a single cell
+├── schema [<command>]                    Describe command parameters and response shape
 │
-├── import <doc-id> <file>     Import CSV/JSON into a tab
-│   --tab <tab-id>              Target tab (default: first tab)
-│   --format csv|json           Auto-detected from extension
-│   --header                    First row is header (CSV, default: true)
-│   --start <ref>               Top-left cell to start import (default: A1)
+├── api-keys (alias: api-key)
+│   ├── create <name>                     Create a new API key
+│   ├── list                              List API keys in workspace
+│   └── revoke <key-id>                   Revoke an API key
 │
-├── export <doc-id> <file>     Export tab data to CSV/JSON
-│   --tab <tab-id>              Source tab (default: first tab)
-│   --range <range>             Export range (default: all data)
-│   --format csv|json           Auto-detected from extension
-│
-├── schema [<command>]          Describe command parameters and response shape
-│
-├── api-key
-│   ├── create <name>           Create a new API key
-│   ├── list                    List API keys in workspace
-│   └── revoke <key-id>        Revoke an API key
-│
-└── version                    Print CLI version
+└── version                               Print CLI version
 ```
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
 `--format json|table|csv|yaml` (default: json), `--quiet`, `--verbose`,
-`--dry-run`
+`--dry-run`. The `--format` flag also doubles as the per-content shape on
+`docs content` (`json|md|text`) and `docs export` (`pdf|docx`); commander
+funnels duplicate flag names to the global option, so the action layer
+reads `opts.format` and validates against the per-command vocabulary.
 
 #### 7.4 Usage Examples
 
@@ -334,41 +344,52 @@ wafflebase
 wafflebase login
 
 # List documents (JSON by default)
-wafflebase doc list
-wafflebase doc list --format table        # human-readable table
+wafflebase docs list
+wafflebase docs list --type doc           # only word-processor docs
+wafflebase docs list --format table       # human-readable table
 
-# Read cells
-wafflebase cell get abc-123               # all cells, JSON
-wafflebase cell get abc-123 A1:C10        # range
-wafflebase cell get abc-123 --tab tab-2   # specific tab
+# Read cells (sheets namespace)
+wafflebase sheets cells get abc-123                 # all cells, JSON
+wafflebase sheets cells get abc-123 A1:C10          # range
+wafflebase sheets cells get abc-123 --tab tab-2     # specific tab
 
 # Write cells
-wafflebase cell set abc-123 A1 "Hello World"
-wafflebase cell set abc-123 B2 "=SUM(A1:A10)"
+wafflebase sheets cells set abc-123 A1 "Hello World"
+wafflebase sheets cells set abc-123 B2 "=SUM(A1:A10)" --formula
 
 # Batch update (JSON from stdin)
 echo '{"A1":"Name","B1":"Score","A2":"Alice","B2":"95"}' \
-  | wafflebase cell batch abc-123
+  | wafflebase sheets cells batch abc-123
 
 # Dry-run: show the request without executing
-wafflebase cell set abc-123 A1 "Hello" --dry-run
+wafflebase sheets cells set abc-123 A1 "Hello" --dry-run
 
-# Import/Export
-wafflebase import abc-123 data.csv
-wafflebase export abc-123 output.json --range A1:D100
+# Import/Export (sheets — CSV/JSON)
+wafflebase sheets import abc-123 data.csv
+wafflebase sheets export abc-123 output.json --range A1:D100
 
 # Pipe-friendly (reads from stdin, writes to stdout)
-cat data.csv | wafflebase import abc-123 -
-wafflebase export abc-123 - --format csv | head -20
+cat data.csv | wafflebase sheets import abc-123 -
+wafflebase sheets export abc-123 - --file-format csv | head -20
 
-# Schema introspection
-wafflebase schema cell.get               # show parameters and response shape
-wafflebase schema cell.batch             # show batch update format
+# Word-processor docs
+wafflebase docs content abc-123 --format md           # render as Markdown
+wafflebase docs content abc-123 --format text --pages 1-3
+wafflebase docs export abc-123 out.pdf                # export to PDF
+wafflebase docs export abc-123 out.pdf --pages 1-3    # exact page subset
+wafflebase docs export abc-123 out.docx               # export to DOCX
+wafflebase docs import draft.docx                     # new doc from .docx
+wafflebase docs import revision.docx --replace abc-123 --yes
+
+# Schema introspection (canonical plural names — singular aliases also resolve)
+wafflebase schema sheets.cells.get        # show parameters and response shape
+wafflebase schema docs.content
+wafflebase schema cell.get                # alias → resolves to sheets.cells.get
 
 # API key management
-wafflebase api-key create "CI Pipeline"
-wafflebase api-key list
-wafflebase api-key revoke key-uuid
+wafflebase api-keys create "CI Pipeline"
+wafflebase api-keys list
+wafflebase api-keys revoke key-uuid
 ```
 
 #### 7.5 Project Structure
@@ -386,35 +407,54 @@ packages/cli/
       logout.ts          logout
       status.ts          status
       ctx.ts             ctx list/switch
-      document.ts        doc list/create/get/rename/delete
-      tab.ts             tab list
-      cell.ts            cell get/set/batch/delete
-      import.ts          import CSV/JSON
-      export.ts          export CSV/JSON
+      docs.ts            docs list/create/get/rename/delete + content/export/import
+      sheets.ts          Dispatcher: sheets {tabs,cells,import,export}
+      tabs.ts            sheets tabs list
+      cells.ts           sheets cells get/set/batch/delete
+      sheets-import.ts   sheets import CSV/JSON
+      sheets-export.ts   sheets export CSV/JSON
       schema.ts          schema introspection
-      api-key.ts         api-key create/list/revoke
+      api-keys.ts        api-keys create/list/revoke
+    docs/                Word-processor pipeline (Phase 5-8 additions)
+      content.ts         runDocsContent orchestrator (json/md/text + --pages)
+      pdf-export.ts      exportPdf via PdfExporter + FontkitMeasurer + pdf-lib slicing
+      docx-export.ts     exportDocx wrapper around DocxExporter
+      docx-import.ts     importDocx + base64 ImageUploader + InvalidDocxError
+      import.ts          runDocsImport orchestrator (POST + PUT, --replace flow)
+      paginate.ts        paginateForCli helper (computeLayout + paginateLayout)
+      page-range.ts      parsePageRange (1-3,5,7-9 + clamp warnings)
+      page-slice.ts      sliceBlocksByPages
+      fontkit-measurer.ts FontkitMeasurer (TextMeasurer for Node)
+      dom-polyfill.ts    @xmldom/xmldom shim for DocxImporter's DOMParser usage
     client/
       http-client.ts     REST API v1 wrapper (built-in fetch)
       dry-run.ts         Dry-run request printer
-      types.ts           Request/response types (re-exports from @wafflebase/sheets)
     config/
       config.ts          Config file + env + flag resolution
     output/
       formatter.ts       Format dispatcher (json | table | csv | yaml)
+      binary.ts          writeBinary helper for PDF/DOCX exports
       table.ts           Table formatter
       json.ts            JSON formatter
       csv.ts             CSV formatter
-      yaml.ts            YAML formatter
     schema/
-      registry.ts        Command metadata registry for introspection
-  skills/                Agent skill definitions (Markdown)
+      registry.ts        Command metadata registry (plural canonical + alias map)
+  skills/                Agent skill definitions (Markdown, namespace-prefixed)
     SKILL.md             Skill index and conventions
-    read-cells.md        Read cell data from a spreadsheet
-    write-cells.md       Write cell data to a spreadsheet
-    manage-docs.md       Create, list, and delete documents
-    import-export.md     Import/export CSV and JSON data
-    recipe-csv-pipeline.md   Multi-step recipe: CSV → spreadsheet → analyze
-    recipe-data-collect.md   Multi-step recipe: collect data across documents
+    sheets-read-cells.md Read cell data from a spreadsheet
+    sheets-write-cells.md Write cell data to a spreadsheet
+    sheets-import-export.md Import/export CSV and JSON data
+    docs-manage.md       Create, list, get, rename, delete documents
+    docs-read-content.md Read docs as JSON/Markdown/text (+ --pages)
+    docs-export-pdf.md   Export to PDF (+ --pages)
+    docs-export-docx.md  Export to .docx
+    docs-import-docx.md  Import a .docx (new or --replace)
+    recipe-csv-pipeline.md   CSV → spreadsheet → analyze (sheets)
+    recipe-data-collect.md   Collect data across spreadsheet documents
+    recipe-docx-to-pdf.md    Round-trip a .docx through Wafflebase to PDF
+    recipe-doc-to-markdown.md Pull a doc as Markdown for LLM analysis
+  scripts/
+    gen-sample-docx.mjs  One-shot generator for the integration .docx fixture
 ```
 
 **package.json** (key fields):
@@ -422,16 +462,20 @@ packages/cli/
 ```json
 {
   "name": "@wafflebase/cli",
-  "version": "0.1.0",
+  "version": "0.3.7",
   "bin": { "wafflebase": "./dist/bin.js" },
   "dependencies": {
-    "@wafflebase/sheets": "workspace:*",
+    "@wafflebase/docs": "workspace:*",
+    "@xmldom/xmldom": "^0.9.10",
     "commander": "^13.0.0",
+    "fontkit": "^2.0.4",
+    "open": "^11.0.0",
+    "pdf-lib": "^1.17.1",
     "yaml": "^2.0.0"
   },
   "devDependencies": {
     "vitest": "^3.0.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.9.3"
   }
 }
 ```
@@ -449,14 +493,14 @@ packages/cli/
 
 ```bash
 # Run directly in the monorepo
-pnpm cli dev -- doc list
+pnpm cli dev -- docs list
 
 # After npm publish
-npx @wafflebase/cli doc list
+npx @wafflebase/cli docs list
 
 # Global install
 npm install -g @wafflebase/cli
-wafflebase doc list
+wafflebase docs list
 ```
 
 #### 7.6 Design Principles
@@ -501,11 +545,11 @@ and prints the request that would be sent — without executing it. This
 lets agents verify intent before committing to a write operation.
 
 ```bash
-$ wafflebase cell set abc-123 A1 "Revenue" --dry-run
+$ wafflebase sheets cells set abc-123 A1 "Revenue" --dry-run
 {
   "dry_run": true,
   "method": "PUT",
-  "url": "https://api.wafflebase.io/api/v1/workspaces/ws-1/documents/abc-123/tabs/default/cells/A1",
+  "url": "https://api.wafflebase.io/api/v1/workspaces/ws-1/documents/abc-123/tabs/tab-1/cells/A1",
   "body": { "value": "Revenue" }
 }
 ```
@@ -516,15 +560,15 @@ The `schema` command lets agents discover command parameters and response
 shapes at runtime, without consulting external documentation.
 
 ```bash
-# Show parameters for a command
-$ wafflebase schema cell.get
+# Show parameters for a command (canonical plural name)
+$ wafflebase schema sheets.cells.get
 {
-  "command": "cell.get",
+  "name": "sheets.cells.get",
   "description": "Get cells from a spreadsheet tab",
   "parameters": {
     "doc-id":  { "type": "string", "required": true, "description": "Document ID" },
     "range":   { "type": "string", "required": false, "description": "Cell range (e.g. A1:C10)", "default": "all" },
-    "--tab":   { "type": "string", "required": false, "description": "Tab ID", "default": "first tab" }
+    "--tab":   { "type": "string", "required": false, "description": "Tab ID", "default": "tab-1" }
   },
   "response": {
     "type": "array",
@@ -535,24 +579,36 @@ $ wafflebase schema cell.get
       "style": "object | null"
     }
   },
-  "safety": "read-only"
+  "safety": "read-only",
+  "aliases": ["cell.get", "cells.get", "sheet.cells.get", "sheet.cell.get", "sheets.cell.get"]
 }
+
+# Singular aliases resolve to the same canonical entry
+$ wafflebase schema cell.get      # → sheets.cells.get
 
 # List all available commands
 $ wafflebase schema
 {
   "commands": [
-    { "name": "doc.list",    "safety": "read-only" },
-    { "name": "doc.create",  "safety": "write" },
-    { "name": "doc.delete",  "safety": "destructive" },
-    { "name": "cell.get",    "safety": "read-only" },
-    { "name": "cell.set",    "safety": "write" },
-    { "name": "cell.batch",  "safety": "write" },
-    { "name": "cell.delete", "safety": "destructive" },
+    { "name": "docs.list",          "safety": "read-only" },
+    { "name": "docs.create",        "safety": "write" },
+    { "name": "docs.delete",        "safety": "destructive" },
+    { "name": "docs.content",       "safety": "read-only" },
+    { "name": "docs.export",        "safety": "read-only" },
+    { "name": "docs.import",        "safety": "write" },
+    { "name": "sheets.cells.get",   "safety": "read-only" },
+    { "name": "sheets.cells.set",   "safety": "write" },
+    { "name": "sheets.cells.batch", "safety": "write" },
+    { "name": "sheets.cells.delete","safety": "destructive" },
     ...
   ]
 }
 ```
+
+`docs.import` exposes a `variants` field that spells out the safety
+split — `default → write` (creates a new document), `--replace given →
+destructive` (overwrites in place) — so agents know when to ask for
+extra confirmation.
 
 ##### 7.7.4 Safety Annotations
 
@@ -580,12 +636,12 @@ Skill files follow this structure:
 
 ```markdown
 ---
-name: read-cells
+name: sheets-read-cells
 description: Read cell data from a Wafflebase spreadsheet
 safety: read-only
 tools:
-  - wafflebase cell get
-  - wafflebase tab list
+  - wafflebase sheets cells get
+  - wafflebase sheets tabs list
 ---
 
 # Read Cells
@@ -597,18 +653,18 @@ When the user wants to read, inspect, or analyze spreadsheet data.
 
 ### List tabs in a document
 \`\`\`bash
-wafflebase tab list <doc-id>
+wafflebase sheets tabs list <doc-id>
 \`\`\`
 
 ### Read all cells
 \`\`\`bash
-wafflebase cell get <doc-id>
+wafflebase sheets cells get <doc-id>
 \`\`\`
 
 ### Read a specific range
 \`\`\`bash
-wafflebase cell get <doc-id> A1:C10
-wafflebase cell get <doc-id> A1:C10 --tab <tab-id>
+wafflebase sheets cells get <doc-id> A1:C10
+wafflebase sheets cells get <doc-id> A1:C10 --tab <tab-id>
 \`\`\`
 
 ## Output Format
@@ -644,23 +700,23 @@ safety: write
 
 1. Create a new document:
    \`\`\`bash
-   wafflebase doc create "Q1 Analysis"
+   wafflebase docs create "Q1 Analysis"
    \`\`\`
 
 2. Import CSV data:
    \`\`\`bash
-   wafflebase import <doc-id> data.csv
+   wafflebase sheets import <doc-id> data.csv
    \`\`\`
 
 3. Add summary formulas:
    \`\`\`bash
    echo '{"E1":"Total","E2":"=SUM(B2:B100)","E3":"Average","E4":"=AVERAGE(B2:B100)"}' \
-     | wafflebase cell batch <doc-id>
+     | wafflebase sheets cells batch <doc-id>
    \`\`\`
 
 4. Export results:
    \`\`\`bash
-   wafflebase export <doc-id> - --format csv --range A1:E100
+   wafflebase sheets export <doc-id> - --file-format csv --range A1:E100
    \`\`\`
 ```
 

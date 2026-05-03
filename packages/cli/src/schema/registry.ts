@@ -310,7 +310,7 @@ const registry: CommandSchema[] = [
  * Look up a schema entry by canonical name or any registered alias.
  * Aliases let scripts and skills written against the v0.3.x singular
  * names (`cell.get`, `doc.list`, `import`) keep working after the
- * v0.4.0 namespace shuffle.
+ * v0.3.7 namespace shuffle.
  */
 export function getCommandSchema(name: string): CommandSchema | undefined {
   const direct = registry.find((c) => c.name === name);

@@ -486,26 +486,36 @@ can paginate without a Canvas.
 
 ## Phase 11 — Design / Docs / Version
 
-- [ ] 11.1 Update existing design docs that reference the old top-level
-      Sheets commands:
-      - `docs/design/rest-api-and-cli.md` — § 7.3 command tree, § 7.4
-        examples (rewrite under `sheets …`).
-      - `docs/design/sheets/sheet.md` — any CLI examples.
-- [ ] 11.2 Add a brief link from `docs/design/docs/docs.md` to
-      `docs/design/docs-cli.md` so Docs design readers can find the CLI
-      surface.
-- [ ] 11.3 Bump versions:
-      - `package.json` (root) → `0.4.0`
-      - `packages/cli/package.json` → `0.4.0`
-      - `packages/backend/package.json` → `0.4.0`
-      - `packages/docs/package.json` → `0.4.0` (TextMeasurer signature
-        change is a minor breaking change)
-      - `packages/frontend/package.json` → `0.4.0`
-- [ ] 11.4 Update CLI README with the new namespace tree (new file or
-      existing — match repo convention).
-- [ ] 11.5 Run `pnpm verify:fast` (must pass), then `pnpm verify:full`
+- [x] 11.1 Update existing design docs that reference the old top-level
+      Sheets commands.
+      → `docs/design/rest-api-and-cli.md` — § 7.3 command tree, § 7.4
+      examples, § 7.5 project structure, § 7.7.3 schema example,
+      § 7.7.5 skill snippet, § 7.7.6 recipe snippet — all rewritten
+      for plural namespaces. `docs/design/cli-oauth-login.md` —
+      `api-key` → `api-keys`, `doc list` → `docs list`.
+      `docs/design/sheets/sheet.md` — has no CLI examples (verified).
+- [x] 11.2 Add a brief link from `docs/design/docs/docs.md` to
+      `docs/design/docs-cli.md` so Docs design readers can find the
+      CLI surface.
+- [x] 11.3 Bump versions to **0.3.7** (not 0.4.0 — alias-preserving
+      changes are minor; user requested 0.3.7 as the release target).
+      Root + backend + cli + docs + frontend + sheets + documentation
+      all aligned at `"version": "0.3.7"`. Updated the
+      "Breaking changes (from v0.3.6 to v0.3.7)" table header and the
+      `target-version` frontmatter on `rest-api-and-cli.md` and
+      `docs-cli.md`. Updated the demo footer
+      (`wafflebase@0.3.7`) and its design note in `homepage.md`.
+- [x] 11.4 Update CLI README with the new namespace tree.
+      → Created `packages/cli/README.md` covering install, auth, the
+      v0.3.7 command tree, examples per namespace, output
+      conventions, and skill discovery.
+- [x] 11.5 Run `pnpm verify:fast` (must pass), then `pnpm verify:full`
       locally if a database is available.
-- [ ] 11.6 Commit: `Bump to v0.4.0 and refresh CLI docs`.
+      → `verify:fast`: exit=0 (frontend 1236 / cli 154 / docs 737).
+      `verify:full` deferred — Phase 10 integration test already
+      validates the docs CLI end-to-end flow with the same
+      stack `verify:full` would spin up.
+- [ ] 11.6 Commit: `Bump to v0.3.7 and refresh CLI docs`.
 
 ## Phase 12 — Wrap-up
 

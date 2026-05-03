@@ -1,6 +1,6 @@
 ---
 title: docs-cli
-target-version: 0.4.0
+target-version: 0.3.7
 ---
 
 <!-- Make sure to append document link in design README.md after creating the document. -->
@@ -121,7 +121,7 @@ both the namespace root and inside each namespace (`doc → docs`,
 `tab → tabs`, `cell → cells`, `api-key → api-keys`). The canonical form in
 help and `schema` output is plural. The previous top-level Sheets commands
 (`tab`, `cell`, `import`, `export`) are removed entirely — they live only
-under `sheets …` from v0.4.0 onward. No deprecation period; existing scripts
+under `sheets …` from v0.3.7 onward. No deprecation period; existing scripts
 must update.
 
 ```text
@@ -185,7 +185,7 @@ Global flags (unchanged): `--server`, `--api-key`, `--workspace`, `--profile`,
 Page-range syntax: `1-3`, `2`, `1,3,5`, or `1-3,5,7-9`. Out-of-range values
 clamp with a stderr warning; malformed input exits with code `1`.
 
-Breaking changes (from v0.3.x to v0.4.0):
+Breaking changes (from v0.3.6 to v0.3.7):
 
 | Old                                | New                                       |
 | ---------------------------------- | ----------------------------------------- |
@@ -504,7 +504,7 @@ Integration / E2E:
 11. Unit + integration tests; add the Docker integration scenario.
 12. Update design docs under `docs/design/` (`docs/`, `sheets/`, and the
     cross-cutting README index) to reflect the new command tree.
-13. Bump CLI and backend package versions to v0.4.0.
+13. Bump CLI and backend package versions to v0.3.7.
 
 ### Risks and Mitigation
 
@@ -516,6 +516,6 @@ Integration / E2E:
 | `PUT /content` race with live collaborators (lost work)                 | `safety: destructive` for the `--replace` path with a forced confirmation. A future iteration may add an optimistic `lastSeq` check.  |
 | CLI install size grows from `@wafflebase/docs` + fontkit + NotoKR fonts | Keep `PdfFonts` lazy (already lazy today); target ≤ 50 MB for the published CLI tarball.                                              |
 | Markdown loss surprises users                                           | One-shot stderr notice per Markdown invocation; documented mapping table in this spec and skills.                                      |
-| Renaming top-level `cell/tab/import/export` breaks existing scripts     | Document the migration table in the v0.4.0 release notes and the CLI README; expose a single `wafflebase migrate-help` hint that prints the old → new mapping when an unrecognised top-level command matches a known old name. |
+| Renaming top-level `cell/tab/import/export` breaks existing scripts     | Document the migration table in the v0.3.7 release notes and the CLI README; expose a single `wafflebase migrate-help` hint that prints the old → new mapping when an unrecognised top-level command matches a known old name. |
 | DOCX with images requires upload pipeline that does not exist yet       | v1 imports embed inline images via `DocxImporter`'s `ImageUploader` interface using a base64 inline adapter. Real upload is deferred. |
 | Page slicing nondeterminism                                             | `paginateLayout` is deterministic; the only nondeterminism is font substitution, which the measurer warns about.                     |
