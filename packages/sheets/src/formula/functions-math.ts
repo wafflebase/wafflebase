@@ -2251,16 +2251,29 @@ export function mdetermFunc(
   return { t: 'num', v: det(matrix) };
 }
 
-function getMatrixVal(m: MatrixResult, row: number, col: number, grid?: Grid): number {
+/**
+ * Reads one numeric value from a MatrixResult at (row, col).
+ * Handles both arrmat (computed/literal array) and matrix (cell-reference) sources.
+ * Returns the numeric value, 0 for empty/blank, or ErrNode for non-numeric / error elements.
+ */
+function getMatrixVal(m: MatrixResult, row: number, col: number, grid?: Grid): number | ErrNode {
   if (m.t === 'arrmat') {
     const node = m.values[row]?.[col];
-    if (!node || node.t === 'err') return 0;
+    if (!node || node.t === 'empty') return 0;
+    if (node.t === 'err') return node;
     if (node.t === 'num') return node.v;
-    if (node.t === 'str') { const n = Number(node.v); return isNaN(n) ? 0 : n; }
-    return 0;
+    if (node.t === 'bool') return node.v ? 1 : 0;
+    if (node.t === 'str') {
+      if (node.v === '') return 0;
+      const n = Number(node.v);
+      return isNaN(n) ? ErrNode.VALUE : n;
+    }
+    return ErrNode.VALUE;
   }
   const cellVal = grid?.get(m.v.refs[row * m.v.colCount + col])?.v;
-  return cellVal != null && cellVal !== '' ? Number(cellVal) : 0;
+  if (!cellVal || cellVal === '') return 0;
+  const n = Number(cellVal);
+  return isNaN(n) ? ErrNode.VALUE : n;
 }
 
 /**
@@ -2296,7 +2309,11 @@ export function mmultFunc(
     for (let j = 0; j < resultCols; j++) {
       let sum = 0;
       for (let k = 0; k < cols1; k++) {
-        sum += getMatrixVal(m1, i, k, grid) * getMatrixVal(m2, k, j, grid);
+        const v1 = getMatrixVal(m1, i, k, grid);
+        if (typeof v1 !== 'number') return v1;
+        const v2 = getMatrixVal(m2, k, j, grid);
+        if (typeof v2 !== 'number') return v2;
+        sum += v1 * v2;
       }
       arrRow.push({ t: 'num', v: sum });
     }
@@ -2331,7 +2348,9 @@ export function minverseFunc(
   for (let i = 0; i < n; i++) {
     const row: number[] = [];
     for (let j = 0; j < n; j++) {
-      row.push(getMatrixVal(m, i, j, grid));
+      const v = getMatrixVal(m, i, j, grid);
+      if (typeof v !== 'number') return v;
+      row.push(v);
     }
     for (let j = 0; j < n; j++) {
       row.push(i === j ? 1 : 0);
@@ -2380,8 +2399,8 @@ export function minverseFunc(
 }
 
 /**
- * MUNIT(dimension) — returns the identity matrix of size n×n.
- * Returns 1 (top-left element of identity matrix).
+ * MUNIT(dimension) — returns the identity matrix of size n×n as an ArrNode.
+ * Use INDEX to address individual elements; spill fills the full matrix automatically.
  */
 export function munitFunc(
   ctx: FunctionContext,
@@ -2394,9 +2413,17 @@ export function munitFunc(
   if (exprs.length !== 1) return ErrNode.NA;
   const n = NumberArgs.map(visit(exprs[0]), grid);
   if (n.t === 'err') return n;
-  if (n.v < 1) return ErrNode.VALUE;
-  // Top-left element of identity matrix is always 1
-  return { t: 'num', v: 1 };
+  const size = Math.floor(n.v);
+  if (size < 1) return ErrNode.VALUE;
+  const result: EvalNode[][] = [];
+  for (let i = 0; i < size; i++) {
+    const row: EvalNode[] = [];
+    for (let j = 0; j < size; j++) {
+      row.push({ t: 'num', v: i === j ? 1 : 0 });
+    }
+    result.push(row);
+  }
+  return { t: 'arr', v: result, rows: size, cols: size } satisfies ArrNode;
 }
 
 function roundHalfAwayFromZero(value: number): number {

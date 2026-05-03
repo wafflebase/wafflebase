@@ -446,6 +446,55 @@ export function findReferenceTokenAtCursor(
 }
 
 /**
+ * SpillResult carries a full 2-D string matrix for array-returning formulas
+ * (e.g. MMULT, MINVERSE). The calculator writes each element to adjacent cells.
+ */
+export type SpillResult = {
+  values: string[][];
+  rows: number;
+  cols: number;
+};
+
+function evalNodeToStr(node: EvalNode, grid?: Grid): string {
+  if (node.t === 'ref') {
+    if (isSrng(node.v)) return ErrValue.VALUE;
+    if (grid) return grid.get(node.v)?.v || '';
+  }
+  if (node.t === 'empty') return '0';
+  if (node.t === 'arr' || node.t === 'lambda') return ErrValue.VALUE;
+  if (node.t === 'err') return node.v;
+  if (node.t === 'bool') return node.v ? 'TRUE' : 'FALSE';
+  return node.v.toString();
+}
+
+/**
+ * `evaluateWithSpill` is like `evaluate` but returns a `SpillResult` instead
+ * of a string when the formula produces a 2-D array (e.g. MMULT, MINVERSE).
+ * The calculator is responsible for distributing spill cells.
+ */
+export function evaluateWithSpill(formula: string, grid?: Grid): string | SpillResult {
+  try {
+    const parsed = parseExpression(formula);
+    if (!parsed || hasSyntaxErrors(parsed)) return ErrValue.ERROR;
+
+    const evaluator = new Evaluator(grid);
+    const node = evaluator.visit(parsed.tree);
+
+    if (node.t === 'arr') {
+      return {
+        values: node.v.map((row) => row.map((cell) => evalNodeToStr(cell, grid))),
+        rows: node.rows,
+        cols: node.cols,
+      };
+    }
+
+    return evalNodeToStr(node, grid);
+  } catch {
+    return ErrValue.ERROR;
+  }
+}
+
+/**
  * `evaluate` returns the result of the expression.
  */
 export function evaluate(formula: string, grid?: Grid): string {

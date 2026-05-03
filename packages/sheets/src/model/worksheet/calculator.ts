@@ -1,5 +1,5 @@
-import { ErrValue, evaluate, extractReferences } from '../../formula/formula';
-import { parseRef } from '../core/coordinates';
+import { ErrValue, evaluateWithSpill, SpillResult, extractReferences } from '../../formula/formula';
+import { parseRef, toSref } from '../core/coordinates';
 import { inferInput, applyInferredFormat } from './input';
 import { Sheet } from './sheet';
 import { CellStyle, Sref } from '../core/types';
@@ -62,9 +62,76 @@ export async function calculate(
       continue;
     }
 
+    // Clear ghost cells from a previous (unblocked) spill before re-evaluating.
+    // Only delete cells that are still THIS anchor's ghosts — skip any cell that
+    // has been overwritten with user data (spillAnchor would be absent).
+    if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
+      for (let dr = 0; dr < cell.spillRows; dr++) {
+        for (let dc = 0; dc < cell.spillCols; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const ghostRef = { r: ref.r + dr, c: ref.c + dc };
+          const ghostCell = await sheet.getCell(ghostRef);
+          if (ghostCell?.spillAnchor === sref) {
+            await sheet.deleteCell(ghostRef);
+          }
+        }
+      }
+    }
+
     const references = extractReferences(cell.f!);
     const grid = await sheet.fetchGridByReferences(references);
-    const value = evaluate(cell.f!, grid);
+    const result = evaluateWithSpill(cell.f!, grid);
+
+    if (typeof result !== 'string') {
+      const { values, rows, cols } = result as SpillResult;
+
+      // Check for spill conflicts: only user-entered data (no spillAnchor) blocks the spill.
+      // Ghost cells from any anchor are overwritten — they're virtual, not user data.
+      let blocker: Sref | null = null;
+      for (let dr = 0; dr < rows && !blocker; dr++) {
+        for (let dc = 0; dc < cols && !blocker; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const ghostSref = toSref({ r: ref.r + dr, c: ref.c + dc });
+          const existing = await sheet.getCell(parseRef(ghostSref));
+          if (existing && (existing.v || existing.f) && !existing.spillAnchor) {
+            blocker = ghostSref;
+          }
+        }
+      }
+
+      if (blocker !== null) {
+        // Record blocked state — ghost cells are NOT written; anchor shows #REF!
+        sheet.registerSpillBlocker(blocker, sref);
+        await sheet.setCell(ref, {
+          v: ErrValue.REF,
+          f: cell.f,
+          s: cell.s,
+          spillRows: rows,
+          spillCols: cols,
+          spillBlocked: true,
+        });
+        continue;
+      }
+
+      // No conflict — clear any previous blocked registration and write ghost cells.
+      sheet.clearSpillBlockers(sref);
+      const anchorValue = values[0]?.[0] ?? '';
+      const hasExplicitFormat = cell.s?.nf != null;
+      const style = hasExplicitFormat
+        ? cell.s
+        : applyInferredFormat(cell.s, inferInput(anchorValue));
+      await sheet.setCell(ref, { v: anchorValue, f: cell.f, s: style, spillRows: rows, spillCols: cols });
+      for (let dr = 0; dr < rows; dr++) {
+        for (let dc = 0; dc < cols; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const ghostRef = { r: ref.r + dr, c: ref.c + dc };
+          await sheet.setCell(ghostRef, { v: values[dr]?.[dc] ?? '', spillAnchor: sref });
+        }
+      }
+      continue;
+    }
+
+    const value = result;
     const hasExplicitFormat = cell.s?.nf != null;
     const style = hasExplicitFormat
       ? cell.s

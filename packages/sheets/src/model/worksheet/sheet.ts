@@ -233,6 +233,12 @@ export class Sheet {
   private filterRange?: Range;
 
   /**
+   * Maps a blocker cell Sref → the spill anchor Sref it is blocking.
+   * Used to trigger anchor recalculation when a blocker is cleared.
+   */
+  private spillBlockers = new Map<Sref, Sref>();
+
+  /**
    * `filterColumns` stores column-specific criteria keyed by absolute column index.
    */
   private filterColumns: Map<number, FilterCondition> = new Map();
@@ -851,6 +857,41 @@ export class Sheet {
   }
 
   /**
+   * `deleteCell` removes a cell entirely (used to clear spill ghost cells).
+   */
+  async deleteCell(ref: Ref): Promise<void> {
+    await this.store.delete(ref);
+  }
+
+  /**
+   * Records that `blockerSref` is preventing the spill anchored at `anchorSref`.
+   * Called by the calculator when it detects a conflict.
+   */
+  registerSpillBlocker(blockerSref: Sref, anchorSref: Sref): void {
+    this.spillBlockers.set(blockerSref, anchorSref);
+  }
+
+  /**
+   * Removes all blocker registrations for the given anchor (called when spill
+   * succeeds or the anchor is deleted).
+   */
+  clearSpillBlockers(anchorSref: Sref): void {
+    for (const [blocker, anchor] of this.spillBlockers) {
+      if (anchor === anchorSref) this.spillBlockers.delete(blocker);
+    }
+  }
+
+  /**
+   * If `sref` was blocking a spill, returns the anchor that was waiting.
+   * Clears the registration so the next recalculation starts fresh.
+   */
+  private consumeSpillBlocker(sref: Sref): Sref | undefined {
+    const anchor = this.spillBlockers.get(sref);
+    if (anchor !== undefined) this.spillBlockers.delete(sref);
+    return anchor;
+  }
+
+  /**
    * `hasFormula` checks if the given row and column has a formula.
    */
   async hasFormula(ref: Ref): Promise<boolean> {
@@ -927,6 +968,21 @@ export class Sheet {
     try {
       // 01. Update the cell with normalized inferred value and style metadata.
       const existing = await this.store.get(target);
+
+      // Ghost cells are read-only — only the anchor (formula cell) may be edited.
+      if (existing?.spillAnchor) return;
+
+      // Clear ghost cells from any previous spill before overwriting the anchor.
+      if (existing?.spillRows && existing?.spillCols) {
+        this.clearSpillBlockers(toSref(target));
+        for (let dr = 0; dr < existing.spillRows; dr++) {
+          for (let dc = 0; dc < existing.spillCols; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            await this.store.delete({ r: target.r + dr, c: target.c + dc });
+          }
+        }
+      }
+
       const inferred = inferInput(value);
       const style = applyInferredFormat(existing?.s, inferred);
       const base =
@@ -943,15 +999,21 @@ export class Sheet {
       }
 
       // 02. Update the dependencies.
-      const changedSrefs = this.expandChangedSrefsWithMergeAliases([
-        toSref(target),
-      ]);
+      const targetSref = toSref(target);
+      const changedSrefs = this.expandChangedSrefsWithMergeAliases([targetSref]);
       const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
 
-      // 03. Calculate the cell and its dependencies.
+      // 03. If this cell was blocking a spill, include that anchor in recalculation.
+      const blockedAnchor = this.consumeSpillBlocker(targetSref);
+      if (blockedAnchor) {
+        changedSrefs.add(blockedAnchor);
+        dependantsMap.set(blockedAnchor, new Set());
+      }
+
+      // 04. Calculate the cell and its dependencies.
       await calculate(this, dependantsMap, changedSrefs);
 
-      // 04. Recompute active filter visibility if needed.
+      // 05. Recompute active filter visibility if needed.
       if (this.filterRange) {
         await this.recomputeFilterHiddenRows();
       }
@@ -975,8 +1037,25 @@ export class Sheet {
       const grid = await this.store.getGrid(range);
       const removeds = new Set<Sref>();
 
+      const unblockedAnchors = new Set<Sref>();
+
       for (const [sref, cell] of grid) {
+        // Ghost cells are read-only — skip silently.
+        if (cell.spillAnchor) continue;
+
         const ref = parseRef(sref);
+
+        // Anchor cell being deleted: clear all its ghost cells first.
+        if (cell.spillRows && cell.spillCols) {
+          this.clearSpillBlockers(sref);
+          for (let dr = 0; dr < cell.spillRows; dr++) {
+            for (let dc = 0; dc < cell.spillCols; dc++) {
+              if (dr === 0 && dc === 0) continue;
+              await this.store.delete({ r: ref.r + dr, c: ref.c + dc });
+            }
+          }
+        }
+
         if (cell.s && Object.keys(cell.s).length > 0) {
           // Preserve style, clear value and formula.
           await this.store.set(ref, { s: cell.s });
@@ -984,6 +1063,10 @@ export class Sheet {
           await this.store.delete(ref);
         }
         removeds.add(sref);
+
+        // If this cell was blocking a spill, queue the anchor for recalculation.
+        const blockedAnchor = this.consumeSpillBlocker(sref);
+        if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
       }
 
       if (removeds.size === 0) {
@@ -992,6 +1075,13 @@ export class Sheet {
 
       const changedSrefs = this.expandChangedSrefsWithMergeAliases(removeds);
       const dependantsMap = await this.store.buildDependantsMap(changedSrefs);
+
+      // Include previously-blocked anchors so they can re-attempt the spill.
+      for (const anchor of unblockedAnchors) {
+        changedSrefs.add(anchor);
+        if (!dependantsMap.has(anchor)) dependantsMap.set(anchor, new Set());
+      }
+
       await calculate(this, dependantsMap, changedSrefs);
 
       if (this.filterRange) {
@@ -2011,6 +2101,8 @@ export class Sheet {
           for (let c = cutSourceRange[0].c; c <= cutSourceRange[1].c; c++) {
             const sref = toSref({ r, c });
             if (!grid.has(sref)) {
+              const sourceCell = await this.store.get({ r, c });
+              if (sourceCell?.spillAnchor) continue;
               await this.store.delete({ r, c });
             }
           }
@@ -2135,6 +2227,8 @@ export class Sheet {
         for (let c = srcMinC; c <= srcMaxC; c++) {
           const sref = toSref({ r, c });
           if (!movedGrid.has(sref)) {
+            const sourceCell = await this.store.get({ r, c });
+            if (sourceCell?.spillAnchor) continue;
             await this.store.delete({ r, c });
             changedSrefs.add(sref);
           }
@@ -2310,6 +2404,10 @@ export class Sheet {
 
           const normalizedDest = this.normalizeRefToAnchor(dest);
           const normalizedDestSref = toSref(normalizedDest);
+
+          // Ghost cells are read-only — skip autofill into spill positions.
+          const existingDest = await this.store.get(normalizedDest);
+          if (existingDest?.spillAnchor) continue;
 
           // Check if this line uses OLS trend
           const lineKey = isVertical ? c : r;
