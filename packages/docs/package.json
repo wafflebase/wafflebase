@@ -14,6 +14,11 @@
       "import": "./dist/wafflebase-document.es.js",
       "require": "./dist/wafflebase-document.cjs",
       "default": "./dist/wafflebase-document.es.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "default": "./dist/node.js"
     }
   },
   "scripts": {

@@ -476,16 +476,6 @@ can paginate without a Canvas.
 - [ ] 11.5 Run `pnpm verify:fast` (must pass), then `pnpm verify:full`
       locally if a database is available.
 - [ ] 11.6 Commit: `Bump to v0.4.0 and refresh CLI docs`.
-- [ ] 11.7 Add a backend-safe entrypoint in `@wafflebase/docs` (a new
-      `packages/docs/src/node-index` module) that re-exports only the
-      backend-needed symbols (`Document`, `Block`, `Inline`, normalize
-      helpers) without pulling in any of the `view/` modules,
-      `doc-canvas`, `editor`, `clipboard`, or any other browser-only
-      modules. Update `packages/backend/tsconfig.json` `paths` for
-      `@wafflebase/docs` to point at the new entrypoint. Tracks the
-      CodeRabbit Critical finding from PR #177 review (backend tsc
-      currently transitively type-checks ~49 browser-only files; no
-      runtime impact, just type-check overhead).
 
 ## Phase 12 — Wrap-up
 

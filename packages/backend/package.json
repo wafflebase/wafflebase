@@ -99,7 +99,7 @@
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/$1",
       "^@wafflebase/sheets$": "<rootDir>/../../sheets/src/index.ts",
-      "^@wafflebase/docs$": "<rootDir>/../../docs/src/index.ts",
+      "^@wafflebase/docs$": "<rootDir>/../../docs/src/node.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [
