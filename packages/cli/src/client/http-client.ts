@@ -133,8 +133,10 @@ export class HttpClient {
   listDocuments() {
     return this.request<unknown[]>('GET', '/documents');
   }
-  createDocument(title: string) {
-    return this.request('POST', '/documents', { title });
+  createDocument(title: string, type?: 'doc' | 'sheet') {
+    const body: { title: string; type?: 'doc' | 'sheet' } = { title };
+    if (type) body.type = type;
+    return this.request('POST', '/documents', body);
   }
   getDocument(id: string) {
     return this.request('GET', `/documents/${id}`);

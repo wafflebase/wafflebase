@@ -27,8 +27,8 @@ function readInput(file: string): string {
   return readFileSync(file, 'utf-8');
 }
 
-export function registerImportCommand(program: Command) {
-  program
+export function registerSheetsImportCommand(parent: Command) {
+  parent
     .command('import <doc-id> <file>')
     .description('Import CSV/JSON into a tab')
     .option('--tab <tab-id>', 'Target tab', 'tab-1')

@@ -195,13 +195,13 @@ can paginate without a Canvas.
 
 ## Phase 4 — CLI Namespace Restructure (Sheets move under `sheets …`)
 
-- [ ] 4.1 Rename files:
+- [x] 4.1 Rename files:
       - `packages/cli/src/commands/cell.ts` → `cells.ts`
       - `packages/cli/src/commands/tab.ts` → `tabs.ts`
       - `packages/cli/src/commands/import.ts` → `sheets-import.ts`
       - `packages/cli/src/commands/export.ts` → `sheets-export.ts`
       - `packages/cli/src/commands/api-key.ts` → `api-keys.ts`
-- [ ] 4.2 Inside each renamed file, change the `program.command(...)` call
+- [x] 4.2 Inside each renamed file, change the `program.command(...)` call
       to expect a parent `Command` (the namespace root) and rename the
       registration function:
       - `registerCellCommand(program)` → `registerCellsCommand(sheetsCmd)`
@@ -209,10 +209,10 @@ can paginate without a Canvas.
       - `registerImportCommand(program)` → `registerSheetsImportCommand(sheetsCmd)`
       - `registerExportCommand(program)` → `registerSheetsExportCommand(sheetsCmd)`
       - `registerApiKeyCommand(program)` → `registerApiKeysCommand(program)`
-- [ ] 4.3 Add `.alias()` calls on each subcommand:
+- [x] 4.3 Add `.alias()` calls on each subcommand:
       `tabs (alias: tab)`, `cells (alias: cell)`,
       `api-keys (alias: api-key)`.
-- [ ] 4.4 Create `packages/cli/src/commands/sheets.ts`:
+- [x] 4.4 Create `packages/cli/src/commands/sheets.ts`:
       ```ts
       import { Command } from 'commander';
       import { registerCellsCommand } from './cells.js';
@@ -232,24 +232,30 @@ can paginate without a Canvas.
         return sheets;
       }
       ```
-- [ ] 4.5 Rename `commands/document.ts` → `commands/docs.ts`:
+- [x] 4.5 Rename `commands/document.ts` → `commands/docs.ts`:
       - Change `program.command('document').alias('doc')` to
         `program.command('docs').alias('doc').alias('document').alias('documents')`.
       - Add `--type doc|sheet` to `list` and `create`. `create` defaults to
         `sheet` (preserves existing CLI behavior). `create` POST body now
         includes `{ title, type }`.
-- [ ] 4.6 Update `packages/cli/src/bin.ts`:
+- [x] 4.6 Update `packages/cli/src/bin.ts`:
       - Replace `registerDocumentCommand(program)` with
         `registerDocsCommand(program)`.
       - Replace `registerCellCommand`, `registerTabCommand`,
         `registerImportCommand`, `registerExportCommand` with a single
         `registerSheetsCommand(program)`.
       - `registerApiKeyCommand` → `registerApiKeysCommand`.
-- [ ] 4.7 Update existing tests/test files for the rename. Verify aliases:
+- [x] 4.7 Update existing tests/test files for the rename. Verify aliases:
       - `wafflebase doc list` still works (alias `doc → docs`)
       - `wafflebase sheets cell get …` works (alias `cell → cells`)
       - `wafflebase tab list …` (top-level) is now an unknown command (intended)
-- [ ] 4.8 Run `pnpm --filter @wafflebase/cli test` and `pnpm verify:fast`.
+      → Added `test/namespaces.test.ts` covering top-level structure,
+      docs/sheets/api-keys aliases, sheets sub-commands, removal of
+      legacy top-level commands, and `--type` options on `docs
+      list`/`create`.
+- [x] 4.8 Run `pnpm --filter @wafflebase/cli test` and `pnpm verify:fast`.
+      → CLI tests: 8 files / 68 tests pass. `verify:fast`: 44 files / 737
+      tests pass.
 - [ ] 4.9 Commit: `Restructure CLI into docs/sheets/api-keys namespaces`.
 
 ## Phase 5 — CLI Fontkit Measurer and Page Utilities

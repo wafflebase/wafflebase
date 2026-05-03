@@ -3,18 +3,42 @@ import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 
-export function registerDocumentCommand(program: Command) {
-  const doc = program.command('document').alias('doc').description('Manage documents');
+type DocType = 'doc' | 'sheet';
+
+function parseType(value: string | undefined): DocType | undefined {
+  if (value === undefined) return undefined;
+  if (value !== 'doc' && value !== 'sheet') {
+    throw new Error(`Invalid --type "${value}". Use "doc" or "sheet".`);
+  }
+  return value;
+}
+
+export function registerDocsCommand(program: Command) {
+  const doc = program
+    .command('docs')
+    .alias('doc')
+    .alias('document')
+    .alias('documents')
+    .description('Manage documents');
 
   doc
     .command('list')
     .description('List documents in workspace')
+    .option('--type <type>', 'Filter by document type (doc|sheet)')
     .action(async function (this: Command) {
       const opts = getGlobalOpts(this);
+      const { type: typeStr } = this.opts<{ type?: string }>();
       try {
+        const filterType = parseType(typeStr);
         const res = await getClient(opts).listDocuments();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format, opts.quiet);
+        let data = res.data as unknown;
+        if (filterType && Array.isArray(data)) {
+          data = (data as Array<{ type?: string }>).filter(
+            (d) => (d.type ?? 'sheet') === filterType,
+          );
+        }
+        output(data, opts.format, opts.quiet);
       } catch (e) {
         outputError(e, opts.quiet);
       }
@@ -23,14 +47,17 @@ export function registerDocumentCommand(program: Command) {
   doc
     .command('create <title>')
     .description('Create a new document')
+    .option('--type <type>', 'Document type (doc|sheet)', 'sheet')
     .action(async function (this: Command, title: string) {
       const opts = getGlobalOpts(this);
-      if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'POST', '/documents', { title });
-        return;
-      }
+      const { type: typeStr } = this.opts<{ type: string }>();
       try {
-        const res = await getClient(opts).createDocument(title);
+        const type = parseType(typeStr) ?? 'sheet';
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'POST', '/documents', { title, type });
+          return;
+        }
+        const res = await getClient(opts).createDocument(title, type);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format, opts.quiet);
       } catch (e) {

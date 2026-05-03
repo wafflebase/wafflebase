@@ -2,8 +2,11 @@ import { Command } from 'commander';
 import { getGlobalOpts, getClient } from './root.js';
 import { output, outputError } from '../output/formatter.js';
 
-export function registerApiKeyCommand(program: Command) {
-  const apiKey = program.command('api-key').description('Manage API keys');
+export function registerApiKeysCommand(program: Command) {
+  const apiKey = program
+    .command('api-keys')
+    .alias('api-key')
+    .description('Manage API keys');
 
   apiKey
     .command('create <name>')
