@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ApiV1DocumentsController } from './documents.controller';
 import { ApiV1TabsController } from './tabs.controller';
 import { ApiV1CellsController } from './cells.controller';
+import { ApiV1DocsContentController } from './docs-content.controller';
 import { ApiV1ImagesController } from './images.controller';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { DocumentService } from '../../document/document.service';
@@ -19,6 +20,7 @@ import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
     ApiV1DocumentsController,
     ApiV1TabsController,
     ApiV1CellsController,
+    ApiV1DocsContentController,
     ApiV1ImagesController,
   ],
   providers: [

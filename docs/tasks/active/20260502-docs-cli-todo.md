@@ -116,13 +116,25 @@ can paginate without a Canvas.
 
 ## Phase 3 — Backend Content Endpoints
 
-- [ ] 3.1 Confirm Yorkie key prefix for word-processor docs by reading
+- [x] 3.1 Confirm Yorkie key prefix for word-processor docs by reading
       frontend `packages/frontend/src/...` (search for `attach`/`'doc-'`).
       If different from `doc-<id>`, note the actual prefix and align the
       backend constant.
-- [ ] 3.2 Update `packages/backend/src/yorkie/yorkie.types.ts` to also
+      → Confirmed `doc-<id>` (frontend `app/docs/docs-detail.tsx:210`,
+      `app/shared/shared-document.tsx:188`). The existing
+      `YorkieService.withDocument` hardcoded `sheet-<id>`, so the backend
+      had no way to reach docs documents. Added an optional
+      `docKeyPrefix` option (default `'sheet-'`) so docs callers pass
+      `'doc-'` and existing sheets callers stay unchanged.
+- [x] 3.2 Update `packages/backend/src/yorkie/yorkie.types.ts` to also
       `export type { Document, Block, Inline, ... } from '@wafflebase/docs'`.
-- [ ] 3.3 Create `packages/backend/src/api/v1/docs-content.controller.ts`:
+      → Re-exported as `DocsDocument`, `DocsBlock`, `DocsInline`, plus
+      `DocsBlockStyle`, `DocsInlineStyle`, `DocsHeaderFooter`,
+      `DocsPageSetup`, `DocsTableRow`, `DocsTableCell`. Added
+      `@wafflebase/docs: workspace:^` to backend deps and matching path
+      mappings in `tsconfig.json`, the in-package Jest config, and
+      `test/jest-e2e.json`.
+- [x] 3.3 Create `packages/backend/src/api/v1/docs-content.controller.ts`:
       ```ts
       @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/content')
       @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
@@ -150,20 +162,36 @@ can paginate without a Canvas.
         }
       }
       ```
-- [ ] 3.4 Type-mismatch error body:
+- [x] 3.4 Type-mismatch error body:
       `{ error: { code: 'TYPE_MISMATCH', message: "Use 'sheets cells get' for spreadsheet documents" } }`
       for GET; mirror for PUT. Use the matching `sheets …` hint string.
-- [ ] 3.5 Register the controller in
+      → Implemented as `TYPE_MISMATCH_BODY` in
+      `docs-content.controller.ts` and passed verbatim to NestJS'
+      `ConflictException(response)` for both GET and PUT. No global
+      exception filter rewrites the body, so the `error.code` /
+      `error.message` keys survive untouched.
+- [x] 3.5 Register the controller in
       `packages/backend/src/api/v1/api-v1.module.ts` (add to `controllers`).
-- [ ] 3.6 Add `packages/backend/src/api/v1/docs-content.controller.spec.ts`:
+      → Added `ApiV1DocsContentController` to the module's `controllers`
+      array. `YorkieService` is provided by the `@Global()` `YorkieModule`
+      and `DocumentService` is already in the v1 module's `providers`,
+      so no additional wiring needed.
+- [x] 3.6 Add `packages/backend/src/api/v1/docs-content.controller.spec.ts`:
       - GET 200 returns Document JSON
       - GET 404 when document not found
       - GET 409 with `TYPE_MISMATCH` when `type === 'sheet'`
       - PUT 200 round-trips body unchanged via Yorkie
       - PUT 409 when `type === 'sheet'`
       - WorkspaceScopeGuard rejects mismatched workspace
-- [ ] 3.7 Run `pnpm --filter @wafflebase/backend test` and `pnpm verify:fast`.
-- [ ] 3.8 Commit: `Add docs content GET/PUT endpoints`.
+      → All five controller-domain cases land in
+      `docs-content.controller.spec.ts`. The guard is overridden in the
+      test module since `WorkspaceScopeGuard` has its own dedicated
+      spec. Added a separate `yorkie/docs-tree.spec.ts` that exercises
+      `writeDocsRoot`/`readDocsRoot` against a real offline Yorkie
+      `Document` to cover the writer/reader's correctness.
+- [x] 3.7 Run `pnpm --filter @wafflebase/backend test` and `pnpm verify:fast`.
+      → Backend: 13 suites / 117 tests pass. `verify:fast`: green.
+- [x] 3.8 Commit: `Add docs content GET/PUT endpoints`.
 
 ## Phase 4 — CLI Namespace Restructure (Sheets move under `sheets …`)
 
@@ -463,8 +491,9 @@ can paginate without a Canvas.
 
 ## Open Questions / Pending Verification
 
-- [ ] Yorkie key prefix for word-processor docs — confirmed as
-      `doc-<documentId>`? (Phase 3.1)
+- [x] Yorkie key prefix for word-processor docs — confirmed as
+      `doc-<documentId>`? (Phase 3.1) — yes (frontend
+      `app/docs/docs-detail.tsx:210`).
 - [ ] Whether `PdfExporter` already accepts a page subset, or whether we
       must post-process via `pdf-lib`. (Phase 7.1)
 - [ ] Whether the existing CLI test harness can mock `process.stdin` /
