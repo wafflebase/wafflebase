@@ -362,6 +362,13 @@ export class DocCanvas {
         }
       }
 
+      // Draw inline run backgrounds for body paragraphs in the same
+      // background pass as table cells, so the selection / search /
+      // peer highlight layers below sit on top of them. Without this,
+      // renderRun's opaque bg fillRect would later paint over the
+      // translucent highlights and hide them inside a colored span.
+      this.drawInlineRunBackgrounds(page, layout, pageX, pageY);
+
       // Draw search match highlights for this page (behind all selections)
       if (searchHighlightRects) {
         for (let mi = 0; mi < searchHighlightRects.length; mi++) {
@@ -478,7 +485,7 @@ export class DocCanvas {
           // shadow, so that the overlay handles and the image stay in
           // lockstep instead of visually diverging during the drag.
           if (dragImageRun && run === dragImageRun) continue;
-          this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height);
+          this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height, true);
 
           // Image runs are opaque and cover the selection highlight
           // drawn earlier. Re-draw a semi-transparent overlay on top
@@ -622,20 +629,73 @@ export class DocCanvas {
         text: String(pageNumber),
         inline: { ...run.inline, text: String(pageNumber) },
       };
-      this.renderRun(substituted, lineX, lineY, lineHeight);
+      this.renderRun(substituted, lineX, lineY, lineHeight, false);
     } else {
-      this.renderRun(run, lineX, lineY, lineHeight);
+      this.renderRun(run, lineX, lineY, lineHeight, false);
+    }
+  }
+
+  /**
+   * Walk every PageLine on a page and paint its runs' inline
+   * `style.backgroundColor`. Called before the highlight layers so the
+   * translucent selection / search / peer fills end up on top of any
+   * colored span. Body callers must pass `skipBackground=true` to
+   * `renderRun` afterwards so the bg isn't painted twice.
+   *
+   * Skips block types that handle their own background pipeline:
+   * - `table`: see `renderTableBackgrounds`
+   * - `horizontal-rule` / `page-break`: no inline runs
+   */
+  private drawInlineRunBackgrounds(
+    page: LayoutPage,
+    layout: DocumentLayout | undefined,
+    pageX: number,
+    pageY: number,
+  ): void {
+    for (let plIndex = 0; plIndex < page.lines.length; plIndex++) {
+      const pl = page.lines[plIndex];
+      if (layout) {
+        const block = layout.blocks[pl.blockIndex]?.block;
+        if (
+          block &&
+          (block.type === 'table' ||
+            block.type === 'horizontal-rule' ||
+            block.type === 'page-break')
+        ) {
+          continue;
+        }
+      }
+      for (const run of pl.line.runs) {
+        const style = run.inline.style;
+        // Image runs are opaque pictures, not text — they never had a
+        // bg fill in the old single-pass path either.
+        if (style.image || !style.backgroundColor) continue;
+        this.ctx.fillStyle = style.backgroundColor;
+        this.ctx.fillRect(
+          Math.round(pageX + pl.x + run.x),
+          pageY + pl.y,
+          run.width,
+          pl.line.height,
+        );
+      }
     }
   }
 
   /**
    * Render a single text run.
+   *
+   * `skipBackground` lets the body path opt out of painting the
+   * translucent run background, because `drawInlineRunBackgrounds`
+   * already drew it before the selection layer (the bg would otherwise
+   * cover the selection). Header/footer paths still pass `false` —
+   * they don't share the body's two-pass pipeline yet.
    */
   private renderRun(
     run: LayoutRun,
     lineX: number,
     lineY: number,
     lineHeight: number,
+    skipBackground: boolean,
   ): void {
     const style = run.inline.style;
 
@@ -691,7 +751,7 @@ export class DocCanvas {
     }
     const x = Math.round(lineX + run.x);
 
-    if (style.backgroundColor) {
+    if (style.backgroundColor && !skipBackground) {
       this.ctx.save();
       this.ctx.fillStyle = style.backgroundColor;
       this.ctx.fillRect(x, lineY, run.width, lineHeight);
