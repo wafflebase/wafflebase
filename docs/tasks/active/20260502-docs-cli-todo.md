@@ -421,34 +421,45 @@ can paginate without a Canvas.
 
 ## Phase 9 — Schema, Skills, Recipes
 
-- [ ] 9.1 Update `packages/cli/src/schema/registry.ts` to add the new
+- [x] 9.1 Update `packages/cli/src/schema/registry.ts` to add the new
       entries from design § 6.1 with `safety` levels. Ensure aliases resolve
       to canonical plural names. Implement `docs.import` `variants` field
       from the design example.
-- [ ] 9.2 Add `test/schema-registry.test.ts` cases:
-      `wafflebase schema docs.content` returns expected shape;
-      `wafflebase schema doc.content` (alias) resolves to same;
-      listing returns the union of new docs and renamed sheets entries.
-- [ ] 9.3 Rename and update existing skills:
-      - `skills/read-cells.md` → `skills/sheets-read-cells.md` (commands
-        updated to `sheets cells get`)
-      - `skills/write-cells.md` → `skills/sheets-write-cells.md`
-      - `skills/import-export.md` → `skills/sheets-import-export.md`
-      - `skills/recipe-csv-pipeline.md` and `skills/recipe-data-collect.md`:
-        update commands.
-- [ ] 9.4 Create new skills (each follows existing frontmatter convention):
-      - `skills/docs-manage.md` — `docs list/create/get/rename/delete`
-      - `skills/docs-read-content.md` — `docs content` with json/md/text +
-        `--pages`
-      - `skills/docs-export-pdf.md` — `docs export` to PDF + `--pages`
-      - `skills/docs-export-docx.md` — `docs export` to DOCX
-      - `skills/docs-import-docx.md` — `docs import` (new + `--replace --yes`)
-- [ ] 9.5 Create recipes:
-      - `skills/recipe-docx-to-pdf.md` — `import` then `export --format pdf`
-      - `skills/recipe-doc-to-markdown.md` — `content --format md` chained
-        to LLM analysis
-- [ ] 9.6 Update `skills/SKILL.md` index to list all new and renamed files.
-- [ ] 9.7 Commit: `Add schema entries and skill/recipe files for docs CLI`.
+      → All canonical names migrated to plural (`docs.list`,
+      `sheets.cells.get`, `api-keys.create`, etc.). Each entry carries
+      an `aliases` array; `getCommandSchema` does a direct-name match
+      then an alias scan. `docs.import` exposes the
+      `default → write` / `--replace given → destructive` variants per
+      the design example.
+- [x] 9.2 Add `test/schema-registry.test.ts` cases:
+      → 13 tests in `test/schema.test.ts` (kept the existing filename):
+      validates plural canonical names, safety levels for every entry
+      including the new docs.* trio, alias resolution
+      (cell.get → sheets.cells.get, doc.list → docs.list,
+      api-key.create → api-keys.create, partial-namespace forms like
+      `sheets.cell.get`), and the docs.import variants/--type flag
+      shape.
+- [x] 9.3 Rename and update existing skills:
+      → All four files renamed via `git mv` and rewritten against the
+      new commands. `recipe-csv-pipeline.md` now uses `docs create` /
+      `sheets import` / `sheets cells batch` instead of the removed
+      top-level commands. `recipe-data-collect.md` uses
+      `docs list --type sheet` and `sheets …` throughout.
+- [x] 9.4 Create new skills (each follows existing frontmatter convention):
+      → All five docs-* skills landed: docs-manage, docs-read-content,
+      docs-export-pdf, docs-export-docx, docs-import-docx. Each spells
+      out commands, examples, type-mismatch handling, dry-run, and
+      safety variants.
+- [x] 9.5 Create recipes:
+      → recipe-docx-to-pdf.md (import → optional content check →
+      export pdf → optional cleanup) and recipe-doc-to-markdown.md
+      (content --format md → LLM pipe).
+- [x] 9.6 Update `skills/SKILL.md` index to list all new and renamed files.
+      → Index reorganized into Sheets / Docs / Recipes sections; each
+      entry shows the safety level and a one-line description.
+- [x] 9.7 Commit: `Add schema entries and skill/recipe files for docs CLI`.
+      → CLI: 14 files / 154 tests pass. `verify:fast` exit=0
+      (frontend 1236 / cli 154 / docs 737).
 
 ## Phase 10 — Integration Scenario
 
