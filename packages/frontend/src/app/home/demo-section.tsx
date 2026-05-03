@@ -155,7 +155,7 @@ export function DemoSection() {
             <span className="truncate pr-3">
               {tab === "sheet"
                 ? "Tip: double-click a cell to edit. Totals recompute on the same engine."
-                : "Tip: edit any paragraph or heading — collaboration and formulas stay live."}
+                : "Tip: edit any paragraph or heading — changes sync in real time."}
             </span>
             <span className="shrink-0">wafflebase@0.3.6</span>
           </div>
