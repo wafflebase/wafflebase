@@ -21,7 +21,6 @@ function parseType(value: string | undefined): DocType | undefined {
 }
 
 interface ContentOpts {
-  format: string;
   pages?: string;
   includeHeaderFooter: boolean;
   inlineImages: boolean;
@@ -50,7 +49,6 @@ function detectExportFormat(file: string, formatFlag?: string): ExportFormat {
 }
 
 interface ExportOpts {
-  format?: string;
   pages?: string;
   includeHeaderFooter: boolean;
   force: boolean;
@@ -161,7 +159,12 @@ export function registerDocsCommand(program: Command) {
   doc
     .command('content <doc-id>')
     .description('Read document content as JSON, Markdown, or plain text')
-    .option('--format <fmt>', 'Output format (json|md|text)', 'json')
+    // NOTE: `--format` is intentionally not redeclared here. The global
+    // `--format` option (declared in `createProgram`) catches the user's
+    // value because commander resolves duplicate-named flags through the
+    // earliest parent that owns them. Reading via `opts.format` (the
+    // merged form) keeps a single source of truth and lets
+    // `parseContentFormat` validate that the value is one of json|md|text.
     .option('--pages <range>', 'Page range to include (e.g. 1-3,5)')
     .option('--include-header-footer', 'Include header/footer (md/text)', false)
     .option('--inline-images', 'Inline data: image URLs (md only)', false)
@@ -171,7 +174,7 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const local = this.opts<ContentOpts>();
       try {
-        const format = parseContentFormat(local.format);
+        const format = parseContentFormat(opts.format);
 
         if (opts.dryRun) {
           printDryRun(
@@ -213,7 +216,11 @@ export function registerDocsCommand(program: Command) {
   doc
     .command('export <doc-id> <file>')
     .description('Export a document to PDF or DOCX')
-    .option('--format <fmt>', 'Output format (pdf|docx); default from extension')
+    // NOTE: `--format` reuses the global option for the same reason
+    // documented on `docs content` above; we route through `opts.format`
+    // and let `detectExportFormat` distinguish a user-supplied value
+    // from the implicit default by checking against the global default
+    // (`'json'` — no PDF/DOCX user would pass that explicitly).
     .option('--pages <range>', 'Page range to export (PDF only)')
     .option('--include-header-footer', 'Include header/footer regions', true)
     .option('--force', 'Overwrite existing output file', false)
@@ -221,7 +228,12 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const local = this.opts<ExportOpts>();
       try {
-        const format = detectExportFormat(file, local.format);
+        // Treat the global `--format`'s default 'json' as "no override
+        // intended" — extension wins. A real explicit `--format pdf`
+        // / `--format docx` overrides; `--format json` would be invalid
+        // for export and rejected by `detectExportFormat`.
+        const formatOverride = opts.format === 'json' ? undefined : opts.format;
+        const format = detectExportFormat(file, formatOverride);
 
         if (opts.dryRun) {
           printDryRun(
