@@ -182,12 +182,18 @@ function serializeCellStyle(cell: DocsTableCell): Record<string, string> {
 function parseBorderStyle(
   value: string,
 ): DocsTableCell['style']['borderTop'] | undefined {
-  const parts = value.split(',');
-  if (parts.length !== 3) return undefined;
+  // Border attributes serialize as `width,style,color`, but a CSS color
+  // like `rgb(255, 128, 0)` itself contains commas. A naive `split(',')`
+  // would yield 5 parts and drop the border. Locate the first two commas
+  // only and treat everything after the second comma as the color.
+  const firstComma = value.indexOf(',');
+  if (firstComma === -1) return undefined;
+  const secondComma = value.indexOf(',', firstComma + 1);
+  if (secondComma === -1) return undefined;
   return {
-    width: Number(parts[0]),
-    style: parts[1] as 'solid' | 'none',
-    color: parts[2],
+    width: Number(value.slice(0, firstComma)),
+    style: value.slice(firstComma + 1, secondComma) as 'solid' | 'none',
+    color: value.slice(secondComma + 1),
   };
 }
 
@@ -524,5 +530,16 @@ export function writeDocsRoot(
       orientation: document.pageSetup.orientation,
       margins: { ...document.pageSetup.margins },
     };
+  } else if (root.pageSetup !== undefined) {
+    // Destructive replace contract: an incoming Document that omits
+    // pageSetup must clear any stale value on the root, otherwise the
+    // CLI's `--replace` flow leaks page setup from a prior write.
+    // The Yorkie root proxy does not implement the `in` operator the way
+    // a plain object does (`'pageSetup' in root` returns false even when
+    // the key is set), so we check the value directly. header/footer
+    // live as Tree children and are already wiped by the
+    // editByPath/editBulkByPath replacement above, so they don't need an
+    // explicit clear here.
+    delete root.pageSetup;
   }
 }

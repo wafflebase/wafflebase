@@ -95,6 +95,94 @@ describe('docs-tree', () => {
     expect(readDocsRoot(doc.getRoot())).toEqual({ blocks: [] });
   });
 
+  it('round-trips a table cell border whose color contains commas', () => {
+    // Border colors like `rgb(255, 128, 0)` produce 5 comma-separated
+    // parts in the serialized attribute string ("1,solid,rgb(255, 128, 0)").
+    // A naive `value.split(',')` parser drops the border entirely; the
+    // parser must split into width / style / color by locating the first
+    // two commas only.
+    const original: DocsDocument = {
+      blocks: [
+        {
+          id: 't1',
+          type: 'table',
+          inlines: [],
+          style: {
+            alignment: 'left',
+            lineHeight: 1.5,
+            marginTop: 0,
+            marginBottom: 0,
+            textIndent: 0,
+            marginLeft: 0,
+          },
+          tableData: {
+            columnWidths: [1],
+            rows: [
+              {
+                cells: [
+                  {
+                    blocks: [
+                      {
+                        id: 'c1',
+                        type: 'paragraph',
+                        inlines: [{ text: 'cell', style: {} }],
+                        style: {
+                          alignment: 'left',
+                          lineHeight: 1.5,
+                          marginTop: 0,
+                          marginBottom: 0,
+                          textIndent: 0,
+                          marginLeft: 0,
+                        },
+                      },
+                    ],
+                    style: {
+                      borderTop: {
+                        width: 1,
+                        style: 'solid',
+                        color: 'rgb(255, 128, 0)',
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    doc.update((root) => writeDocsRoot(root, original));
+    const result = readDocsRoot(doc.getRoot());
+
+    expect(result).toEqual(original);
+  });
+
+  it('clears pageSetup on the root when a follow-up write omits it', () => {
+    // A destructive replace must reflect omission. If the first write
+    // sets pageSetup and the second omits it, the previous value must
+    // not persist on the Yorkie root — otherwise CLI replace flows leak
+    // stale page-setup state.
+    const withPageSetup: DocsDocument = {
+      ...makeDoc(),
+      pageSetup: {
+        paperSize: { name: 'A4', width: 595, height: 842 },
+        orientation: 'portrait',
+        margins: { top: 72, bottom: 72, left: 72, right: 72 },
+      },
+    };
+    const withoutPageSetup: DocsDocument = {
+      ...makeDoc(),
+    };
+
+    doc.update((root) => writeDocsRoot(root, withPageSetup));
+    doc.update((root) => writeDocsRoot(root, withoutPageSetup));
+    const result = readDocsRoot(doc.getRoot());
+
+    expect(result.pageSetup).toBeUndefined();
+    expect(result).toEqual(withoutPageSetup);
+  });
+
   it('preserves pageSetup and header/footer regions', () => {
     const original: DocsDocument = {
       ...makeDoc(),
