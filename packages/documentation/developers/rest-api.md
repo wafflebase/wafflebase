@@ -99,7 +99,63 @@ DELETE /api/v1/workspaces/:wid/documents/:did
 ```
 
 ::: info
-The Tabs and Cells endpoints below apply to **sheet** documents only. Document (`"doc"`) content is not currently available through the REST API.
+The Tabs and Cells endpoints apply to **sheet** documents only. For
+**doc** documents, use the Document Content endpoints below instead.
+Calling Tabs/Cells on a doc — or Content on a sheet — returns
+HTTP 409 with code `TYPE_MISMATCH`.
+:::
+
+## Document Content
+
+Read or replace the full content tree of a **doc** (word-processor)
+document. The content is the live Yorkie CRDT document — collaborators
+in the editor see updates from `PUT` immediately.
+
+### Get Document Content
+
+```bash
+GET /api/v1/workspaces/:wid/documents/:did/content
+```
+
+```bash
+curl -H "Authorization: Bearer wfb_..." \
+  https://api.wafflebase.io/api/v1/workspaces/:wid/documents/:did/content
+```
+
+Returns the full `Document` JSON: block tree, page setup, header/footer.
+Returns `HTTP 409` with code `TYPE_MISMATCH` when the target document is
+a sheet.
+
+### Replace Document Content
+
+```bash
+PUT /api/v1/workspaces/:wid/documents/:did/content
+```
+
+Destructively replaces the document's Yorkie root with the provided
+`Document` JSON. Concurrent collaborator edits made between the read and
+the write may be lost — treat this as a destructive operation.
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer wfb_..." \
+  -H "Content-Type: application/json" \
+  -d @document.json \
+  .../documents/:did/content
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `blocks` | array | Yes | Top-level blocks (paragraph, heading, list-item, table, …) |
+| `pageSetup` | object | No | Paper size, orientation, margins. Omit to clear. |
+| `header` | object | No | Header region. Omit to clear. |
+| `footer` | object | No | Footer region. Omit to clear. |
+
+A missing or malformed `blocks` field returns `HTTP 400`. A type-mismatched
+target (sheet doc) returns `HTTP 409` with code `TYPE_MISMATCH`.
+
+::: info
+The Tabs and Cells endpoints below apply to **sheet** documents only.
 :::
 
 ## Tabs
