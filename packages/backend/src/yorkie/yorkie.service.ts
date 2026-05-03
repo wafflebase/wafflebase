@@ -5,6 +5,12 @@ import { SpreadsheetDocument } from './yorkie.types';
 
 export interface WithDocumentOptions {
   syncMode?: 'readwrite' | 'readonly';
+  /**
+   * Override the Yorkie document key prefix. Defaults to `'sheet-'` for
+   * spreadsheet documents. Word-processor documents use `'doc-'`, matching
+   * the frontend convention in `packages/frontend/src/app/docs/docs-detail.tsx`.
+   */
+  docKeyPrefix?: string;
 }
 
 @Injectable()
@@ -20,18 +26,17 @@ export class YorkieService {
     this.apiKey = this.configService.get<string>('YORKIE_API_KEY');
   }
 
-  async withDocument<T>(
+  async withDocument<T, R extends Record<string, unknown> = SpreadsheetDocument>(
     documentId: string,
-    callback: (doc: Document<SpreadsheetDocument>) => T | Promise<T>,
+    callback: (doc: Document<R>) => T | Promise<T>,
     options?: WithDocumentOptions,
   ): Promise<T> {
+    const prefix = options?.docKeyPrefix ?? 'sheet-';
     const client = new yorkie.Client({
       rpcAddr: this.rpcAddr,
       apiKey: this.apiKey,
     });
-    const doc = new yorkie.Document<SpreadsheetDocument>(
-      `sheet-${documentId}`,
-    );
+    const doc = new yorkie.Document<R>(`${prefix}${documentId}`);
     let attached = false;
     try {
       await client.activate();

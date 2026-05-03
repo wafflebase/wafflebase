@@ -35,6 +35,7 @@
     "@nestjs/platform-express": "^11.1.0",
     "@prisma/client": "6.6.0",
     "@types/passport-github2": "^1.2.9",
+    "@wafflebase/docs": "workspace:^",
     "@wafflebase/sheets": "workspace:^",
     "@yorkie-js/sdk": "0.7.7",
     "cookie-parser": "^1.4.7",
@@ -97,7 +98,8 @@
     },
     "moduleNameMapper": {
       "^src/(.*)$": "<rootDir>/$1",
-      "^@wafflebase/sheets$": "<rootDir>/../../sheets/src/index.ts"
+      "^@wafflebase/sheets$": "<rootDir>/../../sheets/src/index.ts",
+      "^@wafflebase/docs$": "<rootDir>/../../docs/src/index.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

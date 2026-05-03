@@ -71,6 +71,9 @@ importers:
       '@types/passport-github2':
         specifier: ^1.2.9
         version: 1.2.9
+      '@wafflebase/docs':
+        specifier: workspace:^
+        version: link:../docs
       '@wafflebase/sheets':
         specifier: workspace:^
         version: link:../sheets
