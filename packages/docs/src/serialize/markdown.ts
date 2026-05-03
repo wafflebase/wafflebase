@@ -67,15 +67,22 @@ function serializeBlocks(blocks: Block[], opts: MarkdownOptions): string {
   // renders as its own GFM block. The one exception is consecutive
   // list-items in the same list — they stay tight on adjacent lines so
   // they coalesce into one list rather than fragmenting.
+  //
+  // Empty-rendered blocks (e.g., an empty subtitle) must not contribute
+  // separators of their own, otherwise an empty middle block would
+  // double the spacing between the two real blocks around it. Track the
+  // last non-empty block's type for the tight-list decision.
   let out = '';
-  for (let i = 0; i < blocks.length; i++) {
-    const b = blocks[i];
-    if (i > 0) {
-      const prev = blocks[i - 1];
-      const tight = prev.type === 'list-item' && b.type === 'list-item';
+  let prevType: Block['type'] | null = null;
+  for (const b of blocks) {
+    const rendered = blockToMarkdown(b, opts);
+    if (rendered.length === 0) continue;
+    if (out.length > 0) {
+      const tight = prevType === 'list-item' && b.type === 'list-item';
       out += tight ? '\n' : '\n\n';
     }
-    out += blockToMarkdown(b, opts);
+    out += rendered;
+    prevType = b.type;
   }
   return out;
 }

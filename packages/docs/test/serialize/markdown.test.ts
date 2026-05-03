@@ -56,6 +56,21 @@ describe('serializeMarkdown — block mapping', () => {
     expect(serializeMarkdown(doc([block('a', 'subtitle', [])]))).toBe('');
   });
 
+  it('does not insert extra spacing when an empty subtitle sits between paragraphs', () => {
+    // Empty-rendered blocks must not cause separator inflation. A
+    // paragraph -> empty subtitle -> paragraph sequence should join with
+    // a single blank line, not two — and must not carry stray `*`
+    // markers from the subtitle.
+    const md = serializeMarkdown(
+      doc([
+        block('p1', 'paragraph', [inline('before')]),
+        block('s', 'subtitle', []),
+        block('p2', 'paragraph', [inline('after')]),
+      ]),
+    );
+    expect(md).toBe('before\n\nafter');
+  });
+
   it('renders headings 1 through 6 with the right hash count', () => {
     for (let level = 1 as HeadingLevel; level <= 6; level = (level + 1) as HeadingLevel) {
       const md = serializeMarkdown(

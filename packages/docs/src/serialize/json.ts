@@ -51,7 +51,13 @@ export function serializeJson(
   paginatedLayout?: PaginatedLayout,
 ): SerializedJson {
   if (!paginatedLayout) {
-    return { ...doc };
+    // Strip a stale `_pageMeta` from the input so the no-layout path
+    // honors the documented contract ("omitted when no layout
+    // provided"). Inputs that came from a previous serialize -> parse
+    // round-trip might still carry the field.
+    const plain = { ...doc } as SerializedJson;
+    if ('_pageMeta' in plain) delete plain._pageMeta;
+    return plain;
   }
 
   // Group PageLine.pageIndex values by blockIndex, preserving page-by-page

@@ -142,6 +142,52 @@ describe('serializeText', () => {
     expect(serializeText(doc)).toBe('Page #');
   });
 
+  it('flattens nested-table cell content so newlines never break outer alignment', () => {
+    // A cell containing a nested table would otherwise return a string
+    // with embedded \n (one per inner row), which shreds the outer
+    // table's tab alignment when joined into a row. The cell flattener
+    // must collapse those line breaks.
+    const innerTable: TableData = {
+      rows: [
+        {
+          cells: [
+            { blocks: [block('i1', 'paragraph', [inline('A')])], style: {} },
+          ],
+        },
+        {
+          cells: [
+            { blocks: [block('i2', 'paragraph', [inline('B')])], style: {} },
+          ],
+        },
+      ],
+      columnWidths: [1],
+    };
+    const outerTable: TableData = {
+      rows: [
+        {
+          cells: [
+            {
+              blocks: [
+                block('nested', 'table', [], { tableData: innerTable }),
+              ],
+              style: {},
+            },
+            { blocks: [block('plain', 'paragraph', [inline('right')])], style: {} },
+          ],
+        },
+      ],
+      columnWidths: [0.5, 0.5],
+    };
+    const doc: Document = {
+      blocks: [block('outer', 'table', [], { tableData: outerTable })],
+    };
+
+    const out = serializeText(doc);
+    // Exactly one row -> exactly one tab and zero newlines anywhere.
+    expect(out).not.toMatch(/\n/);
+    expect(out.split('\t')).toHaveLength(2);
+  });
+
   it('renders image inlines as a placeholder', () => {
     const doc: Document = {
       blocks: [

@@ -34,6 +34,21 @@ describe('serializeJson', () => {
     expect(result._pageMeta).toBeUndefined();
   });
 
+  it('strips a stale _pageMeta from the input on the no-layout path', () => {
+    // `_pageMeta` is transport metadata produced only when serializeJson
+    // is given a layout. If the input already carries one — e.g., a
+    // round-trip through a previous serialization — the no-layout path
+    // must drop it to honor the documented "omitted when no layout
+    // provided" contract.
+    const doc: Document & { _pageMeta?: unknown } = {
+      blocks: [paragraph('b1', 'hello')],
+      _pageMeta: [{ blockId: 'b1', lines: [1] }],
+    } as Document & { _pageMeta?: unknown };
+    const result = serializeJson(doc);
+    expect(result._pageMeta).toBeUndefined();
+    expect('_pageMeta' in result).toBe(false);
+  });
+
   it('attaches _pageMeta when a paginated layout is supplied', () => {
     const setup = DEFAULT_PAGE_SETUP;
     // contentHeight = 1056 - 96 - 96 = 864. Use ~30 paragraphs of large

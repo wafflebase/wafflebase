@@ -80,8 +80,11 @@ function tableToText(block: Block): string {
 function cellToText(cell: TableCell): string {
   // Cell content can itself contain multiple blocks (incl. nested
   // tables). Flatten them with a single space — newlines inside a cell
-  // would shred the row's tab alignment.
-  return cell.blocks.map(blockToText).join(' ');
+  // would shred the row's tab alignment. blockToText for a nested
+  // `table` returns rows joined with `\n`, so we have to collapse any
+  // line breaks (CR or LF) the joined string still contains, not just
+  // the ones blockToText emits at top level.
+  return cell.blocks.map(blockToText).join(' ').replace(/[\r\n]+/g, ' ');
 }
 
 function inlinesToText(inlines: Inline[]): string {
