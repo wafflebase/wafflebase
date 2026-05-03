@@ -9,7 +9,8 @@
   "moduleNameMapper": {
     "^src/(.*)$": "<rootDir>/src/$1",
     "^@wafflebase/sheets$": "<rootDir>/../sheets/src/index.ts",
-    "^@wafflebase/docs$": "<rootDir>/../docs/src/index.ts"
+    "^@wafflebase/docs$": "<rootDir>/../docs/src/index.ts",
+    "^(\\.{1,2}/.*)\\.js$": "$1"
   },
   "maxWorkers": 1
 }

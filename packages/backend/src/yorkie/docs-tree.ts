@@ -20,21 +20,25 @@
  * helper into `@wafflebase/docs` that takes a Yorkie `Tree` constructor + a
  * mutable root, and have both the frontend store and this module call it.
  */
-import yorkie, {
+import {
   type ElementNode,
-  type Tree,
+  Tree,
   type TreeNode,
 } from '@yorkie-js/sdk';
+import {
+  DEFAULT_BLOCK_STYLE,
+  DEFAULT_HEADER_MARGIN_FROM_EDGE,
+  normalizeBlockStyle,
+} from '@wafflebase/docs';
 import type {
   DocsBlock,
+  DocsBlockStyle,
   DocsDocument,
   DocsInline,
   DocsPageSetup,
   DocsTableCell,
   DocsTableRow,
 } from './yorkie.types';
-
-const { Tree: TreeCtor } = yorkie;
 
 /**
  * The Yorkie root shape used by word-processor documents. Mirrors
@@ -141,26 +145,17 @@ function serializeBlockStyle(
 
 function parseBlockStyle(
   attrs: Record<string, string> | undefined,
-): DocsBlock['style'] {
-  // Defaults match `DEFAULT_BLOCK_STYLE` in @wafflebase/docs. Hard-coded
-  // here to avoid importing the runtime constant just for this fallback.
-  const style: DocsBlock['style'] = {
-    alignment: 'left',
-    lineHeight: 1.5,
-    marginTop: 0,
-    marginBottom: 8,
-    textIndent: 0,
-    marginLeft: 0,
-  };
-  if (!attrs) return style;
+): DocsBlockStyle {
+  if (!attrs) return { ...DEFAULT_BLOCK_STYLE };
+  const partial: Partial<DocsBlockStyle> = {};
   if ('alignment' in attrs)
-    style.alignment = attrs.alignment as DocsBlock['style']['alignment'];
-  if ('lineHeight' in attrs) style.lineHeight = Number(attrs.lineHeight);
-  if ('marginTop' in attrs) style.marginTop = Number(attrs.marginTop);
-  if ('marginBottom' in attrs) style.marginBottom = Number(attrs.marginBottom);
-  if ('textIndent' in attrs) style.textIndent = Number(attrs.textIndent);
-  if ('marginLeft' in attrs) style.marginLeft = Number(attrs.marginLeft);
-  return style;
+    partial.alignment = attrs.alignment as DocsBlockStyle['alignment'];
+  if ('lineHeight' in attrs) partial.lineHeight = Number(attrs.lineHeight);
+  if ('marginTop' in attrs) partial.marginTop = Number(attrs.marginTop);
+  if ('marginBottom' in attrs) partial.marginBottom = Number(attrs.marginBottom);
+  if ('textIndent' in attrs) partial.textIndent = Number(attrs.textIndent);
+  if ('marginLeft' in attrs) partial.marginLeft = Number(attrs.marginLeft);
+  return normalizeBlockStyle(partial);
 }
 
 function serializeCellStyle(cell: DocsTableCell): Record<string, string> {
@@ -430,14 +425,18 @@ export function readDocsRoot(root: DocsYorkieRoot): DocsDocument {
       const attrs = (header.attributes ?? {}) as Record<string, string>;
       doc.header = {
         blocks: (header.children ?? []).map(treeNodeToBlock),
-        marginFromEdge: Number(attrs.marginFromEdge ?? '48'),
+        marginFromEdge: attrs.marginFromEdge
+          ? Number(attrs.marginFromEdge)
+          : DEFAULT_HEADER_MARGIN_FROM_EDGE,
       };
     } else if (child.type === 'footer') {
       const footer = child as ElementNode;
       const attrs = (footer.attributes ?? {}) as Record<string, string>;
       doc.footer = {
         blocks: (footer.children ?? []).map(treeNodeToBlock),
-        marginFromEdge: Number(attrs.marginFromEdge ?? '48'),
+        marginFromEdge: attrs.marginFromEdge
+          ? Number(attrs.marginFromEdge)
+          : DEFAULT_HEADER_MARGIN_FROM_EDGE,
       };
     } else if (child.type === 'block') {
       doc.blocks.push(treeNodeToBlock(child));
@@ -497,7 +496,7 @@ export function writeDocsRoot(
   const children = buildTreeChildren(document);
 
   if (!tree || typeof tree.getRootTreeNode !== 'function') {
-    root.content = new TreeCtor({
+    root.content = new Tree({
       type: 'doc',
       children,
     });
