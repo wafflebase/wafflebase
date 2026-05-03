@@ -19,13 +19,14 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
+| release 0.3.6 (2026-05-01) | [20260501-release-0.3.6-todo.md](./active/20260501-release-0.3.6-todo.md) | - |
 | table cell resize page scroll (2026-05-01) | [20260501-table-cell-resize-page-scroll-todo.md](./active/20260501-table-cell-resize-page-scroll-todo.md) | - |
 | docx table style followup (2026-04-12) | [20260412-docx-table-style-followup-todo.md](./active/20260412-docx-table-style-followup-todo.md) | - |
 | docs wordprocessor (2026-03-25) | [20260325-docs-wordprocessor-todo.md](./active/20260325-docs-wordprocessor-todo.md) | [20260325-docs-wordprocessor-lessons.md](./active/20260325-docs-wordprocessor-lessons.md) |
 
 ## Archive
 
-- Archived task count: 148
+- Archived task count: 149
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: pdf export followup (2026-05-01)

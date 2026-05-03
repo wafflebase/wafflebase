@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { cn } from "@/lib/utils";
+import { SectionHead } from "./primitives/section-head";
 
 const API = "/api/v1/workspaces/:wid/documents/:did";
 
@@ -35,7 +37,16 @@ $ wafflebase cell set abc-123 A1 "Revenue"
 $ wafflebase cell set abc-123 B2 \\
     "=SUM(A1:A10)" --formula`;
 
-type Token = { type: "comment" | "string" | "flag" | "cmd" | "method" | "prompt" | "text"; value: string };
+type TokenType =
+  | "comment"
+  | "string"
+  | "flag"
+  | "cmd"
+  | "method"
+  | "prompt"
+  | "text";
+
+type Token = { type: TokenType; value: string };
 
 const COMMANDS = new Set(["curl", "wafflebase", "echo"]);
 const METHODS = new Set(["GET", "PUT", "PATCH", "DELETE", "POST"]);
@@ -43,7 +54,6 @@ const METHODS = new Set(["GET", "PUT", "PATCH", "DELETE", "POST"]);
 function tokenizeLine(line: string): Token[] {
   const trimmed = line.trimStart();
 
-  // Comment lines
   if (trimmed.startsWith("#")) {
     return [{ type: "comment", value: line }];
   }
@@ -51,7 +61,6 @@ function tokenizeLine(line: string): Token[] {
   const tokens: Token[] = [];
   let i = 0;
 
-  // Prompt ($)
   if (trimmed.startsWith("$")) {
     const indent = line.length - trimmed.length;
     if (indent > 0) tokens.push({ type: "text", value: line.slice(0, indent) });
@@ -63,9 +72,11 @@ function tokenizeLine(line: string): Token[] {
   while (i < line.length) {
     const ch = line[i];
 
-    // Strings
     if (ch === '"' || ch === "'") {
-      if (buf) { pushWord(buf, tokens); buf = ""; }
+      if (buf) {
+        pushWord(buf, tokens);
+        buf = "";
+      }
       const quote = ch;
       let j = i + 1;
       while (j < line.length && line[j] !== quote) {
@@ -77,9 +88,11 @@ function tokenizeLine(line: string): Token[] {
       continue;
     }
 
-    // Whitespace boundary
     if (ch === " " || ch === "\t") {
-      if (buf) { pushWord(buf, tokens); buf = ""; }
+      if (buf) {
+        pushWord(buf, tokens);
+        buf = "";
+      }
       tokens.push({ type: "text", value: ch });
       i++;
       continue;
@@ -89,7 +102,6 @@ function tokenizeLine(line: string): Token[] {
     i++;
   }
   if (buf) pushWord(buf, tokens);
-
   return tokens;
 }
 
@@ -105,14 +117,16 @@ function pushWord(word: string, tokens: Token[]) {
   }
 }
 
-const TOKEN_CLASSES: Record<Token["type"], string> = {
-  comment: "text-homepage-dark-muted italic",
-  string: "text-green-400",
-  flag: "text-sky-400",
-  cmd: "text-homepage-dark-heading font-semibold",
-  method: "text-violet-400 font-semibold",
-  prompt: "text-homepage-dark-muted",
-  text: "text-homepage-dark-text",
+const TOKEN_CLASSES: Record<TokenType, string> = {
+  comment:
+    "italic text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_38%,transparent)]",
+  string: "text-[color:var(--wb-butter)]",
+  flag: "text-[color:var(--wb-leaf)]",
+  cmd: "text-[color:var(--wb-berry)] font-semibold",
+  method: "text-[color:var(--wb-berry)] font-semibold",
+  prompt:
+    "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_55%,transparent)]",
+  text: "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_90%,transparent)]",
 };
 
 function highlightCode(code: string): ReactNode[] {
@@ -131,37 +145,141 @@ function highlightCode(code: string): ReactNode[] {
   });
 }
 
+type TabKey = "rest" | "cli";
+
+const TABS: {
+  key: TabKey;
+  label: string;
+  file: string;
+  href: string;
+  hrefLabel: string;
+  code: string;
+}[] = [
+  {
+    key: "rest",
+    label: "REST API",
+    file: "rest-api.sh",
+    href: "/docs/developers/rest-api",
+    hrefLabel: "View full API documentation →",
+    code: restApiCode,
+  },
+  {
+    key: "cli",
+    label: "CLI",
+    file: "wafflebase.sh",
+    href: "/docs/developers/cli",
+    hrefLabel: "View CLI documentation →",
+    code: cliCode,
+  },
+];
+
 export function DeveloperSection() {
+  const [tab, setTab] = useState<TabKey>("rest");
+  const active = TABS.find((t) => t.key === tab) ?? TABS[0];
+
+  const handleTabKey = (e: React.KeyboardEvent, key: TabKey) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const idx = TABS.findIndex((t) => t.key === key);
+    const next =
+      e.key === "ArrowRight"
+        ? TABS[(idx + 1) % TABS.length]
+        : TABS[(idx - 1 + TABS.length) % TABS.length];
+    setTab(next.key);
+    document.getElementById(`dev-tab-${next.key}`)?.focus();
+  };
+
   return (
-    <section id="developers" className="bg-homepage-dark-bg py-12 md:py-20 px-4 md:px-12">
-      <h2 className="text-center text-3xl font-bold text-homepage-dark-heading mb-2">
-        Built for Developers
-      </h2>
-      <p className="text-center text-base text-homepage-dark-subtext mb-12">
-        Automate your workflow with REST API and CLI
-      </p>
-      <div className="max-w-[960px] mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
-        <div className="bg-homepage-dark-card rounded-xl p-6 overflow-x-auto hover:ring-1 hover:ring-homepage-dark-muted/30 transition-shadow">
-          <div className="text-xs text-homepage-dark-muted font-semibold uppercase tracking-wider mb-3">
-            REST API
+    <section
+      id="developers"
+      className="bg-[color:var(--wb-bg)] py-16 md:py-20 px-6 md:px-8"
+    >
+      <div className="max-w-[1200px] mx-auto">
+        <SectionHead
+          kicker="Developers"
+          title="Built for Developers"
+          sub="Automate your workflow with REST API and CLI."
+        />
+
+        <div
+          className="max-w-[880px] mx-auto rounded-2xl overflow-hidden bg-[color:var(--wb-terminal-bg)]"
+          style={{
+            boxShadow:
+              "0 30px 60px -30px color-mix(in srgb, var(--wb-syrup-deep) 30%, transparent)",
+          }}
+        >
+          {/* Tabs */}
+          <div
+            role="tablist"
+            aria-label="Developer integration examples"
+            className="flex items-center px-2 border-b"
+            style={{
+              background:
+                "color-mix(in srgb, var(--wb-terminal-bg) 90%, var(--wb-syrup-deep))",
+              borderBottomColor:
+                "color-mix(in srgb, var(--wb-terminal-fg) 10%, transparent)",
+            }}
+          >
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                id={`dev-tab-${t.key}`}
+                aria-selected={tab === t.key}
+                aria-controls={`dev-panel-${t.key}`}
+                tabIndex={tab === t.key ? 0 : -1}
+                onClick={() => setTab(t.key)}
+                onKeyDown={(e) => handleTabKey(e, t.key)}
+                className={cn(
+                  "inline-flex items-center gap-2 px-4 py-3.5 -mb-px font-code text-[13px] border-b-2 cursor-pointer transition-colors",
+                  tab === t.key
+                    ? "text-[color:var(--wb-butter)] border-[color:var(--wb-butter)]"
+                    : "text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_55%,transparent)] border-transparent hover:text-[color:var(--wb-terminal-fg)]",
+                )}
+              >
+                {t.label}
+                <span
+                  className="hidden sm:inline-block font-code text-[11px] px-1.5 py-0.5 rounded-full"
+                  style={{
+                    background:
+                      "color-mix(in srgb, var(--wb-terminal-fg) 8%, transparent)",
+                    color:
+                      "color-mix(in srgb, var(--wb-terminal-fg) 50%, transparent)",
+                  }}
+                >
+                  {t.file}
+                </span>
+              </button>
+            ))}
+            <span className="flex-1" />
           </div>
-          <pre className="text-sm font-mono leading-7 whitespace-pre">
-            {highlightCode(restApiCode)}
+
+          {/* Code body */}
+          <pre
+            role="tabpanel"
+            id={`dev-panel-${active.key}`}
+            aria-labelledby={`dev-tab-${active.key}`}
+            className="m-0 px-6 md:px-8 py-7 overflow-x-auto font-code text-[14px] leading-7 whitespace-pre"
+          >
+            {highlightCode(active.code)}
           </pre>
-          <a href="/docs/developers/rest-api" className="inline-block mt-4 text-sm text-homepage-dark-link hover:text-homepage-dark-heading no-underline">
-            View full API documentation →
-          </a>
-        </div>
-        <div className="bg-homepage-dark-card rounded-xl p-6 overflow-x-auto hover:ring-1 hover:ring-homepage-dark-muted/30 transition-shadow">
-          <div className="text-xs text-homepage-dark-muted font-semibold uppercase tracking-wider mb-3">
-            CLI
+
+          {/* Footer link */}
+          <div
+            className="px-6 md:px-8 py-4 border-t"
+            style={{
+              borderTopColor:
+                "color-mix(in srgb, var(--wb-terminal-fg) 10%, transparent)",
+            }}
+          >
+            <a
+              href={active.href}
+              className="font-body text-[14px] no-underline transition-colors text-[color:color-mix(in_srgb,var(--wb-terminal-fg)_70%,transparent)] hover:text-[color:var(--wb-butter)]"
+            >
+              {active.hrefLabel}
+            </a>
           </div>
-          <pre className="text-sm font-mono leading-7 whitespace-pre">
-            {highlightCode(cliCode)}
-          </pre>
-          <a href="/docs/developers/cli" className="inline-block mt-4 text-sm text-homepage-dark-link hover:text-homepage-dark-heading no-underline">
-            View CLI documentation →
-          </a>
         </div>
       </div>
     </section>
