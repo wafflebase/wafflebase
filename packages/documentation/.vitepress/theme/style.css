@@ -1,13 +1,120 @@
+/*
+ * Butter & Maple — Wafflebase docs theme.
+ * Mirrors the homepage palette so /docs and / share the same visual identity.
+ */
+
 :root {
-  --vp-c-brand-1: #d97706;
-  --vp-c-brand-2: #b45309;
-  --vp-c-brand-3: #92400e;
-  --vp-c-brand-soft: rgba(217, 119, 6, 0.14);
+  /* Body / paper */
+  --vp-c-bg: #fbf6ec;
+  --vp-c-bg-alt: #fffdf7;
+  --vp-c-bg-elv: #fffdf7;
+  --vp-c-bg-soft: #f7eed8;
+
+  /* Text */
+  --vp-c-text-1: #2a1e12;
+  --vp-c-text-2: #6b584a;
+  --vp-c-text-3: #94806a;
+
+  /* Borders / dividers */
+  --vp-c-divider: #e8dcc4;
+  --vp-c-border: #e8dcc4;
+  --vp-c-gutter: #e8dcc4;
+
+  /* Brand (syrup) */
+  --vp-c-brand-1: #b8651a;
+  --vp-c-brand-2: #8a4a12;
+  --vp-c-brand-3: #8a4a12;
+  --vp-c-brand-soft: rgba(184, 101, 26, 0.14);
+
+  /* Status accents */
+  --vp-c-tip-1: #5a7a3a;
+  --vp-c-tip-2: #5a7a3a;
+  --vp-c-tip-soft: rgba(90, 122, 58, 0.14);
+  --vp-c-warning-1: #b8651a;
+  --vp-c-warning-2: #8a4a12;
+  --vp-c-warning-soft: rgba(244, 201, 93, 0.22);
+  --vp-c-danger-1: #c2484c;
+  --vp-c-danger-2: #c2484c;
+  --vp-c-danger-soft: rgba(194, 72, 76, 0.14);
+
+  /* Buttons */
+  --vp-button-brand-bg: var(--vp-c-brand-1);
+  --vp-button-brand-text: #fffaf0;
+  --vp-button-brand-border: var(--vp-c-brand-2);
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-hover-border: var(--vp-c-brand-2);
+  --vp-button-brand-hover-text: #fffaf0;
+  --vp-button-brand-active-bg: var(--vp-c-brand-2);
+
+  /* Code */
+  --vp-code-color: #8a4a12;
+  --vp-code-bg: rgba(184, 101, 26, 0.08);
+
+  /* Typography */
+  --vp-font-family-base:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --vp-font-family-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
 }
 
 .dark {
-  --vp-c-brand-1: #f59e0b;
-  --vp-c-brand-2: #d97706;
-  --vp-c-brand-3: #b45309;
-  --vp-c-brand-soft: rgba(245, 158, 11, 0.16);
+  --vp-c-bg: #1c1610;
+  --vp-c-bg-alt: #241d14;
+  --vp-c-bg-elv: #241d14;
+  --vp-c-bg-soft: #2a2218;
+
+  --vp-c-text-1: #fbf6ec;
+  --vp-c-text-2: #b5a48a;
+  --vp-c-text-3: #8a7763;
+
+  --vp-c-divider: #3a2e1f;
+  --vp-c-border: #3a2e1f;
+  --vp-c-gutter: #3a2e1f;
+
+  --vp-c-brand-1: #e08a3a;
+  --vp-c-brand-2: #f4c95d;
+  --vp-c-brand-3: #f4c95d;
+  --vp-c-brand-soft: rgba(224, 138, 58, 0.18);
+
+  --vp-c-tip-1: #a0c078;
+  --vp-c-tip-2: #a0c078;
+  --vp-c-tip-soft: rgba(160, 192, 120, 0.16);
+  --vp-c-warning-1: #f4c95d;
+  --vp-c-warning-2: #f4c95d;
+  --vp-c-warning-soft: rgba(244, 201, 93, 0.18);
+  --vp-c-danger-1: #e27a7e;
+  --vp-c-danger-2: #e27a7e;
+  --vp-c-danger-soft: rgba(226, 122, 126, 0.16);
+
+  --vp-button-brand-bg: var(--vp-c-brand-1);
+  --vp-button-brand-text: #1c1610;
+  --vp-button-brand-border: var(--vp-c-brand-2);
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-hover-border: var(--vp-c-brand-2);
+  --vp-button-brand-hover-text: #1c1610;
+  --vp-button-brand-active-bg: var(--vp-c-brand-2);
+
+  --vp-code-color: #f4c95d;
+  --vp-code-bg: rgba(244, 201, 93, 0.08);
+}
+
+/* Display headings use Fraunces to match homepage */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4,
+.VPHero .name,
+.VPHero .text {
+  font-family:
+    "Fraunces", ui-serif, Georgia, "Times New Roman", Times, serif;
+  font-feature-settings: "ss01" on, "ss02" on;
+  letter-spacing: -0.01em;
+}
+
+.vp-doc h1,
+.VPHero .name {
+  letter-spacing: -0.025em;
+  font-weight: 600;
 }

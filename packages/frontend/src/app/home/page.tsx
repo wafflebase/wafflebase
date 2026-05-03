@@ -2,8 +2,9 @@ import { useEffect } from "react";
 import { NavBar } from "./nav-bar";
 import { HeroSection } from "./hero-section";
 import { DemoSection } from "./demo-section";
-import { WhySection } from "./why-section";
 import { FeaturesSection } from "./features-section";
+import { UseCasesSection } from "./use-cases-section";
+import { WhySection } from "./why-section";
 import { DeveloperSection } from "./developer-section";
 import { OpenSourceSection } from "./opensource-section";
 import { Footer } from "./footer";
@@ -18,12 +19,13 @@ export default function HomePage({
   }, []);
 
   return (
-    <main className="scroll-smooth">
+    <main className="scroll-smooth bg-[color:var(--wb-bg)]">
       <NavBar workspacePath={workspacePath} />
       <HeroSection workspacePath={workspacePath} />
       <DemoSection />
-      <WhySection />
       <FeaturesSection />
+      <UseCasesSection />
+      <WhySection />
       <DeveloperSection />
       <OpenSourceSection />
       <Footer />

@@ -1,4 +1,4 @@
-import { useTheme } from "@/components/theme-provider";
+import { WaffleLogo } from "./primitives/waffle-logo";
 
 const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
 
@@ -23,67 +23,87 @@ const columns = [
   {
     title: "Project",
     links: [
-      { label: "License (Apache-2.0)", href: `${GITHUB_URL}/blob/main/LICENSE`, external: true },
-      { label: "Changelog", href: `${GITHUB_URL}/releases`, external: true },
-      { label: "Contributing", href: `${GITHUB_URL}?tab=readme-ov-file#contributing`, external: true },
+      {
+        label: "License (Apache-2.0)",
+        href: `${GITHUB_URL}/blob/main/LICENSE`,
+        external: true,
+      },
+      {
+        label: "Changelog",
+        href: `${GITHUB_URL}/releases`,
+        external: true,
+      },
+      {
+        label: "Contributing",
+        href: `${GITHUB_URL}?tab=readme-ov-file#contributing`,
+        external: true,
+      },
     ],
   },
 ] as const;
 
 export function Footer() {
-  const { resolvedTheme, setTheme } = useTheme();
-
-  function toggleTheme() {
-    setTheme(resolvedTheme === "dark" ? "light" : "dark");
-  }
-
   return (
-    <footer className="bg-homepage-dark-bg px-4 md:px-12 pt-12 pb-6">
-      <div className="max-w-[960px] mx-auto">
-        {/* Column links */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-8 mb-10">
-          {columns.map((col) => (
-            <div key={col.title}>
-              <h4 className="text-sm font-semibold text-homepage-dark-text mb-3">
-                {col.title}
-              </h4>
-              <ul className="space-y-2 list-none p-0 m-0">
-                {col.links.map((link) => (
-                  <li key={link.label}>
-                    <a
-                      href={link.href}
-                      {...("external" in link && link.external
-                        ? { target: "_blank", rel: "noopener noreferrer" }
-                        : {})}
-                      className="text-sm text-homepage-dark-muted no-underline hover:text-homepage-dark-link"
-                    >
-                      {link.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+    <footer
+      className="bg-[color:var(--wb-bg)] border-t border-[color:var(--wb-rule)] px-6 md:px-8 pt-14 pb-8"
+    >
+      <div className="max-w-[1200px] mx-auto">
+        <div className="grid gap-10 md:gap-12 md:grid-cols-[1.4fr_3fr] mb-10">
+          {/* Brand */}
+          <div className="flex flex-col gap-3">
+            <a
+              href="/"
+              className="inline-flex items-center gap-2.5 font-display font-semibold text-[19px] tracking-[-0.01em] text-[color:var(--wb-ink)] no-underline"
+            >
+              <WaffleLogo size={28} />
+              Wafflebase
+            </a>
+            <p className="text-[14px] leading-[1.55] text-[color:var(--wb-sub)] max-w-[280px] m-0">
+              Self-hosted collaborative word processor and spreadsheet, with
+              real-time editing and a REST API for automation.
+            </p>
+          </div>
+
+          {/* Columns */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-8">
+            {columns.map((col) => (
+              <div key={col.title}>
+                <h4 className="font-code text-[11.5px] uppercase tracking-[0.14em] text-[color:var(--wb-syrup-deep)] m-0 mb-3">
+                  {col.title}
+                </h4>
+                <ul className="space-y-2 list-none p-0 m-0">
+                  {col.links.map((link) => (
+                    <li key={link.label}>
+                      <a
+                        href={link.href}
+                        {...("external" in link && link.external
+                          ? { target: "_blank", rel: "noopener noreferrer" }
+                          : {})}
+                        className="text-[14px] text-[color:var(--wb-sub)] no-underline hover:text-[color:var(--wb-ink)] transition-colors"
+                      >
+                        {link.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Bottom bar */}
-        <div className="border-t border-homepage-dark-card pt-6 flex justify-between items-center">
-          <span className="text-homepage-dark-muted text-xs">
-            © {new Date().getFullYear()} Wafflebase
+        <div className="border-t border-[color:var(--wb-rule)] pt-6 flex flex-col sm:flex-row gap-2 justify-between items-start sm:items-center">
+          <span className="font-code text-[12px] text-[color:var(--wb-sub)]">
+            © {new Date().getFullYear()} Wafflebase · Apache-2.0
           </span>
-          <button
-            onClick={toggleTheme}
-            aria-label={`Switch to ${resolvedTheme === "dark" ? "light" : "dark"} mode`}
-            className="relative bg-homepage-dark-card border-0 rounded-full w-11 h-6 cursor-pointer"
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-code text-[12px] text-[color:var(--wb-sub)] hover:text-[color:var(--wb-ink)] no-underline transition-colors"
           >
-            <div
-              className={`absolute top-0.75 left-0.75 size-4.5 rounded-full bg-homepage-dark-link transition-transform flex items-center justify-center text-[10px] ${
-                resolvedTheme === "dark" ? "translate-x-5" : ""
-              }`}
-            >
-              {resolvedTheme === "dark" ? "🌙" : "☀️"}
-            </div>
-          </button>
+            github.com/wafflebase/wafflebase
+          </a>
         </div>
       </div>
     </footer>

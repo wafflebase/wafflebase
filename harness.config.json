@@ -2,7 +2,8 @@
   "frontend": {
     "chunkBudgets": {
       "maxChunkKb": 710,
-      "maxChunkCount": 70,
+      "maxChunkCount": 80,
+      "maxChunkCountReason": "Bumped from 70 → 80 in the Butter & Maple homepage redesign (Phase 9). Measured count is 71 chunks; the +9 buffer absorbs incremental primitives without an immediate re-bump.",
       "overrides": [
         {
           "pattern": "^pending-imports-",

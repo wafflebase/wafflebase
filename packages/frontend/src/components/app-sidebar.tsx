@@ -1,8 +1,9 @@
 import * as React from "react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronsUpDown, Grid2x2PlusIcon, PlusIcon } from "lucide-react";
+import { ChevronsUpDown, PlusIcon } from "lucide-react";
 
+import { WaffleLogo } from "@/app/home/primitives/waffle-logo";
 import { NavMain } from "@/components/nav-main";
 import { NavSecondary } from "@/components/nav-secondary";
 import { NavUser } from "@/components/nav-user";
@@ -96,9 +97,11 @@ export function AppSidebar({
               asChild
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
-              <Link to="/">
-                <Grid2x2PlusIcon className="!size-5" />
-                <span className="text-base font-semibold">Wafflebase</span>
+              <Link to="/" className="gap-2">
+                <WaffleLogo size={22} />
+                <span className="font-display text-[17px] font-semibold tracking-[-0.01em]">
+                  Wafflebase
+                </span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

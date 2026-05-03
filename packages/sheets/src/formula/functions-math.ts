@@ -1,6 +1,6 @@
 import { ParseTree } from 'antlr4ts/tree/ParseTree';
 import { FunctionContext } from '../../antlr/FormulaParser';
-import { EvalNode, ErrNode } from './formula';
+import { EvalNode, ErrNode, ArrNode } from './formula';
 import { NumberArgs } from './arguments';
 import { Grid } from '../model/core/types';
 import {
@@ -13,6 +13,7 @@ import {
   toStr,
   getRefsFromExpression,
   getReferenceMatrixFromExpression,
+  type MatrixResult,
 } from './functions-helpers';
 import { gammaLanczos } from './functions-statistical';
 
@@ -2250,9 +2251,21 @@ export function mdetermFunc(
   return { t: 'num', v: det(matrix) };
 }
 
+function getMatrixVal(m: MatrixResult, row: number, col: number, grid?: Grid): number {
+  if (m.t === 'arrmat') {
+    const node = m.values[row]?.[col];
+    if (!node || node.t === 'err') return 0;
+    if (node.t === 'num') return node.v;
+    if (node.t === 'str') { const n = Number(node.v); return isNaN(n) ? 0 : n; }
+    return 0;
+  }
+  const cellVal = grid?.get(m.v.refs[row * m.v.colCount + col])?.v;
+  return cellVal != null && cellVal !== '' ? Number(cellVal) : 0;
+}
+
 /**
  * MMULT(array1, array2) — matrix multiplication of two ranges.
- * Returns flattened result as comma-separated string for single-cell output.
+ * Returns the full result as an ArrNode; use INDEX to address individual elements.
  */
 export function mmultFunc(
   ctx: FunctionContext,
@@ -2268,37 +2281,33 @@ export function mmultFunc(
   if ('t' in m1 && m1.t === 'err') return m1;
   const m2 = getReferenceMatrixFromExpression(exprs[1], visit, grid);
   if ('t' in m2 && m2.t === 'err') return m2;
-  if (m1.t !== 'matrix' || m2.t !== 'matrix') return ErrNode.VALUE;
 
-  const a = m1.v;
-  const b = m2.v;
-  // a.colCount must equal b.rowCount
-  if (a.colCount !== b.rowCount) return ErrNode.VALUE;
+  const rows1 = m1.t === 'arrmat' ? m1.rowCount : m1.v.rowCount;
+  const cols1 = m1.t === 'arrmat' ? m1.colCount : m1.v.colCount;
+  const rows2 = m2.t === 'arrmat' ? m2.rowCount : m2.v.rowCount;
+  const cols2 = m2.t === 'arrmat' ? m2.colCount : m2.v.colCount;
+  if (cols1 !== rows2) return ErrNode.VALUE;
 
-  const getVal = (refs: string[], row: number, col: number, cols: number): number => {
-    const cellVal = grid?.get(refs[row * cols + col])?.v;
-    return cellVal != null && cellVal !== '' ? Number(cellVal) : 0;
-  };
-
-  const resultRows = a.rowCount;
-  const resultCols = b.colCount;
-  const result: number[] = [];
+  const resultRows = rows1;
+  const resultCols = cols2;
+  const arrRows: EvalNode[][] = [];
   for (let i = 0; i < resultRows; i++) {
+    const arrRow: EvalNode[] = [];
     for (let j = 0; j < resultCols; j++) {
       let sum = 0;
-      for (let k = 0; k < a.colCount; k++) {
-        sum += getVal(a.refs, i, k, a.colCount) * getVal(b.refs, k, j, b.colCount);
+      for (let k = 0; k < cols1; k++) {
+        sum += getMatrixVal(m1, i, k, grid) * getMatrixVal(m2, k, j, grid);
       }
-      result.push(sum);
+      arrRow.push({ t: 'num', v: sum });
     }
+    arrRows.push(arrRow);
   }
-  // Return top-left value for single-cell evaluation
-  return { t: 'num', v: result[0] };
+  return { t: 'arr', v: arrRows, rows: resultRows, cols: resultCols } satisfies ArrNode;
 }
 
 /**
  * MINVERSE(array) — returns the inverse of a square matrix.
- * Returns the top-left element for single-cell evaluation.
+ * Returns the full inverse as an ArrNode; use INDEX to address individual elements.
  */
 export function minverseFunc(
   ctx: FunctionContext,
@@ -2312,18 +2321,17 @@ export function minverseFunc(
 
   const m = getReferenceMatrixFromExpression(exprs[0], visit, grid);
   if ('t' in m && m.t === 'err') return m;
-  if (m.t !== 'matrix') return ErrNode.VALUE;
 
-  const n = m.v.rowCount;
-  if (n !== m.v.colCount) return ErrNode.VALUE;
+  const n = m.t === 'arrmat' ? m.rowCount : m.v.rowCount;
+  const nc = m.t === 'arrmat' ? m.colCount : m.v.colCount;
+  if (n !== nc) return ErrNode.VALUE;
 
   // Build augmented matrix [A | I]
   const aug: number[][] = [];
   for (let i = 0; i < n; i++) {
     const row: number[] = [];
     for (let j = 0; j < n; j++) {
-      const cellVal = grid?.get(m.v.refs[i * n + j])?.v;
-      row.push(cellVal != null && cellVal !== '' ? Number(cellVal) : 0);
+      row.push(getMatrixVal(m, i, j, grid));
     }
     for (let j = 0; j < n; j++) {
       row.push(i === j ? 1 : 0);
@@ -2359,8 +2367,16 @@ export function minverseFunc(
     }
   }
 
-  // Return top-left element of inverse
-  return { t: 'num', v: aug[0][n] };
+  // Return full inverse as ArrNode so INDEX can access any element
+  const rows: EvalNode[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: EvalNode[] = [];
+    for (let j = 0; j < n; j++) {
+      row.push({ t: 'num', v: aug[i][n + j] });
+    }
+    rows.push(row);
+  }
+  return { t: 'arr', v: rows, rows: n, cols: n } satisfies ArrNode;
 }
 
 /**
