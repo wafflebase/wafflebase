@@ -444,13 +444,39 @@ export function readDocsRoot(root: DocsYorkieRoot): DocsDocument {
     }
   }
   if (root.pageSetup) {
-    doc.pageSetup = {
-      paperSize: { ...root.pageSetup.paperSize },
-      orientation: root.pageSetup.orientation,
-      margins: { ...root.pageSetup.margins },
-    };
+    doc.pageSetup = readPageSetup(root.pageSetup);
   }
   return doc;
+}
+
+/**
+ * Read `PageSetup` from a Yorkie root proxy by accessing properties directly.
+ *
+ * Yorkie object proxies double-encode when serialized via JSON.stringify or
+ * spread (`{...proxy}`), so we cannot use `{ ...root.pageSetup.paperSize }` —
+ * the resulting object retains proxy wrappers and round-trips back as
+ * malformed data when written to a live (attached) document. Mirrors the
+ * frontend's `readPageSetup` helper in
+ * `packages/frontend/src/app/docs/yorkie-doc-store.ts`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Yorkie proxy is untyped
+function readPageSetup(proxy: any): DocsPageSetup {
+  const ps = proxy.paperSize;
+  const m = proxy.margins;
+  return {
+    paperSize: {
+      name: ps?.name,
+      width: Number(ps?.width),
+      height: Number(ps?.height),
+    },
+    orientation: proxy.orientation ?? 'portrait',
+    margins: {
+      top: Number(m?.top),
+      bottom: Number(m?.bottom),
+      left: Number(m?.left),
+      right: Number(m?.right),
+    },
+  };
 }
 
 /**
