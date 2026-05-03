@@ -358,6 +358,21 @@ describe('applySplitBlock — image boundary (cache path)', () => {
   });
 });
 
+describe('applyDeleteText — image inline', () => {
+  const IMG: ImageData = { src: 'img.png', width: 100, height: 80 };
+
+  it('drops image style from fallback when last image inline is deleted', () => {
+    // Simulates Backspace at end of an image-only block: deleteText(0, 1)
+    // removes the ORC. The fallback inline must NOT retain style.image,
+    // otherwise the cache renders a ghost duplicate of the deleted image.
+    const block = makeBlock({ text: '\uFFFC', style: { image: IMG } });
+    const result = applyDeleteText(block, 0, 1);
+    expect(result.inlines).toHaveLength(1);
+    expect(result.inlines[0].text).toBe('');
+    expect(result.inlines[0].style.image).toBeUndefined();
+  });
+});
+
 describe('applyMergeBlocks', () => {
   it('merges two blocks into one', () => {
     const a = makeBlock({ text: 'Hello' });

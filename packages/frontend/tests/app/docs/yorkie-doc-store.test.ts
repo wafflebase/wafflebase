@@ -637,6 +637,68 @@ describe('YorkieDocStore', () => {
       assert.equal(result.blocks[2].inlines[0].text, 'Me');
       assert.equal(result.blocks[3].inlines[0].text, 'After');
     });
+
+    it('split at end of an image-only block does not duplicate the image in the Yorkie tree', () => {
+      const blockId = generateBlockId();
+      const block: Block = {
+        id: blockId,
+        type: 'paragraph',
+        inlines: [
+          { text: '\uFFFC', style: { image: { src: 'img.png', width: 100, height: 80 } } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+
+      store.splitBlock(blockId, 1, 'after-image', 'paragraph');
+
+      // Read fresh from the Yorkie tree (bypass the cache) to mirror what a
+      // remote peer / page reload would observe.
+      const fresh = new YorkieDocStore(doc);
+      const result = fresh.getDocument();
+      assert.equal(result.blocks.length, 2);
+      assert.equal(result.blocks[0].inlines.length, 1);
+      assert.equal(result.blocks[0].inlines[0].text, '\uFFFC');
+      assert.ok(result.blocks[0].inlines[0].style.image, 'before block keeps image');
+
+      // The new block must not carry image style on its empty trailing inline
+      assert.equal(result.blocks[1].inlines.length, 1);
+      assert.equal(result.blocks[1].inlines[0].text, '');
+      assert.equal(
+        result.blocks[1].inlines[0].style.image,
+        undefined,
+        'after block must not duplicate the image style',
+      );
+    });
+
+    it('split at end of a block whose last inline is an image preserves only one image', () => {
+      const blockId = generateBlockId();
+      const block: Block = {
+        id: blockId,
+        type: 'paragraph',
+        inlines: [
+          { text: 'Hello', style: {} },
+          { text: '\uFFFC', style: { image: { src: 'img.png', width: 100, height: 80 } } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+
+      // offset 6 = end of "Hello" (5) + image (1)
+      store.splitBlock(blockId, 6, 'after-image', 'paragraph');
+
+      // Read fresh from the Yorkie tree to mirror a peer / reload view.
+      const fresh = new YorkieDocStore(doc);
+      const result = fresh.getDocument();
+      assert.equal(result.blocks.length, 2);
+      // Before block keeps text + image
+      const beforeImage = result.blocks[0].inlines.find((i) => i.style.image);
+      assert.ok(beforeImage, 'before block has the image');
+      assert.equal(beforeImage.text, '\uFFFC');
+      // After block must not contain a second image
+      const afterImage = result.blocks[1].inlines.find((i) => i.style.image);
+      assert.equal(afterImage, undefined, 'after block must not duplicate the image style');
+    });
   });
 
   describe('deleteText', () => {

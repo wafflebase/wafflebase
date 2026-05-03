@@ -350,7 +350,11 @@ function treeNodeToBlock(node: TreeNode): Block {
 
   const inlines = (el.children ?? [])
     .filter((c) => c.type === 'inline')
-    .map(treeNodeToInline);
+    .map(treeNodeToInline)
+    // Drop empty-text inlines that retain image style — these are stale
+    // CRDT residue from a pre-fix split-after-image bug and would render as
+    // a ghost duplicate of the real image.
+    .filter((inl) => !(inl.text.length === 0 && inl.style.image));
   const block: Block = {
     id: attrs.id ?? '',
     type: blockType,
@@ -1623,8 +1627,15 @@ export class YorkieDocStore implements DocStore {
           if (i === inlineIndex) {
             // Only the portion after charOffset
             const afterText = text.slice(charOffset);
-            if (afterText.length > 0 || i === inlineChildren.length - 1) {
+            if (afterText.length > 0) {
               afterInlines.push({ text: afterText, style });
+            } else if (i === inlineChildren.length - 1) {
+              // Empty trailing inline at split point: drop image style so
+              // the new block does not render a ghost duplicate of the image
+              // (mirrors getSplitPointStyle on the cache path).
+              const plainStyle = { ...style };
+              delete plainStyle.image;
+              afterInlines.push({ text: '', style: plainStyle });
             }
           } else {
             afterInlines.push({ text, style });

@@ -78,9 +78,13 @@ export function normalizeInlines(inlines: Inline[]): Inline[] {
       merged.push({ text: inline.text, style: { ...inline.style } });
     }
   }
-  return merged.length > 0
-    ? merged
-    : [{ text: '', style: inlines[0]?.style ?? {} }];
+  if (merged.length > 0) return merged;
+  // All inlines were empty: produce a single fallback. Drop image style here
+  // — an empty-text inline must never carry image style, otherwise the
+  // canvas renders a ghost (image width comes from style.image, not text).
+  const fallbackStyle = { ...(inlines[0]?.style ?? {}) };
+  delete fallbackStyle.image;
+  return [{ text: '', style: fallbackStyle }];
 }
 
 /**
