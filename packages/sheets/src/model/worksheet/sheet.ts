@@ -973,14 +973,27 @@ export class Sheet {
       if (existing?.spillAnchor) return;
 
       // Clear ghost cells from any previous spill before overwriting the anchor.
-      if (existing?.spillRows && existing?.spillCols) {
-        this.clearSpillBlockers(toSref(target));
+      // Skip blocked anchors (no ghosts were ever written) and only delete cells
+      // still owned by THIS anchor — see calculator.ts cleanup contract.
+      if (
+        existing?.spillRows &&
+        existing?.spillCols &&
+        !existing.spillBlocked
+      ) {
+        const anchorSref = toSref(target);
+        this.clearSpillBlockers(anchorSref);
         for (let dr = 0; dr < existing.spillRows; dr++) {
           for (let dc = 0; dc < existing.spillCols; dc++) {
             if (dr === 0 && dc === 0) continue;
-            await this.store.delete({ r: target.r + dr, c: target.c + dc });
+            const ghostRef = { r: target.r + dr, c: target.c + dc };
+            const ghostCell = await this.store.get(ghostRef);
+            if (ghostCell?.spillAnchor === anchorSref) {
+              await this.store.delete(ghostRef);
+            }
           }
         }
+      } else if (existing?.spillBlocked) {
+        this.clearSpillBlockers(toSref(target));
       }
 
       const inferred = inferInput(value);
@@ -1046,14 +1059,22 @@ export class Sheet {
         const ref = parseRef(sref);
 
         // Anchor cell being deleted: clear all its ghost cells first.
-        if (cell.spillRows && cell.spillCols) {
+        // Skip blocked anchors (no ghosts were ever written) and only delete
+        // cells still owned by THIS anchor — see calculator.ts cleanup contract.
+        if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
           this.clearSpillBlockers(sref);
           for (let dr = 0; dr < cell.spillRows; dr++) {
             for (let dc = 0; dc < cell.spillCols; dc++) {
               if (dr === 0 && dc === 0) continue;
-              await this.store.delete({ r: ref.r + dr, c: ref.c + dc });
+              const ghostRef = { r: ref.r + dr, c: ref.c + dc };
+              const ghostCell = await this.store.get(ghostRef);
+              if (ghostCell?.spillAnchor === sref) {
+                await this.store.delete(ghostRef);
+              }
             }
           }
+        } else if (cell.spillBlocked) {
+          this.clearSpillBlockers(sref);
         }
 
         if (cell.s && Object.keys(cell.s).length > 0) {

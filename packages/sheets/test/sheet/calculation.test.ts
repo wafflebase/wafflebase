@@ -169,6 +169,36 @@ describe('Sheet.Calcuation', () => {
     expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('1');
   });
 
+  it('overwriting a blocked anchor preserves user data in the spill zone', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1'); await sheet.setData({ r: 1, c: 2 }, '0');
+    await sheet.setData({ r: 2, c: 1 }, '0'); await sheet.setData({ r: 2, c: 2 }, '1');
+    // Place a blocker that prevents the 2x2 spill at A4:B5.
+    await sheet.setData({ r: 5, c: 1 }, 'BLOCKER');
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('#REF!');
+
+    // Overwrite the blocked anchor with a scalar — the blocker MUST survive
+    // because it is user data, not a ghost cell.
+    await sheet.setData({ r: 4, c: 1 }, '7');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('7');
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('BLOCKER');
+  });
+
+  it('clearing a blocked anchor preserves user data in the spill zone', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1'); await sheet.setData({ r: 1, c: 2 }, '0');
+    await sheet.setData({ r: 2, c: 1 }, '0'); await sheet.setData({ r: 2, c: 2 }, '1');
+    await sheet.setData({ r: 5, c: 1 }, 'BLOCKER');
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('#REF!');
+
+    // Clearing the blocked anchor must NOT delete the user-entered blocker.
+    await sheet.setData({ r: 4, c: 1 }, '');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('BLOCKER');
+  });
+
   it('MUNIT spills identity matrix into adjacent cells', async () => {
     const sheet = new Sheet(new MemStore());
     // =MUNIT(3) at A1 should spill a 3×3 identity matrix
