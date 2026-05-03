@@ -320,40 +320,34 @@ can paginate without a Canvas.
 
 ## Phase 6 — `wafflebase docs content`
 
-- [ ] 6.1 Add to `packages/cli/src/client/http-client.ts`:
+- [x] 6.1 Add to `packages/cli/src/client/http-client.ts`:
       ```ts
       async getDocContent(docId: string): Promise<HttpResponse<Document>> {
         return this.get(`/api/v1/workspaces/${this.workspace}/documents/${docId}/content`);
       }
       ```
       Re-export `Document` from `client/types.ts`.
-- [ ] 6.2 Implement `docs content` in `packages/cli/src/commands/docs.ts`.
-      Flags: `--format json|md|text` (default `json`), `--pages <range>`,
-      `--include-header-footer` (default `false`),
-      `--inline-images` (default `false`), `--out <file>|-`.
-      Behavior:
-      1. Fetch via `getDocContent`.
-      2. If `--pages` set, run `paginateLayout(doc, FontkitMeasurer)` and
-         `parsePageRange`. Apply `sliceBlocksByPages`.
-      3. Dispatch on `--format`:
-         - `json` → `serializeJson(doc, pagedLayout?)` (pretty-printed when
-           writing to TTY, compact to file/pipe — match existing CLI
-           convention)
-         - `md` → `serializeMarkdown(doc, opts)` plus first-use stderr
-           "Lossy conversion …" notice (suppressed by `--quiet`)
-         - `text` → `serializeText(doc, opts)`
-      4. Write to `--out` or stdout. Add `--force` to allow overwrite.
-- [ ] 6.3 Add tests `test/commands/docs-content.test.ts` (mocked HTTP):
-      - `docs content <id>` returns JSON
-      - `docs content <id> --format md` produces expected markdown for a
-        small doc fixture
-      - `docs content <id> --format text` strips formatting
-      - `docs content <id> --pages 1-2` against a 3-page fixture selects the
-        right blocks for each format
-      - `docs content <sheet-id>` returns exit 1 + `TYPE_MISMATCH` body
-      - Lossy notice fires on `--format md`, suppressed by `--quiet`
-- [ ] 6.4 Run `pnpm --filter @wafflebase/cli test`. Commit:
+      → Added `getDocContent(docId)` to `HttpClient` returning
+      `ApiResponse<Document>`. `Document` is imported directly from
+      `@wafflebase/docs` (no separate `client/types.ts` indirection).
+- [x] 6.2 Implement `docs content` in `packages/cli/src/commands/docs.ts`.
+      → Command lives in `docs.ts`; the orchestration moved to
+      `docs/content.ts` (`runDocsContent`) so it can be unit-tested
+      without spawning the CLI. The action passes the fetched doc into
+      that helper. Pagination uses the Phase 5 `FontkitMeasurer`
+      fallback (no fonts pre-loaded yet); page counts are approximate
+      but the slicer is correct.
+- [x] 6.3 Add tests `test/commands/docs-content.test.ts` (mocked HTTP):
+      → 20 tests in `test/docs-content.test.ts` covering json/md/text
+      output, lossy notice + quiet suppression, `--pages` selection +
+      `_pageMeta` attachment + clamp warnings + malformed input,
+      `--out` (file write through IO surface, stdout `-`, force flag,
+      refuse-to-overwrite default). `TYPE_MISMATCH` passthrough is
+      validated at the http-client layer with a mocked `fetch`.
+- [x] 6.4 Run `pnpm --filter @wafflebase/cli test`. Commit:
       `Add docs content command`.
+      → CLI tests: 12 files / 116 tests pass. `verify:fast`: green
+      across frontend (1236), cli (116), docs (737).
 
 ## Phase 7 — `wafflebase docs export`
 
