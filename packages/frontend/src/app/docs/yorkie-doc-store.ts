@@ -350,7 +350,13 @@ function treeNodeToBlock(node: TreeNode): Block {
 
   const inlines = (el.children ?? [])
     .filter((c) => c.type === 'inline')
-    .map(treeNodeToInline);
+    .map(treeNodeToInline)
+    // Invariant: an empty-text inline must never carry style.image.
+    // layout.ts:507 emits an image segment for any inline with style.image
+    // regardless of text length, so a ghost would render. Drop here as a
+    // defense in depth (also normalizes legacy CRDTs from a pre-fix
+    // split-after-image bug that wrote such inlines into the tree).
+    .filter((inl) => !(inl.text.length === 0 && inl.style.image));
   const block: Block = {
     id: attrs.id ?? '',
     type: blockType,
@@ -1623,8 +1629,15 @@ export class YorkieDocStore implements DocStore {
           if (i === inlineIndex) {
             // Only the portion after charOffset
             const afterText = text.slice(charOffset);
-            if (afterText.length > 0 || i === inlineChildren.length - 1) {
+            if (afterText.length > 0) {
               afterInlines.push({ text: afterText, style });
+            } else if (i === inlineChildren.length - 1) {
+              // Empty trailing inline at split point: drop image style so
+              // the new block does not render a ghost duplicate of the image
+              // (mirrors getSplitPointStyle on the cache path).
+              const plainStyle = { ...style };
+              delete plainStyle.image;
+              afterInlines.push({ text: '', style: plainStyle });
             }
           } else {
             afterInlines.push({ text, style });

@@ -1,6 +1,6 @@
-import type { LayoutTable } from './table-layout.js';
+import type { LayoutTable, LayoutTableCell } from './table-layout.js';
 import type { LayoutRun } from './layout.js';
-import type { TableData, BorderStyle } from '../model/types.js';
+import type { TableCell, TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
@@ -21,6 +21,64 @@ export {
   isCellCovered,
 } from './table-geometry.js';
 export type { MergedCellLineLayout } from './table-geometry.js';
+
+/**
+ * Compute the absolute Y coordinate of every line in a cell so the
+ * background pre-pass and the text content pass place inline run
+ * backgrounds and the runs they belong to at the same vertical
+ * position. Returns `null` for lines that physically belong to a
+ * different page (only possible with merged cells split across a page
+ * break).
+ *
+ * `cellY` / `cellHeight` are the unclipped origin and total height of
+ * the cell (spanning `rowSpan` rows). `pageStart` / `rowEnd` define
+ * the row band physically rendered on this page.
+ */
+function computeCellLineAbsoluteYs(
+  layoutCell: LayoutTableCell,
+  cell: TableCell,
+  r: number,
+  rowSpan: number,
+  cellY: number,
+  cellHeight: number,
+  padding: number,
+  pageStart: number,
+  rowEnd: number,
+  tableY: number,
+  rowYOffsets: number[],
+  rowHeights: number[],
+): Array<number | null> {
+  const verticalAlign = cell.style?.verticalAlign ?? 'top';
+  const totalTextHeight = layoutCell.lines.reduce((sum, l) => sum + l.height, 0);
+  let textYOffset: number;
+  if (verticalAlign === 'middle') {
+    textYOffset = padding + (cellHeight - padding * 2 - totalTextHeight) / 2;
+  } else if (verticalAlign === 'bottom') {
+    textYOffset = cellHeight - padding - totalTextHeight;
+  } else {
+    textYOffset = padding;
+  }
+  const mergedLineLayouts =
+    rowSpan > 1 && verticalAlign === 'top'
+      ? computeMergedCellLineLayouts(
+          layoutCell.lines,
+          r,
+          rowSpan,
+          padding,
+          rowYOffsets,
+          rowHeights,
+        )
+      : undefined;
+
+  return layoutCell.lines.map((line, li) => {
+    if (mergedLineLayouts) {
+      const ll = mergedLineLayouts[li];
+      if (ll.ownerRow < pageStart || ll.ownerRow >= rowEnd) return null;
+      return tableY + ll.runLineY;
+    }
+    return cellY + textYOffset + line.y;
+  });
+}
 
 /**
  * Render a table on the Canvas using pre-computed layout data.
@@ -120,20 +178,50 @@ export function renderTableBackgrounds(
         );
       }
 
-      // Recurse into nested tables so their backgrounds are also drawn
-      // in the first pass, before the selection highlight layer.
+      // Walk the cell's lines once for two background-pass duties:
+      //   (1) recurse into nested tables so their cell backgrounds also
+      //       land before the selection layer, and
+      //   (2) paint each run's `style.backgroundColor` here in the
+      //       background pass instead of inside the content pass —
+      //       otherwise the opaque inline bg fillRect would later
+      //       cover the translucent selection / search / peer
+      //       highlights drawn between the two passes.
       const cellX = tableX + columnXOffsets[c];
       const cellY = tableY + rowYOffsets[r];
-      const textYOffset = padding; // nested tables use top alignment
+      let cellHeight = 0;
+      for (let s = 0; s < rowSpan && r + s < numRows; s++) {
+        cellHeight += rowHeights[r + s];
+      }
+      const lineAbsoluteYs = computeCellLineAbsoluteYs(
+        layoutCell, cell, r, rowSpan, cellY, cellHeight, padding,
+        pageStart, rowEnd, tableY, rowYOffsets, rowHeights,
+      );
       for (let li = 0; li < layoutCell.lines.length; li++) {
         const line = layoutCell.lines[li];
-        if (!line.nestedTable) continue;
-        const blockIndex = getBlockIndexForLine(layoutCell.blockBoundaries, li);
-        const nestedBlock = cell.blocks[blockIndex];
-        if (nestedBlock?.tableData) {
-          renderTableBackgrounds(
-            ctx, nestedBlock.tableData, line.nestedTable,
-            cellX + padding, cellY + textYOffset + line.y,
+        const lineAbsoluteY = lineAbsoluteYs[li];
+        if (lineAbsoluteY === null) continue;
+
+        if (line.nestedTable) {
+          const blockIndex = getBlockIndexForLine(layoutCell.blockBoundaries, li);
+          const nestedBlock = cell.blocks[blockIndex];
+          if (nestedBlock?.tableData) {
+            renderTableBackgrounds(
+              ctx, nestedBlock.tableData, line.nestedTable,
+              cellX + padding, lineAbsoluteY,
+            );
+          }
+          continue;
+        }
+
+        for (const run of line.runs) {
+          const style = run.inline.style;
+          if (style.image || !style.backgroundColor) continue;
+          ctx.fillStyle = style.backgroundColor;
+          ctx.fillRect(
+            cellX + padding + run.x,
+            lineAbsoluteY,
+            run.width,
+            line.height,
           );
         }
       }
@@ -357,14 +445,10 @@ export function renderTableContent(
           // bled a sliver onto the previous page.
           const baselineY = Math.round(runLineY + (line.height + fontSizePx * 0.8) / 2);
 
-          // Text background highlight
-          if (style.backgroundColor) {
-            ctx.save();
-            ctx.fillStyle = style.backgroundColor;
-            ctx.fillRect(runX, runLineY, run.width, line.height);
-            ctx.restore();
-            ctx.fillStyle = style.color || Theme.defaultColor;
-          }
+          // Inline run backgrounds (style.backgroundColor) were drawn
+          // in `renderTableBackgrounds` before the selection layer, so
+          // the translucent selection highlight stays visible inside a
+          // colored span. Don't redraw them here.
 
           ctx.fillText(run.text, runX, baselineY);
 

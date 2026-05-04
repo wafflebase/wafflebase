@@ -325,7 +325,11 @@ export class MemStore implements Store {
     return new Map(axis === 'row' ? this.rowHeights : this.colWidths);
   }
 
-  updateSelection(_activeCell: CellAnchor, _ranges: RangeAnchor[]): void {
+  updateSelection(
+    _activeCell: CellAnchor | null,
+    _ranges: RangeAnchor[],
+    _activeCellRef: Ref,
+  ): void {
     // No-op for memory store
   }
 

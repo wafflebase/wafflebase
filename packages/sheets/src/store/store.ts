@@ -212,8 +212,15 @@ export interface Store {
 
   /**
    * `updateSelection` updates the selection of the current user in presence.
+   * `activeCell` is null when the cell sits beyond the axis order coverage;
+   * callers always provide `activeCellRef` so the legacy Sref field stays
+   * accurate for peer rendering fallback.
    */
-  updateSelection(activeCell: CellAnchor, ranges: RangeAnchor[]): void;
+  updateSelection(
+    activeCell: CellAnchor | null,
+    ranges: RangeAnchor[],
+    activeCellRef: Ref,
+  ): void;
 
   /**
    * `getRowOrder` returns the current row axis ID ordering.
