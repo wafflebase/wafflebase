@@ -1,10 +1,12 @@
 {
   "name": "@wafflebase/docs",
-  "private": true,
   "version": "0.3.7",
   "license": "Apache-2.0",
   "description": "Canvas-based document editor for Wafflebase",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "main": "dist/wafflebase-document.cjs",
   "module": "dist/wafflebase-document.es.js",
   "types": "dist/wafflebase-document.es.d.ts",

@@ -1,4 +1,4 @@
-name: Publish CLI to npm
+name: Publish to npm
 
 on:
   release:
@@ -40,7 +40,24 @@ jobs:
       - name: Run CLI tests
         run: pnpm --filter @wafflebase/cli test
 
-      - name: Publish to npm
-        run: pnpm --filter @wafflebase/cli publish --access public --no-git-checks
+      - name: Publish @wafflebase/docs to npm
+        run: |
+          VERSION=$(node -p "require('./packages/docs/package.json').version")
+          if npm view "@wafflebase/docs@${VERSION}" version > /dev/null 2>&1; then
+            echo "@wafflebase/docs@${VERSION} already published, skipping"
+          else
+            pnpm --filter @wafflebase/docs publish --access public --no-git-checks
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @wafflebase/cli to npm
+        run: |
+          VERSION=$(node -p "require('./packages/cli/package.json').version")
+          if npm view "@wafflebase/cli@${VERSION}" version > /dev/null 2>&1; then
+            echo "@wafflebase/cli@${VERSION} already published, skipping"
+          else
+            pnpm --filter @wafflebase/cli publish --access public --no-git-checks
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
