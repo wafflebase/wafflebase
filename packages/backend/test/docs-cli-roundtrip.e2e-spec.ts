@@ -11,9 +11,11 @@
  *
  * Gated on the same `RUN_YORKIE_INTEGRATION_TESTS=true` switch as
  * `docs-tree-attached.e2e-spec.ts`. Requires both Postgres and a
- * running Yorkie locally — `docker compose up -d` is enough. CI does
- * not enable this gate; this test exists as a local pre-commit
- * confidence check that the CLI talks to a real server end-to-end.
+ * running Yorkie. Locally: `docker compose up -d`. In CI: the
+ * `verify-integration` job (`.github/workflows/ci.yml`) runs Postgres
+ * as a service and starts the Yorkie container as a background step,
+ * with both `RUN_DB_INTEGRATION_TESTS` and `RUN_YORKIE_INTEGRATION_TESTS`
+ * set, so this test runs there too.
  *
  * The CLI is spawned via `tsx` from this repository's checkout so the
  * test exercises the same code paths the user runs (no separate built

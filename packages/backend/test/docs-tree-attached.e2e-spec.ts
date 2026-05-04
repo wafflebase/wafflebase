@@ -9,11 +9,12 @@
  * spread re-introduces double-encoding for `pageSetup`.
  *
  * Gated on `RUN_YORKIE_INTEGRATION_TESTS=true` — distinct from
- * `RUN_DB_INTEGRATION_TESTS` because this test requires both Postgres and
- * a running Yorkie server locally (e.g., from `docker compose up -d`). CI
- * only runs the DB-backed tests, not Yorkie-attached tests, so this gate
- * stays off in CI and on locally for developers who have the full stack
- * running. Opt in via:
+ * `RUN_DB_INTEGRATION_TESTS` because this test requires both Postgres
+ * and a running Yorkie server. Locally: `docker compose up -d` brings
+ * both up. In CI: the `verify-integration` job
+ * (`.github/workflows/ci.yml`) runs Postgres as a service and starts
+ * the Yorkie container as a background step, then sets both gates, so
+ * this test runs there too. Opt in locally via:
  *   RUN_YORKIE_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e
  */
 import { ConfigService } from '@nestjs/config';
