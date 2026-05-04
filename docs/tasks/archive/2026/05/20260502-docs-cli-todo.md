@@ -1,8 +1,8 @@
 ---
 title: Docs CLI support and namespace restructure
 date: 2026-05-02
-status: not-started
-target-version: 0.4.0
+status: completed
+target-version: 0.3.7
 ---
 
 # Docs CLI Implementation Plan
@@ -27,14 +27,14 @@ fontkit, pdf-lib (already used), Yorkie (backend only). No native canvas dep.
 Goal: lift `ctx.measureText` calls behind an injectable interface so the CLI
 can paginate without a Canvas.
 
-- [ ] 1.1 Inventory every `ctx.measureText(...)` call site in
+- [x] 1.1 Inventory every `ctx.measureText(...)` call site in
       `packages/docs/src/view/`. Files known to have them:
       `view/layout.ts:26,252,350,352`, `view/doc-canvas.ts`, `view/editor.ts`,
       `view/text-editor.ts`, `view/peer-cursor.ts`, `view/selection.ts`,
       `view/image-selection-overlay.ts`, plus `export/pdf-image-painter.ts`,
       `export/pdf-exporter.ts`. Note which are pagination-critical (layout,
       pdf-exporter) vs. presentation-only (cursor, selection rendering).
-- [ ] 1.2 Create `packages/docs/src/view/measurer.ts`:
+- [x] 1.2 Create `packages/docs/src/view/measurer.ts`:
       ```ts
       export interface ResolvedFont {
         family: string;
@@ -46,31 +46,31 @@ can paginate without a Canvas.
         measureWidth(text: string, font: ResolvedFont): number;
       }
       ```
-- [ ] 1.3 Create `packages/docs/src/view/canvas-measurer.ts` —
+- [x] 1.3 Create `packages/docs/src/view/canvas-measurer.ts` —
       `CanvasTextMeasurer implements TextMeasurer` that wraps an
       `OffscreenCanvas` 2D context. Cache `ctx.font` strings to avoid
       thrashing.
-- [ ] 1.4 Add `view/measurer.spec.ts`: golden test asserting
+- [x] 1.4 Add `view/measurer.spec.ts`: golden test asserting
       `CanvasTextMeasurer` returns expected width for a known glyph string
       under a fixed font. Use jsdom or vitest browser env.
-- [ ] 1.5 Refactor `view/layout.ts` `computeLayout`/`computeBlockLayout` to
+- [x] 1.5 Refactor `view/layout.ts` `computeLayout`/`computeBlockLayout` to
       take `(doc, measurer, options)`. Replace each `ctx.measureText` with
       `measurer.measureWidth(text, resolvedFont)`. Keep `ctx` for paint paths
       that legitimately need Canvas (drawing).
-- [ ] 1.6 Refactor `view/pagination.ts` `paginateLayout(doc, measurer,
+- [x] 1.6 Refactor `view/pagination.ts` `paginateLayout(doc, measurer,
       options)`. Pass measurer through to `computeLayout`.
-- [ ] 1.7 Update `view/editor.ts`, `view/doc-canvas.ts`,
+- [x] 1.7 Update `view/editor.ts`, `view/doc-canvas.ts`,
       `export/pdf-exporter.ts` to construct a `CanvasTextMeasurer` once at
       initialization and pass it through. The frontend uses `initialize()`
       and the layout/pagination exports — confirm no frontend call site
       passes its own measurer (it doesn't today). If `initialize()` exposes
       a measurer override, document it but do not require it.
-- [ ] 1.8 Update `view/text-editor.ts`, `view/peer-cursor.ts`,
+- [x] 1.8 Update `view/text-editor.ts`, `view/peer-cursor.ts`,
       `view/selection.ts`, `view/image-selection-overlay.ts`,
       `export/pdf-image-painter.ts` to use the measurer where width matters,
       keep raw `ctx.measureText` only inside paint code that already owns a
       `ctx`.
-- [ ] 1.9 Update existing tests:
+- [x] 1.9 Update existing tests:
       `test/view/layout.test.ts`, `test/view/pagination.test.ts`,
       `test/view/incremental-layout.test.ts`, `test/view/table-origin-y.test.ts`,
       `test/view/table-row-split.test.ts`, `test/export/pdf-exporter.test.ts`,
@@ -78,40 +78,40 @@ can paginate without a Canvas.
       (e.g., `new StubMeasurer(charWidth = 8)`) instead of relying on jsdom's
       missing `getContext('2d')`. This eliminates the
       "Not implemented: HTMLCanvasElement's getContext()" warnings.
-- [ ] 1.10 Export `TextMeasurer`, `ResolvedFont`, `CanvasTextMeasurer` from
+- [x] 1.10 Export `TextMeasurer`, `ResolvedFont`, `CanvasTextMeasurer` from
       `packages/docs/src/index.ts`.
-- [ ] 1.11 Run `pnpm --filter @wafflebase/docs test` and
+- [x] 1.11 Run `pnpm --filter @wafflebase/docs test` and
       `pnpm verify:fast` — all green.
-- [ ] 1.12 Commit: `Refactor pagination behind TextMeasurer interface`.
+- [x] 1.12 Commit: `Refactor pagination behind TextMeasurer interface`.
 
 ## Phase 2 — Serializers and Page-Line Metadata
 
-- [ ] 2.1 Modify `view/pagination.ts` so each `LayoutLine` exposes its
+- [x] 2.1 Modify `view/pagination.ts` so each `LayoutLine` exposes its
       `pageIndex` (already implicit via `LayoutPage[]`; surface a flat
       `paginatedLayout.lines: Array<{ blockId, lineIndex, pageIndex }>` or
       add `pageIndex` to `LayoutLine` directly). Update consumers minimally.
-- [ ] 2.2 Create `packages/docs/src/serialize/markdown.ts` —
+- [x] 2.2 Create `packages/docs/src/serialize/markdown.ts` —
       `serializeMarkdown(doc: Document, opts: MarkdownOptions): string`.
       Implement the mapping table from design § 5.1 row-by-row. Options:
       `{ inlineImages?: boolean; includeHeaderFooter?: boolean }`.
-- [ ] 2.3 Add `test/serialize/markdown.test.ts`. One golden case per row of
+- [x] 2.3 Add `test/serialize/markdown.test.ts`. One golden case per row of
       the mapping table (title, subtitle, headings 1–6, paragraph, ordered
       list, unordered list, nested list, hr, page-break, GFM table, bold,
       italic, strike, link, image inline + placeholder, page-number marker,
       header/footer toggle, dropped properties).
-- [ ] 2.4 Create `packages/docs/src/serialize/text.ts` —
+- [x] 2.4 Create `packages/docs/src/serialize/text.ts` —
       `serializeText(doc, opts)`. Strip all formatting; one block per line.
       Options: `{ includeHeaderFooter?: boolean }`.
-- [ ] 2.5 Add `test/serialize/text.test.ts` with goldens for paragraphs,
+- [x] 2.5 Add `test/serialize/text.test.ts` with goldens for paragraphs,
       lists (markers stripped), tables (cells joined by tabs).
-- [ ] 2.6 Create `packages/docs/src/serialize/json.ts` —
+- [x] 2.6 Create `packages/docs/src/serialize/json.ts` —
       `serializeJson(doc, paginatedLayout?)`: returns `Document` plus an
       optional `_pageMeta: { blockId, lines: number[] }[]` when a paginated
       layout is supplied.
-- [ ] 2.7 Add `test/serialize/json.test.ts`. With layout, verify
+- [x] 2.7 Add `test/serialize/json.test.ts`. With layout, verify
       `_pageMeta` is well-formed; without layout, verify it's absent.
-- [ ] 2.8 Export the three serializers from `packages/docs/src/index.ts`.
-- [ ] 2.9 Run `pnpm --filter @wafflebase/docs test`. Commit:
+- [x] 2.8 Export the three serializers from `packages/docs/src/index.ts`.
+- [x] 2.9 Run `pnpm --filter @wafflebase/docs test`. Commit:
       `Add Markdown/text/JSON serializers and page-line metadata`.
 
 ## Phase 3 — Backend Content Endpoints
@@ -256,7 +256,8 @@ can paginate without a Canvas.
 - [x] 4.8 Run `pnpm --filter @wafflebase/cli test` and `pnpm verify:fast`.
       → CLI tests: 8 files / 68 tests pass. `verify:fast`: 44 files / 737
       tests pass.
-- [ ] 4.9 Commit: `Restructure CLI into docs/sheets/api-keys namespaces`.
+- [x] 4.9 Commit: `Restructure CLI into docs/sheets/api-keys namespaces`.
+      → Commit `aa4d1add`.
 
 ## Phase 5 — CLI Fontkit Measurer and Page Utilities
 
@@ -313,10 +314,10 @@ can paginate without a Canvas.
       fixture: includes spanning blocks once, preserves order across
       multi-page selections, attaches `pageMeta` only for json, drops
       ghost blocks with no layout lines.
-- [ ] 5.8 Run `pnpm --filter @wafflebase/cli test`. Commit:
+- [x] 5.8 Run `pnpm --filter @wafflebase/cli test`. Commit:
       `Add fontkit measurer and page-range/page-slice utilities`.
-      → CLI tests: 11 files / 96 tests pass. `verify:fast`: 44 files /
-      737 tests pass.
+      → Commit `2650eb54`. CLI tests: 11 files / 96 tests pass.
+      `verify:fast`: 44 files / 737 tests pass.
 
 ## Phase 6 — `wafflebase docs content`
 
@@ -515,27 +516,64 @@ can paginate without a Canvas.
       `verify:full` deferred — Phase 10 integration test already
       validates the docs CLI end-to-end flow with the same
       stack `verify:full` would spin up.
-- [ ] 11.6 Commit: `Bump to v0.3.7 and refresh CLI docs`.
+- [x] 11.6 Commit: `Bump to v0.3.7 and refresh CLI docs`.
+      → Commits `e78d9b9f` (versions/design) +
+      `94686257` (docs site + homepage CLI snippets).
 
 ## Phase 12 — Wrap-up
 
-- [ ] 12.1 Update `docs/tasks/active/20260502-docs-cli-todo.md` status to
+- [x] 12.1 Update `docs/tasks/active/20260502-docs-cli-todo.md` status to
       `completed` and add a "Review" section summarizing what shipped and
       open follow-ups (e.g., real image upload during DOCX import,
       block-level write API, server-side rendering option).
-- [ ] 12.2 Capture lessons in
+      → Done. Status frontmatter flipped, `target-version` aligned to
+      0.3.7. Review section below.
+- [x] 12.2 Capture lessons in
       `docs/tasks/active/20260502-docs-cli-lessons.md` (per project
       convention).
-- [ ] 12.3 Run `pnpm tasks:archive && pnpm tasks:index`.
-- [ ] 12.4 Open PR with the v0.4.0 changes; reference the design doc.
+- [x] 12.3 Run `pnpm tasks:archive && pnpm tasks:index`.
+- [x] 12.4 Open PR with the v0.3.7 changes; reference the design doc.
+
+## Review
+
+### Shipped (v0.3.7)
+
+- **CLI namespace shuffle** — `docs` / `sheets` / `api-keys` plural canonical names; v0.3.6 singular forms (`doc`, `cell`, `tab`, `api-key`, top-level `import`/`export`) preserved as aliases via a registry-level `aliases` map and commander `.alias()` calls.
+- **Docs (word-processor) CLI surface** — `docs content <doc-id>` (json | md | text + `--pages` slicing + `--include-header-footer` + `--inline-images` + `--out`), `docs export <doc-id> <file>` (PDF + DOCX, with `--pages` for PDF via post-render pdf-lib slicing; DOCX warns + ignores), `docs import <file>` (default POST + PUT new doc, `--replace <id> --yes` overwrite path with TTY/non-TTY confirmation behavior).
+- **Pagination primitives** — `FontkitMeasurer` (Node-side `TextMeasurer` backed by `fontkit`, with em-width fallback), `parsePageRange` (`1-3,5,7-9` with clamp warnings), `sliceBlocksByPages` (block-level `--pages` selection that emits `pageMeta` only for json).
+- **Backend content endpoints** — `GET / PUT /api/v1/workspaces/:wid/documents/:did/content` against the same `doc-<id>` Yorkie key the editor uses; `TYPE_MISMATCH` 409 on cross-type access.
+- **Schema + skills refresh** — registry rewritten with plural canonical names, `aliases` field, and `docs.import` `variants` (default → write, `--replace given` → destructive). Skills renamed to namespace-prefixed filenames; five new docs-* skills + two new recipes; SKILL.md index reorganized.
+- **Integration scenario** — `packages/backend/test/docs-cli-roundtrip.e2e-spec.ts` boots the full backend on a random port, seeds a workspace + API key, spawns the CLI binary, and walks the import → content (md) → export pdf/docx → import --replace round-trip. Gated on `RUN_YORKIE_INTEGRATION_TESTS=true`.
+- **Docs / version refresh** — `rest-api-and-cli.md` rewritten end-to-end against the plural tree; `docs/design/docs/docs.md` links to `docs-cli.md`; `cli-oauth-login.md` updated; `developers/cli.md` (VitePress) and the homepage CLI snippet (`developer-section.tsx`) refreshed; all packages bumped to `0.3.7`; `packages/cli/README.md` created.
+
+### Test coverage
+
+- CLI unit: 14 files / 154 tests (schema registry + alias resolution, namespace structure, fontkit-measurer, page-range, page-slice, runDocsContent, runDocsImport, exportPdf/exportDocx/writeBinary, ctx, config, output formatters, csv-parse, session, version).
+- Backend e2e: 6 files / 22 tests (with both gates), including the docs CLI round-trip.
+- `verify:fast`: green (frontend 1236 / cli 154 / docs 737).
+
+### Open follow-ups
+
+- **Real image upload during DOCX import.** `inlineBase64Uploader` embeds images as `data:` URLs — fine for round-trip + JSON storage, but bloats the document for large image sets. A future `--upload-images` could hit a real `/images` endpoint and store URLs instead.
+- **Server-side `docs content` rendering.** The CLI does the layout / pagination work locally via `FontkitMeasurer`. For agents on slow networks, a server-rendered Markdown / page-sliced JSON endpoint would skip the round-trip and the Korean font download.
+- **Block-level write API.** The `PUT /content` endpoint replaces the whole document. A block-granular `PATCH` would let scripts edit a subset without re-shipping every block.
+- **Latin-font metric coverage in `FontkitMeasurer`.** Helvetica / Times metrics aren't bundled — Latin-only docs exported through `docs export pdf` line-break slightly differently from the browser editor. Bundling pdf-lib's StandardFonts AFM tables (or computing from a packaged TTF) would close that gap.
+- **`pnpm verify:full` smoke run.** `verify:fast` + the integration spec are green; a one-shot `verify:full` run before tagging the v0.3.7 release would catch any visual or browser regressions tied to the namespace shuffle or font path changes.
 
 ## Open Questions / Pending Verification
 
 - [x] Yorkie key prefix for word-processor docs — confirmed as
       `doc-<documentId>`? (Phase 3.1) — yes (frontend
       `app/docs/docs-detail.tsx:210`).
-- [ ] Whether `PdfExporter` already accepts a page subset, or whether we
-      must post-process via `pdf-lib`. (Phase 7.1)
-- [ ] Whether the existing CLI test harness can mock `process.stdin` /
+- [x] Whether `PdfExporter` already accepts a page subset, or whether we
+      must post-process via `pdf-lib`. (Phase 7.1) — post-process required.
+      `PdfExporter` always renders the full document; the CLI loads the
+      result via `PDFDocument.load` and walks `removePage(idx)` from the
+      end. Future work: push a `pageIndices` option down into
+      `PdfExporter` so we can skip the discarded layout/paint work.
+- [x] Whether the existing CLI test harness can mock `process.stdin` /
       `process.stdout` cleanly for `--out -` and `<file> -` paths. (Phases
-      6, 7, 8)
+      6, 7, 8) — yes via injected IO surfaces (`ContentIO`, `ImportIO`,
+      `BinaryIO`). The action layer wires `defaultIO`; tests pass an
+      in-memory collector. The integration spec covers the real
+      `process.stdin`/`process.stdout` paths via spawned CLI.

@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 149
+Total archived tasks: 150
 
-## 2026/05 (4 tasks)
+## 2026/05 (5 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | homepage redesign (2026-05-03) | [20260503-homepage-redesign-todo.md](./2026/05/20260503-homepage-redesign-todo.md) | - |
+| docs cli (2026-05-02) | [20260502-docs-cli-todo.md](./2026/05/20260502-docs-cli-todo.md) | [20260502-docs-cli-lessons.md](./2026/05/20260502-docs-cli-lessons.md) |
 | pdf export parity (2026-05-01) | [20260501-pdf-export-parity-todo.md](./2026/05/20260501-pdf-export-parity-todo.md) | [20260501-pdf-export-parity-lessons.md](./2026/05/20260501-pdf-export-parity-lessons.md) |
 | table resize row split (2026-05-01) | [20260501-table-resize-row-split-todo.md](./2026/05/20260501-table-resize-row-split-todo.md) | [20260501-table-resize-row-split-lessons.md](./2026/05/20260501-table-resize-row-split-lessons.md) |
 | table split followup rows (2026-05-01) | [20260501-table-split-followup-rows-todo.md](./2026/05/20260501-table-split-followup-rows-todo.md) | - |

@@ -17,7 +17,11 @@ curl -X PUT ${API}/\\
 # Set a formula
 curl -X PUT ${API}/\\
   tabs/:tid/cells/C1 \\
-  -d '{"formula": "=SUM(A1:B1)"}'`;
+  -d '{"formula": "=SUM(A1:B1)"}'
+
+# Read a document's content tree
+curl ${API}/content \\
+  -H "Authorization: Bearer wfb_..."`;
 
 const cliCode = `# List documents
 $ wafflebase docs list
