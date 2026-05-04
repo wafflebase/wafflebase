@@ -131,7 +131,7 @@ describe('writeBinary', () => {
     io: BinaryIO;
     stdoutCalls: number;
     stderrLines: string[];
-    files: Record<string, Uint8Array>;
+    files: Record<string, { bytes: Uint8Array; force: boolean }>;
   }
 
   function captureIO(): Capture {
@@ -148,8 +148,8 @@ describe('writeBinary', () => {
       stderr: (line) => {
         cap.stderrLines.push(line);
       },
-      writeFile: (path, bytes) => {
-        cap.files[path] = bytes;
+      writeFile: (path, bytes, force) => {
+        cap.files[path] = { bytes, force };
       },
     };
     return cap;
@@ -162,8 +162,16 @@ describe('writeBinary', () => {
 
     writeBinary(bytes, target, {}, cap.io);
 
-    expect(cap.files[target]).toEqual(bytes);
+    expect(cap.files[target]?.bytes).toEqual(bytes);
+    expect(cap.files[target]?.force).toBe(false);
     expect(cap.stdoutCalls).toBe(0);
+  });
+
+  it('passes force through to the IO writeFile', () => {
+    const cap = captureIO();
+    const target = join(dir, 'out.bin');
+    writeBinary(new Uint8Array([1]), target, { force: true }, cap.io);
+    expect(cap.files[target]?.force).toBe(true);
   });
 
   it('routes "-" to stdout', () => {

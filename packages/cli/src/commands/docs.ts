@@ -218,9 +218,11 @@ export function registerDocsCommand(program: Command) {
     .description('Export a document to PDF or DOCX')
     // NOTE: `--format` reuses the global option for the same reason
     // documented on `docs content` above; we route through `opts.format`
-    // and let `detectExportFormat` distinguish a user-supplied value
-    // from the implicit default by checking against the global default
-    // (`'json'` — no PDF/DOCX user would pass that explicitly).
+    // and use commander's `getOptionValueSourceWithGlobals` to tell a
+    // user-supplied value from the implicit default. That keeps an
+    // explicit `--format json` from silently falling through to the
+    // extension — it now surfaces as the documented "invalid format"
+    // error.
     .option('--pages <range>', 'Page range to export (PDF only)')
     .option('--include-header-footer', 'Include header/footer regions', true)
     .option('--force', 'Overwrite existing output file', false)
@@ -228,11 +230,12 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const local = this.opts<ExportOpts>();
       try {
-        // Treat the global `--format`'s default 'json' as "no override
-        // intended" — extension wins. A real explicit `--format pdf`
-        // / `--format docx` overrides; `--format json` would be invalid
-        // for export and rejected by `detectExportFormat`.
-        const formatOverride = opts.format === 'json' ? undefined : opts.format;
+        // `'cli'` source means the user typed the flag (or its alias)
+        // on the command line; anything else (`'default'`, `'env'`,
+        // `'config'`) is treated as "no override intended" so the
+        // file extension wins.
+        const formatSource = this.getOptionValueSourceWithGlobals('format');
+        const formatOverride = formatSource === 'cli' ? opts.format : undefined;
         const format = detectExportFormat(file, formatOverride);
 
         if (opts.dryRun) {

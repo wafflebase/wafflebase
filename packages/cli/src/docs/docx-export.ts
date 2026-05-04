@@ -1,7 +1,7 @@
 import {
   DocxExporter,
   type Document,
-  type ImageFetcher,
+  type DocxImageFetcher,
 } from '@wafflebase/docs';
 
 export interface CliDocxExportOptions {
@@ -9,8 +9,12 @@ export interface CliDocxExportOptions {
    *  emits the document's `header` / `footer` regions when they exist. */
   includeHeaderFooter?: boolean;
   /** Test seam: provide a stub image fetcher so `exportDocx` doesn't
-   *  reach out to the network for image inlines. */
-  imageFetcher?: ImageFetcher;
+   *  reach out to the network for image inlines. The aliased
+   *  `DocxImageFetcher` (vs. the bare `ImageFetcher`) survives the
+   *  Node-bundle resolution path; the bare alias only exists on the
+   *  browser bundle, so importing it would silently break under any TS
+   *  config that prefers the `node` exports condition. */
+  imageFetcher?: DocxImageFetcher;
 }
 
 /**

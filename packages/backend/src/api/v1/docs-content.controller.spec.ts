@@ -196,5 +196,110 @@ describe('ApiV1DocsContentController', () => {
       expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
       expect(yorkieService.withDocument).not.toHaveBeenCalled();
     });
+
+    /**
+     * The shape guard exists because the Yorkie tree builder
+     * unconditionally dereferences a handful of fields per block
+     * (`id`, `type`, `style`, plus `inlines` on non-table blocks and
+     * `tableData` on tables). Without the guard, any of these missing
+     * surfaces as a 500 with a stack trace instead of a 400 with the
+     * offending block path.
+     */
+    describe('block shape validation', () => {
+      function expectReject(body: unknown, messageRe: RegExp) {
+        return expect(
+          controller.putContent('ws-1', 'd1', body as never),
+        ).rejects.toMatchObject({
+          constructor: BadRequestException,
+          message: expect.stringMatching(messageRe),
+        });
+      }
+
+      it('rejects a block missing id', async () => {
+        await expectReject(
+          { blocks: [{ type: 'paragraph', style: {}, inlines: [] }] },
+          /blocks\[0\].*'id'/,
+        );
+      });
+
+      it('rejects a block with empty id', async () => {
+        await expectReject(
+          { blocks: [{ id: '', type: 'paragraph', style: {}, inlines: [] }] },
+          /blocks\[0\].*'id'/,
+        );
+      });
+
+      it('rejects a block missing style', async () => {
+        await expectReject(
+          { blocks: [{ id: 'b1', type: 'paragraph', inlines: [] }] },
+          /blocks\[0\].*'style'/,
+        );
+      });
+
+      it("rejects a non-table block missing inlines", async () => {
+        await expectReject(
+          { blocks: [{ id: 'b1', type: 'paragraph', style: {} }] },
+          /blocks\[0\].*'inlines'/,
+        );
+      });
+
+      it("rejects type:'table' missing tableData", async () => {
+        await expectReject(
+          { blocks: [{ id: 'b1', type: 'table', style: {} }] },
+          /blocks\[0\].*'tableData'.*required/,
+        );
+      });
+
+      it("rejects type:'table' with non-array tableData.rows", async () => {
+        await expectReject(
+          {
+            blocks: [
+              {
+                id: 'b1',
+                type: 'table',
+                style: {},
+                tableData: { columnWidths: [100, 100], rows: 'not-an-array' },
+              },
+            ],
+          },
+          /blocks\[0\].*tableData\.rows/,
+        );
+      });
+
+      it('rejects malformed nested block inside a table cell', async () => {
+        await expectReject(
+          {
+            blocks: [
+              {
+                id: 'b1',
+                type: 'table',
+                style: {},
+                tableData: {
+                  columnWidths: [100],
+                  rows: [
+                    {
+                      cells: [
+                        { blocks: [{ id: 'inner', type: 'paragraph' /* no style */ }] },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          /blocks\[0\]\.tableData\.rows\[0\]\.cells\[0\]\.blocks\[0\].*'style'/,
+        );
+      });
+
+      it('skips Yorkie work entirely when validation fails', async () => {
+        await expectReject(
+          { blocks: [{ id: 'b1', type: 'paragraph', style: {} }] },
+          /'inlines'/,
+        ).then(() => {
+          expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
+          expect(yorkieService.withDocument).not.toHaveBeenCalled();
+        });
+      });
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FontkitMeasurer } from '../src/docs/fontkit-measurer.js';
@@ -86,5 +87,25 @@ describe('FontkitMeasurer', () => {
     expect(m.has('NotoSansKR', 'normal', 'normal')).toBe(true);
     expect(m.has('NotoSansKR', 'bold', 'italic')).toBe(true);
     expect(m.has('NotoSansKR', 'normal', 'italic')).toBe(false);
+  });
+
+  it('rejects TrueType collections (.ttc) — caller must split first', () => {
+    // Synthesize a minimal valid `.ttc` header so fontkit's `create`
+    // returns a `FontCollection` (the branch we want to exercise) rather
+    // than crashing on malformed bytes. TTC layout: 4-byte `'ttcf'`
+    // magic, 4-byte version (0x00010000), 4-byte numFonts (1), then one
+    // 4-byte offset pointing at a real embedded TTF — we reuse the
+    // bundled test font as the inner table data.
+    const header = Buffer.alloc(16);
+    header.write('ttcf', 0, 'ascii');
+    header.writeUInt32BE(0x00010000, 4); // version 1.0
+    header.writeUInt32BE(1, 8); // numFonts
+    header.writeUInt32BE(16, 12); // offset = sizeof(header)
+    const ttc = Buffer.concat([header, FONT_BYTES]);
+
+    const m = new FontkitMeasurer();
+    expect(() => m.register('NotoSansKR', 'normal', 'normal', ttc)).toThrow(
+      /TrueType collections \(\.ttc\)/,
+    );
   });
 });

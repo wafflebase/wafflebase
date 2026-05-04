@@ -137,3 +137,40 @@ updating to keep working — that's a 0.3.7 patch, not a 0.4.0 minor.
 All `target-version` frontmatter, the `Breaking changes` table
 header, the design notes, the README, and the demo footer were
 re-aligned to 0.3.7 in a single follow-up.
+
+## `outputError` must propagate the `code` field on Error subclasses
+
+**Rule.** When a typed error class declares `readonly code = '…'` (e.g.,
+`InvalidDocxError`), the central error formatter must surface that
+`code` to stderr — not flatten every failure to `'ERROR'`. Skill files
+document the codes so AI agents can branch on them; if the formatter
+swallows them, the documented contract silently breaks.
+
+**Incident.** Code review on PR #183 caught that `outputError` in
+`packages/cli/src/output/formatter.ts` always emitted
+`{ error: { code: 'ERROR', message } }`, even when the thrown value
+was an `InvalidDocxError`. The skill at `skills/docs-import-docx.md`
+had told agents to look for `INVALID_DOCX`. Fix: inspect a string
+`code` field on `Error` subclasses and emit it; fall back to `ERROR`
+otherwise. Add unit tests for both branches plus the quiet path so a
+future refactor can't undo this.
+
+## Express body limit defaults bite any API that accepts large JSON
+
+**Rule.** NestJS over Express defaults to a 100kB JSON body. Any
+endpoint that accepts inline-base64 images, large CRDT documents, or
+batch operations needs an explicit
+`app.use(bodyParser.json({ limit: '<X>mb' }))` at bootstrap. The
+default fails *silently* in many configurations — the request is
+rejected with a generic 413/400 before any controller is invoked, so
+the missing limit doesn't show up in unit tests, only in real-world
+use.
+
+**Incident.** Code review flagged that `PUT
+/api/v1/.../documents/:id/content` would 413 on real-world docx
+imports because `inlineBase64Uploader` embeds every image as a
+`data:` URL inside the request body. The integration fixture is 3.8kB
+so the e2e never tripped this. Fix: add `bodyParser.json({ limit })`
+in `packages/backend/src/main.ts` defaulting to `'25mb'`, with a
+`BACKEND_JSON_BODY_LIMIT` env var for installs that need more
+headroom.

@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatJson } from '../src/output/json.js';
 import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
-import { format } from '../src/output/formatter.js';
+import { format, outputError } from '../src/output/formatter.js';
+import { InvalidDocxError } from '../src/docs/docx-import.js';
 
 describe('formatJson', () => {
   it('pretty-prints JSON', () => {
@@ -84,5 +85,58 @@ describe('format dispatcher', () => {
 
   it('dispatches to csv', () => {
     expect(format(data, 'csv')).toContain('a\n1');
+  });
+});
+
+describe('outputError', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  const originalExitCode = process.exitCode;
+
+  beforeEach(() => {
+    stderrSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {
+        /* swallow */
+      });
+    process.exitCode = 0;
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+    process.exitCode = originalExitCode;
+  });
+
+  function getEmittedBody(): { error: { code: string; message: string } } {
+    expect(stderrSpy).toHaveBeenCalledOnce();
+    const raw = String(stderrSpy.mock.calls[0]?.[0]);
+    return JSON.parse(raw) as { error: { code: string; message: string } };
+  }
+
+  it('defaults to code:"ERROR" for plain Error instances', () => {
+    outputError(new Error('boom'), false);
+    expect(getEmittedBody().error.code).toBe('ERROR');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('preserves a structured `code` field on Error subclasses', () => {
+    outputError(new InvalidDocxError('bad zip'), false);
+    const body = getEmittedBody();
+    expect(body.error.code).toBe('INVALID_DOCX');
+    expect(body.error.message).toBe('bad zip');
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('falls back to "ERROR" when the code field is non-string', () => {
+    class NumericCodeError extends Error {
+      readonly code = 42;
+    }
+    outputError(new NumericCodeError('numeric'), false);
+    expect(getEmittedBody().error.code).toBe('ERROR');
+  });
+
+  it('honors quiet by exiting 1 without emitting stderr', () => {
+    outputError(new InvalidDocxError('bad zip'), true);
+    expect(stderrSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
   });
 });

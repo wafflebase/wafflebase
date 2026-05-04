@@ -1,4 +1,4 @@
-import { writeFileSync, existsSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 
 export interface WriteBinaryOptions {
   /** Allow overwriting an existing file. Without this flag, `writeBinary`
@@ -18,6 +18,12 @@ export interface WriteBinaryOptions {
  * The function is split out from the command action so binary output
  * paths can be unit-tested without spawning the CLI binary; the action
  * supplies real `process.stdout.write` and the IO surface forwards it.
+ *
+ * The default `writeFile` honors `force` via the `'w'` (overwrite) /
+ * `'wx'` (exclusive create) `fs` flags, folding the existence check
+ * and the write into a single syscall — avoids a TOCTOU window where
+ * something else could create the file between the check and the
+ * write.
  */
 export function writeBinary(
   bytes: Uint8Array,
@@ -29,19 +35,20 @@ export function writeBinary(
     io.stdout(bytes);
     return;
   }
-  if (existsSync(target) && !opts.force) {
-    throw new Error(
-      `Refusing to overwrite "${target}". Pass --force to allow overwrite.`,
-    );
-  }
-  io.writeFile(target, bytes);
+  io.writeFile(target, bytes, opts.force === true);
   if (!opts.quiet) io.stderr(`Wrote ${bytes.length} bytes to ${target}`);
 }
 
 export interface BinaryIO {
   stdout: (bytes: Uint8Array) => void;
   stderr: (line: string) => void;
-  writeFile: (path: string, bytes: Uint8Array) => void;
+  /**
+   * Write `bytes` to `path`. When `force` is `false`, the
+   * implementation MUST refuse to overwrite an existing file and
+   * throw — the production `defaultBinaryIO` does this via the
+   * exclusive-create `'wx'` flag.
+   */
+  writeFile: (path: string, bytes: Uint8Array, force: boolean) => void;
 }
 
 export const defaultBinaryIO: BinaryIO = {
@@ -51,7 +58,20 @@ export const defaultBinaryIO: BinaryIO = {
   stderr: (line) => {
     console.error(line);
   },
-  writeFile: (path, bytes) => {
-    writeFileSync(path, bytes);
+  writeFile: (path, bytes, force) => {
+    try {
+      writeFileSync(path, bytes, { flag: force ? 'w' : 'wx' });
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        'code' in err &&
+        (err as { code?: unknown }).code === 'EEXIST'
+      ) {
+        throw new Error(
+          `Refusing to overwrite "${path}". Pass --force to allow overwrite.`,
+        );
+      }
+      throw err;
+    }
   },
 };

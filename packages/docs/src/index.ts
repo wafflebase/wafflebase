@@ -128,7 +128,14 @@ export type { BlockPageMeta, SerializedJson } from './serialize/json.js';
 export { DocxImporter } from './import/docx-importer.js';
 export type { ImageUploader } from './import/docx-importer.js';
 export { DocxExporter } from './export/docx-exporter.js';
-export type { ImageFetcher } from './export/docx-exporter.js';
+// `ImageFetcher` is the historical name; `DocxImageFetcher` is the
+// disambiguated alias that survives both the browser entry and the
+// `node` exports condition. CLI / backend code should prefer the latter
+// to avoid colliding with `pdf-image-painter`'s `ImageFetcher`.
+export type {
+  ImageFetcher,
+  ImageFetcher as DocxImageFetcher,
+} from './export/docx-exporter.js';
 
 // Export (PDF)
 export { PdfExporter } from './export/pdf-exporter.js';
