@@ -1,23 +1,33 @@
-// Backend-safe entry point for `@wafflebase/docs`.
+// DOM-free public surface for `@wafflebase/docs`.
 //
-// Re-exports ONLY the data-model layer (types + normalize helpers +
-// defaults) so consumers running outside a browser (NestJS backend,
-// CLI, future SSR) don't transitively type-check or bundle the
-// DOM-dependent view/export/import code.
+// Exports the data-model layer (types + normalize helpers + defaults)
+// AND the DOM-free slices of `view/`, `serialize/`, `export/`, and
+// `import/` — pagination, layout, JSON/Markdown/text serialization,
+// PDF/DOCX export, and DOCX import. Node consumers (NestJS backend,
+// CLI, future SSR) reach all of this without pulling in Canvas,
+// `OffscreenCanvas`, or any other DOM dependency. Modules that *do*
+// touch the DOM (canvas-measurer, doc-canvas, peer-cursor, etc.)
+// stay behind the browser entry at `src/index.ts`.
 //
 // Wired in two places:
 //   - `packages/backend/tsconfig.json` paths map `@wafflebase/docs`
-//     directly to this file, so backend tsc resolves the bare specifier
-//     here and never sees `view/`, `export/`, `import/`, `serialize/`,
-//     or `model/document.ts`. This collapses the backend type-check
-//     graph from ~49 docs files down to just `node.ts` + `model/types.ts`.
+//     directly to this file. Backend tsc therefore type-checks the
+//     transitive imports of every symbol re-exported below
+//     (currently spans `view/{measurer,layout,pagination}`,
+//     `serialize/{json,markdown,text}`,
+//     `export/{pdf-exporter,pdf-fonts,docx-exporter,pdf-image-painter}`,
+//     `import/docx-importer`, and their model dependencies) — but it
+//     still does NOT see the DOM-only modules in `src/index.ts`.
 //   - `packages/docs/package.json` exposes this file as a `./node`
 //     subpath (`@wafflebase/docs/node`) for downstream consumers that
 //     want the same DOM-free surface via Node module resolution
 //     (requires `moduleResolution: node16/nodenext/bundler`).
 //
-// If a backend caller needs a new symbol, add it here AFTER confirming
-// the symbol's source module has no DOM/Canvas dependency.
+// **If a backend caller needs a new symbol, add it here ONLY AFTER
+// confirming the symbol's source module — and its transitive
+// imports — have no DOM/Canvas dependency.** A regression here will
+// only surface when a backend test imports something DOM-shaped at
+// runtime, not at build time.
 
 export type {
   Document,

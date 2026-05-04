@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Document, ImageUploader } from '@wafflebase/docs';
-import { importDocx } from './docx-import.js';
+import { importDocx, InvalidDocxError } from './docx-import.js';
 
 /**
  * Minimal HTTP surface `runDocsImport` needs from the CLI's
@@ -143,7 +143,9 @@ export async function runDocsImport(
       }
     }
     const buf = await io.readBytes(file);
-    const doc = await importDocx(buf, { imageUploader });
+    const parsed = await safeImportDocx(buf, imageUploader, io);
+    if (parsed === null) return { exitCode: 1 };
+    const doc = parsed;
     if (dryRun) {
       io.stdout(
         JSON.stringify(
@@ -165,7 +167,9 @@ export async function runDocsImport(
 
   // Default flow: POST + PUT.
   const buf = await io.readBytes(file);
-  const doc = await importDocx(buf, { imageUploader });
+  const parsedNew = await safeImportDocx(buf, imageUploader, io);
+  if (parsedNew === null) return { exitCode: 1 };
+  const doc = parsedNew;
   if (dryRun) {
     io.stdout(
       JSON.stringify(
@@ -213,4 +217,35 @@ export async function runDocsImport(
 function defaultTitleFor(file: string): string {
   if (file === '-') return 'Untitled';
   return basename(file, extname(file)) || 'Untitled';
+}
+
+/**
+ * Run `importDocx` and turn `InvalidDocxError` into a structured
+ * stderr body + `null` return so callers can short-circuit with
+ * `exitCode: 1` while keeping the rest of the error envelope
+ * (`HTTP_ERROR`, `INVALID_RESPONSE`, etc.) consistent. The action's
+ * `outputError` would technically also surface the error code today
+ * (post-B1), but catching here keeps the contract local to this file
+ * and matches every other failure path in `runDocsImport`.
+ */
+async function safeImportDocx(
+  buf: Uint8Array,
+  imageUploader: ImageUploader | undefined,
+  io: ImportIO,
+): Promise<Document | null> {
+  try {
+    return await importDocx(buf, { imageUploader });
+  } catch (e) {
+    if (e instanceof InvalidDocxError) {
+      io.stderr(
+        JSON.stringify(
+          { error: { code: e.code, message: e.message } },
+          null,
+          2,
+        ),
+      );
+      return null;
+    }
+    throw e;
+  }
 }

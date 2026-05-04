@@ -225,7 +225,11 @@ describe('runDocsContent --out', () => {
     runDocsContent({ doc, format: 'json', out: target }, cap.io);
 
     expect(cap.stdout).toBe('');
-    expect(cap.files[target]).toContain('"id": "b1"');
+    // Parse the file contents instead of regexing on whitespace —
+    // a future change to compact JSON output (or the indent step)
+    // would silently slip past a `toContain('"id": "b1"')` check.
+    const written = JSON.parse(cap.files[target] as string);
+    expect(written.blocks?.[0]?.id).toBe('b1');
   });
 
   it('reports the write to stderr unless quiet', () => {

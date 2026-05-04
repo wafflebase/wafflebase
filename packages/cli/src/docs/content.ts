@@ -17,6 +17,11 @@ export type ContentFormat = (typeof VALID_CONTENT_FORMATS)[number];
 export const LOSSY_NOTICE =
   'Lossy conversion: see docs-cli design for the exact mapping';
 
+export const PAGES_FONT_WARNING =
+  'Note: --pages uses approximate pagination (no document fonts loaded). ' +
+  'Page boundaries may drift on CJK or font-heavy documents — ' +
+  'use `docs export pdf --pages` for exact subsets.';
+
 export function parseContentFormat(value: string): ContentFormat {
   if (!VALID_CONTENT_FORMATS.includes(value as ContentFormat)) {
     throw new Error(
@@ -91,6 +96,17 @@ export function runDocsContent(args: RunContentArgs, io: ContentIO = defaultIO):
 
   if (pages) {
     const measurer = new FontkitMeasurer();
+    // `docs content --pages` paginates with a font-less measurer, so
+    // every glyph falls back to the 0.5em estimate. That's accurate
+    // enough for ASCII-heavy docs but underestimates CJK by ~50% and
+    // mis-sizes narrow glyphs (`i`, `:`, `.`) — page boundaries can
+    // drift by ±1 page on real documents. `docs export pdf` doesn't
+    // suffer from this because PdfPainter does its own measurement at
+    // paint time. Pre-loading document fonts here is tracked as a
+    // follow-up; until then we surface the limitation on stderr.
+    if (!quiet) {
+      io.stderr(PAGES_FONT_WARNING);
+    }
     const fullLayout = paginateForCli(working, measurer);
     const range = parsePageRange(pages, fullLayout.pages.length);
     if (!quiet) {

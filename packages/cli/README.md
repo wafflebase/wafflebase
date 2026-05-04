@@ -102,11 +102,15 @@ wafflebase schema cell.get          # → sheets.cells.get
 ## Output Conventions
 
 - **Text results** (json/md/text): stdout by default; `--out <file>` to
-  redirect; `-` writes to stdout explicitly.
+  redirect; `-` writes to stdout explicitly. `--force` is required to
+  overwrite an existing `--out` target.
 - **Binary results** (pdf/docx): positional `<file>`; `-` writes to stdout.
   `--force` is required to overwrite an existing target.
 - **Errors**: a single JSON line on stderr —
-  `{"error":{"code":"…","message":"…"}}`.
+  `{"error":{"code":"…","message":"…"}}`. Typed errors (e.g.,
+  `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
+  command-specific `code` agents can branch on; everything else
+  reports `"ERROR"`.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
   mismatch), `2` system error (network, auth).
 

@@ -51,15 +51,16 @@ describe('CLI namespace structure', () => {
 
   it('sheets contains tabs/cells/import/export with singular aliases', () => {
     const program = buildProgram();
-    const sheets = findChild(program, 'sheets')!;
-    const tabs = findChild(sheets, 'tabs');
-    const cells = findChild(sheets, 'cells');
+    const sheets = findChild(program, 'sheets');
+    expect(sheets).toBeDefined();
+    const tabs = findChild(sheets!, 'tabs');
+    const cells = findChild(sheets!, 'cells');
     expect(tabs?.name()).toBe('tabs');
     expect(tabs?.aliases()).toContain('tab');
     expect(cells?.name()).toBe('cells');
     expect(cells?.aliases()).toContain('cell');
-    expect(findChild(sheets, 'import')?.name()).toBe('import');
-    expect(findChild(sheets, 'export')?.name()).toBe('export');
+    expect(findChild(sheets!, 'import')?.name()).toBe('import');
+    expect(findChild(sheets!, 'export')?.name()).toBe('export');
   });
 
   it('removes top-level tab/cell/import/export commands', () => {
@@ -73,18 +74,22 @@ describe('CLI namespace structure', () => {
 
   it('docs create exposes --type option defaulting to sheet', () => {
     const program = buildProgram();
-    const docs = findChild(program, 'docs')!;
-    const create = findChild(docs, 'create')!;
-    const typeOpt = create.options.find((o) => o.long === '--type');
+    const docs = findChild(program, 'docs');
+    expect(docs).toBeDefined();
+    const create = findChild(docs!, 'create');
+    expect(create).toBeDefined();
+    const typeOpt = create!.options.find((o) => o.long === '--type');
     expect(typeOpt).toBeDefined();
     expect(typeOpt?.defaultValue).toBe('sheet');
   });
 
   it('docs list exposes --type option (no default)', () => {
     const program = buildProgram();
-    const docs = findChild(program, 'docs')!;
-    const list = findChild(docs, 'list')!;
-    const typeOpt = list.options.find((o) => o.long === '--type');
+    const docs = findChild(program, 'docs');
+    expect(docs).toBeDefined();
+    const list = findChild(docs!, 'list');
+    expect(list).toBeDefined();
+    const typeOpt = list!.options.find((o) => o.long === '--type');
     expect(typeOpt).toBeDefined();
     expect(typeOpt?.defaultValue).toBeUndefined();
   });

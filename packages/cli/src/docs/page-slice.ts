@@ -62,6 +62,12 @@ export function sliceBlocksByPages(
   // Group all line pageIndices by blockIndex so we can both decide
   // inclusion and reuse the lookup for `pageMeta`. Walking pages in
   // order keeps the per-block `lines` list in document order.
+  //
+  // Duplicates are intentional: `BlockPageMeta.lines` is contractually
+  // "one entry per layout line, in order" — a block with three lines
+  // all on page 1 yields `[1, 1, 1]`. See `serialize/json.ts` for the
+  // canonical contract; the consumer is meant to count entries to
+  // recover the per-block line count, not treat the array as a set.
   const linesByBlock = new Map<number, number[]>();
   for (const page of layout.pages) {
     for (const pl of page.lines) {

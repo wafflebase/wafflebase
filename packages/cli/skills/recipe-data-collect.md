@@ -45,7 +45,10 @@ jq -s '.[0] + .[1]' /tmp/doc1.json /tmp/doc2.json > /tmp/combined.json
 
 ```bash
 DOC_ID=$(wafflebase docs create "Combined Report" --format json | jq -r '.id')
-# Convert combined data to batch format and write
+# Reshape the combined cell array into the batch endpoint's
+# `{ ref → cell }` map, then write.
+jq 'map({(.ref): {value: .value, formula: .formula}}) | add' \
+  /tmp/combined.json > /tmp/batch.json
 wafflebase sheets cells batch "$DOC_ID" --data "$(cat /tmp/batch.json)"
 ```
 

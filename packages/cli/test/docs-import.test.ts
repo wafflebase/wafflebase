@@ -206,15 +206,36 @@ describe('runDocsImport (new doc)', () => {
     expect(client.createCalls[0].title).toBe('Untitled');
   });
 
-  it('returns INVALID_DOCX exit when the file is not a valid docx', async () => {
+  it('returns exit 1 + INVALID_DOCX body when the file is not a valid docx', async () => {
     const cap = captureIO({ bytes: new Uint8Array([1, 2, 3]), isTTY: false });
     const client = makeClient({});
-    await expect(
-      runDocsImport({ file: 'broken.docx' }, client, cap.io),
-    ).rejects.toBeInstanceOf(InvalidDocxError);
+    const result = await runDocsImport({ file: 'broken.docx' }, client, cap.io);
+    expect(result.exitCode).toBe(1);
     // No requests should have fired
     expect(client.createCalls).toEqual([]);
     expect(client.putCalls).toEqual([]);
+    // The error envelope must carry the structured `INVALID_DOCX`
+    // code so agents can branch on the cause.
+    const body = JSON.parse(cap.stderrLines[0]) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe('INVALID_DOCX');
+  });
+
+  it('returns exit 1 + INVALID_DOCX body for --replace path too', async () => {
+    const cap = captureIO({ bytes: new Uint8Array([1, 2, 3]), isTTY: false });
+    const client = makeClient({});
+    const result = await runDocsImport(
+      { file: 'broken.docx', replace: 'doc-existing', yes: true },
+      client,
+      cap.io,
+    );
+    expect(result.exitCode).toBe(1);
+    expect(client.putCalls).toEqual([]);
+    const body = JSON.parse(cap.stderrLines[0]) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe('INVALID_DOCX');
   });
 
   it('exits 1 when create fails and skips PUT', async () => {
