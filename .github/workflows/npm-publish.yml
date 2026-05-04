@@ -3,6 +3,12 @@ name: Publish CLI to npm
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or commit to publish (e.g. v0.3.7)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - uses: pnpm/action-setup@v4
 
@@ -26,8 +34,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build CLI
-        run: pnpm --filter @wafflebase/cli build
+      - name: Build CLI (and workspace deps)
+        run: pnpm --filter @wafflebase/cli... build
 
       - name: Run CLI tests
         run: pnpm --filter @wafflebase/cli test
