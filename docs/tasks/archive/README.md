@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 154
+Total archived tasks: 155
 
-## 2026/05 (9 tasks)
+## 2026/05 (10 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release 0.3.7 (2026-05-04) | [20260504-release-0.3.7-todo.md](./2026/05/20260504-release-0.3.7-todo.md) | - |
 | cmd arrow axis extension (2026-05-03) | [20260503-cmd-arrow-axis-extension-todo.md](./2026/05/20260503-cmd-arrow-axis-extension-todo.md) | [20260503-cmd-arrow-axis-extension-lessons.md](./2026/05/20260503-cmd-arrow-axis-extension-lessons.md) |
 | docs paragraph bg selection (2026-05-03) | [20260503-docs-paragraph-bg-selection-todo.md](./2026/05/20260503-docs-paragraph-bg-selection-todo.md) | - |
 | homepage redesign (2026-05-03) | [20260503-homepage-redesign-todo.md](./2026/05/20260503-homepage-redesign-todo.md) | - |
