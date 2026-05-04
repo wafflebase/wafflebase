@@ -3,8 +3,11 @@ import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 
-export function registerCellCommand(program: Command) {
-  const cell = program.command('cell').description('Read and write cells');
+export function registerCellsCommand(parent: Command) {
+  const cell = parent
+    .command('cells')
+    .alias('cell')
+    .description('Read and write cells');
 
   cell
     .command('get <doc-id> [range]')

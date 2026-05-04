@@ -1,3 +1,4 @@
+import type { Document } from '@wafflebase/docs';
 import type { CliConfig } from '../config/config.js';
 import {
   loadSession,
@@ -133,8 +134,10 @@ export class HttpClient {
   listDocuments() {
     return this.request<unknown[]>('GET', '/documents');
   }
-  createDocument(title: string) {
-    return this.request('POST', '/documents', { title });
+  createDocument(title: string, type?: 'doc' | 'sheet') {
+    const body: { title: string; type?: 'doc' | 'sheet' } = { title };
+    if (type) body.type = type;
+    return this.request('POST', '/documents', body);
   }
   getDocument(id: string) {
     return this.request('GET', `/documents/${id}`);
@@ -144,6 +147,21 @@ export class HttpClient {
   }
   deleteDocument(id: string) {
     return this.request('DELETE', `/documents/${id}`);
+  }
+
+  // Docs (word-processor) content
+  getDocContent(docId: string) {
+    return this.request<Document>(
+      'GET',
+      `/documents/${docId}/content`,
+    );
+  }
+  putDocContent(docId: string, doc: Document) {
+    return this.request<Document>(
+      'PUT',
+      `/documents/${docId}/content`,
+      doc,
+    );
   }
 
   // Tabs

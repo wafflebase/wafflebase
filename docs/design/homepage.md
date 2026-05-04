@@ -133,7 +133,7 @@ Section frame: `--wb-paper` rounded card (18px), syrup-deep drop shadow.
 - **Theme sync** — both iframes receive `{ type: 'theme-change', theme }` via
   `postMessage` whenever the homepage theme changes; the shared
   `ThemeProvider` inside the iframe applies the change without reload.
-- **Footer** — tab-aware mono hint text on the left, `wafflebase@0.3.6` on
+- **Footer** — tab-aware mono hint text on the left, `wafflebase@0.3.7` on
   the right.
 
 #### FeaturesSection

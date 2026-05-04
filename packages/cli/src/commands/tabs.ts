@@ -2,8 +2,8 @@ import { Command } from 'commander';
 import { getGlobalOpts, getClient } from './root.js';
 import { output, outputError } from '../output/formatter.js';
 
-export function registerTabCommand(program: Command) {
-  const tab = program.command('tab').description('Manage tabs');
+export function registerTabsCommand(parent: Command) {
+  const tab = parent.command('tabs').alias('tab').description('Manage tabs');
 
   tab
     .command('list <doc-id>')

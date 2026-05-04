@@ -157,7 +157,7 @@ export function DemoSection() {
                 ? "Tip: double-click a cell to edit. Totals recompute on the same engine."
                 : "Tip: edit any paragraph or heading — changes sync in real time."}
             </span>
-            <span className="shrink-0">wafflebase@0.3.6</span>
+            <span className="shrink-0">wafflebase@0.3.7</span>
           </div>
         </div>
       </div>

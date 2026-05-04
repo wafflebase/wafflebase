@@ -200,8 +200,8 @@ API keys provide a session-independent way to authenticate. Two paths exist:
 
 **Path A: CLI (developers)**
 ```bash
-wafflebase login                     # OAuth → JWT session
-wafflebase api-key create "CI Key"   # create key using JWT
+wafflebase login                      # OAuth → JWT session
+wafflebase api-keys create "CI Key"   # create key using JWT
 # Use key in CI: WAFFLEBASE_API_KEY=wfb_xxx
 ```
 
@@ -210,7 +210,7 @@ wafflebase api-key create "CI Key"   # create key using JWT
 1. Sign in at the web app (GitHub OAuth)
 2. Navigate to Workspace Settings (/w/:workspaceId/settings)
 3. API Keys section → Create → copy the one-time key
-4. Use in CLI: wafflebase --api-key wfb_xxx doc list
+4. Use in CLI: wafflebase --api-key wfb_xxx docs list
    Or in config.yaml / environment variable
 ```
 

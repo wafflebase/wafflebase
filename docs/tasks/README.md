@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| docs cli (2026-05-02) | [20260502-docs-cli-todo.md](./active/20260502-docs-cli-todo.md) | - |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
 | table cell resize page scroll (2026-05-01) | [20260501-table-cell-resize-page-scroll-todo.md](./active/20260501-table-cell-resize-page-scroll-todo.md) | - |
 | docx table style followup (2026-04-12) | [20260412-docx-table-style-followup-todo.md](./active/20260412-docx-table-style-followup-todo.md) | - |
@@ -26,7 +25,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 152
+- Archived task count: 154
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs cli (2026-05-02)
+Latest active task: pdf export followup (2026-05-01)

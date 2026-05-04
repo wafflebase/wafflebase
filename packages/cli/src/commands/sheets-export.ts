@@ -20,8 +20,8 @@ function detectFormat(file: string, formatFlag?: string): 'csv' | 'json' {
   return 'csv';
 }
 
-export function registerExportCommand(program: Command) {
-  program
+export function registerSheetsExportCommand(parent: Command) {
+  parent
     .command('export <doc-id> <file>')
     .description('Export tab data to CSV/JSON')
     .option('--tab <tab-id>', 'Source tab', 'tab-1')

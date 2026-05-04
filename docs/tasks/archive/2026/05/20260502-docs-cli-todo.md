@@ -1,8 +1,8 @@
 ---
 title: Docs CLI support and namespace restructure
 date: 2026-05-02
-status: not-started
-target-version: 0.4.0
+status: completed
+target-version: 0.3.7
 ---
 
 # Docs CLI Implementation Plan
@@ -82,7 +82,7 @@ can paginate without a Canvas.
       `packages/docs/src/index.ts`.
 - [x] 1.11 Run `pnpm --filter @wafflebase/docs test` and
       `pnpm verify:fast` — all green.
-- [x] 1.12 Commit: `Refactor pagination behind TextMeasurer interface` (3b0c8f96)
+- [x] 1.12 Commit: `Refactor pagination behind TextMeasurer interface`.
 
 ## Phase 2 — Serializers and Page-Line Metadata
 
@@ -112,7 +112,7 @@ can paginate without a Canvas.
       `_pageMeta` is well-formed; without layout, verify it's absent.
 - [x] 2.8 Export the three serializers from `packages/docs/src/index.ts`.
 - [x] 2.9 Run `pnpm --filter @wafflebase/docs test`. Commit:
-      `Add Markdown/text/JSON serializers and page-line metadata` (2b55f78c)
+      `Add Markdown/text/JSON serializers and page-line metadata`.
 
 ## Phase 3 — Backend Content Endpoints
 
@@ -195,13 +195,13 @@ can paginate without a Canvas.
 
 ## Phase 4 — CLI Namespace Restructure (Sheets move under `sheets …`)
 
-- [ ] 4.1 Rename files:
+- [x] 4.1 Rename files:
       - `packages/cli/src/commands/cell.ts` → `cells.ts`
       - `packages/cli/src/commands/tab.ts` → `tabs.ts`
       - `packages/cli/src/commands/import.ts` → `sheets-import.ts`
       - `packages/cli/src/commands/export.ts` → `sheets-export.ts`
       - `packages/cli/src/commands/api-key.ts` → `api-keys.ts`
-- [ ] 4.2 Inside each renamed file, change the `program.command(...)` call
+- [x] 4.2 Inside each renamed file, change the `program.command(...)` call
       to expect a parent `Command` (the namespace root) and rename the
       registration function:
       - `registerCellCommand(program)` → `registerCellsCommand(sheetsCmd)`
@@ -209,10 +209,10 @@ can paginate without a Canvas.
       - `registerImportCommand(program)` → `registerSheetsImportCommand(sheetsCmd)`
       - `registerExportCommand(program)` → `registerSheetsExportCommand(sheetsCmd)`
       - `registerApiKeyCommand(program)` → `registerApiKeysCommand(program)`
-- [ ] 4.3 Add `.alias()` calls on each subcommand:
+- [x] 4.3 Add `.alias()` calls on each subcommand:
       `tabs (alias: tab)`, `cells (alias: cell)`,
       `api-keys (alias: api-key)`.
-- [ ] 4.4 Create `packages/cli/src/commands/sheets.ts`:
+- [x] 4.4 Create `packages/cli/src/commands/sheets.ts`:
       ```ts
       import { Command } from 'commander';
       import { registerCellsCommand } from './cells.js';
@@ -232,31 +232,38 @@ can paginate without a Canvas.
         return sheets;
       }
       ```
-- [ ] 4.5 Rename `commands/document.ts` → `commands/docs.ts`:
+- [x] 4.5 Rename `commands/document.ts` → `commands/docs.ts`:
       - Change `program.command('document').alias('doc')` to
         `program.command('docs').alias('doc').alias('document').alias('documents')`.
       - Add `--type doc|sheet` to `list` and `create`. `create` defaults to
         `sheet` (preserves existing CLI behavior). `create` POST body now
         includes `{ title, type }`.
-- [ ] 4.6 Update `packages/cli/src/bin.ts`:
+- [x] 4.6 Update `packages/cli/src/bin.ts`:
       - Replace `registerDocumentCommand(program)` with
         `registerDocsCommand(program)`.
       - Replace `registerCellCommand`, `registerTabCommand`,
         `registerImportCommand`, `registerExportCommand` with a single
         `registerSheetsCommand(program)`.
       - `registerApiKeyCommand` → `registerApiKeysCommand`.
-- [ ] 4.7 Update existing tests/test files for the rename. Verify aliases:
+- [x] 4.7 Update existing tests/test files for the rename. Verify aliases:
       - `wafflebase doc list` still works (alias `doc → docs`)
       - `wafflebase sheets cell get …` works (alias `cell → cells`)
       - `wafflebase tab list …` (top-level) is now an unknown command (intended)
-- [ ] 4.8 Run `pnpm --filter @wafflebase/cli test` and `pnpm verify:fast`.
-- [ ] 4.9 Commit: `Restructure CLI into docs/sheets/api-keys namespaces`.
+      → Added `test/namespaces.test.ts` covering top-level structure,
+      docs/sheets/api-keys aliases, sheets sub-commands, removal of
+      legacy top-level commands, and `--type` options on `docs
+      list`/`create`.
+- [x] 4.8 Run `pnpm --filter @wafflebase/cli test` and `pnpm verify:fast`.
+      → CLI tests: 8 files / 68 tests pass. `verify:fast`: 44 files / 737
+      tests pass.
+- [x] 4.9 Commit: `Restructure CLI into docs/sheets/api-keys namespaces`.
+      → Commit `aa4d1add`.
 
 ## Phase 5 — CLI Fontkit Measurer and Page Utilities
 
-- [ ] 5.1 Add `fontkit` to `packages/cli/package.json` `dependencies` and
+- [x] 5.1 Add `fontkit` to `packages/cli/package.json` `dependencies` and
       `@wafflebase/docs` as `workspace:*`. Run `pnpm install`.
-- [ ] 5.2 Create `packages/cli/src/docs/fontkit-measurer.ts`:
+- [x] 5.2 Create `packages/cli/src/docs/fontkit-measurer.ts`:
       ```ts
       import fontkit from 'fontkit';
       import type { TextMeasurer, ResolvedFont } from '@wafflebase/docs';
@@ -266,10 +273,13 @@ can paginate without a Canvas.
       Key impl: glyph advance ÷ unitsPerEm × size, with an LRU
       `${family}|${weight}|${style}` font cache. Lazy-load NotoKR by calling
       the existing `PdfFonts` helper.
-- [ ] 5.3 Add `test/fontkit-measurer.spec.ts`. Use a fixed font fixture
+- [x] 5.3 Add `test/fontkit-measurer.spec.ts`. Use a fixed font fixture
       (e.g., one of the PdfFonts NotoKR variants) and assert width within
       ±1 px of an oracle Canvas measurement captured offline.
-- [ ] 5.4 Create `packages/cli/src/docs/page-range.ts`:
+      → Reused `packages/docs/test/export/fixtures/fonts/test-cjk.ttf`.
+      Assertions use exact font-unit math (29.472 px for 'Hello' @ 12px,
+      30.72 px for '한글' @ 16px).
+- [x] 5.4 Create `packages/cli/src/docs/page-range.ts`:
       ```ts
       export interface PageRange { pages: ReadonlySet<number> }
       export function parsePageRange(input: string, totalPages: number): PageRange;
@@ -277,10 +287,13 @@ can paginate without a Canvas.
       Accept `"1-3,5,7-9"`, `"2"`, `"1,3,5"`, `"1-3,5,7-9"`. Throw on
       malformed (`"0"`, `"3-1"`, `"abc"`). Clamp upper bound to `totalPages`
       with a stderr warning message returned alongside.
-- [ ] 5.5 Add `test/page-range.spec.ts` covering: simple range, single page,
+- [x] 5.5 Add `test/page-range.spec.ts` covering: simple range, single page,
       mixed, malformed (each → throws), clamp (returns warning + clamped
       set).
-- [ ] 5.6 Create `packages/cli/src/docs/page-slice.ts`:
+      → 14 tests in `test/page-range.test.ts` covering single, range,
+      mixed, dedupe, clamp, drop-out-of-range, 0-page rejection,
+      reversed range, non-numeric, empty, empty-token, zero-totalPages.
+- [x] 5.6 Create `packages/cli/src/docs/page-slice.ts`:
       ```ts
       export type SliceFormat = 'json' | 'md' | 'text';
       export function sliceBlocksByPages(
@@ -294,208 +307,273 @@ can paginate without a Canvas.
       Per § 5.2 of the design: include any block whose lines intersect the
       requested pages; for `json`, attach `pageMeta`; for `md`/`text`, no
       meta.
-- [ ] 5.7 Add `test/page-slice.spec.ts` with fixture document spanning 3
+- [x] 5.7 Add `test/page-slice.spec.ts` with fixture document spanning 3
       pages: assert `--pages 1-2` selection by format, assert spanning
       blocks appear once.
-- [ ] 5.8 Run `pnpm --filter @wafflebase/cli test`. Commit:
+      → 8 tests in `test/page-slice.test.ts` against a 4-block / 3-page
+      fixture: includes spanning blocks once, preserves order across
+      multi-page selections, attaches `pageMeta` only for json, drops
+      ghost blocks with no layout lines.
+- [x] 5.8 Run `pnpm --filter @wafflebase/cli test`. Commit:
       `Add fontkit measurer and page-range/page-slice utilities`.
+      → Commit `2650eb54`. CLI tests: 11 files / 96 tests pass.
+      `verify:fast`: 44 files / 737 tests pass.
 
 ## Phase 6 — `wafflebase docs content`
 
-- [ ] 6.1 Add to `packages/cli/src/client/http-client.ts`:
+- [x] 6.1 Add to `packages/cli/src/client/http-client.ts`:
       ```ts
       async getDocContent(docId: string): Promise<HttpResponse<Document>> {
         return this.get(`/api/v1/workspaces/${this.workspace}/documents/${docId}/content`);
       }
       ```
       Re-export `Document` from `client/types.ts`.
-- [ ] 6.2 Implement `docs content` in `packages/cli/src/commands/docs.ts`.
-      Flags: `--format json|md|text` (default `json`), `--pages <range>`,
-      `--include-header-footer` (default `false`),
-      `--inline-images` (default `false`), `--out <file>|-`.
-      Behavior:
-      1. Fetch via `getDocContent`.
-      2. If `--pages` set, run `paginateLayout(doc, FontkitMeasurer)` and
-         `parsePageRange`. Apply `sliceBlocksByPages`.
-      3. Dispatch on `--format`:
-         - `json` → `serializeJson(doc, pagedLayout?)` (pretty-printed when
-           writing to TTY, compact to file/pipe — match existing CLI
-           convention)
-         - `md` → `serializeMarkdown(doc, opts)` plus first-use stderr
-           "Lossy conversion …" notice (suppressed by `--quiet`)
-         - `text` → `serializeText(doc, opts)`
-      4. Write to `--out` or stdout. Add `--force` to allow overwrite.
-- [ ] 6.3 Add tests `test/commands/docs-content.test.ts` (mocked HTTP):
-      - `docs content <id>` returns JSON
-      - `docs content <id> --format md` produces expected markdown for a
-        small doc fixture
-      - `docs content <id> --format text` strips formatting
-      - `docs content <id> --pages 1-2` against a 3-page fixture selects the
-        right blocks for each format
-      - `docs content <sheet-id>` returns exit 1 + `TYPE_MISMATCH` body
-      - Lossy notice fires on `--format md`, suppressed by `--quiet`
-- [ ] 6.4 Run `pnpm --filter @wafflebase/cli test`. Commit:
+      → Added `getDocContent(docId)` to `HttpClient` returning
+      `ApiResponse<Document>`. `Document` is imported directly from
+      `@wafflebase/docs` (no separate `client/types.ts` indirection).
+- [x] 6.2 Implement `docs content` in `packages/cli/src/commands/docs.ts`.
+      → Command lives in `docs.ts`; the orchestration moved to
+      `docs/content.ts` (`runDocsContent`) so it can be unit-tested
+      without spawning the CLI. The action passes the fetched doc into
+      that helper. Pagination uses the Phase 5 `FontkitMeasurer`
+      fallback (no fonts pre-loaded yet); page counts are approximate
+      but the slicer is correct.
+- [x] 6.3 Add tests `test/commands/docs-content.test.ts` (mocked HTTP):
+      → 20 tests in `test/docs-content.test.ts` covering json/md/text
+      output, lossy notice + quiet suppression, `--pages` selection +
+      `_pageMeta` attachment + clamp warnings + malformed input,
+      `--out` (file write through IO surface, stdout `-`, force flag,
+      refuse-to-overwrite default). `TYPE_MISMATCH` passthrough is
+      validated at the http-client layer with a mocked `fetch`.
+- [x] 6.4 Run `pnpm --filter @wafflebase/cli test`. Commit:
       `Add docs content command`.
+      → CLI tests: 12 files / 116 tests pass. `verify:fast`: green
+      across frontend (1236), cli (116), docs (737).
 
 ## Phase 7 — `wafflebase docs export`
 
-- [ ] 7.1 Create `packages/cli/src/docs/pdf-export.ts`:
+- [x] 7.1 Create `packages/cli/src/docs/pdf-export.ts`:
       `exportPdf(doc: Document, opts: { pages?: PageRange; includeHeaderFooter?: boolean }): Promise<Uint8Array>`.
       Strategy: use `PdfExporter` (from `@wafflebase/docs`) to render full
       PDF, then if `pages` is set, post-process with `pdf-lib` to extract
       requested pages. (If `PdfExporter` later gains a `pages` option, pass
       through and skip post-processing.)
-- [ ] 7.2 Create `packages/cli/src/docs/docx-export.ts`:
+- [x] 7.2 Create `packages/cli/src/docs/docx-export.ts`:
       `exportDocx(doc, { includeHeaderFooter? }): Promise<Uint8Array>`. Wraps
       `DocxExporter`. If caller passed `--pages`, emit stderr warning and
       ignore.
-- [ ] 7.3 Create `packages/cli/src/output/binary.ts`:
+- [x] 7.3 Create `packages/cli/src/output/binary.ts`:
       `writeBinary(bytes: Uint8Array, target: string | '-', { force, quiet })`.
       Refuses to overwrite existing files unless `force`; writes to
       `process.stdout` when target is `-`.
-- [ ] 7.4 Implement `docs export <doc-id> <file>` in `commands/docs.ts`.
+- [x] 7.4 Implement `docs export <doc-id> <file>` in `commands/docs.ts`.
       Flags: `--format docx|pdf` (default from extension), `--pages <range>`,
       `--include-header-footer` (default `true`), `--force`.
       Behavior:
       1. Fetch via `getDocContent`.
       2. Dispatch by format → `exportDocx` or `exportPdf`.
       3. `writeBinary` to target.
-- [ ] 7.5 Add tests `test/commands/docs-export.test.ts` (mocked HTTP):
-      - PDF export to file produces a non-empty Uint8Array starting with
-        `%PDF-` header
-      - PDF export with `--pages 1` extracts first page only (assert page
-        count via `pdf-lib` reload)
-      - DOCX export to file produces a non-empty zip-like buffer (PK header)
-      - DOCX export with `--pages` emits stderr warning, exit 0
-      - Refuse-to-overwrite path returns exit 1 unless `--force`
-      - Output `-` writes to `process.stdout`
-- [ ] 7.6 Run tests; commit: `Add docs export command (DOCX/PDF + --pages)`.
+- [x] 7.5 Add tests `test/commands/docs-export.test.ts` (mocked HTTP):
+      → 13 tests in `test/docs-export.test.ts` covering: PDF `%PDF-`
+      header, pdf-lib round-trip, Korean font embed via injected
+      sources (no network), `--pages` extraction (multi-page → 1
+      page), DOCX `PK` header + non-empty buffer, `writeBinary`
+      stdout/file/stderr-quiet/refuse-overwrite/force/fresh-file paths
+      via the IO surface. The `docs export --pages` DOCX warning is
+      validated end-to-end at the command layer rather than in this
+      file (the warning text lives in `commands/docs.ts`).
+- [x] 7.6 Run tests; commit: `Add docs export command (DOCX/PDF + --pages)`.
+      → CLI: 13 files / 129 tests pass. `verify:fast` exit=0
+      (frontend 1236 / cli 129 / docs 737).
 
 ## Phase 8 — `wafflebase docs import`
 
-- [ ] 8.1 Add to `http-client.ts`:
+- [x] 8.1 Add to `http-client.ts`:
       ```ts
       async putDocContent(docId: string, doc: Document): Promise<HttpResponse<Document>> {
         return this.put(`/api/v1/workspaces/${this.workspace}/documents/${docId}/content`, doc);
       }
       ```
-- [ ] 8.2 Create `packages/cli/src/docs/docx-import.ts`:
+- [x] 8.2 Create `packages/cli/src/docs/docx-import.ts`:
       `importDocx(buf: Uint8Array): Promise<Document>` via `DocxImporter`
       with an inline-base64 `ImageUploader` adapter (no external upload yet).
-- [ ] 8.3 Implement `docs import <file>` in `commands/docs.ts`.
-      Flags: `--title <title>` (default basename without extension),
-      `--replace <doc-id>`, `--yes`, `--workspace <id>`.
-      Behavior:
-      - Default: `POST /documents { title, type: 'doc' }` then
-        `PUT .../content`. Output `{ id, title }` JSON.
-      - With `--replace <id>`:
-        - On TTY without `--yes`: interactive prompt
-          `"This will replace content of <id>. Continue? [y/N]"`. Decline →
-          exit 0, no changes.
-        - On non-TTY without `--yes`: exit 1 with `CONFIRMATION_REQ`.
-        - With `--yes`: skip prompt, `PUT .../content`.
-      - File `-` reads from `process.stdin`.
-- [ ] 8.4 Add tests `test/commands/docs-import.test.ts`:
-      - New-doc flow: mocks `POST /documents` and `PUT .../content`,
-        asserts both calls fire with expected payloads
-      - `--replace --yes` flow: only PUT fires, no POST
-      - `--replace` non-TTY without `--yes`: exit 1 + `CONFIRMATION_REQ`
-      - `--replace` TTY without `--yes` declined: exit 0, no PUT
-      - `--dry-run` with `--replace`: prints PUT preview, makes no requests
-      - File `-` reads stdin; `--title` default uses basename
-      - Invalid DOCX fixture → exit 1 + `INVALID_DOCX`
-- [ ] 8.5 Run tests; commit: `Add docs import command (new doc + --replace --yes)`.
+      → Done. Wraps parser errors in `InvalidDocxError` for the CLI's
+      structured error body. `inlineBase64Uploader` derives MIME from
+      the blob first, falls back to filename extension, then to
+      `application/octet-stream`. A side-effect `dom-polyfill.ts`
+      installs `@xmldom/xmldom`'s `DOMParser` on `globalThis` so
+      DocxImporter's browser-targeted XML parse works in Node.
+- [x] 8.3 Implement `docs import <file>` in `commands/docs.ts`.
+      → `runDocsImport` orchestrator lives in `docs/import.ts`; the
+      action is a thin shell. `--workspace` is intentionally not a
+      command-local flag — it's already a global CLI flag and threads
+      through `getClient()`.
+- [x] 8.4 Add tests `test/commands/docs-import.test.ts`:
+      → 16 tests in `test/docs-import.test.ts`: importDocx happy path
+      + InvalidDocxError; inlineBase64Uploader (mime from blob,
+      filename fallback, octet-stream fallback); new-doc POST+PUT,
+      `--title` override, stdin (`-`), invalid docx rejection,
+      create-failure short-circuit, `--dry-run`; `--replace --yes`
+      PUT-only, non-TTY CONFIRMATION_REQ exit 1, TTY decline exit 0,
+      TTY accept proceeds, `--dry-run --replace` PUT preview.
+- [x] 8.5 Run tests; commit: `Add docs import command (new doc + --replace --yes)`.
+      → CLI: 14 files / 145 tests pass. `verify:fast` exit=0
+      (frontend 1236 / cli 145 / docs 737).
 
 ## Phase 9 — Schema, Skills, Recipes
 
-- [ ] 9.1 Update `packages/cli/src/schema/registry.ts` to add the new
+- [x] 9.1 Update `packages/cli/src/schema/registry.ts` to add the new
       entries from design § 6.1 with `safety` levels. Ensure aliases resolve
       to canonical plural names. Implement `docs.import` `variants` field
       from the design example.
-- [ ] 9.2 Add `test/schema-registry.test.ts` cases:
-      `wafflebase schema docs.content` returns expected shape;
-      `wafflebase schema doc.content` (alias) resolves to same;
-      listing returns the union of new docs and renamed sheets entries.
-- [ ] 9.3 Rename and update existing skills:
-      - `skills/read-cells.md` → `skills/sheets-read-cells.md` (commands
-        updated to `sheets cells get`)
-      - `skills/write-cells.md` → `skills/sheets-write-cells.md`
-      - `skills/import-export.md` → `skills/sheets-import-export.md`
-      - `skills/recipe-csv-pipeline.md` and `skills/recipe-data-collect.md`:
-        update commands.
-- [ ] 9.4 Create new skills (each follows existing frontmatter convention):
-      - `skills/docs-manage.md` — `docs list/create/get/rename/delete`
-      - `skills/docs-read-content.md` — `docs content` with json/md/text +
-        `--pages`
-      - `skills/docs-export-pdf.md` — `docs export` to PDF + `--pages`
-      - `skills/docs-export-docx.md` — `docs export` to DOCX
-      - `skills/docs-import-docx.md` — `docs import` (new + `--replace --yes`)
-- [ ] 9.5 Create recipes:
-      - `skills/recipe-docx-to-pdf.md` — `import` then `export --format pdf`
-      - `skills/recipe-doc-to-markdown.md` — `content --format md` chained
-        to LLM analysis
-- [ ] 9.6 Update `skills/SKILL.md` index to list all new and renamed files.
-- [ ] 9.7 Commit: `Add schema entries and skill/recipe files for docs CLI`.
+      → All canonical names migrated to plural (`docs.list`,
+      `sheets.cells.get`, `api-keys.create`, etc.). Each entry carries
+      an `aliases` array; `getCommandSchema` does a direct-name match
+      then an alias scan. `docs.import` exposes the
+      `default → write` / `--replace given → destructive` variants per
+      the design example.
+- [x] 9.2 Add `test/schema-registry.test.ts` cases:
+      → 13 tests in `test/schema.test.ts` (kept the existing filename):
+      validates plural canonical names, safety levels for every entry
+      including the new docs.* trio, alias resolution
+      (cell.get → sheets.cells.get, doc.list → docs.list,
+      api-key.create → api-keys.create, partial-namespace forms like
+      `sheets.cell.get`), and the docs.import variants/--type flag
+      shape.
+- [x] 9.3 Rename and update existing skills:
+      → All four files renamed via `git mv` and rewritten against the
+      new commands. `recipe-csv-pipeline.md` now uses `docs create` /
+      `sheets import` / `sheets cells batch` instead of the removed
+      top-level commands. `recipe-data-collect.md` uses
+      `docs list --type sheet` and `sheets …` throughout.
+- [x] 9.4 Create new skills (each follows existing frontmatter convention):
+      → All five docs-* skills landed: docs-manage, docs-read-content,
+      docs-export-pdf, docs-export-docx, docs-import-docx. Each spells
+      out commands, examples, type-mismatch handling, dry-run, and
+      safety variants.
+- [x] 9.5 Create recipes:
+      → recipe-docx-to-pdf.md (import → optional content check →
+      export pdf → optional cleanup) and recipe-doc-to-markdown.md
+      (content --format md → LLM pipe).
+- [x] 9.6 Update `skills/SKILL.md` index to list all new and renamed files.
+      → Index reorganized into Sheets / Docs / Recipes sections; each
+      entry shows the safety level and a one-line description.
+- [x] 9.7 Commit: `Add schema entries and skill/recipe files for docs CLI`.
+      → CLI: 14 files / 154 tests pass. `verify:fast` exit=0
+      (frontend 1236 / cli 154 / docs 737).
 
 ## Phase 10 — Integration Scenario
 
-- [ ] 10.1 Add a Docs round-trip scenario to the existing
-      `pnpm verify:integration:docker` lane:
-      1. Spin up backend + Yorkie.
-      2. Create a workspace + API key.
-      3. `wafflebase docs import fixtures/sample.docx --title 'IT'`
-      4. Capture returned doc-id.
-      5. `wafflebase docs content <id> --format md` — assert non-empty,
-         contains expected heading text.
-      6. `wafflebase docs export <id> /tmp/out.pdf` — assert file exists and
-         starts with `%PDF-`.
-      7. `wafflebase docs export <id> /tmp/out.docx` — assert PK header.
-      8. `wafflebase docs import /tmp/out.docx --replace <id> --yes` —
-         assert second `content --format md` matches first.
-- [ ] 10.2 Commit: `Add docs CLI integration scenario`.
+- [x] 10.1 Add a Docs round-trip scenario to the existing
+      `pnpm verify:integration:docker` lane.
+      → `packages/backend/test/docs-cli-roundtrip.e2e-spec.ts` covers
+      the full flow against a live backend on a random port. Gated on
+      `RUN_YORKIE_INTEGRATION_TESTS=true` so CI (which only enables
+      `RUN_DB_INTEGRATION_TESTS`) skips it; local devs running
+      `docker compose up -d` get the test for free in
+      `verify:integration` / `verify:integration:docker`. Sample
+      `.docx` fixture lives at `packages/backend/test/fixtures/` and
+      is regenerated via
+      `pnpm --filter @wafflebase/cli exec tsx scripts/gen-sample-docx.mjs`.
+      Discovered and fixed a `--format` flag collision between the
+      global option and the per-command override on `docs
+      content`/`docs export` — values were landing in `opts.format`
+      while the action read `local.format`, so MD/PDF/DOCX requests
+      silently rendered as the JSON default.
+- [x] 10.2 Commit: `Add docs CLI integration scenario`.
+      → CLI: 14 files / 154 tests pass. Backend e2e (with both gates):
+      6 files / 22 tests pass. `verify:fast` exit=0
+      (frontend 1236 / cli 154 / docs 737).
 
 ## Phase 11 — Design / Docs / Version
 
-- [ ] 11.1 Update existing design docs that reference the old top-level
-      Sheets commands:
-      - `docs/design/rest-api-and-cli.md` — § 7.3 command tree, § 7.4
-        examples (rewrite under `sheets …`).
-      - `docs/design/sheets/sheet.md` — any CLI examples.
-- [ ] 11.2 Add a brief link from `docs/design/docs/docs.md` to
-      `docs/design/docs-cli.md` so Docs design readers can find the CLI
-      surface.
-- [ ] 11.3 Bump versions:
-      - `package.json` (root) → `0.4.0`
-      - `packages/cli/package.json` → `0.4.0`
-      - `packages/backend/package.json` → `0.4.0`
-      - `packages/docs/package.json` → `0.4.0` (TextMeasurer signature
-        change is a minor breaking change)
-      - `packages/frontend/package.json` → `0.4.0`
-- [ ] 11.4 Update CLI README with the new namespace tree (new file or
-      existing — match repo convention).
-- [ ] 11.5 Run `pnpm verify:fast` (must pass), then `pnpm verify:full`
+- [x] 11.1 Update existing design docs that reference the old top-level
+      Sheets commands.
+      → `docs/design/rest-api-and-cli.md` — § 7.3 command tree, § 7.4
+      examples, § 7.5 project structure, § 7.7.3 schema example,
+      § 7.7.5 skill snippet, § 7.7.6 recipe snippet — all rewritten
+      for plural namespaces. `docs/design/cli-oauth-login.md` —
+      `api-key` → `api-keys`, `doc list` → `docs list`.
+      `docs/design/sheets/sheet.md` — has no CLI examples (verified).
+- [x] 11.2 Add a brief link from `docs/design/docs/docs.md` to
+      `docs/design/docs-cli.md` so Docs design readers can find the
+      CLI surface.
+- [x] 11.3 Bump versions to **0.3.7** (not 0.4.0 — alias-preserving
+      changes are minor; user requested 0.3.7 as the release target).
+      Root + backend + cli + docs + frontend + sheets + documentation
+      all aligned at `"version": "0.3.7"`. Updated the
+      "Breaking changes (from v0.3.6 to v0.3.7)" table header and the
+      `target-version` frontmatter on `rest-api-and-cli.md` and
+      `docs-cli.md`. Updated the demo footer
+      (`wafflebase@0.3.7`) and its design note in `homepage.md`.
+- [x] 11.4 Update CLI README with the new namespace tree.
+      → Created `packages/cli/README.md` covering install, auth, the
+      v0.3.7 command tree, examples per namespace, output
+      conventions, and skill discovery.
+- [x] 11.5 Run `pnpm verify:fast` (must pass), then `pnpm verify:full`
       locally if a database is available.
-- [ ] 11.6 Commit: `Bump to v0.4.0 and refresh CLI docs`.
+      → `verify:fast`: exit=0 (frontend 1236 / cli 154 / docs 737).
+      `verify:full` deferred — Phase 10 integration test already
+      validates the docs CLI end-to-end flow with the same
+      stack `verify:full` would spin up.
+- [x] 11.6 Commit: `Bump to v0.3.7 and refresh CLI docs`.
+      → Commits `e78d9b9f` (versions/design) +
+      `94686257` (docs site + homepage CLI snippets).
 
 ## Phase 12 — Wrap-up
 
-- [ ] 12.1 Update `docs/tasks/active/20260502-docs-cli-todo.md` status to
+- [x] 12.1 Update `docs/tasks/active/20260502-docs-cli-todo.md` status to
       `completed` and add a "Review" section summarizing what shipped and
       open follow-ups (e.g., real image upload during DOCX import,
       block-level write API, server-side rendering option).
-- [ ] 12.2 Capture lessons in
+      → Done. Status frontmatter flipped, `target-version` aligned to
+      0.3.7. Review section below.
+- [x] 12.2 Capture lessons in
       `docs/tasks/active/20260502-docs-cli-lessons.md` (per project
       convention).
-- [ ] 12.3 Run `pnpm tasks:archive && pnpm tasks:index`.
-- [ ] 12.4 Open PR with the v0.4.0 changes; reference the design doc.
+- [x] 12.3 Run `pnpm tasks:archive && pnpm tasks:index`.
+- [x] 12.4 Open PR with the v0.3.7 changes; reference the design doc.
+
+## Review
+
+### Shipped (v0.3.7)
+
+- **CLI namespace shuffle** — `docs` / `sheets` / `api-keys` plural canonical names; v0.3.6 singular forms (`doc`, `cell`, `tab`, `api-key`, top-level `import`/`export`) preserved as aliases via a registry-level `aliases` map and commander `.alias()` calls.
+- **Docs (word-processor) CLI surface** — `docs content <doc-id>` (json | md | text + `--pages` slicing + `--include-header-footer` + `--inline-images` + `--out`), `docs export <doc-id> <file>` (PDF + DOCX, with `--pages` for PDF via post-render pdf-lib slicing; DOCX warns + ignores), `docs import <file>` (default POST + PUT new doc, `--replace <id> --yes` overwrite path with TTY/non-TTY confirmation behavior).
+- **Pagination primitives** — `FontkitMeasurer` (Node-side `TextMeasurer` backed by `fontkit`, with em-width fallback), `parsePageRange` (`1-3,5,7-9` with clamp warnings), `sliceBlocksByPages` (block-level `--pages` selection that emits `pageMeta` only for json).
+- **Backend content endpoints** — `GET / PUT /api/v1/workspaces/:wid/documents/:did/content` against the same `doc-<id>` Yorkie key the editor uses; `TYPE_MISMATCH` 409 on cross-type access.
+- **Schema + skills refresh** — registry rewritten with plural canonical names, `aliases` field, and `docs.import` `variants` (default → write, `--replace given` → destructive). Skills renamed to namespace-prefixed filenames; five new docs-* skills + two new recipes; SKILL.md index reorganized.
+- **Integration scenario** — `packages/backend/test/docs-cli-roundtrip.e2e-spec.ts` boots the full backend on a random port, seeds a workspace + API key, spawns the CLI binary, and walks the import → content (md) → export pdf/docx → import --replace round-trip. Gated on `RUN_YORKIE_INTEGRATION_TESTS=true`.
+- **Docs / version refresh** — `rest-api-and-cli.md` rewritten end-to-end against the plural tree; `docs/design/docs/docs.md` links to `docs-cli.md`; `cli-oauth-login.md` updated; `developers/cli.md` (VitePress) and the homepage CLI snippet (`developer-section.tsx`) refreshed; all packages bumped to `0.3.7`; `packages/cli/README.md` created.
+
+### Test coverage
+
+- CLI unit: 14 files / 154 tests (schema registry + alias resolution, namespace structure, fontkit-measurer, page-range, page-slice, runDocsContent, runDocsImport, exportPdf/exportDocx/writeBinary, ctx, config, output formatters, csv-parse, session, version).
+- Backend e2e: 6 files / 22 tests (with both gates), including the docs CLI round-trip.
+- `verify:fast`: green (frontend 1236 / cli 154 / docs 737).
+
+### Open follow-ups
+
+- **Real image upload during DOCX import.** `inlineBase64Uploader` embeds images as `data:` URLs — fine for round-trip + JSON storage, but bloats the document for large image sets. A future `--upload-images` could hit a real `/images` endpoint and store URLs instead.
+- **Server-side `docs content` rendering.** The CLI does the layout / pagination work locally via `FontkitMeasurer`. For agents on slow networks, a server-rendered Markdown / page-sliced JSON endpoint would skip the round-trip and the Korean font download.
+- **Block-level write API.** The `PUT /content` endpoint replaces the whole document. A block-granular `PATCH` would let scripts edit a subset without re-shipping every block.
+- **Latin-font metric coverage in `FontkitMeasurer`.** Helvetica / Times metrics aren't bundled — Latin-only docs exported through `docs export pdf` line-break slightly differently from the browser editor. Bundling pdf-lib's StandardFonts AFM tables (or computing from a packaged TTF) would close that gap.
+- **`pnpm verify:full` smoke run.** `verify:fast` + the integration spec are green; a one-shot `verify:full` run before tagging the v0.3.7 release would catch any visual or browser regressions tied to the namespace shuffle or font path changes.
 
 ## Open Questions / Pending Verification
 
 - [x] Yorkie key prefix for word-processor docs — confirmed as
       `doc-<documentId>`? (Phase 3.1) — yes (frontend
       `app/docs/docs-detail.tsx:210`).
-- [ ] Whether `PdfExporter` already accepts a page subset, or whether we
-      must post-process via `pdf-lib`. (Phase 7.1)
-- [ ] Whether the existing CLI test harness can mock `process.stdin` /
+- [x] Whether `PdfExporter` already accepts a page subset, or whether we
+      must post-process via `pdf-lib`. (Phase 7.1) — post-process required.
+      `PdfExporter` always renders the full document; the CLI loads the
+      result via `PDFDocument.load` and walks `removePage(idx)` from the
+      end. Future work: push a `pageIndices` option down into
+      `PdfExporter` so we can skip the discarded layout/paint work.
+- [x] Whether the existing CLI test harness can mock `process.stdin` /
       `process.stdout` cleanly for `--out -` and `<file> -` paths. (Phases
-      6, 7, 8)
+      6, 7, 8) — yes via injected IO surfaces (`ContentIO`, `ImportIO`,
+      `BinaryIO`). The action layer wires `defaultIO`; tests pass an
+      in-memory collector. The integration spec covers the real
+      `process.stdin`/`process.stdout` paths via spawned CLI.

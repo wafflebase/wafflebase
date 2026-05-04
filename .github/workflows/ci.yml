@@ -168,6 +168,13 @@ jobs:
       DATABASE_URL: postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
       DATASOURCE_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       RUN_DB_INTEGRATION_TESTS: "true"
+      # Pair with the Yorkie service below to unlock the
+      # `docs-tree-attached` and `docs-cli-roundtrip` e2e specs that
+      # need a real Yorkie server. Locally these are gated the same
+      # way (`docker compose up -d` + this env var); CI matches that
+      # contract instead of skipping them.
+      RUN_YORKIE_INTEGRATION_TESTS: "true"
+      YORKIE_RPC_ADDR: http://localhost:8080
     services:
       postgres:
         image: postgres:16
@@ -182,6 +189,13 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Yorkie is intentionally NOT declared as a `service:` here —
+      # GitHub Actions' service map has no `command:` field, and the
+      # `yorkieteam/yorkie` image's entrypoint is just `["yorkie"]`
+      # (no default CMD), so the server subcommand has to come from
+      # `docker run`'s positional args. We start it as a background
+      # step below; the wait-for-port step makes the lifecycle as
+      # well-behaved as a real service.
 
     strategy:
       matrix:
@@ -201,9 +215,39 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Start Yorkie server
+        run: |
+          # Match the image and CLI args used by `docker-compose.yaml`
+          # so local + CI behavior stays aligned. `--pprof-enabled`
+          # mirrors local dev; the perf overhead is negligible for a
+          # short integration run.
+          docker run -d --name yorkie \
+            -p 8080:8080 -p 8081:8081 \
+            yorkieteam/yorkie:latest server --pprof-enabled
+
+      - name: Wait for Yorkie to accept connections on :8080
+        run: |
+          # The container starts before this step but Yorkie's gRPC
+          # listener takes a couple seconds to bind. Poll until the
+          # port answers (or fail after 30 attempts × 1s = 30s).
+          for i in $(seq 1 30); do
+            if nc -z localhost 8080; then
+              echo "Yorkie is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Yorkie did not become reachable on :8080" >&2
+          docker logs yorkie || true
+          exit 1
+
       - name: Verify Integration Lane
         id: integration
         run: pnpm verify:integration
+
+      - name: Yorkie logs on failure
+        if: failure() && steps.integration.outcome == 'failure'
+        run: docker logs yorkie
 
       - name: Update PR comment with integration result
         if: always() && github.event_name == 'pull_request'

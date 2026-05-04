@@ -1,6 +1,6 @@
 ---
 name: recipe-data-collect
-description: Collect and compare data across multiple Wafflebase documents
+description: Collect and compare data across multiple Wafflebase spreadsheets
 safety: read-only
 ---
 
@@ -16,21 +16,21 @@ spreadsheet documents into a single view.
 ### 1. List available documents
 
 ```bash
-wafflebase doc list
+wafflebase docs list --type sheet
 ```
 
 ### 2. Inspect each document's tabs
 
 ```bash
-wafflebase tab list <doc-id-1>
-wafflebase tab list <doc-id-2>
+wafflebase sheets tabs list <doc-id-1>
+wafflebase sheets tabs list <doc-id-2>
 ```
 
 ### 3. Read target ranges from each document
 
 ```bash
-wafflebase cell get <doc-id-1> A1:D50 --format json > /tmp/doc1.json
-wafflebase cell get <doc-id-2> A1:D50 --format json > /tmp/doc2.json
+wafflebase sheets cells get <doc-id-1> A1:D50 --format json > /tmp/doc1.json
+wafflebase sheets cells get <doc-id-2> A1:D50 --format json > /tmp/doc2.json
 ```
 
 ### 4. Combine and analyze
@@ -44,9 +44,12 @@ jq -s '.[0] + .[1]' /tmp/doc1.json /tmp/doc2.json > /tmp/combined.json
 ### 5. Optionally write aggregated results to a new document
 
 ```bash
-DOC_ID=$(wafflebase doc create "Combined Report" --format json | jq -r '.id')
-# Convert combined data to batch format and write
-wafflebase cell batch "$DOC_ID" --data "$(cat /tmp/batch.json)"
+DOC_ID=$(wafflebase docs create "Combined Report" --format json | jq -r '.id')
+# Reshape the combined cell array into the batch endpoint's
+# `{ ref → cell }` map, then write.
+jq 'map({(.ref): {value: .value, formula: .formula}}) | add' \
+  /tmp/combined.json > /tmp/batch.json
+wafflebase sheets cells batch "$DOC_ID" --data "$(cat /tmp/batch.json)"
 ```
 
 ## Notes
