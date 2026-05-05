@@ -1,7 +1,24 @@
 import { describe, it, expect } from 'vitest';
+import type { Block } from '@wafflebase/docs';
 import { MemSlidesStore } from './memory';
 import { BUILT_IN_LAYOUTS } from '../model/layout';
 import type { ElementInit } from '../model/element';
+
+// Local id helper for the test (the docs package re-exports its own,
+// but we don't need to depend on it just for the test).
+let n = 0;
+function generateBlockId(): string {
+  return `b${++n}`;
+}
+
+function paragraph(text: string): Block {
+  return {
+    id: generateBlockId(),
+    type: 'paragraph',
+    inlines: [{ text, style: {} }],
+    style: {},
+  } as Block;
+}
 
 describe('MemSlidesStore — slides', () => {
   it('starts with an empty presentation that knows the built-in layouts', () => {
@@ -163,5 +180,78 @@ describe('MemSlidesStore — elements', () => {
     expect(() => store.addElement('nope', textInit(0))).toThrow(/Slide not found/);
     const slide = store.addSlide('blank');
     expect(() => store.removeElement(slide, 'nope')).toThrow(/Element not found/);
+  });
+});
+
+describe('MemSlidesStore — text bridges', () => {
+  it('withTextElement passes the current blocks and persists the return value', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const id = store.addElement(slide, {
+      type: 'text',
+      frame: { x: 0, y: 0, w: 100, h: 40, rotation: 0 },
+      data: { blocks: [paragraph('hello')] },
+    });
+    store.withTextElement(slide, id, (blocks) => {
+      expect(blocks[0].inlines[0].text).toBe('hello');
+      return [paragraph('world')];
+    });
+    const e = store.read().slides[0].elements[0] as { data: { blocks: Block[] } };
+    expect(e.data.blocks[0].inlines[0].text).toBe('world');
+  });
+
+  it('withTextElement allows void return for in-place mutation', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const id = store.addElement(slide, {
+      type: 'text',
+      frame: { x: 0, y: 0, w: 100, h: 40, rotation: 0 },
+      data: { blocks: [paragraph('hi')] },
+    });
+    store.withTextElement(slide, id, (blocks) => {
+      blocks[0].inlines[0].text = 'bye';
+    });
+    const e = store.read().slides[0].elements[0] as { data: { blocks: Block[] } };
+    expect(e.data.blocks[0].inlines[0].text).toBe('bye');
+  });
+
+  it('withTextElement throws on a non-text element', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const id = store.addElement(slide, shapeInit());
+    expect(() => store.withTextElement(slide, id, () => undefined)).toThrow(
+      /not a text element/,
+    );
+  });
+
+  it('withNotes round-trips the speaker notes', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    store.withNotes(slide, () => [paragraph('remember to smile')]);
+    expect(store.read().slides[0].notes[0].inlines[0].text).toBe('remember to smile');
+  });
+});
+
+describe('MemSlidesStore — applyLayout', () => {
+  it('switches the layout id and adds missing placeholders', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    expect(store.read().slides[0].elements).toEqual([]);
+    store.applyLayout(slide, 'title-body');
+    const after = store.read().slides[0];
+    expect(after.layoutId).toBe('title-body');
+    expect(after.elements).toHaveLength(2);
+  });
+
+  it('preserves user elements when the same layout is reapplied', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('title-body');
+    const userShape = store.addElement(slide, shapeInit());
+    expect(store.read().slides[0].elements).toHaveLength(3);
+    store.applyLayout(slide, 'title-body');
+    const ids = store.read().slides[0].elements.map((e) => e.id);
+    expect(ids).toContain(userShape);
+    // Still has the two placeholders + the user shape.
+    expect(ids).toHaveLength(3);
   });
 });

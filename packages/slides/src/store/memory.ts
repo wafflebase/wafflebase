@@ -96,8 +96,28 @@ export class MemSlidesStore implements SlidesStore {
     slide.background = clone(bg);
   }
 
-  applyLayout(_slideId: string, _layoutId: string): void {
-    throw new Error('not implemented yet');
+  applyLayout(slideId: string, layoutId: string): void {
+    const slide = this.requireSlide(slideId);
+    const layout = getLayout(layoutId);
+    slide.layoutId = layout.id;
+    // Add placeholders that the slide does not already cover.
+    // "Cover" here is conservative: we only add placeholders when the
+    // slide currently has no element of the same type at the same frame
+    // position. v2 master slides will replace this with real
+    // placeholder identity tracking.
+    for (const placeholder of layout.placeholders) {
+      const matches = slide.elements.some(
+        (e) => e.type === placeholder.type
+          && e.frame.x === placeholder.frame.x
+          && e.frame.y === placeholder.frame.y,
+      );
+      if (!matches) {
+        slide.elements.push({
+          ...clone(placeholder),
+          id: generateId(),
+        } as Element);
+      }
+    }
   }
 
   // --- element ops ---
@@ -149,18 +169,32 @@ export class MemSlidesStore implements SlidesStore {
     slide.elements.splice(clamped, 0, el);
   }
 
-  // --- text bridges (Task 8) ---
+  // --- text bridges ---
+
   withTextElement(
-    _slideId: string, _elementId: string,
-    _fn: (blocks: Block[]) => Block[] | void,
+    slideId: string, elementId: string,
+    fn: (blocks: Block[]) => Block[] | void,
   ): void {
-    throw new Error('not implemented yet');
+    const slide = this.requireSlide(slideId);
+    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    if (e.type !== 'text') {
+      throw new Error(`Element ${elementId} is not a text element`);
+    }
+    const next = fn(e.data.blocks);
+    if (next !== undefined) {
+      e.data.blocks = clone(next);
+    }
   }
+
   withNotes(
-    _slideId: string,
-    _fn: (blocks: Block[]) => Block[] | void,
+    slideId: string,
+    fn: (blocks: Block[]) => Block[] | void,
   ): void {
-    throw new Error('not implemented yet');
+    const slide = this.requireSlide(slideId);
+    const next = fn(slide.notes);
+    if (next !== undefined) {
+      slide.notes = clone(next);
+    }
   }
 
   // --- transactions (Task 9) ---
