@@ -1,9 +1,9 @@
 import type { Block } from '@wafflebase/docs';
-import type { Element, ElementInit } from './element';
+import type { Element, ElementInit, ImageRef } from './element';
 
 export type Background = {
   fill: string;
-  image?: { src: string };
+  image?: ImageRef;
 };
 
 export type Slide = {
