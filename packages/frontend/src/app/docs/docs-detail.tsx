@@ -1,4 +1,4 @@
-import { DocumentProvider } from "@yorkie-js/react";
+import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -15,8 +15,9 @@ import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import type { YorkieDocsRoot } from "@/types/docs-document";
+import type { DocsPresence } from "@/types/users";
 import type { EditContext } from "@wafflebase/docs";
-import { DocsView, type EditorAPI } from "./docs-view";
+import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 
 /**
@@ -37,6 +38,33 @@ function DocsLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<EditorAPI | null>(null);
   const [editContext, setEditContext] = useState<EditContext>('body');
+
+  const { doc } = useDocument<YorkieDocsRoot, DocsPresence>();
+  const [jumpHandle, setJumpHandle] = useState<JumpHandle | null>(null);
+
+  const handleSelectPeer = useCallback(
+    (clientID: string) => {
+      jumpHandle?.jumpToPeer(clientID);
+    },
+    [jumpHandle],
+  );
+
+  const getJumpHint = useCallback(
+    (clientID: string) => {
+      const peer = doc
+        ?.getOthersPresences()
+        .find((p) => p.clientID === clientID);
+      if (!peer?.presence?.activeCursorPos) return undefined;
+      const username = peer.presence.username;
+      if (typeof username !== "string" || !username) return "cursor";
+      try {
+        return decodeURIComponent(username);
+      } catch {
+        return username;
+      }
+    },
+    [doc],
+  );
 
   // Track edit context changes from the editor
   useEffect(() => {
@@ -159,7 +187,10 @@ function DocsLayout({ documentId }: { documentId: string }) {
         >
           <div className="flex items-center gap-2">
             <ShareDialog documentId={documentId} />
-            <UserPresence />
+            <UserPresence
+              onSelectPeer={handleSelectPeer}
+              getJumpHint={getJumpHint}
+            />
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
@@ -168,7 +199,11 @@ function DocsLayout({ documentId }: { documentId: string }) {
             editContext={editContext}
             documentTitle={documentData?.title}
           />
-          <DocsView onEditorReady={setEditor} documentId={documentId} />
+          <DocsView
+            onEditorReady={setEditor}
+            onJumpHandleReady={setJumpHandle}
+            documentId={documentId}
+          />
         </div>
       </SidebarInset>
     </SidebarProvider>
