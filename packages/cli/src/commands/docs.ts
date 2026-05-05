@@ -6,6 +6,7 @@ import { printDryRun } from '../client/dry-run.js';
 import { parseContentFormat, runDocsContent } from '../docs/content.js';
 import { exportPdf } from '../docs/pdf-export.js';
 import { exportDocx } from '../docs/docx-export.js';
+import { createImageFetcher } from '../docs/image-fetcher.js';
 import { parsePageRange } from '../docs/page-range.js';
 import { writeBinary } from '../output/binary.js';
 import { runDocsImport } from '../docs/import.js';
@@ -259,6 +260,16 @@ export function registerDocsCommand(program: Command) {
         }
         const fetchedDoc = res.data;
 
+        // Image inlines reference URLs that PdfExporter and DocxExporter
+        // can't resolve on their own. The fetcher walks each unique
+        // `src`, GETs it (via `globalThis.fetch`), and hands back a
+        // Blob. Relative URLs (`/images/<id>`) resolve against the
+        // configured server base so the same doc round-trips between
+        // the editor (browser-relative) and the CLI.
+        const imageFetcher = createImageFetcher({
+          serverBase: getConfig(opts).server,
+        });
+
         let bytes: Uint8Array;
         if (format === 'pdf') {
           // Pagination uses the FontkitMeasurer's coarse Latin estimate
@@ -273,6 +284,7 @@ export function registerDocsCommand(program: Command) {
             // see `extractPages` in pdf-export.ts.
             const fullPdf = await exportPdf(fetchedDoc, {
               includeHeaderFooter: local.includeHeaderFooter,
+              imageFetcher,
             });
             const total = await pdfPageCount(fullPdf);
             pageRange = parsePageRange(local.pages, total);
@@ -282,10 +294,12 @@ export function registerDocsCommand(program: Command) {
             bytes = await exportPdf(fetchedDoc, {
               includeHeaderFooter: local.includeHeaderFooter,
               pages: pageRange,
+              imageFetcher,
             });
           } else {
             bytes = await exportPdf(fetchedDoc, {
               includeHeaderFooter: local.includeHeaderFooter,
+              imageFetcher,
             });
           }
         } else {
@@ -296,6 +310,7 @@ export function registerDocsCommand(program: Command) {
           }
           bytes = await exportDocx(fetchedDoc, {
             includeHeaderFooter: local.includeHeaderFooter,
+            imageFetcher,
           });
         }
 
