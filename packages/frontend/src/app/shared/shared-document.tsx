@@ -11,7 +11,7 @@ import {
   TabMeta,
   initialSpreadsheetDocument,
 } from "@/types/worksheet";
-import type { YorkieDocsRoot } from "@/types/docs-document";
+import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
@@ -215,7 +215,7 @@ function SharedDocumentInner({
       {isDocs ? (
         <DocumentProvider<YorkieDocsRoot>
           docKey={docKey}
-          initialRoot={{}}
+          initialRoot={initialDocsRoot()}
           initialPresence={presence}
           enableDevtools={import.meta.env.DEV}
         >

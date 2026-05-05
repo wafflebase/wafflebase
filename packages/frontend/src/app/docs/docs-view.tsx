@@ -25,8 +25,16 @@ export interface JumpHandle {
 
 /**
  * Ensure the Yorkie document has a Tree CRDT for content.
- * Tree must be created via `new Tree()` inside doc.update();
- * it cannot be passed as a plain object through initialRoot.
+ *
+ * New docs receive the Tree via `client.attach({ initialRoot })`
+ * (see `initialDocsRoot()`), and yorkie-js-sdk PR #1238 clears the
+ * undo stack right after — so the setup is not undoable.
+ *
+ * This helper is a fallback for legacy docs whose Tree was never
+ * persisted. After creating the Tree we call `clearHistory()` so
+ * the setup is similarly absent from the undo stack; otherwise a
+ * long enough Cmd+Z sequence could unwind the Tree creation and
+ * destroy the initial block, crashing the editor.
  */
 function ensureTree(doc: ReturnType<typeof useDocument<YorkieDocsRoot>>["doc"]): boolean {
   if (!doc) return false;
@@ -63,6 +71,7 @@ function ensureTree(doc: ReturnType<typeof useDocument<YorkieDocsRoot>>["doc"]):
       ],
     });
   });
+  doc.clearHistory();
 
   return true;
 }

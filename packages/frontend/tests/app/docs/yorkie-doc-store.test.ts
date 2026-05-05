@@ -362,6 +362,69 @@ describe('YorkieDocStore', () => {
       const restored = store.getPresenceCursorPos();
       assert.deepEqual(restored, { blockId: block.id, offset: 5 });
     });
+
+    // Regression: ensureTree() in docs-view.tsx populates the Tree with an
+    // initial block via doc.update() *before* YorkieDocStore is constructed.
+    // When the doc already has blocks, editor.ts skips its setDocument
+    // fallback, so undoFloor would stay at 0. Repeated undo could then
+    // unwind ensureTree's update and destroy the initial block — leaving
+    // the cursor pointing at a non-existent block id and crashing
+    // text-editor.ts:handleInput with "Block not found".
+    it('repeated undo cannot remove blocks present at construction', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const seededDoc: any = new yorkie.Document<any>(`seed-${Date.now()}-${Math.random()}`);
+      const initialId = `block-${Date.now()}-init`;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      seededDoc.update((root: any) => {
+        root.content = new yorkie.Tree({
+          type: 'doc',
+          children: [
+            {
+              type: 'block',
+              attributes: {
+                id: initialId,
+                type: 'paragraph',
+                alignment: 'left',
+                lineHeight: '1.5',
+                marginTop: '0',
+                marginBottom: '8',
+                textIndent: '0',
+                marginLeft: '0',
+              },
+              children: [{ type: 'inline', children: [] }],
+            },
+          ],
+        });
+      });
+
+      const seededStore = new YorkieDocStore(seededDoc);
+      assert.equal(seededStore.getDocument().blocks[0].id, initialId);
+
+      // Simulate user typing "asdf" then Enter then "asdf" then Enter then "asdf",
+      // matching the reported reproduction.
+      seededStore.insertText(initialId, 0, 'asdf');
+      const id2 = `block-${Date.now()}-2`;
+      seededStore.splitBlock(initialId, 4, id2, 'paragraph');
+      seededStore.insertText(id2, 0, 'asdf');
+      const id3 = `block-${Date.now()}-3`;
+      seededStore.splitBlock(id2, 4, id3, 'paragraph');
+      seededStore.insertText(id3, 0, 'asdf');
+
+      // Undo until the store says we cannot undo any further.
+      let safety = 100;
+      while (seededStore.canUndo() && safety-- > 0) {
+        seededStore.undo();
+      }
+
+      // The initial block must still be reachable. Without the fix, the
+      // ensureTree-style update is reachable via undo and the initial block
+      // is destroyed.
+      const blocks = seededStore.getDocument().blocks;
+      assert.ok(
+        blocks.some((b) => b.id === initialId),
+        `initial block ${initialId} must survive repeated undo, got ${JSON.stringify(blocks.map((b) => b.id))}`,
+      );
+    });
   });
 
   describe('caching', () => {

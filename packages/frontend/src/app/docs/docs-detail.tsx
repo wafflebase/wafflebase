@@ -14,21 +14,12 @@ import { UserPresence } from "@/components/user-presence";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
-import type { YorkieDocsRoot } from "@/types/docs-document";
+import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import type { DocsPresence } from "@/types/users";
 import type { EditContext } from "@wafflebase/docs";
 import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 
-/**
- * Initial Yorkie document root for a new docs document.
- * Note: Tree CRDT must be created via `new yorkie.Tree()` inside
- * doc.update(), so we only provide an empty root here. DocsView
- * initializes the Tree when it detects `content` is missing.
- */
-function initialDocsRoot(): Partial<YorkieDocsRoot> {
-  return {};
-}
 
 /**
  * DocsLayout provides the sidebar + header chrome around the docs editor,
