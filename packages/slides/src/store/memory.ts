@@ -100,30 +100,53 @@ export class MemSlidesStore implements SlidesStore {
     throw new Error('not implemented yet');
   }
 
-  // --- element ops (Task 7) ---
-  addElement(_slideId: string, _init: ElementInit): string {
-    throw new Error('not implemented yet');
+  // --- element ops ---
+
+  addElement(slideId: string, init: ElementInit): string {
+    const slide = this.requireSlide(slideId);
+    const id = generateId();
+    const element = { ...clone(init), id } as Element;
+    slide.elements.push(element);
+    return id;
   }
-  removeElement(_slideId: string, _elementId: string): void {
-    throw new Error('not implemented yet');
+
+  removeElement(slideId: string, elementId: string): void {
+    const slide = this.requireSlide(slideId);
+    const i = this.requireElementIndex(slide, elementId);
+    slide.elements.splice(i, 1);
   }
-  removeElements(_slideId: string, _elementIds: string[]): void {
-    throw new Error('not implemented yet');
+
+  removeElements(slideId: string, elementIds: string[]): void {
+    const slide = this.requireSlide(slideId);
+    const set = new Set(elementIds);
+    slide.elements = slide.elements.filter((e) => !set.has(e.id));
   }
+
   updateElementFrame(
-    _slideId: string, _elementId: string, _frame: Partial<Frame>,
+    slideId: string, elementId: string, frame: Partial<Frame>,
   ): void {
-    throw new Error('not implemented yet');
+    const slide = this.requireSlide(slideId);
+    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    e.frame = { ...e.frame, ...frame };
   }
+
   updateElementData(
-    _slideId: string, _elementId: string, _patch: object,
+    slideId: string, elementId: string, patch: object,
   ): void {
-    throw new Error('not implemented yet');
+    const slide = this.requireSlide(slideId);
+    const e = slide.elements[this.requireElementIndex(slide, elementId)];
+    // discriminated union — patch only the data sub-object.
+    e.data = { ...(e.data as object), ...clone(patch) } as typeof e.data;
   }
+
   reorderElement(
-    _slideId: string, _elementId: string, _toIndex: number,
+    slideId: string, elementId: string, toIndex: number,
   ): void {
-    throw new Error('not implemented yet');
+    const slide = this.requireSlide(slideId);
+    const from = this.requireElementIndex(slide, elementId);
+    const [el] = slide.elements.splice(from, 1);
+    const clamped = Math.max(0, Math.min(toIndex, slide.elements.length));
+    slide.elements.splice(clamped, 0, el);
   }
 
   // --- text bridges (Task 8) ---
@@ -158,6 +181,12 @@ export class MemSlidesStore implements SlidesStore {
   private requireSlideIndex(slideId: string): number {
     const i = this.doc.slides.findIndex((s) => s.id === slideId);
     if (i === -1) throw new Error(`Slide not found: ${slideId}`);
+    return i;
+  }
+
+  private requireElementIndex(slide: Slide, elementId: string): number {
+    const i = slide.elements.findIndex((e) => e.id === elementId);
+    if (i === -1) throw new Error(`Element not found: ${elementId}`);
     return i;
   }
 }

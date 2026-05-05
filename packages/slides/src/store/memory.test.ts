@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemSlidesStore } from './memory';
 import { BUILT_IN_LAYOUTS } from '../model/layout';
+import type { ElementInit } from '../model/element';
 
 describe('MemSlidesStore — slides', () => {
   it('starts with an empty presentation that knows the built-in layouts', () => {
@@ -81,5 +82,86 @@ describe('MemSlidesStore — slides', () => {
     store.updateSlideBackground(id, bg);
     bg.fill = '#00ff00'; // mutating the input must not change the store
     expect(store.read().slides[0].background.fill).toBe('#ff0000');
+  });
+});
+
+const textInit = (x: number): ElementInit => ({
+  type: 'text',
+  frame: { x, y: 0, w: 100, h: 40, rotation: 0 },
+  data: { blocks: [] },
+});
+const shapeInit = (kind: 'rect' | 'ellipse' = 'rect'): ElementInit => ({
+  type: 'shape',
+  frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+  data: { kind },
+});
+
+describe('MemSlidesStore — elements', () => {
+  it('addElement assigns an id and appends in z-order', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const a = store.addElement(slide, textInit(10));
+    const b = store.addElement(slide, shapeInit('rect'));
+    const elements = store.read().slides[0].elements;
+    expect(elements.map((e) => e.id)).toEqual([a, b]);
+  });
+
+  it('removeElement drops by id', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const a = store.addElement(slide, textInit(10));
+    store.removeElement(slide, a);
+    expect(store.read().slides[0].elements).toEqual([]);
+  });
+
+  it('removeElements drops a set in one call', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const a = store.addElement(slide, textInit(10));
+    const b = store.addElement(slide, textInit(20));
+    const c = store.addElement(slide, textInit(30));
+    store.removeElements(slide, [a, c]);
+    expect(store.read().slides[0].elements.map((e) => e.id)).toEqual([b]);
+  });
+
+  it('updateElementFrame applies a partial patch', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const id = store.addElement(slide, textInit(10));
+    store.updateElementFrame(slide, id, { x: 100, w: 200 });
+    const e = store.read().slides[0].elements[0];
+    expect(e.frame).toEqual({ x: 100, y: 0, w: 200, h: 40, rotation: 0 });
+  });
+
+  it('updateElementData merges a partial patch (image)', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const id = store.addElement(slide, {
+      type: 'image',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      data: { src: 'a.png', alt: 'before' },
+    });
+    store.updateElementData(slide, id, { alt: 'after' });
+    const e = store.read().slides[0].elements[0] as { data: { alt?: string; src: string } };
+    expect(e.data.alt).toBe('after');
+    expect(e.data.src).toBe('a.png');
+  });
+
+  it('reorderElement moves to a new z-index in the array', () => {
+    const store = new MemSlidesStore();
+    const slide = store.addSlide('blank');
+    const a = store.addElement(slide, textInit(0));
+    const b = store.addElement(slide, textInit(0));
+    const c = store.addElement(slide, textInit(0));
+    // Bring `a` to front: index = length - 1.
+    store.reorderElement(slide, a, 2);
+    expect(store.read().slides[0].elements.map((e) => e.id)).toEqual([b, c, a]);
+  });
+
+  it('throws on unknown slide or element', () => {
+    const store = new MemSlidesStore();
+    expect(() => store.addElement('nope', textInit(0))).toThrow(/Slide not found/);
+    const slide = store.addSlide('blank');
+    expect(() => store.removeElement(slide, 'nope')).toThrow(/Element not found/);
   });
 });
