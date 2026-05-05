@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveConfig, getConfigPath, migrateConfigIfNeeded, DEFAULT_SERVER } from '../src/config/config.js';
+import type { Session } from '../src/config/session.js';
 
 describe('resolveConfig', () => {
   const origEnv = { ...process.env };
@@ -54,6 +55,60 @@ describe('resolveConfig', () => {
 
     expect(config.server).toBe('https://env.example.com');
     expect(config.apiKey).toBe('wfb_env');
+  });
+
+  describe('session-backed JWT auth', () => {
+    let tmpDir: string;
+    let sessionPath: string;
+
+    function writeSessionFile(overrides: Partial<Session>): void {
+      const session: Session = {
+        server: 'https://api.example.com',
+        user: { id: 1, username: 'u', email: 'u@example.com', photo: null },
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+        activeWorkspace: 'ws-from-session',
+        workspaces: [{ id: 'ws-from-session', name: 'WS' }],
+        ...overrides,
+      };
+      mkdirSync(tmpDir, { recursive: true });
+      writeFileSync(sessionPath, JSON.stringify(session), 'utf-8');
+    }
+
+    beforeEach(() => {
+      tmpDir = join(tmpdir(), `wfb-config-session-${Date.now()}-${Math.random()}`);
+      sessionPath = join(tmpDir, 'session.json');
+      process.env.WAFFLEBASE_CONFIG = join(tmpDir, 'config.yaml');
+      process.env.WAFFLEBASE_SESSION = sessionPath;
+    });
+
+    afterEach(() => {
+      if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('uses session JWT auth when access token is still valid', () => {
+      writeSessionFile({ expiresAt: new Date(Date.now() + 3600_000).toISOString() });
+      const config = resolveConfig({});
+      expect(config.authMode).toBe('jwt');
+      expect(config.workspace).toBe('ws-from-session');
+      expect(config.accessToken).toBe('access-token');
+      expect(config.refreshToken).toBe('refresh-token');
+    });
+
+    // Regression: when the access token is expired but a refresh token is
+    // present, resolveConfig must still pick JWT auth and surface the
+    // session's active workspace. Otherwise the HTTP client builds
+    // `/api/v1/workspaces//documents` (empty segment) and the backend
+    // returns 404, making expired sessions look like missing routes.
+    it('keeps JWT auth and workspace when access token is expired but refresh token exists', () => {
+      writeSessionFile({ expiresAt: new Date(Date.now() - 60_000).toISOString() });
+      const config = resolveConfig({});
+      expect(config.authMode).toBe('jwt');
+      expect(config.workspace).toBe('ws-from-session');
+      expect(config.accessToken).toBe('access-token');
+      expect(config.refreshToken).toBe('refresh-token');
+    });
   });
 });
 
