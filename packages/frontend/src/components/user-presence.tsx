@@ -12,16 +12,22 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { UserPresence as UserPresenceType } from "@/types/users";
 import { getPeerCursorColor } from "@wafflebase/sheets";
 import { useTheme } from "@/components/theme-provider";
 
 interface UserPresenceProps {
   className?: string;
-  onSelectActiveCell?: (
-    activeCell: NonNullable<UserPresenceType["activeCell"]>,
-    activeTabId?: UserPresenceType["activeTabId"],
-  ) => void;
+  /**
+   * Invoked when a peer avatar is clicked. Avatars are non-clickable
+   * when this callback is omitted.
+   */
+  onSelectPeer?: (clientID: string) => void;
+  /**
+   * Returns a hint string describing where the click will jump to,
+   * or undefined if the peer is not jumpable. Used both to gate the
+   * click affordance and to populate the tooltip text.
+   */
+  getJumpHint?: (clientID: string) => string | undefined;
 }
 
 /**
@@ -29,10 +35,11 @@ interface UserPresenceProps {
  */
 export function UserPresence({
   className,
-  onSelectActiveCell,
+  onSelectPeer,
+  getJumpHint,
 }: UserPresenceProps) {
-  const { doc } = useDocument<Record<string, unknown>, UserPresenceType>();
-  const presences = usePresences<UserPresenceType>();
+  const { doc } = useDocument<Record<string, unknown>, Record<string, unknown>>();
+  const presences = usePresences<Record<string, unknown>>();
   const { resolvedTheme } = useTheme();
   const otherClientIDs = new Set(
     doc?.getOthersPresences().map((presence) => presence.clientID) || [],
@@ -44,18 +51,12 @@ export function UserPresence({
     .map((presenceData) => {
       const username = ((presenceData.presence?.username as string) || "").trim();
       const photo = presenceData.presence?.photo as string | undefined;
-      const activeCell = presenceData.presence
-        ?.activeCell as UserPresenceType["activeCell"] | undefined;
-      const activeTabId = presenceData.presence
-        ?.activeTabId as UserPresenceType["activeTabId"] | undefined;
       const isCurrentUser = presenceData.clientID === currentClientID;
 
       return {
         clientID: presenceData.clientID,
         username: username || "Anonymous",
         photo,
-        activeCell,
-        activeTabId,
         isCurrentUser,
       };
     })
@@ -67,8 +68,10 @@ export function UserPresence({
   const totalUsers = users.length;
 
   const renderAvatar = (user: (typeof users)[number]) => {
-    const canJump =
-      !!onSelectActiveCell && !!user.activeCell && !user.isCurrentUser;
+    const hint = !user.isCurrentUser && getJumpHint
+      ? getJumpHint(user.clientID)
+      : undefined;
+    const canJump = !!onSelectPeer && hint !== undefined && !user.isCurrentUser;
 
     return (
       <Tooltip key={user.clientID}>
@@ -77,8 +80,8 @@ export function UserPresence({
             type="button"
             className="relative cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
             onClick={() => {
-              if (!canJump || !user.activeCell) return;
-              onSelectActiveCell(user.activeCell, user.activeTabId);
+              if (!canJump) return;
+              onSelectPeer!(user.clientID);
             }}
             disabled={!canJump}
           >
@@ -102,7 +105,7 @@ export function UserPresence({
             {user.username}
             {user.isCurrentUser ? " (You)" : ""}
           </p>
-          {canJump && user.activeCell && <p>Click to jump to {user.activeCell}</p>}
+          {canJump && hint && <p>Click to jump to {hint}</p>}
         </TooltipContent>
       </Tooltip>
     );
@@ -129,17 +132,18 @@ export function UserPresence({
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>More users</DropdownMenuLabel>
                   {hiddenUsers.map((user) => {
+                    const hint = !user.isCurrentUser && getJumpHint
+                      ? getJumpHint(user.clientID)
+                      : undefined;
                     const canJump =
-                      !!onSelectActiveCell &&
-                      !!user.activeCell &&
-                      !user.isCurrentUser;
+                      !!onSelectPeer && hint !== undefined && !user.isCurrentUser;
                     return (
                       <DropdownMenuItem
                         key={user.clientID}
                         className={canJump ? "cursor-pointer" : undefined}
                         onSelect={() => {
-                          if (!canJump || !user.activeCell) return;
-                          onSelectActiveCell(user.activeCell, user.activeTabId);
+                          if (!canJump) return;
+                          onSelectPeer!(user.clientID);
                         }}
                       >
                         <Avatar
@@ -162,9 +166,9 @@ export function UserPresence({
                             {user.username}
                             {user.isCurrentUser ? " (You)" : ""}
                           </p>
-                          {user.activeCell && (
+                          {hint && (
                             <p className="truncate text-xs text-muted-foreground">
-                              {canJump ? `Jump: ${user.activeCell}` : user.activeCell}
+                              {canJump ? `Jump: ${hint}` : hint}
                             </p>
                           )}
                         </div>

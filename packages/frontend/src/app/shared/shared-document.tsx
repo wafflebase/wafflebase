@@ -51,12 +51,19 @@ function SharedDocumentLayout({
     [root]
   );
 
-  const handleSelectPresenceCell = useCallback(
-    (
-      activeCell: NonNullable<UserPresenceType["activeCell"]>,
-      peerActiveTabId?: UserPresenceType["activeTabId"],
-    ) => {
-      if (!doc || !activeCell) return;
+  const handleSelectPeer = useCallback(
+    (clientID: string) => {
+      if (!doc) return;
+      const peer = doc
+        .getOthersPresences()
+        .find((p) => p.clientID === clientID);
+      const activeCell = peer?.presence?.activeCell as
+        | NonNullable<UserPresenceType["activeCell"]>
+        | undefined;
+      const peerActiveTabId = peer?.presence?.activeTabId as
+        | UserPresenceType["activeTabId"]
+        | undefined;
+      if (!activeCell) return;
 
       if (peerActiveTabId && peerActiveTabId !== activeTabId) {
         setActiveTabId(peerActiveTabId);
@@ -70,6 +77,17 @@ function SharedDocumentLayout({
       });
     },
     [doc, activeTabId],
+  );
+
+  const getJumpHint = useCallback(
+    (clientID: string) => {
+      const peer = doc
+        ?.getOthersPresences()
+        .find((p) => p.clientID === clientID);
+      const activeCell = peer?.presence?.activeCell as string | undefined;
+      return activeCell;
+    },
+    [doc],
   );
 
   useEffect(() => {
@@ -104,7 +122,7 @@ function SharedDocumentLayout({
             </span>
           )}
         </div>
-        <UserPresence onSelectActiveCell={handleSelectPresenceCell} />
+        <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
       </header>
       <div className="flex flex-1 flex-col">
         <div className="flex flex-1 flex-col">
