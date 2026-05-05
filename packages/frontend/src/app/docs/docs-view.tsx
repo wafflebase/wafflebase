@@ -74,7 +74,7 @@ const HOVER_RADIUS = 10;
 interface DocsViewProps {
   onEditorReady?: (editor: EditorAPI | null) => void;
   /**
-   * Optional handle exposing imperative actions (peer-jump, scroll).
+   * Optional handle exposing imperative peer-jump.
    * The DocsView calls this with a handle on mount and `null` on unmount.
    */
   onJumpHandleReady?: (handle: JumpHandle | null) => void;
