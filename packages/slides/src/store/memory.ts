@@ -26,6 +26,7 @@ export class MemSlidesStore implements SlidesStore {
   private doc: SlidesDocument;
   private undoStack: SlidesDocument[] = [];
   private redoStack: SlidesDocument[] = [];
+  private batchDepth = 0;
 
   constructor(doc?: SlidesDocument) {
     this.doc = doc ? clone(doc) : emptyDocument();
@@ -38,6 +39,7 @@ export class MemSlidesStore implements SlidesStore {
   // --- slide ops ---
 
   addSlide(layoutId: string, atIndex?: number): string {
+    this.requireBatch();
     const layout = getLayout(layoutId);
     const id = generateId();
     const slide: Slide = {
@@ -56,6 +58,7 @@ export class MemSlidesStore implements SlidesStore {
   }
 
   duplicateSlide(slideId: string): string {
+    this.requireBatch();
     const index = this.requireSlideIndex(slideId);
     const source = this.doc.slides[index];
     const copy: Slide = clone(source);
@@ -66,16 +69,19 @@ export class MemSlidesStore implements SlidesStore {
   }
 
   removeSlide(slideId: string): void {
+    this.requireBatch();
     const index = this.requireSlideIndex(slideId);
     this.doc.slides.splice(index, 1);
   }
 
   removeSlides(slideIds: string[]): void {
+    this.requireBatch();
     const set = new Set(slideIds);
     this.doc.slides = this.doc.slides.filter((s) => !set.has(s.id));
   }
 
   moveSlide(slideId: string, toIndex: number): void {
+    this.requireBatch();
     const from = this.requireSlideIndex(slideId);
     const [slide] = this.doc.slides.splice(from, 1);
     const clamped = Math.max(0, Math.min(toIndex, this.doc.slides.length));
@@ -83,6 +89,7 @@ export class MemSlidesStore implements SlidesStore {
   }
 
   moveSlides(slideIds: string[], toIndex: number): void {
+    this.requireBatch();
     // Pull them out preserving relative order, then re-insert as a block.
     const set = new Set(slideIds);
     const moving = this.doc.slides.filter((s) => set.has(s.id));
@@ -92,11 +99,13 @@ export class MemSlidesStore implements SlidesStore {
   }
 
   updateSlideBackground(slideId: string, bg: Background): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     slide.background = clone(bg);
   }
 
   applyLayout(slideId: string, layoutId: string): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const layout = getLayout(layoutId);
     slide.layoutId = layout.id;
@@ -123,6 +132,7 @@ export class MemSlidesStore implements SlidesStore {
   // --- element ops ---
 
   addElement(slideId: string, init: ElementInit): string {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const id = generateId();
     const element = { ...clone(init), id } as Element;
@@ -131,12 +141,14 @@ export class MemSlidesStore implements SlidesStore {
   }
 
   removeElement(slideId: string, elementId: string): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const i = this.requireElementIndex(slide, elementId);
     slide.elements.splice(i, 1);
   }
 
   removeElements(slideId: string, elementIds: string[]): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const set = new Set(elementIds);
     slide.elements = slide.elements.filter((e) => !set.has(e.id));
@@ -145,6 +157,7 @@ export class MemSlidesStore implements SlidesStore {
   updateElementFrame(
     slideId: string, elementId: string, frame: Partial<Frame>,
   ): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const e = slide.elements[this.requireElementIndex(slide, elementId)];
     e.frame = { ...e.frame, ...frame };
@@ -153,6 +166,7 @@ export class MemSlidesStore implements SlidesStore {
   updateElementData(
     slideId: string, elementId: string, patch: object,
   ): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const e = slide.elements[this.requireElementIndex(slide, elementId)];
     // discriminated union — patch only the data sub-object.
@@ -162,6 +176,7 @@ export class MemSlidesStore implements SlidesStore {
   reorderElement(
     slideId: string, elementId: string, toIndex: number,
   ): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const from = this.requireElementIndex(slide, elementId);
     const [el] = slide.elements.splice(from, 1);
@@ -175,6 +190,7 @@ export class MemSlidesStore implements SlidesStore {
     slideId: string, elementId: string,
     fn: (blocks: Block[]) => Block[] | void,
   ): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const e = slide.elements[this.requireElementIndex(slide, elementId)];
     if (e.type !== 'text') {
@@ -190,6 +206,7 @@ export class MemSlidesStore implements SlidesStore {
     slideId: string,
     fn: (blocks: Block[]) => Block[] | void,
   ): void {
+    this.requireBatch();
     const slide = this.requireSlide(slideId);
     const next = fn(slide.notes);
     if (next !== undefined) {
@@ -197,12 +214,33 @@ export class MemSlidesStore implements SlidesStore {
     }
   }
 
-  // --- transactions (Task 9) ---
-  batch(_fn: () => void): void {
-    throw new Error('not implemented yet');
+  // --- transactions ---
+
+  batch(fn: () => void): void {
+    if (this.batchDepth === 0) {
+      this.undoStack.push(clone(this.doc));
+      this.redoStack = [];
+    }
+    this.batchDepth++;
+    try {
+      fn();
+    } finally {
+      this.batchDepth--;
+    }
   }
-  undo(): void { /* Task 9 */ }
-  redo(): void { /* Task 9 */ }
+
+  undo(): void {
+    if (!this.canUndo()) return;
+    this.redoStack.push(clone(this.doc));
+    this.doc = this.undoStack.pop()!;
+  }
+
+  redo(): void {
+    if (!this.canRedo()) return;
+    this.undoStack.push(clone(this.doc));
+    this.doc = this.redoStack.pop()!;
+  }
+
   canUndo(): boolean { return this.undoStack.length > 0; }
   canRedo(): boolean { return this.redoStack.length > 0; }
 
@@ -222,5 +260,11 @@ export class MemSlidesStore implements SlidesStore {
     const i = slide.elements.findIndex((e) => e.id === elementId);
     if (i === -1) throw new Error(`Element not found: ${elementId}`);
     return i;
+  }
+
+  private requireBatch(): void {
+    if (this.batchDepth === 0) {
+      throw new Error('Mutations must be wrapped in batch()');
+    }
   }
 }
