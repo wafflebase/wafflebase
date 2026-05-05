@@ -451,6 +451,12 @@ export class YorkieDocStore implements DocStore {
 
   constructor(doc: YorkieDocument<YorkieDocsRoot>) {
     this.doc = doc;
+    // Whatever already exists in the doc when this store is constructed
+    // (e.g. content set via client.attach({ initialRoot }), or a legacy
+    // ensureTree() doc.update) is treated as the initial state. Users
+    // must not be able to undo past it — doing so would destroy blocks
+    // the cursor still references.
+    this.undoFloor = this.doc.getUndoStackForTest().length;
 
     // Invalidate cache on remote changes
     doc.subscribe((event) => {
