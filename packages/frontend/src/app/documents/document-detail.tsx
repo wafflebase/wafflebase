@@ -446,12 +446,19 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc],
   );
 
-  const handleSelectPresenceCell = useCallback(
-    (
-      activeCell: NonNullable<UserPresenceType["activeCell"]>,
-      peerActiveTabId?: UserPresenceType["activeTabId"],
-    ) => {
-      if (!doc || !activeCell) return;
+  const handleSelectPeer = useCallback(
+    (clientID: string) => {
+      if (!doc) return;
+      const peer = doc
+        .getOthersPresences()
+        .find((p) => p.clientID === clientID);
+      const activeCell = peer?.presence?.activeCell as
+        | NonNullable<UserPresenceType["activeCell"]>
+        | undefined;
+      const peerActiveTabId = peer?.presence?.activeTabId as
+        | UserPresenceType["activeTabId"]
+        | undefined;
+      if (!activeCell) return;
 
       const root = doc.getRoot();
       const activeTab = peerActiveTabId ? root.tabs[peerActiveTabId] : undefined;
@@ -483,6 +490,17 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc, activeTabId],
   );
 
+  const getJumpHint = useCallback(
+    (clientID: string) => {
+      const peer = doc
+        ?.getOthersPresences()
+        .find((p) => p.clientID === clientID);
+      const activeCell = peer?.presence?.activeCell as string | undefined;
+      return activeCell;
+    },
+    [doc],
+  );
+
   if (!doc || !activeTabId) {
     return <Loader />;
   }
@@ -510,7 +528,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         >
           <div className="flex items-center gap-2">
             <ShareDialog documentId={documentId} />
-            <UserPresence onSelectActiveCell={handleSelectPresenceCell} />
+            <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col">

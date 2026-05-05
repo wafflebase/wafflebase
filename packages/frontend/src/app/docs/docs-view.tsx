@@ -19,6 +19,10 @@ import { insertImageFromFile } from "./image-insert";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
+export interface JumpHandle {
+  jumpToPeer: (clientID: string) => void;
+}
+
 /**
  * Ensure the Yorkie document has a Tree CRDT for content.
  * Tree must be created via `new Tree()` inside doc.update();
@@ -69,6 +73,11 @@ const HOVER_RADIUS = 10;
 
 interface DocsViewProps {
   onEditorReady?: (editor: EditorAPI | null) => void;
+  /**
+   * Optional handle exposing imperative peer-jump.
+   * The DocsView calls this with a handle on mount and `null` on unmount.
+   */
+  onJumpHandleReady?: (handle: JumpHandle | null) => void;
   readOnly?: boolean;
   /**
    * Optional document id used to consume any pending DOCX import that
@@ -86,7 +95,7 @@ interface DocsViewProps {
  * It also subscribes to presence changes for peer cursors with label visibility
  * and hover detection.
  */
-export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps) {
+export function DocsView({ onEditorReady, onJumpHandleReady, readOnly, documentId }: DocsViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorAPI | null>(null);
   const storeRef = useRef<YorkieDocStore | null>(null);
@@ -147,6 +156,40 @@ export function DocsView({ onEditorReady, readOnly, documentId }: DocsViewProps)
         };
       });
   }, []);
+
+  const jumpToPeer = useCallback((clientID: string) => {
+    const store = storeRef.current;
+    const editor = editorRef.current;
+    if (!store || !editor) return;
+
+    const peer = store.getPresences().find((p) => p.clientID === clientID);
+    const pos = peer?.presence.activeCursorPos;
+    if (!pos) return;
+
+    editor.scrollToPosition(pos);
+
+    // Reset and restart the label visibility timer so the user can
+    // confirm whose position they landed at.
+    const existing = peerLabelTimers.current.get(clientID);
+    if (existing) clearTimeout(existing);
+    visiblePeerLabels.current.add(clientID);
+    const timer = window.setTimeout(() => {
+      visiblePeerLabels.current.delete(clientID);
+      peerLabelTimers.current.delete(clientID);
+      editorRef.current?.setPeerCursors(buildPeerCursors());
+    }, LABEL_VISIBLE_DURATION);
+    peerLabelTimers.current.set(clientID, timer);
+
+    editor.setPeerCursors(buildPeerCursors());
+  }, [buildPeerCursors]);
+
+  useEffect(() => {
+    if (!onJumpHandleReady) return;
+    onJumpHandleReady({ jumpToPeer });
+    return () => {
+      onJumpHandleReady(null);
+    };
+  }, [onJumpHandleReady, jumpToPeer]);
 
   const handlePresenceChange = useCallback(() => {
     const store = storeRef.current;

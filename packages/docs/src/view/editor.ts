@@ -54,6 +54,13 @@ export interface EditorAPI {
   setTheme(mode: ThemeMode): void;
   /** Update peer cursor data and re-render */
   setPeerCursors(cursors: PeerCursor[]): void;
+  /**
+   * Smooth-scroll the viewport so the given document position sits
+   * roughly one-third from the top of the visible area. Silent no-op
+   * when the position cannot be resolved (e.g. stale blockId) or
+   * before the first paint() has run.
+   */
+  scrollToPosition(pos: DocPosition): void;
   /** Register a callback for cursor position changes */
   onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): void;
   /** Get last-computed peer cursor pixel positions (for hover hit-testing) */
@@ -474,6 +481,8 @@ export function initialize(
   let searchMatches: SearchMatch[] = [];
   let activeMatchIndex = -1;
   let scaleFactor = 1;
+  let lastCanvasHeight = 0;
+  let lastLogicalCanvasWidth = 0;
 
   // Position of the currently selected image. When set, the text caret
   // is suppressed and the image selection overlay (Milestone 2) renders
@@ -682,12 +691,14 @@ export function initialize(
     }
 
     const canvasHeight = height - rulerSize;
+    lastCanvasHeight = canvasHeight;
     docCanvas.resize(canvasWidth, canvasHeight);
     spacer.style.height = `${totalHeight * scaleFactor}px`;
     spacer.style.marginTop = `${-height - rulerSize}px`;
 
     // Logical canvas width in unscaled document coordinates
     const logicalCanvasWidth = scaleFactor < 1 ? canvasWidth / scaleFactor : canvasWidth;
+    lastLogicalCanvasWidth = logicalCanvasWidth;
 
     // Hide cursor when in cell-range selection mode
     const cursorPixel = selection.range?.tableCellRange
@@ -1661,6 +1672,24 @@ export function initialize(
     setPeerCursors: (cursors: PeerCursor[]) => {
       peerCursors = cursors;
       renderPaintOnly();
+    },
+    scrollToPosition: (pos: DocPosition) => {
+      if (lastLogicalCanvasWidth === 0 || lastCanvasHeight === 0) return;
+      const pixel = resolvePositionPixel(
+        pos,
+        'backward',
+        paginatedLayout,
+        layout,
+        measurer,
+        lastLogicalCanvasWidth,
+      );
+      if (!pixel) return;
+
+      const targetTop = pixel.y * scaleFactor - lastCanvasHeight / 3;
+      container.scrollTo({
+        top: Math.max(0, targetTop),
+        behavior: 'smooth',
+      });
     },
     onCursorMove: (cb) => {
       cursorMoveCallback = cb;
