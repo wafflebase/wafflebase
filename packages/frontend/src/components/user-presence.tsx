@@ -67,10 +67,11 @@ export function UserPresence({
   const hiddenUsers = users.slice(visibleCount);
   const totalUsers = users.length;
 
+  const resolveHint = (clientID: string, isCurrentUser: boolean) =>
+    !isCurrentUser && getJumpHint ? getJumpHint(clientID) : undefined;
+
   const renderAvatar = (user: (typeof users)[number]) => {
-    const hint = !user.isCurrentUser && getJumpHint
-      ? getJumpHint(user.clientID)
-      : undefined;
+    const hint = resolveHint(user.clientID, user.isCurrentUser);
     const canJump = !!onSelectPeer && hint !== undefined && !user.isCurrentUser;
 
     return (
@@ -80,8 +81,8 @@ export function UserPresence({
             type="button"
             className="relative cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-default"
             onClick={() => {
-              if (!canJump) return;
-              onSelectPeer!(user.clientID);
+              if (!canJump || !onSelectPeer) return;
+              onSelectPeer(user.clientID);
             }}
             disabled={!canJump}
           >
@@ -132,9 +133,7 @@ export function UserPresence({
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>More users</DropdownMenuLabel>
                   {hiddenUsers.map((user) => {
-                    const hint = !user.isCurrentUser && getJumpHint
-                      ? getJumpHint(user.clientID)
-                      : undefined;
+                    const hint = resolveHint(user.clientID, user.isCurrentUser);
                     const canJump =
                       !!onSelectPeer && hint !== undefined && !user.isCurrentUser;
                     return (
@@ -142,8 +141,8 @@ export function UserPresence({
                         key={user.clientID}
                         className={canJump ? "cursor-pointer" : undefined}
                         onSelect={() => {
-                          if (!canJump) return;
-                          onSelectPeer!(user.clientID);
+                          if (!canJump || !onSelectPeer) return;
+                          onSelectPeer(user.clientID);
                         }}
                       >
                         <Avatar
