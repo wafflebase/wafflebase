@@ -6,16 +6,16 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 
 ## Phase 1: Foundation
 
-- [ ] 1.1 Scaffold `packages/slides` — `package.json`, `vite.config.ts`, `tsconfig`, README
-- [ ] 1.2 Add `@wafflebase/slides` to root `pnpm-workspace.yaml` build, `pnpm slides` filter alias
-- [ ] 1.3 `model/presentation.ts` — `SlidesDocument`, `Slide` (incl. `notes`), `Layout` types
-- [ ] 1.4 `model/element.ts` — `TextElement`, `ImageElement`, `ShapeElement` discriminated union
-- [ ] 1.5 `model/frame.ts` — coordinate math, hit-testing, rotation matrices (with property tests)
-- [ ] 1.6 `model/layout.ts` — built-in layout templates (title, title+body, blank); reapply preserves user content
-- [ ] 1.7 `store/store.ts` — `SlidesStore` interface (incl. `duplicateSlide`, multi-slide ops, `withNotes`)
-- [ ] 1.8 `store/memory.ts` — `MemSlidesStore` reference impl + full mutation tests
-- [ ] 1.9 `store/memory.ts` — `batch()` for undo/redo grouping (sheets pattern; pointer = 1 batch, IME-aware text grouping)
-- [ ] 1.10 `pnpm slides test` green; verify:fast green
+- [x] 1.1 Scaffold `packages/slides` — `package.json`, `vite.config.ts`, `tsconfig`, README
+- [x] 1.2 Add `@wafflebase/slides` to root `pnpm-workspace.yaml` build, `pnpm slides` filter alias
+- [x] 1.3 `model/presentation.ts` — `SlidesDocument`, `Slide` (incl. `notes`), `Layout` types
+- [x] 1.4 `model/element.ts` — `TextElement`, `ImageElement`, `ShapeElement` discriminated union
+- [x] 1.5 `model/frame.ts` — coordinate math, hit-testing, rotation matrices (with property tests)
+- [x] 1.6 `model/layout.ts` — built-in layout templates (title, title+body, blank); reapply preserves user content
+- [x] 1.7 `store/store.ts` — `SlidesStore` interface (incl. `duplicateSlide`, multi-slide ops, `withNotes`)
+- [x] 1.8 `store/memory.ts` — `MemSlidesStore` reference impl + full mutation tests
+- [x] 1.9 `store/memory.ts` — `batch()` for undo/redo grouping (sheets pattern; pointer = 1 batch, IME-aware text grouping)
+- [x] 1.10 `pnpm slides test` green; verify:fast green
 
 ## Phase 2: Static Rendering
 
