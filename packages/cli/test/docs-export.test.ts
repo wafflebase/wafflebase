@@ -34,6 +34,38 @@ function paragraph(id: string, text: string, style: { fontFamily?: string } = {}
   };
 }
 
+/** Block that contains a single image inline with the given src. */
+function imageParagraph(id: string, src: string): Block {
+  return {
+    id,
+    type: 'paragraph',
+    inlines: [
+      // U+FFFC OBJECT REPLACEMENT CHARACTER is the model-level
+      // placeholder for an image inline; the exporter dispatches on
+      // `style.image` and ignores the character itself.
+      { text: '\uFFFC', style: { image: { src, width: 1, height: 1 } } },
+    ],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  };
+}
+
+/**
+ * Smallest valid PNG (1×1 transparent). pdf-lib `embedPng` parses the
+ * IHDR/IDAT/IEND chunks, so the exact byte sequence has to be a real
+ * PNG. Hex source: well-known minimal PNG.
+ */
+const PNG_1x1 = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+  0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
+  0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+  0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+  0x42, 0x60, 0x82,
+]);
+
 /** PDF starts with the bytes `%PDF-` (0x25 0x50 0x44 0x46 0x2D). */
 function looksLikePdf(bytes: Uint8Array): boolean {
   return (
@@ -86,6 +118,51 @@ describe('exportPdf', () => {
     expect(looksLikePdf(bytes)).toBe(true);
   }, 20000);
 
+  it('embeds image inlines via the supplied imageFetcher', async () => {
+    // Same doc as the regression test, but now we hand `exportPdf` a
+    // stub fetcher that returns a real 1×1 PNG. pdf-lib accepts the
+    // bytes via `embedPng`, so the call resolves to a valid PDF
+    // instead of throwing.
+    const calls: string[] = [];
+    const stubFetcher = async (url: string): Promise<Blob> => {
+      calls.push(url);
+      return new Blob([PNG_1x1], { type: 'image/png' });
+    };
+
+    const doc: Document = {
+      blocks: [
+        imageParagraph(
+          'p1',
+          'https://api.wafflebase.io/images/ff5cd97d-0627-4250-a947-05c422fe735f.png',
+        ),
+      ],
+    };
+    const bytes = await exportPdf(doc, { imageFetcher: stubFetcher });
+    expect(looksLikePdf(bytes)).toBe(true);
+    expect(calls).toEqual([
+      'https://api.wafflebase.io/images/ff5cd97d-0627-4250-a947-05c422fe735f.png',
+    ]);
+  }, 20000);
+
+  it('reproduces the original "imageFetcher required" error when no fetcher is supplied', async () => {
+    // Regression for the user-reported failure:
+    //   `wafflebase docs export <id> export.pdf`
+    //   → `imageFetcher required: document contains 1 image inline(s); first: ...`
+    // PdfExporter walks the doc up-front and refuses to silently drop
+    // image content when the caller forgot to wire a fetcher.
+    const doc: Document = {
+      blocks: [
+        imageParagraph(
+          'p1',
+          'https://api.wafflebase.io/images/ff5cd97d-0627-4250-a947-05c422fe735f.png',
+        ),
+      ],
+    };
+    await expect(exportPdf(doc)).rejects.toThrow(
+      /imageFetcher required: document contains 1 image inline\(s\); first: https:\/\/api\.wafflebase\.io\/images\/ff5cd97d-/,
+    );
+  }, 20000);
+
   it('extracts only the requested pages when --pages is supplied', async () => {
     // Build a doc large enough that pagination produces multiple pages
     // even with the FontkitMeasurer fallback.
@@ -119,6 +196,15 @@ describe('exportDocx', () => {
     const bytes = await exportDocx(doc);
     expect(bytes.length).toBeGreaterThan(0);
   });
+
+  // The DOCX "imageFetcher required" guard lives in `DocxExporter` and
+  // is exercised directly by the docs package's
+  // `docx-exporter.test.ts > should throw when image inline has no
+  // matching media entry`. We deliberately don't repeat it here: a
+  // failing `DocxExporter.export` invocation in the CLI's pure-Node
+  // env perturbs JSZip's Blob support state and surfaces a phantom
+  // `blob.arrayBuffer is not a function` in subsequent tests. Keep
+  // DOCX-with-images coverage in the jsdom-env docs suite.
 });
 
 describe('writeBinary', () => {

@@ -4,6 +4,7 @@ import {
   PdfFonts,
   scanFontsUsed,
   type Document,
+  type DocxImageFetcher,
   type FontUsage,
   type PdfFontKey,
   type PdfFontsOptions,
@@ -33,6 +34,15 @@ export interface CliPdfExportOptions {
    *  and to leave room for a future "strip header/footer" mode. */
   includeHeaderFooter?: boolean;
   fontSources?: PdfFontsOptions['sources'];
+  /** Resolve and download image inlines so they can be embedded in the
+   *  PDF. Required when the document contains image inlines —
+   *  `PdfExporter` throws otherwise to avoid silently dropping content.
+   *  The CLI command builds one via `createImageFetcher` from the
+   *  configured server base; tests inject a stub that returns
+   *  in-memory bytes. Typed as `DocxImageFetcher` (a structural
+   *  `(url) => Promise<Blob>` alias) since the bare `ImageFetcher`
+   *  symbol from `pdf-image-painter` isn't re-exported. */
+  imageFetcher?: DocxImageFetcher;
 }
 
 /**
@@ -57,7 +67,11 @@ export async function exportPdf(
   const measurer = new FontkitMeasurer();
   await preloadKoreanFonts(fonts, measurer, usage);
 
-  const blob = await PdfExporter.export(doc, { measurer, fonts });
+  const blob = await PdfExporter.export(doc, {
+    measurer,
+    fonts,
+    imageFetcher: opts.imageFetcher,
+  });
   const fullBytes = new Uint8Array(await blob.arrayBuffer());
 
   if (!opts.pages || opts.pages.pages.size === 0) {
