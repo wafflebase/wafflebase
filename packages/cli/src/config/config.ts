@@ -2,7 +2,7 @@ import { readFileSync, existsSync, mkdirSync, copyFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { parse as parseYaml } from 'yaml';
-import { loadSession, isSessionExpired } from './session.js';
+import { loadSession } from './session.js';
 
 export const DEFAULT_SERVER = 'https://api.wafflebase.io';
 
@@ -67,7 +67,10 @@ export function getConfigPath(): string {
  *
  * Auth resolution order:
  * 1. Flag/env `--api-key` or `WAFFLEBASE_API_KEY` → API key auth
- * 2. Session `~/.wafflebase/session.json` exists and token valid → JWT auth
+ * 2. Session `~/.wafflebase/session.json` with both tokens → JWT auth
+ *    (the access token may already be past its `expiresAt`; the HTTP
+ *    client refreshes it on the first 401 and falls back to a clear
+ *    SESSION_EXPIRED error when the refresh token is also dead)
  * 3. Config profile `api-key` → API key auth
  * 4. None → empty (commands will fail)
  */
@@ -99,9 +102,14 @@ export function resolveConfig(flags: {
     };
   }
 
-  // Step 2: Try session
+  // Step 2: Try session — accept it whenever both tokens are present.
+  // Gating on `isSessionExpired` here would silently drop the session
+  // (and its `activeWorkspace`) the moment the access token expired,
+  // turning every command into a `/workspaces//...` 404. Letting the
+  // HTTP client see the expired access token + refresh token lets its
+  // 401 → refresh → retry path do its job.
   const session = loadSession();
-  if (session && !isSessionExpired(session)) {
+  if (session && session.accessToken && session.refreshToken) {
     return {
       server:
         flags.server ??
