@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 156
+Total archived tasks: 157
 
-## 2026/05 (11 tasks)
+## 2026/05 (12 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | cli expired session 404 (2026-05-05) | [20260505-cli-expired-session-404-todo.md](./2026/05/20260505-cli-expired-session-404-todo.md) | - |
+| docs peer jump (2026-05-05) | [20260505-docs-peer-jump-todo.md](./2026/05/20260505-docs-peer-jump-todo.md) | [20260505-docs-peer-jump-lessons.md](./2026/05/20260505-docs-peer-jump-lessons.md) |
 | release 0.3.7 (2026-05-04) | [20260504-release-0.3.7-todo.md](./2026/05/20260504-release-0.3.7-todo.md) | - |
 | cmd arrow axis extension (2026-05-03) | [20260503-cmd-arrow-axis-extension-todo.md](./2026/05/20260503-cmd-arrow-axis-extension-todo.md) | [20260503-cmd-arrow-axis-extension-lessons.md](./2026/05/20260503-cmd-arrow-axis-extension-lessons.md) |
 | docs paragraph bg selection (2026-05-03) | [20260503-docs-paragraph-bg-selection-todo.md](./2026/05/20260503-docs-paragraph-bg-selection-todo.md) | - |

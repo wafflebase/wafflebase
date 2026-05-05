@@ -1,6 +1,6 @@
 # Docs Peer Jump Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make a peer's avatar in the docs SiteHeader clickable so the editor smooth-scrolls to that collaborator's caret position.
 
@@ -34,7 +34,7 @@
 
 This task is independent — it ships a new editor capability with no consumers yet. After this commit, both `paint()` continues to work and a new method exists for callers.
 
-- [ ] **Step 1: Extend the `EditorAPI` interface**
+- [x] **Step 1: Extend the `EditorAPI` interface**
 
 In `packages/docs/src/view/editor.ts`, find the `setPeerCursors` declaration in the `EditorAPI` interface (currently around line 56) and add the new method **directly after it**:
 
@@ -50,7 +50,7 @@ In `packages/docs/src/view/editor.ts`, find the `setPeerCursors` declaration in 
   scrollToPosition(pos: DocPosition): void;
 ```
 
-- [ ] **Step 2: Cache `canvasHeight` and `logicalCanvasWidth` in closure scope**
+- [x] **Step 2: Cache `canvasHeight` and `logicalCanvasWidth` in closure scope**
 
 `paint()` computes these per-render but keeps them as locals. `scrollToPosition` needs them outside the render pipeline. Promote them to closure-scoped state.
 
@@ -76,7 +76,7 @@ Then in `paint()`, find the existing `const canvasHeight = height - rulerSize;` 
     lastLogicalCanvasWidth = logicalCanvasWidth;
 ```
 
-- [ ] **Step 3: Implement `scrollToPosition` in the returned API object**
+- [x] **Step 3: Implement `scrollToPosition` in the returned API object**
 
 Find the returned object literal of `initialize()` and the `setPeerCursors` implementation in it (currently around line 1661). Add `scrollToPosition` directly after it:
 
@@ -107,7 +107,7 @@ Find the returned object literal of `initialize()` and the `setPeerCursors` impl
 
 `resolvePositionPixel` and `DocPosition` are already imported at the top of the file (lines 14 and 18). No new imports needed.
 
-- [ ] **Step 4: Run verify**
+- [x] **Step 4: Run verify**
 
 ```bash
 pnpm verify:fast
@@ -117,7 +117,7 @@ Expected: PASS. (Lint + typecheck + unit tests in sheets/docs packages.)
 
 If lint/typecheck fails, the most likely cause is a missing comma in the API object literal or a stray `let` placement. Read the failure and fix.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/docs/src/view/editor.ts
@@ -148,7 +148,7 @@ EOF
 
 This task **must** ship as a single commit because the prop rename ripples through all three files and `pnpm verify:fast` runs the TypeScript checker repo-wide.
 
-- [ ] **Step 1: Rewrite `user-presence.tsx` with the new prop signature**
+- [x] **Step 1: Rewrite `user-presence.tsx` with the new prop signature**
 
 Replace the entire file `packages/frontend/src/components/user-presence.tsx` with:
 
@@ -347,7 +347,7 @@ Notes:
 - The component no longer imports `UserPresence as UserPresenceType` from `@/types/users`. It is now domain-agnostic.
 - The `useDocument` and `usePresences` generics are unbound (`Record<string, unknown>`) because the component only accesses `username` / `photo`, and the host page is responsible for any presence-shape-specific work via `getJumpHint`.
 
-- [ ] **Step 2: Migrate `document-detail.tsx`**
+- [x] **Step 2: Migrate `document-detail.tsx`**
 
 In `packages/frontend/src/app/documents/document-detail.tsx`, find `handleSelectPresenceCell` (currently at line 449) and replace it with a `handleSelectPeer(clientID)` that does the same work after a presence lookup:
 
@@ -416,7 +416,7 @@ Then update the JSX (currently around line 513):
 
 The `import type { UserPresence as UserPresenceType } from "@/types/users";` import should remain — it's still used for `PeerJumpTarget` typing further up the file.
 
-- [ ] **Step 3: Migrate `shared-document.tsx`**
+- [x] **Step 3: Migrate `shared-document.tsx`**
 
 In `packages/frontend/src/app/shared/shared-document.tsx`, find `handleSelectPresenceCell` in `SharedDocumentLayout` (currently at line 54) and replace it with the same migration pattern:
 
@@ -469,7 +469,7 @@ Update the JSX (currently around line 107):
 
 `SharedDocsLayout` (line 144) uses `<UserPresence />` with no props — leave it alone. Both new props are optional, so it remains valid.
 
-- [ ] **Step 4: Run verify**
+- [x] **Step 4: Run verify**
 
 ```bash
 pnpm verify:fast
@@ -477,7 +477,7 @@ pnpm verify:fast
 
 Expected: PASS. The TypeScript check exercises every call site of `UserPresence` and the renamed handlers. If you see "Property 'onSelectActiveCell' does not exist", you missed a call site — search the repo for `onSelectActiveCell` and migrate.
 
-- [ ] **Step 5: Manual smoke test (Sheets regression)**
+- [x] **Step 5: Manual smoke test (Sheets regression)**
 
 Start the dev environment:
 
@@ -495,7 +495,7 @@ Open `http://localhost:5173` in two browser windows (e.g. Chrome + Chrome incogn
 
 If anything regresses, **stop and diagnose** — do not proceed.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/components/user-presence.tsx \
@@ -527,7 +527,7 @@ EOF
 
 This task lands the imperative jump entrypoint inside DocsView (where peer-label state already lives) and exposes it via a new `onJumpHandleReady` prop. No external consumer wires it up yet — that's Task 4.
 
-- [ ] **Step 1: Export the `JumpHandle` interface**
+- [x] **Step 1: Export the `JumpHandle` interface**
 
 In `packages/frontend/src/app/docs/docs-view.tsx`, near the top of the file (under the existing `import` block, before the helpers), add:
 
@@ -537,7 +537,7 @@ export interface JumpHandle {
 }
 ```
 
-- [ ] **Step 2: Extend `DocsViewProps`**
+- [x] **Step 2: Extend `DocsViewProps`**
 
 Find `interface DocsViewProps` (currently around line 70) and add an optional `onJumpHandleReady` prop:
 
@@ -565,7 +565,7 @@ export function DocsView({
 }: DocsViewProps) {
 ```
 
-- [ ] **Step 3: Add the `jumpToPeer` callback**
+- [x] **Step 3: Add the `jumpToPeer` callback**
 
 Find the existing `buildPeerCursors` definition in `DocsView` (around line 120) and add `jumpToPeer` immediately after it. It uses the same refs (`storeRef`, `editorRef`, `peerLabelTimers`, `visiblePeerLabels`) that `handlePresenceChange` already touches:
 
@@ -597,7 +597,7 @@ Find the existing `buildPeerCursors` definition in `DocsView` (around line 120) 
   }, [buildPeerCursors]);
 ```
 
-- [ ] **Step 4: Expose the handle via the prop**
+- [x] **Step 4: Expose the handle via the prop**
 
 Add a `useEffect` after `jumpToPeer` that publishes the handle:
 
@@ -611,7 +611,7 @@ Add a `useEffect` after `jumpToPeer` that publishes the handle:
   }, [onJumpHandleReady, jumpToPeer]);
 ```
 
-- [ ] **Step 5: Run verify**
+- [x] **Step 5: Run verify**
 
 ```bash
 pnpm verify:fast
@@ -621,7 +621,7 @@ Expected: PASS. Common pitfalls:
 - `scrollToPosition` not on `EditorAPI` → Task 1 didn't ship; rebase or fix.
 - `peer.presence.activeCursorPos` typed as `unknown` → confirm the existing presence-typed read above (line 161 in current code) still works; the YorkieDocStore's `getPresences()` returns the typed shape.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/docs-view.tsx
@@ -649,7 +649,7 @@ EOF
 
 This task connects everything: DocsLayout reads the doc, builds `getJumpHint`, holds the `JumpHandle`, and forwards clicks from `<UserPresence>` to `editor.scrollToPosition`.
 
-- [ ] **Step 1: Add new imports**
+- [x] **Step 1: Add new imports**
 
 At the top of `packages/frontend/src/app/docs/docs-detail.tsx`, extend the imports. Replace the existing `useDocument`-free top section so the imports include:
 
@@ -668,7 +668,7 @@ import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 
 (Replace the existing `import { DocsView, type EditorAPI } from "./docs-view";` with the version that also imports `JumpHandle`.)
 
-- [ ] **Step 2: Add state, jump handler, and hint helper inside `DocsLayout`**
+- [x] **Step 2: Add state, jump handler, and hint helper inside `DocsLayout`**
 
 In `DocsLayout` (currently starts at line 36), under the existing hooks (`usePresenceUpdater()`, the `editor` state, the `editContext` state), add:
 
@@ -701,7 +701,7 @@ In `DocsLayout` (currently starts at line 36), under the existing hooks (`usePre
   );
 ```
 
-- [ ] **Step 3: Pass new props to `<UserPresence>` and `<DocsView>`**
+- [x] **Step 3: Pass new props to `<UserPresence>` and `<DocsView>`**
 
 Find the JSX (currently around line 162) and update both:
 
@@ -721,7 +721,7 @@ Find the JSX (currently around line 162) and update both:
           />
 ```
 
-- [ ] **Step 4: Run verify**
+- [x] **Step 4: Run verify**
 
 ```bash
 pnpm verify:fast
@@ -729,7 +729,7 @@ pnpm verify:fast
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/docs/docs-detail.tsx
@@ -754,7 +754,7 @@ EOF
 
 This task is the verification gate before marking the work complete. The CLAUDE.md workflow requires `pnpm verify:fast` plus manual evidence for UI features.
 
-- [ ] **Step 1: End-to-end manual verification**
+- [x] **Step 1: End-to-end manual verification**
 
 With `pnpm dev` running and two browsers (window A and window B) signed in as different users on the same docs document:
 
@@ -768,7 +768,7 @@ With `pnpm dev` running and two browsers (window A and window B) signed in as di
 
 If any step fails, file a fresh task or fix in-place — do **not** mark this plan complete.
 
-- [ ] **Step 2: Write the lessons file**
+- [x] **Step 2: Write the lessons file**
 
 Create `docs/tasks/active/20260505-docs-peer-jump-lessons.md` capturing anything that was non-obvious during execution. Skeleton:
 
@@ -799,7 +799,7 @@ mismatch on first try; etc. Leave empty if nothing notable.)
   extract a shared helper used by both Cmd+F find and this jump.
 ```
 
-- [ ] **Step 3: Run final verify**
+- [x] **Step 3: Run final verify**
 
 ```bash
 pnpm verify:fast
@@ -807,7 +807,7 @@ pnpm verify:fast
 
 Expected: PASS.
 
-- [ ] **Step 4: Archive the task and rebuild the index**
+- [x] **Step 4: Archive the task and rebuild the index**
 
 ```bash
 pnpm tasks:archive
@@ -816,7 +816,7 @@ pnpm tasks:index
 
 This moves both the todo file and the lessons file to `docs/tasks/archive/` and refreshes `docs/tasks/README.md`.
 
-- [ ] **Step 5: Final commit**
+- [x] **Step 5: Final commit**
 
 ```bash
 git add docs/tasks/
