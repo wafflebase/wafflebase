@@ -30,7 +30,23 @@ https://api.wafflebase.io/api/v1/workspaces/:workspaceId
 
 Replace `:workspaceId` with your workspace ID.
 
+## API Surface by Document Type
+
+A workspace holds two kinds of documents — **sheets** (spreadsheets) and **docs** (word-processor documents). The endpoints below are grouped accordingly:
+
+| Section | Sheet | Doc |
+|---------|:-----:|:---:|
+| [Documents](#documents) | ✅ | ✅ |
+| [Images](#images) | ✅ | ✅ |
+| [Tabs](#tabs-sheets-only) | ✅ | — |
+| [Cells](#cells-sheets-only) | ✅ | — |
+| [Document Content](#document-content-docs-only) | — | ✅ |
+
+Calling a sheet-only endpoint on a doc — or a doc-only endpoint on a sheet — returns `HTTP 409` with code `TYPE_MISMATCH`.
+
 ## Documents
+
+Document CRUD works for both sheets and docs. Each document carries a `type` field (`"sheet"` or `"doc"`).
 
 ### List Documents
 
@@ -42,8 +58,6 @@ GET /api/v1/workspaces/:wid/documents
 curl -H "Authorization: Bearer wfb_..." \
   https://api.wafflebase.io/api/v1/workspaces/:wid/documents
 ```
-
-Each document in the response includes a `type` field (`"sheet"` or `"doc"`).
 
 ### Create Document
 
@@ -59,7 +73,7 @@ curl -X POST \
   -d '{"title": "Q1 Report"}' \
   https://api.wafflebase.io/api/v1/workspaces/:wid/documents
 
-# Create a document
+# Create a doc
 curl -X POST \
   -H "Authorization: Bearer wfb_..." \
   -H "Content-Type: application/json" \
@@ -98,67 +112,59 @@ curl -X PATCH \
 DELETE /api/v1/workspaces/:wid/documents/:did
 ```
 
-::: info
-The Tabs and Cells endpoints apply to **sheet** documents only. For
-**doc** documents, use the Document Content endpoints below instead.
-Calling Tabs/Cells on a doc — or Content on a sheet — returns
-HTTP 409 with code `TYPE_MISMATCH`.
-:::
+## Images
 
-## Document Content
+Workspace-scoped image storage. Images are stored under the workspace and may be referenced by both sheets and docs.
 
-Read or replace the full content tree of a **doc** (word-processor)
-document. The content is the live Yorkie CRDT document — collaborators
-in the editor see updates from `PUT` immediately.
-
-### Get Document Content
+### Upload Image
 
 ```bash
-GET /api/v1/workspaces/:wid/documents/:did/content
+POST /api/v1/workspaces/:wid/images
 ```
 
-```bash
-curl -H "Authorization: Bearer wfb_..." \
-  https://api.wafflebase.io/api/v1/workspaces/:wid/documents/:did/content
-```
+Multipart form upload. The file is sent in the `file` field.
 
-Returns the full `Document` JSON: block tree, page setup, header/footer.
-Returns `HTTP 409` with code `TYPE_MISMATCH` when the target document is
-a sheet.
-
-### Replace Document Content
+| Constraint | Value |
+|------------|-------|
+| Max size | 10 MB |
+| Allowed types | `image/png`, `image/jpeg`, `image/gif`, `image/webp` |
 
 ```bash
-PUT /api/v1/workspaces/:wid/documents/:did/content
-```
-
-Destructively replaces the document's Yorkie root with the provided
-`Document` JSON. Concurrent collaborator edits made between the read and
-the write may be lost — treat this as a destructive operation.
-
-```bash
-curl -X PUT \
+curl -X POST \
   -H "Authorization: Bearer wfb_..." \
-  -H "Content-Type: application/json" \
-  -d @document.json \
-  .../documents/:did/content
+  -F "file=@chart.png" \
+  https://api.wafflebase.io/api/v1/workspaces/:wid/images
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `blocks` | array | Yes | Top-level blocks (paragraph, heading, list-item, table, …) |
-| `pageSetup` | object | No | Paper size, orientation, margins. Omit to clear. |
-| `header` | object | No | Header region. Omit to clear. |
-| `footer` | object | No | Footer region. Omit to clear. |
+Response:
 
-A missing or malformed `blocks` field returns `HTTP 400`. A type-mismatched
-target (sheet doc) returns `HTTP 409` with code `TYPE_MISMATCH`.
+```json
+{ "id": "<imageId>", "url": "/api/v1/workspaces/:wid/images/<imageId>" }
+```
 
-::: info
-The Tabs and Cells endpoints below apply to **sheet** documents only.
-:::
+### Get Image
 
-## Tabs
+```bash
+GET /api/v1/workspaces/:wid/images/:imageId
+```
+
+Returns the raw image bytes with the original `Content-Type`. The response is served with a long-lived immutable cache header.
+
+### Delete Image
+
+```bash
+DELETE /api/v1/workspaces/:wid/images/:imageId
+```
+
+Response:
+
+```json
+{ "deleted": true }
+```
+
+## Tabs (sheets only)
+
+Sheets are organized into one or more **tabs**. Tabs do not exist on doc documents — calling these endpoints against a doc returns `HTTP 409`.
 
 ### List Tabs
 
@@ -166,9 +172,27 @@ The Tabs and Cells endpoints below apply to **sheet** documents only.
 GET /api/v1/workspaces/:wid/documents/:did/tabs
 ```
 
-Returns tab id, name, and type for each tab in the document.
+Response is an array of tab descriptors:
 
-## Cells
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Stable tab id (e.g. `"tab-1"`) |
+| `name` | string | Display name |
+| `type` | string | Tab type (`"sheet"`, `"datasource"`, …) |
+| `kind` | string? | Sheet subtype (e.g. `"normal"`, `"pivot"`) |
+
+## Cells (sheets only)
+
+Cell endpoints operate on a single sheet tab inside a sheet document.
+
+Each cell in a response has the following shape:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ref` | string | A1-notation reference (e.g. `"A1"`) |
+| `value` | string \| null | Stored value |
+| `formula` | string \| null | Stored formula (when present) |
+| `style` | object \| null | Style payload (when present) |
 
 ### Get All Cells
 
@@ -204,6 +228,11 @@ curl -H "Authorization: Bearer wfb_..." \
 ```bash
 PUT /api/v1/workspaces/:wid/documents/:did/tabs/:tid/cells/:ref
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `value` | string? | Plain value |
+| `formula` | string? | Formula (e.g. `"=SUM(A1:A10)"`) |
 
 ```bash
 # Set a text value
@@ -249,3 +278,47 @@ curl -X PATCH \
   }' \
   .../tabs/:tid/cells
 ```
+
+## Document Content (docs only)
+
+Read or replace the full content tree of a **doc** (word-processor) document. The content is the live Yorkie CRDT document — collaborators in the editor see updates from `PUT` immediately.
+
+Calling these endpoints against a sheet returns `HTTP 409` with code `TYPE_MISMATCH`.
+
+### Get Document Content
+
+```bash
+GET /api/v1/workspaces/:wid/documents/:did/content
+```
+
+```bash
+curl -H "Authorization: Bearer wfb_..." \
+  https://api.wafflebase.io/api/v1/workspaces/:wid/documents/:did/content
+```
+
+Returns the full `Document` JSON: block tree, page setup, header/footer.
+
+### Replace Document Content
+
+```bash
+PUT /api/v1/workspaces/:wid/documents/:did/content
+```
+
+Destructively replaces the document's Yorkie root with the provided `Document` JSON. Concurrent collaborator edits made between the read and the write may be lost — treat this as a destructive operation.
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer wfb_..." \
+  -H "Content-Type: application/json" \
+  -d @document.json \
+  .../documents/:did/content
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `blocks` | array | Yes | Top-level blocks (paragraph, heading, list-item, table, …) |
+| `pageSetup` | object | No | Paper size, orientation, margins. Omit to clear. |
+| `header` | object | No | Header region. Omit to clear. |
+| `footer` | object | No | Footer region. Omit to clear. |
+
+A missing or malformed `blocks` field returns `HTTP 400`.
