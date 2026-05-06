@@ -58,4 +58,48 @@ describe('initialize', () => {
     expect(() => editor!.setInsertMode('rect')).not.toThrow();
     expect(() => editor!.setInsertMode(null)).not.toThrow();
   });
+
+  function dispatchMouseDown(target: globalThis.Element | Document, x: number, y: number, shift = false): void {
+    target.dispatchEvent(new MouseEvent('mousedown', {
+      clientX: x, clientY: y, shiftKey: shift, bubbles: true,
+    }));
+  }
+
+  it('mousedown on a shape selects it', () => {
+    const { canvas, overlay, store } = makeFixture();
+    // Position canvas at (0,0) — jsdom getBoundingClientRect returns zeros
+    // by default, which means clientX/Y == logical coords at scale=1.
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 50, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: '#abc' },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // Click at (150, 80) in client coords = (150, 80) in logical coords (scale=1).
+    dispatchMouseDown(canvas, 150, 80);
+    expect(editor.getSelection().length).toBe(1);
+  });
+
+  it('mousedown on empty canvas clears selection (after a click without drag)', () => {
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 50, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: '#abc' },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // First select the shape.
+    dispatchMouseDown(canvas, 150, 80);
+    expect(editor.getSelection().length).toBe(1);
+    // Then click empty space and immediately mouseup (no drag).
+    dispatchMouseDown(canvas, 800, 800);
+    document.dispatchEvent(new MouseEvent('mouseup', { clientX: 800, clientY: 800, bubbles: true }));
+    expect(editor.getSelection()).toEqual([]);
+  });
 });

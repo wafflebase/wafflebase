@@ -1,6 +1,11 @@
+import type { Frame } from '../../model/element';
+import { containsPoint } from '../../model/frame';
 import { SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
+import { handleHitTest } from './hit-test';
+import { selectAt } from './interactions/select';
+import { normalizeRect, selectInRect } from './interactions/lasso';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 
@@ -41,6 +46,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.renderer.markDirty();
       this.repaintOverlay();
     });
+    this.attachInteractions();
   }
 
   private repaintOverlay(): void {
@@ -90,10 +96,108 @@ class SlidesEditorImpl implements SlidesEditor {
     target.addEventListener(type, handler as EventListener);
     this.listeners.push({ target, type, handler: handler as (e: Event) => void });
   }
+
+  private attachInteractions(): void {
+    this.on(this.options.canvas, 'mousedown', (e) => this.onPointerDown(e as MouseEvent));
+  }
+
+  private onPointerDown(e: MouseEvent): void {
+    if (this.insertKind !== null) return;             // T7 owns insert mousedown
+    if (this.handleAtClient(e.clientX, e.clientY) !== null) return; // T5/T6 own resize/rotate
+
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+
+    // Hit-test against an element first.
+    const hit = topmostUnderPoint(slide, x, y);
+    if (hit !== null) {
+      const mods = { shift: e.shiftKey };
+      const next = selectAt(slide, x, y, mods, this.selection.get());
+      this.selection.set(next);
+      // T4: startDrag(e.clientX, e.clientY);
+      return;
+    }
+
+    // Empty canvas — start a lasso unless shift is held (which would be
+    // an additive no-op per the spec).
+    if (e.shiftKey) {
+      return;
+    }
+    this.startLasso(e.clientX, e.clientY);
+  }
+
+  private startLasso(clientX: number, clientY: number): void {
+    const rectEl = document.createElement('div');
+    rectEl.style.position = 'absolute';
+    rectEl.style.border = '1px dashed #3a7';
+    rectEl.style.background = 'rgba(58, 168, 119, 0.1)';
+    rectEl.style.pointerEvents = 'none';
+    this.options.overlay.appendChild(rectEl);
+
+    const start = this.clientToLogical(clientX, clientY);
+    const onMove = (ev: MouseEvent) => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const rect = normalizeRect(start.x, start.y, cur.x, cur.y);
+      const scale = this.scale();
+      rectEl.style.left = `${rect.x * scale}px`;
+      rectEl.style.top = `${rect.y * scale}px`;
+      rectEl.style.width = `${rect.w * scale}px`;
+      rectEl.style.height = `${rect.h * scale}px`;
+    };
+    const onUp = (ev: MouseEvent) => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      rectEl.remove();
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const rect = normalizeRect(start.x, start.y, cur.x, cur.y);
+      const slide = this.currentSlide();
+      if (!slide) return;
+      if (rect.w < 2 && rect.h < 2) {
+        // A click without drag — treat as empty-canvas click → clear.
+        this.selection.clear();
+        return;
+      }
+      this.selection.set(selectInRect(slide, rect));
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  private currentSlide() {
+    return this.options.store.read().slides[0];
+  }
+
+  private clientToLogical(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = this.options.canvas.getBoundingClientRect();
+    const scale = this.scale();
+    return {
+      x: (clientX - rect.left) / scale,
+      y: (clientY - rect.top) / scale,
+    };
+  }
+
+  private handleAtClient(clientX: number, clientY: number): string | null {
+    const rect = this.options.overlay.getBoundingClientRect();
+    return handleHitTest(
+      this.options.overlay,
+      clientX - rect.left,
+      clientY - rect.top,
+    );
+  }
 }
 
 export function initialize(options: SlidesEditorOptions): SlidesEditor {
   const editor = new SlidesEditorImpl(options);
   editor.render();
   return editor;
+}
+
+function topmostUnderPoint(slide: { elements: { id: string; frame: Frame }[] }, x: number, y: number): string | null {
+  for (let i = slide.elements.length - 1; i >= 0; i--) {
+    if (containsPoint(slide.elements[i].frame, x, y)) {
+      return slide.elements[i].id;
+    }
+  }
+  return null;
 }
