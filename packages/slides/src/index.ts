@@ -42,3 +42,6 @@ export { drawText } from './view/canvas/text-renderer';
 export { drawImage } from './view/canvas/image-renderer';
 export { renderThumbnail, ThumbnailScheduler } from './view/canvas/thumbnail';
 export { getOrLoadImage } from './view/canvas/image-cache';
+
+// View — Editor (Phase 3a)
+export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOptions, type InsertKind } from './view/editor/editor';

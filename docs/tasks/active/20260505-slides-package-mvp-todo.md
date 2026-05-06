@@ -28,12 +28,12 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 
 ## Phase 3: Editor (Single-User)
 
-- [ ] 3.1 `view/editor/editor.ts` — controller, store wiring
-- [ ] 3.2 `view/editor/selection.ts` — single + multi-select + lasso, stable IDs
-- [ ] 3.3 `view/editor/interactions/drag.ts` — move with snap guidelines
-- [ ] 3.4 `view/editor/interactions/resize.ts` — 8 handles, shift-aspect, rotated case
-- [ ] 3.5 `view/editor/interactions/rotate.ts` — free + 15° snap
-- [ ] 3.6 `view/editor/interactions/insert.ts` — toolbar → click/drag-to-place
+- [x] 3.1 `view/editor/editor.ts` — controller, store wiring
+- [x] 3.2 `view/editor/selection.ts` — single + multi-select + lasso, stable IDs
+- [x] 3.3 `view/editor/interactions/drag.ts` — move with snap guidelines
+- [x] 3.4 `view/editor/interactions/resize.ts` — 8 handles, shift-aspect, rotated case
+- [x] 3.5 `view/editor/interactions/rotate.ts` — free + 15° snap
+- [x] 3.6 `view/editor/interactions/insert.ts` — toolbar → click/drag-to-place
 - [ ] 3.7 `view/editor/interactions/nudge.ts` — Arrow / Shift+Arrow
 - [ ] 3.8 `view/editor/interactions/clipboard.ts` — Cmd+C/X/V (`application/x-wafflebase-slides+json`)
 - [ ] 3.9 Slide thumbnail interactions — Cmd+D duplicate, multi-select, drag reorder
