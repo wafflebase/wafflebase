@@ -7,6 +7,7 @@ import { handleHitTest, type HandleKind } from './hit-test';
 import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrame, type ResizeHandle } from './interactions/resize';
+import { applyRotate } from './interactions/rotate';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 import { snapDelta } from './snap';
@@ -265,10 +266,45 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private onPointerDownHandle(handle: HandleKind, clientX: number, clientY: number): void {
     if (handle === 'rotate') {
-      // T6: this.startRotate(clientX, clientY);
+      this.startRotate(clientX, clientY);
       return;
     }
     this.startResize(handle, clientX, clientY);
+  }
+
+  private startRotate(clientX: number, clientY: number): void {
+    const startSlide = this.currentSlide();
+    if (!startSlide) return;
+    const selectedIds = this.selection.get();
+    if (selectedIds.length !== 1) return; // single-element only in v1
+    const elementId = selectedIds[0];
+    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    if (!startEl) return;
+    const startRotation = startEl.frame.rotation;
+    const cx = startEl.frame.x + startEl.frame.w / 2;
+    const cy = startEl.frame.y + startEl.frame.h / 2;
+    const start = this.clientToLogical(clientX, clientY);
+    const startAngle = Math.atan2(start.y - cy, start.x - cx);
+    let liveRotation = startRotation;
+
+    const onMove = (ev: MouseEvent) => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const angle = Math.atan2(cur.y - cy, cur.x - cx);
+      liveRotation = applyRotate(startRotation, startAngle, angle, ev.shiftKey);
+      const liveFrame: Frame = { ...startEl.frame, rotation: liveRotation };
+      this.paintLive(new Map([[elementId, liveFrame]]));
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      this.options.store.batch(() => {
+        this.options.store.updateElementFrame(startSlide.id, elementId, { rotation: liveRotation });
+      });
+      this.renderer.markDirty();
+      this.render();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {
