@@ -3,6 +3,8 @@ import {
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   initializeEditor,
+  mountThumbnailPanel,
+  mountNotesPanel,
   type InsertKind,
 } from './src/index';
 
@@ -20,13 +22,17 @@ const overlay = document.getElementById('overlay') as HTMLDivElement;
 
 const store = new MemSlidesStore();
 store.batch(() => {
-  const slideId = store.addSlide('blank');
-  // A starter rectangle the user can drag around immediately.
-  store.addElement(slideId, {
+  // Slide 1: shapes
+  const a = store.addSlide('blank');
+  store.addElement(a, {
     type: 'shape',
     frame: { x: 200, y: 200, w: 400, h: 200, rotation: 0 },
     data: { kind: 'rect', fill: '#3a7' },
   });
+  // Slide 2: title layout
+  store.addSlide('title');
+  // Slide 3: blank
+  store.addSlide('blank');
 });
 
 const editor = initializeEditor({
@@ -34,13 +40,21 @@ const editor = initializeEditor({
   hostWidth: HOST_W, hostHeight: HOST_H, dpr: DPR,
 });
 
-// Toolbar wiring.
+const thumbHandle = mountThumbnailPanel(
+  document.getElementById('thumbnails') as HTMLDivElement,
+  store, editor,
+);
+
+mountNotesPanel(
+  document.getElementById('notes') as HTMLDivElement,
+  store, editor,
+);
+
 const toolbar = document.getElementById('toolbar') as HTMLDivElement;
 toolbar.addEventListener('click', (e) => {
   const target = e.target as HTMLElement;
   const insert = target.dataset.insert as InsertKind | undefined;
   if (!insert) return;
-  // Toggle: clicking the same button again exits insert mode.
   const wasActive = target.classList.contains('active');
   toolbar.querySelectorAll('button').forEach((b) => b.classList.remove('active'));
   if (wasActive) {
@@ -51,13 +65,18 @@ toolbar.addEventListener('click', (e) => {
   }
 });
 
-// Drive an animation-frame loop so async asset loads (image cache)
-// repaint when ready.
+// Refresh thumbnails when the store changes (Cmd+D, paste, insert).
+// Cheap: re-render every frame piggybacking on requestAnimationFrame.
+let lastSlideCount = store.read().slides.length;
 function tick(): void {
   editor.render();
+  const count = store.read().slides.length;
+  if (count !== lastSlideCount) {
+    lastSlideCount = count;
+    thumbHandle.refresh();
+  }
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
 
-void SLIDE_HEIGHT; // suppress unused-import warning
-void SLIDE_WIDTH;
+void SLIDE_HEIGHT; void SLIDE_WIDTH;

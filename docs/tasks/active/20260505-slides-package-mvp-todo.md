@@ -34,15 +34,15 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 - [x] 3.4 `view/editor/interactions/resize.ts` — 8 handles, shift-aspect, rotated case
 - [x] 3.5 `view/editor/interactions/rotate.ts` — free + 15° snap
 - [x] 3.6 `view/editor/interactions/insert.ts` — toolbar → click/drag-to-place
-- [ ] 3.7 `view/editor/interactions/nudge.ts` — Arrow / Shift+Arrow
-- [ ] 3.8 `view/editor/interactions/clipboard.ts` — Cmd+C/X/V (`application/x-wafflebase-slides+json`)
-- [ ] 3.9 Slide thumbnail interactions — Cmd+D duplicate, multi-select, drag reorder
-- [ ] 3.10 z-order keyboard shortcuts (Cmd+↑/↓/⇧↑/⇧↓)
-- [ ] 3.11 Right-click / long-press context menus (built on `docs/design/context-menu.md`)
-- [ ] 3.12 Speaker notes panel (collapsible bottom strip, View toggle)
-- [ ] 3.13 Undo/Redo via `store.batch` groups (pointer + IME boundaries)
-- [ ] 3.14 Vitest interaction tests (drag/resize/rotate matrix, undo, clipboard)
-- [ ] 3.15 Spike: docs RichText page-assumption audit (1 day, gates Phase 5 plan)
+- [x] 3.7 `view/editor/interactions/nudge.ts` — Arrow / Shift+Arrow
+- [x] 3.8 `view/editor/interactions/clipboard.ts` — Cmd+C/X/V (`application/x-wafflebase-slides+json`)
+- [x] 3.9 Slide thumbnail interactions — Cmd+D duplicate, multi-select, drag reorder
+- [x] 3.10 z-order keyboard shortcuts (Cmd+↑/↓/⇧↑/⇧↓)
+- [x] 3.11 Right-click / long-press context menus (built on `docs/design/context-menu.md`)
+- [x] 3.12 Speaker notes panel (collapsible bottom strip, View toggle)
+- [x] 3.13 Undo/Redo via `store.batch` groups (pointer + IME boundaries)
+- [x] 3.14 Vitest interaction tests (drag/resize/rotate matrix, undo, clipboard)
+- [x] 3.15 Spike: docs RichText page-assumption audit (1 day, gates Phase 5 plan)
 
 ## Phase 4: Yorkie + Multi-User
 
