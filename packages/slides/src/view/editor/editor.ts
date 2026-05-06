@@ -3,6 +3,7 @@ import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
+import { showContextMenu, type ContextMenuItem } from './context-menu';
 import { handleHitTest, type HandleKind } from './hit-test';
 import { buildInsertElement } from './interactions/insert';
 import { buildKeyRules } from './interactions/keyboard';
@@ -62,13 +63,15 @@ class SlidesEditorImpl implements SlidesEditor {
       store: this.options.store,
       selection: this.selection,
       currentSlideId: () => this.getCurrentSlideId(),
-      requestRender: () => {
-        this.renderer.markDirty();
-        this.render();
-        this.repaintOverlay();
-      },
+      requestRender: () => this.requestRender(),
     });
     this.attachInteractions();
+  }
+
+  private requestRender(): void {
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
   }
 
   private repaintOverlay(): void {
@@ -154,6 +157,89 @@ class SlidesEditorImpl implements SlidesEditor {
     this.on(document, 'keydown', (e) => {
       void this.handleKeyDown(e as KeyboardEvent);
     });
+    // Right-click on canvas (empty area) AND overlay (handles + selected
+    // elements covered by the overlay). The hit-test inside
+    // onContextMenu picks the appropriate menu kind.
+    const onContext = (e: Event) => this.onContextMenu(e as MouseEvent);
+    this.on(this.options.canvas, 'contextmenu', onContext);
+    this.on(this.options.overlay, 'contextmenu', onContext);
+  }
+
+  private onContextMenu(e: MouseEvent): void {
+    e.preventDefault();
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+    const hit = topmostUnderPoint(slide, x, y);
+    const items = hit !== null
+      ? this.elementContextItems(slide.id, hit)
+      : this.canvasContextItems(x, y);
+    showContextMenu(document.body, items, e.clientX, e.clientY);
+  }
+
+  private elementContextItems(
+    slideId: string,
+    elementId: string,
+  ): ContextMenuItem[] {
+    // Ensure the right-clicked element is selected — matches user
+    // expectation that the action targets what they clicked on.
+    if (!this.selection.has(elementId)) this.selection.set([elementId]);
+
+    return [
+      { label: 'Copy',  run: () => this.dispatchKey('c', { meta: true }) },
+      { label: 'Cut',   run: () => this.dispatchKey('x', { meta: true }) },
+      { label: 'Paste', run: () => this.dispatchKey('v', { meta: true }) },
+      { label: '---', run: () => undefined },
+      { label: 'Duplicate', run: () => this.dispatchKey('d', { meta: true }) },
+      { label: 'Delete',    run: () => {
+        this.options.store.batch(() =>
+          this.options.store.removeElements(slideId, [...this.selection.get()]),
+        );
+        this.selection.clear();
+        this.requestRender();
+      } },
+      { label: '---', run: () => undefined },
+      { label: 'Bring forward',  run: () => this.dispatchKey('ArrowUp',   { meta: true }) },
+      { label: 'Send backward',  run: () => this.dispatchKey('ArrowDown', { meta: true }) },
+      { label: 'Bring to front', run: () => this.dispatchKey('ArrowUp',   { meta: true, shift: true }) },
+      { label: 'Send to back',   run: () => this.dispatchKey('ArrowDown', { meta: true, shift: true }) },
+    ];
+  }
+
+  private canvasContextItems(x: number, y: number): ContextMenuItem[] {
+    return [
+      { label: 'Paste', run: () => this.dispatchKey('v', { meta: true }) },
+      { label: '---',   run: () => undefined },
+      { label: 'Insert rectangle', run: () => this.insertAt('rect', x, y) },
+      { label: 'Insert ellipse',   run: () => this.insertAt('ellipse', x, y) },
+      { label: 'Insert text',      run: () => this.insertAt('text', x, y) },
+    ];
+  }
+
+  private insertAt(kind: InsertKind, x: number, y: number): void {
+    const slide = this.currentSlide();
+    if (!slide) return;
+    // Default-size insert at the click point. Text uses its own default
+    // box per buildInsertElement; for shapes pass an end point that
+    // produces a reasonable default rectangle.
+    const init = buildInsertElement(kind, { x, y }, { x: x + 200, y: y + 100 });
+    this.options.store.batch(() => {
+      const id = this.options.store.addElement(slide.id, init);
+      this.selection.set([id]);
+    });
+    this.requestRender();
+  }
+
+  private dispatchKey(
+    key: string,
+    mods: { meta?: boolean; shift?: boolean },
+  ): void {
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key,
+      metaKey: mods.meta,
+      shiftKey: mods.shift,
+      bubbles: true,
+    }));
   }
 
   private async handleKeyDown(e: KeyboardEvent): Promise<void> {
