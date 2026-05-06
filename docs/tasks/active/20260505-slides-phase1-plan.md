@@ -114,8 +114,8 @@ new package automatically. No change needed there.
   },
   "scripts": {
     "dev": "vite",
-    "test": "vitest --run",
-    "test:watch": "vitest --watch",
+    "test": "vitest --run --passWithNoTests",
+    "test:watch": "vitest --watch --passWithNoTests",
     "build": "vite --config vite.build.ts build",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write ."
@@ -168,7 +168,11 @@ new package automatically. No change needed there.
 - [ ] **Step 1.3: Create `packages/slides/vite.config.ts`**
 
 ```ts
-import { defineConfig } from 'vite';
+// Vitest 3: import defineConfig from 'vitest/config' so the
+// `test` field is typed even when the package has no *.test.ts
+// files yet (the augmentation in 'vite' only loads transitively
+// from a vitest import elsewhere in the source).
+import { defineConfig } from 'vitest/config';
 
 // Development / test runner config. Library build is in vite.build.ts.
 export default defineConfig({
@@ -643,10 +647,16 @@ describe('boundingBox', () => {
   });
 
   it('grows for rotated frames', () => {
+    // 100×40 at 45°: bbox dims = (100 + 40)·√2/2 ≈ 99 on each axis.
+    // The width SHRINKS from 100 → ~99 because the long edge now lies
+    // on the diagonal; the height grows from 40 → ~99.
     const box = boundingBox(f(0, 0, 100, 40, Math.PI / 4));
-    // 45° rotation makes the bbox wider/taller than the original.
-    expect(box.w).toBeGreaterThan(100);
     expect(box.h).toBeGreaterThan(40);
+
+    // For a square-ish frame, the bbox grows on BOTH axes.
+    const sqBox = boundingBox(f(0, 0, 60, 60, Math.PI / 4));
+    expect(sqBox.w).toBeGreaterThan(60);
+    expect(sqBox.h).toBeGreaterThan(60);
   });
 });
 
@@ -1190,7 +1200,7 @@ export class MemSlidesStore implements SlidesStore {
 - [ ] **Step 6.4: Run the tests to verify they pass**
 
 Run: `pnpm slides test`
-Expected: PASS — slide-op tests (8) plus the existing frame tests.
+Expected: PASS — Total = 18 (9 slide-op tests plus the existing 9 frame tests).
 
 - [ ] **Step 6.5: Commit**
 

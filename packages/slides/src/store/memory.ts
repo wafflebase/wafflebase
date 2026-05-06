@@ -52,7 +52,9 @@ export class MemSlidesStore implements SlidesStore {
       } as Element)),
       notes: [],
     };
-    const insertAt = atIndex ?? this.doc.slides.length;
+    const insertAt = atIndex === undefined
+      ? this.doc.slides.length
+      : Math.max(0, Math.min(atIndex, this.doc.slides.length));
     this.doc.slides.splice(insertAt, 0, slide);
     return id;
   }

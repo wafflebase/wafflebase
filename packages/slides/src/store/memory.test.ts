@@ -51,6 +51,22 @@ describe('MemSlidesStore — slides', () => {
     expect(store.read().slides.map((s) => s.id)).toEqual([a, c, b]);
   });
 
+  it('addSlide clamps a negative atIndex to 0 and large atIndex to length', () => {
+    const store = new MemSlidesStore();
+    let a!: string;
+    let b!: string;
+    let c!: string;
+    let d!: string;
+    store.batch(() => {
+      a = store.addSlide('blank');
+      b = store.addSlide('blank', -5);   // clamped to 0
+      c = store.addSlide('blank', 999);  // clamped to length
+      d = store.addSlide('blank', 1);    // explicit middle
+    });
+    // After insertions in order: b at 0, then a (was 0, pushed), then d at 1, then c at end.
+    expect(store.read().slides.map((s) => s.id)).toEqual([b, d, a, c]);
+  });
+
   it('addSlide("title-body") seeds two text placeholders', () => {
     const store = new MemSlidesStore();
     let id!: string;
