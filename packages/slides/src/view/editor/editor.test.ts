@@ -111,6 +111,41 @@ describe('initialize', () => {
     void elementId;
   });
 
+  it('dragging the e handle resizes the selected element', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: '#abc' },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // Select the element first (mousedown inside its frame).
+    dispatchMouseDown(canvas, 150, 150);
+    document.dispatchEvent(new MouseEvent('mouseup', { clientX: 150, clientY: 150, bubbles: true }));
+    // Now there should be handles in overlay. Find the 'e' handle's
+    // logical center: the bbox right edge is at x=300 (200 + 100), y centre 150.
+    // Overlay coordinates equal logical at scale=1, getBoundingClientRect
+    // returns zeros in jsdom so client = overlay = logical.
+    const eHandle = overlay.querySelector<HTMLDivElement>('[data-handle="e"]')!;
+    const left = parseFloat(eHandle.style.left);
+    const top = parseFloat(eHandle.style.top);
+    // The editor listens on canvas for mousedown; handle hit-test reads
+    // overlay positions. Dispatch on canvas with the handle's
+    // overlay-relative position; the editor does handle-hit-test against
+    // the overlay regardless of which DOM node received the event.
+    const startX = left + 4;
+    const startY = top + 4;
+    dispatchMouseDown(canvas, startX, startY);
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: startX + 50, clientY: startY, bubbles: true }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: startX + 50, clientY: startY, bubbles: true }));
+    expect(store.read().slides[0].elements[0].frame.w).toBe(250);
+    void elementId;
+  });
+
   it('mousedown on empty canvas clears selection (after a click without drag)', () => {
     const { canvas, overlay, store } = makeFixture();
     store.batch(() => {

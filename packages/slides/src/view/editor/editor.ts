@@ -3,9 +3,10 @@ import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
-import { handleHitTest } from './hit-test';
+import { handleHitTest, type HandleKind } from './hit-test';
 import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
+import { resizeFrame, type ResizeHandle } from './interactions/resize';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 import { snapDelta } from './snap';
@@ -104,7 +105,11 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private onPointerDown(e: MouseEvent): void {
     if (this.insertKind !== null) return;             // T7 owns insert mousedown
-    if (this.handleAtClient(e.clientX, e.clientY) !== null) return; // T5/T6 own resize/rotate
+    const handle = this.handleAtClient(e.clientX, e.clientY);
+    if (handle !== null) {
+      this.onPointerDownHandle(handle, e.clientX, e.clientY);
+      return;
+    }
 
     const slide = this.currentSlide();
     if (!slide) return;
@@ -249,13 +254,54 @@ class SlidesEditorImpl implements SlidesEditor {
     };
   }
 
-  private handleAtClient(clientX: number, clientY: number): string | null {
+  private handleAtClient(clientX: number, clientY: number): HandleKind | null {
     const rect = this.options.overlay.getBoundingClientRect();
     return handleHitTest(
       this.options.overlay,
       clientX - rect.left,
       clientY - rect.top,
     );
+  }
+
+  private onPointerDownHandle(handle: HandleKind, clientX: number, clientY: number): void {
+    if (handle === 'rotate') {
+      // T6: this.startRotate(clientX, clientY);
+      return;
+    }
+    this.startResize(handle, clientX, clientY);
+  }
+
+  private startResize(handle: ResizeHandle, clientX: number, clientY: number): void {
+    const startSlide = this.currentSlide();
+    if (!startSlide) return;
+    const selectedIds = this.selection.get();
+    if (selectedIds.length !== 1) return; // multi-resize is a v2 polish item
+    const elementId = selectedIds[0];
+    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    if (!startEl) return;
+    const startFrame = { ...startEl.frame };
+    const start = this.clientToLogical(clientX, clientY);
+    const live = { frame: startFrame };
+
+    const onMove = (ev: MouseEvent) => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const dx = cur.x - start.x;
+      const dy = cur.y - start.y;
+      live.frame = resizeFrame(startFrame, handle, dx, dy, ev.shiftKey);
+      const livMap = new Map<string, Frame>([[elementId, live.frame]]);
+      this.paintLive(livMap);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      this.options.store.batch(() => {
+        this.options.store.updateElementFrame(startSlide.id, elementId, live.frame);
+      });
+      this.renderer.markDirty();
+      this.render();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 }
 
