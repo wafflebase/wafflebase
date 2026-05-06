@@ -3,32 +3,9 @@ import { beforeAll, describe, it, expect } from 'vitest';
 import type { Block } from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
 import { asCtx, createCtxSpy } from './ctx-spy';
-
-/**
- * jsdom does not implement Canvas 2D, so the docs `CanvasTextMeasurer`
- * (which `text-renderer` instantiates at module scope) cannot acquire a
- * ctx via `OffscreenCanvas` *or* `<canvas>.getContext('2d')`. Install a
- * minimal `OffscreenCanvas` shim before importing the renderer so the
- * measurer's lazy `getCtx()` path resolves successfully. Width returns
- * a deterministic char-count to keep layout assertions stable.
- */
-class FakeOffscreenCanvas {
-  constructor(
-    public width: number,
-    public height: number,
-  ) {}
-  getContext(type: string): unknown {
-    if (type !== '2d') return null;
-    return {
-      font: '10px sans-serif',
-      measureText(text: string): { width: number } {
-        return { width: text.length * 8 };
-      },
-    };
-  }
-}
-(globalThis as unknown as { OffscreenCanvas: typeof FakeOffscreenCanvas }).OffscreenCanvas =
-  FakeOffscreenCanvas;
+// Install the OffscreenCanvas shim before importing the renderer; see
+// test-canvas-env.ts for the rationale and dynamic-import requirement.
+import './test-canvas-env';
 
 // Import the renderer *after* the shim is installed so the module-scope
 // measurer can lazily acquire the fake ctx on first use.
