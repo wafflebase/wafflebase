@@ -207,4 +207,25 @@ describe('initialize', () => {
     document.dispatchEvent(new MouseEvent('mouseup', { clientX: 800, clientY: 800, bubbles: true }));
     expect(editor.getSelection()).toEqual([]);
   });
+
+  it('setCurrentSlide switches the rendered slide and clears element selection', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let secondId = '';
+    store.batch(() => { secondId = store.addSlide('blank'); });
+    editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+    // Select an element on the first slide.
+    const firstId = store.read().slides[0].id;
+    let elementId = '';
+    store.batch(() => {
+      elementId = store.addElement(firstId, {
+        type: 'shape',
+        frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect', fill: '#abc' },
+      });
+    });
+    editor.setSelection([elementId]);
+    editor.setCurrentSlide(secondId);
+    expect(editor.getCurrentSlideId()).toBe(secondId);
+    expect(editor.getSelection()).toEqual([]);
+  });
 });

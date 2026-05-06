@@ -29,7 +29,8 @@ export interface SlidesEditor {
   setSelection(ids: readonly string[]): void;
   onSelectionChange(cb: () => void): () => void;
   setInsertMode(kind: InsertKind | null): void;
-  currentSlideId(): string | undefined;
+  getCurrentSlideId(): string | undefined;
+  setCurrentSlide(id: string): void;
   detach(): void;
 }
 
@@ -46,11 +47,13 @@ class SlidesEditorImpl implements SlidesEditor {
   private listeners: ListenerEntry[] = [];
   private disposed = false;
   private keyRules!: KeyRule[];
+  private currentId: string | undefined;
 
   constructor(private options: SlidesEditorOptions) {
     const ctx = options.canvas.getContext('2d');
     if (!ctx) throw new Error('SlidesEditor: canvas has no 2D context');
     this.renderer = new SlideRenderer(ctx, options);
+    this.currentId = options.store.read().slides[0]?.id;
     this.selection.subscribe(() => {
       this.renderer.markDirty();
       this.repaintOverlay();
@@ -58,7 +61,7 @@ class SlidesEditorImpl implements SlidesEditor {
     this.keyRules = buildKeyRules({
       store: this.options.store,
       selection: this.selection,
-      currentSlideId: () => this.currentSlideId(),
+      currentSlideId: () => this.getCurrentSlideId(),
       requestRender: () => {
         this.renderer.markDirty();
         this.render();
@@ -69,7 +72,7 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private repaintOverlay(): void {
-    const slide = this.options.store.read().slides[0];
+    const slide = this.currentSlide();
     if (!slide) {
       renderOverlay(this.options.overlay, [], { scale: this.scale() });
       return;
@@ -84,7 +87,7 @@ class SlidesEditorImpl implements SlidesEditor {
 
   render(): void {
     if (this.disposed) return;
-    const slide = this.options.store.read().slides[0];
+    const slide = this.currentSlide();
     if (!slide) return;
     this.renderer.render(slide);
   }
@@ -97,8 +100,20 @@ class SlidesEditorImpl implements SlidesEditor {
     this.selection.set(ids);
   }
 
-  currentSlideId(): string | undefined {
-    return this.options.store.read().slides[0]?.id;
+  getCurrentSlideId(): string | undefined {
+    return this.currentId;
+  }
+
+  setCurrentSlide(id: string): void {
+    if (this.currentId === id) return;
+    // Selection is per-slide; clear before switching so the overlay
+    // doesn't render handles for elements that don't belong to the
+    // newly-current slide.
+    this.selection.clear();
+    this.currentId = id;
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
   }
 
   onSelectionChange(cb: () => void): () => void {
@@ -339,7 +354,9 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private currentSlide() {
-    return this.options.store.read().slides[0];
+    const id = this.currentId;
+    if (!id) return undefined;
+    return this.options.store.read().slides.find((s) => s.id === id);
   }
 
   private clientToLogical(clientX: number, clientY: number): { x: number; y: number } {
