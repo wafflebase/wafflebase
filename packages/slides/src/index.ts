@@ -33,3 +33,12 @@ export { BUILT_IN_LAYOUTS, getLayout } from './model/layout';
 // Store
 export type { SlidesStore } from './store/store';
 export { MemSlidesStore } from './store/memory';
+
+// View — Canvas renderers (Phase 2)
+export { SlideRenderer, type SlideRendererOptions } from './view/canvas/slide-renderer';
+export { drawElement } from './view/canvas/element-renderer';
+export { drawShape, type FrameSize } from './view/canvas/shape-renderer';
+export { drawText } from './view/canvas/text-renderer';
+export { drawImage } from './view/canvas/image-renderer';
+export { renderThumbnail, ThumbnailScheduler } from './view/canvas/thumbnail';
+export { getOrLoadImage } from './view/canvas/image-cache';

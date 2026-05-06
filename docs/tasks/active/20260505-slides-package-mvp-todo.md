@@ -19,12 +19,12 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 
 ## Phase 2: Static Rendering
 
-- [ ] 2.1 `view/canvas/element-renderer.ts` — draw rect/ellipse/line/arrow/image
-- [ ] 2.2 `view/canvas/element-renderer.ts` — text via docs layout engine call
-- [ ] 2.3 `view/canvas/slide-renderer.ts` — background + element loop, dirty tracking
-- [ ] 2.4 `view/canvas/thumbnail.ts` — small-canvas re-render, debounce
-- [ ] 2.5 Standalone HTML harness with sample fixtures for visual review
-- [ ] 2.6 Renderer unit tests against mock `CanvasRenderingContext2D`
+- [x] 2.1 `view/canvas/element-renderer.ts` — draw rect/ellipse/line/arrow/image
+- [x] 2.2 `view/canvas/element-renderer.ts` — text via docs layout engine call
+- [x] 2.3 `view/canvas/slide-renderer.ts` — background + element loop, dirty tracking
+- [x] 2.4 `view/canvas/thumbnail.ts` — small-canvas re-render, debounce
+- [x] 2.5 Standalone HTML harness with sample fixtures for visual review
+- [x] 2.6 Renderer unit tests against mock `CanvasRenderingContext2D`
 
 ## Phase 3: Editor (Single-User)
 
