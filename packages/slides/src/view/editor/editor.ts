@@ -1,5 +1,7 @@
+import { SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
+import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 
 export type InsertKind = 'rect' | 'ellipse' | 'line' | 'arrow' | 'text';
@@ -35,9 +37,24 @@ class SlidesEditorImpl implements SlidesEditor {
     const ctx = options.canvas.getContext('2d');
     if (!ctx) throw new Error('SlidesEditor: canvas has no 2D context');
     this.renderer = new SlideRenderer(ctx, options);
-    // Selection changes invalidate the overlay; T2 wires the actual
-    // overlay paint. For now, just mark the canvas dirty.
-    this.selection.subscribe(() => this.renderer.markDirty());
+    this.selection.subscribe(() => {
+      this.renderer.markDirty();
+      this.repaintOverlay();
+    });
+  }
+
+  private repaintOverlay(): void {
+    const slide = this.options.store.read().slides[0];
+    if (!slide) {
+      renderOverlay(this.options.overlay, [], { scale: this.scale() });
+      return;
+    }
+    const selected = slide.elements.filter((e) => this.selection.has(e.id));
+    renderOverlay(this.options.overlay, selected, { scale: this.scale() });
+  }
+
+  private scale(): number {
+    return this.options.hostWidth / SLIDE_WIDTH;
   }
 
   render(): void {
