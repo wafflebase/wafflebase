@@ -186,6 +186,13 @@ T2 onward.
 
 - [ ] **Step 1.1: Create `packages/slides/src/view/editor/keymap.ts`**
 
+> **NOTE:** `packages/slides/src/view/canvas/test-canvas-env.ts` must
+> additionally patch `HTMLCanvasElement.prototype.getContext('2d')` if
+> it doesn't already — jsdom returns `null` for the 2D context, which
+> blows up `initialize()` when the editor tests construct a
+> SlideRenderer. T1 implementer extended the shim; subsequent re-runs
+> benefit from the same patch.
+
 Copy `packages/sheets/src/view/keymap.ts` verbatim — no changes.
 The file is ~70 lines, generic, and has no sheets-specific behaviour.
 Document the copy at the top:
@@ -356,11 +363,17 @@ Expected: PASS — Selection tests green.
 
 - [ ] **Step 1.6: Write failing tests for `SlidesEditor` shell**
 
+> **NOTE:** prepend `import '../canvas/test-canvas-env';` so the
+> OffscreenCanvas + HTMLCanvasElement.prototype.getContext('2d') shims
+> are loaded before `initialize` constructs the SlideRenderer (jsdom
+> does not implement Canvas 2D).
+
 Create `packages/slides/src/view/editor/editor.test.ts`. Add the
 jsdom directive at the top (we synthesise DOM events later):
 
 ```ts
 // @vitest-environment jsdom
+import '../canvas/test-canvas-env';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MemSlidesStore } from '../../store/memory';
 import { initialize, type SlidesEditor } from './editor';
@@ -1338,12 +1351,16 @@ this.attachInteractions();
 
 - [ ] **Step 3.10: Add an editor-level test for click→select wiring**
 
+> **NOTE:** the `target: Element | Document` parameter must be
+> `target: globalThis.Element | Document` because `Element` from
+> `../../model/element` is in scope and shadows the DOM type.
+
 Append to `editor.test.ts`:
 
 ```ts
 import type { Slide } from '../../model/presentation';
 
-function dispatchMouseDown(target: Element | Document, x: number, y: number, shift = false): void {
+function dispatchMouseDown(target: globalThis.Element | Document, x: number, y: number, shift = false): void {
   target.dispatchEvent(new MouseEvent('mousedown', {
     clientX: x, clientY: y, shiftKey: shift, bubbles: true,
   }));
@@ -1392,6 +1409,11 @@ it('mousedown on empty canvas clears selection (after a click without drag)', ()
 
 Run: `pnpm slides test`
 Expected: PASS — select + lasso + editor click tests green.
+
+> **NOTE:** the lasso suite is 6 it-blocks, not 5: 4 in
+> `selectInRect — bbox intersection` plus 2 in `normalizeRect`. Keep
+> this in mind when checking running totals (e.g. running tally is
+> `92 + 6 + 6 + 2 = 106` after T3, not `92 + 6 + 5 + 2 = 105`).
 
 - [ ] **Step 3.12: Commit**
 
@@ -1742,13 +1764,13 @@ Add new imports:
 ```ts
 import { combinedBoundingBox } from '../../model/frame';
 import { snapDelta } from './snap';
-import { applyDrag } from './interactions/drag';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 ```
 
-(`applyDrag` is currently unused inside the editor — keep the import
-so a future refactor can swap the inline live-frame loop for a single
-`applyDrag(originalElements, dx, dy)` call. Leave a comment.)
+> **NOTE:** do NOT import `applyDrag` into `editor.ts` — TS strict
+> `noUnusedLocals` rejects unused imports, and the inline
+> `originalFrames` Map handles the per-element delta directly.
+> `applyDrag` lives in `drag.ts` for unit testing only.
 
 > **NOTE on `this.renderer['render']`** — bracket access bypasses the
 > tsc unused-method warning if we add a public `paint(slide)` method to
@@ -2221,14 +2243,17 @@ describe('applyRotate', () => {
     expect(applyRotate(Math.PI / 6, 0, Math.PI / 4, false)).toBeCloseTo(Math.PI / 6 + Math.PI / 4);
   });
   it('shift snaps to 15° increments', () => {
-    expect(applyRotate(0, 0, 0.41, true)).toBeCloseTo(Math.PI / 12);
-    expect(applyRotate(0, 0, Math.PI / 8, true)).toBeCloseTo(Math.PI / 12);
+    // 0.30 rad ≈ 17.2° → rounds down to 15° (1 × STEP).
+    expect(applyRotate(0, 0, 0.30, true)).toBeCloseTo(Math.PI / 12);
+    // π/9 = 20° → rounds down to 15° (1 × STEP).
+    expect(applyRotate(0, 0, Math.PI / 9, true)).toBeCloseTo(Math.PI / 12);
   });
 });
 
 describe('snapAngle', () => {
   it('rounds to the nearest 15° step', () => {
-    expect(snapAngle(0.41)).toBeCloseTo(STEP);
+    // 0.30 rad → 1 × STEP = 0.262.
+    expect(snapAngle(0.30)).toBeCloseTo(STEP);
     expect(snapAngle(STEP * 2.6)).toBeCloseTo(STEP * 3);
   });
   it('preserves negative angles', () => {
@@ -2388,7 +2413,7 @@ describe('buildInsertElement — line and arrow', () => {
     expect(line.type).toBe('shape');
     expect(line.frame.w).toBe(100);
     expect(line.frame.h).toBe(50);
-    if (line.data.kind === 'line') {
+    if (line.type === 'shape' && line.data.kind === 'line') {
       expect(line.data.stroke?.width).toBe(2);
     }
   });
