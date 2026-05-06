@@ -75,4 +75,38 @@ describe('renderOverlay', () => {
     const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]')!;
     expect(parseFloat(nw.style.left)).toBe(100 * 0.5 - HANDLE_SIZE / 2);
   });
+
+  it('rotated single element: handles sit on the rotated frame corners', () => {
+    const overlay = makeOverlay();
+    // 200×100 frame at (100, 100), rotated 90° (π/2).
+    // Centre = (200, 150). After 90° rotation, the LOCAL nw corner
+    // (which was at (100, 100) world before rotation) ends up at:
+    //   local nw = (-w/2, -h/2) = (-100, -50) relative to centre
+    //   R(π/2) * (-100, -50) = (50, -100) relative to centre
+    //   world = centre + (50, -100) = (250, 50)
+    renderOverlay(overlay, [shape(100, 100, 200, 100, Math.PI / 2)], { scale: 1 });
+    const nw = overlay.querySelector<HTMLDivElement>('[data-handle="nw"]')!;
+    expect(parseFloat(nw.style.left)).toBeCloseTo(250 - HANDLE_SIZE / 2, 5);
+    expect(parseFloat(nw.style.top)).toBeCloseTo(50 - HANDLE_SIZE / 2, 5);
+
+    // The selection outline div uses CSS rotate to align with the
+    // rotated frame.
+    const outline = overlay.querySelector<HTMLDivElement>('.wfb-slides-selection-frame')!;
+    expect(outline.style.transform).toBe(`rotate(${Math.PI / 2}rad)`);
+  });
+
+  it('rotated single element: rotate handle sits in the local "up" direction', () => {
+    const overlay = makeOverlay();
+    // 200×100 frame at origin, 90° rotation. Centre = (100, 50).
+    // Top centre local = (100, 0). After 90° rotation around centre:
+    //   (100 - 100, 0 - 50) = (0, -50) relative to centre
+    //   R(π/2) * (0, -50) = (50, 0) relative to centre
+    //   world = (150, 50)
+    // Local "up" direction in world = (sin(π/2), -cos(π/2)) = (1, 0).
+    // Rotate handle = (150 + 24, 50) = (174, 50) at scale=1.
+    renderOverlay(overlay, [shape(0, 0, 200, 100, Math.PI / 2)], { scale: 1 });
+    const rot = overlay.querySelector<HTMLDivElement>('[data-handle="rotate"]')!;
+    expect(parseFloat(rot.style.left)).toBeCloseTo(174 - HANDLE_SIZE / 2, 5);
+    expect(parseFloat(rot.style.top)).toBeCloseTo(50 - HANDLE_SIZE / 2, 5);
+  });
 });

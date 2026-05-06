@@ -1,4 +1,4 @@
-import type { Element } from '../../model/element';
+import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
 
 const HANDLE_SIZE = 8;             // px
@@ -15,13 +15,12 @@ export interface OverlayOptions {
  * ~10 child nodes).
  *
  * For a single selected element with rotation === 0 we draw handles
- * on the element's axis-aligned frame. For rotated single elements
- * and for multi-selection we draw on the combined axis-aligned bbox
- * (resize and rotate of rotated single elements is Phase 3a's
- * deliberate compromise — the user can still grab the rotate handle
- * and the eight bbox handles, but the resize math in T5 will be
- * defined relative to the bbox, not the rotated frame). v2 tightens
- * this to per-element rotated handles.
+ * on the element's axis-aligned frame. For a single rotated element we
+ * draw handles on the rotated frame's actual corners / edge midpoints
+ * + a rotated outline; the resize path uses `resizeFrameWorld` which
+ * keeps the anchor handle fixed in world space. For multi-selection
+ * we fall back to the combined axis-aligned bbox (multi-element
+ * rotated resize is a v2 polish item).
  */
 export function renderOverlay(
   overlay: HTMLDivElement,
@@ -30,6 +29,11 @@ export function renderOverlay(
 ): void {
   overlay.innerHTML = '';
   if (selectedElements.length === 0) return;
+
+  if (selectedElements.length === 1 && selectedElements[0].frame.rotation !== 0) {
+    renderRotatedHandles(overlay, selectedElements[0].frame, options);
+    return;
+  }
 
   const bbox = combinedBoundingBox(selectedElements.map((e) => e.frame));
   if (!bbox) return;
@@ -67,6 +71,65 @@ export function renderOverlay(
   for (const [kind, cx, cy] of positions) {
     overlay.appendChild(makeHandle(kind, cx, cy));
   }
+}
+
+function renderRotatedHandles(
+  overlay: HTMLDivElement,
+  frame: Frame,
+  options: OverlayOptions,
+): void {
+  const { scale } = options;
+  const cx = frame.x + frame.w / 2;
+  const cy = frame.y + frame.h / 2;
+  const cos = Math.cos(frame.rotation);
+  const sin = Math.sin(frame.rotation);
+
+  // Map a local-coords point to world coords (logical slide space).
+  const localToWorld = (lx: number, ly: number) => {
+    const dx = lx - frame.w / 2;
+    const dy = ly - frame.h / 2;
+    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+  };
+
+  // Rotated outline — draw an axis-aligned div and CSS-rotate around
+  // its centre so the rendered rectangle aligns with the rotated frame.
+  const outline = document.createElement('div');
+  outline.className = 'wfb-slides-selection-frame';
+  outline.style.position = 'absolute';
+  outline.style.left = `${frame.x * scale}px`;
+  outline.style.top = `${frame.y * scale}px`;
+  outline.style.width = `${frame.w * scale}px`;
+  outline.style.height = `${frame.h * scale}px`;
+  outline.style.transform = `rotate(${frame.rotation}rad)`;
+  outline.style.transformOrigin = 'center';
+  outline.style.pointerEvents = 'none';
+  outline.style.boxSizing = 'border-box';
+  outline.style.border = '1px solid #3a7';
+  overlay.appendChild(outline);
+
+  // Eight resize handles at the rotated corners / edge midpoints.
+  const localPositions: Array<[string, number, number]> = [
+    ['nw', 0,           0],
+    ['n',  frame.w / 2, 0],
+    ['ne', frame.w,     0],
+    ['e',  frame.w,     frame.h / 2],
+    ['se', frame.w,     frame.h],
+    ['s',  frame.w / 2, frame.h],
+    ['sw', 0,           frame.h],
+    ['w',  0,           frame.h / 2],
+  ];
+  for (const [kind, lx, ly] of localPositions) {
+    const w = localToWorld(lx, ly);
+    overlay.appendChild(makeHandle(kind, w.x * scale, w.y * scale));
+  }
+
+  // Rotate handle: ROTATE_HANDLE_OFFSET (host px) above the rotated
+  // top-centre, in the frame's local "up" direction.
+  // Local "up" = R(rot) * (0, -1) = (sin(rot), -cos(rot)).
+  const topCenter = localToWorld(frame.w / 2, 0);
+  const rotateScreenX = topCenter.x * scale + sin * ROTATE_HANDLE_OFFSET;
+  const rotateScreenY = topCenter.y * scale - cos * ROTATE_HANDLE_OFFSET;
+  overlay.appendChild(makeHandle('rotate', rotateScreenX, rotateScreenY));
 }
 
 function makeHandle(kind: string, cx: number, cy: number): HTMLDivElement {

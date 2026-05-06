@@ -7,7 +7,7 @@ import { handleHitTest, type HandleKind } from './hit-test';
 import { buildInsertElement } from './interactions/insert';
 import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
-import { resizeFrame, type ResizeHandle } from './interactions/resize';
+import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
@@ -389,7 +389,7 @@ class SlidesEditorImpl implements SlidesEditor {
       const cur = this.clientToLogical(ev.clientX, ev.clientY);
       const dx = cur.x - start.x;
       const dy = cur.y - start.y;
-      live.frame = resizeFrame(startFrame, handle, dx, dy, ev.shiftKey);
+      live.frame = resizeFrameWorld(startFrame, handle, dx, dy, ev.shiftKey);
       const livMap = new Map<string, Frame>([[elementId, live.frame]]);
       this.paintLive(livMap);
     };

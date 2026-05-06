@@ -71,6 +71,83 @@ export function resizeFrame(
   };
 }
 
+/**
+ * Apply a resize drag to a (possibly rotated) frame using a world-space
+ * pointer delta. For unrotated frames this is identical to
+ * `resizeFrame`. For rotated frames the world delta is projected onto
+ * the frame's local axes, the resize is computed in local coords, and
+ * the result is positioned so the anchor handle (the corner / edge
+ * midpoint OPPOSITE to the dragged handle) stays fixed in world
+ * coordinates — the intuitive Google-Slides behaviour.
+ */
+export function resizeFrameWorld(
+  start: Frame,
+  handle: ResizeHandle,
+  worldDx: number,
+  worldDy: number,
+  shift: boolean,
+): Frame {
+  if (start.rotation === 0) {
+    return resizeFrame(start, handle, worldDx, worldDy, shift);
+  }
+
+  // Project world delta into the frame's local axes by rotating by -θ.
+  const cosInv = Math.cos(-start.rotation);
+  const sinInv = Math.sin(-start.rotation);
+  const localDx = worldDx * cosInv - worldDy * sinInv;
+  const localDy = worldDx * sinInv + worldDy * cosInv;
+
+  // Compute the new dimensions on a fictional unrotated frame at origin.
+  const localStart: Frame = { x: 0, y: 0, w: start.w, h: start.h, rotation: 0 };
+  const local = resizeFrame(localStart, handle, localDx, localDy, shift);
+
+  // Anchor = opposite corner / edge midpoint. It must stay in the same
+  // WORLD position before and after the resize. anchorBefore is its
+  // position in start's local coords; anchorAfter is its position in
+  // the new (resized) local coords.
+  const anchorBefore = anchorLocal(handle, start.w, start.h);
+  const anchorAfter  = anchorLocal(handle, local.w,  local.h);
+
+  // World position of anchorBefore = startCentre + R(rot) * (anchorBefore - startLocalCentre).
+  const startCx = start.x + start.w / 2;
+  const startCy = start.y + start.h / 2;
+  const cosF = Math.cos(start.rotation);
+  const sinF = Math.sin(start.rotation);
+  const dxL = anchorBefore.x - start.w / 2;
+  const dyL = anchorBefore.y - start.h / 2;
+  const anchorWorldX = startCx + cosF * dxL - sinF * dyL;
+  const anchorWorldY = startCy + sinF * dxL + cosF * dyL;
+
+  // Solve for the new frame's centre so anchorAfter (in NEW local
+  // coords) lands on the same anchor world position.
+  // anchorWorld = newCentre + R(rot) * (anchorAfter - newLocalCentre)
+  const dxA = anchorAfter.x - local.w / 2;
+  const dyA = anchorAfter.y - local.h / 2;
+  const newCx = anchorWorldX - (cosF * dxA - sinF * dyA);
+  const newCy = anchorWorldY - (sinF * dxA + cosF * dyA);
+
+  return {
+    x: newCx - local.w / 2,
+    y: newCy - local.h / 2,
+    w: local.w,
+    h: local.h,
+    rotation: start.rotation,
+  };
+}
+
+function anchorLocal(handle: ResizeHandle, w: number, h: number): { x: number; y: number } {
+  switch (handle) {
+    case 'nw': return { x: w,     y: h };
+    case 'n':  return { x: w / 2, y: h };
+    case 'ne': return { x: 0,     y: h };
+    case 'e':  return { x: 0,     y: h / 2 };
+    case 'se': return { x: 0,     y: 0 };
+    case 's':  return { x: w / 2, y: 0 };
+    case 'sw': return { x: w,     y: 0 };
+    case 'w':  return { x: w,     y: h / 2 };
+  }
+}
+
 function preserveAspect(
   w: number, h: number,
   handle: ResizeHandle,
