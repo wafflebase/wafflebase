@@ -5,10 +5,12 @@ import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
 import { handleHitTest, type HandleKind } from './hit-test';
 import { buildInsertElement } from './interactions/insert';
+import { buildKeyRules } from './interactions/keyboard';
 import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
+import { runKeyRules, type KeyRule } from './keymap';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 import { snapDelta } from './snap';
@@ -24,8 +26,10 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
 export interface SlidesEditor {
   render(): void;
   getSelection(): readonly string[];
+  setSelection(ids: readonly string[]): void;
   onSelectionChange(cb: () => void): () => void;
   setInsertMode(kind: InsertKind | null): void;
+  currentSlideId(): string | undefined;
   detach(): void;
 }
 
@@ -41,6 +45,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private renderer: SlideRenderer;
   private listeners: ListenerEntry[] = [];
   private disposed = false;
+  private keyRules!: KeyRule[];
 
   constructor(private options: SlidesEditorOptions) {
     const ctx = options.canvas.getContext('2d');
@@ -49,6 +54,16 @@ class SlidesEditorImpl implements SlidesEditor {
     this.selection.subscribe(() => {
       this.renderer.markDirty();
       this.repaintOverlay();
+    });
+    this.keyRules = buildKeyRules({
+      store: this.options.store,
+      selection: this.selection,
+      currentSlideId: () => this.currentSlideId(),
+      requestRender: () => {
+        this.renderer.markDirty();
+        this.render();
+        this.repaintOverlay();
+      },
     });
     this.attachInteractions();
   }
@@ -76,6 +91,14 @@ class SlidesEditorImpl implements SlidesEditor {
 
   getSelection(): readonly string[] {
     return this.selection.get();
+  }
+
+  setSelection(ids: readonly string[]): void {
+    this.selection.set(ids);
+  }
+
+  currentSlideId(): string | undefined {
+    return this.options.store.read().slides[0]?.id;
   }
 
   onSelectionChange(cb: () => void): () => void {
@@ -113,6 +136,13 @@ class SlidesEditorImpl implements SlidesEditor {
     const onMouseDown = (e: Event) => this.onPointerDown(e as MouseEvent);
     this.on(this.options.canvas, 'mousedown', onMouseDown);
     this.on(this.options.overlay, 'mousedown', onMouseDown);
+    this.on(document, 'keydown', (e) => {
+      void this.handleKeyDown(e as KeyboardEvent);
+    });
+  }
+
+  private async handleKeyDown(e: KeyboardEvent): Promise<void> {
+    await runKeyRules(e, this.keyRules);
   }
 
   private onPointerDown(e: MouseEvent): void {
