@@ -146,6 +146,19 @@ describe('initialize', () => {
     void elementId;
   });
 
+  it('insert mode places a new shape on canvas drag', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setInsertMode('rect');
+    dispatchMouseDown(canvas, 100, 100);
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 300, clientY: 200, bubbles: true }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: 300, clientY: 200, bubbles: true }));
+    const elements = store.read().slides[0].elements;
+    expect(elements.length).toBe(1);
+    expect(elements[0].frame).toEqual({ x: 100, y: 100, w: 200, h: 100, rotation: 0 });
+    expect(editor.getSelection()).toEqual([elements[0].id]);
+  });
+
   it('mousedown on empty canvas clears selection (after a click without drag)', () => {
     const { canvas, overlay, store } = makeFixture();
     store.batch(() => {

@@ -1,9 +1,10 @@
-import type { Frame } from '../../model/element';
+import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
 import { handleHitTest, type HandleKind } from './hit-test';
+import { buildInsertElement } from './interactions/insert';
 import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrame, type ResizeHandle } from './interactions/resize';
@@ -105,7 +106,10 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private onPointerDown(e: MouseEvent): void {
-    if (this.insertKind !== null) return;             // T7 owns insert mousedown
+    if (this.insertKind !== null) {
+      this.startInsert(e.clientX, e.clientY);
+      return;
+    }
     const handle = this.handleAtClient(e.clientX, e.clientY);
     if (handle !== null) {
       this.onPointerDownHandle(handle, e.clientX, e.clientY);
@@ -136,6 +140,58 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
     this.startLasso(e.clientX, e.clientY);
+  }
+
+  private startInsert(clientX: number, clientY: number): void {
+    const kind = this.insertKind;
+    if (kind === null) return;
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const start = this.clientToLogical(clientX, clientY);
+
+    if (kind === 'text') {
+      // Single-click insert.
+      const init = buildInsertElement('text', start, start);
+      this.options.store.batch(() => {
+        const id = this.options.store.addElement(slide.id, init);
+        this.selection.set([id]);
+      });
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
+      return;
+    }
+
+    // Drag-to-size for shapes.
+    let endPoint = start;
+    const onMove = (ev: MouseEvent) => {
+      endPoint = this.clientToLogical(ev.clientX, ev.clientY);
+      // Live preview: paint the in-progress shape over the slide.
+      const init = buildInsertElement(kind, start, endPoint);
+      const synthetic = {
+        ...slide,
+        elements: [...slide.elements, { ...init, id: '__preview__' } as Element],
+      };
+      this.renderer.forceRender(synthetic);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const init = buildInsertElement(kind, start, endPoint);
+      if (init.frame.w < 4 && init.frame.h < 4) {
+        // No real drag — drop a default-sized shape.
+        init.frame = { x: start.x, y: start.y, w: 200, h: 100, rotation: 0 };
+      }
+      this.options.store.batch(() => {
+        const id = this.options.store.addElement(slide.id, init);
+        this.selection.set([id]);
+      });
+      this.setInsertMode(null);
+      this.renderer.markDirty();
+      this.render();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   private startLasso(clientX: number, clientY: number): void {
