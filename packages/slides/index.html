@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>@wafflebase/slides demo</title>
+    <style>
+      body { margin: 0; background: #1a1a1a; color: #ddd; font-family: system-ui, sans-serif; }
+      .stage { display: grid; place-items: center; min-height: 100vh; padding: 24px; }
+      canvas { background: #fff; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+      .label { font-size: 12px; opacity: 0.7; margin-bottom: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div>
+        <div class="label">@wafflebase/slides Phase 2 — slide-renderer demo</div>
+        <canvas id="slide" width="960" height="540"></canvas>
+      </div>
+    </div>
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>
