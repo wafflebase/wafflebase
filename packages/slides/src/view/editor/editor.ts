@@ -1,6 +1,6 @@
 import type { Frame } from '../../model/element';
-import { containsPoint } from '../../model/frame';
-import { SLIDE_WIDTH } from '../../model/presentation';
+import { combinedBoundingBox, containsPoint } from '../../model/frame';
+import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import { SlideRenderer, type SlideRendererOptions } from '../canvas/slide-renderer';
 import { handleHitTest } from './hit-test';
@@ -8,6 +8,7 @@ import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
+import { snapDelta } from './snap';
 
 export type InsertKind = 'rect' | 'ellipse' | 'line' | 'arrow' | 'text';
 
@@ -115,7 +116,11 @@ class SlidesEditorImpl implements SlidesEditor {
       const mods = { shift: e.shiftKey };
       const next = selectAt(slide, x, y, mods, this.selection.get());
       this.selection.set(next);
-      // T4: startDrag(e.clientX, e.clientY);
+      // Begin drag on the (possibly newly-)selected elements unless the
+      // element was just removed by shift-toggle.
+      if (this.selection.has(hit)) {
+        this.startDrag(e.clientX, e.clientY);
+      }
       return;
     }
 
@@ -162,6 +167,73 @@ class SlidesEditorImpl implements SlidesEditor {
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  }
+
+  private startDrag(clientX: number, clientY: number): void {
+    const startSlide = this.currentSlide();
+    if (!startSlide) return;
+    const selectedIds = new Set(this.selection.get());
+    const originalFrames = new Map<string, Frame>();
+    for (const el of startSlide.elements) {
+      if (selectedIds.has(el.id)) originalFrames.set(el.id, { ...el.frame });
+    }
+    if (originalFrames.size === 0) return;
+
+    const start = this.clientToLogical(clientX, clientY);
+    const otherFrames = startSlide.elements
+      .filter((e) => !selectedIds.has(e.id))
+      .map((e) => e.frame);
+
+    // Track dragged frames in memory; commit once at mouseup.
+    const live = new Map(originalFrames);
+
+    const onMove = (ev: MouseEvent) => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      const rawDx = cur.x - start.x;
+      const rawDy = cur.y - start.y;
+      const bbox = combinedBoundingBox(Array.from(originalFrames.values()))!;
+      const { dx, dy } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
+
+      for (const [id, base] of originalFrames) {
+        live.set(id, { ...base, x: base.x + dx, y: base.y + dy });
+      }
+      // Repaint canvas + overlay with the live frames; we DO NOT touch
+      // the store yet.
+      this.paintLive(live);
+    };
+    const onUp = (_ev: MouseEvent) => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      // Commit one batch with the final frames.
+      const slideId = startSlide.id;
+      this.options.store.batch(() => {
+        for (const [id, frame] of live) {
+          this.options.store.updateElementFrame(slideId, id, frame);
+        }
+      });
+      this.renderer.markDirty();
+      this.render();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  private paintLive(live: Map<string, Frame>): void {
+    // Render a synthesised slide where the selected elements use their
+    // live frames. We bypass the store so each mousemove is one paint,
+    // not one Yorkie op.
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const synthetic = {
+      ...slide,
+      elements: slide.elements.map((el) =>
+        live.has(el.id) ? { ...el, frame: live.get(el.id)! } : el,
+      ),
+    };
+    this.renderer.forceRender(synthetic);
+    // Repaint overlay against the live frames so handles follow.
+    const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
+    renderOverlay(this.options.overlay, selected, { scale: this.scale() });
   }
 
   private currentSlide() {

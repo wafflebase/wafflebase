@@ -83,6 +83,34 @@ describe('initialize', () => {
     expect(editor.getSelection().length).toBe(1);
   });
 
+  it('drag moves the selected element by the pointer delta and commits one batch', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let elementId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      elementId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: '#abc' },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // Select + start drag at (200, 150) — middle of the shape.
+    dispatchMouseDown(canvas, 200, 150);
+    // Drag to (350, 250).
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 350, clientY: 250, bubbles: true }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: 350, clientY: 250, bubbles: true }));
+    // Frame should have moved by (150, 100). Snap might tweak by ≤ 8 px.
+    const frame = store.read().slides[0].elements[0].frame;
+    expect(Math.abs(frame.x - 250)).toBeLessThanOrEqual(8);
+    expect(Math.abs(frame.y - 200)).toBeLessThanOrEqual(8);
+    // Single undo entry.
+    expect(store.canUndo()).toBe(true);
+    store.undo();
+    expect(store.read().slides[0].elements[0].frame.x).toBe(100);
+    void elementId;
+  });
+
   it('mousedown on empty canvas clears selection (after a click without drag)', () => {
     const { canvas, overlay, store } = makeFixture();
     store.batch(() => {

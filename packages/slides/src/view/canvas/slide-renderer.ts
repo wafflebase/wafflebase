@@ -58,4 +58,14 @@ export class SlideRenderer {
 
     this.dirty = false;
   }
+
+  /**
+   * Paint unconditionally (bypass the dirty check). Used by interaction
+   * live-paint paths in the editor that need to draw an in-memory
+   * frame override on every mousemove without committing to the store.
+   */
+  forceRender(slide: Slide): void {
+    this.dirty = true;
+    this.render(slide);
+  }
 }

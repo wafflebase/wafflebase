@@ -84,4 +84,12 @@ describe('SlideRenderer.render', () => {
     renderer.render(slide);
     expect(ctx.drawImage).not.toHaveBeenCalled();
   });
+
+  it('forceRender paints even when not dirty', () => {
+    const { renderer, ctx } = makeRenderer();
+    renderer.render(blankSlide());        // dirty → false
+    const before = ctx.clearRect.mock.calls.length;
+    renderer.forceRender(blankSlide());
+    expect(ctx.clearRect.mock.calls.length).toBe(before + 1);
+  });
 });
