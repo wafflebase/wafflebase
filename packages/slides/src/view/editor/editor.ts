@@ -32,6 +32,15 @@ export interface SlidesEditor {
   setInsertMode(kind: InsertKind | null): void;
   getCurrentSlideId(): string | undefined;
   setCurrentSlide(id: string): void;
+  /**
+   * Subscribe to current-slide changes. Fires whenever
+   * `setCurrentSlide` actually changes the rendered slide id.
+   * Distinct from `onSelectionChange` because element selection
+   * may already be empty when slides switch (clearing an empty
+   * selection is a no-op), so subscribers that need a slide-change
+   * signal cannot rely on selection notifications alone.
+   */
+  onCurrentSlideChange(cb: () => void): () => void;
   detach(): void;
 }
 
@@ -49,6 +58,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private disposed = false;
   private keyRules!: KeyRule[];
   private currentId: string | undefined;
+  private currentSlideListeners = new Set<() => void>();
 
   constructor(private options: SlidesEditorOptions) {
     const ctx = options.canvas.getContext('2d');
@@ -117,10 +127,18 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+    for (const cb of this.currentSlideListeners) cb();
   }
 
   onSelectionChange(cb: () => void): () => void {
     return this.selection.subscribe(cb);
+  }
+
+  onCurrentSlideChange(cb: () => void): () => void {
+    this.currentSlideListeners.add(cb);
+    return () => {
+      this.currentSlideListeners.delete(cb);
+    };
   }
 
   setInsertMode(kind: InsertKind | null): void {
