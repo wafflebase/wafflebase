@@ -146,6 +146,35 @@ describe('initialize', () => {
     void elementId;
   });
 
+  it('mousedown dispatched on a handle DOM element triggers resize', () => {
+    // Regression: in the browser, clicking a handle delivers the
+    // event to the handle <div> in the overlay (pointer-events: auto)
+    // — never to the canvas. The editor must listen on the overlay
+    // too, otherwise resize/rotate silently no-op for users.
+    const { canvas, overlay, store } = makeFixture();
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: '#abc' },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    dispatchMouseDown(canvas, 150, 150);
+    document.dispatchEvent(new MouseEvent('mouseup', { clientX: 150, clientY: 150, bubbles: true }));
+    const eHandle = overlay.querySelector<HTMLDivElement>('[data-handle="e"]')!;
+    const left = parseFloat(eHandle.style.left);
+    const top = parseFloat(eHandle.style.top);
+    // Dispatch on the HANDLE element (real-browser path), not on canvas.
+    eHandle.dispatchEvent(new MouseEvent('mousedown', {
+      clientX: left + 4, clientY: top + 4, bubbles: true,
+    }));
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: left + 4 + 30, clientY: top + 4, bubbles: true }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: left + 4 + 30, clientY: top + 4, bubbles: true }));
+    expect(store.read().slides[0].elements[0].frame.w).toBe(230);
+  });
+
   it('insert mode places a new shape on canvas drag', () => {
     const { canvas, overlay, store } = makeFixture();
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });

@@ -102,7 +102,17 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private attachInteractions(): void {
-    this.on(this.options.canvas, 'mousedown', (e) => this.onPointerDown(e as MouseEvent));
+    // Mousedown listens on BOTH the canvas (for clicks on the slide
+    // surface) AND the overlay (for clicks on resize/rotate handles).
+    // The overlay div has `pointer-events: none` so empty-area clicks
+    // pass through to the canvas — only handle children with
+    // `pointer-events: auto` are caught by the overlay listener.
+    // Without the overlay listener, handle clicks bubble through the
+    // overlay and never reach the canvas, so resize/rotate would
+    // silently no-op.
+    const onMouseDown = (e: Event) => this.onPointerDown(e as MouseEvent);
+    this.on(this.options.canvas, 'mousedown', onMouseDown);
+    this.on(this.options.overlay, 'mousedown', onMouseDown);
   }
 
   private onPointerDown(e: MouseEvent): void {
