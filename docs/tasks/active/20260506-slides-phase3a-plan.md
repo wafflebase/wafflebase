@@ -171,14 +171,20 @@ handlers based on hit-testing.
 
 ---
 
-## Task 1: Editor scaffold + Selection state + Keymap
+## Task 1: Editor scaffold + Selection state
 
 **Files:**
 - Create: `packages/slides/src/view/editor/editor.ts`
 - Create: `packages/slides/src/view/editor/editor.test.ts`
 - Create: `packages/slides/src/view/editor/selection.ts`
 - Create: `packages/slides/src/view/editor/selection.test.ts`
-- Create: `packages/slides/src/view/editor/keymap.ts`
+
+> **Plan amendment:** the original plan also created
+> `packages/slides/src/view/editor/keymap.ts` here as a copy of
+> `packages/sheets/src/view/keymap.ts`. That copy was reverted because
+> Phase 3a never wires keyboard handling and `verify:entropy` (knip)
+> correctly flagged it as dead code. Phase 3b's keyboard task re-adds
+> the keymap copy at the moment a consumer first imports it.
 
 `Selection` is a tiny class with subscriber callbacks. The editor
 shell wires it up but doesn't yet do anything interactive — that's
