@@ -87,13 +87,21 @@ export function showContextMenu(
   };
   // Run AFTER current event loop so the showing right-click doesn't
   // immediately dismiss its own menu via the same event.
-  setTimeout(() => {
+  const attachTimer = setTimeout(() => {
     document.addEventListener('mousedown', onOutside);
     document.addEventListener('keydown', onKey);
   }, 0);
 
   activeMenu = menu;
   activeCleanup = () => {
+    // Cancel a pending attach if dismiss() runs before the timer fires.
+    // Without this, rapid right-clicks (second contextmenu before the
+    // first menu's setTimeout has run) would: dismiss() the first menu
+    // → drop the first activeCleanup pointer → the first timer would
+    // still fire later and addEventListener `onOutside`/`onKey` to
+    // `document` with no removal path. Those orphaned listeners would
+    // then dismiss the second menu on the next mousedown anywhere.
+    clearTimeout(attachTimer);
     document.removeEventListener('mousedown', onOutside);
     document.removeEventListener('keydown', onKey);
   };

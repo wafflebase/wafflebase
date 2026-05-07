@@ -88,6 +88,30 @@ describe('showContextMenu', () => {
     expect(document.body.querySelector('.wfb-slides-context-menu')).toBeTruthy();
   });
 
+  it('rapid right-clicks do not leak listeners onto document', async () => {
+    // Repro: a second showContextMenu before the first menu's
+    // setTimeout(0) fires would dismiss the first synchronously while
+    // its addEventListener for `mousedown`/`keydown` was still pending
+    // — then both menus' listeners would attach but the first menu's
+    // had no cleanup pointer, leaking listeners that called dismiss()
+    // on the (now-second) menu.
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    showContextMenu(document.body, [{ label: 'A', run: vi.fn() }], 0, 0);
+    showContextMenu(document.body, [{ label: 'B', run: vi.fn() }], 0, 0);
+    // Drain the pending setTimeout(0) callbacks. Only the second
+    // menu's attach should run — the first's must have been cleared.
+    await new Promise((r) => setTimeout(r, 0));
+    const documentMousedownAttaches = addSpy.mock.calls.filter(
+      ([type]) => type === 'mousedown',
+    );
+    expect(documentMousedownAttaches).toHaveLength(1);
+    addSpy.mockRestore();
+    // Menu B is still mounted and a single outside click cleanly
+    // dismisses it without leftover listener noise.
+    document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(document.body.querySelector('.wfb-slides-context-menu')).toBeNull();
+  });
+
   it('disabled items do not run when clicked', () => {
     const run = vi.fn();
     showContextMenu(
