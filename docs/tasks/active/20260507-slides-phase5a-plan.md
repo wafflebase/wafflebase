@@ -446,57 +446,67 @@ the new blocks back via `store.withTextElement`.
   detach the TextBoxEditor, restore selection handles, write the
   final blocks back through `store.batch(() => store.withTextElement(slideId, elementId, () => newBlocks))`.
 
-- [ ] **Step 4.1: Write the slides text-box-editor module**
+- [x] **Step 4.1: Write the slides text-box-editor module**
 
-  Slim wrapper:
-  ```ts
-  export interface SlidesTextBoxEditor {
-    detach(): void;
-    isEditing(): boolean;
-  }
+  Slim wrapper landed at
+  `packages/slides/src/view/editor/text-box-editor.ts` exporting
+  `mountSlidesTextBox(opts): SlidesTextBoxEditor`. Builds the canvas
+  + container DOM inside `overlay`, positioned at `frame * scale`,
+  with `pointer-events: auto` so clicks land on the editor instead
+  of falling through to the slide canvas. Rotation is applied via
+  CSS `transform` for rotated frames. The wrapper exposes `focus`,
+  `commit`, `detach`, `isEditing`, and a public `container` ref so
+  the editor can hit-test "click inside vs outside" cheaply. Calls
+  `initializeTextBox` from `@wafflebase/docs` and routes
+  commit/cancel back through the supplied callbacks.
 
-  export function mountSlidesTextBox(opts: {
-    overlay: HTMLDivElement;
-    frame: Frame;
-    scale: number;
-    blocks: Block[];
-    onCommit: (blocks: Block[]) => void;
-    onCancel: () => void;
-  }): SlidesTextBoxEditor;
-  ```
-  Builds the canvas + container DOM inside `overlay`, positioned
-  at `frame * scale`. Calls `initializeTextBox` from
-  `@wafflebase/docs`. Routes commit/cancel back to the editor.
+- [x] **Step 4.2: Wire double-click + edit mode in editor.ts**
 
-- [ ] **Step 4.2: Wire double-click + edit mode in editor.ts**
+  Editor gains a private `editingElementId: string | null` plus
+  `editingTextBox: SlidesTextBoxEditor | null` field, an injected
+  `mountTextBox` factory (overridable via `SlidesEditorOptions`,
+  used by tests), and three new methods:
+  `enterEditMode(slideId, elementId)`, `exitEditMode(reason)`,
+  `finishEditMode()`. `dblclick` listeners on canvas + overlay
+  hit-test for text elements and call `enterEditMode`.
+  `repaintOverlay` filters out `editingElementId` when computing
+  the selected set (handles disappear) and re-appends the text-box
+  container after `renderOverlay` clears the overlay. `onPointerDown`
+  short-circuits while editing: clicks inside the text-box
+  container pass through to the docs editor; clicks outside
+  trigger commit + exit. `onCommit` writes back via
+  `store.batch(() => store.withTextElement(...))`. `detach()` tears
+  the text-box down so the editor leaves no orphaned DOM.
 
-  - Add `editingElementId` private field.
-  - Listen for `dblclick` on the canvas (or pass through from
-    overlay if the user clicked inside a text-box that hit-tests as
-    text).
-  - When entering edit mode, call `mountSlidesTextBox`, hide the
-    selection overlay (clear handles temporarily), prevent drag /
-    resize while editing.
-  - When exiting (commit), call `store.withTextElement` to write
-    back, repaint, restore handles.
+- [x] **Step 4.3: Add tests**
 
-- [ ] **Step 4.3: Add tests**
-
-  Cover at minimum:
+  `packages/slides/src/view/editor/text-box-editor.test.ts` (8
+  tests, all passing). Covers:
   - Double-click on a text element enters edit mode.
-  - Blur / Escape commits and exits edit mode.
-  - Selection handles are hidden while editing.
-  - The committed blocks are persisted in the store (via withTextElement).
+  - Double-click on a non-text element does NOT enter edit mode.
+  - Selection handles disappear for the editing element.
+  - Committed blocks persist via `store.withTextElement` (one
+    undo entry, blocks reflect the commit).
+  - Clicking outside the text-box commits + exits.
+  - Clicking inside the text-box does NOT exit.
+  - Cancel (Escape) followed by the docs-editor's blur path
+    leaves the original blocks unchanged.
+  - `editor.detach()` during edit mode tears the text-box down.
 
-  Use the existing jsdom + test-canvas-env infrastructure. Mock
-  `initializeTextBox` if calling the real one is too heavy in jsdom
-  (decide based on what works).
+  Tests inject a mock `mountTextBox` via `SlidesEditorOptions` so
+  the docs `initializeTextBox` (which needs a real Canvas 2D
+  context) doesn't run in jsdom. Mock exposes `fireCommit` /
+  `fireCancel` for the test to drive commit/cancel synchronously.
 
-- [ ] **Step 4.4: Verify**
+- [x] **Step 4.4: Verify**
 
-  Run: `pnpm slides test` and `pnpm slides typecheck`. Expected: green.
+  - `pnpm slides typecheck` — clean.
+  - `pnpm slides test` — 26 files / 185 tests green (8 new).
+  - `pnpm verify:fast` — exit 0 (architecture, frontend lint +
+    test, backend, sheets typecheck + test, slides typecheck +
+    test, cli typecheck + test, docs typecheck + test all pass).
 
-- [ ] **Step 4.5: Commit**
+- [x] **Step 4.5: Commit**
 
 ```bash
 git commit -m "Wire double-click text editing in slides editor" -m "Double-click a text element → mount the new initializeTextBox
