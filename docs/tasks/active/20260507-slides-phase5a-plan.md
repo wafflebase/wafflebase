@@ -219,36 +219,51 @@ Refactor `paginatedPixelToPosition` to call it.
 - Extract the layout-shaped portion into `findPositionAtPixel`. The
   page-shaped wrapper passes a single page's layout into it.
 
-- [ ] **Step 2.1: Read `pagination.ts:paginatedPixelToPosition` (and
+- [x] **Step 2.1: Read `pagination.ts:paginatedPixelToPosition` (and
   its helpers)**
 
   Identify the layout-shaped vs page-shaped portions.
 
-- [ ] **Step 2.2: Write the extracted helper**
+  Page-shaped: page-finding (gap snapping, last-page clamping), per-
+  page `targetPL` selection (uses `pl.rowSplitHeight` for table-row
+  splits). Layout-shaped: empty-line short-circuit, line-relative
+  before/inside/past-end run hit-test, char binary search on
+  `run.charOffsets`, trailing-space trim for wrapped lines, affinity
+  computation at line boundaries.
 
-  Create `packages/docs/src/view/find-position-at-pixel.ts` with
-  signature:
-  ```ts
-  export function findPositionAtPixel(
-    layout: DocumentLayout,
-    x: number,    // layout-local: 0,0 = top-left of layout.blocks[0]
-    y: number,
-  ): DocPosition | null;
-  ```
-  Returns the position the pixel falls on, OR null if the pixel is
-  outside any block.
+- [x] **Step 2.2: Write the extracted helper**
 
-- [ ] **Step 2.3: Re-wire `paginatedPixelToPosition`**
+  Created `packages/docs/src/view/find-position-at-pixel.ts`. The
+  helper returns a `PixelPosition` (the same `{ blockId, offset,
+  lineAffinity }` triple the wrapper returns) so the wrapper stays
+  truly thin. Affinity is hit-test-derived and can't be reconstructed
+  from the bare `DocPosition`, so it lives on the result type rather
+  than on the model.
 
-  Find the page; translate (x, y) into layout-local coords for that
-  page's layout slice; call `findPositionAtPixel`.
+  Strict semantics: returns `null` when `(x, y)` is outside every
+  block (above blocks[0], below the last block, or empty layout) so
+  slides text-boxes can decide what to do with off-content clicks.
+  The paginated wrapper supplies its own clamping so the existing
+  docs editor behaviour is preserved.
 
-- [ ] **Step 2.4: Verify**
+- [x] **Step 2.3: Re-wire `paginatedPixelToPosition`**
 
-  Run: `pnpm --filter @wafflebase/docs test`
-  Expected: green. The existing tests (especially anywhere mouse
-  click → cursor placement is tested) verify both the page wrapper
-  and the new helper transitively.
+  Page-finding and per-page line-finding (with row-split awareness)
+  stay in `pagination.ts`. After the wrapper picks a `targetPL`, it
+  translates page-local pixels to layout-local: `layoutX = localX`
+  (body blocks have `lb.x === 0`); `layoutY = lb.y + line.y +
+  line.height/2` — guaranteed to land inside the chosen line so the
+  helper re-finds the same line even when `localY` was beyond the
+  visible height (the wrapper's "past last line on page" fallback).
+  A defensive fallback returns `{ blockId, offset: 0 }` if the helper
+  unexpectedly returns null (e.g., zero-height line).
+
+- [x] **Step 2.4: Verify**
+
+  - `pnpm --filter @wafflebase/docs typecheck` — clean
+  - `pnpm --filter @wafflebase/docs test` — 741/741 green
+  - `pnpm verify:fast` — green (architecture, frontend, backend,
+    sheets, slides, cli, docs lanes all pass)
 
 - [ ] **Step 2.5: Commit**
 

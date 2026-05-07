@@ -3,6 +3,7 @@ import { getEffectiveDimensions } from '../model/types.js';
 import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutLine, LayoutRun } from './layout.js';
 import { findRowSplitHeight } from './table-layout.js';
+import { findPositionAtPixel } from './find-position-at-pixel.js';
 import { Theme } from './theme.js';
 
 export interface PageLine {
@@ -338,6 +339,25 @@ export function findPageForPosition(
 
 /**
  * Convert absolute canvas pixel coordinates to a document position.
+ *
+ * The page-shaped wrapper around `findPositionAtPixel`. Splits the
+ * translation into:
+ *   1. Page-finding: clamp `py` to the nearest page (gap snapping,
+ *      last-page clamping). Page-aware — stays here.
+ *   2. Per-page line-finding: scan `targetPage.lines` to find which
+ *      `PageLine` the click lands on. Uses `pl.rowSplitHeight` so a
+ *      tiny first-fragment of a split table row doesn't claim space
+ *      belonging to the next line. Page-aware — stays here.
+ *   3. Per-line hit-test: translate page-local `(px, py)` into
+ *      layout-local coords inside the chosen line and delegate to
+ *      `findPositionAtPixel`. Layout-shaped — moved into the helper so
+ *      slides text-boxes can hit-test their own non-paginated layouts
+ *      without going through this wrapper.
+ *
+ * `findPositionAtPixel` is strict (returns `null` outside any block),
+ * but our translated `(layoutX, layoutY)` always lands inside the
+ * chosen line by construction (`layoutY = lb.y + line.y + line.height/2`)
+ * so the helper is guaranteed to return a position here.
  */
 export function paginatedPixelToPosition(
   paginatedLayout: PaginatedLayout,
@@ -387,98 +407,27 @@ export function paginatedPixelToPosition(
     }
   }
 
+  // Translate page-local pointer into layout-local coords inside the
+  // chosen line. Body blocks have `lb.x === 0`, so `localX` already is
+  // layout-local. For y, we land at the line's vertical midpoint in
+  // the layout — guarantees the helper re-finds this same line even if
+  // `localY` was beyond `visibleHeight` (the wrapper's "past last line"
+  // case, where the fallback assignment lets `targetPL` end up as the
+  // last line on the page).
   const lb = layout.blocks[targetPL.blockIndex];
-  const line = targetPL.line;
+  const line = lb.lines[targetPL.lineIndex];
+  const layoutX = localX;
+  const layoutY = lb.y + line.y + line.height / 2;
 
-  if (line.runs.length === 0) {
-    return { blockId: lb.block.id, offset: 0, lineAffinity: 'backward' };
-  }
+  const result = findPositionAtPixel(layout, layoutX, layoutY);
+  if (result) return result;
 
-  // Count chars before this line in the block
-  let charsBeforeLine = 0;
-  for (let li = 0; li < targetPL.lineIndex; li++) {
-    for (const r of lb.lines[li].runs) {
-      charsBeforeLine += r.charEnd - r.charStart;
-    }
-  }
-
-  // Affinity is determined by which visual line was clicked:
-  // if the resolved offset equals the boundary between two lines,
-  // 'forward' keeps the cursor on the clicked (later) line.
-  const affinityForOffset = (offset: number): 'forward' | 'backward' =>
-    targetPL.lineIndex > 0 && offset === charsBeforeLine ? 'forward' : 'backward';
-
-  // Before start of line (clicked in left margin)
-  const firstRun = line.runs[0];
-  if (localX < firstRun.x) {
-    const offset = charsBeforeLine;
-    return {
-      blockId: lb.block.id,
-      offset,
-      lineAffinity: affinityForOffset(offset),
-    };
-  }
-
-  // Find character within the line
-  let charsBeforeRun = 0;
-  for (const run of line.runs) {
-    if (localX >= run.x && localX <= run.x + run.width) {
-      // Binary search on pre-computed charOffsets
-      const localRunX = localX - run.x;
-      let charOffset = 0;
-      const offsets = run.charOffsets;
-      if (offsets.length > 0 && localRunX > 0) {
-        // Binary search for the character boundary closest to localRunX
-        let lo = 0;
-        let hi = offsets.length - 1;
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (offsets[mid] < localRunX) {
-            lo = mid + 1;
-          } else {
-            hi = mid;
-          }
-        }
-        // lo is now the first index where offsets[lo] >= localRunX.
-        // Snap to nearest: compare midpoint between prev and current char.
-        const prev = lo > 0 ? offsets[lo - 1] : 0;
-        charOffset = (localRunX - prev < offsets[lo] - localRunX) ? lo : lo + 1;
-      }
-      const clampedOffset = Math.min(charOffset, run.text.length);
-      const offset = charsBeforeLine + charsBeforeRun + clampedOffset;
-      return {
-        blockId: lb.block.id,
-        offset,
-        lineAffinity: affinityForOffset(offset),
-      };
-    }
-    charsBeforeRun += run.text.length;
-  }
-
-  // Past end of line
-  const lineCharCount = line.runs.reduce(
-    (sum, r) => sum + (r.charEnd - r.charStart),
-    0,
-  );
-  let endOffset = charsBeforeLine + lineCharCount;
-
-  // For wrapped lines (non-last), exclude trailing spaces
-  const isLastLineInBlock = targetPL.lineIndex === lb.lines.length - 1;
-  if (!isLastLineInBlock && line.runs.length > 0) {
-    const lastRun = line.runs[line.runs.length - 1];
-    let trim = 0;
-    for (let i = lastRun.text.length - 1; i >= 0; i--) {
-      if (lastRun.text[i] === ' ') trim++;
-      else break;
-    }
-    endOffset -= trim;
-  }
-
-  return {
-    blockId: lb.block.id,
-    offset: endOffset,
-    lineAffinity: 'backward',
-  };
+  // Defensive fallback: the helper is strict-y, but our translated
+  // coordinates are guaranteed in-bounds for the chosen line. If a
+  // future layout invariant breaks (e.g., zero-height lines), fall back
+  // to the start of the targeted block so the caret still lands
+  // somewhere sensible.
+  return { blockId: lb.block.id, offset: 0, lineAffinity: 'backward' };
 }
 
 /**
