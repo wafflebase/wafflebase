@@ -42,6 +42,7 @@ export interface CtxSpy {
   clearRect: ReturnType<typeof vi.fn>;
   fill: ReturnType<typeof vi.fn>;
   stroke: ReturnType<typeof vi.fn>;
+  setLineDash: ReturnType<typeof vi.fn>;
 
   // text
   fillText: ReturnType<typeof vi.fn>;
@@ -85,6 +86,7 @@ export function createCtxSpy(): CtxSpy {
     clearRect: vi.fn(),
     fill: vi.fn(),
     stroke: vi.fn(),
+    setLineDash: vi.fn(),
 
     fillText: vi.fn(),
     measureText: vi.fn(() => ({ width: 0 })) as ReturnType<typeof vi.fn>,

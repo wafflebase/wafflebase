@@ -76,6 +76,48 @@ describe('drawImage', () => {
     expect(dh).toBe(100);
   });
 
+  it('paints a failure placeholder (with alt) when the image errors', async () => {
+    // Make the FakeImage fail on load instead of succeeding. We override
+    // the auto-complete behaviour by replacing src setter to fire onerror.
+    class FailingImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      complete = false;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      private _src = '';
+      get src(): string { return this._src; }
+      set src(value: string) {
+        this._src = value;
+        queueMicrotask(() => {
+          this.complete = true;
+          this.onerror?.();
+        });
+      }
+    }
+    vi.stubGlobal('Image', FailingImage);
+
+    const ctx = createCtxSpy();
+    const onLoad = vi.fn();
+    drawImage(asCtx(ctx), size, data({ alt: 'cat photo' }), onLoad);
+    await flushMicrotasks();
+    // onLoad fires on failure too so the renderer repaints with the
+    // placeholder rather than leaving a stale blank rect.
+    expect(onLoad).toHaveBeenCalledTimes(1);
+
+    const drawn = drawImage(asCtx(ctx), size, data({ alt: 'cat photo' }), () => undefined);
+    expect(drawn).toBe(true);
+    // Placeholder uses fillRect for the body and strokeRect for the
+    // dashed border. ctx.drawImage MUST NOT have been called.
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 200, 100);
+    expect(ctx.strokeRect).toHaveBeenCalled();
+    // Alt text + the hint header are both painted.
+    const fillTextCalls = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(fillTextCalls).toContain('Image unavailable');
+    expect(fillTextCalls).toContain('cat photo');
+  });
+
   it('passes the crop rectangle (in source pixels) to ctx.drawImage', async () => {
     const ctx = createCtxSpy();
     drawImage(asCtx(ctx), size, data(), () => undefined);

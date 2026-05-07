@@ -6,11 +6,19 @@
  */
 const imageCache = new Map<string, HTMLImageElement>();
 const pendingCallbacks = new Map<string, Set<() => void>>();
+// URLs whose `<img>` load fired `onerror`. Tracked separately from the
+// cache so the renderer can distinguish "still loading" (return null,
+// repaint when load completes) from "failed permanently" (paint a
+// placeholder so the user sees the alt text and isn't staring at a
+// blank rectangle forever).
+const failedImages = new Set<string>();
 
 /**
  * Return a loaded `HTMLImageElement` for `src`, or `null` if it is
- * still loading. On first encounter, kicks off an async load and
- * subscribes `onLoad` to the load-completion callbacks.
+ * still loading OR has failed. Use `isImageFailed(src)` to distinguish
+ * the two null cases. On first encounter, kicks off an async load and
+ * subscribes `onLoad` to both the success and failure callbacks — so a
+ * failed image still triggers a re-render that paints the placeholder.
  */
 export function getOrLoadImage(
   src: string,
@@ -34,7 +42,7 @@ export function getOrLoadImage(
   imageCache.set(src, img);
   pendingCallbacks.set(src, new Set([onLoad]));
 
-  img.onload = () => {
+  const flushPending = (): void => {
     const waiting = pendingCallbacks.get(src);
     pendingCallbacks.delete(src);
     if (waiting) {
@@ -43,15 +51,32 @@ export function getOrLoadImage(
       }
     }
   };
+
+  img.onload = flushPending;
   img.onerror = () => {
-    pendingCallbacks.delete(src);
+    failedImages.add(src);
+    // Fire callbacks too so the renderer repaints with the placeholder
+    // — without this, a slide with a broken image stays blank until
+    // the next unrelated repaint.
+    flushPending();
   };
   img.src = src;
   return null;
+}
+
+/**
+ * `true` if the image at `src` has fired `onerror` and will not load
+ * (e.g. 404, network error, blocked by CSP). Renderers use this to
+ * decide whether to paint a "still loading" no-op or a permanent
+ * placeholder.
+ */
+export function isImageFailed(src: string): boolean {
+  return failedImages.has(src);
 }
 
 /** Test-only: drop every cached image and pending callback. */
 export function clearImageCacheForTests(): void {
   imageCache.clear();
   pendingCallbacks.clear();
+  failedImages.clear();
 }
