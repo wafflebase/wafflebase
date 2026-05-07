@@ -72,6 +72,21 @@ export interface SlidesEditor {
    * signal cannot rely on selection notifications alone.
    */
   onCurrentSlideChange(cb: () => void): () => void;
+  /**
+   * Resize the host canvas dimensions used for the world↔host scale
+   * computation. Use this when the surrounding viewport changes size
+   * (e.g. a window resize, a panel collapsing) and the canvas + overlay
+   * have already been resized to match. The editor re-derives its scale
+   * from the new dimensions on the next render and keeps overlay
+   * positions in sync.
+   *
+   * Caller responsibilities:
+   *   - update `canvas.width` / `canvas.height` (bitmap pixels)
+   *   - update `canvas.style.width` / `style.height` (CSS pixels)
+   *   - update `overlay.style.width` / `style.height`
+   * The editor only updates its internal scale and triggers a repaint.
+   */
+  setHostSize(hostWidth: number, hostHeight: number): void;
   detach(): void;
 }
 
@@ -225,6 +240,20 @@ class SlidesEditorImpl implements SlidesEditor {
     return () => {
       this.currentSlideListeners.delete(cb);
     };
+  }
+
+  setHostSize(hostWidth: number, hostHeight: number): void {
+    if (
+      this.options.hostWidth === hostWidth &&
+      this.options.hostHeight === hostHeight
+    ) {
+      return;
+    }
+    this.options.hostWidth = hostWidth;
+    this.options.hostHeight = hostHeight;
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
   }
 
   setInsertMode(kind: InsertKind | null): void {

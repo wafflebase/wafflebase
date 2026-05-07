@@ -31,8 +31,28 @@ interface SlidesViewProps {
   onEditorReady?: (editor: SlidesEditor | null) => void;
 }
 
-const HOST_W = 960;
-const HOST_H = 540;
+// Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
+// the available width of the right column, preserving this aspect.
+const SLIDE_ASPECT = 16 / 9;
+const MIN_HOST_W = 320;  // floor so very narrow viewports still paint something usable
+const MAX_HOST_W = 1600; // ceiling so on ultra-wide displays we don't paint a 4K bitmap
+
+function computeFitSize(availWidth: number, availHeight: number): {
+  width: number;
+  height: number;
+} {
+  // Width-binding fit (typical case — the column is shorter than wide).
+  const widthFit = {
+    width: availWidth,
+    height: availWidth / SLIDE_ASPECT,
+  };
+  if (widthFit.height <= availHeight) return widthFit;
+  // Height-binding fallback for tall narrow viewports.
+  return {
+    width: availHeight * SLIDE_ASPECT,
+    height: availHeight,
+  };
+}
 
 /**
  * SlidesView mounts the vanilla `@wafflebase/slides` editor inside a
@@ -86,6 +106,12 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     const layout = document.createElement("div");
     layout.style.display = "grid";
     layout.style.gridTemplateColumns = "220px 1fr";
+    // minmax(0, 1fr) constrains the row height to the parent's height,
+    // letting the left column's overflowY actually scroll instead of
+    // expanding the grid to fit all thumbnails. min-height: 0 on the
+    // grid items themselves is the standard CSS-grid scrollable-child
+    // workaround.
+    layout.style.gridTemplateRows = "minmax(0, 1fr)";
     layout.style.gap = "12px";
     layout.style.padding = "12px";
     layout.style.boxSizing = "border-box";
@@ -93,6 +119,7 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
 
     const left = document.createElement("div");
     left.style.overflowY = "auto";
+    left.style.minHeight = "0";
     const thumbsHost = document.createElement("div");
     left.appendChild(thumbsHost);
     layout.appendChild(left);
@@ -101,16 +128,25 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     right.style.display = "flex";
     right.style.flexDirection = "column";
     right.style.gap = "12px";
+    right.style.minWidth = "0";  // allow the column to shrink + width-fit
+    right.style.minHeight = "0";
 
+    // Canvas + overlay live inside this wrapper. Sized later by the
+    // ResizeObserver below — mounting at MIN_HOST_W avoids a flash of
+    // an unsized canvas during the first layout pass.
     const canvasWrap = document.createElement("div");
     canvasWrap.style.position = "relative";
     canvasWrap.style.alignSelf = "flex-start";
 
+    const initial = computeFitSize(MIN_HOST_W, MIN_HOST_W / SLIDE_ASPECT);
+    let hostW = initial.width;
+    let hostH = initial.height;
+
     const canvas = document.createElement("canvas");
-    canvas.width = HOST_W * dpr;
-    canvas.height = HOST_H * dpr;
-    canvas.style.width = `${HOST_W}px`;
-    canvas.style.height = `${HOST_H}px`;
+    canvas.width = hostW * dpr;
+    canvas.height = hostH * dpr;
+    canvas.style.width = `${hostW}px`;
+    canvas.style.height = `${hostH}px`;
     canvas.style.background = "#fff";
     canvasWrap.appendChild(canvas);
 
@@ -118,8 +154,8 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     overlay.style.position = "absolute";
     overlay.style.left = "0";
     overlay.style.top = "0";
-    overlay.style.width = `${HOST_W}px`;
-    overlay.style.height = `${HOST_H}px`;
+    overlay.style.width = `${hostW}px`;
+    overlay.style.height = `${hostH}px`;
     overlay.style.pointerEvents = "none";
     canvasWrap.appendChild(overlay);
 
@@ -143,12 +179,43 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
       canvas,
       overlay,
       store,
-      hostWidth: HOST_W,
-      hostHeight: HOST_H,
+      hostWidth: hostW,
+      hostHeight: hostH,
       dpr,
     });
     editorRef.current = editor;
     onEditorReady?.(editor);
+
+    // Auto-fit the canvas to the right column. Re-fits on ResizeObserver
+    // ticks (window resize, sidebar collapse, devtools open). Caps at
+    // MAX_HOST_W so we don't paint a 4K bitmap on ultra-wide displays
+    // — the slide is logically 1920×1080 anyway.
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const rightRect = entry.contentRect;
+      // Reserve room for the notes panel below the canvas + the column
+      // gap (12px). The notes panel is content-sized so we can't query
+      // a fixed value; subtract a generous reservation that errs on the
+      // side of leaving the canvas a bit small rather than overflowing.
+      const reservedForNotes = notesHost.getBoundingClientRect().height + 12;
+      const availW = Math.max(MIN_HOST_W, Math.min(MAX_HOST_W, rightRect.width));
+      const availH = Math.max(MIN_HOST_W / SLIDE_ASPECT, rightRect.height - reservedForNotes);
+      const fit = computeFitSize(availW, availH);
+      const nextW = Math.round(fit.width);
+      const nextH = Math.round(fit.height);
+      if (nextW === hostW && nextH === hostH) return;
+      hostW = nextW;
+      hostH = nextH;
+      canvas.width = hostW * dpr;
+      canvas.height = hostH * dpr;
+      canvas.style.width = `${hostW}px`;
+      canvas.style.height = `${hostH}px`;
+      overlay.style.width = `${hostW}px`;
+      overlay.style.height = `${hostH}px`;
+      editor.setHostSize(hostW, hostH);
+    });
+    resizeObserver.observe(right);
 
     const thumbHandle: ThumbnailPanelHandle = mountThumbnailPanel(
       thumbsHost,
@@ -211,6 +278,7 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     raf = requestAnimationFrame(tick);
 
     return () => {
+      resizeObserver.disconnect();
       cancelAnimationFrame(raf);
       offSelection();
       offSlide();
