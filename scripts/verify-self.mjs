@@ -10,6 +10,7 @@ const reportDir = path.resolve(repoRoot, ".harness-reports");
 const LANES = [
   { name: "sheets:build", cmd: "pnpm sheets build" },
   { name: "docs:build", cmd: "pnpm --filter @wafflebase/docs build" },
+  { name: "slides:build", cmd: "pnpm slides build" },
   { name: "verify:fast", cmd: "pnpm verify:fast" },
   { name: "frontend:build", cmd: "pnpm frontend build" },
   { name: "verify:frontend:chunks", cmd: "pnpm verify:frontend:chunks" },

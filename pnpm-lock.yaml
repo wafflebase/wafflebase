@@ -77,6 +77,9 @@ importers:
       '@wafflebase/sheets':
         specifier: workspace:^
         version: link:../sheets
+      '@wafflebase/slides':
+        specifier: workspace:*
+        version: link:../slides
       '@yorkie-js/sdk':
         specifier: 0.7.8
         version: 0.7.8
@@ -380,6 +383,9 @@ importers:
       '@wafflebase/sheets':
         specifier: workspace:*
         version: link:../sheets
+      '@wafflebase/slides':
+        specifier: workspace:*
+        version: link:../slides
       '@yorkie-js/react':
         specifier: 0.7.8
         version: 0.7.8(react@19.1.0)
@@ -495,6 +501,34 @@ importers:
       papaparse:
         specifier: ^5.4.1
         version: 5.5.2
+      prettier:
+        specifier: ^3.3.2
+        version: 3.5.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^6.4.1
+        version: 6.4.1(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)
+      vite-plugin-dts:
+        specifier: ^4.5.3
+        version: 4.5.3(@types/node@25.4.0)(rollup@4.59.0)(typescript@5.9.3)(vite@6.4.1(@types/node@25.4.0)(jiti@2.6.1)(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3))
+      vitest:
+        specifier: ^3.1.1
+        version: 3.1.1(@types/node@25.4.0)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3)
+
+  packages/slides:
+    dependencies:
+      '@wafflebase/docs':
+        specifier: workspace:*
+        version: link:../docs
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.1.1
+        version: 3.1.1(vitest@3.1.1(@types/node@25.4.0)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.29.2)(terser@5.39.0)(tsx@4.21.0)(yaml@2.8.3))
+      jsdom:
+        specifier: ^28.0.0
+        version: 28.0.0(@noble/hashes@1.8.0)
       prettier:
         specifier: ^3.3.2
         version: 3.5.3

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>@wafflebase/slides demo</title>
+    <style>
+      body { margin: 0; background: #1a1a1a; color: #ddd; font-family: system-ui, sans-serif; }
+      .stage { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; gap: 12px; padding: 24px; box-sizing: border-box; }
+      .left { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; max-height: calc(100vh - 48px); }
+      .right { display: flex; flex-direction: column; gap: 12px; }
+      .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+      .toolbar button {
+        background: #2a2a2a; color: #ddd; border: 1px solid #444;
+        padding: 6px 12px; cursor: pointer; border-radius: 4px;
+        font-size: 13px;
+      }
+      .toolbar button:hover { background: #333; }
+      .toolbar button.active { background: #3a7; border-color: #3a7; color: #fff; }
+      .canvas-wrap { position: relative; align-self: flex-start; }
+      canvas { background: #fff; box-shadow: 0 8px 32px rgba(0,0,0,0.5); display: block; }
+      .overlay { position: absolute; left: 0; top: 0; width: 960px; height: 540px; pointer-events: none; }
+      .overlay [data-handle] { pointer-events: auto; }
+      .notes-host { background: #1f1f1f; padding: 8px; border-radius: 4px; }
+      .notes-host h4 { margin: 0 0 8px 0; font-size: 12px; opacity: 0.7; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="left">
+        <div id="thumbnails"></div>
+      </div>
+      <div class="right">
+        <div class="toolbar" id="toolbar">
+          <button data-insert="rect">+ Rect</button>
+          <button data-insert="ellipse">+ Ellipse</button>
+          <button data-insert="line">+ Line</button>
+          <button data-insert="arrow">+ Arrow</button>
+          <button data-insert="text">+ Text</button>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="slide" width="960" height="540"></canvas>
+          <div id="overlay" class="overlay"></div>
+        </div>
+        <div class="notes-host">
+          <h4>Speaker notes</h4>
+          <div id="notes"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./demo.ts"></script>
+  </body>
+</html>

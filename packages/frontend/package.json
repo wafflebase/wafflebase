@@ -47,6 +47,7 @@
     "@tanstack/react-table": "^8.21.2",
     "@wafflebase/docs": "workspace:*",
     "@wafflebase/sheets": "workspace:*",
+    "@wafflebase/slides": "workspace:*",
     "@yorkie-js/react": "0.7.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

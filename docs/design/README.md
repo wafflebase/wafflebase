@@ -52,6 +52,14 @@ Word processor engine — rich text, tables, pagination, collaboration.
 | [docs-table-row-splitting.md](docs/docs-table-row-splitting.md)                  | Table row splitting — split tall table rows across pages, recursive nested table support          |
 | [docs-peer-jump.md](docs/docs-peer-jump.md)                                      | Click peer avatar to scroll to that collaborator's caret in the docs editor                       |
 
+## Slides
+
+Presentation engine — slides, free-position elements, presentation mode, collaboration.
+
+| Document                                  | Description                                                                                        |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| [slides.md](slides/slides.md)             | Slides package (v1) — data model, Yorkie schema, Canvas+DOM editor, two-pane layout, PDF export    |
+
 ## Common
 
 Infrastructure, frontend/backend, and cross-cutting concerns.

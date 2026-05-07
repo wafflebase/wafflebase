@@ -22,6 +22,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Presentation,
   Sheet,
   Trash2,
 } from "lucide-react";
@@ -75,7 +76,15 @@ import { pickAndImportDocx } from "@/app/docs/docx-actions";
 import { setPendingImport } from "@/app/docs/pending-imports";
 
 function getDocumentPath(doc: { id: number | string; type?: DocumentType }) {
-  return doc.type === "doc" ? `/d/${doc.id}` : `/s/${doc.id}`;
+  switch (doc.type) {
+    case "doc":
+      return `/d/${doc.id}`;
+    case "slides":
+      return `/p/${doc.id}`;
+    case "sheet":
+    default:
+      return `/s/${doc.id}`;
+  }
 }
 
 /**
@@ -105,6 +114,8 @@ export function DocumentList({
           <div className="flex items-center gap-2">
             {docType === "doc" ? (
               <FileText className="h-4 w-4 shrink-0 text-blue-500" />
+            ) : docType === "slides" ? (
+              <Presentation className="h-4 w-4 shrink-0 text-orange-500" />
             ) : (
               <Sheet className="h-4 w-4 shrink-0 text-green-600" />
             )}
@@ -350,6 +361,17 @@ export function DocumentList({
               New Document
             </DropdownMenuItem>
             <DropdownMenuItem
+              onClick={() =>
+                createDocumentMutation.mutate({
+                  title: "New Presentation",
+                  type: "slides",
+                })
+              }
+            >
+              <Presentation className="mr-2 h-4 w-4 text-orange-500" />
+              New Presentation
+            </DropdownMenuItem>
+            <DropdownMenuItem
               disabled={importing}
               onClick={handleImportDocx}
             >
@@ -440,6 +462,17 @@ export function DocumentList({
                         >
                           <FileText className="mr-2 h-4 w-4 text-blue-500" />
                           New Document
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            createDocumentMutation.mutate({
+                              title: "New Presentation",
+                              type: "slides",
+                            })
+                          }
+                        >
+                          <Presentation className="mr-2 h-4 w-4 text-orange-500" />
+                          New Presentation
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={importing}

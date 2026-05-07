@@ -12,6 +12,7 @@ COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/sheets/package.json ./packages/sheets/
 COPY packages/docs/package.json ./packages/docs/
+COPY packages/slides/package.json ./packages/slides/
 
 # Copy Prisma schema (needed by postinstall: prisma generate)
 COPY packages/backend/prisma ./packages/backend/prisma
@@ -22,6 +23,7 @@ RUN pnpm install --frozen-lockfile --filter @wafflebase/backend...
 # Copy source
 COPY packages/sheets/ ./packages/sheets/
 COPY packages/docs/ ./packages/docs/
+COPY packages/slides/ ./packages/slides/
 COPY packages/backend/ ./packages/backend/
 
 # Build sheet → platform-independent JS bundle
@@ -30,6 +32,12 @@ RUN pnpm run build
 
 # Build docs → platform-independent JS bundle
 WORKDIR /app/packages/docs
+RUN pnpm run build
+
+# Build slides → backend type-checks against the emitted .d.ts because
+# `tsconfig.build.json` clears `paths`, so resolution falls back to the
+# workspace symlink + slides' `types` entry under `dist/`.
+WORKDIR /app/packages/slides
 RUN pnpm run build
 
 # Build backend → platform-independent JS via SWC
@@ -50,6 +58,7 @@ COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/sheets/package.json ./packages/sheets/
 COPY packages/docs/package.json ./packages/docs/
+COPY packages/slides/package.json ./packages/slides/
 
 # Copy Prisma schema (needed for prisma generate)
 COPY packages/backend/prisma ./packages/backend/prisma

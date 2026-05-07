@@ -32,3 +32,23 @@ export type DocsPresence = {
     };
   };
 };
+
+export type SlidesPresence = {
+  username: string;
+  email: string;
+  photo: string;
+  /** id of the slide the user is currently viewing/editing. */
+  activeSlideId?: string;
+  /** ids of elements the user has selected on activeSlideId. */
+  selectedElementIds?: string[];
+  /** during an active drag/resize/rotate, the live frame for visual
+   * peer feedback. Cleared on mouseup. */
+  activeFrames?: Array<{
+    elementId: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    rotation: number;
+  }>;
+};

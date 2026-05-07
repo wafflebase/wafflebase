@@ -50,6 +50,20 @@ const DOCS_ROOT = pathResolve(
 const DOCS_DIST = pathResolve(DOCS_ROOT, "dist", "wafflebase-document.es.js");
 const DOCS_SRC_INDEX = pathResolve(DOCS_ROOT, "src", "index.ts");
 
+const SLIDES_ROOT = pathResolve(
+  fileURLToPath(new URL(".", import.meta.url)),
+  "..",
+  "..",
+  "slides",
+);
+
+const SLIDES_DIST = pathResolve(
+  SLIDES_ROOT,
+  "dist",
+  "wafflebase-slides.es.js",
+);
+const SLIDES_SRC_INDEX = pathResolve(SLIDES_ROOT, "src", "index.ts");
+
 export async function resolve(specifier, context, nextResolve) {
   // Map @wafflebase/sheets → built ES module in sheet dist.
   // If the dist file is missing, fall back to the workspace source.
@@ -72,6 +86,17 @@ export async function resolve(specifier, context, nextResolve) {
       return nextResolve(pathToFileURL(DOCS_SRC_INDEX).href, context);
     }
     return { url: "virtual:wafflebase-docs", shortCircuit: true };
+  }
+
+  // Map @wafflebase/slides → built ES module or source fallback.
+  if (specifier === "@wafflebase/slides") {
+    if (existsSync(SLIDES_DIST)) {
+      return nextResolve(pathToFileURL(SLIDES_DIST).href, context);
+    }
+    if (existsSync(SLIDES_SRC_INDEX)) {
+      return nextResolve(pathToFileURL(SLIDES_SRC_INDEX).href, context);
+    }
+    return { url: "virtual:wafflebase-slides", shortCircuit: true };
   }
 
   // Map @/ alias → packages/frontend/src/
@@ -105,7 +130,8 @@ export async function resolve(specifier, context, nextResolve) {
     const inResolvedPkg =
       parentPath.startsWith(FRONTEND_SRC) ||
       parentPath.startsWith(SHEET_ROOT) ||
-      parentPath.startsWith(DOCS_ROOT);
+      parentPath.startsWith(DOCS_ROOT) ||
+      parentPath.startsWith(SLIDES_ROOT);
 
     if (inResolvedPkg) {
       const parentDir = dirname(parentPath);

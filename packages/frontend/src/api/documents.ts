@@ -1,4 +1,4 @@
-import type { Document } from "@/types/documents";
+import type { Document, DocumentType } from "@/types/documents";
 import { toast } from "sonner";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
@@ -8,7 +8,7 @@ import { assertOk } from "./http-error";
  */
 export async function createDocument(payload: {
   title: string;
-  type?: "sheet" | "doc";
+  type?: DocumentType;
 }): Promise<Document> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents`,

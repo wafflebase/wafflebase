@@ -25,6 +25,10 @@
     "packages/cli": {
       "entry": ["src/bin.ts", "test/**/*.test.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/slides": {
+      "entry": ["src/index.ts", "src/node.ts", "src/**/*.test.ts", "demo.ts"],
+      "project": ["src/**/*.ts"]
     }
   },
   "ignoreDependencies": [

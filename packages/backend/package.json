@@ -37,6 +37,7 @@
     "@types/passport-github2": "^1.2.9",
     "@wafflebase/docs": "workspace:^",
     "@wafflebase/sheets": "workspace:^",
+    "@wafflebase/slides": "workspace:*",
     "@yorkie-js/sdk": "0.7.8",
     "body-parser": "^1.20.3",
     "cookie-parser": "^1.4.7",
@@ -102,6 +103,7 @@
       "^src/(.*)$": "<rootDir>/$1",
       "^@wafflebase/sheets$": "<rootDir>/../../sheets/src/index.ts",
       "^@wafflebase/docs$": "<rootDir>/../../docs/src/node.ts",
+      "^@wafflebase/slides$": "<rootDir>/../../slides/src/node.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [
