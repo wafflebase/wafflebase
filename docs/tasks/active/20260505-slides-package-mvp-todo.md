@@ -58,10 +58,10 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 
 ## Phase 5: Text + Present + Export + CLI
 
-- [ ] 5.1 `view/editor/text-bridge.ts` — contenteditable mount, docs IME bridge, blur exit
-- [ ] 5.2 Yorkie Tree wiring for `TextElement.data.blocks` and `Slide.notes`
+- [x] 5.1 `view/editor/text-bridge.ts` — contenteditable mount, docs IME bridge, blur exit
+- [x] 5.2 Yorkie Tree wiring for `TextElement.data.blocks` and `Slide.notes`
 - [ ] 5.3 Image input paths — upload, drag-drop, clipboard paste (workspace image API reuse)
-- [ ] 5.4 Korean / CJK canvas font fallback via docs font registry
+- [x] 5.4 Korean / CJK canvas font fallback via docs font registry
 - [ ] 5.5 `view/present/presenter.ts` + `presentation-mode.tsx` — fullscreen, fit-to-screen, key nav
 - [ ] 5.6 `export/pdf.ts` — 13.333"×7.5" page mapping, delegate font/embedding to docs
 - [ ] 5.7 `packages/cli/src/commands/slides.ts` — list/create/delete/content/export-pdf
