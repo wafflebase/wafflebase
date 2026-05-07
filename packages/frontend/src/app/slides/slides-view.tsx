@@ -177,15 +177,13 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
       thumbHandle.refresh();
     });
 
-    // Local presence: broadcast active slide + selection. The
-    // username/email/photo fields are filled in by the SlidesDetail
-    // wrapper via `initialPresence`; we only patch the slides-specific
-    // fields here so we don't clobber the identity payload.
+    // Local presence: broadcast active slide + selection. Yorkie's
+    // Presence.set merges (does not replace), so we pass ONLY the
+    // slides-specific fields. The username/email/photo were seeded by
+    // SlidesDetail via `initialPresence` and stay intact across these
+    // partial updates.
     const broadcast = () => {
       store.updatePresence({
-        username: "",
-        email: "",
-        photo: "",
         activeSlideId: editor.getCurrentSlideId(),
         selectedElementIds: editor.getSelection().slice(),
       });

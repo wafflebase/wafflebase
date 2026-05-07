@@ -650,7 +650,14 @@ export class YorkieSlidesStore implements SlidesStore {
 
   // --- presence ---
 
-  updatePresence(presence: SlidesPresence): void {
+  updatePresence(presence: Partial<SlidesPresence>): void {
+    // Yorkie's Presence.set takes a Partial<P> and MERGES — it does not
+    // replace. So callers should pass ONLY the fields they want to
+    // update, not the full presence shape with placeholder values.
+    // Filling identity fields (username/email/photo) with empty strings
+    // here would silently clobber the values the SlidesDetail wrapper
+    // seeded via `initialPresence`, making the user appear anonymous to
+    // peers after the first selection / slide change.
     this.doc.update((_, p) => p.set(presence));
   }
 
