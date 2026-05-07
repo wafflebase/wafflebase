@@ -507,6 +507,7 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private finishEditMode(): void {
     const tb = this.editingTextBox;
+    const wasEditingId = this.editingElementId;
     this.editingTextBox = null;
     this.editingElementId = null;
     if (tb !== null) {
@@ -515,6 +516,21 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
+    // Post-paint diagnostic: confirm what the slide canvas sees AFTER
+    // detach + render. If the text-element has empty blocks here, the
+    // commit chain broke somewhere upstream; if it has content but the
+    // canvas still looks blank, the slide-canvas text renderer is the
+    // suspect.
+    if (wasEditingId !== null) {
+      const slide = this.currentSlide();
+      const el = slide?.elements.find((e) => e.id === wasEditingId);
+      if (el && el.type === 'text') {
+        const sample = (el.data.blocks?.[0]?.inlines?.[0] as { text?: string } | undefined)?.text;
+        console.info(`[slides] finishEditMode: snapshot for ${wasEditingId} blocks=${el.data.blocks?.length ?? 0} text=${JSON.stringify(sample)}`);
+      } else {
+        console.warn(`[slides] finishEditMode: element ${wasEditingId} not found / not text`);
+      }
+    }
   }
 
   private startInsert(clientX: number, clientY: number): void {

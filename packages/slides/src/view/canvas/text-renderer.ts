@@ -26,8 +26,15 @@ export function drawText(
   { w }: FrameSize,
   data: TextElement['data'],
 ): void {
-  if (data.blocks.length === 0) return;
+  // Diagnostic — gates on a flag so production logs are quiet.
+  // Toggle in DevTools: `localStorage.SLIDES_TEXT_DEBUG = '1'`.
+  const debug = typeof localStorage !== 'undefined' && localStorage.getItem('SLIDES_TEXT_DEBUG') === '1';
+  if (data.blocks.length === 0) {
+    if (debug) console.info('[slides] drawText skipped (no blocks)');
+    return;
+  }
   const { layout } = computeLayout(data.blocks, measurer, w);
+  let runCount = 0;
   for (const block of layout.blocks) {
     for (const line of block.lines) {
       const baseY = block.y + line.y + line.height; // baseline ~ bottom of line box
@@ -40,9 +47,12 @@ export function drawText(
         if (font !== undefined) ctx.font = font;
         ctx.fillStyle = run.inline.style.color ?? '#000';
         ctx.fillText(run.text, block.x + run.x, baseY);
+        runCount++;
+        if (debug) console.info(`[slides] drawText run="${run.text}" at (${block.x + run.x},${baseY}) font=${ctx.font}`);
       }
     }
   }
+  if (debug) console.info(`[slides] drawText total runs=${runCount} blocks=${data.blocks.length} firstBlockText="${(data.blocks[0]?.inlines?.[0] as { text?: string } | undefined)?.text ?? ''}"`);
 }
 
 /**
