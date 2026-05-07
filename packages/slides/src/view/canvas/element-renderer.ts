@@ -20,24 +20,31 @@ export function drawElement(
 ): void {
   const { frame } = element;
   ctx.save();
-  if (frame.rotation === 0) {
-    ctx.translate(frame.x, frame.y);
-  } else {
-    ctx.translate(frame.x + frame.w / 2, frame.y + frame.h / 2);
-    ctx.rotate(frame.rotation);
-    ctx.translate(-frame.w / 2, -frame.h / 2);
+  // try/finally so the ctx state is always restored, even if a
+  // per-type painter throws. Without this, a single corrupted element
+  // (e.g. malformed image data) leaks the rotate / translate transform
+  // into every subsequent element on the slide.
+  try {
+    if (frame.rotation === 0) {
+      ctx.translate(frame.x, frame.y);
+    } else {
+      ctx.translate(frame.x + frame.w / 2, frame.y + frame.h / 2);
+      ctx.rotate(frame.rotation);
+      ctx.translate(-frame.w / 2, -frame.h / 2);
+    }
+    const size = { w: frame.w, h: frame.h };
+    switch (element.type) {
+      case 'shape':
+        drawShape(ctx, size, element.data);
+        break;
+      case 'text':
+        drawText(ctx, size, element.data);
+        break;
+      case 'image':
+        drawImage(ctx, size, element.data, onAssetLoad);
+        break;
+    }
+  } finally {
+    ctx.restore();
   }
-  const size = { w: frame.w, h: frame.h };
-  switch (element.type) {
-    case 'shape':
-      drawShape(ctx, size, element.data);
-      break;
-    case 'text':
-      drawText(ctx, size, element.data);
-      break;
-    case 'image':
-      drawImage(ctx, size, element.data, onAssetLoad);
-      break;
-  }
-  ctx.restore();
 }
