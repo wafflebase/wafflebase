@@ -15,6 +15,7 @@ import { runKeyRules, type KeyRule } from './keymap';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 import { snapDelta } from './snap';
+import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 
 export type InsertKind = 'rect' | 'ellipse' | 'line' | 'arrow' | 'text';
 
@@ -22,6 +23,13 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
   canvas: HTMLCanvasElement;
   overlay: HTMLDivElement;
   store: SlidesStore;
+  /**
+   * Override the text-box mount factory. Used by tests to inject a
+   * mock that drives the commit/cancel callbacks synchronously without
+   * spinning up the real docs TextEditor inside jsdom (which has no
+   * functional Canvas 2D context).
+   */
+  mountTextBox?: typeof mountSlidesTextBox;
 }
 
 export interface SlidesEditor {
@@ -41,6 +49,12 @@ export interface SlidesEditor {
   setInsertMode(kind: InsertKind | null): void;
   getCurrentSlideId(): string | undefined;
   setCurrentSlide(id: string): void;
+  /**
+   * The id of the text element currently in edit mode, or null if no
+   * text-box editor is active. Exposed primarily for tests + future
+   * UI affordances (e.g. disabling toolbar actions while editing).
+   */
+  getEditingElementId(): string | null;
   /**
    * Subscribe to current-slide changes. Fires whenever
    * `setCurrentSlide` actually changes the rendered slide id.
@@ -68,12 +82,30 @@ class SlidesEditorImpl implements SlidesEditor {
   private keyRules!: KeyRule[];
   private currentId: string | undefined;
   private currentSlideListeners = new Set<() => void>();
+  /**
+   * Element id of the text-box currently in edit mode, or null. While
+   * non-null:
+   *   - drag/resize/rotate/lasso interactions are short-circuited
+   *   - selection handles are filtered out for this element so the
+   *     overlay paints only the text-box editor (no interfering
+   *     resize handles on top of the editor)
+   *   - clicks outside the text-box's container commit + exit edit mode
+   */
+  private editingElementId: string | null = null;
+  private editingTextBox: SlidesTextBoxEditor | null = null;
+  /**
+   * Bound mount factory. Tests can swap this out via
+   * `SlidesEditorOptions.mountTextBox` to avoid driving the real docs
+   * TextEditor inside jsdom (where the Canvas 2D context is a stub).
+   */
+  private readonly mountTextBox: typeof mountSlidesTextBox;
 
   constructor(private options: SlidesEditorOptions) {
     const ctx = options.canvas.getContext('2d');
     if (!ctx) throw new Error('SlidesEditor: canvas has no 2D context');
     this.renderer = new SlideRenderer(ctx, options);
     this.currentId = options.store.read().slides[0]?.id;
+    this.mountTextBox = options.mountTextBox ?? mountSlidesTextBox;
     this.selection.subscribe(() => {
       this.renderer.markDirty();
       this.repaintOverlay();
@@ -97,10 +129,27 @@ class SlidesEditorImpl implements SlidesEditor {
     const slide = this.currentSlide();
     if (!slide) {
       renderOverlay(this.options.overlay, [], { scale: this.scale() });
+      this.reattachEditingTextBox();
       return;
     }
-    const selected = slide.elements.filter((e) => this.selection.has(e.id));
+    // Suppress selection handles for the element currently in edit
+    // mode — the text-box editor takes over the visual frame, and
+    // overlapping handles would intercept clicks meant for the editor.
+    const selected = slide.elements.filter(
+      (e) => this.selection.has(e.id) && e.id !== this.editingElementId,
+    );
     renderOverlay(this.options.overlay, selected, { scale: this.scale() });
+    // renderOverlay clears `overlay.innerHTML` on every call, which
+    // would also unmount the text-box container. Re-append it after
+    // the overlay rebuild so the editor stays visible.
+    this.reattachEditingTextBox();
+  }
+
+  private reattachEditingTextBox(): void {
+    const tb = this.editingTextBox;
+    if (tb === null) return;
+    if (tb.container.parentNode === this.options.overlay) return;
+    this.options.overlay.appendChild(tb.container);
   }
 
   private scale(): number {
@@ -155,12 +204,21 @@ class SlidesEditorImpl implements SlidesEditor {
     // T7 wires this to a cursor change + canvas pointerdown handler.
   }
 
+  getEditingElementId(): string | null {
+    return this.editingElementId;
+  }
+
   markDirty(): void {
     this.renderer.markDirty();
   }
 
   detach(): void {
     this.disposed = true;
+    if (this.editingTextBox !== null) {
+      this.editingTextBox.detach();
+      this.editingTextBox = null;
+      this.editingElementId = null;
+    }
     for (const { target, type, handler } of this.listeners) {
       target.removeEventListener(type, handler as EventListener);
     }
@@ -188,6 +246,12 @@ class SlidesEditorImpl implements SlidesEditor {
     this.on(document, 'keydown', (e) => {
       void this.handleKeyDown(e as KeyboardEvent);
     });
+    // Double-click on the slide canvas (or overlay, when the click
+    // hits a selection-frame area that overlaps a text element) enters
+    // text edit mode if a text element was hit.
+    const onDblClick = (e: Event) => this.onDoubleClick(e as MouseEvent);
+    this.on(this.options.canvas, 'dblclick', onDblClick);
+    this.on(this.options.overlay, 'dblclick', onDblClick);
     // Right-click on canvas (empty area) AND overlay (handles + selected
     // elements covered by the overlay). The hit-test inside
     // onContextMenu picks the appropriate menu kind.
@@ -278,6 +342,32 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private onPointerDown(e: MouseEvent): void {
+    // While a text-box is being edited:
+    //   - clicks INSIDE its container should pass through to the
+    //     text-box editor (let the docs TextEditor handle cursor /
+    //     selection). The container has `pointer-events: auto` and the
+    //     mousedown event's target will be either the container itself
+    //     or a descendant (canvas inside it).
+    //   - clicks OUTSIDE commit the text-box and exit edit mode.
+    //   - either way the editor's drag/resize/lasso paths must NOT run
+    //     while editing.
+    if (this.editingElementId !== null) {
+      const tb = this.editingTextBox;
+      if (tb !== null) {
+        const target = e.target as Node | null;
+        if (target !== null && tb.container.contains(target)) {
+          // Inside the editor — let TextEditor handle it.
+          return;
+        }
+        // Click outside → commit + exit edit mode. We commit synchronously
+        // (commit() blurs the textarea, which routes through onCommit).
+        // Don't propagate the click into select/drag/lasso — that gives
+        // a familiar "click-out cancels editing" affordance without
+        // accidentally starting a drag on whatever was clicked.
+        this.exitEditMode('commit');
+      }
+      return;
+    }
     if (this.insertKind !== null) {
       this.startInsert(e.clientX, e.clientY);
       return;
@@ -312,6 +402,104 @@ class SlidesEditorImpl implements SlidesEditor {
       return;
     }
     this.startLasso(e.clientX, e.clientY);
+  }
+
+  private onDoubleClick(e: MouseEvent): void {
+    // Double-click on a text element enters edit mode. Clicks on
+    // non-text elements are ignored (shape/image have no inline
+    // editing in v1).
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const { x, y } = this.clientToLogical(e.clientX, e.clientY);
+    const hit = topmostUnderPoint(slide, x, y);
+    if (hit === null) return;
+    const element = slide.elements.find((el) => el.id === hit);
+    if (!element || element.type !== 'text') return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.enterEditMode(slide.id, element.id);
+  }
+
+  private enterEditMode(slideId: string, elementId: string): void {
+    // If we're already editing some other text-box, commit it first so
+    // the text in flight is not lost when focus moves.
+    if (this.editingElementId !== null) {
+      this.exitEditMode('commit');
+    }
+    const slide = this.options.store.read().slides.find((s) => s.id === slideId);
+    if (!slide) return;
+    const element = slide.elements.find((e) => e.id === elementId);
+    if (!element || element.type !== 'text') return;
+
+    // Make sure the selection is on the editing element so the rest of
+    // the editor (toolbar etc.) reflects the active target.
+    this.selection.set([elementId]);
+    this.editingElementId = elementId;
+
+    const blocks = element.data.blocks;
+    const tb = this.mountTextBox({
+      overlay: this.options.overlay,
+      frame: element.frame,
+      scale: this.scale(),
+      blocks,
+      onCommit: (next) => {
+        // Persist via withTextElement and exit edit mode. We snapshot
+        // the slide id at enter-time because the user could have
+        // switched slides during editing — withTextElement only
+        // resolves on the slide we actually edited.
+        try {
+          this.options.store.batch(() => {
+            this.options.store.withTextElement(slideId, elementId, () => next);
+          });
+        } catch {
+          // The element may have been removed during editing; swallow
+          // the not-found and just exit edit mode cleanly.
+        }
+        this.finishEditMode();
+      },
+      onCancel: () => {
+        // Escape: don't call withTextElement; the docs editor will
+        // still emit onCommit from the blur path it triggers, but
+        // editingElementId is cleared in finishEditMode so the commit
+        // becomes a no-op write of the unchanged blocks.
+      },
+    });
+    this.editingTextBox = tb;
+    // Hide handles for the editing element + render the text-box.
+    this.repaintOverlay();
+    // Focus so keystrokes flow into the textarea immediately.
+    tb.focus();
+  }
+
+  /**
+   * Trigger commit (or no-op) and then tear the text-box down. Safe to
+   * call when no text-box is mounted.
+   */
+  private exitEditMode(reason: 'commit' | 'cancel'): void {
+    const tb = this.editingTextBox;
+    if (tb === null) return;
+    if (reason === 'commit') {
+      tb.commit();
+    }
+    // commit() above synchronously blurs the textarea, which routes
+    // through onCommit → finishEditMode. If reason === 'cancel' we
+    // detach without committing. finishEditMode is idempotent in
+    // either case.
+    if (reason === 'cancel') {
+      this.finishEditMode();
+    }
+  }
+
+  private finishEditMode(): void {
+    const tb = this.editingTextBox;
+    this.editingTextBox = null;
+    this.editingElementId = null;
+    if (tb !== null) {
+      tb.detach();
+    }
+    this.renderer.markDirty();
+    this.render();
+    this.repaintOverlay();
   }
 
   private startInsert(clientX: number, clientY: number): void {
