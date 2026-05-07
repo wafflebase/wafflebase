@@ -23,3 +23,16 @@ export type {
   TableRow as DocsTableRow,
   TableCell as DocsTableCell,
 } from '@wafflebase/docs';
+
+// Slides Yorkie document — frontend stores YorkieSlidesRoot under
+// this key, but the canonical type the backend reasons about is the
+// snapshot shape from @wafflebase/slides.
+export type {
+  SlidesDocument,
+  Slide as SlidesSlide,
+  Element as SlidesElement,
+  TextElement as SlidesTextElement,
+  ImageElement as SlidesImageElement,
+  ShapeElement as SlidesShapeElement,
+  Layout as SlidesLayout,
+} from '@wafflebase/slides';
