@@ -50,7 +50,15 @@ export class SlideRenderer {
     if (!this.dirty) return;
     const { ctx } = this;
     const { hostWidth, hostHeight, dpr } = this.options;
-    const scale = (hostWidth / SLIDE_WIDTH) * dpr;
+    // Uniform fit-scale: pick whichever axis is the binding constraint
+    // so the slide fits inside the host canvas without distortion. The
+    // SlidesView host is currently a fixed 16:9 (960×540), so both
+    // axes give the same scale — but a host whose aspect ratio differs
+    // from SLIDE_WIDTH:SLIDE_HEIGHT would have the slide stretched
+    // horizontally if we derived the scale from `hostWidth` alone.
+    const scaleX = (hostWidth / SLIDE_WIDTH) * dpr;
+    const scaleY = (hostHeight / SLIDE_HEIGHT) * dpr;
+    const scale = Math.min(scaleX, scaleY);
 
     // Reset to identity, clear, then re-establish the world scale so
     // the content paints at the correct host pixel size regardless of
