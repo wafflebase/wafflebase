@@ -2,6 +2,7 @@ import {
   initializeEditor,
   mountThumbnailPanel,
   mountNotesPanel,
+  type InsertKind,
   type SlidesEditor,
   type ThumbnailPanelHandle,
 } from "@wafflebase/slides";
@@ -92,6 +93,39 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     right.style.flexDirection = "column";
     right.style.gap = "12px";
 
+    // Toolbar — vanilla DOM buttons that drive editor.setInsertMode.
+    // Each button toggles its own insert mode; clicking the active
+    // button again exits insert mode (matches the demo behaviour).
+    const toolbar = document.createElement("div");
+    toolbar.style.display = "flex";
+    toolbar.style.gap = "8px";
+    toolbar.style.flexWrap = "wrap";
+    const insertKinds: InsertKind[] = ["rect", "ellipse", "line", "arrow", "text"];
+    const labels: Record<InsertKind, string> = {
+      rect: "+ Rect",
+      ellipse: "+ Ellipse",
+      line: "+ Line",
+      arrow: "+ Arrow",
+      text: "+ Text",
+    };
+    const buttons: Partial<Record<InsertKind, HTMLButtonElement>> = {};
+    for (const kind of insertKinds) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.dataset.insert = kind;
+      btn.textContent = labels[kind];
+      btn.style.background = "#2a2a2a";
+      btn.style.color = "#ddd";
+      btn.style.border = "1px solid #444";
+      btn.style.padding = "6px 12px";
+      btn.style.borderRadius = "4px";
+      btn.style.cursor = "pointer";
+      btn.style.fontSize = "13px";
+      buttons[kind] = btn;
+      toolbar.appendChild(btn);
+    }
+    right.appendChild(toolbar);
+
     const canvasWrap = document.createElement("div");
     canvasWrap.style.position = "relative";
     canvasWrap.style.alignSelf = "flex-start";
@@ -147,6 +181,36 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     );
     mountNotesPanel(notesHost, store, editor);
 
+    // Wire toolbar clicks. Insert mode auto-exits to null after a
+    // successful place (per the editor's `startInsert` flow), so we
+    // also reset the active button there via the onSelectionChange
+    // broadcast that fires when the new element gets selected.
+    const setActiveButton = (kind: InsertKind | null) => {
+      for (const k of insertKinds) {
+        buttons[k]?.classList.toggle("active", k === kind);
+        const isActive = k === kind;
+        const btn = buttons[k];
+        if (!btn) continue;
+        btn.style.background = isActive ? "#3a7" : "#2a2a2a";
+        btn.style.borderColor = isActive ? "#3a7" : "#444";
+        btn.style.color = isActive ? "#fff" : "#ddd";
+      }
+    };
+    const onToolbarClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const insert = target.dataset.insert as InsertKind | undefined;
+      if (!insert) return;
+      const wasActive = target.classList.contains("active");
+      if (wasActive) {
+        editor.setInsertMode(null);
+        setActiveButton(null);
+      } else {
+        editor.setInsertMode(insert);
+        setActiveButton(insert);
+      }
+    };
+    toolbar.addEventListener("click", onToolbarClick);
+
     // Re-render on remote change. Yorkie's mutation proxy is already
     // updated when this fires; we just need to repaint canvas + thumbs.
     store.onRemoteChange = () => {
@@ -190,6 +254,7 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
       cancelAnimationFrame(raf);
       offSelection();
       offSlide();
+      toolbar.removeEventListener("click", onToolbarClick);
       thumbHandle.dispose();
       editor.detach();
       editorRef.current = null;
