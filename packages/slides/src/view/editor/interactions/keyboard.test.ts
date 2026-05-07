@@ -28,7 +28,7 @@ function makeFixture() {
     elementId = store.addElement(sid, {
       type: 'shape',
       frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
-      data: { kind: 'rect', fill: '#abc' },
+      data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
     });
   });
   const editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
@@ -148,7 +148,7 @@ describe('keyboard — z-order shortcuts', () => {
       store.addElement(store.read().slides[0].id, {
         type: 'shape',
         frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
-        data: { kind: 'rect', fill: '#0a0' },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
       });
     });
     // Now elements: [a (the original), b]. Selection = a.

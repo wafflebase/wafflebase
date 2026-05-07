@@ -5,13 +5,13 @@ import { selectInRect, normalizeRect } from './lasso';
 
 const blank = (elements: Element[]): Slide => ({
   id: 's1', layoutId: 'blank',
-  background: { fill: '#fff' },
+  background: { fill: { kind: 'srgb' as const, value: '#fff' } },
   elements, notes: [],
 });
 const at = (id: string, x: number, y: number, w = 100, h = 100): Element => ({
   id, type: 'shape',
   frame: { x, y, w, h, rotation: 0 },
-  data: { kind: 'rect', fill: '#abc' },
+  data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
 });
 
 describe('selectInRect — bbox intersection', () => {

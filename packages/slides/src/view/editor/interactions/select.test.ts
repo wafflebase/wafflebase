@@ -5,14 +5,14 @@ import { selectAt } from './select';
 
 const blankSlide = (elements: Element[]): Slide => ({
   id: 's1', layoutId: 'blank',
-  background: { fill: '#fff' },
+  background: { fill: { kind: 'srgb' as const, value: '#fff' } },
   elements,
   notes: [],
 });
 const rect = (id: string, x: number, y: number, w = 100, h = 100): Element => ({
   id, type: 'shape',
   frame: { x, y, w, h, rotation: 0 },
-  data: { kind: 'rect', fill: '#abc' },
+  data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
 });
 
 describe('selectAt', () => {

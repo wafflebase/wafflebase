@@ -27,7 +27,7 @@ store.batch(() => {
   store.addElement(a, {
     type: 'shape',
     frame: { x: 200, y: 200, w: 400, h: 200, rotation: 0 },
-    data: { kind: 'rect', fill: '#3a7' },
+    data: { kind: 'rect', fill: { kind: 'srgb', value: '#3a7' } },
   });
   // Slide 2: title layout
   store.addSlide('title');

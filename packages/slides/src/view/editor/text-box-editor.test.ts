@@ -161,7 +161,7 @@ describe('slides text-box editor wiring', () => {
       store.addElement(slideId, {
         type: 'shape',
         frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
       });
     });
     const { mount, current } = makeMockMount();

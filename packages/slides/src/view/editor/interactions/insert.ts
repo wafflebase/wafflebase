@@ -1,8 +1,10 @@
 import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
 import type { ElementInit } from '../../../model/element';
+import type { ThemeColor } from '../../../model/theme';
 import type { InsertKind } from '../editor';
 
-const DEFAULT_FILL = '#cccccc';
+const DEFAULT_FILL: ThemeColor = { kind: 'srgb', value: '#cccccc' };
+const DEFAULT_STROKE_COLOR: ThemeColor = { kind: 'srgb', value: '#222222' };
 const DEFAULT_STROKE_WIDTH = 2;
 const TEXT_DEFAULT_W = 400;
 const TEXT_DEFAULT_H = 80;
@@ -49,7 +51,7 @@ export function buildInsertElement(
   switch (kind) {
     case 'rect':    return { type: 'shape', frame, data: { kind: 'rect', fill: DEFAULT_FILL } };
     case 'ellipse': return { type: 'shape', frame, data: { kind: 'ellipse', fill: DEFAULT_FILL } };
-    case 'line':    return { type: 'shape', frame, data: { kind: 'line',  stroke: { color: '#222', width: DEFAULT_STROKE_WIDTH } } };
-    case 'arrow':   return { type: 'shape', frame, data: { kind: 'arrow', stroke: { color: '#222', width: DEFAULT_STROKE_WIDTH }, fill: '#222' } };
+    case 'line':    return { type: 'shape', frame, data: { kind: 'line',  stroke: { color: DEFAULT_STROKE_COLOR, width: DEFAULT_STROKE_WIDTH } } };
+    case 'arrow':   return { type: 'shape', frame, data: { kind: 'arrow', stroke: { color: DEFAULT_STROKE_COLOR, width: DEFAULT_STROKE_WIDTH }, fill: DEFAULT_STROKE_COLOR } };
   }
 }

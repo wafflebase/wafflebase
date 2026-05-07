@@ -27,15 +27,24 @@ function textPlaceholder(
   };
 }
 
-/** Built-in layouts — order is the order they appear in the toolbar. */
+/** Built-in layouts — order is the order they appear in the toolbar.
+ *
+ * `masterId: 'default'` and `staticElements: []` are throwaway scaffolding
+ * to satisfy the `Layout` type widened in the previous commit. Task 7
+ * replaces this file with the eleven-layout set and proper master
+ * bindings.
+ */
 export const BUILT_IN_LAYOUTS: Layout[] = [
   {
     id: 'blank',
+    masterId: 'default',
     name: 'Blank',
     placeholders: [],
+    staticElements: [],
   },
   {
     id: 'title',
+    masterId: 'default',
     name: 'Title',
     placeholders: [
       textPlaceholder(
@@ -51,9 +60,11 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
         80,
       ),
     ],
+    staticElements: [],
   },
   {
     id: 'title-body',
+    masterId: 'default',
     name: 'Title + body',
     placeholders: [
       textPlaceholder(PADDING, PADDING, SLIDE_WIDTH - PADDING * 2, 140),
@@ -64,6 +75,7 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
         SLIDE_HEIGHT - PADDING * 2 - 200,
       ),
     ],
+    staticElements: [],
   },
 ];
 

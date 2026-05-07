@@ -2,6 +2,7 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import type { Block } from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
+import type { Theme } from '../../model/theme';
 import { asCtx, createCtxSpy } from './ctx-spy';
 // Install the OffscreenCanvas shim before importing the renderer; see
 // test-canvas-env.ts for the rationale and dynamic-import requirement.
@@ -12,6 +13,17 @@ import './test-canvas-env';
 const { drawText } = await import('./text-renderer');
 
 const size = { w: 400, h: 200 };
+
+const THEME: Theme = {
+  id: 't', name: 't',
+  colors: {
+    text: '#000', background: '#fff', textSecondary: '#444', backgroundAlt: '#f3f3f3',
+    accent1: '#abc', accent2: '#bcd', accent3: '#cde', accent4: '#def',
+    accent5: '#e0e1e2', accent6: '#f0f1f2',
+    hyperlink: '#11c', visitedHyperlink: '#71a',
+  },
+  fonts: { heading: 'Inter', body: 'Inter' },
+};
 
 function paragraph(text: string): Block {
   return {
@@ -39,7 +51,7 @@ describe('drawText', () => {
     // docs `computeLayout` segments at the word level, so "Hello world"
     // becomes two runs: "Hello " and "world". Concatenating the
     // recorded run texts must round-trip to the original paragraph.
-    drawText(asCtx(ctx), size, data([paragraph('Hello world')]));
+    drawText(asCtx(ctx), size, data([paragraph('Hello world')]), THEME);
     expect(ctx.fillText).toHaveBeenCalledTimes(2);
     const joined = ctx.fillText.mock.calls.map((c) => c[0]).join('');
     expect(joined).toBe('Hello world');
@@ -61,7 +73,7 @@ describe('drawText', () => {
       ],
       style: {},
     } as Block;
-    drawText(asCtx(ctx), size, data([block]));
+    drawText(asCtx(ctx), size, data([block]), THEME);
     expect(ctx.fillText).toHaveBeenCalledTimes(2);
     expect(ctx.fillText.mock.calls[0][0]).toBe('Hello ');
     expect(ctx.fillText.mock.calls[1][0]).toBe('bold');
@@ -69,13 +81,13 @@ describe('drawText', () => {
 
   it('does not paint anything for an empty blocks array', () => {
     const ctx = createCtxSpy();
-    drawText(asCtx(ctx), size, data([]));
+    drawText(asCtx(ctx), size, data([]), THEME);
     expect(ctx.fillText).not.toHaveBeenCalled();
   });
 
   it('emits one fillText per block for two paragraphs', () => {
     const ctx = createCtxSpy();
-    drawText(asCtx(ctx), size, data([paragraph('one'), paragraph('two')]));
+    drawText(asCtx(ctx), size, data([paragraph('one'), paragraph('two')]), THEME);
     expect(ctx.fillText).toHaveBeenCalledTimes(2);
   });
 });

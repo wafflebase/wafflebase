@@ -6,6 +6,7 @@ import {
   type Block,
 } from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
+import type { Theme } from '../../model/theme';
 import type { FrameSize } from './shape-renderer';
 
 /**
@@ -32,12 +33,20 @@ const measurer = new CanvasTextMeasurer();
  * — `undefined` would NaN-out the cumulative y and the text would paint
  * at the top edge of the frame instead of where the editor (which
  * normalises through `MemDocStore.setDocument` on mount) drew it.
+ *
+ * `theme` is accepted for forward compatibility but NOT yet plumbed
+ * into `computeLayout` / `paintLayout`. Task 4 extends `@wafflebase/docs`
+ * with a `colorResolver` option so role-bound text colors can resolve
+ * through the deck's theme; for now the text path stays on docs'
+ * default color handling.
  */
 export function drawText(
   ctx: CanvasRenderingContext2D,
   { w }: FrameSize,
   data: TextElement['data'],
+  theme: Theme,
 ): void {
+  void theme; // Task 4 wires the colorResolver; signature kept stable.
   if (data.blocks.length === 0) return;
   const normalized: Block[] = data.blocks.map((b) => ({
     ...b,

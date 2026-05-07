@@ -6,7 +6,7 @@ const rect = (id: string, x = 0): Element => ({
   id,
   type: 'shape',
   frame: { x, y: 0, w: 100, h: 50, rotation: 0 },
-  data: { kind: 'rect', fill: '#abc' },
+  data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
 });
 
 describe('clipboard serialization', () => {

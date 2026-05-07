@@ -1,4 +1,5 @@
 import type { Block } from '@wafflebase/docs';
+import type { ThemeColor } from './theme';
 
 export type Frame = {
   x: number;
@@ -22,7 +23,7 @@ export type Crop = { x: number; y: number; w: number; h: number };
 export type ShapeKind = 'rect' | 'ellipse' | 'line' | 'arrow';
 
 export type ShapeStroke = {
-  color: string;
+  color: ThemeColor;
   width: number;
 };
 
@@ -52,7 +53,7 @@ export type ShapeElement = ElementBase & {
   type: 'shape';
   data: {
     kind: ShapeKind;
-    fill?: string;
+    fill?: ThemeColor;
     stroke?: ShapeStroke;
   };
 };

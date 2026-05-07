@@ -1,4 +1,5 @@
 import type { Block } from '@wafflebase/docs';
+import type { Master, Theme, ThemeColor } from '@wafflebase/slides';
 
 /**
  * Yorkie document root for the slides editor. Text element bodies
@@ -15,17 +16,24 @@ import type { Block } from '@wafflebase/docs';
  * keystroke convergence requires a different storage layout — most
  * likely a root-level `textTrees: { [elementId]: Tree }` map keyed
  * by id, which Yorkie can wrap as a CRDT. Tracked as Phase 5a-2.
+ *
+ * `themes`, `masters`, `meta.themeId`, and `meta.masterId` are
+ * optional in this snapshot type because pre-existing Yorkie docs
+ * predate the v0.5 theme system. The migration that backfills them
+ * lives in Task 3 (yorkie-slides-store).
  */
 export interface YorkieSlidesRoot {
-  meta: { title: string };
+  meta: { title: string; themeId?: string; masterId?: string };
   slides: YorkieSlide[];
   layouts: YorkieLayout[];
+  themes?: Theme[];
+  masters?: Master[];
 }
 
 export interface YorkieSlide {
   id: string;
   layoutId: string;
-  background: { fill: string; image?: { src: string; w: number; h: number } };
+  background: { fill: ThemeColor; image?: { src: string; w: number; h: number } };
   elements: YorkieElement[];
   notes: Block[];
 }
@@ -67,8 +75,8 @@ export interface YorkieShapeElement {
   frame: YorkieFrame;
   data: {
     kind: 'rect' | 'ellipse' | 'line' | 'arrow';
-    fill?: string;
-    stroke?: { color: string; width: number };
+    fill?: ThemeColor;
+    stroke?: { color: ThemeColor; width: number };
   };
 }
 

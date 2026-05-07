@@ -5,7 +5,7 @@ import { applyDrag } from './drag';
 const at = (id: string, x: number, y: number): Element => ({
   id, type: 'shape',
   frame: { x, y, w: 100, h: 100, rotation: 0 },
-  data: { kind: 'rect', fill: '#abc' },
+  data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
 });
 
 describe('applyDrag', () => {

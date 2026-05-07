@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_MASTER, type Master, type PlaceholderStyle } from './master';
+import { DEFAULT_MASTER, type PlaceholderStyle } from './master';
 
 describe('DEFAULT_MASTER', () => {
   it('has the canonical id and themeId', () => {

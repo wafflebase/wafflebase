@@ -131,13 +131,15 @@ describe('MemSlidesStore — slides', () => {
 
   it('updateSlideBackground stores a clone, not a reference', () => {
     const store = new MemSlidesStore();
-    const bg = { fill: '#ff0000' };
+    const bg = { fill: { kind: 'srgb' as const, value: '#ff0000' } };
     store.batch(() => {
       const id = store.addSlide('blank');
       store.updateSlideBackground(id, bg);
     });
-    bg.fill = '#00ff00'; // mutating the input must not change the store
-    expect(store.read().slides[0].background.fill).toBe('#ff0000');
+    bg.fill.value = '#00ff00'; // mutating the input must not change the store
+    const fill = store.read().slides[0].background.fill;
+    expect(fill.kind).toBe('srgb');
+    if (fill.kind === 'srgb') expect(fill.value).toBe('#ff0000');
   });
 });
 

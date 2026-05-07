@@ -5,7 +5,6 @@ import {
   type ColorScheme,
   type FontScheme,
   type Theme,
-  type ThemeColor,
 } from './theme';
 
 const COLORS: ColorScheme = {
