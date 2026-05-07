@@ -1,4 +1,10 @@
-import { CanvasTextMeasurer, computeLayout, paintLayout } from '@wafflebase/docs';
+import {
+  CanvasTextMeasurer,
+  computeLayout,
+  normalizeBlockStyle,
+  paintLayout,
+  type Block,
+} from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
 import type { FrameSize } from './shape-renderer';
 
@@ -18,10 +24,14 @@ const measurer = new CanvasTextMeasurer();
  * Layout AND painting are delegated to `@wafflebase/docs` so that the
  * committed slide canvas and the in-place text-box editor (which also
  * calls `paintLayout`) produce pixel-identical output — same baseline
- * math, same font-size handling, same list-marker glyphs. Without this,
- * the two surfaces drift (the slide canvas would put the baseline at
- * the bottom of the line box while the editor centres it inside the
- * line box → committed text appears to "jump" vertically on blur).
+ * math, same font-size handling, same list-marker glyphs.
+ *
+ * Block styles are normalised before layout because slides may persist
+ * blocks with sparse `style: {}` (e.g. via `buildInsertElement`) and
+ * `computeLayout` does `y += block.style.marginTop` without a fallback
+ * — `undefined` would NaN-out the cumulative y and the text would paint
+ * at the top edge of the frame instead of where the editor (which
+ * normalises through `MemDocStore.setDocument` on mount) drew it.
  */
 export function drawText(
   ctx: CanvasRenderingContext2D,
@@ -29,6 +39,10 @@ export function drawText(
   data: TextElement['data'],
 ): void {
   if (data.blocks.length === 0) return;
-  const { layout } = computeLayout(data.blocks, measurer, w);
+  const normalized: Block[] = data.blocks.map((b) => ({
+    ...b,
+    style: normalizeBlockStyle(b.style),
+  }));
+  const { layout } = computeLayout(normalized, measurer, w);
   paintLayout(ctx, layout, 0, 0);
 }

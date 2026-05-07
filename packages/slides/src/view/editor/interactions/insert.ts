@@ -1,4 +1,4 @@
-import type { Block } from '@wafflebase/docs';
+import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
 import type { ElementInit } from '../../../model/element';
 import type { InsertKind } from '../editor';
 
@@ -28,7 +28,13 @@ export function buildInsertElement(
           id: 'placeholder',
           type: 'paragraph',
           inlines: [{ text: '', style: {} }],
-          style: {},
+          // Fully-defaulted style — `computeLayout` reads `marginTop`
+          // and `marginBottom` without a fallback, so a sparse style
+          // would NaN the cumulative y and the slide canvas would
+          // paint at a different offset than the text-box editor
+          // (which seeds through `MemDocStore.setDocument`, which
+          // normalises). See `text-renderer.ts:drawText`.
+          style: { ...DEFAULT_BLOCK_STYLE },
         } as Block],
       },
     };

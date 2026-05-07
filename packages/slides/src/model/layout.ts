@@ -1,4 +1,4 @@
-import type { Block } from '@wafflebase/docs';
+import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
 import type { Layout, PlaceholderSpec } from './presentation';
 import { SLIDE_WIDTH, SLIDE_HEIGHT } from './presentation';
 
@@ -10,7 +10,9 @@ function emptyBlocks(): Block[] {
       id: 'placeholder',
       type: 'paragraph',
       inlines: [{ text: '', style: {} }],
-      style: {},
+      // Fully-defaulted style — see `text-renderer.ts:drawText` for why
+      // sparse styles cannot reach `computeLayout` (NaN'd cumulative y).
+      style: { ...DEFAULT_BLOCK_STYLE },
     } as Block,
   ];
 }
