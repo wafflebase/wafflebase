@@ -94,14 +94,19 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
   overlay.appendChild(container);
 
   const canvas = document.createElement('canvas');
-  // Logical pixels match the slide frame so findPositionAtPixel math
-  // stays identity-aligned (no extra scale layer inside the editor).
-  // The visual size matches frame * scale via CSS so the canvas pixels
-  // map 1:1 to host pixels.
-  canvas.width = Math.max(1, Math.round(frame.w * scale));
-  canvas.height = Math.max(1, Math.round(frame.h * scale));
-  canvas.style.width = `${frame.w * scale}px`;
-  canvas.style.height = `${frame.h * scale}px`;
+  // CSS size (host pixels) = frame * scale; bitmap pixel size also
+  // accounts for devicePixelRatio so high-DPI displays paint at native
+  // resolution instead of being upscaled by the browser (which would
+  // produce blurry text). The text-box editor's paint path then scales
+  // its draws by `dpr` so logical text-box coords still map 1:1 to host
+  // CSS pixels.
+  const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+  const cssW = Math.max(1, Math.round(frame.w * scale));
+  const cssH = Math.max(1, Math.round(frame.h * scale));
+  canvas.width = Math.max(1, Math.round(cssW * dpr));
+  canvas.height = Math.max(1, Math.round(cssH * dpr));
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
   canvas.style.display = 'block';
   container.appendChild(canvas);
 
@@ -122,12 +127,13 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     container,
     canvas,
     blocks,
-    // The text-box editor expects logical pixels for content sizing.
-    // We pass the host-pixel width because we sized the canvas to host
-    // pixels above (so the layout math stays in pixel-perfect host
-    // space, no extra scale layer inside the docs editor).
-    contentWidth: Math.max(1, Math.round(frame.w * scale)),
-    contentHeight: Math.max(1, Math.round(frame.h * scale)),
+    // contentWidth / contentHeight are in CSS pixels — the docs text-
+    // box editor uses them as logical content size. We pass `dpr` too
+    // so the editor scales its paint by the device pixel ratio (the
+    // canvas bitmap was already sized to `cssW * dpr` above).
+    contentWidth: cssW,
+    contentHeight: cssH,
+    dpr,
     onCommit: handleCommit,
     onCancel: handleCancel,
   });

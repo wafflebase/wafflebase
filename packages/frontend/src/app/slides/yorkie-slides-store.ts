@@ -254,7 +254,7 @@ function treeToBlocks(treeOrLegacy: unknown): Block[] {
  * follow-up (Phase 5a-2) can replace this with per-keystroke Tree mutations
  * for true character-level convergence.
  */
-function replaceTreeContents(tree: { getRootTreeNode: () => TreeNode; editByPath: (s: number[], e: number[], ...n: ElementNode[]) => void; editBulkByPath?: (s: number[], e: number[], n: ElementNode[]) => void }, blocks: Block[]): void {
+function replaceTreeContents(tree: { getRootTreeNode: () => TreeNode; editByPath: (s: number[], e: number[], ...n: ElementNode[]) => void }, blocks: Block[]): void {
   const root = tree.getRootTreeNode() as ElementNode;
   const childCount = (root.children ?? []).length;
   if (childCount > 0) {
@@ -263,14 +263,13 @@ function replaceTreeContents(tree: { getRootTreeNode: () => TreeNode; editByPath
   const newChildren = blocks.length > 0
     ? blocks.map(buildBlockNode)
     : [emptyParagraphNode()];
-  if (typeof tree.editBulkByPath === 'function') {
-    tree.editBulkByPath([0], [0], newChildren);
-  } else {
-    // Fallback if editBulkByPath isn't available — shouldn't happen with
-    // current Yorkie SDK but keeps the path resilient.
-    for (let i = 0; i < newChildren.length; i++) {
-      tree.editByPath([i], [i], newChildren[i]);
-    }
+  // Insert one block at a time. editByPath is a varargs API; the Yorkie
+  // SDK has editBulkByPath but its spread semantics are inconsistent
+  // with how `Tree.edit(...)` is called elsewhere in this codebase, so
+  // sticking to the proven per-block insert path matches what
+  // YorkieDocStore in the docs package does for the same shape change.
+  for (let i = 0; i < newChildren.length; i++) {
+    tree.editByPath([i], [i], newChildren[i]);
   }
 }
 
@@ -868,9 +867,18 @@ export class YorkieSlidesStore implements SlidesStore {
       const treeProxy = (e.data as { tree?: unknown }).tree;
       const blocks = treeToBlocks(treeProxy);
       const next = fn(blocks);
+      console.info('[slides] withTextElement commit', {
+        elementId,
+        blocksBefore: blocks.length,
+        blocksAfter: next === undefined ? 'no-change' : next.length,
+        sample: next === undefined ? null : (next[0]?.inlines?.[0] as { text?: string } | undefined)?.text,
+      });
       if (next !== undefined) {
         if (treeProxy && typeof (treeProxy as { getRootTreeNode?: () => unknown }).getRootTreeNode === 'function') {
           replaceTreeContents(treeProxy as Parameters<typeof replaceTreeContents>[0], next);
+          // Verify post-write.
+          const after = treeToBlocks(treeProxy);
+          console.info('[slides] withTextElement post-write blocks=', after.length, 'text=', (after[0]?.inlines?.[0] as { text?: string } | undefined)?.text);
         } else {
           // Tree was missing (legacy doc with the old `blocks` shape) —
           // create a new Tree carrying the committed blocks.

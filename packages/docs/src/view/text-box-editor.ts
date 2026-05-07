@@ -85,6 +85,17 @@ export interface TextBoxEditorOptions {
    * "Escape discards", roll back the source-of-truth in `onCancel`.
    */
   onCancel?: () => void;
+
+  /**
+   * Device pixel ratio for the canvas bitmap. The caller is expected to
+   * size `canvas.width` / `canvas.height` to `(contentWidth * dpr,
+   * contentHeight * dpr)` and the CSS size to `(contentWidth,
+   * contentHeight)`; the editor calls `ctx.scale(dpr, dpr)` inside its
+   * paint loop so layout coordinates stay in CSS pixels.
+   *
+   * Defaults to 1 (no HiDPI scaling) if omitted.
+   */
+  dpr?: number;
 }
 
 export interface TextBoxEditorAPI {
@@ -160,6 +171,7 @@ function buildShimPaginatedLayout(
  */
 export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI {
   const { container, canvas, contentWidth, contentHeight } = opts;
+  const dpr = opts.dpr ?? 1;
 
   // Seed an in-memory store with the supplied blocks. Empty input gets
   // a single empty paragraph so cursor placement and the very first
@@ -214,7 +226,14 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     // re-measure; the rest reuse the previous frame's lines.
     recomputeLayout();
     ctx.save();
+    // Reset any previous transform, clear in DEVICE-pixel space, then
+    // scale to CSS pixels for the rest of the paint. Caller-supplied
+    // canvas bitmap is `(contentWidth * dpr, contentHeight * dpr)` so
+    // post-scale we paint into a `(contentWidth, contentHeight)` CSS-
+    // pixel surface — sharp on HiDPI displays.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (dpr !== 1) ctx.scale(dpr, dpr);
 
     // Selection rectangles. computeSelectionRects returns coordinates
     // in the same page-space as Cursor.getPixelPosition — translate
