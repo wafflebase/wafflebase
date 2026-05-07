@@ -27,7 +27,7 @@
       "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/slides": {
-      "entry": ["src/index.ts", "src/**/*.test.ts", "demo.ts"],
+      "entry": ["src/index.ts", "src/node.ts", "src/**/*.test.ts", "demo.ts"],
       "project": ["src/**/*.ts"]
     }
   },
