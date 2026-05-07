@@ -58,10 +58,10 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 
 ## Phase 5: Text + Present + Export + CLI
 
-- [x] 5.1 `view/editor/text-bridge.ts` — contenteditable mount, docs IME bridge, blur exit
-- [x] 5.2 Yorkie Tree wiring for `TextElement.data.blocks` and `Slide.notes`
+- [x] 5.1 `view/editor/text-box-editor.ts` — docs `initializeTextBox` bridge, double-click → mount → blur commit
+- [x] 5.2 ~~Yorkie Tree wiring for `TextElement.data.blocks` and `Slide.notes`~~ — reverted: nested `Tree` inside an array element gets JSON-serialised by Yorkie, no CRDT semantics. Bodies/notes stay as plain `Block[]` JSON; commits resolve LWW on blur. Per-keystroke convergence deferred to Phase 5a-2 (root-level `textTrees: { [elementId]: Tree }` map keyed by id).
 - [ ] 5.3 Image input paths — upload, drag-drop, clipboard paste (workspace image API reuse)
-- [x] 5.4 Korean / CJK canvas font fallback via docs font registry
+- [x] 5.4 Slide-canvas text painting via docs `paintLayout` — same baseline math + font path as the in-place editor. Slide-side CJK font registry shim was dropped because the editor itself relied on docs' `buildFont` and Korean rendered fine; if a missing-glyph case surfaces later, route through `resolveFontFamily` at the docs level so both surfaces benefit.
 - [ ] 5.5 `view/present/presenter.ts` + `presentation-mode.tsx` — fullscreen, fit-to-screen, key nav
 - [ ] 5.6 `export/pdf.ts` — 13.333"×7.5" page mapping, delegate font/embedding to docs
 - [ ] 5.7 `packages/cli/src/commands/slides.ts` — list/create/delete/content/export-pdf
