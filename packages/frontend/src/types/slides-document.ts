@@ -1,18 +1,20 @@
-import type { Tree } from '@yorkie-js/sdk';
 import type { Block } from '@wafflebase/docs';
 
 /**
- * Yorkie document root for the slides editor. Phase 5a stores text
- * element bodies and speaker notes as `Yorkie.Tree` (matching the
- * docs editor's CRDT shape), so character-level edits can converge
- * across peers without last-write-wins on the whole `blocks` array.
+ * Yorkie document root for the slides editor. Text element bodies
+ * and speaker notes are stored as plain `Block[]` JSON.
  *
- * `read()` still returns `Block[]` snapshots — only the underlying
- * Yorkie storage changed.
+ * Phase 5a originally migrated these fields to `yorkie.Tree`, but
+ * Yorkie's `Tree` CRDT does NOT register correctly when nested inside
+ * an array element (the Tree gets serialized to JSON instead of
+ * wrapped as a live CRDT, so subsequent reads see a plain object
+ * with no `getRootTreeNode` method, and writes silently no-op). The
+ * migration was reverted.
  *
- * NOTE: Migrating to Tree breaks the wire format. Documents created
- * before Phase 5a stored these fields as plain `Block[]` JSON; they
- * must be deleted / recreated on the server.
+ * Concurrent edits resolve as last-write-wins on commit (blur). Per-
+ * keystroke convergence requires a different storage layout — most
+ * likely a root-level `textTrees: { [elementId]: Tree }` map keyed
+ * by id, which Yorkie can wrap as a CRDT. Tracked as Phase 5a-2.
  */
 export interface YorkieSlidesRoot {
   meta: { title: string };
@@ -25,7 +27,7 @@ export interface YorkieSlide {
   layoutId: string;
   background: { fill: string; image?: { src: string; w: number; h: number } };
   elements: YorkieElement[];
-  notes: Tree;
+  notes: Block[];
 }
 
 export type YorkieElement =
@@ -45,7 +47,7 @@ export interface YorkieTextElement {
   id: string;
   type: 'text';
   frame: YorkieFrame;
-  data: { tree: Tree };
+  data: { blocks: Block[] };
 }
 
 export interface YorkieImageElement {
@@ -70,21 +72,9 @@ export interface YorkieShapeElement {
   };
 }
 
-/**
- * Layout placeholders are templates — they describe the initial shape
- * of a text/image/shape element when a slide is added with that layout.
- * They store text bodies as plain `Block[]` (NOT `Tree`) because Tree
- * CRDTs must be created via `new Tree(...)` inside `doc.update`, which
- * is not possible inside a static `BUILT_IN_LAYOUTS` constant or the
- * cloned JSON we put into `r.layouts`. The Tree gets materialised when
- * `addSlide` instantiates the placeholder into an actual element.
- */
+/** Layout placeholder shape — element template without an id. */
 export type YorkiePlaceholder =
-  | {
-      type: 'text';
-      frame: YorkieFrame;
-      data: { blocks: Block[] };
-    }
+  | Omit<YorkieTextElement, 'id'>
   | Omit<YorkieImageElement, 'id'>
   | Omit<YorkieShapeElement, 'id'>;
 
