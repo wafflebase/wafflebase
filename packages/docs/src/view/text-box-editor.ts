@@ -206,6 +206,13 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   const renderNow = (): void => {
     renderRAF = null;
     if (!ctx) return;
+    // Recompute layout from the current document. TextEditor mutates
+    // docStore on every keystroke and triggers requestRender via
+    // markDirty / requestRender callbacks, but it does NOT itself
+    // walk computeLayout — that's the host's job. The LayoutCache
+    // makes this cheap: only blocks whose content / width changed
+    // re-measure; the rest reuse the previous frame's lines.
+    recomputeLayout();
     ctx.save();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
