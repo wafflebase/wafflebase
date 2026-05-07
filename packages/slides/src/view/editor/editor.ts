@@ -499,10 +499,13 @@ class SlidesEditorImpl implements SlidesEditor {
         this.finishEditMode();
       },
       onCancel: () => {
-        // Escape: don't call withTextElement; the docs editor will
-        // still emit onCommit from the blur path it triggers, but
-        // editingElementId is cleared in finishEditMode so the commit
-        // becomes a no-op write of the unchanged blocks.
+        // Escape: the docs editor fires this BEFORE it blurs, then
+        // routes the blur through the regular onCommit path above —
+        // so Escape currently behaves identically to blur (the user's
+        // typed edits are persisted via withTextElement). True
+        // "Escape discards" semantics would require a flag this
+        // callback flips that the onCommit branch consults to skip
+        // withTextElement. Per spec the discard story is v1.1.
       },
     });
     this.editingTextBox = tb;
