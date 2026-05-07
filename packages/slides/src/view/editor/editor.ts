@@ -409,12 +409,26 @@ class SlidesEditorImpl implements SlidesEditor {
     // non-text elements are ignored (shape/image have no inline
     // editing in v1).
     const slide = this.currentSlide();
-    if (!slide) return;
+    if (!slide) {
+      console.warn('[slides] dblclick: no current slide');
+      return;
+    }
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
     const hit = topmostUnderPoint(slide, x, y);
-    if (hit === null) return;
+    if (hit === null) {
+      console.warn(`[slides] dblclick at (${x}, ${y}): no element under point. Slide has ${slide.elements.length} elements:`, slide.elements.map((el) => ({ id: el.id, type: el.type, frame: el.frame })));
+      return;
+    }
     const element = slide.elements.find((el) => el.id === hit);
-    if (!element || element.type !== 'text') return;
+    if (!element) {
+      console.warn(`[slides] dblclick: element ${hit} not found in slide`);
+      return;
+    }
+    if (element.type !== 'text') {
+      console.warn(`[slides] dblclick: element ${hit} is type=${element.type}, not text — edit mode skipped`);
+      return;
+    }
+    console.info(`[slides] dblclick: entering edit mode for text element ${hit}`);
     e.preventDefault();
     e.stopPropagation();
     this.enterEditMode(slide.id, element.id);
@@ -469,6 +483,7 @@ class SlidesEditorImpl implements SlidesEditor {
     this.repaintOverlay();
     // Focus so keystrokes flow into the textarea immediately.
     tb.focus();
+    console.info(`[slides] enterEditMode: mounted text-box for element ${elementId}, container=`, tb.container);
   }
 
   /**
