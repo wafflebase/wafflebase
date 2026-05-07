@@ -1,8 +1,10 @@
 import type { Block } from '@wafflebase/docs';
 import type { Element, ElementInit, ImageRef } from './element';
+import type { Theme, ThemeColor } from './theme';
+import type { Master } from './master';
 
 export type Background = {
-  fill: string;
+  fill: ThemeColor;
   image?: ImageRef;
 };
 
@@ -10,31 +12,38 @@ export type Slide = {
   id: string;
   layoutId: string;
   background: Background;
-  elements: Element[]; // array order = z-order; last = front
-  notes: Block[]; // speaker notes (rich text via @wafflebase/docs)
+  elements: Element[];
+  notes: Block[];
 };
 
 export type PlaceholderSpec = ElementInit;
 
 export type Layout = {
   id: string;
+  masterId: string;
   name: string;
+  background?: Background;
   placeholders: PlaceholderSpec[];
+  staticElements: Element[]; // v1.0: always empty; v1.5 populates
 };
 
 export type Meta = {
   title: string;
+  themeId: string;
+  masterId: string;
 };
 
 export type SlidesDocument = {
   meta: Meta;
-  slides: Slide[];
+  themes: Theme[];
+  masters: Master[];
   layouts: Layout[];
+  slides: Slide[];
 };
 
-/** Default background for a new slide. */
-export const DEFAULT_BACKGROUND: Background = { fill: '#ffffff' };
+export const DEFAULT_BACKGROUND: Background = {
+  fill: { kind: 'role', role: 'background' },
+};
 
-/** Logical canvas size (16:9 widescreen, matches Google Slides default). */
 export const SLIDE_WIDTH = 1920;
 export const SLIDE_HEIGHT = 1080;

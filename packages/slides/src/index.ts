@@ -10,6 +10,19 @@ export type {
 export { DEFAULT_BACKGROUND, SLIDE_HEIGHT, SLIDE_WIDTH } from './model/presentation';
 
 export type {
+  Theme,
+  ColorScheme,
+  FontScheme,
+  ColorRole,
+  FontRole,
+  ThemeColor,
+  ThemeFont,
+} from './model/theme';
+export { resolveColor, resolveFont } from './model/theme';
+export type { Master, PlaceholderStyle, MasterBackground } from './model/master';
+export { DEFAULT_MASTER } from './model/master';
+
+export type {
   Crop,
   Element,
   ElementBase,
