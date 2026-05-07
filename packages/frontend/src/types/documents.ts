@@ -1,4 +1,4 @@
-export type DocumentType = "sheet" | "doc";
+export type DocumentType = "sheet" | "doc" | "slides";
 
 export type Document = {
   id: string;

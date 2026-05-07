@@ -1,3 +1,4 @@
+import type { DocumentType } from "@/types/documents";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
 
@@ -226,7 +227,7 @@ export async function fetchWorkspaceDocuments(workspaceId: string) {
  */
 export async function createWorkspaceDocument(
   workspaceId: string,
-  data: { title: string; type?: "sheet" | "doc" },
+  data: { title: string; type?: DocumentType },
 ) {
   const res = await fetchWithAuth(`${BASE}/${workspaceId}/documents`, {
     method: "POST",

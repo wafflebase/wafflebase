@@ -38,7 +38,8 @@ export class DocumentController {
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.documentService.createDocument({
       title: body.title,
-      type: body.type === 'doc' ? 'doc' : 'sheet',
+      type:
+        body.type === 'doc' || body.type === 'slides' ? body.type : 'sheet',
       author: { connect: { id: userId } },
       workspace: { connect: { id: workspaceId } },
     });
@@ -99,7 +100,8 @@ export class DocumentController {
     await this.workspaceService.assertMember(body.workspaceId, userId);
     return this.documentService.createDocument({
       title: body.title,
-      type: body.type === 'doc' ? 'doc' : 'sheet',
+      type:
+        body.type === 'doc' || body.type === 'slides' ? body.type : 'sheet',
       author: { connect: { id: userId } },
       workspace: { connect: { id: body.workspaceId } },
     });

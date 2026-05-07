@@ -34,7 +34,8 @@ export class ApiV1DocumentsController {
   ) {
     return this.documentService.createDocument({
       title: body.title,
-      type: body.type === 'doc' ? 'doc' : 'sheet',
+      type:
+        body.type === 'doc' || body.type === 'slides' ? body.type : 'sheet',
       workspace: { connect: { id: workspaceId } },
       author: { connect: { id: Number(req.user.id) } },
     });
