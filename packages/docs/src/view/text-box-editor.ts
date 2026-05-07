@@ -387,6 +387,21 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     },
     detach(): void {
       if (detached) return;
+      // Flush a final onCommit if the user was actively typing when
+      // detach hit. Without this, removing the textarea while focused
+      // synchronously triggers blur → handleBlur, which the `detached`
+      // guard below then short-circuits → in-flight text is silently
+      // dropped. Matches the JSDoc contract ("flush a final onCommit").
+      // If the user had already blurred (focused === false), the blur
+      // path already fired onCommit and there's nothing to flush.
+      if (focused && !committedOnce) {
+        committedOnce = true;
+        try {
+          opts.onCommit?.(docStore.getDocument().blocks);
+        } catch (err) {
+          console.error('[textBoxEditor] detach onCommit threw', err);
+        }
+      }
       detached = true;
       cursor.stopBlink();
       cursor.dispose();

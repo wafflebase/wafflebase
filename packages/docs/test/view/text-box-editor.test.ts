@@ -87,4 +87,64 @@ describe('initializeTextBox', () => {
     expect((committed as unknown as Block[]).length).toBeGreaterThan(0);
     api.detach();
   });
+
+  it('detach() flushes onCommit when the editor is still focused', () => {
+    // Repro: caller (e.g. React unmount) invokes detach() while the
+    // textarea is the active element. Without an explicit flush,
+    // textarea.remove() inside detach() fires blur synchronously, but
+    // handleBlur's `if (!detached && !committedOnce)` guard short-
+    // circuits because detach() already set `detached = true` →
+    // in-flight text was silently dropped.
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    let committed: Block[] | null = null;
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit: (blocks) => { committed = blocks; },
+    });
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    // Drive focus so the editor's `focused` flag is true at the moment
+    // detach() is called.
+    api.focus();
+    textarea.dispatchEvent(new FocusEvent('focus'));
+    api.detach();
+    expect(committed).not.toBeNull();
+    expect(Array.isArray(committed)).toBe(true);
+  });
+
+  it('detach() does not double-fire onCommit when already blurred', () => {
+    // If the user blurred (saving) and the parent then detaches, the
+    // detach path must NOT fire onCommit a second time — the caller's
+    // store would receive two writes for one user intent.
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    let commitCount = 0;
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [],
+      contentWidth: 400,
+      contentHeight: 200,
+      onCommit: () => { commitCount++; },
+    });
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    api.focus();
+    textarea.dispatchEvent(new FocusEvent('focus'));
+    textarea.dispatchEvent(new FocusEvent('blur'));
+    expect(commitCount).toBe(1);
+    api.detach();
+    expect(commitCount).toBe(1);
+  });
 });
