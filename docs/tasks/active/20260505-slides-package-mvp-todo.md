@@ -47,14 +47,14 @@ Brainstorming summary: see commit message for `docs/design/slides/slides.md`.
 ## Phase 4: Yorkie + Multi-User
 
 - [x] 4.1 `packages/frontend/src/app/slides/yorkie-slides-store.ts` — Yorkie ↔ Store adapter
-- [ ] 4.2 Equivalence tests: `MemSlidesStore` vs `YorkieSlidesStore` for identical op sequences
+- [x] 4.2 Equivalence tests: `MemSlidesStore` vs `YorkieSlidesStore` for identical op sequences
 - [x] 4.3 Presence schema (`SlidesPresence`) + drag broadcast (60 fps), commit on mouseup
 - [x] 4.4 Peer cursors / selection rings (reuse sheets/docs visuals)
 - [x] 4.5 Backend `SlidesDocument` Yorkie type in `packages/backend/src/yorkie/yorkie.types.ts`
 - [x] 4.6 Frontend `DocumentType` extension + lazy `SlidesView` route
 - [x] 4.7 `documents/document-detail.tsx` — `type === 'slides'` branch
-- [ ] 4.8 `tests/helpers/two-user-slides-yorkie.ts` + concurrent add/move/delete suite
-- [ ] 4.9 verify:integration green (Postgres + Yorkie)
+- [x] 4.8 `tests/helpers/two-user-slides-yorkie.ts` + concurrent add/move/delete suite
+- [x] 4.9 verify:integration green (Postgres + Yorkie)
 
 ## Phase 5: Text + Present + Export + CLI
 
