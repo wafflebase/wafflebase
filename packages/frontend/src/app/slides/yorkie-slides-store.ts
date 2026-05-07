@@ -629,16 +629,8 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       const blocks = yorkieToPlain<Block[]>((e.data as { blocks?: unknown }).blocks) ?? [];
       const next = fn(blocks);
-      console.info('[slides] withTextElement commit', {
-        elementId,
-        blocksBefore: blocks.length,
-        blocksAfter: next === undefined ? 'no-change' : next.length,
-        sample: next === undefined ? null : (next[0]?.inlines?.[0] as { text?: string } | undefined)?.text,
-      });
       if (next !== undefined) {
         e.data = { blocks: clone(next) } as unknown as typeof e.data;
-        const after = yorkieToPlain<Block[]>((e.data as { blocks?: unknown }).blocks) ?? [];
-        console.info('[slides] withTextElement post-write blocks=', after.length, 'text=', (after[0]?.inlines?.[0] as { text?: string } | undefined)?.text);
       }
     });
   }

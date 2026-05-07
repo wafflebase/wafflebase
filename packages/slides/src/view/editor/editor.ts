@@ -160,6 +160,20 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.disposed) return;
     const slide = this.currentSlide();
     if (!slide) return;
+    // Hide the element currently in edit mode from the slide canvas —
+    // the text-box editor's own canvas is layered on top of the same
+    // frame, so leaving the element in the slide pass would double-paint
+    // the text (one copy from `drawText`, one from the editor's
+    // `paintLayout`).
+    if (this.editingElementId !== null) {
+      const editingId = this.editingElementId;
+      const visible = {
+        ...slide,
+        elements: slide.elements.filter((e) => e.id !== editingId),
+      };
+      this.renderer.forceRender(visible);
+      return;
+    }
     this.renderer.render(slide);
   }
 
@@ -409,26 +423,12 @@ class SlidesEditorImpl implements SlidesEditor {
     // non-text elements are ignored (shape/image have no inline
     // editing in v1).
     const slide = this.currentSlide();
-    if (!slide) {
-      console.warn('[slides] dblclick: no current slide');
-      return;
-    }
+    if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
     const hit = topmostUnderPoint(slide, x, y);
-    if (hit === null) {
-      console.warn(`[slides] dblclick at (${x}, ${y}): no element under point. Slide has ${slide.elements.length} elements:`, slide.elements.map((el) => ({ id: el.id, type: el.type, frame: el.frame })));
-      return;
-    }
+    if (hit === null) return;
     const element = slide.elements.find((el) => el.id === hit);
-    if (!element) {
-      console.warn(`[slides] dblclick: element ${hit} not found in slide`);
-      return;
-    }
-    if (element.type !== 'text') {
-      console.warn(`[slides] dblclick: element ${hit} is type=${element.type}, not text — edit mode skipped`);
-      return;
-    }
-    console.info(`[slides] dblclick: entering edit mode for text element ${hit}`);
+    if (!element || element.type !== 'text') return;
     e.preventDefault();
     e.stopPropagation();
     this.enterEditMode(slide.id, element.id);
@@ -479,11 +479,17 @@ class SlidesEditorImpl implements SlidesEditor {
       },
     });
     this.editingTextBox = tb;
-    // Hide handles for the editing element + render the text-box.
+    // Repaint the slide canvas so the element being edited disappears
+    // (render() filters it out while editingElementId is non-null), then
+    // refresh the overlay (which also hides the resize/rotate handles
+    // for that element). Without the slide repaint the canvas keeps the
+    // pre-edit text, which would show through under the editor's own
+    // canvas as a ghost copy.
+    this.renderer.markDirty();
+    this.render();
     this.repaintOverlay();
     // Focus so keystrokes flow into the textarea immediately.
     tb.focus();
-    console.info(`[slides] enterEditMode: mounted text-box for element ${elementId}, container=`, tb.container);
   }
 
   /**
@@ -507,7 +513,6 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private finishEditMode(): void {
     const tb = this.editingTextBox;
-    const wasEditingId = this.editingElementId;
     this.editingTextBox = null;
     this.editingElementId = null;
     if (tb !== null) {
@@ -516,21 +521,6 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
-    // Post-paint diagnostic: confirm what the slide canvas sees AFTER
-    // detach + render. If the text-element has empty blocks here, the
-    // commit chain broke somewhere upstream; if it has content but the
-    // canvas still looks blank, the slide-canvas text renderer is the
-    // suspect.
-    if (wasEditingId !== null) {
-      const slide = this.currentSlide();
-      const el = slide?.elements.find((e) => e.id === wasEditingId);
-      if (el && el.type === 'text') {
-        const sample = (el.data.blocks?.[0]?.inlines?.[0] as { text?: string } | undefined)?.text;
-        console.info(`[slides] finishEditMode: snapshot for ${wasEditingId} blocks=${el.data.blocks?.length ?? 0} text=${JSON.stringify(sample)}`);
-      } else {
-        console.warn(`[slides] finishEditMode: element ${wasEditingId} not found / not text`);
-      }
-    }
   }
 
   private startInsert(clientX: number, clientY: number): void {
