@@ -47,6 +47,14 @@ export interface SlidesEditor {
   setSelection(ids: readonly string[]): void;
   onSelectionChange(cb: () => void): () => void;
   setInsertMode(kind: InsertKind | null): void;
+  /** Current insert mode, or `null` if no insert mode is active. */
+  getInsertMode(): InsertKind | null;
+  /**
+   * Subscribe to insert-mode changes. Fires whenever
+   * `setInsertMode` is called, including the editor's own internal
+   * reset to `null` after a placement. Returns an unsubscribe fn.
+   */
+  onInsertModeChange(cb: () => void): () => void;
   getCurrentSlideId(): string | undefined;
   setCurrentSlide(id: string): void;
   /**
@@ -82,6 +90,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private keyRules!: KeyRule[];
   private currentId: string | undefined;
   private currentSlideListeners = new Set<() => void>();
+  private insertModeListeners = new Set<() => void>();
   /**
    * Element id of the text-box currently in edit mode, or null. While
    * non-null:
@@ -214,8 +223,21 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   setInsertMode(kind: InsertKind | null): void {
+    if (this.insertKind === kind) return;
     this.insertKind = kind;
     // T7 wires this to a cursor change + canvas pointerdown handler.
+    for (const cb of this.insertModeListeners) cb();
+  }
+
+  getInsertMode(): InsertKind | null {
+    return this.insertKind;
+  }
+
+  onInsertModeChange(cb: () => void): () => void {
+    this.insertModeListeners.add(cb);
+    return () => {
+      this.insertModeListeners.delete(cb);
+    };
   }
 
   getEditingElementId(): string | null {

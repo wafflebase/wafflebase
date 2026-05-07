@@ -208,6 +208,23 @@ describe('initialize', () => {
     expect(editor.getSelection()).toEqual([]);
   });
 
+  it('notifies onInsertModeChange when setInsertMode is called', () => {
+    const { canvas, overlay, store } = makeFixture();
+    editor = initialize({ canvas, overlay, store, hostWidth: 960, hostHeight: 540, dpr: 1 });
+    const seen: (string | null)[] = [];
+    const unsub = editor.onInsertModeChange(() => {
+      seen.push(editor!.getInsertMode());
+    });
+
+    editor.setInsertMode('rect');
+    editor.setInsertMode('text');
+    editor.setInsertMode(null);
+    unsub();
+    editor.setInsertMode('rect'); // post-unsub, should not fire
+
+    expect(seen).toEqual(['rect', 'text', null]);
+  });
+
   it('setCurrentSlide switches the rendered slide and clears element selection', () => {
     const { canvas, overlay, store } = makeFixture();
     let secondId = '';
