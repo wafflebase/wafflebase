@@ -20,11 +20,23 @@ export interface SlideRendererOptions {
  */
 export class SlideRenderer {
   private dirty = true;
+  // Explicit field declarations + body assignments instead of TypeScript
+  // parameter properties. Node's `--experimental-strip-types` (used by
+  // the frontend test runner) cannot parse parameter properties, so any
+  // file that flows through `@wafflebase/slides`'s public surface must
+  // stay strip-types compatible — otherwise the SLIDES_SRC_INDEX
+  // fallback in `frontend/tests/resolve-hooks.mjs` blows up when the
+  // dist isn't pre-built.
+  private ctx: CanvasRenderingContext2D;
+  private options: SlideRendererOptions;
 
   constructor(
-    private ctx: CanvasRenderingContext2D,
-    private options: SlideRendererOptions,
-  ) {}
+    ctx: CanvasRenderingContext2D,
+    options: SlideRendererOptions,
+  ) {
+    this.ctx = ctx;
+    this.options = options;
+  }
 
   /** Trigger a repaint on the next `render()` call. */
   markDirty(): void {

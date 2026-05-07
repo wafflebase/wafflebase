@@ -25,11 +25,18 @@ export function renderThumbnail(
 export class ThumbnailScheduler {
   private pending = new Set<string>();
   private timer: ReturnType<typeof setTimeout> | null = null;
+  // Explicit declarations + body assignments so this file stays
+  // parseable by Node's `--experimental-strip-types`.
+  private debounceMs: number;
+  private onFlush: (slideIds: string[]) => void;
 
   constructor(
-    private debounceMs: number,
-    private onFlush: (slideIds: string[]) => void,
-  ) {}
+    debounceMs: number,
+    onFlush: (slideIds: string[]) => void,
+  ) {
+    this.debounceMs = debounceMs;
+    this.onFlush = onFlush;
+  }
 
   schedule(slideId: string): void {
     this.pending.add(slideId);

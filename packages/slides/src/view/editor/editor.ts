@@ -108,8 +108,13 @@ class SlidesEditorImpl implements SlidesEditor {
    * TextEditor inside jsdom (where the Canvas 2D context is a stub).
    */
   private readonly mountTextBox: typeof mountSlidesTextBox;
+  // Explicit declaration + body assignment so this file stays parseable
+  // by Node's `--experimental-strip-types` (used by the frontend test
+  // runner via `frontend/tests/resolve-hooks.mjs`).
+  private options: SlidesEditorOptions;
 
-  constructor(private options: SlidesEditorOptions) {
+  constructor(options: SlidesEditorOptions) {
+    this.options = options;
     const ctx = options.canvas.getContext('2d');
     if (!ctx) throw new Error('SlidesEditor: canvas has no 2D context');
     this.renderer = new SlideRenderer(ctx, options);
