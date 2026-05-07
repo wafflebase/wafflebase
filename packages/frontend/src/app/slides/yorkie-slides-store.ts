@@ -127,15 +127,30 @@ export class YorkieSlidesStore implements SlidesStore {
   private redoStack: SlidesDocument[] = [];
   private batchDepth = 0;
   private changeListeners = new Set<() => void>();
+  private unsubscribeDoc: (() => void) | undefined;
 
   constructor(doc: YorkieDocument<YorkieSlidesRoot>) {
     this.doc = doc;
-    doc.subscribe((e) => {
+    // Capture the unsubscribe handle so we can detach when the store
+    // is disposed. Without this, every test/route that builds a fresh
+    // YorkieSlidesStore for the same Yorkie document leaks one
+    // subscription per construction; remote-change events then fire
+    // notifyChange() on every stale instance still in memory.
+    this.unsubscribeDoc = doc.subscribe((e) => {
       if (e.type === 'remote-change') {
         this.onRemoteChange?.();
         this.notifyChange();
       }
     });
+  }
+
+  /**
+   * Detach from the underlying Yorkie document. Idempotent. The store
+   * itself remains queryable but stops firing change notifications.
+   */
+  dispose(): void {
+    this.unsubscribeDoc?.();
+    this.unsubscribeDoc = undefined;
   }
 
   /**

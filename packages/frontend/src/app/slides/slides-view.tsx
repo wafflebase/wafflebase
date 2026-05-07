@@ -217,6 +217,7 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
       offChange();
       thumbHandle.dispose();
       editor.detach();
+      store.dispose();
       editorRef.current = null;
       onEditorReady?.(null);
       style.remove();
