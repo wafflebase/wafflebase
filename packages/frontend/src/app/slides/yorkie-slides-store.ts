@@ -79,21 +79,44 @@ export function ensureSlidesRoot(
  * deliberately ignored in Phase 4a; the behaviour matches MemSlidesStore.
  */
 export class YorkieSlidesStore implements SlidesStore {
-  /** Set by the React wrapper to schedule a re-render on remote change. */
+  /**
+   * @deprecated Use `onChange` instead. Kept for one release for any
+   * older callers; will be removed once Phase 5 lands.
+   */
   onRemoteChange?: () => void;
 
   private doc: YorkieDocument<YorkieSlidesRoot>;
   private undoStack: SlidesDocument[] = [];
   private redoStack: SlidesDocument[] = [];
   private batchDepth = 0;
+  private changeListeners = new Set<() => void>();
 
   constructor(doc: YorkieDocument<YorkieSlidesRoot>) {
     this.doc = doc;
     doc.subscribe((e) => {
       if (e.type === 'remote-change') {
         this.onRemoteChange?.();
+        this.notifyChange();
       }
     });
+  }
+
+  /**
+   * Subscribe to ANY change to the document — local batch commits OR
+   * remote changes pushed in by another peer. Unlike `onRemoteChange`,
+   * fires for local mutations too, so consumers like the React wrapper
+   * can refresh thumbnails after a drag/resize/rotate commit without
+   * polling.
+   */
+  onChange(cb: () => void): () => void {
+    this.changeListeners.add(cb);
+    return () => { this.changeListeners.delete(cb); };
+  }
+
+  private notifyChange(): void {
+    for (const cb of this.changeListeners) {
+      try { cb(); } catch { /* swallow listener errors */ }
+    }
   }
 
   // --- read ---
@@ -128,6 +151,9 @@ export class YorkieSlidesStore implements SlidesStore {
       fn();
     } finally {
       this.batchDepth--;
+      if (this.batchDepth === 0) {
+        this.notifyChange();
+      }
     }
   }
 
@@ -136,6 +162,7 @@ export class YorkieSlidesStore implements SlidesStore {
     const snapshot = this.undoStack.pop()!;
     this.redoStack.push(this.read());
     this.replaceRoot(snapshot);
+    this.notifyChange();
   }
 
   redo(): void {
@@ -143,6 +170,7 @@ export class YorkieSlidesStore implements SlidesStore {
     const snapshot = this.redoStack.pop()!;
     this.undoStack.push(this.read());
     this.replaceRoot(snapshot);
+    this.notifyChange();
   }
 
   canUndo(): boolean {

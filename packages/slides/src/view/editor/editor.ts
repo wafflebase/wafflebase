@@ -26,6 +26,15 @@ export interface SlidesEditorOptions extends SlideRendererOptions {
 
 export interface SlidesEditor {
   render(): void;
+  /**
+   * Force the next `render()` call to repaint the canvas + overlay,
+   * even if the editor thinks nothing changed locally. Required after
+   * an external mutation (a remote Yorkie change, a programmatic
+   * store update outside the editor's interaction handlers) — without
+   * it, `render()` no-ops because the renderer's dirty flag is reset
+   * after each successful paint.
+   */
+  markDirty(): void;
   getSelection(): readonly string[];
   setSelection(ids: readonly string[]): void;
   onSelectionChange(cb: () => void): () => void;
@@ -144,6 +153,10 @@ class SlidesEditorImpl implements SlidesEditor {
   setInsertMode(kind: InsertKind | null): void {
     this.insertKind = kind;
     // T7 wires this to a cursor change + canvas pointerdown handler.
+  }
+
+  markDirty(): void {
+    this.renderer.markDirty();
   }
 
   detach(): void {

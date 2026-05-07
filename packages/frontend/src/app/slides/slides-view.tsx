@@ -211,12 +211,25 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     };
     toolbar.addEventListener("click", onToolbarClick);
 
-    // Re-render on remote change. Yorkie's mutation proxy is already
-    // updated when this fires; we just need to repaint canvas + thumbs.
-    store.onRemoteChange = () => {
+    // Re-render on ANY store change — local batch commits OR remote
+    // changes pushed in by another peer.
+    //
+    // markDirty before render is required because the renderer's
+    // dirty flag is reset after each successful paint, so a remote
+    // change wouldn't otherwise trigger a repaint (the editor doesn't
+    // know the underlying data shifted under it). markDirty is also
+    // safe to call after local edits — the next render is a no-op if
+    // the renderer already painted the same frame.
+    //
+    // thumbHandle.refresh() is the only way A's own thumbnail picks
+    // up a drag/resize commit on the current slide, since the
+    // thumbnail panel only listens to selection / current-slide
+    // changes, neither of which fires for an in-place frame update.
+    const offChange = store.onChange(() => {
+      editor.markDirty();
       editor.render();
       thumbHandle.refresh();
-    };
+    });
 
     // Local presence: broadcast active slide + selection. The
     // username/email/photo fields are filled in by the SlidesDetail
@@ -254,6 +267,7 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
       cancelAnimationFrame(raf);
       offSelection();
       offSlide();
+      offChange();
       toolbar.removeEventListener("click", onToolbarClick);
       thumbHandle.dispose();
       editor.detach();
