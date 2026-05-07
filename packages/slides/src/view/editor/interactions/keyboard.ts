@@ -200,15 +200,43 @@ function currentSlide(ctx: KeyboardContext) {
   return ctx.store.read().slides.find((s) => s.id === id);
 }
 
+/**
+ * Write `elements` to the system clipboard. Includes BOTH the custom
+ * MIME type (used when pasting back into slides) and a `text/plain`
+ * fallback containing the same JSON, which is what other editors will
+ * see if they paste from us. The text/plain copy also lets `read()`
+ * recover the payload on browsers that don't surface custom types
+ * (current Safari).
+ */
 async function writeClipboard(elements: readonly Element[]): Promise<void> {
   const json = serializeElements(elements);
-  const item = new ClipboardItem({
-    [MIME_TYPE]: new Blob([json], { type: MIME_TYPE }),
-  });
-  await navigator.clipboard.write([item]);
+  try {
+    const item = new ClipboardItem({
+      [MIME_TYPE]: new Blob([json], { type: MIME_TYPE }),
+      'text/plain': new Blob([json], { type: 'text/plain' }),
+    });
+    await navigator.clipboard.write([item]);
+  } catch (err) {
+    // Last-resort fallback: text/plain only. Triggered when the browser
+    // refuses the ClipboardItem (older Chrome without web-prefix support,
+    // OS-level clipboard permission denied, etc.).
+    console.warn('[slides] clipboard write fell back to text/plain:', err);
+    try {
+      await navigator.clipboard.writeText(json);
+    } catch (innerErr) {
+      console.warn('[slides] clipboard write failed entirely:', innerErr);
+    }
+  }
 }
 
+/**
+ * Read elements from the system clipboard. Tries the custom MIME type
+ * first, then falls back to text/plain (which we always co-write, and
+ * which a sibling slides instance using writeText would also produce).
+ * Returns `null` when the clipboard is empty or holds non-slides text.
+ */
 async function readClipboard(): Promise<ElementInit[] | null> {
+  // Path 1: rich clipboard read (custom MIME).
   try {
     const items = await navigator.clipboard.read();
     for (const item of items) {
@@ -218,9 +246,34 @@ async function readClipboard(): Promise<ElementInit[] | null> {
         return deserializeElements(json);
       }
     }
+    // Custom type not present; fall through to text/plain.
+    for (const item of items) {
+      if (item.types.includes('text/plain')) {
+        const blob = await item.getType('text/plain');
+        const json = await blob.text();
+        return tryDeserialize(json);
+      }
+    }
     return null;
+  } catch (err) {
+    console.warn('[slides] clipboard read fell back to readText:', err);
+    // Path 2: plain-text read (works without explicit clipboard-read
+    // permission on more browsers).
+    try {
+      const json = await navigator.clipboard.readText();
+      return tryDeserialize(json);
+    } catch (innerErr) {
+      console.warn('[slides] clipboard read failed entirely:', innerErr);
+      return null;
+    }
+  }
+}
+
+function tryDeserialize(json: string): ElementInit[] | null {
+  try {
+    return deserializeElements(json);
   } catch {
-    return null; // permission denied or no slides payload
+    return null; // text/plain didn't carry a slides payload
   }
 }
 

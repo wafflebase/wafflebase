@@ -4,8 +4,12 @@ import type { Element, ElementInit } from '../../../model/element';
  * Custom MIME type used for slides element clipboard payloads. Phase 4's
  * React wrapper reads/writes the same MIME type, so a copy from the slides
  * demo can paste into the eventual frontend editor and vice versa.
+ *
+ * The `web ` prefix is required by the W3C Clipboard API for any custom
+ * MIME type — without it, Chrome silently rejects the ClipboardItem.
+ * See https://w3c.github.io/clipboard-apis/#optional-data-types-x.
  */
-export const MIME_TYPE = 'application/x-wafflebase-slides+json';
+export const MIME_TYPE = 'web application/x-wafflebase-slides+json';
 
 const MAGIC = 'wafflebase/slides@v1';
 

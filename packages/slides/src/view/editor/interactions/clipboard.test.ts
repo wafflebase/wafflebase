@@ -24,7 +24,10 @@ describe('clipboard serialization', () => {
     expect(() => deserializeElements('{"foo": "bar"}')).toThrow(/wafflebase\/slides/i);
   });
 
-  it('exports a stable MIME type', () => {
-    expect(MIME_TYPE).toBe('application/x-wafflebase-slides+json');
+  it('exports a stable MIME type with the W3C-required `web ` prefix', () => {
+    // Without the `web ` prefix, Chrome silently rejects ClipboardItem
+    // for custom MIME types. See
+    // https://w3c.github.io/clipboard-apis/#optional-data-types-x.
+    expect(MIME_TYPE).toBe('web application/x-wafflebase-slides+json');
   });
 });
