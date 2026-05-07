@@ -103,16 +103,36 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     container.innerHTML = "";
     const dpr = window.devicePixelRatio || 1;
 
+    // Width of the left thumbnail panel — persisted to localStorage so
+    // the user's resize preference survives reloads. Clamped on read in
+    // case storage holds a stale value from a smaller / larger viewport.
+    const STORAGE_KEY = "wfb-slides-left-width";
+    const MIN_LEFT_W = 120;
+    const MAX_LEFT_W = 480;
+    const DEFAULT_LEFT_W = 220;
+    let leftWidth = (() => {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        const n = raw ? Number.parseInt(raw, 10) : NaN;
+        if (!Number.isFinite(n)) return DEFAULT_LEFT_W;
+        return Math.min(MAX_LEFT_W, Math.max(MIN_LEFT_W, n));
+      } catch {
+        return DEFAULT_LEFT_W;
+      }
+    })();
+
     const layout = document.createElement("div");
     layout.style.display = "grid";
-    layout.style.gridTemplateColumns = "220px 1fr";
+    // 3 columns: thumbnails | drag handle | canvas. The handle is its
+    // own column (no gap) so the cursor change spans the full gutter.
+    layout.style.gridTemplateColumns = `${leftWidth}px 6px 1fr`;
     // minmax(0, 1fr) constrains the row height to the parent's height,
     // letting the left column's overflowY actually scroll instead of
     // expanding the grid to fit all thumbnails. min-height: 0 on the
     // grid items themselves is the standard CSS-grid scrollable-child
     // workaround.
     layout.style.gridTemplateRows = "minmax(0, 1fr)";
-    layout.style.gap = "12px";
+    layout.style.gap = "0";
     layout.style.padding = "12px";
     layout.style.boxSizing = "border-box";
     layout.style.height = "100%";
@@ -120,11 +140,42 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     const left = document.createElement("div");
     left.style.overflowY = "auto";
     left.style.minHeight = "0";
+    left.style.paddingRight = "12px";
     const thumbsHost = document.createElement("div");
     left.appendChild(thumbsHost);
     layout.appendChild(left);
 
+    // Drag handle between thumbnail panel and canvas. Visually a thin
+    // vertical line that grows on hover; functionally drives the
+    // leftWidth state on mousedown + mousemove.
+    const resizer = document.createElement("div");
+    resizer.style.cursor = "col-resize";
+    resizer.style.position = "relative";
+    resizer.setAttribute("aria-label", "Resize thumbnail panel");
+    resizer.setAttribute("role", "separator");
+    resizer.setAttribute("aria-orientation", "vertical");
+    const resizerLine = document.createElement("div");
+    resizerLine.style.position = "absolute";
+    resizerLine.style.top = "0";
+    resizerLine.style.bottom = "0";
+    resizerLine.style.left = "50%";
+    resizerLine.style.width = "1px";
+    resizerLine.style.background = "var(--border, #4444)";
+    resizerLine.style.transform = "translateX(-50%)";
+    resizerLine.style.transition = "background 120ms";
+    resizer.appendChild(resizerLine);
+    resizer.addEventListener("mouseenter", () => {
+      resizerLine.style.background = "var(--primary, #3a7)";
+      resizerLine.style.width = "2px";
+    });
+    resizer.addEventListener("mouseleave", () => {
+      resizerLine.style.background = "var(--border, #4444)";
+      resizerLine.style.width = "1px";
+    });
+    layout.appendChild(resizer);
+
     const right = document.createElement("div");
+    right.style.paddingLeft = "12px";
     right.style.display = "flex";
     right.style.flexDirection = "column";
     right.style.gap = "12px";
@@ -217,6 +268,48 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     });
     resizeObserver.observe(right);
 
+    // Drag-to-resize the left column. Mousedown latches; mousemove
+    // updates leftWidth (clamped + rounded); mouseup persists to
+    // localStorage. Listeners attach to document so the drag continues
+    // even if the cursor leaves the handle.
+    let dragging = false;
+    let dragStartX = 0;
+    let dragStartLeft = 0;
+    const onResizerDown = (e: MouseEvent) => {
+      e.preventDefault();
+      dragging = true;
+      dragStartX = e.clientX;
+      dragStartLeft = leftWidth;
+      // Lock the cursor and disable user-select so text in the panel
+      // doesn't get selected during a drag.
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    };
+    const onDocMouseMove = (e: MouseEvent) => {
+      if (!dragging) return;
+      const next = Math.min(
+        MAX_LEFT_W,
+        Math.max(MIN_LEFT_W, dragStartLeft + (e.clientX - dragStartX)),
+      );
+      if (next === leftWidth) return;
+      leftWidth = next;
+      layout.style.gridTemplateColumns = `${leftWidth}px 6px 1fr`;
+    };
+    const onDocMouseUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      try {
+        window.localStorage.setItem(STORAGE_KEY, String(leftWidth));
+      } catch {
+        /* ignore quota / privacy-mode failures */
+      }
+    };
+    resizer.addEventListener("mousedown", onResizerDown);
+    document.addEventListener("mousemove", onDocMouseMove);
+    document.addEventListener("mouseup", onDocMouseUp);
+
     const thumbHandle: ThumbnailPanelHandle = mountThumbnailPanel(
       thumbsHost,
       store,
@@ -279,6 +372,13 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
 
     return () => {
       resizeObserver.disconnect();
+      document.removeEventListener("mousemove", onDocMouseMove);
+      document.removeEventListener("mouseup", onDocMouseUp);
+      // If the user navigated mid-drag, restore body cursor / select.
+      if (dragging) {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
       cancelAnimationFrame(raf);
       offSelection();
       offSlide();
