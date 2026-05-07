@@ -158,6 +158,17 @@ export class YorkieSlidesStore implements SlidesStore {
 
   // --- read ---
 
+  /**
+   * O(1) accessor for the slide count. Used by the SlidesView RAF tick
+   * to decide whether the thumbnail panel needs a refresh — we don't
+   * want to call `read()` (which JSON-clones the entire presentation)
+   * 60 times per second just to compare an integer.
+   */
+  getSlideCount(): number {
+    const root = this.doc.getRoot() as { slides?: { length?: number } };
+    return root.slides?.length ?? 0;
+  }
+
   read(): SlidesDocument {
     const root = this.doc.getRoot();
     const meta = yorkieToPlain<{ title: string }>(root.meta) ?? {
@@ -629,9 +640,14 @@ export class YorkieSlidesStore implements SlidesStore {
       }
       const blocks = yorkieToPlain<Block[]>((e.data as { blocks?: unknown }).blocks) ?? [];
       const next = fn(blocks);
-      if (next !== undefined) {
-        e.data = { blocks: clone(next) } as unknown as typeof e.data;
-      }
+      // Always write back. `yorkieToPlain` returns a plain JSON copy
+      // (Yorkie proxies don't expose live nested values for non-CRDT
+      // fields), so a void-returning `fn` that mutates `blocks` in
+      // place would otherwise have no effect — diverging from
+      // MemSlidesStore where the callback receives the live reference.
+      // `next ?? blocks` covers both the explicit-return path and the
+      // void-mutation path with one assignment.
+      e.data = { blocks: clone(next ?? blocks) } as unknown as typeof e.data;
     });
   }
 
@@ -642,9 +658,9 @@ export class YorkieSlidesStore implements SlidesStore {
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       const blocks = yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [];
       const next = fn(blocks);
-      if (next !== undefined) {
-        s.notes = clone(next) as unknown as YorkieSlide['notes'];
-      }
+      // Same rationale as withTextElement above — write back regardless
+      // of whether `fn` returned a value or mutated in place.
+      s.notes = clone(next ?? blocks) as unknown as YorkieSlide['notes'];
     });
   }
 

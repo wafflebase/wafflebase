@@ -193,12 +193,15 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
 
     // RAF loop so async asset loads (image cache) repaint, and
     // thumbnail count stays in sync with store mutations the panel
-    // doesn't observe directly.
-    let lastSlideCount = store.read().slides.length;
+    // doesn't observe directly. Use the O(1) `getSlideCount()`
+    // accessor for the count comparison — `store.read()` here would
+    // JSON-clone the whole presentation 60 times per second, scaling
+    // linearly with deck size and stressing the GC at idle.
+    let lastSlideCount = store.getSlideCount();
     let raf = 0;
     const tick = () => {
       editor.render();
-      const n = store.read().slides.length;
+      const n = store.getSlideCount();
       if (n !== lastSlideCount) {
         lastSlideCount = n;
         thumbHandle.refresh();

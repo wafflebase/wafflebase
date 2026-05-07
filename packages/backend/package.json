@@ -103,6 +103,7 @@
       "^src/(.*)$": "<rootDir>/$1",
       "^@wafflebase/sheets$": "<rootDir>/../../sheets/src/index.ts",
       "^@wafflebase/docs$": "<rootDir>/../../docs/src/node.ts",
+      "^@wafflebase/slides$": "<rootDir>/../../slides/src/node.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [
