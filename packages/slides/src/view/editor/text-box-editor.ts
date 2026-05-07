@@ -127,13 +127,19 @@ export function mountSlidesTextBox(opts: MountSlidesTextBoxOptions): SlidesTextB
     container,
     canvas,
     blocks,
-    // contentWidth / contentHeight are in CSS pixels — the docs text-
-    // box editor uses them as logical content size. We pass `dpr` too
-    // so the editor scales its paint by the device pixel ratio (the
-    // canvas bitmap was already sized to `cssW * dpr` above).
-    contentWidth: cssW,
-    contentHeight: cssH,
-    dpr,
+    // Pass the LOGICAL slide-frame dimensions as content size (not the
+    // host-CSS-scaled values). This keeps the editor's text rendered
+    // at the same logical font sizes the slide canvas uses, so
+    // committed text on the slide canvas matches what the user saw
+    // while editing — no font-size jump on commit.
+    //
+    // The effective `dpr` we pass is `browser dpr * slide scale`:
+    // the docs text-box scales its ctx by this, mapping logical
+    // coords (contentWidth) onto the device-pixel canvas bitmap
+    // (`cssW * browser dpr` = `frame.w * scale * browser dpr`).
+    contentWidth: frame.w,
+    contentHeight: frame.h,
+    dpr: dpr * scale,
     onCommit: handleCommit,
     onCancel: handleCancel,
   });
