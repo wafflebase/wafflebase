@@ -415,7 +415,13 @@ export function paginatedPixelToPosition(
   // case, where the fallback assignment lets `targetPL` end up as the
   // last line on the page).
   const lb = layout.blocks[targetPL.blockIndex];
-  const line = lb.lines[targetPL.lineIndex];
+  // Use `targetPL.line` rather than `lb.lines[targetPL.lineIndex]`. For
+  // table blocks `lb.lines` holds a single synthetic wrapper line
+  // (whole-table height) and `targetPL.line` is the per-row `rowLine`
+  // built during pagination. Indexing `lb.lines[ri]` for any row past 0
+  // returns `undefined` and crashes when reading `.y` — repros on any
+  // click into a multi-row table.
+  const line = targetPL.line;
   const layoutX = localX;
   const layoutY = lb.y + line.y + line.height / 2;
 
