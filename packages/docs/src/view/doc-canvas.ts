@@ -1,16 +1,20 @@
-import type { Block } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { PaginatedLayout, LayoutPage } from './pagination.js';
 import { getPageYOffset, getPageXOffset, getHeaderYStart, getFooterYStart, getTableOriginYForPageLine } from './pagination.js';
 import type { EditContext } from '../model/document.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
-import { Theme, buildFont, ptToPx } from './theme.js';
+import { Theme } from './theme.js';
 import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 import { renderTableBackgrounds, renderTableContent } from './table-renderer.js';
 import { computeTableRangeForPageLine } from './table-geometry.js';
 import { getOrLoadImage } from './image-cache.js';
 import { drawImageSelection, drawResizeHud, type ImageRect } from './image-selection-overlay.js';
+import {
+  renderRun as paintRenderRun,
+  renderListMarker as paintRenderListMarker,
+  drawInlineRunBackgroundsForPage,
+} from './paint-layout.js';
 
 /**
  * Convert a peer cursor color (hex) to a translucent selection fill.
@@ -367,7 +371,7 @@ export class DocCanvas {
       // peer highlight layers below sit on top of them. Without this,
       // renderRun's opaque bg fillRect would later paint over the
       // translucent highlights and hide them inside a colored span.
-      this.drawInlineRunBackgrounds(page, layout, pageX, pageY);
+      drawInlineRunBackgroundsForPage(this.ctx, page, layout, pageX, pageY);
 
       // Draw search match highlights for this page (behind all selections)
       if (searchHighlightRects) {
@@ -485,7 +489,11 @@ export class DocCanvas {
           // shadow, so that the overlay handles and the image stay in
           // lockstep instead of visually diverging during the drag.
           if (dragImageRun && run === dragImageRun) continue;
-          this.renderRun(run, pageX + pl.x, pageY + pl.y, pl.line.height, true);
+          paintRenderRun(this.ctx, run, pageX + pl.x, pageY + pl.y, pl.line.height, {
+            theme: Theme,
+            skipBackground: true,
+            requestRender: this.requestRender ?? undefined,
+          });
 
           // Image runs are opaque and cover the selection highlight
           // drawn earlier. Re-draw a semi-transparent overlay on top
@@ -517,7 +525,7 @@ export class DocCanvas {
             const marker = block.listKind === 'unordered'
               ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
               : (listCounters.get(block.id) ?? '1.');
-            this.renderListMarker(block, pageY + pl.y, pl.line.height, markerX, marker);
+            paintRenderListMarker(this.ctx, block, pageY + pl.y, pl.line.height, markerX, marker, Theme);
           }
         }
       }
@@ -614,7 +622,10 @@ export class DocCanvas {
   }
 
   /**
-   * Render a run, substituting page number token if applicable.
+   * Render a header/footer run, substituting the page number token if
+   * applicable. Header/footer paths predate the body's two-pass
+   * background pipeline, so this passes `skipBackground: false` to
+   * paint each run's bg fill inline.
    */
   private renderRunWithPageNumber(
     run: LayoutRun,
@@ -623,186 +634,18 @@ export class DocCanvas {
     lineHeight: number,
     pageNumber: number,
   ): void {
-    if (run.inline.style.pageNumber) {
-      const substituted = {
-        ...run,
-        text: String(pageNumber),
-        inline: { ...run.inline, text: String(pageNumber) },
-      };
-      this.renderRun(substituted, lineX, lineY, lineHeight, false);
-    } else {
-      this.renderRun(run, lineX, lineY, lineHeight, false);
-    }
-  }
-
-  /**
-   * Walk every PageLine on a page and paint its runs' inline
-   * `style.backgroundColor`. Called before the highlight layers so the
-   * translucent selection / search / peer fills end up on top of any
-   * colored span. Body callers must pass `skipBackground=true` to
-   * `renderRun` afterwards so the bg isn't painted twice.
-   *
-   * Skips block types that handle their own background pipeline:
-   * - `table`: see `renderTableBackgrounds`
-   * - `horizontal-rule` / `page-break`: no inline runs
-   */
-  private drawInlineRunBackgrounds(
-    page: LayoutPage,
-    layout: DocumentLayout | undefined,
-    pageX: number,
-    pageY: number,
-  ): void {
-    for (let plIndex = 0; plIndex < page.lines.length; plIndex++) {
-      const pl = page.lines[plIndex];
-      if (layout) {
-        const block = layout.blocks[pl.blockIndex]?.block;
-        if (
-          block &&
-          (block.type === 'table' ||
-            block.type === 'horizontal-rule' ||
-            block.type === 'page-break')
-        ) {
-          continue;
+    const target = run.inline.style.pageNumber
+      ? {
+          ...run,
+          text: String(pageNumber),
+          inline: { ...run.inline, text: String(pageNumber) },
         }
-      }
-      for (const run of pl.line.runs) {
-        const style = run.inline.style;
-        // Image runs are opaque pictures, not text — they never had a
-        // bg fill in the old single-pass path either.
-        if (style.image || !style.backgroundColor) continue;
-        this.ctx.fillStyle = style.backgroundColor;
-        this.ctx.fillRect(
-          Math.round(pageX + pl.x + run.x),
-          pageY + pl.y,
-          run.width,
-          pl.line.height,
-        );
-      }
-    }
-  }
-
-  /**
-   * Render a single text run.
-   *
-   * `skipBackground` lets the body path opt out of painting the
-   * translucent run background, because `drawInlineRunBackgrounds`
-   * already drew it before the selection layer (the bg would otherwise
-   * cover the selection). Header/footer paths still pass `false` —
-   * they don't share the body's two-pass pipeline yet.
-   */
-  private renderRun(
-    run: LayoutRun,
-    lineX: number,
-    lineY: number,
-    lineHeight: number,
-    skipBackground: boolean,
-  ): void {
-    const style = run.inline.style;
-
-    // Image inlines are rendered via drawImage, not fillText. The run's
-    // width/imageHeight were set by layoutBlock (scaled to fit if needed);
-    // we align the image to the line's baseline area.
-    if (style.image) {
-      const x = Math.round(lineX + run.x);
-      const drawHeight = run.imageHeight ?? lineHeight;
-      // Bottom-align the image so it sits on the text baseline row.
-      const y = Math.round(lineY + lineHeight - drawHeight);
-      const img = getOrLoadImage(style.image.src, () => {
-        // Trigger a re-render when the image finishes loading.
-        this.requestRender?.();
-      });
-      if (img) {
-        this.ctx.drawImage(img, x, y, run.width, drawHeight);
-      }
-      return;
-    }
-
-    const originalFontSizePx = ptToPx(style.fontSize ?? Theme.defaultFontSize);
-
-    // Superscript/subscript: reduce font size to 60% and shift baseline
-    const isSuperscript = style.superscript === true;
-    const isSubscript = style.subscript === true;
-    const renderFontSize = (isSuperscript || isSubscript)
-      ? (style.fontSize ?? Theme.defaultFontSize) * 0.6
-      : style.fontSize;
-
-    // Link defaults: blue text + underline (user-set values take precedence)
-    let textColor = style.color || Theme.defaultColor;
-    let showUnderline = style.underline ?? false;
-    if (style.href) {
-      if (!style.color) textColor = '#1155cc';
-      if (style.underline === undefined) showUnderline = true;
-    }
-
-    this.ctx.font = buildFont(
-      renderFontSize,
-      style.fontFamily,
-      style.bold,
-      style.italic,
-    );
-    this.ctx.fillStyle = textColor;
-    this.ctx.textBaseline = 'alphabetic';
-
-    let baselineY = Math.round(lineY + (lineHeight + originalFontSizePx * 0.8) / 2);
-    if (isSuperscript) {
-      baselineY -= Math.round(originalFontSizePx * 0.4);
-    } else if (isSubscript) {
-      baselineY += Math.round(originalFontSizePx * 0.2);
-    }
-    const x = Math.round(lineX + run.x);
-
-    if (style.backgroundColor && !skipBackground) {
-      this.ctx.save();
-      this.ctx.fillStyle = style.backgroundColor;
-      this.ctx.fillRect(x, lineY, run.width, lineHeight);
-      this.ctx.restore();
-      this.ctx.fillStyle = textColor;
-    }
-
-    this.ctx.fillText(run.text, x, baselineY);
-
-    if (showUnderline) {
-      const underlineY = baselineY + 2;
-      this.ctx.beginPath();
-      this.ctx.strokeStyle = textColor;
-      this.ctx.lineWidth = 1;
-      this.ctx.moveTo(x, underlineY);
-      this.ctx.lineTo(x + run.width, underlineY);
-      this.ctx.stroke();
-    }
-
-    if (style.strikethrough) {
-      const renderFontSizePx = ptToPx(
-        (isSuperscript || isSubscript)
-          ? (style.fontSize ?? Theme.defaultFontSize) * 0.6
-          : (style.fontSize ?? Theme.defaultFontSize),
-      );
-      const strikeY = Math.round(baselineY - renderFontSizePx * 0.3);
-      this.ctx.beginPath();
-      this.ctx.strokeStyle = textColor;
-      this.ctx.lineWidth = 1;
-      this.ctx.moveTo(x, strikeY);
-      this.ctx.lineTo(x + run.width, strikeY);
-      this.ctx.stroke();
-    }
-  }
-
-  /**
-   * Render a list marker (bullet or number) for a list-item block.
-   */
-  private renderListMarker(
-    block: Block,
-    lineY: number,
-    lineHeight: number,
-    markerX: number,
-    markerText: string,
-  ): void {
-    const fontSize = block.inlines[0]?.style.fontSize ?? Theme.defaultFontSize;
-    const fontSizePx = ptToPx(fontSize);
-    const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
-    this.ctx.font = buildFont(fontSize, block.inlines[0]?.style.fontFamily, false, false);
-    this.ctx.fillStyle = block.inlines[0]?.style.color ?? Theme.defaultColor;
-    this.ctx.fillText(markerText, markerX, baselineY);
+      : run;
+    paintRenderRun(this.ctx, target, lineX, lineY, lineHeight, {
+      theme: Theme,
+      skipBackground: false,
+      requestRender: this.requestRender ?? undefined,
+    });
   }
 
   /**
