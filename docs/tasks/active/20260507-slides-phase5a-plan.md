@@ -553,55 +553,66 @@ docs Tree CRDT semantics, instead of last-write-wins on the whole
   text / delete / split block / merge block), which YorkieDocStore
   already knows how to apply to a Tree — adapt the pattern.
 
-- [ ] **Step 5.1: Update types**
+- [x] **Step 5.1: Update types**
 
-  In `slides-document.ts`, change:
-  ```ts
-  data: { blocks: Block[] };  // before
-  ```
-  to
-  ```ts
-  data: { tree: Tree };       // after
-  ```
-  for `YorkieTextElement`. Same for `YorkieSlide.notes`. Keep
-  `Block[]` as the snapshot shape returned by `read()` — the read
-  path still flattens Tree → Block[].
+  `YorkieTextElement.data` is now `{ tree: Tree }` and
+  `YorkieSlide.notes` is now `Tree`. A separate `YorkiePlaceholder`
+  union keeps layout placeholders as plain `{ blocks: Block[] }`
+  shapes (Trees can't live in a static `BUILT_IN_LAYOUTS` constant —
+  they must be `new Tree(...)`'d inside `doc.update`). The Tree gets
+  materialised when `addSlide` / `applyLayout` instantiates the
+  placeholder into a real element.
 
-- [ ] **Step 5.2: Initialise Trees in `ensureSlidesRoot` + `addSlide`
+- [x] **Step 5.2: Initialise Trees in `ensureSlidesRoot` + `addSlide`
   + `addElement`**
 
-  When a new slide / text element is created, the Yorkie root must
-  contain `new Tree(...)` for that field, not plain JSON. Use the
-  same shape `ensureTree` in docs uses for the root content (see
-  `packages/frontend/src/app/docs/docs-view.tsx:36-60`).
+  `ensureSlidesRoot` now also walks any pre-existing slides and
+  materialises a Tree for `notes` and each text element's `data.tree`
+  if it isn't a Tree CRDT yet (legacy `Block[]` JSON gets dropped —
+  Phase 5a accepts the wire-format break). `addSlide`, `addElement`,
+  `duplicateSlide`, `applyLayout`, `moveSlide`, `moveSlides`,
+  `reorderElement`, and `replaceRoot` all `new Tree(...)` text bodies
+  + notes inside `doc.update`. Reorder paths can't shuffle Yorkie
+  array proxies (Tree refs are singletons), so they rebuild slides /
+  elements with fresh Trees seeded from the source's flattened
+  blocks.
 
-- [ ] **Step 5.3: Replace `withTextElement` / `withNotes` Tree
+- [x] **Step 5.3: Replace `withTextElement` / `withNotes` Tree
   bridge**
 
-  The current implementation passes a cloned `Block[]` to the
-  callback and writes back the result wholesale. Replace with the
-  pattern YorkieDocStore uses: hand back the live Tree (or a thin
-  adapter that emits Tree-mutations on edits). The T4 SlidesTextBox
-  consumer already produces a TextEditor → calling
-  `tree.editByPath(...)`-style mutations.
+  Phase 5a-1 ships a SHALLOW Tree migration: the storage shape is
+  `Tree`, but `withTextElement` / `withNotes` keep the existing
+  `(blocks: Block[]) => Block[] | void` callback API. On commit, the
+  returned `Block[]` is written by replacing the tree's contents
+  (`editByPath` delete + `editBulkByPath` insert). This preserves the
+  T4 wiring (text-box-editor → onCommit(blocks)) without touching
+  consumers.
 
-  This is the trickiest piece. The docs YorkieDocStore implements
-  `insertText` / `deleteText` / `splitBlock` / `mergeBlock` against
-  a Yorkie.Tree. Slides' withTextElement adapter needs to expose
-  the same entry points (or just hand the Tree to the consumer).
+  Trade-off: concurrent edits inside the same body resolve as
+  last-write-wins on commit (same single-user behaviour as before,
+  multi-user converges only between commits). Per-keystroke Tree
+  mutations for true character-level convergence are tracked as
+  Phase 5a-2.
 
-- [ ] **Step 5.4: Update equivalence tests**
+- [x] **Step 5.4: Update equivalence tests**
 
-  The existing equivalence tests
-  (`yorkie-slides-equivalence.test.ts`) compare snapshot shapes
-  between MemSlidesStore (Block[]) and YorkieSlidesStore (Tree).
-  After T5, YorkieSlidesStore returns flattened Block[] from
-  `read()` — the comparison should still hold. Verify and adjust
-  if the structural comparison breaks.
+  The existing equivalence tests (which compare via `stripIds`)
+  initially failed on `notesLength` because a freshly-initialised
+  Tree carries an empty paragraph (Trees can't be empty — the cursor
+  needs an anchor block) while MemSlidesStore represents empty notes
+  as `[]`. The fix lives in `yorkie-slides-store.ts`'s `treeToBlocks`
+  helper: a "trivially empty" Tree (single empty paragraph) flattens
+  back to `[]` on read, restoring snapshot equivalence with Mem.
+  All 6 equivalence tests pass without modification.
 
-- [ ] **Step 5.5: Verify**
+- [x] **Step 5.5: Verify**
 
-  Run: `pnpm verify:fast`. Expected: green.
+  - `pnpm --filter @wafflebase/frontend test` — 234/234 green
+    (188 pass, 6 newly-passing equivalence tests + 40 skip + 0 fail)
+  - `pnpm --filter @wafflebase/slides test` — 185/185 green
+  - `pnpm --filter @wafflebase/frontend lint` — clean
+  - `pnpm verify:fast` — exit 0 (architecture, frontend, backend,
+    sheets, slides, cli, docs lanes all pass)
 
 - [ ] **Step 5.6: Commit**
 
