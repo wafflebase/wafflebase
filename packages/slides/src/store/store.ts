@@ -1,6 +1,7 @@
 import type { Block } from '@wafflebase/docs';
 import type { Background, SlidesDocument } from '../model/presentation';
 import type { ElementInit, Frame } from '../model/element';
+import type { Theme } from '../model/theme';
 
 /**
  * SlidesStore — persistence abstraction for a presentation.
@@ -32,6 +33,13 @@ export interface SlidesStore {
 
   updateSlideBackground(slideId: string, bg: Background): void;
   applyLayout(slideId: string, layoutId: string): void;
+
+  // --- theme-level ---
+
+  /** Add a theme to the document. Idempotent on `theme.id`. */
+  addTheme(theme: Theme): void;
+  /** Apply a theme as the active theme. Theme must already be in `themes[]`. */
+  applyTheme(themeId: string): void;
 
   // --- element-level ---
 

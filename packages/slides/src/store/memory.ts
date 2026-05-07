@@ -10,6 +10,7 @@ import { generateId } from '../model/element';
 import { BUILT_IN_LAYOUTS, getLayout } from '../model/layout';
 import { DEFAULT_BACKGROUND } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
+import { migrateDocument } from '../model/migrate';
 import type { Theme } from '../model/theme';
 
 function clone<T>(value: T): T {
@@ -68,7 +69,11 @@ export class MemSlidesStore implements SlidesStore {
   }
 
   read(): SlidesDocument {
-    return clone(this.doc);
+    // Pipe through migrateDocument so a constructor-supplied legacy
+    // SlidesDocument (string-typed background fills, layoutId 'title',
+    // missing themes/masters/meta.themeId) is reconciled to the v0.5
+    // shape — keeping Mem reads aligned with YorkieSlidesStore.read().
+    return migrateDocument(clone(this.doc));
   }
 
   // --- slide ops ---
@@ -139,6 +144,20 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     slide.background = clone(bg);
+  }
+
+  addTheme(theme: Theme): void {
+    this.requireBatch();
+    if (this.doc.themes.find((t) => t.id === theme.id)) return; // idempotent
+    this.doc.themes.push(clone(theme));
+  }
+
+  applyTheme(themeId: string): void {
+    this.requireBatch();
+    if (!this.doc.themes.find((t) => t.id === themeId)) {
+      throw new Error(`[slides] theme '${themeId}' not in document`);
+    }
+    this.doc.meta.themeId = themeId;
   }
 
   applyLayout(slideId: string, layoutId: string): void {

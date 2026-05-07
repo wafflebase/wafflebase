@@ -43,6 +43,8 @@ export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './mode
 
 export { BUILT_IN_LAYOUTS, getLayout } from './model/layout';
 
+export { migrateDocument } from './model/migrate';
+
 // Store
 export type { SlidesStore } from './store/store';
 export { MemSlidesStore } from './store/memory';
