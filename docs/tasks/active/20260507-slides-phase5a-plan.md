@@ -265,7 +265,7 @@ Refactor `paginatedPixelToPosition` to call it.
   - `pnpm verify:fast` — green (architecture, frontend, backend,
     sheets, slides, cli, docs lanes all pass)
 
-- [ ] **Step 2.5: Commit**
+- [x] **Step 2.5: Commit**
 
 ```bash
 git commit -m "Extract findPositionAtPixel from paginatedPixelToPosition" -m "Pure extraction. The layout-shaped portion of
@@ -343,41 +343,59 @@ full-document factory). Re-export `TextEditor`, `paintLayout`,
   data-attribute (`data-role="text-box-canvas-${id}"`) and pass it
   to TextEditor.
 
-- [ ] **Step 3.1: Refactor `setCanvasCursor` to be per-instance**
+- [x] **Step 3.1: Refactor `setCanvasCursor` to be per-instance**
 
-  Read `text-editor.ts:setCanvasCursor` (around line 188). Either
-  add a setter to `TextEditor` that takes the cursor target, or
-  have the constructor accept the canvas element directly. Update
-  the existing caller (the `initialize` path) accordingly. No
-  behaviour change.
+  Added `TextEditor.setCursorTarget(el)` setter + a private
+  `cursorTarget` field. `setCanvasCursor` now writes to the explicit
+  target when present and falls back to the historical
+  `canvas[data-role="doc-canvas"]` query when not. The existing
+  `initialize` factory wires the just-created canvas via
+  `textEditor.setCursorTarget(canvas)` so the docs editor's behaviour
+  is byte-identical (the new target is the same element the old
+  selector resolved to). Slides text-boxes pass their per-textbox
+  canvas, eliminating the cross-instance collision the spike
+  flagged.
 
-- [ ] **Step 3.2: Write `initializeTextBox`**
+- [x] **Step 3.2: Write `initializeTextBox`**
 
-  Implement per the signature above. The hardest part is the
-  one-page `PaginatedLayout` shim — read what `paginateLayout`
-  returns (its shape) and build a single-element version manually.
+  Created `packages/docs/src/view/text-box-editor.ts`. The factory
+  builds a one-page `PaginatedLayout` shim (margins zeroed, paper
+  size = `(contentWidth, contentHeight)`, single `LayoutPage`
+  carrying one `PageLine` per layout line). Hit-test math composes
+  cleanly because `paginatedPixelToPosition`'s page-finding +
+  margin-stripping collapses to the identity transform under the
+  shim, except for `Theme.pageGap` — `getPageYOffset(0)` returns
+  `pageGap` regardless, so the factory passes
+  `getCanvasOffsetTop = () => -Theme.pageGap` to the TextEditor (so
+  pointer Y math compensates) and translates cursor / selection
+  pixel coords by `-pageGap` before forwarding to `paintLayout`.
+  Renderer drives a `requestAnimationFrame` loop; `onCommit` fires
+  on blur via `TextEditor.onFocusChange`; Escape calls
+  `onCancel` then blurs (which routes through `onCommit`); detach
+  removes the textarea and tears down cursor blink. No CRDT, no
+  scroll, no header/footer — exactly what slides text-boxes need
+  in v1.
 
-- [ ] **Step 3.3: Re-export from `packages/docs/src/index.ts`**
+- [x] **Step 3.3: Re-export from `packages/docs/src/index.ts`**
 
-  Append:
-  ```ts
-  export { TextEditor } from './view/text-editor';
-  export {
-    initializeTextBox,
-    type TextBoxEditorAPI,
-    type TextBoxEditorOptions,
-  } from './view/text-box-editor';
-  export { paintLayout, type PaintLayoutOpts } from './view/paint-layout';
-  export { findPositionAtPixel } from './view/find-position-at-pixel';
-  ```
+  Added:
+  - `TextEditor` (class, from `./view/text-editor.js`)
+  - `initializeTextBox`, `TextBoxEditorAPI`, `TextBoxEditorOptions`
+    (from `./view/text-box-editor.js`)
+  - `paintLayout`, `PaintLayoutOpts` (from `./view/paint-layout.js`)
+  - `findPositionAtPixel`, `PixelPosition` (from
+    `./view/find-position-at-pixel.js`)
 
-- [ ] **Step 3.4: Verify**
+- [x] **Step 3.4: Verify**
 
-  Run: `pnpm --filter @wafflebase/docs typecheck`
-  Run: `pnpm --filter @wafflebase/docs test`
-  Run: `pnpm --filter @wafflebase/docs build`
-  Expected: green. The new factory has no consumers yet; typecheck
-  asserts it composes correctly.
+  - `pnpm --filter @wafflebase/docs typecheck` — clean
+  - `pnpm --filter @wafflebase/docs test` — 746 / 746 green
+    (5 new smoke tests for `initializeTextBox`, all 741 prior tests
+    unchanged)
+  - `pnpm --filter @wafflebase/docs build` — built (Vite + dts
+    rollup green)
+  - `pnpm verify:fast` — green (architecture + frontend + backend +
+    sheets + slides + cli + docs lanes all pass; exit 0)
 
 - [ ] **Step 3.5: Commit**
 

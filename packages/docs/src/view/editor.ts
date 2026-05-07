@@ -1203,6 +1203,12 @@ export function initialize(
   textEditorRef = textEditor;
 
   if (textEditor) {
+    // Direct the per-instance cursor-style writes at the canvas we
+    // just created. Equivalent to the previous `[data-role="doc-canvas"]`
+    // querySelector lookup, but explicit — multiple TextEditor instances
+    // on the same page (e.g., slides text-boxes) no longer collide.
+    textEditor.setCursorTarget(canvas);
+
     textEditor.onDragGuideline = (pos) => {
       dragGuideline = pos;
       renderPaintOnly();

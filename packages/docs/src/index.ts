@@ -74,6 +74,14 @@ export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
 
 // View
 export { initialize, type EditorAPI } from './view/editor.js';
+export { TextEditor } from './view/text-editor.js';
+export {
+  initializeTextBox,
+  type TextBoxEditorAPI,
+  type TextBoxEditorOptions,
+} from './view/text-box-editor.js';
+export { paintLayout, type PaintLayoutOpts } from './view/paint-layout.js';
+export { findPositionAtPixel, type PixelPosition } from './view/find-position-at-pixel.js';
 export type { TableMergeContext } from './view/table-merge-context.js';
 export { computeLayout, computeListCounters } from './view/layout.js';
 export type {

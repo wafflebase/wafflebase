@@ -162,6 +162,20 @@ export class TextEditor {
   /** Callback invoked when edit context changes (body/header/footer). */
   private editContextChangeCallback?: (context: EditContext) => void;
 
+  /**
+   * Optional cursor-style target. When set, `setCanvasCursor` writes the
+   * CSS cursor on this element directly. When unset, the editor falls
+   * back to a `canvas[data-role="doc-canvas"]` query inside its
+   * container — the long-standing behaviour that `initialize` (the
+   * full-document factory) relies on.
+   *
+   * The slides-friendly `initializeTextBox` factory passes its
+   * per-textbox canvas here so multiple text-boxes can coexist on the
+   * same slide without fighting over the `[data-role="doc-canvas"]`
+   * selector.
+   */
+  private cursorTarget: HTMLElement | null = null;
+
   getBorderDragState(): BorderDragState | null {
     return this.borderDragState;
   }
@@ -185,9 +199,22 @@ export class TextEditor {
     this.editContextChangeCallback = cb;
   }
 
+  /**
+   * Set the element whose CSS `cursor` style the text editor mutates
+   * during hover (text / col-resize / row-resize). When unset the
+   * editor falls back to its container's `canvas[data-role="doc-canvas"]`
+   * descendant — preserving the existing `initialize` factory's
+   * behaviour. Slides text-boxes call this with their per-textbox
+   * canvas so each text-box owns its own cursor style.
+   */
+  setCursorTarget(el: HTMLElement | null): void {
+    this.cursorTarget = el;
+  }
+
   private setCanvasCursor(cursor: string): void {
-    const canvas = this.container.querySelector('canvas[data-role="doc-canvas"]') as HTMLCanvasElement | null;
-    if (canvas) canvas.style.cursor = cursor;
+    const target = this.cursorTarget
+      ?? (this.container.querySelector('canvas[data-role="doc-canvas"]') as HTMLCanvasElement | null);
+    if (target) target.style.cursor = cursor;
   }
 
   constructor(
