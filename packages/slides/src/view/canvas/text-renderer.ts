@@ -1,6 +1,7 @@
 import { CanvasTextMeasurer, computeLayout } from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
 import type { FrameSize } from './shape-renderer';
+import { resolveSlideFontFamily } from './fonts';
 
 /**
  * Module-scope measurer reused across every text-element render. Owning
@@ -57,7 +58,10 @@ function resolveCtxFont(style: {
   italic?: boolean;
 }): string | undefined {
   const size = style.fontSize ?? 11; // pt; converted to px below
-  const family = style.fontFamily ?? 'Inter, system-ui, sans-serif';
+  // Route through the docs font registry so Korean / CJK font names
+  // (e.g. `'맑은 고딕'`) resolve to a CSS chain that includes
+  // `'Noto Sans KR'` as an explicit fallback. See `./fonts.ts`.
+  const family = resolveSlideFontFamily(style.fontFamily);
   const px = size * (96 / 72); // pt → px (matches docs ptToPx)
   const weight = style.bold ? 'bold ' : '';
   const italic = style.italic ? 'italic ' : '';

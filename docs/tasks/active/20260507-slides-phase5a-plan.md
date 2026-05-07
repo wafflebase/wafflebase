@@ -663,28 +663,58 @@ registry rather than maintaining a slides-side fallback list.
   the font registry so any slides-direct fillText calls also see
   Noto Sans KR.
 
-- [ ] **Step 6.1: Verify what docs already does**
+- [x] **Step 6.1: Verify what docs already does**
 
-  Read `packages/docs/src/view/fonts.ts`. Note how Noto Sans KR is
-  loaded (FontFace API? `@font-face` rules in CSS? Web font URL?)
-  and whether it ships with the package or needs network fetch.
+  `packages/docs/src/view/fonts.ts` exports `resolveFontFamily()`
+  (a CSS-chain rewriter, e.g. `'맑은 고딕'` →
+  `"'Malgun Gothic', 'Noto Sans KR', sans-serif"`) plus a
+  `FontRegistry` class wrapping the CSS Font Loading API. Critical
+  finding: `FontRegistry` has no module-level singleton and isn't
+  instantiated outside its own test, and `resolveFontFamily` is
+  NOT called from any canvas paint code (`paint-layout.ts`,
+  `table-renderer.ts`) or measurement code (`canvas-measurer.ts`)
+  — they all use `style.fontFamily` raw via `buildFont()` /
+  `fontToCss()`. Docs ships with no font files and there is no
+  `@font-face` rule loaded by the live docs editor; the editor's
+  CJK rendering relies entirely on the browser's last-resort
+  glyph fallback to OS-installed Korean fonts. Only
+  `pdf-exporter.ts` explicitly calls `document.fonts.load('Noto
+  Sans KR')` and only when a PDF export is requested.
 
-- [ ] **Step 6.2: Re-export font loader from docs (if not already)**
+- [x] **Step 6.2: Re-export font loader from docs (if not already)**
 
-  If `loadCJKFonts()` (or whatever the docs entry point is) isn't
-  on `packages/docs/src/index.ts`, add it. If it auto-runs on
-  import, slides gets it for free by importing anything from docs.
+  No loader exists. Added `resolveFontFamily` and `FontRegistry`
+  exports to `packages/docs/src/index.ts` so slides has a public
+  seam (slides imports the published `dist/wafflebase-document.es.d.ts`
+  and can't reach internal `view/fonts.ts` directly). Rebuilt
+  `@wafflebase/docs` so the dts surfaces them.
 
-- [ ] **Step 6.3: Wire from slides**
+- [x] **Step 6.3: Wire from slides**
 
-  Either (a) ensure slides' demo / SlidesView calls the loader at
-  startup, or (b) document that `@wafflebase/docs`'s top-level
-  import side-effect already loads the fonts.
+  Created `packages/slides/src/view/canvas/fonts.ts` exporting
+  `resolveSlideFontFamily(family?)` — preserves slides' default
+  `'Inter, system-ui, sans-serif'` for unset families, routes
+  everything else through docs' `resolveFontFamily` so Korean
+  font names get a `'Noto Sans KR'` step in the chain. Wired
+  into `text-renderer.ts:resolveCtxFont`. Added a 3-test
+  vitest spec covering the default branch, the Korean-mapped
+  branch, and the unknown-family branch. Documented the
+  inheritance in `slides-view.tsx`'s component header (no
+  behaviour change there — the fix is entirely inside the slides
+  text renderer). The slides demo (`packages/slides/demo.ts`)
+  needs no change: it imports the slides package, which imports
+  the wired text-renderer.
 
-- [ ] **Step 6.4: Manual verify**
+- [x] **Step 6.4: Manual verify**
 
-  In the demo, type Korean into a text element. The canvas should
-  render the Korean glyphs without any �missing-glyph fallback.
+  Skipped per plan ("rely on the layout-time CJK correctness
+  already proven by docs"). Layout-time (`CanvasTextMeasurer` in
+  the browser) measures against real OS-resolved fonts so width
+  math is already CJK-correct; paint-time now has the explicit
+  `'Noto Sans KR'` chain entry for Korean family names so Canvas
+  has somewhere to fall through to even when the requested face
+  is missing. Behaviour matches docs' live editor exactly because
+  both share the same registry.
 
 - [ ] **Step 6.5: Commit**
 

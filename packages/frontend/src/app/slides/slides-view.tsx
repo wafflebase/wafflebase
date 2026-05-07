@@ -48,6 +48,16 @@ const HOST_H = 540;
  * cancels the RAF tick, disposes the thumbnail panel, detaches the
  * editor, unsubscribes presence callbacks, and removes the injected
  * style tag.
+ *
+ * CJK fonts: the slides text renderer routes inline `fontFamily`
+ * values through the docs font registry (see
+ * `packages/slides/src/view/canvas/fonts.ts`), which appends
+ * `'Noto Sans KR'` to Korean font name fallback chains. No font is
+ * fetched here — Canvas relies on the browser's installed fonts plus
+ * its own last-resort glyph fallback, matching how the docs editor
+ * paints CJK in its live editor today. PDF export (Phase 5b) will
+ * preload Noto KR via `document.fonts.load` the same way docs'
+ * PDF exporter does.
  */
 export function SlidesView({ onEditorReady }: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
