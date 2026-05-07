@@ -254,7 +254,7 @@ describe('slides text-box editor wiring', () => {
     expect(editor.getEditingElementId()).not.toBeNull();
   });
 
-  it('cancel (Escape) exits edit mode without committing changes', () => {
+  it('Escape discards in-flight edits (cancel suppresses the subsequent commit write)', () => {
     const { canvas, overlay, store } = makeFixture();
     const { slideId, elementId } = addTextElement(store, [paragraph('hello')]);
     const { mount, current } = makeMockMount();
@@ -265,21 +265,24 @@ describe('slides text-box editor wiring', () => {
     });
     dispatchDblClick(canvas, 200, 200);
     const tb = current()!;
-    // Fire cancel — onCancel is the editor's hook for "user pressed Escape".
-    // The real docs editor still emits onCommit from the subsequent blur,
-    // but onCancel itself is just notification. Here we drive only the
-    // cancel signal so the test confirms onCancel alone is a no-op for
-    // store state.
+    // Real docs editor sequence on Escape: fires onCancel first, then
+    // routes the subsequent blur through onCommit with whatever the
+    // user typed. Drive both, supplying *modified* blocks so we verify
+    // they are NOT persisted.
     tb.fireCancel();
-    // Edit mode is still active because cancel alone doesn't exit;
-    // the docs editor calls api.blur() after onCancel which routes
-    // through onCommit. Drive that path next:
-    tb.fireCommit([paragraph('hello')]);  // no-op write of identical blocks
+    tb.fireCommit([paragraph('typed-but-discarded')]);
     expect(editor.getEditingElementId()).toBeNull();
-    // The store still has the original blocks.
+    // Store still has the original blocks — edits were discarded.
     const slide = store.read().slides.find((s) => s.id === slideId)!;
     const element = slide.elements.find((e) => e.id === elementId)! as TextElement;
     expect(element.data.blocks[0].inlines[0].text).toBe('hello');
+    // The previous (pre-Escape) batch is the addTextElement that ran in
+    // the test setup. One undo should remove the text element entirely;
+    // if the commit-suppression had failed and a write-batch had been
+    // pushed, undo would only roll the blocks back instead of removing
+    // the element.
+    store.undo();
+    expect(store.read().slides[0].elements).toHaveLength(0);
   });
 
   it('detach() during edit mode tears the text-box down cleanly', () => {

@@ -478,6 +478,13 @@ class SlidesEditorImpl implements SlidesEditor {
     this.editingElementId = elementId;
 
     const blocks = element.data.blocks;
+    // Escape sets `cancelled` first, THEN the docs editor routes the
+    // blur cascade through the onCommit branch below. The flag tells
+    // onCommit to skip the store write so the user's in-flight edits
+    // are discarded — matching the Word / Google Docs convention. The
+    // editor's source of truth (Yorkie) is only ever touched on
+    // commit, so "discard" is just "don't write" — no rollback needed.
+    let cancelled = false;
     const tb = this.mountTextBox({
       overlay: this.options.overlay,
       frame: element.frame,
@@ -488,24 +495,20 @@ class SlidesEditorImpl implements SlidesEditor {
         // the slide id at enter-time because the user could have
         // switched slides during editing — withTextElement only
         // resolves on the slide we actually edited.
-        try {
-          this.options.store.batch(() => {
-            this.options.store.withTextElement(slideId, elementId, () => next);
-          });
-        } catch {
-          // The element may have been removed during editing; swallow
-          // the not-found and just exit edit mode cleanly.
+        if (!cancelled) {
+          try {
+            this.options.store.batch(() => {
+              this.options.store.withTextElement(slideId, elementId, () => next);
+            });
+          } catch {
+            // The element may have been removed during editing; swallow
+            // the not-found and just exit edit mode cleanly.
+          }
         }
         this.finishEditMode();
       },
       onCancel: () => {
-        // Escape: the docs editor fires this BEFORE it blurs, then
-        // routes the blur through the regular onCommit path above —
-        // so Escape currently behaves identically to blur (the user's
-        // typed edits are persisted via withTextElement). True
-        // "Escape discards" semantics would require a flag this
-        // callback flips that the onCommit branch consults to skip
-        // withTextElement. Per spec the discard story is v1.1.
+        cancelled = true;
       },
     });
     this.editingTextBox = tb;
