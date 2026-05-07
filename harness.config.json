@@ -9,6 +9,11 @@
           "pattern": "^pending-imports-",
           "maxKb": 1500,
           "reason": "PDF export bundle (pdf-lib + fontkit), loaded only when user clicks Export PDF"
+        },
+        {
+          "pattern": "^slides-detail-",
+          "maxKb": 1500,
+          "reason": "Slides editor bundle — @wafflebase/slides (model + canvas renderer + editor + interactions) plus the @wafflebase/docs layout engine reused for text-element rendering, loaded only when navigating to a /p/:id Presentation route. v2 can split editor from renderer if the budget tightens."
         }
       ]
     }
