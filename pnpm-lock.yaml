@@ -380,6 +380,9 @@ importers:
       '@wafflebase/sheets':
         specifier: workspace:*
         version: link:../sheets
+      '@wafflebase/slides':
+        specifier: workspace:*
+        version: link:../slides
       '@yorkie-js/react':
         specifier: 0.7.8
         version: 0.7.8(react@19.1.0)
