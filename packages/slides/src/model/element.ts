@@ -90,6 +90,6 @@ export function generateId(): string {
 export function isElementEmpty(el: Element): boolean {
   if (el.type !== 'text') return false;
   return el.data.blocks.every((b) =>
-    b.inlines.every((inl) => inl.text === ''),
+    b.inlines.every((inline) => inline.text === ''),
   );
 }
