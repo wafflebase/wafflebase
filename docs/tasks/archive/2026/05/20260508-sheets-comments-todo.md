@@ -1964,3 +1964,12 @@ git commit -m "Archive sheet cell comments task (phase B done)"
 **Placeholder scan:** No "TBD" / "TODO" / "implement later" in steps; every code step contains the actual code or exact search command. Locations marked with "search below" all give a concrete `grep` command, not a vague pointer.
 
 **Type consistency:** `Thread`, `Comment`, `CommentAnchor`, `CommentAuthor` named consistently across all tasks. Mutation helpers (`applyAddThread`, `applyAddReply`, `applyEditComment`, `applyDeleteComment`, `applyResolveThread`) named consistently in tasks 5, 6, 7. Store methods (`addThread`, `addReply`, `editComment`, `deleteComment`, `setThreadResolved`, `listThreads`) named consistently across tasks 3, 6, 10, 11, 13.
+
+---
+
+## Review
+
+- All phase B goals from `docs/design/sheets/comments.md` implemented across 14 tasks.
+- Tests: thread/anchor/store/yorkie-mutations/orphan-cleanup/concurrency all passing. `pnpm verify:fast` passed clean (58 test files, 1265 tests across all packages).
+- Visual tests: skipped. No Playwright or browser-based visual harness exists in the repo; the test suite uses Vitest + jsdom for view-layer tests. The render-comments and overlay canvas tests already cover the marker rendering logic via mock canvas contexts. Full visual/interaction browser tests (marker render, popover open on click, Cmd+Alt+M shortcut, side panel counts, jump-to-cell) are a follow-up.
+- Out-of-scope follow-ups: phase C (mentions, notifications, per-user unread); visual/browser interaction tests (Playwright harness would need to be bootstrapped).
