@@ -13,10 +13,7 @@ import { DEFAULT_MASTER } from '../model/master';
 import { migrateDocument } from '../model/migrate';
 import type { Theme } from '../model/theme';
 import { defaultLight } from '../themes/default-light';
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value));
-}
+import { clone } from '../model/clone';
 
 function emptyDocument(): SlidesDocument {
   return {

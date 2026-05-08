@@ -1,4 +1,5 @@
 import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
+import { clone } from './clone';
 import { generateId, isElementEmpty } from './element';
 import type { Element, PlaceholderRef, PlaceholderType } from './element';
 import type { Layout, PlaceholderSpec, Slide } from './presentation';
@@ -292,7 +293,7 @@ export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
     if (usedSlots.has(si)) continue;
     const slot = slots[si];
     const fresh = {
-      ...JSON.parse(JSON.stringify(slot.spec)),
+      ...clone(slot.spec),
       id: generateId(),
       placeholderRef: slot.ref,
     } as Element;
