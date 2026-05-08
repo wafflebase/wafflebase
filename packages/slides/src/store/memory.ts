@@ -7,7 +7,7 @@ import type {
 import type { Block } from '@wafflebase/docs';
 import type { Element, ElementInit, Frame } from '../model/element';
 import { generateId } from '../model/element';
-import { BUILT_IN_LAYOUTS, getLayout } from '../model/layout';
+import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout } from '../model/layout';
 import { DEFAULT_BACKGROUND } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
 import { migrateDocument } from '../model/migrate';
@@ -67,10 +67,16 @@ export class MemSlidesStore implements SlidesStore {
       id,
       layoutId: layout.id,
       background: clone(DEFAULT_BACKGROUND),
-      elements: layout.placeholders.map((p) => ({
-        ...clone(p),
-        id: generateId(),
-      } as Element)),
+      elements: layout.placeholders.map((p, i) => {
+        const sameTypeBefore = layout.placeholders
+          .slice(0, i)
+          .filter((q) => q.placeholder.type === p.placeholder.type).length;
+        return {
+          ...clone(p),
+          id: generateId(),
+          placeholderRef: { type: p.placeholder.type, index: sameTypeBefore },
+        } as Element;
+      }),
       notes: [],
     };
     const insertAt = atIndex === undefined
@@ -144,26 +150,7 @@ export class MemSlidesStore implements SlidesStore {
   applyLayout(slideId: string, layoutId: string): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    const layout = getLayout(layoutId);
-    slide.layoutId = layout.id;
-    // Add placeholders that the slide does not already cover.
-    // "Cover" here is conservative: we only add placeholders when the
-    // slide currently has no element of the same type at the same frame
-    // position. v2 master slides will replace this with real
-    // placeholder identity tracking.
-    for (const placeholder of layout.placeholders) {
-      const matches = slide.elements.some(
-        (e) => e.type === placeholder.type
-          && e.frame.x === placeholder.frame.x
-          && e.frame.y === placeholder.frame.y,
-      );
-      if (!matches) {
-        slide.elements.push({
-          ...clone(placeholder),
-          id: generateId(),
-        } as Element);
-      }
-    }
+    applyLayoutToSlide(slide, getLayout(layoutId));
   }
 
   // --- element ops ---

@@ -330,6 +330,34 @@ describe('MemSlidesStore — applyLayout', () => {
   });
 });
 
+describe('MemSlidesStore — addSlide stamps placeholderRef', () => {
+  it('annotates new placeholder elements with type and per-type index', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('title-two-columns');
+    });
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId)!;
+    expect(slide.elements.map((e) => e.placeholderRef)).toEqual([
+      { type: 'title', index: 0 },
+      { type: 'body',  index: 0 },
+      { type: 'body',  index: 1 },
+    ]);
+  });
+
+  it('annotates layouts with no placeholders as empty (blank)', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+    });
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId)!;
+    expect(slide.elements).toEqual([]);
+  });
+});
+
 describe('MemSlidesStore — batch / undo / redo', () => {
   it('batch groups multiple mutations into one undo entry', () => {
     const store = new MemSlidesStore();
