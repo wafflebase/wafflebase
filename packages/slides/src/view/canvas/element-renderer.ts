@@ -1,4 +1,6 @@
 import type { Element } from '../../model/element';
+import type { SlidesDocument } from '../../model/presentation';
+import type { Theme } from '../../model/theme';
 import { drawShape } from './shape-renderer';
 import { drawText } from './text-renderer';
 import { drawImage } from './image-renderer';
@@ -9,13 +11,20 @@ import { drawImage } from './image-renderer';
  * type-specific painter, and restores the ctx state. Per-type painters
  * always work in element-local coordinates.
  *
+ * `doc` and `theme` are threaded in so shape/text painters can resolve
+ * `ThemeColor`/`ThemeFont` against the deck's active theme. The image
+ * painter intentionally ignores the theme — its placeholder colors are
+ * a system-fallback UI, not themed content.
+ *
  * `onAssetLoad` is invoked the first time an async resource (currently
- * only images) finishes loading. The slide-renderer (T6) wires this
- * to a re-render request so the slide repaints once the asset arrives.
+ * only images) finishes loading. The slide-renderer wires this to a
+ * re-render request so the slide repaints once the asset arrives.
  */
 export function drawElement(
   ctx: CanvasRenderingContext2D,
   element: Element,
+  doc: SlidesDocument,
+  theme: Theme,
   onAssetLoad: () => void,
 ): void {
   const { frame } = element;
@@ -35,10 +44,10 @@ export function drawElement(
     const size = { w: frame.w, h: frame.h };
     switch (element.type) {
       case 'shape':
-        drawShape(ctx, size, element.data);
+        drawShape(ctx, size, element.data, theme);
         break;
       case 'text':
-        drawText(ctx, size, element.data);
+        drawText(ctx, size, element.data, theme);
         break;
       case 'image':
         drawImage(ctx, size, element.data, onAssetLoad);
@@ -47,4 +56,8 @@ export function drawElement(
   } finally {
     ctx.restore();
   }
+  // `doc` is threaded for forward compatibility — Task 4 wires the
+  // text renderer to a colorResolver that closes over the deck's
+  // resolved palette.
+  void doc;
 }

@@ -3,6 +3,8 @@ import type { Layout, PlaceholderSpec } from './presentation';
 import { SLIDE_WIDTH, SLIDE_HEIGHT } from './presentation';
 
 const PADDING = 80;
+const W = SLIDE_WIDTH - PADDING * 2;
+const HALF = (W - PADDING) / 2;
 
 function emptyBlocks(): Block[] {
   return [
@@ -27,43 +29,137 @@ function textPlaceholder(
   };
 }
 
-/** Built-in layouts — order is the order they appear in the toolbar. */
+/** Built-in layouts — order is the order they appear in the toolbar.
+ *
+ * v1 layouts always carry `masterId: 'default'` and an empty
+ * `staticElements` array (v1.5 populates static elements such as
+ * decorative dividers, page numbers, and footer text). Geometry
+ * mirrors Google Slides' eleven-layout default deck.
+ */
 export const BUILT_IN_LAYOUTS: Layout[] = [
   {
     id: 'blank',
+    masterId: 'default',
     name: 'Blank',
     placeholders: [],
+    staticElements: [],
   },
   {
-    id: 'title',
-    name: 'Title',
+    id: 'title-slide',
+    masterId: 'default',
+    name: 'Title slide',
     placeholders: [
-      textPlaceholder(
-        PADDING,
-        SLIDE_HEIGHT / 2 - 120,
-        SLIDE_WIDTH - PADDING * 2,
-        160,
-      ),
-      textPlaceholder(
-        PADDING,
-        SLIDE_HEIGHT / 2 + 60,
-        SLIDE_WIDTH - PADDING * 2,
-        80,
-      ),
+      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 - 120, W, 160),
+      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 + 60, W, 80),
     ],
+    staticElements: [],
+  },
+  {
+    id: 'section-header',
+    masterId: 'default',
+    name: 'Section header',
+    placeholders: [
+      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 - 80, W, 200),
+    ],
+    staticElements: [],
   },
   {
     id: 'title-body',
-    name: 'Title + body',
+    masterId: 'default',
+    name: 'Title and body',
     placeholders: [
-      textPlaceholder(PADDING, PADDING, SLIDE_WIDTH - PADDING * 2, 140),
+      textPlaceholder(PADDING, PADDING, W, 140),
       textPlaceholder(
         PADDING,
         PADDING + 180,
-        SLIDE_WIDTH - PADDING * 2,
+        W,
         SLIDE_HEIGHT - PADDING * 2 - 200,
       ),
     ],
+    staticElements: [],
+  },
+  {
+    id: 'title-two-columns',
+    masterId: 'default',
+    name: 'Title and two columns',
+    placeholders: [
+      textPlaceholder(PADDING, PADDING, W, 140),
+      textPlaceholder(
+        PADDING,
+        PADDING + 180,
+        HALF,
+        SLIDE_HEIGHT - PADDING * 2 - 200,
+      ),
+      textPlaceholder(
+        PADDING + HALF + PADDING,
+        PADDING + 180,
+        HALF,
+        SLIDE_HEIGHT - PADDING * 2 - 200,
+      ),
+    ],
+    staticElements: [],
+  },
+  {
+    id: 'title-only',
+    masterId: 'default',
+    name: 'Title only',
+    placeholders: [
+      textPlaceholder(PADDING, PADDING, W, 140),
+    ],
+    staticElements: [],
+  },
+  {
+    id: 'one-column-text',
+    masterId: 'default',
+    name: 'One column text',
+    placeholders: [
+      textPlaceholder(PADDING, PADDING, W, SLIDE_HEIGHT - PADDING * 2),
+    ],
+    staticElements: [],
+  },
+  {
+    id: 'main-point',
+    masterId: 'default',
+    name: 'Main point',
+    placeholders: [
+      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 - 80, W, 160),
+    ],
+    staticElements: [],
+  },
+  {
+    id: 'section-title-description',
+    masterId: 'default',
+    name: 'Section title and description',
+    placeholders: [
+      textPlaceholder(PADDING, PADDING * 2, W, 180),
+      textPlaceholder(
+        PADDING,
+        PADDING * 2 + 220,
+        W,
+        SLIDE_HEIGHT - PADDING * 4 - 240,
+      ),
+    ],
+    staticElements: [],
+  },
+  {
+    id: 'caption',
+    masterId: 'default',
+    name: 'Caption',
+    placeholders: [
+      textPlaceholder(PADDING, PADDING, W, SLIDE_HEIGHT - PADDING * 2 - 200),
+      textPlaceholder(PADDING, SLIDE_HEIGHT - PADDING - 160, W, 120),
+    ],
+    staticElements: [],
+  },
+  {
+    id: 'big-number',
+    masterId: 'default',
+    name: 'Big number',
+    placeholders: [
+      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 - 200, W, 280),
+      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 + 100, W, 100),
+    ],
+    staticElements: [],
   },
 ];
 

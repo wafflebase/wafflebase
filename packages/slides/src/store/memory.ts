@@ -9,6 +9,10 @@ import type { Element, ElementInit, Frame } from '../model/element';
 import { generateId } from '../model/element';
 import { BUILT_IN_LAYOUTS, getLayout } from '../model/layout';
 import { DEFAULT_BACKGROUND } from '../model/presentation';
+import { DEFAULT_MASTER } from '../model/master';
+import { migrateDocument } from '../model/migrate';
+import type { Theme } from '../model/theme';
+import { defaultLight } from '../themes/default-light';
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
@@ -16,9 +20,15 @@ function clone<T>(value: T): T {
 
 function emptyDocument(): SlidesDocument {
   return {
-    meta: { title: 'Untitled presentation' },
-    slides: [],
+    meta: {
+      title: 'Untitled presentation',
+      themeId: 'default-light',
+      masterId: 'default',
+    },
+    themes: [clone(defaultLight)],
+    masters: [clone(DEFAULT_MASTER)],
     layouts: clone(BUILT_IN_LAYOUTS),
+    slides: [],
   };
 }
 
@@ -29,11 +39,22 @@ export class MemSlidesStore implements SlidesStore {
   private batchDepth = 0;
 
   constructor(doc?: SlidesDocument) {
-    this.doc = doc ? clone(doc) : emptyDocument();
+    // Migrate at construction so mutators like `addTheme` / `applyTheme`
+    // that access `this.doc.themes` directly don't throw `TypeError` on
+    // legacy-shaped input before `read()` ever runs.
+    this.doc = doc ? migrateDocument(clone(doc)) : emptyDocument();
   }
 
   read(): SlidesDocument {
-    return clone(this.doc);
+    // Also migrate on read. After construction the doc is in v0.5 shape,
+    // but mutators that accept untyped/legacy input (e.g. test paths
+    // that cast through `unknown`, or future external callers) can
+    // re-introduce legacy field shapes mid-session. Keeping `read()`
+    // pass through migrate keeps Mem ≡ Yorkie equivalence — Yorkie's
+    // `read()` always migrates because remote peers can send arbitrary
+    // shapes. `migrateDocument` is idempotent, so the second pass is
+    // near no-op for already-migrated docs.
+    return migrateDocument(clone(this.doc));
   }
 
   // --- slide ops ---
@@ -104,6 +125,20 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
     slide.background = clone(bg);
+  }
+
+  addTheme(theme: Theme): void {
+    this.requireBatch();
+    if (this.doc.themes.find((t) => t.id === theme.id)) return; // idempotent
+    this.doc.themes.push(clone(theme));
+  }
+
+  applyTheme(themeId: string): void {
+    this.requireBatch();
+    if (!this.doc.themes.find((t) => t.id === themeId)) {
+      throw new Error(`[slides] theme '${themeId}' not in document`);
+    }
+    this.doc.meta.themeId = themeId;
   }
 
   applyLayout(slideId: string, layoutId: string): void {

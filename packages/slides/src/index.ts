@@ -10,6 +10,19 @@ export type {
 export { DEFAULT_BACKGROUND, SLIDE_HEIGHT, SLIDE_WIDTH } from './model/presentation';
 
 export type {
+  Theme,
+  ColorScheme,
+  FontScheme,
+  ColorRole,
+  FontRole,
+  ThemeColor,
+  ThemeFont,
+} from './model/theme';
+export { resolveColor, resolveFont } from './model/theme';
+export type { Master, PlaceholderStyle, MasterBackground } from './model/master';
+export { DEFAULT_MASTER } from './model/master';
+
+export type {
   Crop,
   Element,
   ElementBase,
@@ -29,6 +42,19 @@ export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';
 
 export { BUILT_IN_LAYOUTS, getLayout } from './model/layout';
+
+export { migrateDocument } from './model/migrate';
+
+// Themes — built-in theme registry (Phase 5 / themed authoring)
+export {
+  defaultLight,
+  defaultDark,
+  streamline,
+  focus,
+  material,
+  BUILT_IN_THEMES,
+  getBuiltInTheme,
+} from './themes';
 
 // Store
 export type { SlidesStore } from './store/store';

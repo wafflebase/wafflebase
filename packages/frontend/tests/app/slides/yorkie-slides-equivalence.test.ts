@@ -124,12 +124,14 @@ describe('YorkieSlidesStore ≡ MemSlidesStore (single client, local doc)', () =
     const { mem, yo } = runBoth((store) => {
       let id = '';
       store.batch(() => { id = store.addSlide('blank'); });
-      const bg = { fill: '#ff0000' };
+      // Legacy callers may still hand us a string fill; migrateDocument
+      // wraps it into the v0.5 ThemeColor shape on read.
+      const bg = { fill: '#ff0000' } as unknown as Parameters<typeof store.updateSlideBackground>[1];
       store.batch(() => store.updateSlideBackground(id, bg));
-      bg.fill = '#00ff00'; // mutating the input must not change either store
+      (bg as { fill: string }).fill = '#00ff00'; // mutating the input must not change either store
     });
     assert.deepEqual(stripIds(yo), stripIds(mem));
-    assert.equal(yo.slides[0].background.fill, '#ff0000');
+    assert.deepEqual(yo.slides[0].background.fill, { kind: 'srgb', value: '#ff0000' });
   });
 
   it('withTextElement replace-mode round-trip', () => {

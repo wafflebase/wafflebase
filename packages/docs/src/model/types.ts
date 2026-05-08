@@ -5,6 +5,9 @@
  * Inspired by Google Docs structure, simplified for Canvas rendering.
  */
 
+import type { StoredColor } from './color.js';
+import { storedColorsEqual } from './color.js';
+
 /**
  * Top-level document container.
  */
@@ -110,8 +113,14 @@ export interface InlineStyle {
   strikethrough?: boolean;
   fontSize?: number;
   fontFamily?: string;
-  color?: string;
-  backgroundColor?: string;
+  /**
+   * Either a concrete hex string (legacy / sheets / docs-only callers) or
+   * a `StoredColor` object whose role is resolved at paint time by the
+   * caller's `ColorResolver`. See `model/color.ts`.
+   */
+  color?: StoredColor;
+  /** See `color` above for the StoredColor rationale. */
+  backgroundColor?: StoredColor;
   superscript?: boolean;
   subscript?: boolean;
   href?: string;
@@ -334,8 +343,8 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
     a.strikethrough === b.strikethrough &&
     a.fontSize === b.fontSize &&
     a.fontFamily === b.fontFamily &&
-    a.color === b.color &&
-    a.backgroundColor === b.backgroundColor &&
+    storedColorsEqual(a.color, b.color) &&
+    storedColorsEqual(a.backgroundColor, b.backgroundColor) &&
     a.superscript === b.superscript &&
     a.subscript === b.subscript &&
     a.href === b.href &&

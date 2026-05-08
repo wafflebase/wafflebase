@@ -1,5 +1,14 @@
-import { useEffect, useState } from "react";
-import type { InsertKind, SlidesEditor } from "@wafflebase/slides";
+import { useCallback, useEffect, useState } from "react";
+import {
+  resolveFont,
+  type Element,
+  type InsertKind,
+  type SlidesEditor,
+  type SlidesStore,
+  type Theme,
+  type ThemeColor,
+  type ThemeFont,
+} from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
 import {
@@ -8,15 +17,48 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+} from "@/components/ui/dropdown-menu";
+import {
   IconSquare,
   IconCircle,
   IconLine,
   IconArrowRight,
   IconLetterT,
+  IconPalette,
+  IconColorSwatch,
+  IconTypography,
 } from "@tabler/icons-react";
+import { ThemedColorPicker } from "./themed-color-picker";
+import { ThemedFontPicker } from "./themed-font-picker";
+import {
+  applyShapeFill,
+  readShapeFill,
+} from "./themed-color-picker-helpers";
 
 interface SlidesFormattingToolbarProps {
   editor: SlidesEditor | null;
+  /**
+   * SlidesStore wired to the same Yorkie document as the editor. Lifted
+   * up from `slides-view.tsx` via `onStoreReady` so the contextual
+   * pickers can mutate element data without bypassing the editor's
+   * commit path. Optional to keep tests + early-mount frames safe.
+   */
+  store?: SlidesStore | null;
+  /**
+   * Active document theme — used by the color/font pickers to render
+   * their "Theme" rows. Optional so the toolbar still renders before
+   * the store has loaded.
+   */
+  theme?: Theme | null;
+  /**
+   * Toggles the theme picker side panel. The parent owns
+   * `themePanelOpen` state and flips it.
+   */
+  onToggleThemePanel?: () => void;
+  themePanelOpen?: boolean;
 }
 
 interface InsertButton {
@@ -34,19 +76,116 @@ const INSERT_BUTTONS: InsertButton[] = [
 ];
 
 /**
- * Slides equivalent of `DocsFormattingToolbar`. Renders the insert
- * toolbar above the slide canvas; reflects the editor's actual
- * insert mode (the editor resets it to null after a placement, so a
- * one-way controlled toolbar would get stuck "pressed").
+ * Read the single selected element on the active slide. Returns null
+ * when there's no selection, the selection spans multiple elements,
+ * the slide id is unknown, or the element id no longer exists.
  */
-export function SlidesFormattingToolbar({ editor }: SlidesFormattingToolbarProps) {
+function readSingleSelectedElement(
+  store: SlidesStore | null | undefined,
+  editor: SlidesEditor | null,
+): { slideId: string; element: Element } | null {
+  if (!store || !editor) return null;
+  const selection = editor.getSelection();
+  if (selection.length !== 1) return null;
+  const slideId = editor.getCurrentSlideId();
+  if (!slideId) return null;
+  const doc = store.read();
+  const slide = doc.slides.find((s) => s.id === slideId);
+  if (!slide) return null;
+  const element = slide.elements.find((e) => e.id === selection[0]);
+  if (!element) return null;
+  return { slideId, element };
+}
+
+/**
+ * Slides equivalent of `DocsFormattingToolbar`. Renders the insert
+ * toolbar above the slide canvas and surfaces three contextual
+ * controls:
+ *   - Fill color picker (shape selected, or hint when none)
+ *   - Font picker (text selected, or hint when none)
+ *   - Theme panel toggle (always visible)
+ *
+ * Picker popovers use `DropdownMenu` (Radix) so they portal to body
+ * and don't get clipped by the toolbar's overflow context — same
+ * pattern as docs / sheets toolbars.
+ */
+export function SlidesFormattingToolbar({
+  editor,
+  store,
+  theme,
+  onToggleThemePanel,
+  themePanelOpen,
+}: SlidesFormattingToolbarProps) {
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
+  const [selected, setSelected] = useState<{
+    slideId: string;
+    element: Element;
+  } | null>(null);
 
   useEffect(() => {
     if (!editor) return;
     setInsertMode(editor.getInsertMode());
     return editor.onInsertModeChange(() => setInsertMode(editor.getInsertMode()));
   }, [editor]);
+
+  useEffect(() => {
+    if (!editor) {
+      setSelected(null);
+      return;
+    }
+    const refresh = () =>
+      setSelected(readSingleSelectedElement(store, editor));
+    refresh();
+    const offSel = editor.onSelectionChange(refresh);
+    const offSlide = editor.onCurrentSlideChange(refresh);
+    const onChange = (
+      store as { onChange?: (cb: () => void) => () => void } | null | undefined
+    )?.onChange;
+    const offStore = onChange?.call(store, refresh);
+    return () => {
+      offSel();
+      offSlide();
+      offStore?.();
+    };
+  }, [editor, store]);
+
+  const isShape = selected?.element.type === "shape";
+  const isText = selected?.element.type === "text";
+
+  const onShapeFillChange = useCallback(
+    (color: ThemeColor) => {
+      if (!store || !selected || selected.element.type !== "shape") return;
+      applyShapeFill(store, selected.slideId, selected.element, color);
+    },
+    [store, selected],
+  );
+
+  const onTextFontChange = useCallback(
+    (font: ThemeFont) => {
+      if (!store || !selected || selected.element.type !== "text" || !theme) {
+        return;
+      }
+      const family = resolveFont(font, theme);
+      const slideId = selected.slideId;
+      const elementId = selected.element.id;
+      store.batch(() => {
+        store.withTextElement(slideId, elementId, (blocks) =>
+          blocks.map((b) => ({
+            ...b,
+            inlines: b.inlines.map((run) => ({
+              ...run,
+              style: { ...run.style, fontFamily: family },
+            })),
+          })),
+        );
+      });
+    },
+    [store, selected, theme],
+  );
+
+  const shapeFillValue = isShape ? readShapeFill(selected!.element) : undefined;
+  const fillHint = isShape ? undefined : "Select a shape to apply the fill.";
+  const fontHint = isText ? undefined : "Select a text element to apply the font.";
 
   return (
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
@@ -69,9 +208,79 @@ export function SlidesFormattingToolbar({ editor }: SlidesFormattingToolbarProps
         </Tooltip>
       ))}
       <ToolbarSeparator className="mx-1" />
-      {/* Phase 5b-1 will add an "+ Image" button here.
-          Phase 5b-2 will add a "Present" button here.
-          Phase 5b-3 will add an "Export PDF" button here. */}
+
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                aria-label="Fill color"
+                disabled={!theme || !store}
+              >
+                <IconColorSwatch size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Fill color</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" className="w-auto p-2">
+          {theme && (
+            <ThemedColorPicker
+              value={shapeFillValue}
+              theme={theme}
+              onChange={onShapeFillChange}
+              hint={fillHint}
+            />
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                aria-label="Font"
+                disabled={!theme || !store}
+              >
+                <IconTypography size={16} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Font</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" className="w-auto p-2">
+          {theme && (
+            <ThemedFontPicker
+              value={undefined}
+              theme={theme}
+              onChange={onTextFontChange}
+              hint={fontHint}
+            />
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {onToggleThemePanel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={!!themePanelOpen}
+              onPressedChange={() => onToggleThemePanel()}
+              aria-label="Toggle theme picker"
+              className="ml-auto"
+            >
+              <IconPalette size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Theme</TooltipContent>
+        </Tooltip>
+      )}
     </Toolbar>
   );
 }

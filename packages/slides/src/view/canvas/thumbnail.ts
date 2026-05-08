@@ -1,4 +1,4 @@
-import type { Slide } from '../../model/presentation';
+import type { Slide, SlidesDocument } from '../../model/presentation';
 import { SlideRenderer, type SlideRendererOptions } from './slide-renderer';
 
 /**
@@ -7,14 +7,19 @@ import { SlideRenderer, type SlideRendererOptions } from './slide-renderer';
  * paint. Thumbnails always render — there is no dirty tracking at
  * this layer because the caller (the editor) has already decided that
  * a thumbnail needs refreshing.
+ *
+ * `doc` provides the active theme — every theme-bound color in the
+ * thumbnail (background, shapes) resolves through it, exactly the way
+ * the main slide canvas does.
  */
 export function renderThumbnail(
   ctx: CanvasRenderingContext2D,
   slide: Slide,
+  doc: SlidesDocument,
   options: SlideRendererOptions,
 ): void {
   const renderer = new SlideRenderer(ctx, options);
-  renderer.render(slide);
+  renderer.render(slide, doc);
 }
 
 /**

@@ -56,9 +56,10 @@ Word processor engine — rich text, tables, pagination, collaboration.
 
 Presentation engine — slides, free-position elements, presentation mode, collaboration.
 
-| Document                                  | Description                                                                                        |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| [slides.md](slides/slides.md)             | Slides package (v1) — data model, Yorkie schema, Canvas+DOM editor, two-pane layout, PDF export    |
+| Document                                                                              | Description                                                                                        |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| [slides.md](slides/slides.md)                                                         | Slides package (v1) — data model, Yorkie schema, Canvas+DOM editor, two-pane layout, PDF export    |
+| [slides-themes-layouts-import.md](slides/slides-themes-layouts-import.md)             | Themes (4-tier) + 11 Google-Slides-parity layouts + PPTX best-effort import; 3-PR rollout plan      |
 
 ## Common
 

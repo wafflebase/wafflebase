@@ -80,8 +80,13 @@ function serializeInlineStyle(style: InlineStyle): Record<string, string> {
   setIfDefined(attrs, 'subscript', style.subscript);
   setIfDefined(attrs, 'fontSize', style.fontSize);
   if (style.fontFamily !== undefined) attrs.fontFamily = style.fontFamily;
-  if (style.color !== undefined) attrs.color = style.color;
-  if (style.backgroundColor !== undefined) attrs.backgroundColor = style.backgroundColor;
+  // Yorkie attribute payload is a flat string map. Docs / sheets only
+  // ever store hex strings, so we serialize plain strings verbatim and
+  // ignore the StoredColor object form (slides themed authoring keeps
+  // its theme bindings on the slide-element layer, not on docs Tree
+  // attributes).
+  if (typeof style.color === 'string') attrs.color = style.color;
+  if (typeof style.backgroundColor === 'string') attrs.backgroundColor = style.backgroundColor;
   if (style.href !== undefined) attrs.href = style.href;
   setIfDefined(attrs, 'pageNumber', style.pageNumber);
   if (style.image !== undefined) {

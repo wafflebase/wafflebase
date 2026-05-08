@@ -23,6 +23,7 @@ import { useEffect } from "react";
 import { ChartVisualScenarios } from "./chart-scenarios";
 import { FormatVisualScenarios } from "./format-scenarios";
 import { SheetVisualScenarios } from "./sheet-scenarios";
+import { SlidesVisualScenarios } from "./slides-scenarios";
 
 /**
  * Read the theme query-param directly from the URL so that the visual
@@ -172,6 +173,7 @@ export default function VisualHarnessPage() {
         <SheetVisualScenarios theme={theme} />
         <FormatVisualScenarios theme={theme} />
         <ChartVisualScenarios />
+        <SlidesVisualScenarios />
       </div>
     </main>
   );

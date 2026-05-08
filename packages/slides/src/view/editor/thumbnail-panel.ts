@@ -61,7 +61,7 @@ export function mountThumbnailPanel(
       canvas.style.height = `${THUMB_H}px`;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        renderThumbnail(ctx, slide, {
+        renderThumbnail(ctx, slide, doc, {
           hostWidth: THUMB_W,
           hostHeight: THUMB_H,
           dpr: 1,

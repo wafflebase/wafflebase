@@ -1,14 +1,20 @@
 import type { Document as YorkieDocument } from '@yorkie-js/sdk';
 import {
+  DEFAULT_BACKGROUND as MODEL_DEFAULT_BACKGROUND,
+  DEFAULT_MASTER,
   type Background,
   type ElementInit,
   type Frame,
   type Layout,
+  type Master,
   type SlidesDocument,
   type SlidesStore,
+  type Theme,
   BUILT_IN_LAYOUTS,
+  defaultLight,
   generateId,
   getLayout,
+  migrateDocument,
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
 import type { SlidesPresence } from '@/types/users';
@@ -18,8 +24,6 @@ import type {
   YorkieSlidesRoot,
   YorkiePlaceholder,
 } from '@/types/slides-document';
-
-const DEFAULT_BACKGROUND = { fill: '#ffffff' };
 
 type YorkieLayout = YorkieSlidesRoot['layouts'][number];
 
@@ -81,14 +85,48 @@ export function ensureSlidesRoot(
   const needsRoot = root.meta == null || root.slides == null || root.layouts == null;
   if (needsRoot) {
     doc.update((r) => {
-      if (r.meta == null) r.meta = { title: 'Untitled presentation' };
+      if (r.meta == null) {
+        r.meta = {
+          title: 'Untitled presentation',
+          themeId: 'default-light',
+          masterId: 'default',
+        };
+      }
       if (r.slides == null) r.slides = [];
       if (r.layouts == null) {
         r.layouts = clone(BUILT_IN_LAYOUTS) as YorkieLayout[];
       }
     });
   }
+  // Backfill optional theme fields on pre-v0.5 documents. Task 3
+  // ships the proper migration; this is the minimum to keep the
+  // SlidesDocument well-formed.
   doc.update((r) => {
+    const rootAny = r as { themes?: Theme[]; masters?: Master[] };
+    if (rootAny.themes == null || rootAny.themes.length === 0) {
+      rootAny.themes = [clone(defaultLight)];
+    }
+    if (rootAny.masters == null || rootAny.masters.length === 0) {
+      rootAny.masters = [clone(DEFAULT_MASTER)];
+    }
+    // Backfill `meta.themeId` / `meta.masterId` against the document's
+    // own `themes` / `masters` arrays, not against hard-coded ids. A
+    // partially migrated or customized doc may carry a `themes` array
+    // that doesn't include 'default-light'; pinning that id would make
+    // `getActiveTheme(doc)` throw at render time.
+    const meta = r.meta as { themeId?: string; masterId?: string };
+    if (
+      meta.themeId == null ||
+      !rootAny.themes.some((t) => t.id === meta.themeId)
+    ) {
+      meta.themeId = rootAny.themes[0].id;
+    }
+    if (
+      meta.masterId == null ||
+      !rootAny.masters.some((m) => m.id === meta.masterId)
+    ) {
+      meta.masterId = rootAny.masters[0].id;
+    }
     for (const slide of r.slides) {
       const notes = (slide as { notes?: unknown }).notes;
       if (!Array.isArray(yorkieToPlain<unknown>(notes))) {
@@ -186,13 +224,23 @@ export class YorkieSlidesStore implements SlidesStore {
 
   read(): SlidesDocument {
     const root = this.doc.getRoot();
-    const meta = yorkieToPlain<{ title: string }>(root.meta) ?? {
-      title: 'Untitled presentation',
-    };
+    // Walk the Yorkie root and build a plain unwrapped object. Yorkie
+    // proxies of nested arrays / objects can serialize to a JSON string
+    // via `toJSON()` rather than expose live references, so we unwrap
+    // each field with `yorkieToPlain` before handing the payload to
+    // `migrateDocument`. Migration then handles the actual shape work
+    // (theme/master/layout backfill, color wrapping, layoutId remap)
+    // — kept in one place so MemSlidesStore reads and Yorkie reads
+    // produce identical SlidesDocuments.
+    const meta = yorkieToPlain<{
+      title?: string;
+      themeId?: string;
+      masterId?: string;
+    }>(root.meta) ?? {};
     const slides = (root.slides ?? []).map((s) => {
       const id = (s as { id: string }).id;
       const layoutId = (s as { layoutId: string }).layoutId;
-      const background = yorkieToPlain<SlidesDocument['slides'][number]['background']>((s as { background: unknown }).background);
+      const background = yorkieToPlain<unknown>((s as { background: unknown }).background);
       const elements = ((s as { elements: unknown[] }).elements ?? []).map((e) => {
         const el = e as { id: string; type: string; frame: unknown; data: unknown };
         if (el.type === 'text') {
@@ -210,24 +258,21 @@ export class YorkieSlidesStore implements SlidesStore {
           frame: yorkieToPlain<Frame>(el.frame),
           data: yorkieToPlain<object>(el.data),
         };
-      }) as SlidesDocument['slides'][number]['elements'];
+      });
       const notes = yorkieToPlain<Block[]>((s as { notes: unknown }).notes) ?? [];
-      return {
-        id,
-        layoutId,
-        background,
-        elements,
-        notes,
-      } as SlidesDocument['slides'][number];
+      return { id, layoutId, background, elements, notes };
     });
-    const layouts = (root.layouts ?? []).map((l) =>
-      yorkieToPlain<Layout>(l),
-    );
-    return {
-      meta: { title: meta.title ?? 'Untitled presentation' },
+    const layouts = (root.layouts ?? []).map((l) => yorkieToPlain<Layout>(l));
+    const rootAny = root as { themes?: unknown; masters?: unknown };
+    const themes = yorkieToPlain<Theme[]>(rootAny.themes);
+    const masters = yorkieToPlain<Master[]>(rootAny.masters);
+    return migrateDocument({
+      meta,
+      themes,
+      masters,
       slides,
       layouts,
-    };
+    });
   }
 
   // --- batch + undo ---
@@ -275,6 +320,13 @@ export class YorkieSlidesStore implements SlidesStore {
   private replaceRoot(snapshot: SlidesDocument): void {
     this.doc.update((r) => {
       r.meta = clone(snapshot.meta);
+      // Themes/masters are part of the snapshot too — undo of an op that
+      // touches them needs them mirrored here. Until Task 5 ships the
+      // theme-edit ops these arrays don't change, but writing them keeps
+      // the Yorkie root consistent with the cloned snapshot.
+      const rootAny = r as { themes?: Theme[]; masters?: Master[] };
+      rootAny.themes = clone(snapshot.themes);
+      rootAny.masters = clone(snapshot.masters);
       const nextSlides: YorkieSlide[] = snapshot.slides.map((s) => ({
         id: s.id,
         layoutId: s.layoutId,
@@ -327,7 +379,7 @@ export class YorkieSlidesStore implements SlidesStore {
       const slide: YorkieSlide = {
         id,
         layoutId: layout.id,
-        background: { ...DEFAULT_BACKGROUND },
+        background: clone(MODEL_DEFAULT_BACKGROUND) as YorkieSlide['background'],
         elements,
         notes: [],
       };
@@ -478,6 +530,29 @@ export class YorkieSlidesStore implements SlidesStore {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       s.background = clone(bg);
+    });
+  }
+
+  // --- theme ops ---
+
+  addTheme(theme: Theme): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const rootAny = r as { themes?: Theme[] };
+      if (rootAny.themes == null) rootAny.themes = [] as Theme[];
+      if (rootAny.themes.find((t) => t.id === theme.id)) return; // idempotent
+      rootAny.themes.push(clone(theme) as Theme);
+    });
+  }
+
+  applyTheme(themeId: string): void {
+    this.requireBatch();
+    this.doc.update((r) => {
+      const rootAny = r as { themes?: Theme[] };
+      if (!rootAny.themes?.find((t) => t.id === themeId)) {
+        throw new Error(`[slides] theme '${themeId}' not in document`);
+      }
+      r.meta.themeId = themeId;
     });
   }
 

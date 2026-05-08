@@ -18,7 +18,7 @@ function shape(x: number, y: number, w: number, h: number, rotation = 0): Elemen
   return {
     id: 'e1', type: 'shape',
     frame: { x, y, w, h, rotation },
-    data: { kind: 'rect', fill: '#abc' },
+    data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
   };
 }
 

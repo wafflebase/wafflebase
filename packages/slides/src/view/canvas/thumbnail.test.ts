@@ -1,22 +1,44 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import type { Slide } from '../../model/presentation';
+import type { Slide, SlidesDocument } from '../../model/presentation';
 import { DEFAULT_BACKGROUND } from '../../model/presentation';
+import type { Theme } from '../../model/theme';
+import { DEFAULT_MASTER } from '../../model/master';
+import { BUILT_IN_LAYOUTS } from '../../model/layout';
 import { asCtx, createCtxSpy } from './ctx-spy';
 import { ThumbnailScheduler, renderThumbnail } from './thumbnail';
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
+const THEME: Theme = {
+  id: 't', name: 't',
+  colors: {
+    text: '#000', background: '#fff', textSecondary: '#444', backgroundAlt: '#f3f3f3',
+    accent1: '#abc', accent2: '#bcd', accent3: '#cde', accent4: '#def',
+    accent5: '#e0e1e2', accent6: '#f0f1f2',
+    hyperlink: '#11c', visitedHyperlink: '#71a',
+  },
+  fonts: { heading: 'Inter', body: 'Inter' },
+};
+
+const DOC: SlidesDocument = {
+  meta: { title: 't', themeId: 't', masterId: 'default' },
+  themes: [THEME],
+  masters: [DEFAULT_MASTER],
+  layouts: BUILT_IN_LAYOUTS,
+  slides: [],
+};
+
 const blankSlide = (id: string): Slide => ({
   id, layoutId: 'blank',
-  background: { ...DEFAULT_BACKGROUND, fill: '#fff' },
+  background: { ...DEFAULT_BACKGROUND, fill: { kind: 'srgb' as const, value: '#fff' } },
   elements: [], notes: [],
 });
 
 describe('renderThumbnail', () => {
   it('paints the slide at the requested host size', () => {
     const ctx = createCtxSpy();
-    renderThumbnail(asCtx(ctx), blankSlide('s1'), { hostWidth: 192, hostHeight: 108, dpr: 1 });
+    renderThumbnail(asCtx(ctx), blankSlide('s1'), DOC, { hostWidth: 192, hostHeight: 108, dpr: 1 });
     expect(ctx.clearRect).toHaveBeenCalled();
     expect(ctx.fillRect).toHaveBeenCalled();
     // Scale = 192 / 1920 = 0.1

@@ -74,7 +74,7 @@ describe('initialize', () => {
       store.addElement(sid, {
         type: 'shape',
         frame: { x: 100, y: 50, w: 200, h: 100, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
       });
     });
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
@@ -91,7 +91,7 @@ describe('initialize', () => {
       elementId = store.addElement(sid, {
         type: 'shape',
         frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
       });
     });
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
@@ -119,7 +119,7 @@ describe('initialize', () => {
       elementId = store.addElement(sid, {
         type: 'shape',
         frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
       });
     });
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
@@ -157,7 +157,7 @@ describe('initialize', () => {
       store.addElement(sid, {
         type: 'shape',
         frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
       });
     });
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
@@ -195,7 +195,7 @@ describe('initialize', () => {
       store.addElement(sid, {
         type: 'shape',
         frame: { x: 100, y: 50, w: 200, h: 100, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
       });
     });
     editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
@@ -237,7 +237,7 @@ describe('initialize', () => {
       elementId = store.addElement(firstId, {
         type: 'shape',
         frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
-        data: { kind: 'rect', fill: '#abc' },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
       });
     });
     editor.setSelection([elementId]);

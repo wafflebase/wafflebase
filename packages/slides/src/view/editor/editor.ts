@@ -187,7 +187,14 @@ class SlidesEditorImpl implements SlidesEditor {
 
   render(): void {
     if (this.disposed) return;
-    const slide = this.currentSlide();
+    // Single read so `slide` and `doc` come from the same snapshot —
+    // the renderer needs the deck's themes/master arrays to resolve
+    // role-bound colors, and the in-memory slide reference must
+    // belong to that same SlidesDocument so a future colorResolver
+    // can look up theme palettes via `getActiveTheme(doc)`.
+    const doc = this.options.store.read();
+    const id = this.currentId;
+    const slide = id ? doc.slides.find((s) => s.id === id) : undefined;
     if (!slide) return;
     // Hide the element currently in edit mode from the slide canvas —
     // the text-box editor's own canvas is layered on top of the same
@@ -200,10 +207,10 @@ class SlidesEditorImpl implements SlidesEditor {
         ...slide,
         elements: slide.elements.filter((e) => e.id !== editingId),
       };
-      this.renderer.forceRender(visible);
+      this.renderer.forceRender(visible, doc);
       return;
     }
-    this.renderer.render(slide);
+    this.renderer.render(slide, doc);
   }
 
   getSelection(): readonly string[] {
@@ -615,7 +622,7 @@ class SlidesEditorImpl implements SlidesEditor {
         ...slide,
         elements: [...slide.elements, { ...init, id: '__preview__' } as Element],
       };
-      this.renderer.forceRender(synthetic);
+      this.renderer.forceRender(synthetic, this.options.store.read());
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
@@ -735,7 +742,7 @@ class SlidesEditorImpl implements SlidesEditor {
         live.has(el.id) ? { ...el, frame: live.get(el.id)! } : el,
       ),
     };
-    this.renderer.forceRender(synthetic);
+    this.renderer.forceRender(synthetic, this.options.store.read());
     // Repaint overlay against the live frames so handles follow.
     const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
     renderOverlay(this.options.overlay, selected, { scale: this.scale() });

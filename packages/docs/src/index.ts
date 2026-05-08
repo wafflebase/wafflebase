@@ -53,6 +53,12 @@ export {
 } from './model/types.js';
 export { Doc } from './model/document.js';
 export type { EditContext } from './model/document.js';
+export type { StoredColor, ColorResolver } from './model/color.js';
+export {
+  defaultColorResolver,
+  storedColorsEqual,
+  wrapLegacyColor,
+} from './model/color.js';
 
 // Store
 export type { DocStore } from './store/store.js';

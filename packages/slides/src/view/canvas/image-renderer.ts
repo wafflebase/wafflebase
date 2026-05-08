@@ -1,3 +1,5 @@
+// Image placeholder colors are intentionally hard-coded; they represent a
+// system fallback UI (broken/loading image) and don't follow the deck theme.
 import type { ImageElement } from '../../model/element';
 import { getOrLoadImage, isImageFailed } from './image-cache';
 import type { FrameSize } from './shape-renderer';
