@@ -2,7 +2,7 @@ const MARKER_SIZE = 9;
 const MARKER_COLOR = '#fbbc04';
 
 /**
- * Draws a 7x7 yellow right-triangle comment marker at the top-right corner of a cell.
+ * Draws a 9x9 yellow right-triangle comment marker at the top-right corner of a cell.
  * The triangle is positioned with its right angle at the top-right corner.
  *
  * @param ctx - Canvas rendering context

@@ -810,9 +810,17 @@ export function SheetView({
     async (threadId: string) => {
       if (!commentAuthor) return;
       await storeRef.current?.setThreadResolved(threadId, true, commentAuthor);
-      setCommentPopoverOpen(false);
+      // Only close the popover if no other unresolved threads remain on this cell.
+      // The just-resolved thread may still appear in activeCellThreads at call time,
+      // so we exclude it explicitly when counting remaining open threads.
+      const remaining = activeCellThreads.filter(
+        (t) => t.id !== threadId && !t.resolved,
+      );
+      if (remaining.length === 0) {
+        setCommentPopoverOpen(false);
+      }
     },
-    [commentAuthor],
+    [commentAuthor, activeCellThreads],
   );
 
   const handleCommentEdit = useCallback(

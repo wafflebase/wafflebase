@@ -94,7 +94,7 @@ export function CommentPopover({
   ) => {
     const canEditOrDelete =
       !isReadOnly &&
-      currentUser.userId === c.author.userId &&
+      currentUser?.userId === c.author.userId &&
       editingCommentId !== c.id;
 
     return (

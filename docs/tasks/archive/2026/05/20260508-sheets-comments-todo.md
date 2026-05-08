@@ -12,6 +12,8 @@
 
 ---
 
+## Tasks
+
 ### Task 1: Comment data model & pure helpers (sheets package)
 
 Create the core types and pure thread-mutation helpers, all non-Yorkie. TDD-driven.

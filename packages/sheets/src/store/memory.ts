@@ -608,7 +608,7 @@ export class MemStore implements Store {
     cellAnchor?: { rowId: string; colId: string };
     resolved?: boolean;
   }): Promise<Thread[]> {
-    let result = Array.from(this.threads.values());
+    let result = Array.from(this.threads.values()).map((t) => structuredClone(t));
     if (opts?.tabId !== undefined) {
       result = result.filter(
         (t) => t.anchor.kind === 'sheet-cell' && t.anchor.tabId === opts.tabId,

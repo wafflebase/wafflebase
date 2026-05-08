@@ -39,27 +39,29 @@ export function CommentSidePanel({ threads, onJumpTo, onClose }: Props) {
         </Button>
       </header>
 
-      <div className="flex border-b">
+      <div role="tablist" className="flex border-b">
         <button
           type="button"
+          role="tab"
           className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
             tab === "open"
               ? "border-primary text-primary"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
-          aria-pressed={tab === "open"}
+          aria-selected={tab === "open"}
           onClick={() => setTab("open")}
         >
           Open ({openCount})
         </button>
         <button
           type="button"
+          role="tab"
           className={`flex-1 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
             tab === "resolved"
               ? "border-primary text-primary"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
-          aria-pressed={tab === "resolved"}
+          aria-selected={tab === "resolved"}
           onClick={() => setTab("resolved")}
         >
           Resolved ({resolvedCount})

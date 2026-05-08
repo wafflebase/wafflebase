@@ -204,7 +204,7 @@ export function SheetContextMenu({
                 <ContextMenuItem disabled={readOnly} onSelect={onInsertComment}>
                   <IconMessage size={16} /> Insert comment
                   <span className="ml-auto text-xs text-muted-foreground">
-                    {navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl"}+⌥+M
+                    {navigator.platform.startsWith("Mac") ? "⌘+⌥+M" : "Ctrl+Alt+M"}
                   </span>
                 </ContextMenuItem>
               </>

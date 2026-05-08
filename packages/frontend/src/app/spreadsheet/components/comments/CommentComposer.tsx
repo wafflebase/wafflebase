@@ -73,7 +73,7 @@ export function CommentComposer({
 
   const submit = () => {
     if (!trimmed) return;
-    onSubmit(body);
+    onSubmit(trimmed);
     setBody("");
   };
 

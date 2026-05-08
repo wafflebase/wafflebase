@@ -1223,6 +1223,11 @@ export class YorkieStore implements Store {
     body: string,
     author: CommentAuthor,
   ): Promise<Thread> {
+    if (anchor.kind === 'sheet-cell' && anchor.tabId !== this.tabId) {
+      throw new Error(
+        `addThread: anchor.tabId (${anchor.tabId}) does not match store tabId (${this.tabId})`,
+      );
+    }
     const thread = createThread(
       anchor,
       body,
@@ -1292,7 +1297,11 @@ export class YorkieStore implements Store {
     const root = this.doc.getRoot();
     const tabId = opts?.tabId ?? this.tabId;
     const ws = root.sheets[tabId];
-    let threads = Object.values(ws?.comments ?? {}) as Thread[];
+    // structuredClone detaches from the Yorkie proxy so callers cannot
+    // accidentally mutate live store state through the returned objects.
+    let threads = Object.values(ws?.comments ?? {}).map((t) =>
+      structuredClone(t as Thread),
+    );
     if (opts?.cellAnchor) {
       threads = threads.filter(
         (t) =>
