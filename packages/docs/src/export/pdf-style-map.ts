@@ -1,4 +1,6 @@
 import type { InlineStyle } from '../model/types.js';
+import type { StoredColor } from '../model/color.js';
+import { defaultColorResolver } from '../model/color.js';
 import type { PdfFontKey } from './pdf-fonts.js';
 
 // "Latin-safe" character class: code points pdf-lib's WinAnsi-encoded
@@ -104,11 +106,14 @@ export function isItalicShim(style: InlineStyle, needsCustomFont: boolean): bool
 
 /**
  * Parse a "#RRGGBB" color into pdf-lib `rgb()` components in [0, 1].
- * Returns black for invalid or missing values.
+ * Returns black for invalid or missing values. Accepts a `StoredColor`
+ * for callers that read from `InlineStyle.color`/`backgroundColor`; the
+ * legacy `string | undefined` shape stays valid because `string ⊂ StoredColor`.
  */
-export function styleColor(hex: string | undefined): { r: number; g: number; b: number } {
-  if (!hex) return { r: 0, g: 0, b: 0 };
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+export function styleColor(hex: StoredColor | undefined): { r: number; g: number; b: number } {
+  const resolved = defaultColorResolver(hex);
+  if (!resolved) return { r: 0, g: 0, b: 0 };
+  const m = /^#?([0-9a-f]{6})$/i.exec(resolved.trim());
   if (!m) return { r: 0, g: 0, b: 0 };
   const n = parseInt(m[1], 16);
   return {

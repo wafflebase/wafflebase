@@ -2,6 +2,7 @@ import type { LayoutTable, LayoutTableCell } from './table-layout.js';
 import type { LayoutRun } from './layout.js';
 import type { TableCell, TableData, BorderStyle } from '../model/types.js';
 import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
+import { defaultColorResolver } from '../model/color.js';
 import { Theme, buildFont, ptToPx } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
 import {
@@ -216,7 +217,9 @@ export function renderTableBackgrounds(
         for (const run of line.runs) {
           const style = run.inline.style;
           if (style.image || !style.backgroundColor) continue;
-          ctx.fillStyle = style.backgroundColor;
+          const bg = defaultColorResolver(style.backgroundColor);
+          if (!bg) continue;
+          ctx.fillStyle = bg;
           ctx.fillRect(
             cellX + padding + run.x,
             lineAbsoluteY,
@@ -434,7 +437,8 @@ export function renderTableContent(
             style.bold,
             style.italic,
           );
-          ctx.fillStyle = style.color || Theme.defaultColor;
+          const runTextColor = defaultColorResolver(style.color) ?? Theme.defaultColor;
+          ctx.fillStyle = runTextColor;
           ctx.textBaseline = 'alphabetic';
 
           // Centered-baseline formula, matching doc-canvas's body path and
@@ -456,7 +460,7 @@ export function renderTableContent(
           if (style.underline) {
             const underlineY = baselineY + 2;
             ctx.beginPath();
-            ctx.strokeStyle = style.color || Theme.defaultColor;
+            ctx.strokeStyle = runTextColor;
             ctx.lineWidth = 1;
             ctx.moveTo(runX, underlineY);
             ctx.lineTo(runX + run.width, underlineY);
@@ -467,7 +471,7 @@ export function renderTableContent(
           if (style.strikethrough) {
             const strikeY = baselineY - fontSizePx * 0.25;
             ctx.beginPath();
-            ctx.strokeStyle = style.color || Theme.defaultColor;
+            ctx.strokeStyle = runTextColor;
             ctx.lineWidth = 1;
             ctx.moveTo(runX, strikeY);
             ctx.lineTo(runX + run.width, strikeY);
@@ -529,7 +533,7 @@ export function renderTableContent(
           const fontSizePx = ptToPx(fontSize);
           const baselineY = Math.round(markerLineY + (firstLine.height + fontSizePx * 0.8) / 2);
           ctx.font = buildFont(fontSize, cellBlock.inlines[0]?.style.fontFamily, false, false);
-          ctx.fillStyle = cellBlock.inlines[0]?.style.color || Theme.defaultColor;
+          ctx.fillStyle = defaultColorResolver(cellBlock.inlines[0]?.style.color) ?? Theme.defaultColor;
           ctx.fillText(marker, markerX, baselineY);
         }
       }

@@ -1,5 +1,7 @@
 import type { Block } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
+import type { ColorResolver } from '../model/color.js';
+import { defaultColorResolver } from '../model/color.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
 import type { LayoutPage } from './pagination.js';
@@ -57,6 +59,15 @@ export interface PaintLayoutOpts {
    * Optional — slides text-boxes that don't host images can omit it.
    */
   requestRender?: () => void;
+
+  /**
+   * Resolves a `StoredColor` (string or theme-bound object) to a hex
+   * string at paint time. Slides supplies a theme-aware resolver so
+   * `{ kind: 'role', role: 'accent1' }` paints in the deck's accent1
+   * hex; docs and sheets pass plain strings and rely on the default
+   * resolver, which returns strings verbatim.
+   */
+  colorResolver?: ColorResolver;
 }
 
 /**
@@ -94,6 +105,7 @@ export function paintLayout(
   const theme = opts.theme ?? DefaultTheme;
   const skipRunBackgrounds = opts.skipRunBackgrounds === true;
   const focused = opts.selectionFocused !== false;
+  const resolveColor = opts.colorResolver ?? defaultColorResolver;
 
   // 1. Inline run backgrounds — done first so the optional selection
   //    layer below sits on top of any coloured span. DocCanvas drives
@@ -101,7 +113,7 @@ export function paintLayout(
   //    (page-line shaped) and passes `skipRunBackgrounds: true` to
   //    avoid painting them twice.
   if (!skipRunBackgrounds) {
-    drawInlineRunBackgroundsForLayout(ctx, layout, originX, originY);
+    drawInlineRunBackgroundsForLayout(ctx, layout, originX, originY, resolveColor);
   }
 
   // 2. Selection rectangles. Translated by (originX, originY) so the
@@ -116,7 +128,7 @@ export function paintLayout(
   // 3. Per-block content — runs, list markers, list counters.
   const listCounters = computeListCounters(layout.blocks.map((b) => b.block));
   for (const lb of layout.blocks) {
-    paintBlock(ctx, lb, originX, originY, listCounters, theme, skipRunBackgrounds, opts.requestRender);
+    paintBlock(ctx, lb, originX, originY, listCounters, theme, skipRunBackgrounds, opts.requestRender, resolveColor);
   }
 
   // 4. Cursor caret — drawn last so it sits on top of every run.
@@ -145,6 +157,7 @@ function paintBlock(
   theme: DocTheme,
   skipRunBackgrounds: boolean,
   requestRender: (() => void) | undefined,
+  resolveColor: ColorResolver,
 ): void {
   const block = lb.block;
   if (
@@ -167,6 +180,7 @@ function paintBlock(
         theme,
         skipBackground: skipRunBackgrounds,
         requestRender,
+        colorResolver: resolveColor,
       });
     }
 
@@ -179,7 +193,7 @@ function paintBlock(
         block.listKind === 'unordered'
           ? UNORDERED_MARKERS[level % UNORDERED_MARKERS.length]
           : (listCounters.get(block.id) ?? '1.');
-      renderListMarker(ctx, block, lineY, line.height, markerX, marker, theme);
+      renderListMarker(ctx, block, lineY, line.height, markerX, marker, theme, resolveColor);
     }
   }
 }
@@ -196,6 +210,7 @@ function drawInlineRunBackgroundsForLayout(
   layout: DocumentLayout,
   originX: number,
   originY: number,
+  resolveColor: ColorResolver,
 ): void {
   for (const lb of layout.blocks) {
     const block = lb.block;
@@ -213,7 +228,9 @@ function drawInlineRunBackgroundsForLayout(
       for (const run of line.runs) {
         const style = run.inline.style;
         if (style.image || !style.backgroundColor) continue;
-        ctx.fillStyle = style.backgroundColor;
+        const bg = resolveColor(style.backgroundColor);
+        if (!bg) continue;
+        ctx.fillStyle = bg;
         ctx.fillRect(
           Math.round(blockX + run.x),
           lineY,
@@ -246,6 +263,7 @@ export function drawInlineRunBackgroundsForPage(
   layout: DocumentLayout | undefined,
   pageX: number,
   pageY: number,
+  resolveColor: ColorResolver = defaultColorResolver,
 ): void {
   for (let plIndex = 0; plIndex < page.lines.length; plIndex++) {
     const pl = page.lines[plIndex];
@@ -265,7 +283,9 @@ export function drawInlineRunBackgroundsForPage(
       // Image runs are opaque pictures, not text — they never had a
       // bg fill in the old single-pass path either.
       if (style.image || !style.backgroundColor) continue;
-      ctx.fillStyle = style.backgroundColor;
+      const bg = resolveColor(style.backgroundColor);
+      if (!bg) continue;
+      ctx.fillStyle = bg;
       ctx.fillRect(
         Math.round(pageX + pl.x + run.x),
         pageY + pl.y,
@@ -292,6 +312,12 @@ export interface RenderRunOpts {
    * can request a repaint when they finish loading.
    */
   requestRender?: () => void;
+  /**
+   * Resolves `inline.style.color` / `backgroundColor` to a hex string.
+   * Defaults to `defaultColorResolver` (string passthrough; role colors
+   * fall back to the theme's `defaultColor`).
+   */
+  colorResolver?: ColorResolver;
 }
 
 /**
@@ -314,6 +340,7 @@ export function renderRun(
 ): void {
   const theme = opts.theme ?? DefaultTheme;
   const skipBackground = opts.skipBackground === true;
+  const resolveColor = opts.colorResolver ?? defaultColorResolver;
   const style = run.inline.style;
 
   // Image inlines are rendered via drawImage, not fillText. The run's
@@ -344,10 +371,11 @@ export function renderRun(
     : style.fontSize;
 
   // Link defaults: blue text + underline (user-set values take precedence)
-  let textColor = style.color || theme.defaultColor;
+  const resolvedColor = resolveColor(style.color);
+  let textColor = resolvedColor ?? theme.defaultColor;
   let showUnderline = style.underline ?? false;
   if (style.href) {
-    if (!style.color) textColor = '#1155cc';
+    if (!resolvedColor) textColor = '#1155cc';
     if (style.underline === undefined) showUnderline = true;
   }
 
@@ -369,11 +397,14 @@ export function renderRun(
   const x = Math.round(lineX + run.x);
 
   if (style.backgroundColor && !skipBackground) {
-    ctx.save();
-    ctx.fillStyle = style.backgroundColor;
-    ctx.fillRect(x, lineY, run.width, lineHeight);
-    ctx.restore();
-    ctx.fillStyle = textColor;
+    const bg = resolveColor(style.backgroundColor);
+    if (bg) {
+      ctx.save();
+      ctx.fillStyle = bg;
+      ctx.fillRect(x, lineY, run.width, lineHeight);
+      ctx.restore();
+      ctx.fillStyle = textColor;
+    }
   }
 
   ctx.fillText(run.text, x, baselineY);
@@ -418,11 +449,12 @@ export function renderListMarker(
   markerX: number,
   markerText: string,
   theme: DocTheme = DefaultTheme,
+  resolveColor: ColorResolver = defaultColorResolver,
 ): void {
   const fontSize = block.inlines[0]?.style.fontSize ?? theme.defaultFontSize;
   const fontSizePx = ptToPx(fontSize);
   const baselineY = Math.round(lineY + (lineHeight + fontSizePx * 0.8) / 2);
   ctx.font = buildFont(fontSize, block.inlines[0]?.style.fontFamily, false, false);
-  ctx.fillStyle = block.inlines[0]?.style.color ?? theme.defaultColor;
+  ctx.fillStyle = resolveColor(block.inlines[0]?.style.color) ?? theme.defaultColor;
   ctx.fillText(markerText, markerX, baselineY);
 }

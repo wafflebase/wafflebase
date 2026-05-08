@@ -4,9 +4,12 @@ import {
   normalizeBlockStyle,
   paintLayout,
   type Block,
+  type ColorResolver,
+  type StoredColor,
 } from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
-import type { Theme } from '../../model/theme';
+import type { Theme, ThemeColor } from '../../model/theme';
+import { resolveColor } from '../../model/theme';
 import type { FrameSize } from './shape-renderer';
 
 /**
@@ -16,6 +19,27 @@ import type { FrameSize } from './shape-renderer';
  * thrash the cache.
  */
 const measurer = new CanvasTextMeasurer();
+
+/**
+ * Build a docs `ColorResolver` from the active deck `Theme`. Plain hex
+ * strings pass through unchanged; `StoredColor` objects matching the
+ * slides `ThemeColor` shape (`{ kind: 'role' | 'srgb' }`) route through
+ * `resolveColor` so role-bound text picks up the deck's accent /
+ * text / background hex at paint time.
+ *
+ * Returning `undefined` for unrecognised role names lets docs fall back
+ * to its `theme.defaultColor` instead of painting a literal "undefined".
+ */
+function makeColorResolver(theme: Theme): ColorResolver {
+  return (c: StoredColor | undefined) => {
+    if (c == null) return undefined;
+    if (typeof c === 'string') return c;
+    // The docs `StoredColor` object shape is structurally compatible
+    // with slides' `ThemeColor` (both use `kind: 'role' | 'srgb'`); the
+    // cast is the only seam where the two type vocabularies meet.
+    return resolveColor(c as ThemeColor, theme);
+  };
+}
 
 /**
  * Draw a text element into element-local coordinates (top-left at 0,0).
@@ -34,11 +58,10 @@ const measurer = new CanvasTextMeasurer();
  * at the top edge of the frame instead of where the editor (which
  * normalises through `MemDocStore.setDocument` on mount) drew it.
  *
- * `theme` is accepted for forward compatibility but NOT yet plumbed
- * into `computeLayout` / `paintLayout`. Task 4 extends `@wafflebase/docs`
- * with a `colorResolver` option so role-bound text colors can resolve
- * through the deck's theme; for now the text path stays on docs'
- * default color handling.
+ * `theme` is funnelled into a `ColorResolver` so role-bound
+ * `Inline.style.color` / `backgroundColor` values render in the deck's
+ * theme palette. String colors continue to render verbatim — so existing
+ * sheets/docs callers are completely unaffected.
  */
 export function drawText(
   ctx: CanvasRenderingContext2D,
@@ -46,12 +69,12 @@ export function drawText(
   data: TextElement['data'],
   theme: Theme,
 ): void {
-  void theme; // Task 4 wires the colorResolver; signature kept stable.
   if (data.blocks.length === 0) return;
   const normalized: Block[] = data.blocks.map((b) => ({
     ...b,
     style: normalizeBlockStyle(b.style),
   }));
+  const colorResolver = makeColorResolver(theme);
   const { layout } = computeLayout(normalized, measurer, w);
-  paintLayout(ctx, layout, 0, 0);
+  paintLayout(ctx, layout, 0, 0, { colorResolver });
 }

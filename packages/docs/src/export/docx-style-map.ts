@@ -1,4 +1,5 @@
 import type { InlineStyle, BlockStyle } from '../model/types.js';
+import { defaultColorResolver } from '../model/color.js';
 import { pointsToHalfPoints, pxToTwips } from '../import/units.js';
 
 /**
@@ -20,13 +21,17 @@ export function buildRunPropertiesXml(style: InlineStyle): string {
     parts.push(`<w:sz w:val="${hp}"/>`);
     parts.push(`<w:szCs w:val="${hp}"/>`);
   }
-  if (style.color) {
-    const hex = style.color.replace('#', '');
-    parts.push(`<w:color w:val="${hex}"/>`);
+  // DOCX export resolves theme colors through the default resolver:
+  // role-bound colors are dropped (no theme registered at the docs
+  // layer), srgb/string forms render verbatim. Slides decks that need
+  // role-aware DOCX would have to flatten themes before export.
+  const colorHex = defaultColorResolver(style.color);
+  if (colorHex) {
+    parts.push(`<w:color w:val="${colorHex.replace('#', '')}"/>`);
   }
-  if (style.backgroundColor) {
-    const hex = style.backgroundColor.replace('#', '');
-    parts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${hex}"/>`);
+  const bgHex = defaultColorResolver(style.backgroundColor);
+  if (bgHex) {
+    parts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${bgHex.replace('#', '')}"/>`);
   }
   if (style.superscript) parts.push('<w:vertAlign w:val="superscript"/>');
   if (style.subscript) parts.push('<w:vertAlign w:val="subscript"/>');

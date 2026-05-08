@@ -75,8 +75,12 @@ function serializeInlineStyle(
   setIfDefined(attrs, 'subscript', style.subscript);
   setIfDefined(attrs, 'fontSize', style.fontSize);
   if (style.fontFamily !== undefined) attrs.fontFamily = style.fontFamily;
-  if (style.color !== undefined) attrs.color = style.color;
-  if (style.backgroundColor !== undefined)
+  // Backend persists docs colors as raw hex strings. Theme-bound
+  // StoredColor objects (slides) live on the slide-element layer and
+  // never reach here; ignore the object form so the Yorkie attribute
+  // payload stays a flat Record<string,string>.
+  if (typeof style.color === 'string') attrs.color = style.color;
+  if (typeof style.backgroundColor === 'string')
     attrs.backgroundColor = style.backgroundColor;
   if (style.href !== undefined) attrs.href = style.href;
   setIfDefined(attrs, 'pageNumber', style.pageNumber);
