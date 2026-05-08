@@ -81,8 +81,22 @@ export function drawText(
   { w }: FrameSize,
   data: TextElement['data'],
   theme: Theme,
+  options?: { placeholderHint?: string },
 ): void {
-  if (data.blocks.length === 0) return;
+  // "All inlines empty" mirrors `isElementEmpty` for text elements:
+  // a placeholder seeded by `buildInsertElement` typically has one
+  // block with one inline whose `text === ''`, so the cheaper-to-detect
+  // `data.blocks.length === 0` case alone is not sufficient.
+  const allEmpty =
+    data.blocks.length === 0 ||
+    data.blocks.every((b) => b.inlines.every((inl) => inl.text === ''));
+
+  if (allEmpty) {
+    if (options?.placeholderHint) {
+      drawHint(ctx, w, options.placeholderHint, theme);
+    }
+    return;
+  }
   const normalized: Block[] = data.blocks.map((b) => ({
     ...b,
     style: normalizeBlockStyle(b.style),
@@ -90,4 +104,54 @@ export function drawText(
   const colorResolver = makeColorResolver(theme);
   const { layout } = computeLayout(normalized, measurer, w);
   paintLayout(ctx, layout, 0, 0, { colorResolver });
+}
+
+/**
+ * Paint the muted "Click to add title"-style hint inside an empty
+ * placeholder. Element-local coordinates: 8 px inset from the
+ * placeholder's top-left, font size 32 px (roughly 1/3 of a typical
+ * 90 px placeholder slot), 40% alpha on the deck's text role color
+ * so the hint reads as ghost-text rather than committed content.
+ *
+ * Centring is intentionally deferred — visual smoke will tell us if
+ * the top-left anchor needs polishing once the hint lands on screen.
+ */
+function drawHint(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  hint: string,
+  theme: Theme,
+): void {
+  ctx.save();
+  const color = resolveColor({ kind: 'role', role: 'text' }, theme);
+  ctx.fillStyle = withAlpha(color, 0.4);
+  ctx.font = '32px sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.fillText(hint, 8, 8);
+  ctx.restore();
+  // Reserved for future centring; unused for now but kept in the
+  // signature so the call site doesn't drift if we add it.
+  void w;
+}
+
+/**
+ * Convert a hex color (`#RRGGBB` or 3-char shorthand `#RGB`) to an
+ * `rgba(...)` string with the given alpha. Falls back to neutral grey
+ * on parse failure so a malformed theme color still renders a visible
+ * — if untheme'd — ghost rather than nothing at all.
+ */
+function withAlpha(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(hex);
+  if (!m) return `rgba(128, 128, 128, ${alpha})`;
+  const h =
+    m[1].length === 3
+      ? m[1]
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : m[1];
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

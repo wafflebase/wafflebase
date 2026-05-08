@@ -91,3 +91,43 @@ describe('drawText', () => {
     expect(ctx.fillText).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('drawText placeholder hint', () => {
+  it('paints the hint when blocks are empty and a hint is supplied', () => {
+    const ctx = createCtxSpy();
+    // A single block whose lone inline has an empty string — the same
+    // shape `isElementEmpty` treats as "empty" — must surface the ghost.
+    drawText(
+      asCtx(ctx),
+      size,
+      data([paragraph('')]),
+      THEME,
+      { placeholderHint: 'Click to add title' },
+    );
+    const texts = ctx.fillText.mock.calls.map((c) => c[0]);
+    expect(texts).toContain('Click to add title');
+  });
+
+  it('does not paint the hint when blocks contain real text', () => {
+    const ctx = createCtxSpy();
+    // The real text wins — the hint must NOT appear, otherwise authors
+    // would see the ghost layered behind their first character.
+    drawText(
+      asCtx(ctx),
+      size,
+      data([paragraph('Hello')]),
+      THEME,
+      { placeholderHint: 'Click to add title' },
+    );
+    const texts = ctx.fillText.mock.calls.map((c) => c[0]);
+    expect(texts).not.toContain('Click to add title');
+  });
+
+  it('does not paint the hint when no hint is supplied', () => {
+    const ctx = createCtxSpy();
+    // User-added text boxes (no placeholderRef) flow through this path:
+    // empty blocks, no hint — must paint nothing.
+    drawText(asCtx(ctx), size, data([paragraph('')]), THEME);
+    expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+});
