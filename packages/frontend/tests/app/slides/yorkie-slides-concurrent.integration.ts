@@ -131,4 +131,28 @@ describe('YorkieSlidesStore concurrent edits', { skip: !shouldRun }, () => {
       await ctx.cleanup();
     }
   });
+
+  it('two clients call applyLayout concurrently → both converge to one layoutId', async () => {
+    const ctx = await createTwoUserSlides('apply-layout-converge');
+    try {
+      let slideId = '';
+      ctx.storeA.batch(() => { slideId = ctx.storeA.addSlide('blank'); });
+      await ctx.sync();
+
+      ctx.storeA.batch(() => ctx.storeA.applyLayout(slideId, 'title-body'));
+      ctx.storeB.batch(() => ctx.storeB.applyLayout(slideId, 'title-only'));
+      await ctx.sync();
+
+      const a = ctx.storeA.read();
+      const b = ctx.storeB.read();
+      // last-writer-wins on slide.layoutId; both peers must agree on whoever won.
+      assert.equal(a.slides[0].layoutId, b.slides[0].layoutId);
+      assert.ok(
+        a.slides[0].layoutId === 'title-body' || a.slides[0].layoutId === 'title-only',
+        `expected layoutId to be one of the two competitors; got ${a.slides[0].layoutId}`,
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
 });
