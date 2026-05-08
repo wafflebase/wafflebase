@@ -13,6 +13,7 @@ import {
   IconCut,
   IconClipboard,
   IconLayoutRows,
+  IconMessage,
   IconTrash,
   IconRowInsertBottom,
   IconRowInsertTop,
@@ -44,6 +45,7 @@ interface SheetContextMenuProps {
   onInsertPivotTable?: () => void;
   onDeleteImage?: () => void;
   selectedImageId?: string | null;
+  onInsertComment?: () => void;
 }
 
 export function SheetContextMenu({
@@ -60,6 +62,7 @@ export function SheetContextMenu({
   onInsertPivotTable,
   onDeleteImage,
   selectedImageId,
+  onInsertComment,
 }: SheetContextMenuProps) {
   const [menuType, setMenuType] = useState<MenuType>("cell");
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(
@@ -195,6 +198,17 @@ export function SheetContextMenu({
             <ContextMenuItem disabled={readOnly} onSelect={onDeleteCellData}>
               <IconTrash size={16} /> Delete
             </ContextMenuItem>
+            {onInsertComment && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem disabled={readOnly} onSelect={onInsertComment}>
+                  <IconMessage size={16} /> Insert comment
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl"}+⌥+M
+                  </span>
+                </ContextMenuItem>
+              </>
+            )}
             {onInsertPivotTable && (
               <>
                 <ContextMenuSeparator />

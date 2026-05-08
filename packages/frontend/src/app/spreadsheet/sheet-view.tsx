@@ -114,6 +114,7 @@ export function SheetView({
   commentJumpTarget = null,
   addPivotTab,
   workspaceId,
+  onToggleCommentsPanel,
 }: {
   tabId: string;
   readOnly?: boolean;
@@ -128,6 +129,7 @@ export function SheetView({
   } | null;
   addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
   workspaceId?: string;
+  onToggleCommentsPanel?: () => void;
 }) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -747,16 +749,41 @@ export function SheetView({
     }
   }, []);
 
+  // Open the comment popover/composer for the currently active cell,
+  // even if the cell has no existing threads yet.
+  const openCommentComposerForActiveCell = useCallback(() => {
+    if (readOnly) return;
+    setCommentPopoverOpen(true);
+  }, [readOnly]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
         setFindBarOpen(true);
       }
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.altKey &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === "m"
+      ) {
+        e.preventDefault();
+        openCommentComposerForActiveCell();
+      }
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.altKey &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "m"
+      ) {
+        e.preventDefault();
+        onToggleCommentsPanel?.();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [openCommentComposerForActiveCell, onToggleCommentsPanel]);
 
   const handleFindBarClose = useCallback(() => {
     setFindBarOpen(false);
@@ -1275,6 +1302,7 @@ export function SheetView({
               handleDeleteImage(selectedImageId);
             }
           }}
+          onInsertComment={readOnly ? undefined : openCommentComposerForActiveCell}
         >
           <div className="relative h-full w-full">
             <div

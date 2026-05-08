@@ -610,6 +610,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                       commentJumpTarget={commentJumpTarget}
                       addPivotTab={addPivotTab}
                       workspaceId={documentData?.workspaceId}
+                      onToggleCommentsPanel={() => setCommentsPanelOpen((v) => !v)}
                     />
                   )}
                 </Suspense>
