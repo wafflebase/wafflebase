@@ -13,15 +13,23 @@ export const _previewCacheForTest = cache;
 
 function syntheticSlide(layout: Layout): Slide {
   const refs = slotRefsForLayout(layout);
+  const placeholderElements: Element[] = layout.placeholders.map((p, i) => ({
+    ...JSON.parse(JSON.stringify(p)),
+    id: generateId(),
+    placeholderRef: refs[i],
+  } as Element));
   return {
     id: 'preview',
     layoutId: layout.id,
     background: layout.background ?? { fill: { kind: 'role', role: 'background' } },
-    elements: layout.placeholders.map((p, i) => ({
-      ...JSON.parse(JSON.stringify(p)),
-      id: generateId(),
-      placeholderRef: refs[i],
-    } as Element)),
+    elements: [
+      ...placeholderElements,
+      // staticElements already have ids per the Element type;
+      // deep-clone so the cached preview doesn't share references
+      // with the source layout (defensive — today layouts are
+      // immutable, but renderThumbnail mutates state on its slides).
+      ...JSON.parse(JSON.stringify(layout.staticElements)) as Element[],
+    ],
     notes: [],
   };
 }
