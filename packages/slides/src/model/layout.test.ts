@@ -42,6 +42,28 @@ describe('BUILT_IN_LAYOUTS', () => {
       expect(l.staticElements).toEqual([]);
     }
   });
+
+  it('every placeholder has a slot type matching the design spec', () => {
+    const types = Object.fromEntries(
+      BUILT_IN_LAYOUTS.map((l) => [
+        l.id,
+        l.placeholders.map((p) => p.placeholder.type),
+      ]),
+    );
+    expect(types).toEqual({
+      'blank': [],
+      'title-slide': ['title', 'subtitle'],
+      'section-header': ['title'],
+      'title-body': ['title', 'body'],
+      'title-two-columns': ['title', 'body', 'body'],
+      'title-only': ['title'],
+      'one-column-text': ['body'],
+      'main-point': ['title'],
+      'section-title-description': ['title', 'body'],
+      'caption': ['body', 'caption'],
+      'big-number': ['big-number', 'body'],
+    });
+  });
 });
 
 describe('getLayout', () => {

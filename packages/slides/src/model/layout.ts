@@ -1,4 +1,5 @@
 import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
+import type { PlaceholderType } from './element';
 import type { Layout, PlaceholderSpec } from './presentation';
 import { SLIDE_WIDTH, SLIDE_HEIGHT } from './presentation';
 
@@ -20,12 +21,14 @@ function emptyBlocks(): Block[] {
 }
 
 function textPlaceholder(
+  type: PlaceholderType,
   x: number, y: number, w: number, h: number,
 ): PlaceholderSpec {
   return {
     type: 'text',
     frame: { x, y, w, h, rotation: 0 },
     data: { blocks: emptyBlocks() },
+    placeholder: { type },
   };
 }
 
@@ -49,8 +52,8 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Title slide',
     placeholders: [
-      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 - 120, W, 160),
-      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 + 60, W, 80),
+      textPlaceholder('title', PADDING, SLIDE_HEIGHT / 2 - 120, W, 160),
+      textPlaceholder('subtitle', PADDING, SLIDE_HEIGHT / 2 + 60, W, 80),
     ],
     staticElements: [],
   },
@@ -59,7 +62,7 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Section header',
     placeholders: [
-      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 - 80, W, 200),
+      textPlaceholder('title', PADDING, SLIDE_HEIGHT / 2 - 80, W, 200),
     ],
     staticElements: [],
   },
@@ -68,8 +71,9 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Title and body',
     placeholders: [
-      textPlaceholder(PADDING, PADDING, W, 140),
+      textPlaceholder('title', PADDING, PADDING, W, 140),
       textPlaceholder(
+        'body',
         PADDING,
         PADDING + 180,
         W,
@@ -83,14 +87,16 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Title and two columns',
     placeholders: [
-      textPlaceholder(PADDING, PADDING, W, 140),
+      textPlaceholder('title', PADDING, PADDING, W, 140),
       textPlaceholder(
+        'body',
         PADDING,
         PADDING + 180,
         HALF,
         SLIDE_HEIGHT - PADDING * 2 - 200,
       ),
       textPlaceholder(
+        'body',
         PADDING + HALF + PADDING,
         PADDING + 180,
         HALF,
@@ -104,7 +110,7 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Title only',
     placeholders: [
-      textPlaceholder(PADDING, PADDING, W, 140),
+      textPlaceholder('title', PADDING, PADDING, W, 140),
     ],
     staticElements: [],
   },
@@ -113,7 +119,7 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'One column text',
     placeholders: [
-      textPlaceholder(PADDING, PADDING, W, SLIDE_HEIGHT - PADDING * 2),
+      textPlaceholder('body', PADDING, PADDING, W, SLIDE_HEIGHT - PADDING * 2),
     ],
     staticElements: [],
   },
@@ -122,7 +128,7 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Main point',
     placeholders: [
-      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 - 80, W, 160),
+      textPlaceholder('title', PADDING, SLIDE_HEIGHT / 2 - 80, W, 160),
     ],
     staticElements: [],
   },
@@ -131,8 +137,9 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Section title and description',
     placeholders: [
-      textPlaceholder(PADDING, PADDING * 2, W, 180),
+      textPlaceholder('title', PADDING, PADDING * 2, W, 180),
       textPlaceholder(
+        'body',
         PADDING,
         PADDING * 2 + 220,
         W,
@@ -146,8 +153,8 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Caption',
     placeholders: [
-      textPlaceholder(PADDING, PADDING, W, SLIDE_HEIGHT - PADDING * 2 - 200),
-      textPlaceholder(PADDING, SLIDE_HEIGHT - PADDING - 160, W, 120),
+      textPlaceholder('body', PADDING, PADDING, W, SLIDE_HEIGHT - PADDING * 2 - 200),
+      textPlaceholder('caption', PADDING, SLIDE_HEIGHT - PADDING - 160, W, 120),
     ],
     staticElements: [],
   },
@@ -156,8 +163,8 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
     masterId: 'default',
     name: 'Big number',
     placeholders: [
-      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 - 200, W, 280),
-      textPlaceholder(PADDING, SLIDE_HEIGHT / 2 + 100, W, 100),
+      textPlaceholder('big-number', PADDING, SLIDE_HEIGHT / 2 - 200, W, 280),
+      textPlaceholder('body', PADDING, SLIDE_HEIGHT / 2 + 100, W, 100),
     ],
     staticElements: [],
   },

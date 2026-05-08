@@ -1,5 +1,5 @@
 import type { Block } from '@wafflebase/docs';
-import type { Element, ElementInit, ImageRef } from './element';
+import type { Element, ElementInit, ImageRef, PlaceholderType } from './element';
 import type { Theme, ThemeColor } from './theme';
 import type { Master } from './master';
 
@@ -16,7 +16,9 @@ export type Slide = {
   notes: Block[];
 };
 
-export type PlaceholderSpec = ElementInit;
+export type PlaceholderSpec = ElementInit & {
+  placeholder: { type: PlaceholderType };
+};
 
 export type Layout = {
   id: string;
