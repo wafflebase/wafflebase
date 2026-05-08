@@ -17,6 +17,8 @@ import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import { SlidesView, type SlidesEditor } from "./slides-view";
 import { SlidesFormattingToolbar } from "./slides-formatting-toolbar";
+import { ThemePanel } from "./theme-panel";
+import type { YorkieSlidesStore } from "./yorkie-slides-store";
 
 /**
  * Initial Yorkie document root for a new slides presentation.
@@ -35,6 +37,21 @@ function initialSlidesRoot(): Partial<YorkieSlidesRoot> {
 function SlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
+  const [store, setStore] = useState<YorkieSlidesStore | null>(null);
+  const [themePanelOpen, setThemePanelOpen] = useState(false);
+  // Track the active theme id so the panel highlights the right swatch
+  // and re-renders on remote theme changes. Subscribed to `store.onChange`
+  // below — local applies notify after the batch commits, remote applies
+  // notify on the Yorkie subscription.
+  const [currentThemeId, setCurrentThemeId] = useState("default-light");
+
+  useEffect(() => {
+    if (!store) return;
+    setCurrentThemeId(store.read().meta.themeId);
+    return store.onChange(() => {
+      setCurrentThemeId(store.read().meta.themeId);
+    });
+  }, [store]);
 
   // Clean up stale pointer-events on body left by Radix Sheet from a
   // previous route (e.g. Layout's mobile sidebar unmounting mid-animation).
@@ -133,8 +150,25 @@ function SlidesLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <SlidesFormattingToolbar editor={editor} />
-          <SlidesView onEditorReady={setEditor} documentId={documentId} />
+          <SlidesFormattingToolbar
+            editor={editor}
+            onToggleThemePanel={() => setThemePanelOpen((v) => !v)}
+            themePanelOpen={themePanelOpen}
+          />
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <SlidesView
+              onEditorReady={setEditor}
+              onStoreReady={setStore}
+              documentId={documentId}
+            />
+            {themePanelOpen && store && (
+              <ThemePanel
+                store={store}
+                currentThemeId={currentThemeId}
+                onClose={() => setThemePanelOpen(false)}
+              />
+            )}
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

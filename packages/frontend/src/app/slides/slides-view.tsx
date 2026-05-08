@@ -29,6 +29,14 @@ interface SlidesViewProps {
    */
   readOnly?: boolean;
   onEditorReady?: (editor: SlidesEditor | null) => void;
+  /**
+   * Fires once with the wired-up `YorkieSlidesStore` after the editor
+   * mounts, and again with `null` on cleanup. Lets the surrounding
+   * shell (theme picker, future side panels) run reads/batches against
+   * the same store the editor uses, without each panel building its
+   * own Yorkie store wrapper.
+   */
+  onStoreReady?: (store: YorkieSlidesStore | null) => void;
 }
 
 // Logical slide aspect (1920×1080 = 16:9). The canvas is sized to fit
@@ -78,7 +86,7 @@ function computeFitSize(availWidth: number, availHeight: number): {
  * preload Noto KR via `document.fonts.load` the same way docs'
  * PDF exporter does.
  */
-export function SlidesView({ onEditorReady }: SlidesViewProps) {
+export function SlidesView({ onEditorReady, onStoreReady }: SlidesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
   const [didMount, setDidMount] = useState(false);
@@ -236,6 +244,7 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
     });
     editorRef.current = editor;
     onEditorReady?.(editor);
+    onStoreReady?.(store);
 
     // Auto-fit the canvas to the right column. Re-fits on ResizeObserver
     // ticks (window resize, sidebar collapse, devtools open). Caps at
@@ -388,10 +397,12 @@ export function SlidesView({ onEditorReady }: SlidesViewProps) {
       store.dispose();
       editorRef.current = null;
       onEditorReady?.(null);
+      onStoreReady?.(null);
       style.remove();
     };
-    // onEditorReady is intentionally excluded — re-mounting on every
-    // identity change of the parent's setter would tear down the editor.
+    // onEditorReady / onStoreReady are intentionally excluded — re-mounting
+    // on every identity change of the parent's setter would tear down the
+    // editor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [didMount, doc]);
 

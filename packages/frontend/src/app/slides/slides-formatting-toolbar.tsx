@@ -13,10 +13,18 @@ import {
   IconLine,
   IconArrowRight,
   IconLetterT,
+  IconPalette,
 } from "@tabler/icons-react";
 
 interface SlidesFormattingToolbarProps {
   editor: SlidesEditor | null;
+  /**
+   * Toggles the theme picker side panel. Receives no argument; the
+   * parent owns `themePanelOpen` state and flips it. Optional so the
+   * toolbar still renders when no panel is wired (e.g. tests).
+   */
+  onToggleThemePanel?: () => void;
+  themePanelOpen?: boolean;
 }
 
 interface InsertButton {
@@ -39,7 +47,11 @@ const INSERT_BUTTONS: InsertButton[] = [
  * insert mode (the editor resets it to null after a placement, so a
  * one-way controlled toolbar would get stuck "pressed").
  */
-export function SlidesFormattingToolbar({ editor }: SlidesFormattingToolbarProps) {
+export function SlidesFormattingToolbar({
+  editor,
+  onToggleThemePanel,
+  themePanelOpen,
+}: SlidesFormattingToolbarProps) {
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
 
   useEffect(() => {
@@ -72,6 +84,22 @@ export function SlidesFormattingToolbar({ editor }: SlidesFormattingToolbarProps
       {/* Phase 5b-1 will add an "+ Image" button here.
           Phase 5b-2 will add a "Present" button here.
           Phase 5b-3 will add an "Export PDF" button here. */}
+      {onToggleThemePanel && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Toggle
+              size="sm"
+              pressed={!!themePanelOpen}
+              onPressedChange={() => onToggleThemePanel()}
+              aria-label="Toggle theme picker"
+              className="ml-auto"
+            >
+              <IconPalette size={16} />
+            </Toggle>
+          </TooltipTrigger>
+          <TooltipContent>Theme</TooltipContent>
+        </Tooltip>
+      )}
     </Toolbar>
   );
 }
