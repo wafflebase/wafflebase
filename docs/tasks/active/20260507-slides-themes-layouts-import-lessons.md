@@ -47,11 +47,14 @@ PR1 merge or in a follow-up cleanup commit:
   `string | ThemeFont` (parallel to `color: StoredColor` extension) so slides text font picks
   preserve role bindings. Without it, theme-switch on text-fonted decks doesn't follow the
   new theme.
-- **Render contextual popovers via React portal.** PR1 currently applies `!overflow-visible`
-  on the slides Toolbar to keep Fill / Font popovers visible past the toolbar's ~40 px height
-  (the shadcn Toolbar's `overflow-x-auto` triggers a CSS spec quirk where the other axis
-  becomes auto, clipping below). A portal to `document.body` would isolate popover positioning
-  from any ancestor overflow and avoid the override. Apply when adopting `@radix-ui/react-popover`
-  or rolling a small portal-based popover wrapper.
+- **Render contextual popovers via React portal.** Resolved in PR1 by switching to Radix
+  `DropdownMenu`, which auto-portals to body. The earlier `!overflow-visible` override on the
+  slides Toolbar is gone. Keep this pattern for future contextual popovers (alignment, etc.).
+- **Picker palette detail polish (deferred).** The PR1 themed color and font pickers now match
+  docs/sheets aesthetic via Tailwind + DropdownMenu, but spacing, swatch sizing, hover states,
+  and the Standard color selection deserve another pass. Possible follow-ups: (a) fine-tune
+  swatch dimensions vs the rest of the toolbar, (b) replace native `<input type="color">` with
+  a richer hex input + recent-color memory, (c) match Google Slides' standard-color palette
+  more deliberately (we currently reuse the docs `TEXT_COLORS` constant).
 
 ## Brainstorming
