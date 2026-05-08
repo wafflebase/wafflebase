@@ -8,7 +8,10 @@ import {
   ConditionalFormatRule,
   MergeSpan,
 } from '../model/core/types';
-import { RangeStylePatch, resolveRangeStyleAt } from '../model/worksheet/range-styles';
+import {
+  RangeStylePatch,
+  resolveRangeStyleAt,
+} from '../model/worksheet/range-styles';
 import { resolveConditionalFormatStyleAt } from '../model/worksheet/conditional-format';
 import { DimensionIndex } from '../model/worksheet/dimensions';
 import { formatValue } from '../model/worksheet/format';
@@ -96,6 +99,9 @@ export class GridCanvas {
       boundary: number;
     } | null,
     zoom: number = 1,
+    rowOrder?: string[],
+    colOrder?: string[],
+    commentCellKeys?: Set<string>,
   ): void {
     this.canvas.width = 0;
     this.canvas.height = 0;
@@ -112,7 +118,11 @@ export class GridCanvas {
     // When zoomed out, the logical drawing area exceeds the raw viewport.
     // Reassign so all subsequent drawing uses the effective dimensions.
     if (zoom !== 1) {
-      viewport = { ...viewport, width: viewport.width / zoom, height: viewport.height / zoom };
+      viewport = {
+        ...viewport,
+        width: viewport.width / zoom,
+        height: viewport.height / zoom,
+      };
     }
 
     const [startID, endID] = viewRange;
@@ -140,6 +150,9 @@ export class GridCanvas {
         filterRange,
         filteredColumns,
         hoveredFilterButtonCol,
+        rowOrder,
+        colOrder,
+        commentCellKeys,
       );
       this.renderColumnHeaders(
         ctx,
@@ -219,6 +232,9 @@ export class GridCanvas {
         filterRange,
         filteredColumns,
         hoveredFilterButtonCol,
+        rowOrder,
+        colOrder,
+        commentCellKeys,
       );
       ctx.restore();
 
@@ -252,6 +268,9 @@ export class GridCanvas {
           filterRange,
           filteredColumns,
           hoveredFilterButtonCol,
+          rowOrder,
+          colOrder,
+          commentCellKeys,
         );
         ctx.restore();
       }
@@ -286,6 +305,9 @@ export class GridCanvas {
           filterRange,
           filteredColumns,
           hoveredFilterButtonCol,
+          rowOrder,
+          colOrder,
+          commentCellKeys,
         );
         ctx.restore();
       }
@@ -315,6 +337,9 @@ export class GridCanvas {
           filterRange,
           filteredColumns,
           hoveredFilterButtonCol,
+          rowOrder,
+          colOrder,
+          commentCellKeys,
         );
         ctx.restore();
       }
@@ -456,6 +481,9 @@ export class GridCanvas {
     filterRange?: Range,
     filteredColumns?: Set<number>,
     hoveredFilterButtonCol: number | null = null,
+    rowOrder?: string[],
+    colOrder?: string[],
+    commentCellKeys?: Set<string>,
   ): void {
     const styleCache = new Map<string, CellStyle | null>();
     const resolveCellStyle = (
@@ -625,6 +653,48 @@ export class GridCanvas {
         }
       }
     }
+
+    // Pass 5: Render comment markers on cells with open threads.
+    if (commentCellKeys && rowOrder && colOrder) {
+      for (const { r: row, c: col } of renderRefs) {
+        // Map numeric row/col indices to axis IDs
+        const rowId = rowOrder[row - 1];
+        const colId = colOrder[col - 1];
+        if (!rowId || !colId) continue;
+
+        const cellKey = `${rowId}|${colId}`;
+        if (!commentCellKeys.has(cellKey)) continue;
+
+        // Compute the cell's top-right corner in canvas coordinates
+        const cellY = scroll.top + rowDim!.getOffset(row);
+        const cellRight = scroll.left + colDim!.getOffset(col) + colDim!.getSize(col);
+
+        // Draw the yellow triangle marker
+        this.drawCommentMarker(ctx, cellRight, cellY);
+      }
+    }
+  }
+
+  /**
+   * Draws a 7x7 yellow right-triangle comment marker at the top-right corner of a cell.
+   * The triangle is positioned with its right angle at the top-right corner.
+   */
+  private drawCommentMarker(
+    ctx: CanvasRenderingContext2D,
+    cellRight: number,
+    cellTop: number,
+  ): void {
+    const MARKER_SIZE = 7;
+    ctx.fillStyle = '#fbbc04';
+    ctx.beginPath();
+    // Start at the top-right corner
+    ctx.moveTo(cellRight, cellTop);
+    // Draw down along the right edge
+    ctx.lineTo(cellRight, cellTop + MARKER_SIZE);
+    // Draw left along the top edge
+    ctx.lineTo(cellRight - MARKER_SIZE, cellTop);
+    ctx.closePath();
+    ctx.fill();
   }
 
   /**
@@ -762,10 +832,14 @@ export class GridCanvas {
       ctx.fillRect(left, top, buttonWidth, buttonHeight);
     }
 
-    const iconColor = active || hovered
-      ? this.getThemeColor('resizeHandleColor')
-      : this.getThemeColor('cellTextColor');
-    const iconSize = Math.max(9, Math.min(12, Math.min(buttonWidth, buttonHeight) - 3));
+    const iconColor =
+      active || hovered
+        ? this.getThemeColor('resizeHandleColor')
+        : this.getThemeColor('cellTextColor');
+    const iconSize = Math.max(
+      9,
+      Math.min(12, Math.min(buttonWidth, buttonHeight) - 3),
+    );
     const iconLeft = left + (buttonWidth - iconSize) / 2;
     const iconTop = top + (buttonHeight - iconSize) / 2;
 
@@ -1390,7 +1464,10 @@ export class GridCanvas {
     for (let row = rowStart; row <= rowEnd; row++) {
       for (let col = colStart; col <= colEnd; col++) {
         const sref = toSref({ r: row, c: col });
-        if (mergeData?.coverToAnchor.has(sref) || mergeData?.anchors.has(sref)) {
+        if (
+          mergeData?.coverToAnchor.has(sref) ||
+          mergeData?.anchors.has(sref)
+        ) {
           continue;
         }
 
@@ -1523,7 +1600,9 @@ export class GridCanvas {
    */
   private buildMergeRenderData(
     merges?: Map<string, MergeSpan>,
-  ): { anchors: Map<string, MergeSpan>; coverToAnchor: Map<string, string> } | undefined {
+  ):
+    | { anchors: Map<string, MergeSpan>; coverToAnchor: Map<string, string> }
+    | undefined {
     if (!merges || merges.size === 0) return undefined;
     const anchors = new Map<string, MergeSpan>();
     const coverToAnchor = new Map<string, string>();

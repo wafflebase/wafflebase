@@ -1,5 +1,10 @@
 import { Range, Ref, Direction, FilterCondition } from '../model/core/types';
-import { toColumnLabel, toSref, inRange, parseRef } from '../model/core/coordinates';
+import {
+  toColumnLabel,
+  toSref,
+  inRange,
+  parseRef,
+} from '../model/core/coordinates';
 import {
   extractFormulaRanges,
   isReferenceInsertPosition,
@@ -20,11 +25,17 @@ import {
   HiddenBtnPadding,
   HiddenBtnMargin,
 } from './gridcanvas';
+import { buildOpenThreadKeySet } from './render-comments';
 
 import { FormulaAutocomplete, getAutocompleteContext } from './autocomplete';
 import { FunctionBrowser } from './function-browser';
 import { toTextRange, setTextRange } from './utils/textrange';
-import { runKeyRules, isModPressed, keyEquals, matchesKeyCombo } from './keymap';
+import {
+  runKeyRules,
+  isModPressed,
+  keyEquals,
+  matchesKeyCombo,
+} from './keymap';
 import {
   DefaultCellWidth,
   DefaultCellHeight,
@@ -231,7 +242,10 @@ export class Worksheet {
     this.resizeTooltip.style.padding = '4px 8px';
     this.resizeTooltip.style.borderRadius = '4px';
     this.resizeTooltip.style.border = `1px solid ${getThemeColor(theme, 'cellBorderColor')}`;
-    this.resizeTooltip.style.backgroundColor = getThemeColor(theme, 'cellBGColor');
+    this.resizeTooltip.style.backgroundColor = getThemeColor(
+      theme,
+      'cellBGColor',
+    );
     this.resizeTooltip.style.color = getThemeColor(theme, 'cellTextColor');
     this.resizeTooltip.style.fontSize = '11px';
     this.resizeTooltip.style.fontFamily =
@@ -247,7 +261,10 @@ export class Worksheet {
     this.filterPanel.style.overflow = 'hidden';
     this.filterPanel.style.borderRadius = '6px';
     this.filterPanel.style.border = `1px solid ${getThemeColor(theme, 'cellBorderColor')}`;
-    this.filterPanel.style.backgroundColor = getThemeColor(theme, 'cellBGColor');
+    this.filterPanel.style.backgroundColor = getThemeColor(
+      theme,
+      'cellBGColor',
+    );
     this.filterPanel.style.color = getThemeColor(theme, 'cellTextColor');
     this.filterPanel.style.fontSize = '12px';
     this.filterPanel.style.fontFamily =
@@ -562,7 +579,11 @@ export class Worksheet {
       'mousemove',
       onMove,
     );
-    const removeUp = this.addInteractionEventListener(document, 'mouseup', onUp);
+    const removeUp = this.addInteractionEventListener(
+      document,
+      'mouseup',
+      onUp,
+    );
 
     stop = this.registerInteractionCleanup(() => {
       removeMove();
@@ -1234,7 +1255,9 @@ export class Worksheet {
       mode,
       condition: {
         ...initialCondition,
-        values: initialCondition.values ? [...initialCondition.values] : undefined,
+        values: initialCondition.values
+          ? [...initialCondition.values]
+          : undefined,
       },
       initialCondition,
       hasExistingCondition: !!existing,
@@ -1356,7 +1379,10 @@ export class Worksheet {
     if (state.mode === 'values') {
       return !this.areStringSetsEqual(state.selected, state.initialSelected);
     }
-    return !this.areFilterConditionsEqual(state.condition, state.initialCondition);
+    return !this.areFilterConditionsEqual(
+      state.condition,
+      state.initialCondition,
+    );
   }
 
   private async applyFilterPanel(): Promise<void> {
@@ -1370,7 +1396,10 @@ export class Worksheet {
     }
 
     if (state.mode === 'values') {
-      await this.sheet.setColumnIncludedValues(state.col, Array.from(state.selected));
+      await this.sheet.setColumnIncludedValues(
+        state.col,
+        Array.from(state.selected),
+      );
       this.hideFilterPanel();
       this.render();
       return;
@@ -1689,7 +1718,10 @@ export class Worksheet {
       operator.style.background = 'transparent';
       operator.style.color = 'inherit';
 
-      const conditionOptions: Array<{ value: FilterCondition['op']; label: string }> = [
+      const conditionOptions: Array<{
+        value: FilterCondition['op'];
+        label: string;
+      }> = [
         { value: 'contains', label: 'Contains' },
         { value: 'notContains', label: 'Does not contain' },
         { value: 'equals', label: 'Equals' },
@@ -1718,8 +1750,7 @@ export class Worksheet {
       };
       wrapper.appendChild(operator);
 
-      const needsValue =
-        currentOp !== 'isEmpty' && currentOp !== 'isNotEmpty';
+      const needsValue = currentOp !== 'isEmpty' && currentOp !== 'isNotEmpty';
       if (needsValue) {
         const input = document.createElement('input');
         input.type = 'text';
@@ -1831,7 +1862,6 @@ export class Worksheet {
     this.addEventListener(scrollContainer, 'dblclick', (e) => {
       this.handleDblClick(e);
     });
-
 
     this.addEventListener(document, 'keydown', (e) => {
       this.handleKeyDown(e);
@@ -2367,10 +2397,14 @@ export class Worksheet {
       return false;
     }
 
-    const handleLeft = selectionRect.left + selectionRect.width - AutofillHandleSize / 2;
-    const handleTop = selectionRect.top + selectionRect.height - AutofillHandleSize / 2;
-    const frozenBoundaryLeft = RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
-    const frozenBoundaryTop = DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
+    const handleLeft =
+      selectionRect.left + selectionRect.width - AutofillHandleSize / 2;
+    const handleTop =
+      selectionRect.top + selectionRect.height - AutofillHandleSize / 2;
+    const frozenBoundaryLeft =
+      RowHeaderWidth + freeze.frozenWidth + freeze.gapX;
+    const frozenBoundaryTop =
+      DefaultCellHeight + freeze.frozenHeight + freeze.gapY;
     return handleLeft < frozenBoundaryLeft || handleTop < frozenBoundaryTop;
   }
 
@@ -2391,7 +2425,9 @@ export class Worksheet {
       Math.max(0, distanceOutside),
     );
     const ratio = clamped / AutoScrollDistanceForMaxSpeed;
-    return AutoScrollMinSpeed + (AutoScrollMaxSpeed - AutoScrollMinSpeed) * ratio;
+    return (
+      AutoScrollMinSpeed + (AutoScrollMaxSpeed - AutoScrollMinSpeed) * ratio
+    );
   }
 
   private getAutoScrollVelocity(
@@ -2542,7 +2578,11 @@ export class Worksheet {
         if (presence.selection) {
           ref = anchorToRef(presence.selection.activeCell, rowOrder, colOrder);
         } else if (presence.activeCell) {
-          try { ref = parseRef(presence.activeCell); } catch { /* skip */ }
+          try {
+            ref = parseRef(presence.activeCell);
+          } catch {
+            /* skip */
+          }
         }
         if (ref && ref.r === mouseRow && ref.c === mouseCol) {
           newHoveredPeer = clientID;
@@ -2690,10 +2730,7 @@ export class Worksheet {
       }
 
       // Left-click on already-selected column header → start drag-move
-      if (
-        !this.readOnly &&
-        withinColumnSelection
-      ) {
+      if (!this.readOnly && withinColumnSelection) {
         this.startDragMove(
           'column',
           selected!.from,
@@ -2816,10 +2853,7 @@ export class Worksheet {
       }
 
       // Left-click on already-selected row header → start drag-move
-      if (
-        !this.readOnly &&
-        withinRowSelection
-      ) {
+      if (!this.readOnly && withinRowSelection) {
         this.startDragMove(
           'row',
           selectedRow!.from,
@@ -3033,7 +3067,10 @@ export class Worksheet {
     let lastFrameTime: number | null = null;
 
     const updateSelection = () => {
-      const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+      const { x, y } = this.clampClientPointToViewport(
+        lastClientX,
+        lastClientY,
+      );
       if (isMultiSelect) {
         this.sheet!.addSelectionEnd(this.toRefFromMouse(x, y));
       } else {
@@ -3073,7 +3110,10 @@ export class Worksheet {
         lastFrameTime === null ? 16 : now - lastFrameTime,
       );
       lastFrameTime = now;
-      this.gridContainer.scrollBy((velocityX * dt) / 1000, (velocityY * dt) / 1000);
+      this.gridContainer.scrollBy(
+        (velocityX * dt) / 1000,
+        (velocityY * dt) / 1000,
+      );
       updateSelection();
       this.render();
       frameId = requestAnimationFrame(stepAutoScroll);
@@ -3135,7 +3175,10 @@ export class Worksheet {
     let lastFrameTime: number | null = null;
 
     const updatePreview = () => {
-      const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+      const { x, y } = this.clampClientPointToViewport(
+        lastClientX,
+        lastClientY,
+      );
       const target = this.toRefFromMouse(x, y);
       this.autofillPreview = this.sheet!.getAutofillPreviewRange(target);
       this.renderOverlay();
@@ -3173,7 +3216,10 @@ export class Worksheet {
         lastFrameTime === null ? 16 : now - lastFrameTime,
       );
       lastFrameTime = now;
-      this.gridContainer.scrollBy((velocityX * dt) / 1000, (velocityY * dt) / 1000);
+      this.gridContainer.scrollBy(
+        (velocityX * dt) / 1000,
+        (velocityY * dt) / 1000,
+      );
       updatePreview();
       frameId = requestAnimationFrame(stepAutoScroll);
     };
@@ -3212,7 +3258,10 @@ export class Worksheet {
     this.startMouseDragSession({
       onMove,
       onComplete: () => {
-        const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+        const { x, y } = this.clampClientPointToViewport(
+          lastClientX,
+          lastClientY,
+        );
         const target = this.toRefFromMouse(x, y);
         const sheet = this.sheet!;
         void (async () => {
@@ -3255,10 +3304,16 @@ export class Worksheet {
     let lastFrameTime: number | null = null;
 
     const updatePreview = () => {
-      const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+      const { x, y } = this.clampClientPointToViewport(
+        lastClientX,
+        lastClientY,
+      );
       const target = this.toRefFromMouse(x, y);
       // The preview range is the destination rectangle with the same dimensions
-      const endRef: Ref = { r: target.r + srcRows - 1, c: target.c + srcCols - 1 };
+      const endRef: Ref = {
+        r: target.r + srcRows - 1,
+        c: target.c + srcCols - 1,
+      };
       this.cellDragMovePreview = [target, endRef];
       this.renderOverlay();
     };
@@ -3295,7 +3350,10 @@ export class Worksheet {
         lastFrameTime === null ? 16 : now - lastFrameTime,
       );
       lastFrameTime = now;
-      this.gridContainer.scrollBy((velocityX * dt) / 1000, (velocityY * dt) / 1000);
+      this.gridContainer.scrollBy(
+        (velocityX * dt) / 1000,
+        (velocityY * dt) / 1000,
+      );
       updatePreview();
       frameId = requestAnimationFrame(stepAutoScroll);
     };
@@ -3334,7 +3392,10 @@ export class Worksheet {
     this.startMouseDragSession({
       onMove,
       onComplete: () => {
-        const { x, y } = this.clampClientPointToViewport(lastClientX, lastClientY);
+        const { x, y } = this.clampClientPointToViewport(
+          lastClientX,
+          lastClientY,
+        );
         const target = this.toRefFromMouse(x, y);
         const sheet = this.sheet!;
 
@@ -4018,8 +4079,7 @@ export class Worksheet {
         },
       },
       {
-        match: (event) =>
-          !isModPressed(event) && isImeComposingKeyEvent(event),
+        match: (event) => !isModPressed(event) && isImeComposingKeyEvent(event),
         run: () => {
           if (this.readOnly) return;
           if (this.cellInput.isFocused() && this.cellInput.isPrimed()) return;
@@ -4224,8 +4284,10 @@ export class Worksheet {
     const freeze = this.freezeState;
     const zoom = this.zoom;
     // Insets are in logical pixels; scale to screen pixels to match viewport.
-    const leftInset = (RowHeaderWidth + freeze.frozenWidth + freeze.gapX) * zoom;
-    const topInset = (DefaultCellHeight + freeze.frozenHeight + freeze.gapY) * zoom;
+    const leftInset =
+      (RowHeaderWidth + freeze.frozenWidth + freeze.gapX) * zoom;
+    const topInset =
+      (DefaultCellHeight + freeze.frozenHeight + freeze.gapY) * zoom;
 
     return {
       left: viewport.left + leftInset,
@@ -4317,7 +4379,10 @@ export class Worksheet {
     const onTouchMove = (ev: TouchEvent) => {
       ev.preventDefault();
       const touch = ev.touches[0];
-      const { x, y } = this.clampClientPointToViewport(touch.clientX, touch.clientY);
+      const { x, y } = this.clampClientPointToViewport(
+        touch.clientX,
+        touch.clientY,
+      );
       const ref = this.toRefFromMouse(x, y);
 
       if (handle === 'end') {
@@ -4376,9 +4441,15 @@ export class Worksheet {
     const freeze = this.freezeState;
     const scroll = this.scroll;
     const scrollableLeft =
-      scroll.left + this.colDim.getOffset(freeze.frozenCols + 1) - freeze.frozenWidth - freeze.gapX;
+      scroll.left +
+      this.colDim.getOffset(freeze.frozenCols + 1) -
+      freeze.frozenWidth -
+      freeze.gapX;
     const scrollableTop =
-      scroll.top + this.rowDim.getOffset(freeze.frozenRows + 1) - freeze.frozenHeight - freeze.gapY;
+      scroll.top +
+      this.rowDim.getOffset(freeze.frozenRows + 1) -
+      freeze.frozenHeight -
+      freeze.gapY;
     const rect = toBoundingRect(
       ref,
       { left: scrollableLeft, top: scrollableTop },
@@ -4586,7 +4657,9 @@ export class Worksheet {
     );
     const endRow = Math.max(
       startRow,
-      this.rowDim.findIndex(unfrozenRowStart + scroll.top + port.height / zoom) + 1,
+      this.rowDim.findIndex(
+        unfrozenRowStart + scroll.top + port.height / zoom,
+      ) + 1,
     );
     const startCol = Math.max(
       freeze.frozenCols + 1,
@@ -4594,7 +4667,9 @@ export class Worksheet {
     );
     const endCol = Math.max(
       startCol,
-      this.colDim.findIndex(unfrozenColStart + scroll.left + port.width / zoom) + 1,
+      this.colDim.findIndex(
+        unfrozenColStart + scroll.left + port.width / zoom,
+      ) + 1,
     );
 
     return [
@@ -4637,9 +4712,16 @@ export class Worksheet {
     const zoom = this.zoom;
     const unfrozenColStart = this.colDim.getOffset(freeze.frozenCols + 1);
     const unfrozenRowStart = this.rowDim.getOffset(freeze.frozenRows + 1);
-    const availW = this.viewport.width / zoom - RowHeaderWidth - freeze.frozenWidth - freeze.gapX;
+    const availW =
+      this.viewport.width / zoom -
+      RowHeaderWidth -
+      freeze.frozenWidth -
+      freeze.gapX;
     const availH =
-      this.viewport.height / zoom - DefaultCellHeight - freeze.frozenHeight - freeze.gapY;
+      this.viewport.height / zoom -
+      DefaultCellHeight -
+      freeze.frozenHeight -
+      freeze.gapY;
 
     let changed = false;
 
@@ -4772,7 +4854,10 @@ export class Worksheet {
    * autocomplete popup so it stays anchored to the currently focused input.
    */
   private updateAutocompletePositionForActiveInput(): void {
-    if (!this.autocomplete.isListVisible() && !this.autocomplete.isHintVisible()) {
+    if (
+      !this.autocomplete.isListVisible() &&
+      !this.autocomplete.isHintVisible()
+    ) {
       return;
     }
 
@@ -4853,7 +4938,11 @@ export class Worksheet {
     }
     const cell = this.sheet.getActiveCell();
     const style = await this.sheet.getStyle(cell);
-    if (!this.sheet || !this.cellInput.isFocused() || this.cellInput.isPrimed()) {
+    if (
+      !this.sheet ||
+      !this.cellInput.isFocused() ||
+      this.cellInput.isPrimed()
+    ) {
       return;
     }
     const current = this.sheet.getActiveCell();
@@ -4891,7 +4980,9 @@ export class Worksheet {
       layout.maxHeight,
       !keyboardEntry,
     );
-    this.cellInput.setCellPositionHint(layout.pinned ? toSref(cell) : undefined);
+    this.cellInput.setCellPositionHint(
+      layout.pinned ? toSref(cell) : undefined,
+    );
 
     const style = await this.sheet!.getStyle(cell);
     this.cellInput.applyStyle(style);
@@ -4947,6 +5038,11 @@ export class Worksheet {
       return;
     }
 
+    // Build comment marker key set from all open threads
+    // Note: In a multi-tab context, the frontend should filter threads by tabId before passing to renderSheet
+    const allThreads = await sheet.getStore().listThreads();
+    const commentCellKeys = buildOpenThreadKeySet(allThreads);
+
     this.gridCanvas.render(
       viewport,
       scroll,
@@ -4972,6 +5068,9 @@ export class Worksheet {
       sheet.getHiddenColumns().size > 0 ? sheet.getHiddenColumns() : undefined,
       this.hiddenIndicatorHover,
       this.zoom,
+      sheet.getStore().getRowOrder(),
+      sheet.getStore().getColOrder(),
+      commentCellKeys,
     );
   }
 
