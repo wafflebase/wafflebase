@@ -238,7 +238,7 @@ export function SlidesFormattingToolbar({
   const shapeFillValue = isShape ? readShapeFill(selected!.element) : undefined;
 
   return (
-    <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
+    <Toolbar className="flex h-10 items-center gap-1 border-b px-2 !overflow-visible">
       {INSERT_BUTTONS.map((b) => (
         <Tooltip key={b.kind}>
           <TooltipTrigger asChild>
