@@ -1,6 +1,7 @@
 import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
-import type { PlaceholderType } from './element';
-import type { Layout, PlaceholderSpec } from './presentation';
+import { generateId, isElementEmpty } from './element';
+import type { Element, PlaceholderRef, PlaceholderType } from './element';
+import type { Layout, PlaceholderSpec, Slide } from './presentation';
 import { SLIDE_WIDTH, SLIDE_HEIGHT } from './presentation';
 
 const PADDING = 80;
@@ -173,4 +174,69 @@ export const BUILT_IN_LAYOUTS: Layout[] = [
 /** Look up a built-in layout by id, defaulting to 'blank'. */
 export function getLayout(layoutId: string): Layout {
   return BUILT_IN_LAYOUTS.find((l) => l.id === layoutId) ?? BUILT_IN_LAYOUTS[0];
+}
+
+/**
+ * Re-slot a slide for a new layout (mutates `slide`).
+ *
+ * 1. Partition existing elements by `placeholderRef`: ref-bearing
+ *    elements compete for slots in `newLayout`; user-added elements
+ *    (no ref) are never touched.
+ * 2. For each new slot, find a ref-bearing element with matching
+ *    `(type, index)`. On match, update its frame and ref to the new
+ *    slot, preserving content. On miss, materialize a fresh empty
+ *    placeholder element from the slot's spec.
+ * 3. Orphans (ref-bearing but unmatched): empty → delete; non-empty
+ *    → demote (drop `placeholderRef`, keep frame and content).
+ *
+ * The user's `applyLayout` calls in both stores route here so the
+ * semantics never diverge.
+ */
+export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
+  const oldRefBearing = slide.elements.filter((e) => e.placeholderRef);
+  const userElements  = slide.elements.filter((e) => !e.placeholderRef);
+
+  // Compute (type, index) for each new-layout slot using array order.
+  type Slot = { spec: PlaceholderSpec; ref: PlaceholderRef };
+  const slots: Slot[] = newLayout.placeholders.map((spec, i) => {
+    const sameTypeBefore = newLayout.placeholders
+      .slice(0, i)
+      .filter((p) => p.placeholder.type === spec.placeholder.type).length;
+    return { spec, ref: { type: spec.placeholder.type, index: sameTypeBefore } };
+  });
+
+  const consumed = new Set<string>();
+  const slotted: Element[] = slots.map((slot) => {
+    const reuse = oldRefBearing.find(
+      (e) =>
+        !consumed.has(e.id)
+        && e.placeholderRef!.type === slot.ref.type
+        && e.placeholderRef!.index === slot.ref.index,
+    );
+    if (reuse) {
+      consumed.add(reuse.id);
+      return {
+        ...reuse,
+        frame: { ...slot.spec.frame },
+        placeholderRef: slot.ref,
+      } as Element;
+    }
+    return {
+      ...JSON.parse(JSON.stringify(slot.spec)),
+      id: generateId(),
+      placeholderRef: slot.ref,
+    } as Element;
+  });
+
+  const orphans: Element[] = oldRefBearing
+    .filter((e) => !consumed.has(e.id))
+    .filter((e) => !isElementEmpty(e))
+    .map((e) => {
+      const out = { ...e } as Element;
+      delete out.placeholderRef;
+      return out;
+    });
+
+  slide.layoutId = newLayout.id;
+  slide.elements = [...userElements, ...slotted, ...orphans];
 }
