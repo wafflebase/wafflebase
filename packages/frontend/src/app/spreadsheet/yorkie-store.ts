@@ -17,6 +17,8 @@ import {
   normalizeRangeStylePatch,
   writeWorksheetCell,
   safeWorksheetRecordEntries,
+  createThread,
+  addReply,
 } from "@wafflebase/sheets";
 import type {
   Store,
@@ -36,6 +38,11 @@ import type {
   Axis,
   ConditionalFormatRule,
   RangeStylePatch,
+  MergeSpan,
+  Comment,
+  CommentAnchor,
+  CommentAuthor,
+  Thread,
 } from "@wafflebase/sheets";
 import type { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import type { UserPresence } from "@/types/users";
@@ -45,6 +52,13 @@ import {
   shiftCrossTabDataRanges,
   moveCrossTabDataRanges,
 } from "./yorkie-worksheet-structure";
+import {
+  applyAddThread,
+  applyAddReply,
+  applyEditComment,
+  applyDeleteComment,
+  applyResolveThread,
+} from "./yorkie-worksheet-comments";
 
 export class YorkieStore implements Store {
   private doc: Document<SpreadsheetDocument, UserPresence>;
@@ -1202,6 +1216,95 @@ export class YorkieStore implements Store {
 
   canRedo(): boolean {
     return this.doc.history.canRedo();
+  }
+
+  async addThread(
+    anchor: CommentAnchor,
+    body: string,
+    author: CommentAuthor,
+  ): Promise<Thread> {
+    const thread = createThread(
+      anchor,
+      body,
+      author,
+      () => crypto.randomUUID(),
+      () => crypto.randomUUID(),
+      () => Date.now(),
+    );
+    this.doc.update((root) => {
+      const ws = root.sheets[this.tabId];
+      applyAddThread(ws, thread);
+    });
+    return thread;
+  }
+
+  async addReply(
+    threadId: string,
+    body: string,
+    author: CommentAuthor,
+  ): Promise<Comment> {
+    let reply!: Comment;
+    this.doc.update((root) => {
+      const ws = root.sheets[this.tabId];
+      const existing = ws.comments?.[threadId];
+      if (!existing) throw new Error(`Thread not found: ${threadId}`);
+      const next = addReply(
+        existing,
+        body,
+        author,
+        () => crypto.randomUUID(),
+        () => Date.now(),
+      );
+      reply = next.comments[next.comments.length - 1];
+      applyAddReply(ws, threadId, reply);
+    });
+    return reply;
+  }
+
+  async editComment(threadId: string, commentId: string, body: string): Promise<void> {
+    if (body.trim().length === 0) throw new Error('Comment body cannot be empty');
+    this.doc.update((root) => {
+      applyEditComment(root.sheets[this.tabId], threadId, commentId, body, Date.now());
+    });
+  }
+
+  async deleteComment(threadId: string, commentId: string): Promise<void> {
+    this.doc.update((root) => {
+      applyDeleteComment(root.sheets[this.tabId], threadId, commentId);
+    });
+  }
+
+  async setThreadResolved(
+    threadId: string,
+    resolved: boolean,
+    by: CommentAuthor,
+  ): Promise<void> {
+    this.doc.update((root) => {
+      applyResolveThread(root.sheets[this.tabId], threadId, resolved, by, Date.now());
+    });
+  }
+
+  async listThreads(opts?: {
+    tabId?: string;
+    cellAnchor?: { rowId: string; colId: string };
+    resolved?: boolean;
+  }): Promise<Thread[]> {
+    const root = this.doc.getRoot();
+    const tabId = opts?.tabId ?? this.tabId;
+    const ws = root.sheets[tabId];
+    let threads = Object.values(ws?.comments ?? {}) as Thread[];
+    if (opts?.cellAnchor) {
+      threads = threads.filter(
+        (t) =>
+          t.anchor.kind === 'sheet-cell' &&
+          t.anchor.rowId === opts.cellAnchor!.rowId &&
+          t.anchor.colId === opts.cellAnchor!.colId,
+      );
+    }
+    if (opts?.resolved !== undefined) {
+      threads = threads.filter((t) => t.resolved === opts.resolved);
+    }
+    return threads;
   }
 
   invalidate(): void {

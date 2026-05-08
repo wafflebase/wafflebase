@@ -177,6 +177,10 @@ import {
   type CommentAuthor,
   type Thread,
 } from './comment/types';
+import {
+  createThread,
+  addReply,
+} from './comment/thread';
 
 export {
   initialize,
@@ -272,6 +276,8 @@ export {
   refToAnchor,
   rangeAnchorToRange,
   rangeToRangeAnchor,
+  createThread,
+  addReply,
 };
 
 export type {
