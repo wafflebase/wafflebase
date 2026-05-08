@@ -27,9 +27,23 @@ export type ShapeStroke = {
   width: number;
 };
 
+export type PlaceholderType =
+  | 'title'
+  | 'subtitle'
+  | 'body'
+  | 'caption'
+  | 'big-number';
+
+export type PlaceholderRef = {
+  type: PlaceholderType;
+  /** 0-based among same-type slots in the source layout. */
+  index: number;
+};
+
 export type ElementBase = {
   id: string;
   frame: Frame;
+  placeholderRef?: PlaceholderRef;
 };
 
 export type TextElement = ElementBase & {
@@ -71,4 +85,11 @@ export type ElementInit =
 /** Generate a short, URL-safe element/slide ID. */
 export function generateId(): string {
   return crypto.randomUUID().slice(0, 8);
+}
+
+export function isElementEmpty(el: Element): boolean {
+  if (el.type !== 'text') return false;
+  return el.data.blocks.every((b) =>
+    b.inlines.every((inl) => inl.text === ''),
+  );
 }
