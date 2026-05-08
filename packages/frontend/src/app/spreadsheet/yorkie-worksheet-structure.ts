@@ -26,6 +26,7 @@ import {
   type MergeSpan,
   type SheetChart,
   type Sref,
+  type Thread,
   type Worksheet,
 } from "@wafflebase/sheets";
 import {
@@ -35,6 +36,29 @@ import {
 } from "./yorkie-worksheet-axis";
 
 type NormalizeCell = (cell: Cell) => Cell | null;
+
+type WorksheetCommentsView = {
+  comments?: { [threadId: string]: Thread };
+};
+
+/**
+ * Delete threads whose anchor points to a deleted row or column.
+ * Called during the same transaction as the row/column deletion,
+ * so undo restores both the deleted rows/columns and their threads together.
+ */
+export function deleteThreadsForAxis(
+  ws: WorksheetCommentsView,
+  axis: "row" | "col",
+  deletedAxisIds: Set<string>,
+): void {
+  const comments = ws.comments;
+  if (!comments) return;
+  for (const [threadId, thread] of Object.entries(comments)) {
+    if (thread.anchor.kind !== "sheet-cell") continue;
+    const id = axis === "row" ? thread.anchor.rowId : thread.anchor.colId;
+    if (deletedAxisIds.has(id)) delete comments[threadId];
+  }
+}
 
 function toIndexedMap<T>(record: Record<string, T>): Map<number, T> {
   return new Map(
@@ -257,10 +281,11 @@ export function applyYorkieWorksheetShift(options: {
 }): void {
   const { ws, axis, index, count, normalizeCell } = options;
 
+  let deletedAxisIds: Set<string> = new Set();
   if (count > 0) {
     insertYorkieWorksheetAxis(ws, axis, index, count);
   } else if (count < 0) {
-    deleteYorkieWorksheetAxis(ws, axis, index, Math.abs(count));
+    deletedAxisIds = deleteYorkieWorksheetAxis(ws, axis, index, Math.abs(count));
   }
 
   rewriteFormulaCells(ws, normalizeCell, (formula) =>
@@ -304,6 +329,12 @@ export function applyYorkieWorksheetShift(options: {
 
   shiftAnchors(ws.charts as Record<string, { anchor: Sref }>, axis, index, count);
   shiftAnchors(ws.images as Record<string, { anchor: Sref }>, axis, index, count);
+
+  // Auto-delete orphan threads when rows/columns are deleted.
+  // Done in the same transaction as the deletion for undo restoration.
+  if (deletedAxisIds.size > 0) {
+    deleteThreadsForAxis(ws, axis === "row" ? "row" : "col", deletedAxisIds);
+  }
 }
 
 export function applyYorkieWorksheetMove(options: {
