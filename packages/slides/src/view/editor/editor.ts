@@ -12,6 +12,7 @@ import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
 import { runKeyRules, type KeyRule } from './keymap';
+import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
 import { snapDelta } from './snap';
@@ -117,6 +118,15 @@ class SlidesEditorImpl implements SlidesEditor {
    */
   private editingElementId: string | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
+  /**
+   * Last context-menu click position in viewport (clientX/clientY)
+   * coords. Captured in onContextMenu so that menu-item `run`
+   * callbacks fired later can anchor popovers (e.g. the layout
+   * picker) at the original click site rather than at logical
+   * (slide) coordinates.
+   */
+  private lastContextX = 0;
+  private lastContextY = 0;
   /**
    * Bound mount factory. Tests can swap this out via
    * `SlidesEditorOptions.mountTextBox` to avoid driving the real docs
@@ -339,6 +349,8 @@ class SlidesEditorImpl implements SlidesEditor {
 
   private onContextMenu(e: MouseEvent): void {
     e.preventDefault();
+    this.lastContextX = e.clientX;
+    this.lastContextY = e.clientY;
     const slide = this.currentSlide();
     if (!slide) return;
     const { x, y } = this.clientToLogical(e.clientX, e.clientY);
@@ -381,6 +393,26 @@ class SlidesEditorImpl implements SlidesEditor {
   private canvasContextItems(x: number, y: number): ContextMenuItem[] {
     return [
       { label: 'Paste', run: () => this.dispatchKey('v', { meta: true }) },
+      { label: '---',   run: () => undefined },
+      {
+        label: 'Change layout…',
+        run: () => {
+          const slide = this.currentSlide();
+          if (!slide) return;
+          showLayoutPicker(document.body, {
+            store: this.options.store,
+            anchor: { x: this.lastContextX, y: this.lastContextY },
+            selectedLayoutId: slide.layoutId,
+            onPick: (layoutId) => {
+              this.options.store.batch(() =>
+                this.options.store.applyLayout(slide.id, layoutId),
+              );
+              this.requestRender();
+            },
+            onClose: () => {},
+          });
+        },
+      },
       { label: '---',   run: () => undefined },
       { label: 'Insert rectangle', run: () => this.insertAt('rect', x, y) },
       { label: 'Insert ellipse',   run: () => this.insertAt('ellipse', x, y) },
