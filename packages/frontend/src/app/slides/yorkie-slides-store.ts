@@ -10,6 +10,7 @@ import {
   type SlidesStore,
   type Theme,
   BUILT_IN_LAYOUTS,
+  defaultLight,
   generateId,
   getLayout,
   migrateDocument,
@@ -22,34 +23,6 @@ import type {
   YorkieSlidesRoot,
   YorkiePlaceholder,
 } from '@/types/slides-document';
-
-/**
- * Inline placeholder theme so the Yorkie-backed store can hand back a
- * well-formed `SlidesDocument` (with `themes`, `masters`,
- * `meta.themeId`, `meta.masterId`) before the real theme module is
- * shipped. Mirrors `MemSlidesStore`'s placeholder so both stores
- * resolve theme colors identically. Task 5 deletes this in favour of
- * importing `defaultLight` from `@wafflebase/slides/themes/default-light`.
- */
-const PLACEHOLDER_DEFAULT_LIGHT: Theme = {
-  id: 'default-light',
-  name: 'Simple Light',
-  colors: {
-    text: '#202124',
-    background: '#FFFFFF',
-    textSecondary: '#5F6368',
-    backgroundAlt: '#F1F3F4',
-    accent1: '#1A73E8',
-    accent2: '#34A853',
-    accent3: '#FBBC04',
-    accent4: '#EA4335',
-    accent5: '#673AB7',
-    accent6: '#FF6D01',
-    hyperlink: '#1A73E8',
-    visitedHyperlink: '#7B1FA2',
-  },
-  fonts: { heading: 'Inter', body: 'Inter' },
-};
 
 const DEFAULT_BACKGROUND: YorkieSlide['background'] = {
   fill: { kind: 'role', role: 'background' },
@@ -137,7 +110,7 @@ export function ensureSlidesRoot(
     if (meta.masterId == null) meta.masterId = 'default';
     const rootAny = r as { themes?: Theme[]; masters?: Master[] };
     if (rootAny.themes == null) {
-      rootAny.themes = [clone(PLACEHOLDER_DEFAULT_LIGHT)];
+      rootAny.themes = [clone(defaultLight)];
     }
     if (rootAny.masters == null) {
       rootAny.masters = [clone(DEFAULT_MASTER)];

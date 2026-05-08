@@ -45,6 +45,17 @@ export { BUILT_IN_LAYOUTS, getLayout } from './model/layout';
 
 export { migrateDocument } from './model/migrate';
 
+// Themes — built-in theme registry (Phase 5 / themed authoring)
+export {
+  defaultLight,
+  defaultDark,
+  streamline,
+  focus,
+  material,
+  BUILT_IN_THEMES,
+  getBuiltInTheme,
+} from './themes';
+
 // Store
 export type { SlidesStore } from './store/store';
 export { MemSlidesStore } from './store/memory';

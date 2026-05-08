@@ -1,29 +1,7 @@
 import type { SlidesDocument } from './presentation';
-import type { ThemeColor, Theme } from './theme';
+import type { ThemeColor } from './theme';
 import { DEFAULT_MASTER } from './master';
-
-// Placeholder until Task 5 ships packages/slides/src/themes/default-light.ts.
-// Must stay byte-identical to the placeholders in store/memory.ts and
-// frontend/.../yorkie-slides-store.ts; Task 5 deletes all three.
-const PLACEHOLDER_DEFAULT_LIGHT: Theme = {
-  id: 'default-light',
-  name: 'Simple Light',
-  colors: {
-    text: '#202124',
-    background: '#FFFFFF',
-    textSecondary: '#5F6368',
-    backgroundAlt: '#F1F3F4',
-    accent1: '#1A73E8',
-    accent2: '#34A853',
-    accent3: '#FBBC04',
-    accent4: '#EA4335',
-    accent5: '#673AB7',
-    accent6: '#FF6D01',
-    hyperlink: '#1A73E8',
-    visitedHyperlink: '#7B1FA2',
-  },
-  fonts: { heading: 'Inter', body: 'Inter' },
-};
+import { defaultLight } from '../themes/default-light';
 
 const LAYOUT_ID_MIGRATIONS: Record<string, string> = {
   title: 'title-slide',
@@ -38,7 +16,7 @@ export function migrateDocument(input: unknown): SlidesDocument {
   };
   const themes = Array.isArray(raw?.themes) && raw.themes.length > 0
     ? raw.themes
-    : [PLACEHOLDER_DEFAULT_LIGHT];
+    : [defaultLight];
   const masters = Array.isArray(raw?.masters) && raw.masters.length > 0
     ? raw.masters
     : [DEFAULT_MASTER];

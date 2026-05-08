@@ -1,0 +1,38 @@
+{
+  "meta": { "title": "Title only", "themeId": "default-light", "masterId": "default" },
+  "themes": [],
+  "masters": [],
+  "layouts": [],
+  "slides": [
+    {
+      "id": "s1",
+      "layoutId": "title-slide",
+      "background": { "fill": { "kind": "role", "role": "background" } },
+      "elements": [
+        {
+          "id": "e1",
+          "type": "text",
+          "frame": { "x": 80, "y": 420, "w": 1760, "h": 160, "rotation": 0 },
+          "data": {
+            "blocks": [
+              {
+                "id": "b1",
+                "type": "paragraph",
+                "inlines": [{ "text": "Hello, themed slides", "style": { "fontSize": 48 } }],
+                "style": {
+                  "alignment": "center",
+                  "lineHeight": 1.2,
+                  "marginTop": 0,
+                  "marginBottom": 0,
+                  "textIndent": 0,
+                  "marginLeft": 0
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "notes": []
+    }
+  ]
+}

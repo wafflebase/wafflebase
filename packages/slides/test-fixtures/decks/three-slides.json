@@ -1,0 +1,104 @@
+{
+  "meta": { "title": "Three slides", "themeId": "default-light", "masterId": "default" },
+  "themes": [],
+  "masters": [],
+  "layouts": [],
+  "slides": [
+    {
+      "id": "s1",
+      "layoutId": "title-slide",
+      "background": { "fill": { "kind": "role", "role": "background" } },
+      "elements": [
+        {
+          "id": "e1",
+          "type": "text",
+          "frame": { "x": 80, "y": 380, "w": 1760, "h": 160, "rotation": 0 },
+          "data": {
+            "blocks": [
+              {
+                "id": "b1",
+                "type": "paragraph",
+                "inlines": [{ "text": "Welcome", "style": { "fontSize": 64 } }],
+                "style": {
+                  "alignment": "center",
+                  "lineHeight": 1.2,
+                  "marginTop": 0,
+                  "marginBottom": 0,
+                  "textIndent": 0,
+                  "marginLeft": 0
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "e2",
+          "type": "text",
+          "frame": { "x": 80, "y": 580, "w": 1760, "h": 80, "rotation": 0 },
+          "data": {
+            "blocks": [
+              {
+                "id": "b2",
+                "type": "paragraph",
+                "inlines": [{ "text": "Subtitle line", "style": { "fontSize": 28 } }],
+                "style": {
+                  "alignment": "center",
+                  "lineHeight": 1.4,
+                  "marginTop": 0,
+                  "marginBottom": 0,
+                  "textIndent": 0,
+                  "marginLeft": 0
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "s2",
+      "layoutId": "blank",
+      "background": { "fill": { "kind": "role", "role": "background" } },
+      "elements": [
+        {
+          "id": "e3",
+          "type": "shape",
+          "frame": { "x": 480, "y": 240, "w": 960, "h": 600, "rotation": 0 },
+          "data": { "kind": "rect", "fill": { "kind": "role", "role": "accent1" } }
+        }
+      ],
+      "notes": []
+    },
+    {
+      "id": "s3",
+      "layoutId": "title-body",
+      "background": { "fill": { "kind": "role", "role": "background" } },
+      "elements": [
+        {
+          "id": "e4",
+          "type": "text",
+          "frame": { "x": 80, "y": 80, "w": 1760, "h": 920, "rotation": 0 },
+          "data": {
+            "blocks": [
+              {
+                "id": "b3",
+                "type": "paragraph",
+                "inlines": [{ "text": "Body content goes here.", "style": { "fontSize": 36 } }],
+                "style": {
+                  "alignment": "left",
+                  "lineHeight": 1.5,
+                  "marginTop": 0,
+                  "marginBottom": 0,
+                  "textIndent": 0,
+                  "marginLeft": 0
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "notes": []
+    }
+  ]
+}

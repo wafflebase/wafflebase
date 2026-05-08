@@ -12,37 +12,11 @@ import { DEFAULT_BACKGROUND } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
 import { migrateDocument } from '../model/migrate';
 import type { Theme } from '../model/theme';
+import { defaultLight } from '../themes/default-light';
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
-
-/**
- * Inline placeholder theme so `MemSlidesStore` can hand back a
- * well-formed `SlidesDocument` (with `themes`, `masters`,
- * `meta.themeId`, `meta.masterId`) before the real theme module is
- * shipped. Task 5 deletes this and imports `defaultLight` from
- * `../themes/default-light`.
- */
-const PLACEHOLDER_DEFAULT_LIGHT: Theme = {
-  id: 'default-light',
-  name: 'Simple Light',
-  colors: {
-    text: '#202124',
-    background: '#FFFFFF',
-    textSecondary: '#5F6368',
-    backgroundAlt: '#F1F3F4',
-    accent1: '#1A73E8',
-    accent2: '#34A853',
-    accent3: '#FBBC04',
-    accent4: '#EA4335',
-    accent5: '#673AB7',
-    accent6: '#FF6D01',
-    hyperlink: '#1A73E8',
-    visitedHyperlink: '#7B1FA2',
-  },
-  fonts: { heading: 'Inter', body: 'Inter' },
-};
 
 function emptyDocument(): SlidesDocument {
   return {
@@ -51,7 +25,7 @@ function emptyDocument(): SlidesDocument {
       themeId: 'default-light',
       masterId: 'default',
     },
-    themes: [clone(PLACEHOLDER_DEFAULT_LIGHT)],
+    themes: [clone(defaultLight)],
     masters: [clone(DEFAULT_MASTER)],
     layouts: clone(BUILT_IN_LAYOUTS),
     slides: [],
