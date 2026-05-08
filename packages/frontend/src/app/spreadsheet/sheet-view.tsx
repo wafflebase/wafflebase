@@ -111,6 +111,7 @@ export function SheetView({
   tabId,
   readOnly = false,
   peerJumpTarget = null,
+  commentJumpTarget = null,
   addPivotTab,
   workspaceId,
 }: {
@@ -119,6 +120,10 @@ export function SheetView({
   peerJumpTarget?: {
     activeCell: NonNullable<UserPresence["activeCell"]>;
     targetTabId?: UserPresence["activeTabId"];
+    requestId: number;
+  } | null;
+  commentJumpTarget?: {
+    sref: string;
     requestId: number;
   } | null;
   addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
@@ -173,6 +178,7 @@ export function SheetView({
     isMobileRef.current = isMobile;
   }, [isMobile]);
   const lastHandledPeerJumpRequestIdRef = useRef(0);
+  const lastHandledCommentJumpRequestIdRef = useRef(0);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
   const hasImagesRef = useRef(false);
@@ -1156,6 +1162,27 @@ export function SheetView({
       // Ignore malformed presence values from remote peers.
     }
   }, [peerJumpTarget, sheetRenderVersion, tabId]);
+
+  useEffect(() => {
+    if (!commentJumpTarget) return;
+    if (commentJumpTarget.requestId === lastHandledCommentJumpRequestIdRef.current) {
+      return;
+    }
+
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    lastHandledCommentJumpRequestIdRef.current = commentJumpTarget.requestId;
+    setSelectedChartId(null);
+    setChartEditorOpen(false);
+    setConditionalFormatOpen(false);
+
+    try {
+      void sheet.focusCell(parseRef(commentJumpTarget.sref));
+    } catch {
+      // Ignore malformed sref values.
+    }
+  }, [commentJumpTarget, sheetRenderVersion]);
 
   const paintFormatSourceIndicator = (() => {
     if (!paintFormatSourceIndicatorVisible || !paintFormatSourceRef) {
