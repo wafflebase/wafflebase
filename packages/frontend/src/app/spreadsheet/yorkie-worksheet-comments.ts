@@ -1,20 +1,16 @@
-import type { Comment, CommentAuthor, Thread } from '@wafflebase/sheets';
+import type { Comment, CommentAuthor, Thread, Worksheet } from '@wafflebase/sheets';
 
-type WorksheetWithComments = {
-  comments?: { [threadId: string]: Thread };
-};
-
-function ensureComments(ws: WorksheetWithComments): { [threadId: string]: Thread } {
+function ensureComments(ws: Worksheet): { [threadId: string]: Thread } {
   if (!ws.comments) ws.comments = {};
   return ws.comments;
 }
 
-export function applyAddThread(ws: WorksheetWithComments, thread: Thread): void {
+export function applyAddThread(ws: Worksheet, thread: Thread): void {
   ensureComments(ws)[thread.id] = thread;
 }
 
 export function applyAddReply(
-  ws: WorksheetWithComments,
+  ws: Worksheet,
   threadId: string,
   reply: Comment,
 ): void {
@@ -24,7 +20,7 @@ export function applyAddReply(
 }
 
 export function applyEditComment(
-  ws: WorksheetWithComments,
+  ws: Worksheet,
   threadId: string,
   commentId: string,
   body: string,
@@ -43,7 +39,7 @@ export function applyEditComment(
  * from the worksheet map.
  */
 export function applyDeleteComment(
-  ws: WorksheetWithComments,
+  ws: Worksheet,
   threadId: string,
   commentId: string,
 ): void {
@@ -59,7 +55,7 @@ export function applyDeleteComment(
 }
 
 export function applyResolveThread(
-  ws: WorksheetWithComments,
+  ws: Worksheet,
   threadId: string,
   resolved: boolean,
   by: CommentAuthor,

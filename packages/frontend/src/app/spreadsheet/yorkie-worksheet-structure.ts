@@ -26,7 +26,6 @@ import {
   type MergeSpan,
   type SheetChart,
   type Sref,
-  type Thread,
   type Worksheet,
 } from "@wafflebase/sheets";
 import {
@@ -37,17 +36,13 @@ import {
 
 type NormalizeCell = (cell: Cell) => Cell | null;
 
-type WorksheetCommentsView = {
-  comments?: { [threadId: string]: Thread };
-};
-
 /**
  * Delete threads whose anchor points to a deleted row or column.
  * Called during the same transaction as the row/column deletion,
  * so undo restores both the deleted rows/columns and their threads together.
  */
 export function deleteThreadsForAxis(
-  ws: WorksheetCommentsView,
+  ws: Worksheet,
   axis: "row" | "col",
   deletedAxisIds: Set<string>,
 ): void {

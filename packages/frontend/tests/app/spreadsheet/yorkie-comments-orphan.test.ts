@@ -43,4 +43,18 @@ describe('deleteThreadsForAxis', () => {
     deleteThreadsForAxis(ws, 'row', new Set(['r1']));
     assert.equal(ws.comments, undefined);
   });
+
+  it('preserves threads not in the deleted set while removing those that are', () => {
+    const ws = {
+      comments: {
+        t1: thread('t1', 'r1', 'c1'),
+        t2: thread('t2', 'r2', 'c2'),
+        t3: thread('t3', 'r3', 'c3'),
+      },
+    };
+    deleteThreadsForAxis(ws, 'row', new Set(['r1', 'r3']));
+    assert.equal(ws.comments.t1, undefined);
+    assert.equal(ws.comments.t2.id, 't2');
+    assert.equal(ws.comments.t3, undefined);
+  });
 });
