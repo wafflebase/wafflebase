@@ -14,6 +14,7 @@ import { UserPresence } from "@/components/user-presence";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
+import type { Theme } from "@wafflebase/slides";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
 import { SlidesView, type SlidesEditor } from "./slides-view";
 import { SlidesFormattingToolbar } from "./slides-formatting-toolbar";
@@ -52,6 +53,16 @@ function SlidesLayout({ documentId }: { documentId: string }) {
       setCurrentThemeId(store.read().meta.themeId);
     });
   }, [store]);
+
+  // Resolve the active Theme object — fed to the contextual color and
+  // font pickers in the toolbar so their "Theme" rows match the deck.
+  // Falls back to null while the store hasn't loaded or the active
+  // theme is unknown (the toolbar disables its pickers when null).
+  const activeTheme = useMemo<Theme | null>(() => {
+    if (!store) return null;
+    const doc = store.read();
+    return doc.themes.find((t) => t.id === currentThemeId) ?? null;
+  }, [store, currentThemeId]);
 
   // Clean up stale pointer-events on body left by Radix Sheet from a
   // previous route (e.g. Layout's mobile sidebar unmounting mid-animation).
@@ -152,6 +163,8 @@ function SlidesLayout({ documentId }: { documentId: string }) {
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           <SlidesFormattingToolbar
             editor={editor}
+            store={store}
+            theme={activeTheme}
             onToggleThemePanel={() => setThemePanelOpen((v) => !v)}
             themePanelOpen={themePanelOpen}
           />
