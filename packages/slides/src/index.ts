@@ -31,6 +31,8 @@ export type {
   Frame,
   ImageElement,
   ImageRef,
+  PlaceholderRef,
+  PlaceholderType,
   ShapeElement,
   ShapeKind,
   ShapeStroke,
@@ -41,7 +43,7 @@ export { generateId } from './model/element';
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';
 
-export { BUILT_IN_LAYOUTS, getLayout } from './model/layout';
+export { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from './model/layout';
 
 export { migrateDocument } from './model/migrate';
 

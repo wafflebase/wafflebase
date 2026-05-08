@@ -7,14 +7,17 @@ import {
   type Frame,
   type Layout,
   type Master,
+  type Slide as ModelSlide,
   type SlidesDocument,
   type SlidesStore,
   type Theme,
   BUILT_IN_LAYOUTS,
+  applyLayoutToSlide,
   defaultLight,
   generateId,
   getLayout,
   migrateDocument,
+  slotRefsForLayout,
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
 import type { SlidesPresence } from '@/types/users';
@@ -356,16 +359,19 @@ export class YorkieSlidesStore implements SlidesStore {
     this.requireBatch();
     const layout = getLayout(layoutId);
     const id = generateId();
+    const refs = slotRefsForLayout(layout);
     this.doc.update((r) => {
-      const elements: YorkieElement[] = layout.placeholders.map((p) => {
+      const elements: YorkieElement[] = layout.placeholders.map((p, i) => {
         const placeholder = clone(p) as YorkiePlaceholder;
         const elementId = generateId();
+        const placeholderRef = refs[i];
         if (placeholder.type === 'text') {
           const blocks = (placeholder.data as { blocks?: Block[] }).blocks ?? [];
           return {
             id: elementId,
             type: 'text',
             frame: placeholder.frame,
+            placeholderRef,
             data: { blocks: clone(blocks) },
           } as YorkieElement;
         }
@@ -373,6 +379,7 @@ export class YorkieSlidesStore implements SlidesStore {
           id: elementId,
           type: placeholder.type,
           frame: placeholder.frame,
+          placeholderRef,
           data: placeholder.data,
         } as YorkieElement;
       });
@@ -562,34 +569,10 @@ export class YorkieSlidesStore implements SlidesStore {
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
-      s.layoutId = layout.id;
-      for (const placeholder of layout.placeholders) {
-        const matches = s.elements.some(
-          (e) =>
-            e.type === placeholder.type &&
-            e.frame.x === placeholder.frame.x &&
-            e.frame.y === placeholder.frame.y,
-        );
-        if (!matches) {
-          const cloned = clone(placeholder) as YorkiePlaceholder;
-          if (cloned.type === 'text') {
-            const blocks = (cloned.data as { blocks?: Block[] }).blocks ?? [];
-            s.elements.push({
-              id: generateId(),
-              type: 'text',
-              frame: cloned.frame,
-              data: { blocks: clone(blocks) },
-            } as YorkieElement);
-          } else {
-            s.elements.push({
-              id: generateId(),
-              type: cloned.type,
-              frame: cloned.frame,
-              data: cloned.data,
-            } as YorkieElement);
-          }
-        }
-      }
+      // Cast through unknown: Yorkie array proxies expose the same shape
+      // as plain Slide for the operations applyLayoutToSlide performs
+      // (property assignment on slide.layoutId; splice on slide.elements).
+      applyLayoutToSlide(s as unknown as ModelSlide, layout);
     });
   }
 

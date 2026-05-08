@@ -254,5 +254,15 @@ export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
     });
 
   slide.layoutId = newLayout.id;
-  slide.elements = [...userElements, ...slotted, ...orphans];
+  // Use in-place splice instead of full-array reassignment so the same
+  // body works on plain arrays AND Yorkie array proxies. Wholesale
+  // reassignment of nested arrays is not always honored on Yorkie
+  // proxies; splice is.
+  slide.elements.splice(
+    0,
+    slide.elements.length,
+    ...userElements,
+    ...slotted,
+    ...orphans,
+  );
 }
