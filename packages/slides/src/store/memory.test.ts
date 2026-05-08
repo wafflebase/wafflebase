@@ -356,6 +356,20 @@ describe('MemSlidesStore — addSlide stamps placeholderRef', () => {
     const slide = doc.slides.find((s) => s.id === slideId)!;
     expect(slide.elements).toEqual([]);
   });
+
+  it('resets index per slot type — caption layout has body[0] then caption[0]', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => {
+      slideId = store.addSlide('caption');
+    });
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId)!;
+    expect(slide.elements.map((e) => e.placeholderRef)).toEqual([
+      { type: 'body', index: 0 },
+      { type: 'caption', index: 0 },
+    ]);
+  });
 });
 
 describe('MemSlidesStore — batch / undo / redo', () => {

@@ -33,6 +33,23 @@ function textPlaceholder(
   };
 }
 
+/**
+ * Compute the (type, index) slot identity for every placeholder in a
+ * layout. Index is per-type — slots of the same type are numbered
+ * 0, 1, 2 in array order. Used by both addSlide (stamping new
+ * placeholder elements) and applyLayoutToSlide (matching ref-bearing
+ * elements to slots) so the formula is shared.
+ */
+export function slotRefsForLayout(layout: Layout): PlaceholderRef[] {
+  const counts = new Map<PlaceholderType, number>();
+  return layout.placeholders.map((p) => {
+    const type = p.placeholder.type;
+    const index = counts.get(type) ?? 0;
+    counts.set(type, index + 1);
+    return { type, index };
+  });
+}
+
 /** Built-in layouts — order is the order they appear in the toolbar.
  *
  * v1 layouts always carry `masterId: 'default'` and an empty
@@ -197,13 +214,12 @@ export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
   const userElements  = slide.elements.filter((e) => !e.placeholderRef);
 
   // Compute (type, index) for each new-layout slot using array order.
+  const refs = slotRefsForLayout(newLayout);
   type Slot = { spec: PlaceholderSpec; ref: PlaceholderRef };
-  const slots: Slot[] = newLayout.placeholders.map((spec, i) => {
-    const sameTypeBefore = newLayout.placeholders
-      .slice(0, i)
-      .filter((p) => p.placeholder.type === spec.placeholder.type).length;
-    return { spec, ref: { type: spec.placeholder.type, index: sameTypeBefore } };
-  });
+  const slots: Slot[] = newLayout.placeholders.map((spec, i) => ({
+    spec,
+    ref: refs[i],
+  }));
 
   const consumed = new Set<string>();
   const slotted: Element[] = slots.map((slot) => {

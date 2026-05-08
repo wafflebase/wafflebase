@@ -7,7 +7,7 @@ import type {
 import type { Block } from '@wafflebase/docs';
 import type { Element, ElementInit, Frame } from '../model/element';
 import { generateId } from '../model/element';
-import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout } from '../model/layout';
+import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from '../model/layout';
 import { DEFAULT_BACKGROUND } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
 import { migrateDocument } from '../model/migrate';
@@ -63,20 +63,16 @@ export class MemSlidesStore implements SlidesStore {
     this.requireBatch();
     const layout = getLayout(layoutId);
     const id = generateId();
+    const refs = slotRefsForLayout(layout);
     const slide: Slide = {
       id,
       layoutId: layout.id,
       background: clone(DEFAULT_BACKGROUND),
-      elements: layout.placeholders.map((p, i) => {
-        const sameTypeBefore = layout.placeholders
-          .slice(0, i)
-          .filter((q) => q.placeholder.type === p.placeholder.type).length;
-        return {
-          ...clone(p),
-          id: generateId(),
-          placeholderRef: { type: p.placeholder.type, index: sameTypeBefore },
-        } as Element;
-      }),
+      elements: layout.placeholders.map((p, i) => ({
+        ...clone(p),
+        id: generateId(),
+        placeholderRef: refs[i],
+      } as Element)),
       notes: [],
     };
     const insertAt = atIndex === undefined
