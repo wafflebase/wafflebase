@@ -210,9 +210,6 @@ export function getLayout(layoutId: string): Layout {
  * semantics never diverge.
  */
 export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
-  const oldRefBearing = slide.elements.filter((e) => e.placeholderRef);
-  const userElements  = slide.elements.filter((e) => !e.placeholderRef);
-
   // Compute (type, index) for each new-layout slot using array order.
   const refs = slotRefsForLayout(newLayout);
   type Slot = { spec: PlaceholderSpec; ref: PlaceholderRef };
@@ -221,48 +218,84 @@ export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
     ref: refs[i],
   }));
 
-  const consumed = new Set<string>();
-  const slotted: Element[] = slots.map((slot) => {
-    const reuse = oldRefBearing.find(
-      (e) =>
-        !consumed.has(e.id)
-        && e.placeholderRef!.type === slot.ref.type
-        && e.placeholderRef!.index === slot.ref.index,
+  // First pass over the existing elements: decide each element's fate
+  // (reuse / demote / delete / leave-alone) WITHOUT removing any. We
+  // walk the elements in their current order so the consume order is
+  // deterministic and identical to the previous (spread-based)
+  // implementation.
+  //
+  // Why no spread / splice on existing entries: when `slide.elements`
+  // is a Yorkie array proxy, the entries are themselves proxies. Both
+  //
+  //   1) `{ ...proxy, frame: ..., placeholderRef: ... }` — the spread
+  //      pulls in non-serializable proxy methods (toJSON), and
+  //   2) re-`splice`-ing the same proxy back in — Yorkie tries to
+  //      serialize the array-proxy via `Object.entries`, which exposes
+  //      the CRDTArray's internal state (a function-valued `elements`
+  //      field), and rejects with "Unsupported type of value: function"
+  //
+  // both fail. So we mutate the live entry in place and only `splice`
+  // for additions / deletions of full elements.
+  type Reuse = { kind: 'reuse'; element: Element; slot: Slot };
+  type Demote = { kind: 'demote'; element: Element };
+  type Delete = { kind: 'delete'; index: number };
+  const reuses: Reuse[] = [];
+  const demotions: Demote[] = [];
+  const deletions: Delete[] = [];
+  const usedSlots = new Set<number>();
+
+  for (let i = 0; i < slide.elements.length; i++) {
+    const e = slide.elements[i];
+    if (!e.placeholderRef) continue;
+    const slotIdx = slots.findIndex(
+      (s, si) =>
+        !usedSlots.has(si)
+        && s.ref.type === e.placeholderRef!.type
+        && s.ref.index === e.placeholderRef!.index,
     );
-    if (reuse) {
-      consumed.add(reuse.id);
-      return {
-        ...reuse,
-        frame: { ...slot.spec.frame },
-        placeholderRef: slot.ref,
-      } as Element;
+    if (slotIdx >= 0) {
+      usedSlots.add(slotIdx);
+      reuses.push({ kind: 'reuse', element: e, slot: slots[slotIdx] });
+    } else if (isElementEmpty(e)) {
+      deletions.push({ kind: 'delete', index: i });
+    } else {
+      demotions.push({ kind: 'demote', element: e });
     }
-    return {
+  }
+
+  slide.layoutId = newLayout.id;
+
+  // Apply in-place mutations to surviving entries. Yorkie ObjectProxy
+  // intercepts each assignment as a CRDT operation, so this correctly
+  // emits per-field updates rather than a wholesale replace.
+  for (const r of reuses) {
+    r.element.frame = { ...r.slot.spec.frame };
+    r.element.placeholderRef = r.slot.ref;
+  }
+  for (const d of demotions) {
+    d.element.placeholderRef = undefined;
+  }
+
+  // Remove dead orphans — splice from the highest index down so earlier
+  // indices stay valid. Single-element splices match how Yorkie array
+  // proxies expect deletions; no fresh values are inserted, so there is
+  // no proxy-rebuild risk here.
+  deletions.sort((a, b) => b.index - a.index);
+  for (const del of deletions) {
+    slide.elements.splice(del.index, 1);
+  }
+
+  // Append fresh placeholders for slots that had no matching reuse.
+  // These are plain JSON objects, so Yorkie can build their CRDT shape
+  // cleanly.
+  for (let si = 0; si < slots.length; si++) {
+    if (usedSlots.has(si)) continue;
+    const slot = slots[si];
+    const fresh = {
       ...JSON.parse(JSON.stringify(slot.spec)),
       id: generateId(),
       placeholderRef: slot.ref,
     } as Element;
-  });
-
-  const orphans: Element[] = oldRefBearing
-    .filter((e) => !consumed.has(e.id))
-    .filter((e) => !isElementEmpty(e))
-    .map((e) => {
-      const out = { ...e } as Element;
-      delete out.placeholderRef;
-      return out;
-    });
-
-  slide.layoutId = newLayout.id;
-  // Use in-place splice instead of full-array reassignment so the same
-  // body works on plain arrays AND Yorkie array proxies. Wholesale
-  // reassignment of nested arrays is not always honored on Yorkie
-  // proxies; splice is.
-  slide.elements.splice(
-    0,
-    slide.elements.length,
-    ...userElements,
-    ...slotted,
-    ...orphans,
-  );
+    slide.elements.push(fresh);
+  }
 }

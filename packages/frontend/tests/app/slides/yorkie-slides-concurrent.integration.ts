@@ -155,4 +155,49 @@ describe('YorkieSlidesStore concurrent edits', { skip: !shouldRun }, () => {
       await ctx.cleanup();
     }
   });
+
+  it('A types into a placeholder while B applies a new layout → text and layout both survive', async () => {
+    const ctx = await createTwoUserSlides('apply-layout-with-edit');
+    try {
+      let slideId = '';
+      ctx.storeA.batch(() => { slideId = ctx.storeA.addSlide('title-body'); });
+      await ctx.sync();
+
+      // The 'title-body' layout lists title first, then body. read()
+      // currently strips placeholderRef, so identify the title by
+      // array order (slot index 0).
+      const titleId = ctx.storeA.read().slides[0].elements[0].id;
+
+      // A edits text on the title placeholder; B switches layout.
+      // Mutate blocks in place via withTextElement: replace the inline
+      // text with 'Hello' so the title element gets fully Yorkified
+      // (proxy-backed) before B's applyLayout runs.
+      ctx.storeA.batch(() => {
+        ctx.storeA.withTextElement(slideId, titleId, (blocks) => {
+          if (blocks[0] && blocks[0].inlines[0]) {
+            blocks[0].inlines[0].text = 'Hello';
+          }
+        });
+      });
+      ctx.storeB.batch(() => ctx.storeB.applyLayout(slideId, 'title-only'));
+      await ctx.sync();
+
+      const a = ctx.storeA.read();
+      const b = ctx.storeB.read();
+      assert.equal(a.slides[0].layoutId, b.slides[0].layoutId);
+      // The title element identity must survive the layout switch
+      // — without the proxy-spread fix, applyLayoutToSlide would have
+      // crashed with "Unsupported type of value: function" on B.
+      assert.ok(
+        a.slides[0].elements.some((e) => e.id === titleId),
+        'A lost the title element',
+      );
+      assert.ok(
+        b.slides[0].elements.some((e) => e.id === titleId),
+        'B lost the title element',
+      );
+    } finally {
+      await ctx.cleanup();
+    }
+  });
 });
