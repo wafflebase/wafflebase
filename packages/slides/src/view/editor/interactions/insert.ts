@@ -3,8 +3,12 @@ import type { ElementInit } from '../../../model/element';
 import type { ThemeColor } from '../../../model/theme';
 import type { InsertKind } from '../editor';
 
-const DEFAULT_FILL: ThemeColor = { kind: 'srgb', value: '#cccccc' };
-const DEFAULT_STROKE_COLOR: ThemeColor = { kind: 'srgb', value: '#222222' };
+// Insert defaults bind to theme roles so new shapes follow the active
+// theme — switching the deck's theme repaints them in the new palette.
+// Users can override per-shape via the Fill picker (which writes
+// concrete `{ kind: 'srgb' }` values).
+const DEFAULT_FILL: ThemeColor = { kind: 'role', role: 'accent1' };
+const DEFAULT_STROKE_COLOR: ThemeColor = { kind: 'role', role: 'text' };
 const DEFAULT_STROKE_WIDTH = 2;
 const TEXT_DEFAULT_W = 400;
 const TEXT_DEFAULT_H = 80;

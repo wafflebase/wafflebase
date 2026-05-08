@@ -274,14 +274,14 @@ export function SlidesFormattingToolbar({
               aria-label="Fill color"
               aria-haspopup="dialog"
               aria-expanded={colorOpen}
-              disabled={!isShape || !theme || !store}
+              disabled={!theme || !store}
             >
               <IconColorSwatch size={16} />
             </Toggle>
           </TooltipTrigger>
           <TooltipContent>Fill color</TooltipContent>
         </Tooltip>
-        {colorOpen && theme && isShape && (
+        {colorOpen && theme && (
           <div
             ref={colorPopoverRef}
             role="dialog"
@@ -298,6 +298,17 @@ export function SlidesFormattingToolbar({
               minWidth: 200,
             }}
           >
+            {!isShape && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#888",
+                  padding: "8px 8px 0",
+                }}
+              >
+                Select a shape to apply the fill.
+              </div>
+            )}
             <ThemedColorPicker
               value={shapeFillValue}
               theme={theme}
@@ -319,14 +330,14 @@ export function SlidesFormattingToolbar({
               aria-label="Font"
               aria-haspopup="dialog"
               aria-expanded={fontOpen}
-              disabled={!isText || !theme || !store}
+              disabled={!theme || !store}
             >
               <IconTypography size={16} />
             </Toggle>
           </TooltipTrigger>
           <TooltipContent>Font</TooltipContent>
         </Tooltip>
-        {fontOpen && theme && isText && (
+        {fontOpen && theme && (
           <div
             ref={fontPopoverRef}
             role="dialog"
@@ -343,6 +354,17 @@ export function SlidesFormattingToolbar({
               minWidth: 220,
             }}
           >
+            {!isText && (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#888",
+                  padding: "8px 8px 0",
+                }}
+              >
+                Select a text element to apply the font.
+              </div>
+            )}
             <ThemedFontPicker
               value={undefined}
               theme={theme}

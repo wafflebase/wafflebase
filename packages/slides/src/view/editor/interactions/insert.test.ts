@@ -7,7 +7,7 @@ describe('buildInsertElement — drag-shaped shapes', () => {
     expect(init).toEqual({
       type: 'shape',
       frame: { x: 10, y: 20, w: 100, h: 60, rotation: 0 },
-      data: { kind: 'rect', fill: { kind: 'srgb', value: '#cccccc' } },
+      data: { kind: 'rect', fill: { kind: 'role', role: 'accent1' } },
     });
   });
   it('builds an ellipse the same way', () => {
@@ -15,7 +15,7 @@ describe('buildInsertElement — drag-shaped shapes', () => {
     expect(init).toEqual({
       type: 'shape',
       frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
-      data: { kind: 'ellipse', fill: { kind: 'srgb', value: '#cccccc' } },
+      data: { kind: 'ellipse', fill: { kind: 'role', role: 'accent1' } },
     });
   });
   it('normalises a backwards drag', () => {
