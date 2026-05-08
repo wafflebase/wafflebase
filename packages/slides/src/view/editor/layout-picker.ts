@@ -27,6 +27,8 @@ export function showLayoutPicker(
 ): void {
   const popover = document.createElement('div');
   popover.className = 'wfb-slides-layout-picker';
+  popover.setAttribute('role', 'listbox');
+  popover.setAttribute('aria-label', 'Choose a layout');
   popover.style.position = 'fixed';
   popover.style.left = `${opts.anchor.x}px`;
   popover.style.top = `${opts.anchor.y}px`;
@@ -49,6 +51,13 @@ export function showLayoutPicker(
   for (const layout of BUILT_IN_LAYOUTS) {
     const cell = document.createElement('div');
     cell.dataset.layoutId = layout.id;
+    cell.tabIndex = 0;
+    cell.setAttribute('role', 'option');
+    cell.setAttribute('aria-label', layout.name);
+    cell.setAttribute(
+      'aria-selected',
+      String(layout.id === opts.selectedLayoutId),
+    );
     cell.style.cursor = 'pointer';
     cell.style.padding = '4px';
     cell.style.borderRadius = '4px';
@@ -74,6 +83,13 @@ export function showLayoutPicker(
       opts.onPick(layout.id);
       close();
     });
+    cell.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        opts.onPick(layout.id);
+        close();
+      }
+    });
     popover.appendChild(cell);
   }
 
@@ -97,4 +113,21 @@ export function showLayoutPicker(
   document.addEventListener('mousedown', onOutside, true);
 
   host.appendChild(popover);
+
+  // Clamp to viewport so the grid is never clipped on right/bottom edges.
+  const rect = popover.getBoundingClientRect();
+  if (rect.right > window.innerWidth) {
+    popover.style.left = `${Math.max(8, window.innerWidth - rect.width - 8)}px`;
+  }
+  if (rect.bottom > window.innerHeight) {
+    popover.style.top = `${Math.max(8, window.innerHeight - rect.height - 8)}px`;
+  }
+
+  // Move keyboard focus into the popover so screen readers and
+  // keyboard-only users can drive the picker. Prefer the currently
+  // selected cell; otherwise focus the first cell.
+  const focusTarget =
+    popover.querySelector<HTMLElement>('[data-selected="true"]')
+    ?? popover.querySelector<HTMLElement>('[tabindex="0"]');
+  focusTarget?.focus();
 }

@@ -174,9 +174,11 @@ describe('YorkieSlidesStore concurrent edits', { skip: !shouldRun }, () => {
       // (proxy-backed) before B's applyLayout runs.
       ctx.storeA.batch(() => {
         ctx.storeA.withTextElement(slideId, titleId, (blocks) => {
-          if (blocks[0] && blocks[0].inlines[0]) {
-            blocks[0].inlines[0].text = 'Hello';
-          }
+          assert.ok(
+            blocks[0]?.inlines[0],
+            'title placeholder has no editable inline',
+          );
+          blocks[0].inlines[0].text = 'Hello';
         });
       });
       ctx.storeB.batch(() => ctx.storeB.applyLayout(slideId, 'title-only'));
@@ -196,6 +198,19 @@ describe('YorkieSlidesStore concurrent edits', { skip: !shouldRun }, () => {
         b.slides[0].elements.some((e) => e.id === titleId),
         'B lost the title element',
       );
+
+      // The title text typed by A must survive the concurrent
+      // applyLayout from B on both peers.
+      const aTitle = a.slides[0].elements.find((e) => e.id === titleId);
+      const bTitle = b.slides[0].elements.find((e) => e.id === titleId);
+      if (!aTitle || aTitle.type !== 'text') {
+        assert.fail('A title element missing or not text');
+      }
+      if (!bTitle || bTitle.type !== 'text') {
+        assert.fail('B title element missing or not text');
+      }
+      assert.equal(aTitle.data.blocks[0]?.inlines[0]?.text, 'Hello');
+      assert.equal(bTitle.data.blocks[0]?.inlines[0]?.text, 'Hello');
     } finally {
       await ctx.cleanup();
     }

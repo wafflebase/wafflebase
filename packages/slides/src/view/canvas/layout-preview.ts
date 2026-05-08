@@ -51,21 +51,24 @@ export function renderLayoutPreview(
   canvas.width = size.w;
   canvas.height = size.h;
   const ctx = canvas.getContext('2d');
-  if (ctx) {
-    const slide = syntheticSlide(layout);
-    const doc: SlidesDocument = {
-      meta: { title: '', themeId: theme.id, masterId: master.id },
-      themes: [theme],
-      masters: [master],
-      layouts: [layout],
-      slides: [slide],
-    };
-    renderThumbnail(ctx, slide, doc, {
-      hostWidth: size.w,
-      hostHeight: size.h,
-      dpr: 1,
-    });
+  if (!ctx) {
+    // Context unavailable (jsdom without polyfill, headless edge cases).
+    // Skip caching so a later call with a real context can still render.
+    return canvas;
   }
+  const slide = syntheticSlide(layout);
+  const doc: SlidesDocument = {
+    meta: { title: '', themeId: theme.id, masterId: master.id },
+    themes: [theme],
+    masters: [master],
+    layouts: [layout],
+    slides: [slide],
+  };
+  renderThumbnail(ctx, slide, doc, {
+    hostWidth: size.w,
+    hostHeight: size.h,
+    dpr: 1,
+  });
   cache.set(key, canvas);
   return canvas;
 }

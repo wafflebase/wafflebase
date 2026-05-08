@@ -85,4 +85,37 @@ describe('showLayoutPicker', () => {
     expect(onClose).toHaveBeenCalled();
     expect(onPick).not.toHaveBeenCalled();
   });
+
+  it('cells are keyboard-focusable with role=option', () => {
+    const store = new MemSlidesStore();
+    const h = host();
+    showLayoutPicker(h, {
+      store,
+      anchor: { x: 0, y: 0 },
+      onPick: () => {},
+      onClose: () => {},
+    });
+    const popover = h.querySelector('.wfb-slides-layout-picker') as HTMLElement;
+    expect(popover.getAttribute('role')).toBe('listbox');
+    const cell = h.querySelector<HTMLElement>('[data-layout-id="title-body"]')!;
+    expect(cell.tabIndex).toBe(0);
+    expect(cell.getAttribute('role')).toBe('option');
+  });
+
+  it('Enter on a focused cell fires onPick + onClose', () => {
+    const store = new MemSlidesStore();
+    const onPick = vi.fn();
+    const onClose = vi.fn();
+    const h = host();
+    showLayoutPicker(h, {
+      store,
+      anchor: { x: 0, y: 0 },
+      onPick,
+      onClose,
+    });
+    const cell = h.querySelector<HTMLElement>('[data-layout-id="title-body"]')!;
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(onPick).toHaveBeenCalledWith('title-body');
+    expect(onClose).toHaveBeenCalled();
+  });
 });
