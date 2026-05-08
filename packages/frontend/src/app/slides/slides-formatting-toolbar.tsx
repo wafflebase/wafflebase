@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   resolveFont,
   type Element,
@@ -16,6 +16,11 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+} from "@/components/ui/dropdown-menu";
 import {
   IconSquare,
   IconCircle,
@@ -45,14 +50,12 @@ interface SlidesFormattingToolbarProps {
   /**
    * Active document theme — used by the color/font pickers to render
    * their "Theme" rows. Optional so the toolbar still renders before
-   * the store has loaded. Resolved by `slides-detail.tsx` from the
-   * lifted `currentThemeId` against `store.read().themes`.
+   * the store has loaded.
    */
   theme?: Theme | null;
   /**
-   * Toggles the theme picker side panel. Receives no argument; the
-   * parent owns `themePanelOpen` state and flips it. Optional so the
-   * toolbar still renders when no panel is wired (e.g. tests).
+   * Toggles the theme picker side panel. The parent owns
+   * `themePanelOpen` state and flips it.
    */
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
@@ -75,9 +78,7 @@ const INSERT_BUTTONS: InsertButton[] = [
 /**
  * Read the single selected element on the active slide. Returns null
  * when there's no selection, the selection spans multiple elements,
- * the slide id is unknown, or the element id no longer exists. Pickers
- * only apply to single-element selections to keep the value/UX
- * unambiguous in v1.
+ * the slide id is unknown, or the element id no longer exists.
  */
 function readSingleSelectedElement(
   store: SlidesStore | null | undefined,
@@ -98,18 +99,15 @@ function readSingleSelectedElement(
 
 /**
  * Slides equivalent of `DocsFormattingToolbar`. Renders the insert
- * toolbar above the slide canvas; reflects the editor's actual
- * insert mode (the editor resets it to null after a placement, so a
- * one-way controlled toolbar would get stuck "pressed").
+ * toolbar above the slide canvas and surfaces three contextual
+ * controls:
+ *   - Fill color picker (shape selected, or hint when none)
+ *   - Font picker (text selected, or hint when none)
+ *   - Theme panel toggle (always visible)
  *
- * Phase 5 / Task 8 adds two contextual buttons after the insert row:
- *  - **Fill** color picker — visible when a single shape is selected;
- *    writes `data.fill` via `applyShapeFill` (single-batch undo).
- *  - **Font** picker — visible when a single text element is selected;
- *    rewrites every inline run's `fontFamily` to the resolved family.
- *    The `ThemeFont` role is lost on write because docs `InlineStyle`
- *    still stores a string family — extending docs to carry `ThemeFont`
- *    is a follow-up commit, mirroring Task 6's `ThemeColor` extension.
+ * Picker popovers use `DropdownMenu` (Radix) so they portal to body
+ * and don't get clipped by the toolbar's overflow context — same
+ * pattern as docs / sheets toolbars.
  */
 export function SlidesFormattingToolbar({
   editor,
@@ -119,23 +117,10 @@ export function SlidesFormattingToolbar({
   themePanelOpen,
 }: SlidesFormattingToolbarProps) {
   const [insertMode, setInsertMode] = useState<InsertKind | null>(null);
-  // Resolved single-selection (slide id + element). `null` when zero
-  // or multiple elements are selected, or when the slide isn't loaded
-  // yet. Re-read on every selection / slide / store-change tick so the
-  // pickers always reflect the latest data.fill / data.kind.
   const [selected, setSelected] = useState<{
     slideId: string;
     element: Element;
   } | null>(null);
-  const [colorOpen, setColorOpen] = useState(false);
-  const [fontOpen, setFontOpen] = useState(false);
-  // Wrappers (not the Toggle itself) carry the click-outside refs —
-  // shadcn `Toggle` is a plain function component and does not forward
-  // refs in this codebase's version.
-  const colorTriggerRef = useRef<HTMLDivElement>(null);
-  const fontTriggerRef = useRef<HTMLDivElement>(null);
-  const colorPopoverRef = useRef<HTMLDivElement>(null);
-  const fontPopoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!editor) return;
@@ -153,13 +138,6 @@ export function SlidesFormattingToolbar({
     refresh();
     const offSel = editor.onSelectionChange(refresh);
     const offSlide = editor.onCurrentSlideChange(refresh);
-    // Store changes (e.g. a remote peer mutated the selected element's
-    // fill, or our own picker just wrote to it) need to flow back into
-    // `selected.element.data` so the picker's `value` prop tracks the
-    // current data. `onChange` is only on YorkieSlidesStore (not the
-    // base interface), so guard structurally — MemSlidesStore in tests
-    // simply doesn't fire this and the picker still updates on direct
-    // selection changes.
     const onChange = (
       store as { onChange?: (cb: () => void) => () => void } | null | undefined
     )?.onChange;
@@ -173,36 +151,6 @@ export function SlidesFormattingToolbar({
 
   const isShape = selected?.element.type === "shape";
   const isText = selected?.element.type === "text";
-
-  // Close popovers when click lands outside trigger + content.
-  useEffect(() => {
-    if (!colorOpen && !fontOpen) return;
-    const onDocPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (colorOpen) {
-        const inTrigger = colorTriggerRef.current?.contains(target);
-        const inContent = colorPopoverRef.current?.contains(target);
-        if (!inTrigger && !inContent) setColorOpen(false);
-      }
-      if (fontOpen) {
-        const inTrigger = fontTriggerRef.current?.contains(target);
-        const inContent = fontPopoverRef.current?.contains(target);
-        if (!inTrigger && !inContent) setFontOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onDocPointerDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", onDocPointerDown, true);
-    };
-  }, [colorOpen, fontOpen]);
-
-  // Selection changes close any open popover so the picker doesn't
-  // dangle over a now-different element.
-  useEffect(() => {
-    setColorOpen(false);
-    setFontOpen(false);
-  }, [selected?.element.id]);
 
   const onShapeFillChange = useCallback(
     (color: ThemeColor) => {
@@ -236,9 +184,11 @@ export function SlidesFormattingToolbar({
   );
 
   const shapeFillValue = isShape ? readShapeFill(selected!.element) : undefined;
+  const fillHint = isShape ? undefined : "Select a shape to apply the fill.";
+  const fontHint = isText ? undefined : "Select a text element to apply the font.";
 
   return (
-    <Toolbar className="flex h-10 items-center gap-1 border-b px-2 !overflow-visible">
+    <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
       {INSERT_BUTTONS.map((b) => (
         <Tooltip key={b.kind}>
           <TooltipTrigger asChild>
@@ -258,123 +208,63 @@ export function SlidesFormattingToolbar({
         </Tooltip>
       ))}
       <ToolbarSeparator className="mx-1" />
-      {/* Phase 5b-1 will add an "+ Image" button here.
-          Phase 5b-2 will add a "Present" button here.
-          Phase 5b-3 will add an "Export PDF" button here. */}
-      {/* Contextual: shape fill color picker. Hidden when no single
-          shape is selected; rendered as a button + a manual popover
-          since the project doesn't ship @radix-ui/react-popover yet. */}
-      <div style={{ position: "relative" }} ref={colorTriggerRef}>
+
+      <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={colorOpen}
-              onPressedChange={(pressed) => setColorOpen(pressed)}
-              aria-label="Fill color"
-              aria-haspopup="dialog"
-              aria-expanded={colorOpen}
-              disabled={!theme || !store}
-            >
-              <IconColorSwatch size={16} />
-            </Toggle>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                aria-label="Fill color"
+                disabled={!theme || !store}
+              >
+                <IconColorSwatch size={16} />
+              </button>
+            </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Fill color</TooltipContent>
         </Tooltip>
-        {colorOpen && theme && (
-          <div
-            ref={colorPopoverRef}
-            role="dialog"
-            aria-label="Fill color picker"
-            style={{
-              position: "absolute",
-              top: "calc(100% + 4px)",
-              left: 0,
-              zIndex: 50,
-              background: "var(--popover, #fff)",
-              border: "1px solid var(--border, #e5e5e5)",
-              borderRadius: 6,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-              minWidth: 200,
-            }}
-          >
-            {!isShape && (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "#888",
-                  padding: "8px 8px 0",
-                }}
-              >
-                Select a shape to apply the fill.
-              </div>
-            )}
+        <DropdownMenuContent align="start" className="w-auto p-2">
+          {theme && (
             <ThemedColorPicker
               value={shapeFillValue}
               theme={theme}
-              onChange={(c) => {
-                onShapeFillChange(c);
-                // Don't close on pick — users often try several swatches.
-              }}
+              onChange={onShapeFillChange}
+              hint={fillHint}
             />
-          </div>
-        )}
-      </div>
-      <div style={{ position: "relative" }} ref={fontTriggerRef}>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={fontOpen}
-              onPressedChange={(pressed) => setFontOpen(pressed)}
-              aria-label="Font"
-              aria-haspopup="dialog"
-              aria-expanded={fontOpen}
-              disabled={!theme || !store}
-            >
-              <IconTypography size={16} />
-            </Toggle>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                aria-label="Font"
+                disabled={!theme || !store}
+              >
+                <IconTypography size={16} />
+              </button>
+            </DropdownMenuTrigger>
           </TooltipTrigger>
           <TooltipContent>Font</TooltipContent>
         </Tooltip>
-        {fontOpen && theme && (
-          <div
-            ref={fontPopoverRef}
-            role="dialog"
-            aria-label="Font picker"
-            style={{
-              position: "absolute",
-              top: "calc(100% + 4px)",
-              left: 0,
-              zIndex: 50,
-              background: "var(--popover, #fff)",
-              border: "1px solid var(--border, #e5e5e5)",
-              borderRadius: 6,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-              minWidth: 220,
-            }}
-          >
-            {!isText && (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "#888",
-                  padding: "8px 8px 0",
-                }}
-              >
-                Select a text element to apply the font.
-              </div>
-            )}
+        <DropdownMenuContent align="start" className="w-auto p-2">
+          {theme && (
             <ThemedFontPicker
               value={undefined}
               theme={theme}
-              onChange={(f) => {
-                onTextFontChange(f);
-              }}
+              onChange={onTextFontChange}
+              hint={fontHint}
             />
-          </div>
-        )}
-      </div>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       {onToggleThemePanel && (
         <Tooltip>
           <TooltipTrigger asChild>

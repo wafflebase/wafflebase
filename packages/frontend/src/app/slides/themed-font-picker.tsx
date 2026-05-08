@@ -7,141 +7,114 @@ import {
 } from "./themed-font-picker-helpers";
 
 interface ThemedFontPickerProps {
-  /**
-   * Current value of the property being edited. Drives the "active"
-   * marker on the heading/body buttons and which entry is selected
-   * in the system-font dropdown. `undefined` shows no role active and
-   * "Choose…" in the dropdown.
-   */
   value: ThemeFont | undefined;
-  /**
-   * Active document theme; supplies the heading and body family
-   * names. The buttons render in their own typeface so users see
-   * "Inter", "Lora", etc. previewed before clicking.
-   */
   theme: Theme;
   onChange: (font: ThemeFont) => void;
+  /**
+   * Optional advisory shown above the options when no relevant element
+   * is selected; the picker still renders so users can see the theme
+   * fonts.
+   */
+  hint?: string;
 }
 
 /**
- * Themed font picker.
+ * Themed font picker — two sections, matching the look of docs / sheets
+ * dropdowns:
  *
- * Theme fonts: two big buttons for `{ kind: 'role', role: 'heading' }`
- * and `{ kind: 'role', role: 'body' }`, each preview-rendered in the
- * theme's chosen family. Picking a role tracks the active theme, so
- * switching theme later via the theme panel re-fonts every text run
- * that picked a role from this row.
+ *   THEME FONTS  Heading + Body buttons preview-rendered in their own
+ *                family. Click emits `{ kind: 'role', role }`.
+ *   SYSTEM       List of installed families. Click emits
+ *                `{ kind: 'family', family }`.
  *
- * System fonts: a `<select>` whose entries emit
- * `{ kind: 'family', family }` — concrete families that ignore the
- * theme. Browser-installed fonts only; no async loading here.
- *
- * Inline styles match the convention of `theme-panel.tsx` (Task 6).
+ * Each system row renders in its own family so users see the typeface
+ * before picking.
  */
 export function ThemedFontPicker({
   value,
   theme,
   onChange,
+  hint,
 }: ThemedFontPickerProps) {
   const headingSelected = isFontRoleSelected(value, "heading");
   const bodySelected = isFontRoleSelected(value, "body");
+  const isFamilySelected = (family: string) =>
+    value?.kind === "family" && value.family === family;
 
   return (
-    <div role="group" aria-label="Font picker" style={{ padding: 8 }}>
-      <div style={{ marginBottom: 8 }}>
-        <h4
-          style={{
-            fontSize: 11,
-            color: "#666",
-            margin: "0 0 4px",
-            fontWeight: 600,
-          }}
+    <div role="group" aria-label="Font picker" className="w-[208px]">
+      {hint && (
+        <p className="mb-2 rounded bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
+          {hint}
+        </p>
+      )}
+
+      <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        Theme fonts
+      </p>
+      <div className="mb-2 flex flex-col gap-1">
+        <button
+          type="button"
+          aria-label="Heading font"
+          aria-pressed={headingSelected}
+          onClick={() => onChange(makeRoleFont("heading"))}
+          className={`flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
+            headingSelected
+              ? "border-foreground ring-2 ring-ring/50"
+              : "border-border"
+          }`}
+          style={{ fontFamily: theme.fonts.heading }}
         >
-          Theme fonts
-        </h4>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
+          <span>Heading</span>
+          <span className="text-[11px] text-muted-foreground">
+            {theme.fonts.heading}
+          </span>
+        </button>
+        <button
+          type="button"
+          aria-label="Body font"
+          aria-pressed={bodySelected}
+          onClick={() => onChange(makeRoleFont("body"))}
+          className={`flex items-center justify-between rounded border px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted ${
+            bodySelected
+              ? "border-foreground ring-2 ring-ring/50"
+              : "border-border"
+          }`}
+          style={{ fontFamily: theme.fonts.body }}
         >
-          <button
-            type="button"
-            aria-label="Heading font"
-            aria-pressed={headingSelected}
-            onClick={() => onChange(makeRoleFont("heading"))}
-            style={{
-              fontFamily: theme.fonts.heading,
-              padding: "6px 8px",
-              border: headingSelected
-                ? "2px solid #1a73e8"
-                : "1px solid #ddd",
-              borderRadius: 4,
-              background: "#fff",
-              cursor: "pointer",
-              textAlign: "left",
-              fontSize: 14,
-            }}
-          >
-            Heading — {theme.fonts.heading}
-          </button>
-          <button
-            type="button"
-            aria-label="Body font"
-            aria-pressed={bodySelected}
-            onClick={() => onChange(makeRoleFont("body"))}
-            style={{
-              fontFamily: theme.fonts.body,
-              padding: "6px 8px",
-              border: bodySelected
-                ? "2px solid #1a73e8"
-                : "1px solid #ddd",
-              borderRadius: 4,
-              background: "#fff",
-              cursor: "pointer",
-              textAlign: "left",
-              fontSize: 13,
-            }}
-          >
-            Body — {theme.fonts.body}
-          </button>
-        </div>
+          <span>Body</span>
+          <span className="text-[11px] text-muted-foreground">
+            {theme.fonts.body}
+          </span>
+        </button>
       </div>
-      <div>
-        <h4
-          style={{
-            fontSize: 11,
-            color: "#666",
-            margin: "8px 0 4px",
-            fontWeight: 600,
-          }}
-        >
-          System fonts
-        </h4>
-        <select
-          aria-label="System font"
-          value={value?.kind === "family" ? value.family : ""}
-          onChange={(e) => {
-            if (e.target.value) onChange(makeFamilyFont(e.target.value));
-          }}
-          style={{
-            width: "100%",
-            padding: "4px 6px",
-            border: "1px solid #ddd",
-            borderRadius: 4,
-            background: "#fff",
-            fontSize: 13,
-            cursor: "pointer",
-          }}
-        >
-          <option value="">Choose…</option>
-          {SYSTEM_FONTS.map((f) => (
-            <option key={f} value={f} style={{ fontFamily: f }}>
-              {f}
-            </option>
-          ))}
-        </select>
+
+      <div className="border-t pt-2">
+        <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          System
+        </p>
+        <ul className="flex flex-col" role="listbox" aria-label="System fonts">
+          {SYSTEM_FONTS.map((family) => {
+            const selected = isFamilySelected(family);
+            return (
+              <li key={family} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  aria-label={family}
+                  onClick={() => onChange(makeFamilyFont(family))}
+                  className={`flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted ${
+                    selected ? "bg-muted text-foreground" : "text-foreground"
+                  }`}
+                  style={{ fontFamily: family }}
+                >
+                  {family}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       </div>
     </div>
   );
