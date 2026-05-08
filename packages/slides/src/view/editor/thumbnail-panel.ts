@@ -1,6 +1,7 @@
 import type { SlidesStore } from '../../store/store';
 import type { SlidesEditor } from './editor';
 import { renderThumbnail } from '../canvas/thumbnail';
+import { showLayoutPicker } from './layout-picker';
 
 const THUMB_W = 192;
 const THUMB_H = 108;
@@ -112,15 +113,48 @@ export function mountThumbnailPanel(
       container.appendChild(item);
     }
 
-    // "+" Add-slide button at the bottom.
-    const addBtn = document.createElement('button');
-    addBtn.textContent = '+ Add slide';
-    addBtn.style.width = `${THUMB_W}px`;
-    addBtn.addEventListener('click', () => {
+    // "+ Add slide" split button at the bottom.
+    const addBar = document.createElement('div');
+    addBar.style.display = 'flex';
+    addBar.style.width = `${THUMB_W}px`;
+    addBar.style.border = '1px solid #444';
+    addBar.style.borderRadius = '4px';
+    addBar.style.overflow = 'hidden';
+
+    const insertBtn = document.createElement('button');
+    insertBtn.dataset.addSlideInsert = '';
+    insertBtn.textContent = '+ Add slide';
+    insertBtn.style.flex = '1';
+    insertBtn.style.border = 'none';
+    insertBtn.style.cursor = 'pointer';
+    insertBtn.addEventListener('click', () => {
       store.batch(() => store.addSlide('blank'));
       render();
     });
-    container.appendChild(addBtn);
+    addBar.appendChild(insertBtn);
+
+    const dropdownBtn = document.createElement('button');
+    dropdownBtn.dataset.addSlideDropdown = '';
+    dropdownBtn.textContent = '▾';
+    dropdownBtn.title = 'Choose a layout';
+    dropdownBtn.style.width = '24px';
+    dropdownBtn.style.borderLeft = '1px solid #444';
+    dropdownBtn.style.cursor = 'pointer';
+    dropdownBtn.addEventListener('click', () => {
+      const rect = dropdownBtn.getBoundingClientRect();
+      showLayoutPicker(document.body, {
+        store,
+        anchor: { x: rect.left, y: rect.bottom + 4 },
+        onPick: (layoutId) => {
+          store.batch(() => store.addSlide(layoutId));
+          render();
+        },
+        onClose: () => {},
+      });
+    });
+    addBar.appendChild(dropdownBtn);
+
+    container.appendChild(addBar);
   };
 
   // Re-render when the editor's selection changes — this is a cheap
