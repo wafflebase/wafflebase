@@ -13,8 +13,13 @@ import {
   Sref,
   Direction,
 } from '../model/core/types';
-import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';
+import type {
+  CellAnchor,
+  RangeAnchor,
+  SelectionPresence,
+} from '../model/workbook/anchor-conversion';
 import { RangeStylePatch } from '../model/worksheet/range-styles';
+import type { Comment, CommentAnchor, CommentAuthor, Thread } from '../comment/types';
 
 /**
  * `Store` interface represents a storage that stores the cell values.
@@ -288,4 +293,43 @@ export interface Store {
    * store's own mutation methods (e.g. pivot table refresh).
    */
   invalidate(): void;
+
+  /** Create a new thread with a root comment at the anchor. */
+  addThread(
+    anchor: CommentAnchor,
+    body: string,
+    author: CommentAuthor,
+  ): Promise<Thread>;
+
+  /** Append a reply to an existing thread. */
+  addReply(
+    threadId: string,
+    body: string,
+    author: CommentAuthor,
+  ): Promise<Comment>;
+
+  /** Edit a comment body. Caller is responsible for author check. */
+  editComment(threadId: string, commentId: string, body: string): Promise<void>;
+
+  /** Delete a comment. Deleting comments[0] deletes the whole thread. */
+  deleteComment(threadId: string, commentId: string): Promise<void>;
+
+  /** Resolve or reopen a thread. */
+  setThreadResolved(
+    threadId: string,
+    resolved: boolean,
+    by: CommentAuthor,
+  ): Promise<void>;
+
+  /**
+   * Read threads from a single tab, filtered by anchor or resolved state.
+   * Defaults to the store's active tab when `tabId` is omitted. To aggregate
+   * threads across all tabs, walk `Worksheet.comments` from each sheet
+   * directly — this method is intentionally per-tab.
+   */
+  listThreads(opts?: {
+    tabId?: string;
+    cellAnchor?: { rowId: string; colId: string };
+    resolved?: boolean;
+  }): Promise<Thread[]>;
 }

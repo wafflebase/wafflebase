@@ -19,7 +19,7 @@ import { SiteHeader } from "@/components/site-header";
 import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { IconFolder, IconSettings, IconDatabase, IconMessage } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,9 @@ import {
   isTabNameTaken,
   normalizeTabName,
 } from "./tab-name";
+import type { Thread, CommentAnchor } from "@wafflebase/sheets";
+import { cellAnchorToSref } from "@wafflebase/sheets";
+import { CommentSidePanel } from "@/app/spreadsheet/components/comments/CommentSidePanel";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
 const DataSourceView = lazy(() =>
@@ -71,6 +74,11 @@ type PeerJumpTarget = {
   requestId: number;
 };
 
+type CommentJumpTarget = {
+  sref: string;
+  requestId: number;
+};
+
 function DocumentLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
 
@@ -84,7 +92,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   }, []);
 
   const queryClient = useQueryClient();
-  const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
+  const { doc, root: docRoot } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showDsSelector, setShowDsSelector] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -94,6 +102,9 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const [peerJumpTarget, setPeerJumpTarget] = useState<PeerJumpTarget | null>(
     null,
   );
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  const [commentJumpTarget, setCommentJumpTarget] = useState<CommentJumpTarget | null>(null);
+  const commentJumpSeq = useRef(0);
   const jumpRequestSeq = useRef(0);
 
   const navigate = useNavigate();
@@ -182,6 +193,45 @@ function DocumentLayout({ documentId }: { documentId: string }) {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
     },
     [documentId, queryClient],
+  );
+
+  // Aggregate all comment threads across all sheet tabs for the side panel.
+  // docRoot is the reactive root from useDocument — it updates on every local
+  // or remote change, so the memo re-runs automatically without a manual
+  // docVersion counter.
+  const allThreads = useMemo<Thread[]>(() => {
+    if (!docRoot?.sheets) return [];
+    return Object.values(
+      docRoot.sheets as Record<string, { comments?: Record<string, Thread> }>,
+    ).flatMap((ws) => Object.values(ws.comments ?? {}));
+  }, [docRoot]);
+
+  // Jump to the anchor cell: switch tab if needed, then signal SheetView to focus the cell.
+  const handleJumpToCell = useCallback(
+    (anchor: CommentAnchor) => {
+      if (!doc) return;
+      const root = doc.getRoot();
+      const ws = root.sheets?.[anchor.tabId];
+      if (!ws) return;
+
+      const sref = cellAnchorToSref(
+        { rowId: anchor.rowId, colId: anchor.colId },
+        {
+          rowOrder: Array.from(ws.rowOrder ?? []) as string[],
+          colOrder: Array.from(ws.colOrder ?? []) as string[],
+        },
+      );
+      if (!sref) return;
+
+      // Switch to the target tab if it differs from the current one.
+      if (anchor.tabId !== activeTabId) {
+        setActiveTabId(anchor.tabId);
+      }
+
+      commentJumpSeq.current += 1;
+      setCommentJumpTarget({ sref, requestId: commentJumpSeq.current });
+    },
+    [doc, activeTabId],
   );
 
   useEffect(() => {
@@ -527,31 +577,58 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={`inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-sm hover:bg-muted ${
+                commentsPanelOpen ? "bg-muted" : ""
+              }`}
+              aria-label={commentsPanelOpen ? "Hide comments" : "Show comments"}
+              aria-pressed={commentsPanelOpen}
+              onClick={() => setCommentsPanelOpen((v) => !v)}
+            >
+              <IconMessage size={16} />
+            </button>
             <ShareDialog documentId={documentId} />
             <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
           </div>
         </SiteHeader>
-        <div className="flex flex-1 flex-col">
-          <div className="@container/main flex flex-1 flex-col gap-2">
-            <div className="flex flex-col h-full">
-              <Suspense fallback={<Loader />}>
-                {activeTab?.type === "datasource" ? (
-                  <DataSourceView tabId={activeTabId} />
-                ) : (
-                  <SheetView tabId={activeTabId} peerJumpTarget={peerJumpTarget} addPivotTab={addPivotTab} workspaceId={documentData?.workspaceId} />
-                )}
-              </Suspense>
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-1 flex-col min-w-0">
+            <div className="@container/main flex flex-1 flex-col gap-2">
+              <div className="flex flex-col h-full">
+                <Suspense fallback={<Loader />}>
+                  {activeTab?.type === "datasource" ? (
+                    <DataSourceView tabId={activeTabId} />
+                  ) : (
+                    <SheetView
+                      tabId={activeTabId}
+                      peerJumpTarget={peerJumpTarget}
+                      commentJumpTarget={commentJumpTarget}
+                      addPivotTab={addPivotTab}
+                      workspaceId={documentData?.workspaceId}
+                      onToggleCommentsPanel={() => setCommentsPanelOpen((v) => !v)}
+                    />
+                  )}
+                </Suspense>
+              </div>
             </div>
+            <TabBar
+              tabs={tabs}
+              activeTabId={activeTabId}
+              onSelectTab={setActiveTabId}
+              onAddTab={handleAddTab}
+              onRenameTab={handleRenameTab}
+              onDeleteTab={handleDeleteTab}
+              onMoveTab={handleMoveTab}
+            />
           </div>
-          <TabBar
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onSelectTab={setActiveTabId}
-            onAddTab={handleAddTab}
-            onRenameTab={handleRenameTab}
-            onDeleteTab={handleDeleteTab}
-            onMoveTab={handleMoveTab}
-          />
+          {commentsPanelOpen && (
+            <CommentSidePanel
+              threads={allThreads}
+              onJumpTo={handleJumpToCell}
+              onClose={() => setCommentsPanelOpen(false)}
+            />
+          )}
         </div>
       </SidebarInset>
 

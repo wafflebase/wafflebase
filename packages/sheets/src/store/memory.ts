@@ -40,7 +40,19 @@ import {
   Direction,
   FilterState,
 } from '../model/core/types';
-import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';
+import type {
+  CellAnchor,
+  RangeAnchor,
+  SelectionPresence,
+} from '../model/workbook/anchor-conversion';
+import {
+  createThread as createThreadHelper,
+  addReply as addReplyHelper,
+  editComment as editCommentHelper,
+  deleteComment as deleteCommentHelper,
+  setThreadResolved as setThreadResolvedHelper,
+} from '../comment/thread';
+import type { Comment, CommentAnchor, CommentAuthor, Thread } from '../comment/types';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
@@ -65,6 +77,9 @@ export class MemStore implements Store {
   private pivotDefinition?: PivotTableDefinition;
   private frozenRows = 0;
   private frozenCols = 0;
+  private threads: Map<string, Thread> = new Map();
+  private threadCounter = 0;
+  private commentCounter = 0;
 
   constructor(grid?: Grid) {
     this.grid = grid || new Map();
@@ -396,7 +411,9 @@ export class MemStore implements Store {
   }
 
   async getConditionalFormats(): Promise<ConditionalFormatRule[]> {
-    return this.conditionalFormats.map((rule) => cloneConditionalFormatRule(rule));
+    return this.conditionalFormats.map((rule) =>
+      cloneConditionalFormatRule(rule),
+    );
   }
 
   async setMerge(anchor: Ref, span: MergeSpan): Promise<void> {
@@ -417,10 +434,7 @@ export class MemStore implements Store {
       return;
     }
     this.filterState = {
-      range: [
-        { ...state.range[0] },
-        { ...state.range[1] },
-      ],
+      range: [{ ...state.range[0] }, { ...state.range[1] }],
       columns: Object.fromEntries(
         Object.entries(state.columns).map(([key, condition]) => [
           key,
@@ -526,5 +540,91 @@ export class MemStore implements Store {
         return [ref.r, ref.c];
       }),
     );
+  }
+
+  private newThreadId(): string {
+    return `t_${++this.threadCounter}`;
+  }
+
+  private newCommentId(): string {
+    return `c_${++this.commentCounter}`;
+  }
+
+  async addThread(
+    anchor: CommentAnchor,
+    body: string,
+    author: CommentAuthor,
+  ): Promise<Thread> {
+    const thread = createThreadHelper(
+      anchor,
+      body,
+      author,
+      () => this.newThreadId(),
+      () => this.newCommentId(),
+      () => Date.now(),
+    );
+    this.threads.set(thread.id, thread);
+    return thread;
+  }
+
+  async addReply(
+    threadId: string,
+    body: string,
+    author: CommentAuthor,
+  ): Promise<Comment> {
+    const t = this.threads.get(threadId);
+    if (!t) throw new Error(`Thread not found: ${threadId}`);
+    const next = addReplyHelper(t, body, author, () => this.newCommentId(), () => Date.now());
+    this.threads.set(threadId, next);
+    return next.comments[next.comments.length - 1];
+  }
+
+  async editComment(threadId: string, commentId: string, body: string): Promise<void> {
+    const t = this.threads.get(threadId);
+    if (!t) throw new Error(`Thread not found: ${threadId}`);
+    this.threads.set(threadId, editCommentHelper(t, commentId, body, () => Date.now()));
+  }
+
+  async deleteComment(threadId: string, commentId: string): Promise<void> {
+    const t = this.threads.get(threadId);
+    if (!t) throw new Error(`Thread not found: ${threadId}`);
+    const next = deleteCommentHelper(t, commentId);
+    if (next === null) this.threads.delete(threadId);
+    else this.threads.set(threadId, next);
+  }
+
+  async setThreadResolved(
+    threadId: string,
+    resolved: boolean,
+    by: CommentAuthor,
+  ): Promise<void> {
+    const t = this.threads.get(threadId);
+    if (!t) throw new Error(`Thread not found: ${threadId}`);
+    this.threads.set(threadId, setThreadResolvedHelper(t, resolved, by, () => Date.now()));
+  }
+
+  async listThreads(opts?: {
+    tabId?: string;
+    cellAnchor?: { rowId: string; colId: string };
+    resolved?: boolean;
+  }): Promise<Thread[]> {
+    let result = Array.from(this.threads.values()).map((t) => structuredClone(t));
+    if (opts?.tabId !== undefined) {
+      result = result.filter(
+        (t) => t.anchor.kind === 'sheet-cell' && t.anchor.tabId === opts.tabId,
+      );
+    }
+    if (opts?.cellAnchor) {
+      result = result.filter(
+        (t) =>
+          t.anchor.kind === 'sheet-cell' &&
+          t.anchor.rowId === opts.cellAnchor!.rowId &&
+          t.anchor.colId === opts.cellAnchor!.colId,
+      );
+    }
+    if (opts?.resolved !== undefined) {
+      result = result.filter((t) => t.resolved === opts.resolved);
+    }
+    return result;
   }
 }

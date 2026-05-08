@@ -23,6 +23,7 @@ Spreadsheet engine — data model, formulas, rendering, collaboration.
 | [datasource.md](sheets/datasource.md)                                | External PostgreSQL datasources, multi-tab documents, SQL editor, ReadOnlyStore                    |
 | [peer-cursor-labels.md](sheets/peer-cursor-labels.md)               | Peer cursor name labels — transient username tags on collaborative sheet cursors                  |
 | [axis-id-selection.md](sheets/axis-id-selection.md)                  | Axis ID based selection & presence — stable selection across remote structural edits              |
+| [comments.md](sheets/comments.md)                                    | Sheet cell comments — threaded comments, resolve flow, anchor stability, side panel UI            |
 
 ## Docs
 

@@ -9,6 +9,9 @@ import {
   getWorksheetCell,
   parseRef,
   toSref,
+  type Thread,
+  type CommentAuthor,
+  type CommentAnchor,
 } from "@wafflebase/sheets";
 import {
   type DragEvent as ReactDragEvent,
@@ -17,9 +20,12 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchMeOptional } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 import { useTheme } from "@/components/theme-provider";
@@ -37,6 +43,7 @@ import { SheetContextMenu } from "@/components/sheet-context-menu";
 import { FindBar } from "@/components/find-bar";
 import { toast } from "sonner";
 import { getDefaultChartColumns } from "./chart-utils";
+import { CommentPopover } from "./components/comments/CommentPopover";
 
 function isDefaultLikeStyle(style: CellStyle | undefined): boolean {
   if (!style) {
@@ -104,8 +111,10 @@ export function SheetView({
   tabId,
   readOnly = false,
   peerJumpTarget = null,
+  commentJumpTarget = null,
   addPivotTab,
   workspaceId,
+  onToggleCommentsPanel,
 }: {
   tabId: string;
   readOnly?: boolean;
@@ -114,8 +123,13 @@ export function SheetView({
     targetTabId?: UserPresence["activeTabId"];
     requestId: number;
   } | null;
+  commentJumpTarget?: {
+    sref: string;
+    requestId: number;
+  } | null;
   addPivotTab?: (sourceTabId: string, sourceRange: string) => void;
   workspaceId?: string;
+  onToggleCommentsPanel?: () => void;
 }) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -125,6 +139,28 @@ export function SheetView({
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [chartEditorOpen, setChartEditorOpen] = useState(false);
   const [conditionalFormatOpen, setConditionalFormatOpen] = useState(false);
+
+  // Comment popover state
+  const [commentPopoverOpen, setCommentPopoverOpen] = useState(false);
+  const [activeCellForComment, setActiveCellForComment] = useState<Ref | null>(null);
+  const commentPopoverOpenRef = useRef(false);
+  const { data: currentUserData } = useQuery({
+    queryKey: ["me", "optional"],
+    queryFn: fetchMeOptional,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const commentAuthor = useMemo<CommentAuthor | null>(
+    () =>
+      currentUserData
+        ? {
+            userId: String(currentUserData.id),
+            username: currentUserData.username,
+            photo: currentUserData.photo || undefined,
+          }
+        : null,
+    [currentUserData],
+  );
   const [paintFormatActive, setPaintFormatActive] = useState(false);
   const [paintFormatSourceRef, setPaintFormatSourceRef] = useState<Ref | null>(
     null,
@@ -144,6 +180,7 @@ export function SheetView({
     isMobileRef.current = isMobile;
   }, [isMobile]);
   const lastHandledPeerJumpRequestIdRef = useRef(0);
+  const lastHandledCommentJumpRequestIdRef = useRef(0);
   const sheetRef = useRef<Spreadsheet | undefined>(undefined);
   const hasChartsRef = useRef(false);
   const hasImagesRef = useRef(false);
@@ -154,6 +191,7 @@ export function SheetView({
   const paintFormatUseDefaultStyleRef = useRef(false);
   const paintFormatSourceIndicatorVisibleRef = useRef(false);
   const paintFormatStyleRef = useRef<Partial<CellStyle> | undefined>(undefined);
+  const storeRef = useRef<YorkieStore | undefined>(undefined);
   const { doc, loading, error } = useDocument<
     SpreadsheetDocument,
     UserPresence
@@ -170,6 +208,30 @@ export function SheetView({
   // Detect whether the active tab is a pivot sheet via TabMeta.kind
   // (avoids reading deeply nested pivotTable from Yorkie CRDT proxy)
   const isPivotTab = root?.tabs[tabId]?.kind === "pivot";
+
+  // Derive the comment anchor (stable rowId/colId) for the active cell
+  const activeCellCommentAnchor = useMemo((): CommentAnchor | null => {
+    if (!root || !activeCellForComment) return null;
+    const ws = root.sheets[tabId];
+    if (!ws) return null;
+    const rowId = ws.rowOrder?.[activeCellForComment.r - 1];
+    const colId = ws.colOrder?.[activeCellForComment.c - 1];
+    if (!rowId || !colId) return null;
+    return { kind: 'sheet-cell', tabId, rowId, colId };
+  }, [root, tabId, activeCellForComment]);
+
+  // Open threads for the active cell (unresolved only)
+  const activeCellThreads = useMemo((): Thread[] => {
+    if (!root || !activeCellCommentAnchor) return [];
+    const ws = root.sheets[tabId];
+    if (!ws?.comments) return [];
+    return Object.values(ws.comments as Record<string, Thread>).filter(
+      (t) =>
+        !t.resolved &&
+        t.anchor.rowId === activeCellCommentAnchor.rowId &&
+        t.anchor.colId === activeCellCommentAnchor.colId,
+    );
+  }, [root, tabId, activeCellCommentAnchor]);
 
   useEffect(() => {
     // Auto-open pivot editor when switching to a pivot tab
@@ -208,6 +270,11 @@ export function SheetView({
   useEffect(() => {
     paintFormatSourceIndicatorVisibleRef.current = paintFormatSourceIndicatorVisible;
   }, [paintFormatSourceIndicatorVisible]);
+
+  // Keep ref in sync so the selection-change handler can read it without stale closure
+  useEffect(() => {
+    commentPopoverOpenRef.current = commentPopoverOpen;
+  }, [commentPopoverOpen]);
 
   useEffect(() => {
     if (!paintFormatActive) return;
@@ -682,20 +749,112 @@ export function SheetView({
     }
   }, []);
 
+  // Open the comment popover/composer for the currently active cell,
+  // even if the cell has no existing threads yet. Pin activeCellForComment
+  // here too — onSelectionChange may not have fired yet (e.g., right after
+  // load when A1 is the default selection and no click happened), and the
+  // popover needs that ref to compute its anchor and position. Also seed
+  // axis IDs for the active cell so addThread has a stable anchor.
+  const openCommentComposerForActiveCell = useCallback(() => {
+    if (readOnly) return;
+    const sheet = sheetRef.current;
+    const activeCell = sheet?.getActiveCell();
+    if (activeCell) {
+      storeRef.current?.ensureAxisOrder(activeCell.r, activeCell.c);
+      setActiveCellForComment({ ...activeCell });
+    }
+    setCommentPopoverOpen(true);
+  }, [readOnly]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
         setFindBarOpen(true);
       }
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.altKey &&
+        !e.shiftKey &&
+        e.key.toLowerCase() === "m"
+      ) {
+        e.preventDefault();
+        openCommentComposerForActiveCell();
+      }
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.altKey &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "m"
+      ) {
+        e.preventDefault();
+        onToggleCommentsPanel?.();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [openCommentComposerForActiveCell, onToggleCommentsPanel]);
 
   const handleFindBarClose = useCallback(() => {
     setFindBarOpen(false);
   }, []);
+
+  // Comment action handlers — delegate to YorkieStore via storeRef.
+  // Throw on guard-failure so the composer keeps the user's draft visible
+  // instead of silently clearing on a no-op submit.
+  const handleCommentAddThread = useCallback(
+    async (body: string) => {
+      if (!commentAuthor) throw new Error("Sign in to leave a comment");
+      if (!activeCellCommentAnchor) {
+        throw new Error("Select a cell before adding a comment");
+      }
+      const store = storeRef.current;
+      if (!store) throw new Error("Spreadsheet not ready");
+      await store.addThread(activeCellCommentAnchor, body, commentAuthor);
+    },
+    [activeCellCommentAnchor, commentAuthor],
+  );
+
+  const handleCommentReply = useCallback(
+    async (threadId: string, body: string) => {
+      if (!commentAuthor) throw new Error("Sign in to reply");
+      const store = storeRef.current;
+      if (!store) throw new Error("Spreadsheet not ready");
+      await store.addReply(threadId, body, commentAuthor);
+    },
+    [commentAuthor],
+  );
+
+  const handleCommentResolve = useCallback(
+    async (threadId: string) => {
+      if (!commentAuthor) return;
+      await storeRef.current?.setThreadResolved(threadId, true, commentAuthor);
+      // Only close the popover if no other unresolved threads remain on this cell.
+      // The just-resolved thread may still appear in activeCellThreads at call time,
+      // so we exclude it explicitly when counting remaining open threads.
+      const remaining = activeCellThreads.filter(
+        (t) => t.id !== threadId && !t.resolved,
+      );
+      if (remaining.length === 0) {
+        setCommentPopoverOpen(false);
+      }
+    },
+    [commentAuthor, activeCellThreads],
+  );
+
+  const handleCommentEdit = useCallback(
+    async (threadId: string, commentId: string, body: string) => {
+      await storeRef.current?.editComment(threadId, commentId, body);
+    },
+    [],
+  );
+
+  const handleCommentDelete = useCallback(
+    async (threadId: string, commentId: string) => {
+      await storeRef.current?.deleteComment(threadId, commentId);
+    },
+    [],
+  );
 
   useEffect(() => {
     setSelectedChartId(null);
@@ -703,6 +862,7 @@ export function SheetView({
     setChartEditorOpen(false);
     setConditionalFormatOpen(false);
     setFindBarOpen(false);
+    setCommentPopoverOpen(false);
     clearPaintFormatState();
   }, [clearPaintFormatState, tabId]);
 
@@ -727,9 +887,11 @@ export function SheetView({
     let overlayFrame: number | null = null;
     let recalcFrame: number | null = null;
 
+    const store = new YorkieStore(doc, tabId);
+    storeRef.current = store;
     initialize(container, {
       theme,
-      store: new YorkieStore(doc, tabId),
+      store,
       readOnly,
       hideFormulaBar: isMobileRef.current,
       hideAutofillHandle: isMobileRef.current,
@@ -809,6 +971,42 @@ export function SheetView({
             }
             return null;
           });
+        }),
+      );
+
+      // Track active cell for comment popover; auto-open when cell has comments
+      unsubs.push(
+        s.onSelectionChange(() => {
+          const activeCell = s.getActiveCell();
+          if (!activeCell) return;
+          setActiveCellForComment({ ...activeCell });
+
+          // Auto-open the popover when the newly selected cell has open threads.
+          // Check via the Yorkie doc so we don't depend on stale React state.
+          const wsNow = doc.getRoot().sheets[tabId];
+          if (!wsNow?.comments) {
+            if (!commentPopoverOpenRef.current) {
+              setCommentPopoverOpen(false);
+            }
+            return;
+          }
+          const rowId = wsNow.rowOrder?.[activeCell.r - 1];
+          const colId = wsNow.colOrder?.[activeCell.c - 1];
+          if (!rowId || !colId) return;
+          const hasThreads = Object.values(
+            wsNow.comments as Record<string, Thread>,
+          ).some(
+            (t) =>
+              !t.resolved &&
+              t.anchor.rowId === rowId &&
+              t.anchor.colId === colId,
+          );
+          if (hasThreads) {
+            setCommentPopoverOpen(true);
+          } else if (commentPopoverOpenRef.current) {
+            // Close popover when moving away from a cell that had comments
+            setCommentPopoverOpen(false);
+          }
         }),
       );
 
@@ -963,6 +1161,7 @@ export function SheetView({
         sheet.cleanup();
       }
       sheetRef.current = undefined;
+      storeRef.current = undefined;
       if (selectionFrame !== null) {
         cancelAnimationFrame(selectionFrame);
       }
@@ -1018,6 +1217,27 @@ export function SheetView({
     }
   }, [peerJumpTarget, sheetRenderVersion, tabId]);
 
+  useEffect(() => {
+    if (!commentJumpTarget) return;
+    if (commentJumpTarget.requestId === lastHandledCommentJumpRequestIdRef.current) {
+      return;
+    }
+
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+
+    lastHandledCommentJumpRequestIdRef.current = commentJumpTarget.requestId;
+    setSelectedChartId(null);
+    setChartEditorOpen(false);
+    setConditionalFormatOpen(false);
+
+    try {
+      void sheet.focusCell(parseRef(commentJumpTarget.sref));
+    } catch {
+      // Ignore malformed sref values.
+    }
+  }, [commentJumpTarget, sheetRenderVersion]);
+
   const paintFormatSourceIndicator = (() => {
     if (!paintFormatSourceIndicatorVisible || !paintFormatSourceRef) {
       return null;
@@ -1041,6 +1261,24 @@ export function SheetView({
           }}
         />
       );
+    } catch {
+      return null;
+    }
+  })();
+
+  // Compute the pixel position for the comment popover, anchored below/right of the cell
+  const commentPopoverPosition = (() => {
+    if (!commentPopoverOpen || !activeCellForComment) return null;
+    const sheet = sheetRef.current;
+    if (!sheet) return null;
+    try {
+      const viewport = sheet.getGridViewportRect();
+      const cellRect = sheet.getCellRect(activeCellForComment);
+      const MARGIN = 4;
+      return {
+        left: viewport.left + cellRect.left + cellRect.width + MARGIN,
+        top: viewport.top + cellRect.top,
+      };
     } catch {
       return null;
     }
@@ -1091,6 +1329,7 @@ export function SheetView({
               handleDeleteImage(selectedImageId);
             }
           }}
+          onInsertComment={readOnly ? undefined : openCommentComposerForActiveCell}
         >
           <div className="relative h-full w-full">
             <div
@@ -1200,6 +1439,26 @@ export function SheetView({
             onCancel={handleMobileEditCancel}
             onValueChange={handleMobileEditValueChange}
           />
+        )}
+        {commentPopoverOpen && commentPopoverPosition && (
+          <div
+            className="absolute z-30"
+            style={{
+              left: commentPopoverPosition.left,
+              top: commentPopoverPosition.top,
+            }}
+          >
+            <CommentPopover
+              threads={activeCellThreads}
+              currentUser={commentAuthor}
+              onAddThread={handleCommentAddThread}
+              onReply={handleCommentReply}
+              onResolve={handleCommentResolve}
+              onEditComment={handleCommentEdit}
+              onDeleteComment={handleCommentDelete}
+              onClose={() => setCommentPopoverOpen(false)}
+            />
+          </div>
         )}
       </div>
     </div>

@@ -43,14 +43,14 @@ export function deleteYorkieWorksheetAxis(
   axis: Axis,
   index: number,
   count: number,
-): void {
+): Set<string> {
   const order = axis === "row" ? ws.rowOrder : ws.colOrder;
   const removedIds = new Set(
     order.splice(Math.max(0, index - 1), Math.max(0, count)),
   );
 
   if (removedIds.size === 0) {
-    return;
+    return removedIds;
   }
 
   const cells = ws.cells;
@@ -61,6 +61,8 @@ export function deleteYorkieWorksheetAxis(
       delete cells[key];
     }
   }
+
+  return removedIds;
 }
 
 export function moveYorkieWorksheetAxis(

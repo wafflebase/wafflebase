@@ -14,8 +14,13 @@ import {
   Sref,
   Direction,
 } from '../model/core/types';
-import type { CellAnchor, RangeAnchor, SelectionPresence } from '../model/workbook/anchor-conversion';
+import type {
+  CellAnchor,
+  RangeAnchor,
+  SelectionPresence,
+} from '../model/workbook/anchor-conversion';
 import { RangeStylePatch } from '../model/worksheet/range-styles';
+import type { Comment, Thread } from '../comment/types';
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
@@ -217,9 +222,7 @@ export class ReadOnlyStore implements Store {
     return [];
   }
 
-  async setConditionalFormats(
-    _rules: ConditionalFormatRule[],
-  ): Promise<void> {
+  async setConditionalFormats(_rules: ConditionalFormatRule[]): Promise<void> {
     // no-op
   }
 
@@ -308,5 +311,29 @@ export class ReadOnlyStore implements Store {
         return [ref.r, ref.c];
       }),
     );
+  }
+
+  async addThread(): Promise<Thread> {
+    throw new Error('Read-only store: addThread not allowed');
+  }
+
+  async addReply(): Promise<Comment> {
+    throw new Error('Read-only store: addReply not allowed');
+  }
+
+  async editComment(): Promise<void> {
+    throw new Error('Read-only store: editComment not allowed');
+  }
+
+  async deleteComment(): Promise<void> {
+    throw new Error('Read-only store: deleteComment not allowed');
+  }
+
+  async setThreadResolved(): Promise<void> {
+    throw new Error('Read-only store: setThreadResolved not allowed');
+  }
+
+  async listThreads(): Promise<Thread[]> {
+    return [];
   }
 }

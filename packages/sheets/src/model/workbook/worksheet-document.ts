@@ -8,6 +8,7 @@ import type {
   Sref,
 } from '../core/types';
 import type { RangeStylePatch } from '../worksheet/range-styles';
+import type { Thread } from '../../comment/types';
 
 export type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'scatter';
 
@@ -88,6 +89,9 @@ export type Worksheet = {
   images?: {
     [id: string]: SheetImage;
   };
+  comments?: {
+    [threadId: string]: Thread;
+  };
   frozenRows: number;
   frozenCols: number;
   pivotTable?: PivotTableDefinition;
@@ -115,9 +119,7 @@ export type SpreadsheetDocument = {
 export const DEFAULT_TAB_ID = 'tab-1';
 export const DEFAULT_TAB_NAME = 'Sheet1';
 
-export function createWorksheet(
-  overrides: Partial<Worksheet> = {},
-): Worksheet {
+export function createWorksheet(overrides: Partial<Worksheet> = {}): Worksheet {
   return {
     cells: {},
     rowOrder: [],
