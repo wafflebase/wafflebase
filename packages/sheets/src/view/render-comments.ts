@@ -1,4 +1,4 @@
-const MARKER_SIZE = 7;
+const MARKER_SIZE = 9;
 const MARKER_COLOR = '#fbbc04';
 
 /**

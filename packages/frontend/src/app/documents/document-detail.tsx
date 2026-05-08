@@ -92,7 +92,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   }, []);
 
   const queryClient = useQueryClient();
-  const { doc } = useDocument<SpreadsheetDocument, UserPresenceType>();
+  const { doc, root: docRoot } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showDsSelector, setShowDsSelector] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
@@ -104,7 +104,6 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [commentJumpTarget, setCommentJumpTarget] = useState<CommentJumpTarget | null>(null);
-  const [docVersion, setDocVersion] = useState(0);
   const commentJumpSeq = useRef(0);
   const jumpRequestSeq = useRef(0);
 
@@ -197,17 +196,15 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
 
   // Aggregate all comment threads across all sheet tabs for the side panel.
+  // docRoot is the reactive root from useDocument — it updates on every local
+  // or remote change, so the memo re-runs automatically without a manual
+  // docVersion counter.
   const allThreads = useMemo<Thread[]>(() => {
-    // docVersion is a change signal: re-aggregate whenever doc changes
-    // (docVersion is bumped on local-change and remote-change events)
-    void docVersion;
-    if (!doc) return [];
-    const root = doc.getRoot();
-    if (!root.sheets) return [];
+    if (!docRoot?.sheets) return [];
     return Object.values(
-      root.sheets as Record<string, { comments?: Record<string, Thread> }>,
+      docRoot.sheets as Record<string, { comments?: Record<string, Thread> }>,
     ).flatMap((ws) => Object.values(ws.comments ?? {}));
-  }, [doc, docVersion]);
+  }, [docRoot]);
 
   // Jump to the anchor cell: switch tab if needed, then signal SheetView to focus the cell.
   const handleJumpToCell = useCallback(
@@ -273,7 +270,6 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     return doc.subscribe((event) => {
       if (event.type === "local-change" || event.type === "remote-change") {
         normalizeTabNames();
-        setDocVersion((v) => v + 1);
       }
     });
   }, [doc]);

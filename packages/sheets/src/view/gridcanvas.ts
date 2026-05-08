@@ -665,12 +665,17 @@ export class GridCanvas {
         const cellKey = `${rowId}|${colId}`;
         if (!commentCellKeys.has(cellKey)) continue;
 
-        // Compute the cell's top-right corner in canvas coordinates
-        const cellY = scroll.top + rowDim!.getOffset(row);
-        const cellRight = scroll.left + colDim!.getOffset(col) + colDim!.getSize(col);
-
-        // Draw the yellow triangle marker
-        this.drawCommentMarker(ctx, cellRight, cellY);
+        // Use the canonical cell-rect helper so the marker tracks scroll,
+        // header offsets, and merged-cell anchoring exactly like cell content.
+        const mergeSpan = mergeData?.anchors.get(toSref({ r: row, c: col }));
+        const rect = this.toCellRect(
+          { r: row, c: col },
+          scroll,
+          rowDim,
+          colDim,
+          mergeSpan,
+        );
+        this.drawCommentMarker(ctx, rect.left + rect.width, rect.top);
       }
     }
   }
@@ -684,7 +689,7 @@ export class GridCanvas {
     cellRight: number,
     cellTop: number,
   ): void {
-    const MARKER_SIZE = 7;
+    const MARKER_SIZE = 9;
     ctx.fillStyle = '#fbbc04';
     ctx.beginPath();
     // Start at the top-right corner

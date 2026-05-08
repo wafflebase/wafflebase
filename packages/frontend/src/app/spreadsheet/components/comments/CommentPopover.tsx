@@ -82,7 +82,7 @@ export function CommentPopover({
                   autoFocus
                 />
               ) : (
-                <p className="text-sm whitespace-pre-wrap">{c.body}</p>
+                <p className="text-xs whitespace-pre-wrap">{c.body}</p>
               )}
 
               {!isReadOnly &&
