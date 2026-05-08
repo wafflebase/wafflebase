@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { formatRelativeTime } from "@/lib/utils";
 import type { Thread, CommentAnchor } from "@wafflebase/sheets";
 
 type Props = {
@@ -76,12 +78,24 @@ export function CommentSidePanel({ threads, onJumpTo, onClose }: Props) {
                 onClick={() => onJumpTo(t.anchor)}
                 aria-label={`Jump to comment by ${root.author.username}`}
               >
+                {/* Item 2: Author avatar + Item 1: Relative time */}
                 <div className="flex items-center gap-2">
+                  <Avatar className="h-4 w-4 shrink-0">
+                    {root.author.photo && (
+                      <AvatarImage
+                        src={root.author.photo}
+                        alt={root.author.username}
+                      />
+                    )}
+                    <AvatarFallback className="text-[8px]">
+                      {root.author.username.slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
                   <strong className="text-xs font-medium text-foreground">
                     {root.author.username}
                   </strong>
                   <time className="text-xs text-muted-foreground">
-                    {new Date(root.createdAt).toLocaleDateString()}
+                    {formatRelativeTime(root.createdAt)}
                   </time>
                 </div>
                 <p className="text-xs text-muted-foreground line-clamp-2">
