@@ -21,19 +21,32 @@ import type { FrameSize } from './shape-renderer';
 const measurer = new CanvasTextMeasurer();
 
 /**
- * Build a docs `ColorResolver` from the active deck `Theme`. Plain hex
- * strings pass through unchanged; `StoredColor` objects matching the
- * slides `ThemeColor` shape (`{ kind: 'role' | 'srgb' }`) route through
- * `resolveColor` so role-bound text picks up the deck's accent /
- * text / background hex at paint time.
+ * Build a docs `ColorResolver` from the active deck `Theme`. The resolver
+ * routes text colors through the deck theme so newly typed text follows
+ * theme switches:
  *
- * Returning `undefined` for unrecognised role names lets docs fall back
- * to its `theme.defaultColor` instead of painting a literal "undefined".
+ * - `undefined` / `null` → resolves to the deck's `text` role color, so
+ *   inline runs without an explicit color (sparse-style new runs) inherit
+ *   the theme.
+ * - The docs default text color string `'#000000'` → also resolves to
+ *   the `text` role. The docs editor seeds new inlines through
+ *   `DEFAULT_INLINE_STYLE.color = '#000000'`; without this remap, every
+ *   character a user types would land as concrete black and ignore theme
+ *   switches. Users who *explicitly* pick black via the picker write
+ *   `{ kind: 'srgb', value: '#000000' }` (an object), which falls through
+ *   the `typeof === 'string'` branch — their intent is preserved.
+ * - Other plain hex strings → pass through unchanged (legacy explicit
+ *   colors, unaffected).
+ * - `ThemeColor`-shaped objects (`{ kind: 'role' | 'srgb' }`) → resolve
+ *   via the slides `resolveColor`.
  */
 function makeColorResolver(theme: Theme): ColorResolver {
+  const themeText = resolveColor({ kind: 'role', role: 'text' }, theme);
   return (c: StoredColor | undefined) => {
-    if (c == null) return undefined;
-    if (typeof c === 'string') return c;
+    if (c == null) return themeText;
+    if (typeof c === 'string') {
+      return c.toLowerCase() === '#000000' ? themeText : c;
+    }
     // The docs `StoredColor` object shape is structurally compatible
     // with slides' `ThemeColor` (both use `kind: 'role' | 'srgb'`); the
     // cast is the only seam where the two type vocabularies meet.

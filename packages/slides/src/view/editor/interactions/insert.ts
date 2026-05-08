@@ -33,7 +33,12 @@ export function buildInsertElement(
         blocks: [{
           id: 'placeholder',
           type: 'paragraph',
-          inlines: [{ text: '', style: {} }],
+          // Bind the inline color to the deck's `text` role so the box
+          // renders in the active theme. The text-renderer's color
+          // resolver also remaps the docs default `'#000000'` to the
+          // `text` role (covers freshly typed runs that inherit
+          // `DEFAULT_INLINE_STYLE` instead of this explicit role).
+          inlines: [{ text: '', style: { color: { kind: 'role', role: 'text' } } }],
           // Fully-defaulted style — `computeLayout` reads `marginTop`
           // and `marginBottom` without a fallback, so a sparse style
           // would NaN the cumulative y and the slide canvas would
