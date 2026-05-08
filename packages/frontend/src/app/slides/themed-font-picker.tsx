@@ -93,15 +93,19 @@ export function ThemedFontPicker({
         <p className="mb-1 px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           System
         </p>
-        <ul className="flex flex-col" role="listbox" aria-label="System fonts">
+        {/* Plain list of toggle buttons (NOT a `role="listbox"`).
+            A listbox declares arrow-key navigation as the AT contract,
+            but these are real <button> elements; mismatched semantics
+            would break screen-reader keyboard interaction. The Theme
+            fonts section above uses the same `aria-pressed` pattern. */}
+        <ul className="flex flex-col">
           {SYSTEM_FONTS.map((family) => {
             const selected = isFamilySelected(family);
             return (
-              <li key={family} role="presentation">
+              <li key={family}>
                 <button
                   type="button"
-                  role="option"
-                  aria-selected={selected}
+                  aria-pressed={selected}
                   aria-label={family}
                   onClick={() => onChange(makeFamilyFont(family))}
                   className={`flex w-full cursor-pointer items-center rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted ${

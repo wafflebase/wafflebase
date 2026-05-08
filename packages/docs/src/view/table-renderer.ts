@@ -168,9 +168,13 @@ export function renderTableBackgrounds(
         visibleHeight += rowHeights[rr];
       }
 
-      // Draw this cell's own background
-      if (cell.style?.backgroundColor) {
-        ctx.fillStyle = cell.style.backgroundColor;
+      // Draw this cell's own background. Route through the resolver
+      // so the cell `backgroundColor` honors the `StoredColor` widening
+      // (string | { kind: 'srgb' | 'role' }) — same path as the inline
+      // run backgrounds below.
+      const cellBg = defaultColorResolver(cell.style?.backgroundColor);
+      if (cellBg) {
+        ctx.fillStyle = cellBg;
         ctx.fillRect(
           tableX + columnXOffsets[c],
           tableY + rowYOffsets[visibleStart],

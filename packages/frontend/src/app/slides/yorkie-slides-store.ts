@@ -1,5 +1,6 @@
 import type { Document as YorkieDocument } from '@yorkie-js/sdk';
 import {
+  DEFAULT_BACKGROUND as MODEL_DEFAULT_BACKGROUND,
   DEFAULT_MASTER,
   type Background,
   type ElementInit,
@@ -23,10 +24,6 @@ import type {
   YorkieSlidesRoot,
   YorkiePlaceholder,
 } from '@/types/slides-document';
-
-const DEFAULT_BACKGROUND: YorkieSlide['background'] = {
-  fill: { kind: 'role', role: 'background' },
-};
 
 type YorkieLayout = YorkieSlidesRoot['layouts'][number];
 
@@ -105,15 +102,30 @@ export function ensureSlidesRoot(
   // ships the proper migration; this is the minimum to keep the
   // SlidesDocument well-formed.
   doc.update((r) => {
-    const meta = r.meta as { themeId?: string; masterId?: string };
-    if (meta.themeId == null) meta.themeId = 'default-light';
-    if (meta.masterId == null) meta.masterId = 'default';
     const rootAny = r as { themes?: Theme[]; masters?: Master[] };
-    if (rootAny.themes == null) {
+    if (rootAny.themes == null || rootAny.themes.length === 0) {
       rootAny.themes = [clone(defaultLight)];
     }
-    if (rootAny.masters == null) {
+    if (rootAny.masters == null || rootAny.masters.length === 0) {
       rootAny.masters = [clone(DEFAULT_MASTER)];
+    }
+    // Backfill `meta.themeId` / `meta.masterId` against the document's
+    // own `themes` / `masters` arrays, not against hard-coded ids. A
+    // partially migrated or customized doc may carry a `themes` array
+    // that doesn't include 'default-light'; pinning that id would make
+    // `getActiveTheme(doc)` throw at render time.
+    const meta = r.meta as { themeId?: string; masterId?: string };
+    if (
+      meta.themeId == null ||
+      !rootAny.themes.some((t) => t.id === meta.themeId)
+    ) {
+      meta.themeId = rootAny.themes[0].id;
+    }
+    if (
+      meta.masterId == null ||
+      !rootAny.masters.some((m) => m.id === meta.masterId)
+    ) {
+      meta.masterId = rootAny.masters[0].id;
     }
     for (const slide of r.slides) {
       const notes = (slide as { notes?: unknown }).notes;
@@ -367,7 +379,7 @@ export class YorkieSlidesStore implements SlidesStore {
       const slide: YorkieSlide = {
         id,
         layoutId: layout.id,
-        background: { ...DEFAULT_BACKGROUND },
+        background: clone(MODEL_DEFAULT_BACKGROUND) as YorkieSlide['background'],
         elements,
         notes: [],
       };

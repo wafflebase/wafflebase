@@ -21,19 +21,25 @@ import {
 
 describe("themed-color-picker helpers", () => {
   it("THEME_ROLES has all 12 ColorScheme slots in OOXML order", () => {
-    assert.equal(THEME_ROLES.length, 12);
-    assert.ok(THEME_ROLES.includes("text"));
-    assert.ok(THEME_ROLES.includes("background"));
-    assert.ok(THEME_ROLES.includes("textSecondary"));
-    assert.ok(THEME_ROLES.includes("backgroundAlt"));
-    for (let i = 1; i <= 6; i++) {
-      assert.ok(
-        THEME_ROLES.includes(`accent${i}` as (typeof THEME_ROLES)[number]),
-        `THEME_ROLES missing accent${i}`,
-      );
-    }
-    assert.ok(THEME_ROLES.includes("hyperlink"));
-    assert.ok(THEME_ROLES.includes("visitedHyperlink"));
+    // Order matches the OOXML mapping the migration / picker UI relies on:
+    // dk1, lt1, dk2, lt2, accent1..6, hlink, folHlink.
+    assert.deepEqual(
+      [...THEME_ROLES],
+      [
+        "text",
+        "background",
+        "textSecondary",
+        "backgroundAlt",
+        "accent1",
+        "accent2",
+        "accent3",
+        "accent4",
+        "accent5",
+        "accent6",
+        "hyperlink",
+        "visitedHyperlink",
+      ],
+    );
   });
 
   it("isRoleSelected returns true only when value is a role match", () => {

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { Theme, ThemeColor } from "@wafflebase/slides";
 import {
   THEME_ROLES,
@@ -42,6 +43,10 @@ export function ThemedColorPicker({
   onChange,
   hint,
 }: ThemedColorPickerProps) {
+  // `useId()` so two pickers (e.g. nested popovers, harness scenarios
+  // that render Color and Font side by side) don't generate duplicate
+  // DOM ids.
+  const customColorId = useId();
   const isSrgbSelected = (hex: string) =>
     value?.kind === "srgb" && value.value.toLowerCase() === hex.toLowerCase();
 
@@ -105,7 +110,7 @@ export function ThemedColorPicker({
 
       <div className="border-t pt-2">
         <label
-          htmlFor="themed-custom-color"
+          htmlFor={customColorId}
           className="mb-1 flex cursor-pointer items-center justify-between px-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
         >
           <span>Custom</span>
@@ -116,7 +121,7 @@ export function ThemedColorPicker({
           )}
         </label>
         <input
-          id="themed-custom-color"
+          id={customColorId}
           type="color"
           aria-label="Custom color"
           value={value?.kind === "srgb" ? value.value : "#000000"}

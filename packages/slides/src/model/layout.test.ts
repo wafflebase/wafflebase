@@ -24,9 +24,11 @@ describe('BUILT_IN_LAYOUTS', () => {
     }
   });
 
-  it('placeholder frames are inside the 1920×1080 canvas', () => {
+  it('placeholder frames are inside the 1920×1080 canvas with positive dims', () => {
     for (const l of BUILT_IN_LAYOUTS) {
       for (const p of l.placeholders) {
+        expect(p.frame.w).toBeGreaterThan(0);
+        expect(p.frame.h).toBeGreaterThan(0);
         expect(p.frame.x).toBeGreaterThanOrEqual(0);
         expect(p.frame.y).toBeGreaterThanOrEqual(0);
         expect(p.frame.x + p.frame.w).toBeLessThanOrEqual(1920);

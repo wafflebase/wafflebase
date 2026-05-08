@@ -33,7 +33,17 @@ export interface YorkieSlidesRoot {
 export interface YorkieSlide {
   id: string;
   layoutId: string;
-  background: { fill: ThemeColor; image?: { src: string; w: number; h: number } };
+  /**
+   * Pre-v0.5 documents persisted `background.fill` as a string and may
+   * lack the field entirely. Optional here to reflect the raw Yorkie
+   * shape; `migrateDocument` (called at read time) wraps any legacy
+   * value into a `ThemeColor` so consumers reading through `read()`
+   * always see a defined fill.
+   */
+  background: {
+    fill?: ThemeColor;
+    image?: { src: string; w: number; h: number };
+  };
   elements: YorkieElement[];
   notes: Block[];
 }
