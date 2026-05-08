@@ -104,6 +104,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   );
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [commentJumpTarget, setCommentJumpTarget] = useState<CommentJumpTarget | null>(null);
+  const [docVersion, setDocVersion] = useState(0);
   const commentJumpSeq = useRef(0);
   const jumpRequestSeq = useRef(0);
 
@@ -197,14 +198,16 @@ function DocumentLayout({ documentId }: { documentId: string }) {
 
   // Aggregate all comment threads across all sheet tabs for the side panel.
   const allThreads = useMemo<Thread[]>(() => {
+    // docVersion is a change signal: re-aggregate whenever doc changes
+    // (docVersion is bumped on local-change and remote-change events)
+    void docVersion;
     if (!doc) return [];
     const root = doc.getRoot();
     if (!root.sheets) return [];
     return Object.values(
       root.sheets as Record<string, { comments?: Record<string, Thread> }>,
     ).flatMap((ws) => Object.values(ws.comments ?? {}));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, activeTabId]);
+  }, [doc, docVersion]);
 
   // Jump to the anchor cell: switch tab if needed, then signal SheetView to focus the cell.
   const handleJumpToCell = useCallback(
@@ -270,6 +273,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     return doc.subscribe((event) => {
       if (event.type === "local-change" || event.type === "remote-change") {
         normalizeTabNames();
+        setDocVersion((v) => v + 1);
       }
     });
   }, [doc]);
