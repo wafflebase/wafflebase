@@ -267,6 +267,61 @@ different keys; old entries fall out of reachability and become
 GC eligible. No LRU eviction in v1 (5 themes × 1 master × 11
 layouts × 2 sizes = 110 entries max).
 
+### Empty-placeholder ghost text
+
+A new slide produced from a non-blank layout immediately presents
+empty placeholder text boxes. Without a hint, the slide reads as
+visually empty — the author can't tell where the title goes vs.
+where the body goes. Google Slides, PowerPoint, and Keynote all
+solve this with **ghost text**: a faint grey label inside any
+empty placeholder ("Click to add title", "Click to add text", …)
+that disappears the moment a character is typed.
+
+Implementation:
+
+- `packages/slides/src/model/placeholder-hints.ts` — small lookup
+  table from `PlaceholderType` to default English hint string. The
+  function is a single seam, ready for future i18n via either a
+  per-document override or a runtime locale lookup.
+
+  ```ts
+  export const PLACEHOLDER_HINTS: Record<PlaceholderType, string> = {
+    title: 'Click to add title',
+    subtitle: 'Click to add subtitle',
+    body: 'Click to add text',
+    caption: 'Click to add caption',
+    'big-number': 'Click to add number',
+  };
+
+  export function placeholderHintFor(type: PlaceholderType): string {
+    return PLACEHOLDER_HINTS[type];
+  }
+  ```
+
+- `drawText` (`view/canvas/text-renderer.ts`) gains an optional
+  `placeholderHint?: string` parameter. When set **and** the text
+  element's blocks are all empty (existing `isElementEmpty`
+  semantics), it paints the hint string in a muted theme-aware
+  grey at the placeholder's natural baseline instead of running
+  the empty layout pass.
+
+- `drawElement` (`view/canvas/element-renderer.ts`) passes the
+  hint when the element has a `placeholderRef`, otherwise omits
+  it. User-added text boxes get no hint — by design.
+
+- The text-box editor (vanilla `contentEditable`) is **out of
+  scope** for v1. While the user is actively editing, the
+  contentEditable layer covers the canvas; if the user deletes
+  every character, the canvas hint shows through provided the
+  editor's background is transparent. If a future test or visual
+  smoke shows a flicker on first character typed, add a
+  placeholder hint at the contentEditable layer too — small
+  follow-up.
+
+- Presentation mode is not yet built (Phase 5b-2). When it lands,
+  it gates its own renderer flag and skips the hint entirely so
+  ghost text never reaches the audience.
+
 ### Migration
 
 **None.** The slides package is not yet deployed to production

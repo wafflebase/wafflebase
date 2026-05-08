@@ -1535,3 +1535,153 @@ EOF
 ## Review
 
 (Filled at Task 11.)
+
+---
+
+## Task 12: Ghost text for empty placeholders (added after smoke)
+
+Surfaced during PR review smoke: a new slide from a non-blank layout shows empty placeholder boxes that aren't visually distinguishable — authors can't tell where the title goes vs. the body. Google Slides / PowerPoint / Keynote all show muted "Click to add title"-style hints inside empty placeholders.
+
+**Files:**
+- Create: `packages/slides/src/model/placeholder-hints.ts`
+- Modify: `packages/slides/src/view/canvas/text-renderer.ts`
+- Modify: `packages/slides/src/view/canvas/element-renderer.ts`
+- Modify: `packages/slides/src/view/canvas/text-renderer.test.ts` (or create if missing)
+
+- [ ] **Step 1: Hint table + lookup function**
+
+`packages/slides/src/model/placeholder-hints.ts`:
+
+```ts
+import type { PlaceholderType } from './element';
+
+const PLACEHOLDER_HINTS: Record<PlaceholderType, string> = {
+  title: 'Click to add title',
+  subtitle: 'Click to add subtitle',
+  body: 'Click to add text',
+  caption: 'Click to add caption',
+  'big-number': 'Click to add number',
+};
+
+export function placeholderHintFor(type: PlaceholderType): string {
+  return PLACEHOLDER_HINTS[type];
+}
+```
+
+- [ ] **Step 2: Failing test for `drawText` ghost-text branch**
+
+In `text-renderer.test.ts` (create if not yet present; mirror `layout-preview.test.ts`'s `// @vitest-environment jsdom` + `import './test-canvas-env';` prefix), assert:
+
+- Calling `drawText(ctx, size, dataWithEmptyBlocks, theme, { placeholderHint: 'Click to add title' })` produces a `fillText` call with the hint string.
+- Calling `drawText(ctx, size, dataWithText, theme, { placeholderHint: 'Click to add title' })` does NOT produce a `fillText` call with the hint (the real text wins).
+- Calling `drawText(ctx, size, dataWithEmptyBlocks, theme)` (no `placeholderHint`) does NOT produce any hint.
+
+Use a vitest `vi.spyOn(ctx, 'fillText')` to inspect the call list.
+
+- [ ] **Step 3: Update `drawText` signature to accept the hint**
+
+```ts
+export function drawText(
+  ctx: CanvasRenderingContext2D,
+  { w }: FrameSize,
+  data: TextElement['data'],
+  theme: Theme,
+  options?: { placeholderHint?: string },
+): void {
+  if (data.blocks.length === 0) {
+    if (options?.placeholderHint) {
+      drawHint(ctx, w, options.placeholderHint, theme);
+    }
+    return;
+  }
+  // detect "all inlines empty" — same as isElementEmpty's text branch:
+  const allEmpty = data.blocks.every(
+    (b) => b.inlines.every((inl) => inl.text === ''),
+  );
+  if (allEmpty && options?.placeholderHint) {
+    drawHint(ctx, w, options.placeholderHint, theme);
+    return;
+  }
+  // existing layout + paint path unchanged
+  // ...
+}
+
+function drawHint(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  hint: string,
+  theme: Theme,
+): void {
+  ctx.save();
+  // Muted theme-aware grey: 50% alpha on the text role color.
+  const color = resolveColor({ kind: 'role', role: 'text' }, theme);
+  ctx.fillStyle = withAlpha(color, 0.4);
+  ctx.font = '32px sans-serif';
+  ctx.textBaseline = 'top';
+  ctx.fillText(hint, 8, 8);
+  ctx.restore();
+}
+```
+
+`withAlpha(hex, alpha)` is a small helper — converts `#RRGGBB` to `rgba(r, g, b, alpha)`. Place it next to `drawHint` in the same file.
+
+The font/positioning above is intentionally minimal — readable at the slide's native scale, and good enough that we don't have to wire the docs `computeLayout` machinery just to render one line of grey text.
+
+- [ ] **Step 4: Wire the hint at `drawElement`**
+
+In `view/canvas/element-renderer.ts`'s `case 'text':` branch:
+
+```ts
+case 'text': {
+  const placeholderHint = element.placeholderRef
+    ? placeholderHintFor(element.placeholderRef.type)
+    : undefined;
+  drawText(ctx, size, element.data, theme, { placeholderHint });
+  break;
+}
+```
+
+Add the import:
+
+```ts
+import { placeholderHintFor } from '../../model/placeholder-hints';
+```
+
+- [ ] **Step 5: Run tests**
+
+```bash
+pnpm --filter @wafflebase/slides test
+```
+
+All 251+ tests still green; new text-renderer ghost-text tests pass.
+
+- [ ] **Step 6: Self-review**
+
+- `git diff --stat`: 4 files (1 new, 3 modified). No other files changed.
+- User-added text elements (no `placeholderRef`) never get the hint.
+- Non-empty placeholders never get the hint (layout path wins).
+- The hint string is sourced from a single seam (`placeholderHintFor`) so future i18n is one file.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add packages/slides/src/model/placeholder-hints.ts \
+        packages/slides/src/view/canvas/text-renderer.ts \
+        packages/slides/src/view/canvas/element-renderer.ts \
+        packages/slides/src/view/canvas/text-renderer.test.ts
+git commit -m "$(cat <<'EOF'
+Add ghost text for empty placeholders
+
+A new slide from a non-blank layout otherwise reads as visually
+empty — authors cannot tell where the title goes vs. the body.
+Google Slides, PowerPoint, and Keynote all solve this with muted
+"Click to add title" hints inside empty placeholders. The hint
+table is a single seam ready for future i18n, and only fires for
+ref-bearing elements so user-added text boxes are unaffected.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+- [ ] **Step 8: Push** — branch already tracks `origin/slides-layout-change`; `git push` lands the commit on the open PR.
