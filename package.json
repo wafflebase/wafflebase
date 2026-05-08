@@ -41,9 +41,6 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.5.2",
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "canvas"
-    ],
     "overrides": {
       "minimatch@<3.1.4": "3.1.4",
       "minimatch@>=5.0.0 <5.1.8": "5.1.8",

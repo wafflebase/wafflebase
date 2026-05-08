@@ -37,12 +37,6 @@ PR1 merge or in a follow-up cleanup commit:
 - **Toolbar duplication.** Fill and Font popover blocks in `slides-formatting-toolbar.tsx` are
   ~45 lines each and nearly identical. Extract a `<TogglePopover trigger content disabled />`
   wrapper to halve and make adding a third picker cheap.
-- **Visual test infrastructure duplication.** `themes.visual.test.ts` and `layouts.visual.test.ts`
-  share an identical 25-line `NodeOffscreenCanvas` shim + `beforeAll` block. Extract to
-  `test-utils/offscreen-canvas-shim.ts`.
-- **Layout placeholder hint text.** All 11 layout goldens are byte-identical (689 bytes) because
-  empty placeholders render nothing. Add a visible hint ("Click to add title") so the goldens
-  differentiate visually. Or accept the current "renderer-regression-only" coverage.
 - **Text font role-tracking in docs.** Extend `docs/InlineStyle.fontFamily` from `string` to
   `string | ThemeFont` (parallel to `color: StoredColor` extension) so slides text font picks
   preserve role bindings. Without it, theme-switch on text-fonted decks doesn't follow the

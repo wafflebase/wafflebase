@@ -458,8 +458,8 @@ Single PR, commit-layered for review. Each commit independently passes
 
 Acceptance:
 
-- 5 themes × 3 deck fixtures = 15 visual snapshots match goldens
-- Existing v1 deck visual regression count = 0 (snapshot diff)
+- All five built-in themes apply across the harness slides scenarios
+- Existing v1 deck visual regression count = 0 (manual smoke + harness)
 - Two-user Yorkie integration test covers `applyTheme` convergence
 - PDF export renders identically to canvas under each theme
 
@@ -526,14 +526,26 @@ Acceptance:
 - `model/migration.test.ts` — pre-PR1 deck JSON loads with no diff in
   rendered output
 
-### Visual snapshot
+### Visual regression (single lane: harness)
 
-Goldens live under `packages/slides/test-fixtures/visual/`. Snapshots
-are 320×180 PNGs rendered with `slide-renderer` in headless canvas
-(node-canvas). Fail on byte diff.
+Slides scenarios live under
+`packages/frontend/src/app/harness/visual/slides-scenarios.tsx`
+and are captured by `pnpm verify:browser:docker` (Docker-based for
+cross-platform byte stability). Baselines under
+`packages/frontend/tests/visual/baselines/harness-visual.browser.slides-*.png`.
 
-- 3 reference decks × 5 built-in themes = 15 baseline images
-- 3 existing v1 decks × `default-light` = 3 regression-gate images
+Coverage:
+
+- Five themes × shared composition (title + accent rect) — one
+  scenario per theme; switches role colors to the new palette.
+- Three structurally diverse layouts (section-header, title-body,
+  big-number) under default-light — placeholder geometry coverage.
+- UI surfaces — formatting toolbar, theme picker side panel,
+  contextual color + font pickers — rendered standalone.
+
+There is intentionally no separate node-canvas golden lane for the
+slides package: the harness Docker run is the single source of truth
+for visual regression.
 
 ### Integration (frontend, in `packages/frontend/tests/app/slides/`)
 
@@ -557,8 +569,8 @@ are 320×180 PNGs rendered with `slide-renderer` in headless canvas
 
 ### Verification gates
 
-- PR1: `pnpm verify:fast` per commit + visual snapshot suite + zero
-  regression on existing-deck baselines
+- PR1: `pnpm verify:fast` per commit + `pnpm verify:browser:docker`
+  for the harness slides scenarios
 - PR2: `pnpm verify:integration` + 36-slide e2e
 - PR3: `pnpm verify:browser:docker`
 

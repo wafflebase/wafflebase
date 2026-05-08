@@ -55,6 +55,17 @@ const scenarioIds = [
   "chart-area",
   "chart-pie",
   "chart-scatter",
+  "slides-canvas-default-light",
+  "slides-canvas-default-dark",
+  "slides-canvas-streamline",
+  "slides-canvas-focus",
+  "slides-canvas-material",
+  "slides-canvas-layout-section-header",
+  "slides-canvas-layout-title-body",
+  "slides-canvas-layout-big-number",
+  "slides-toolbar",
+  "slides-theme-panel",
+  "slides-pickers",
 ];
 
 const visualTargets = [

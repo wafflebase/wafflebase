@@ -18,15 +18,6 @@ export default defineConfig({
     },
   },
   test: {
-    // Visual snapshot tests render through node-canvas, whose Cairo +
-    // fontconfig stack differs between macOS and Linux CI. Goldens are
-    // generated on Darwin, so byte-equal compare on Linux would fail.
-    // Keep them out of the default lane (and `verify:fast`); the
-    // `test:visual` script sets `INCLUDE_VISUAL_TESTS=1` to opt back in.
-    exclude:
-      process.env.INCLUDE_VISUAL_TESTS === '1'
-        ? ['**/node_modules/**', '**/dist/**']
-        : ['**/node_modules/**', '**/dist/**', '**/*.visual.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
