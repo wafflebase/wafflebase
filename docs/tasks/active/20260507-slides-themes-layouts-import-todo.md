@@ -9,20 +9,20 @@ Three PRs grouped by user-visible value.
 User value: theme switching, eleven Google-Slides-parity layouts,
 themed color/font pickers — together as one mental unit.
 
-- [ ] commit 1 — `feat(slides): Theme/Master/Layout types and resolve fns`
-- [ ] commit 2 — `feat(slides): renderer reads through resolveColor/resolveFont`
-- [ ] commit 3 — `feat(slides): yorkie schema + read-time migration`
-- [ ] commit 4 — `feat(docs): extend Block/Inline style.color to ThemeColor`
-- [ ] commit 5 — `feat(slides): five built-in themes`
-- [ ] commit 6 — `feat(frontend): theme picker side panel`
-- [ ] commit 7 — `feat(slides): eleven Google-Slides-parity built-in layouts`
-- [ ] commit 8 — `feat(frontend): themed color picker + themed font picker`
-- [ ] verify: `pnpm verify:fast` per commit
-- [ ] verify: 5 themes × 3 deck fixtures = 15 visual snapshots
-- [ ] verify: zero regression on existing v1 deck snapshots
-- [ ] verify: two-user Yorkie `applyTheme` convergence test
-- [ ] verify: PDF export matches canvas under each theme
-- [ ] PR opened, reviewed, merged
+- [x] commit 1 — `feat(slides): Theme/Master/Layout types and resolve fns`
+- [x] commit 2 — `feat(slides): renderer reads through resolveColor/resolveFont`
+- [x] commit 3 — `feat(slides): yorkie schema + read-time migration`
+- [x] commit 4 — `feat(docs): extend Block/Inline style.color to ThemeColor`
+- [x] commit 5 — `feat(slides): five built-in themes`
+- [x] commit 6 — `feat(frontend): theme picker side panel`
+- [x] commit 7 — `feat(slides): eleven Google-Slides-parity built-in layouts`
+- [x] commit 8 — `feat(frontend): themed color picker + themed font picker`
+- [x] verify: `pnpm verify:fast` per commit
+- [x] verify: 5 themes × 3 deck fixtures = 15 visual snapshots
+- [x] verify: zero regression on existing v1 deck snapshots
+- [x] verify: two-user Yorkie `applyTheme` convergence test
+- [x] verify: PDF export matches canvas under each theme
+- [x] PR opened, reviewed, merged
 
 ## PR2 — Import existing deck
 
@@ -53,8 +53,8 @@ User value: brand-fit edits without leaving the editor.
 
 ## Cross-cutting
 
-- [ ] Update `docs/design/README.md` Slides section with new doc
-- [ ] Capture lessons in paired `20260507-slides-themes-layouts-import-lessons.md`
+- [x] Update `docs/design/README.md` Slides section with new doc
+- [x] Capture lessons in paired `20260507-slides-themes-layouts-import-lessons.md`
 - [ ] After all three PRs merged: `pnpm tasks:archive && pnpm tasks:index`
 
 ## Review

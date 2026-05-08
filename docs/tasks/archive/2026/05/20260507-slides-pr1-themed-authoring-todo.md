@@ -1,6 +1,6 @@
 # Slides PR1 — Themed Authoring Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Land PR1 of the slides themes/layouts work — Theme/Master/Layout/Slide 4-tier model, hybrid color binding, five built-in themes, eleven Google-Slides-parity layouts, theme picker side panel, themed color and font pickers — as eight commits in one stacked PR.
 
@@ -39,7 +39,7 @@ This task adds the **visual golden** infra used by Tasks 5 and 7. It does **not 
 - Modify: `packages/slides/package.json` (add `canvas` devDep + `test:visual` script)
 - Create: `packages/slides/test-fixtures/decks/{empty,title-only,three-slides}.json` — three reference decks for snapshots
 
-- [ ] **Step 0.1: Add node-canvas devDependency**
+- [x] **Step 0.1: Add node-canvas devDependency**
 
 ```bash
 pnpm --filter @wafflebase/slides add -D canvas@^2.11.2
@@ -53,7 +53,7 @@ pnpm --filter @wafflebase/slides exec node -e "const c = require('canvas'); cons
 
 Expected: prints a number > 0.
 
-- [ ] **Step 0.2: Create the render-snapshot helper**
+- [x] **Step 0.2: Create the render-snapshot helper**
 
 Create `packages/slides/src/test-utils/render-snapshot.ts`:
 
@@ -101,7 +101,7 @@ export function renderDeckThumbStrip(
 
 > **Note:** `drawSlide(ctx, slide, doc, theme)` is the new renderer signature introduced in Task 2. For Task 0, write the helper assuming that signature; it'll be exercised once Task 2 lands.
 
-- [ ] **Step 0.3: Create the load-fixture helper**
+- [x] **Step 0.3: Create the load-fixture helper**
 
 Create `packages/slides/src/test-utils/load-fixture.ts`:
 
@@ -118,7 +118,7 @@ export function loadDeckFixture(name: string): SlidesDocument {
 }
 ```
 
-- [ ] **Step 0.4: Create three reference decks**
+- [x] **Step 0.4: Create three reference decks**
 
 Create `packages/slides/test-fixtures/decks/empty.json`:
 
@@ -170,7 +170,7 @@ Create `packages/slides/test-fixtures/decks/title-only.json`:
 
 Create `packages/slides/test-fixtures/decks/three-slides.json` similarly with three slides exercising title, body, and a shape. Keep it minimal — total file ~80 lines.
 
-- [ ] **Step 0.5: Add visual test script**
+- [x] **Step 0.5: Add visual test script**
 
 Modify `packages/slides/package.json` — add to scripts:
 
@@ -179,7 +179,7 @@ Modify `packages/slides/package.json` — add to scripts:
 "test:visual:update": "vitest run --include 'src/**/*.visual.test.ts' --update"
 ```
 
-- [ ] **Step 0.6: Stage the snapshot fixture loader**
+- [x] **Step 0.6: Stage the snapshot fixture loader**
 
 No commit yet — these files only become useful from Task 2 onward. Move on.
 
@@ -199,7 +199,7 @@ No commit yet — these files only become useful from Task 2 onward. Move on.
 - Test: `packages/slides/src/model/theme.test.ts`
 - Test: `packages/slides/src/model/master.test.ts`
 
-- [ ] **Step 1.1: Write the failing theme test**
+- [x] **Step 1.1: Write the failing theme test**
 
 Create `packages/slides/src/model/theme.test.ts`:
 
@@ -275,7 +275,7 @@ describe('resolveFont', () => {
 });
 ```
 
-- [ ] **Step 1.2: Run test to verify it fails**
+- [x] **Step 1.2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/model/theme.test.ts
@@ -283,7 +283,7 @@ pnpm --filter @wafflebase/slides test src/model/theme.test.ts
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 1.3: Implement `model/theme.ts`**
+- [x] **Step 1.3: Implement `model/theme.ts`**
 
 Create `packages/slides/src/model/theme.ts`:
 
@@ -363,7 +363,7 @@ function shadeColor(hex: string, ratio: number): string {
 }
 ```
 
-- [ ] **Step 1.4: Run theme test to verify it passes**
+- [x] **Step 1.4: Run theme test to verify it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/model/theme.test.ts
@@ -371,7 +371,7 @@ pnpm --filter @wafflebase/slides test src/model/theme.test.ts
 
 Expected: 7 passed.
 
-- [ ] **Step 1.5: Write the failing master test**
+- [x] **Step 1.5: Write the failing master test**
 
 Create `packages/slides/src/model/master.test.ts`:
 
@@ -404,7 +404,7 @@ describe('DEFAULT_MASTER', () => {
 });
 ```
 
-- [ ] **Step 1.6: Run master test to verify it fails**
+- [x] **Step 1.6: Run master test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/model/master.test.ts
@@ -412,7 +412,7 @@ pnpm --filter @wafflebase/slides test src/model/master.test.ts
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 1.7: Implement `model/master.ts`**
+- [x] **Step 1.7: Implement `model/master.ts`**
 
 Create `packages/slides/src/model/master.ts`:
 
@@ -472,7 +472,7 @@ export const DEFAULT_MASTER: Master = {
 };
 ```
 
-- [ ] **Step 1.8: Run master test to verify it passes**
+- [x] **Step 1.8: Run master test to verify it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/model/master.test.ts
@@ -480,7 +480,7 @@ pnpm --filter @wafflebase/slides test src/model/master.test.ts
 
 Expected: 4 passed.
 
-- [ ] **Step 1.9: Extend SlidesDocument and Background**
+- [x] **Step 1.9: Extend SlidesDocument and Background**
 
 Modify `packages/slides/src/model/presentation.ts`. Replace the file with:
 
@@ -536,7 +536,7 @@ export const SLIDE_WIDTH = 1920;
 export const SLIDE_HEIGHT = 1080;
 ```
 
-- [ ] **Step 1.10: Re-export new types from package index**
+- [x] **Step 1.10: Re-export new types from package index**
 
 Modify `packages/slides/src/index.ts`. Add (preserving existing exports):
 
@@ -555,7 +555,7 @@ export type { Master, PlaceholderStyle, MasterBackground } from './model/master'
 export { DEFAULT_MASTER } from './model/master';
 ```
 
-- [ ] **Step 1.11: Run all slides tests**
+- [x] **Step 1.11: Run all slides tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -565,7 +565,7 @@ Expected: all existing tests still pass + 11 new tests (7 theme + 4 master). Typ
 
 > **Important:** You'll see TS errors in `view/canvas/*.ts`, `store/memory.ts`, `frontend/yorkie-slides-store.ts`. **That's expected**. Tasks 2–4 fix them. The commit at the end of Task 1 only includes the four files below.
 
-- [ ] **Step 1.12: Stage and commit**
+- [x] **Step 1.12: Stage and commit**
 
 ```bash
 git add \
@@ -613,7 +613,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Test: `packages/slides/src/view/canvas/shape-renderer.test.ts` (extend)
 - Test: `packages/slides/src/view/canvas/slide-renderer.test.ts` (new or extend)
 
-- [ ] **Step 2.1: Widen `ShapeElement` color types**
+- [x] **Step 2.1: Widen `ShapeElement` color types**
 
 Modify `packages/slides/src/model/element.ts`. Change `ShapeStroke.color` and `ShapeElement.data.fill` to `ThemeColor`:
 
@@ -642,7 +642,7 @@ export type ShapeElement = ElementBase & {
 // ... (rest unchanged)
 ```
 
-- [ ] **Step 2.2: Create `render-context.ts`**
+- [x] **Step 2.2: Create `render-context.ts`**
 
 Create `packages/slides/src/view/canvas/render-context.ts`:
 
@@ -667,7 +667,7 @@ export function getActiveTheme(doc: SlidesDocument): Theme {
 }
 ```
 
-- [ ] **Step 2.3: Route shape-renderer through resolveColor**
+- [x] **Step 2.3: Route shape-renderer through resolveColor**
 
 Modify `packages/slides/src/view/canvas/shape-renderer.ts`. Change the function signature to accept `theme: Theme` and call `resolveColor` at every `ctx.fillStyle` / `ctx.strokeStyle` site:
 
@@ -747,7 +747,7 @@ export function drawShape(
 
 > Use the **existing** drawing logic for line/arrow geometry — only the color assignments are changing. If your current `shape-renderer.ts` has slightly different geometry, keep that geometry; only swap the color sites.
 
-- [ ] **Step 2.4: Route slide-renderer through resolveColor**
+- [x] **Step 2.4: Route slide-renderer through resolveColor**
 
 Modify `packages/slides/src/view/canvas/slide-renderer.ts`. Change `drawSlide` to accept `(ctx, slide, doc, theme)` and route the background fill:
 
@@ -778,7 +778,7 @@ export function drawSlide(
 }
 ```
 
-- [ ] **Step 2.5: Route element-renderer through resolvers**
+- [x] **Step 2.5: Route element-renderer through resolvers**
 
 Modify `packages/slides/src/view/canvas/element-renderer.ts`. Pass theme/doc into the appropriate sub-renderers:
 
@@ -807,7 +807,7 @@ export function drawElement(
 }
 ```
 
-- [ ] **Step 2.6: Route text-renderer through resolvers**
+- [x] **Step 2.6: Route text-renderer through resolvers**
 
 Modify `packages/slides/src/view/canvas/text-renderer.ts`. The text renderer delegates to `@wafflebase/docs` — pass a `colorResolver` callback so docs callers can resolve `string | ThemeColor`:
 
@@ -840,7 +840,7 @@ export function drawText(
 
 > **Note:** `computeLayout`'s extra option `colorResolver` is added in Task 4 (the docs ripple). For now, the call passes the option but docs ignores it until Task 4 lands. To keep this commit green, pass through *both* the legacy `string` path and the resolver: docs reads `colorResolver` if defined, else falls back to `inline.style.color` as a string. **Verify with the docs maintainer note in Task 4 that `colorResolver` is the agreed extension point.**
 
-- [ ] **Step 2.7: Update `image-renderer` placeholder to use ThemeColor**
+- [x] **Step 2.7: Update `image-renderer` placeholder to use ThemeColor**
 
 The hard-coded placeholder colors in `image-renderer.ts` (lines 52, 54, 62, 65, 70 from the survey) are *intentional* hard-codes for the missing-image fallback UI. They don't bind to theme. **Leave them alone**. (Document this explicitly in the file's header comment if not already.)
 
@@ -851,7 +851,7 @@ Add a comment at the top of `image-renderer.ts`:
 // system fallback UI (broken/loading image) and don't follow the deck theme.
 ```
 
-- [ ] **Step 2.8: Update existing renderer tests**
+- [x] **Step 2.8: Update existing renderer tests**
 
 Modify `packages/slides/src/view/canvas/shape-renderer.test.ts`. Existing tests pass shape elements with `string` fills/strokes. Update them to `ThemeColor` and pass a fake theme. Example:
 
@@ -900,7 +900,7 @@ it('draws a rect with role fill resolved from theme', () => {
 
 > Repeat for ellipse / line / arrow tests in the same file. Pattern: change `'#hex'` literals to `{ kind: 'srgb', value: '#hex' }`, append `, THEME` to `drawShape(...)` calls.
 
-- [ ] **Step 2.9: Add slide-renderer test**
+- [x] **Step 2.9: Add slide-renderer test**
 
 Create `packages/slides/src/view/canvas/slide-renderer.test.ts` (or extend existing):
 
@@ -936,7 +936,7 @@ it('paints the slide background using the theme background color', () => {
 });
 ```
 
-- [ ] **Step 2.10: Run all slides tests**
+- [x] **Step 2.10: Run all slides tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -965,7 +965,7 @@ If store tests fail with "themes is undefined", skip them temporarily by `it.ski
 >
 > Since Task 5 hasn't shipped `defaultLight` yet, define a tiny inline placeholder theme here for now and replace in Task 5.
 
-- [ ] **Step 2.11: Verify `pnpm verify:fast` passes**
+- [x] **Step 2.11: Verify `pnpm verify:fast` passes**
 
 ```bash
 pnpm verify:fast
@@ -973,7 +973,7 @@ pnpm verify:fast
 
 Expected: all 748+ existing tests pass + new theme/master/renderer tests.
 
-- [ ] **Step 2.12: Stage and commit**
+- [x] **Step 2.12: Stage and commit**
 
 ```bash
 git add \
@@ -1015,7 +1015,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Test: `packages/frontend/tests/app/slides/migrate.test.ts`
 - Test: `packages/frontend/tests/app/slides/yorkie-slides-store.test.ts` (extend)
 
-- [ ] **Step 3.1: Write the migration unit test**
+- [x] **Step 3.1: Write the migration unit test**
 
 Create `packages/slides/src/model/migrate.test.ts`:
 
@@ -1113,7 +1113,7 @@ describe('migrateDocument', () => {
 });
 ```
 
-- [ ] **Step 3.2: Run migration test to verify it fails**
+- [x] **Step 3.2: Run migration test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/model/migrate.test.ts
@@ -1121,7 +1121,7 @@ pnpm --filter @wafflebase/slides test src/model/migrate.test.ts
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 3.3: Implement `model/migrate.ts`**
+- [x] **Step 3.3: Implement `model/migrate.ts`**
 
 Create `packages/slides/src/model/migrate.ts`:
 
@@ -1217,7 +1217,7 @@ function wrapColor(c: unknown): ThemeColor {
 >
 > Task 5 deletes the inline placeholder and replaces with `import { defaultLight } from '../themes/default-light';`.
 
-- [ ] **Step 3.4: Run migration test to verify it passes**
+- [x] **Step 3.4: Run migration test to verify it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test src/model/migrate.test.ts
@@ -1225,7 +1225,7 @@ pnpm --filter @wafflebase/slides test src/model/migrate.test.ts
 
 Expected: 5 passed.
 
-- [ ] **Step 3.5: Extend YorkieSlidesRoot type**
+- [x] **Step 3.5: Extend YorkieSlidesRoot type**
 
 Modify `packages/frontend/src/types/slides-document.ts`. Add `themes`, `masters`, and extend `meta`:
 
@@ -1247,7 +1247,7 @@ export interface YorkieSlidesRoot {
 
 > **Schema policy:** Keep new fields **optional** in `YorkieSlidesRoot` so old clients (pre-PR1) connecting to a freshly migrated doc don't choke. Internally, after `read()` returns a `SlidesDocument`, those fields are guaranteed populated.
 
-- [ ] **Step 3.6: Update `ensureSlidesRoot` in yorkie store**
+- [x] **Step 3.6: Update `ensureSlidesRoot` in yorkie store**
 
 Modify `packages/frontend/src/app/slides/yorkie-slides-store.ts`. Extend the root initialization:
 
@@ -1283,7 +1283,7 @@ import type { Theme, Master } from '@wafflebase/slides';
 
 > Until Task 5 ships, keep the `defaultLight` inline placeholder in this file too — same 12-color literal as in `migrate.ts`. Replace in Task 5.
 
-- [ ] **Step 3.7: Update `read()` to apply migration on legacy docs**
+- [x] **Step 3.7: Update `read()` to apply migration on legacy docs**
 
 In the same file, modify `read()`:
 
@@ -1303,7 +1303,7 @@ read(): SlidesDocument {
 
 Add the import: `import { migrateDocument } from '@wafflebase/slides';` and re-export `migrateDocument` from `packages/slides/src/index.ts`.
 
-- [ ] **Step 3.8: Add `addTheme` and `applyTheme` mutations**
+- [x] **Step 3.8: Add `addTheme` and `applyTheme` mutations**
 
 Extend the `SlidesStore` interface in `packages/slides/src/store/store.ts`:
 
@@ -1356,7 +1356,7 @@ applyTheme(themeId: string): void {
 }
 ```
 
-- [ ] **Step 3.9: Write a two-user applyTheme convergence test**
+- [x] **Step 3.9: Write a two-user applyTheme convergence test**
 
 Create or extend `packages/frontend/tests/app/slides/two-user-slides-yorkie.test.ts` (mirror docs/sheets two-user pattern):
 
@@ -1383,7 +1383,7 @@ it('applyTheme converges across two users', async () => {
 
 > Use whatever helper exists for two-user setup. If `setupTwoUserSlides` doesn't exist, mirror `setupTwoUserDocs` from `packages/frontend/tests/app/docs/`.
 
-- [ ] **Step 3.10: Run all slides + frontend tests**
+- [x] **Step 3.10: Run all slides + frontend tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -1392,7 +1392,7 @@ pnpm --filter @wafflebase/frontend test
 
 Expected: all pass (including the new two-user test).
 
-- [ ] **Step 3.11: Run pnpm verify:fast**
+- [x] **Step 3.11: Run pnpm verify:fast**
 
 ```bash
 pnpm verify:fast
@@ -1400,7 +1400,7 @@ pnpm verify:fast
 
 Expected: all 748+ tests pass.
 
-- [ ] **Step 3.12: Stage and commit**
+- [x] **Step 3.12: Stage and commit**
 
 ```bash
 git add \
@@ -1445,7 +1445,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Test: `packages/docs/test/model/color.test.ts`
 - Test: `packages/docs/test/view/themed-color.test.ts`
 
-- [ ] **Step 4.1: Add the LegacyColor type and helper**
+- [x] **Step 4.1: Add the LegacyColor type and helper**
 
 Create `packages/docs/src/model/color.ts`:
 
@@ -1476,7 +1476,7 @@ export function wrapLegacyColor(c: string | StoredColor): StoredColor {
 }
 ```
 
-- [ ] **Step 4.2: Write the color test**
+- [x] **Step 4.2: Write the color test**
 
 Create `packages/docs/test/model/color.test.ts`:
 
@@ -1503,7 +1503,7 @@ describe('wrapLegacyColor', () => {
 });
 ```
 
-- [ ] **Step 4.3: Run color test**
+- [x] **Step 4.3: Run color test**
 
 ```bash
 pnpm --filter @wafflebase/docs test test/model/color.test.ts
@@ -1511,7 +1511,7 @@ pnpm --filter @wafflebase/docs test test/model/color.test.ts
 
 Expected: 4 passed.
 
-- [ ] **Step 4.4: Widen `Inline.style.color` in types**
+- [x] **Step 4.4: Widen `Inline.style.color` in types**
 
 Modify `packages/docs/src/model/types.ts`:
 
@@ -1537,7 +1537,7 @@ export interface InlineStyle {
 
 > **Type compatibility:** `StoredColor` includes `string`, so all existing callers passing `string` continue to compile.
 
-- [ ] **Step 4.5: Add `colorResolver` to layout/paint**
+- [x] **Step 4.5: Add `colorResolver` to layout/paint**
 
 Modify `packages/docs/src/view/layout.ts` (or whichever file exports `computeLayout`). Add an optional options object:
 
@@ -1574,7 +1574,7 @@ export function paintLayout(
 }
 ```
 
-- [ ] **Step 4.6: Write the themed color view test**
+- [x] **Step 4.6: Write the themed color view test**
 
 Create `packages/docs/test/view/themed-color.test.ts`:
 
@@ -1602,7 +1602,7 @@ it('paintLayout uses the supplied colorResolver for ThemeColor values', () => {
 
 > Use existing test helpers in `packages/docs/test/view/` for `makeFakeCtx` and `makeFakeMeasurer`. If those names differ, mirror the closest existing test.
 
-- [ ] **Step 4.7: Export new symbols from docs package**
+- [x] **Step 4.7: Export new symbols from docs package**
 
 Modify `packages/docs/src/index.ts`. Add:
 
@@ -1611,7 +1611,7 @@ export type { StoredColor, ColorResolver } from './model/color';
 export { defaultColorResolver, wrapLegacyColor } from './model/color';
 ```
 
-- [ ] **Step 4.8: Run all docs tests**
+- [x] **Step 4.8: Run all docs tests**
 
 ```bash
 pnpm --filter @wafflebase/docs test
@@ -1619,7 +1619,7 @@ pnpm --filter @wafflebase/docs test
 
 Expected: all existing docs tests pass + 4 color + 1 themed-color test.
 
-- [ ] **Step 4.9: Run all sheets tests (sanity check)**
+- [x] **Step 4.9: Run all sheets tests (sanity check)**
 
 ```bash
 pnpm --filter @wafflebase/sheets test
@@ -1627,7 +1627,7 @@ pnpm --filter @wafflebase/sheets test
 
 Expected: all pass — sheets only ever passed `string` colors, so the widened type is invisible to them.
 
-- [ ] **Step 4.10: Update slides text-renderer to actually use the resolver**
+- [x] **Step 4.10: Update slides text-renderer to actually use the resolver**
 
 This piece was stubbed in Task 2. Now refine `packages/slides/src/view/canvas/text-renderer.ts`:
 
@@ -1661,7 +1661,7 @@ export function drawText(
 }
 ```
 
-- [ ] **Step 4.11: Run pnpm verify:fast**
+- [x] **Step 4.11: Run pnpm verify:fast**
 
 ```bash
 pnpm verify:fast
@@ -1669,7 +1669,7 @@ pnpm verify:fast
 
 Expected: all tests pass.
 
-- [ ] **Step 4.12: Stage and commit**
+- [x] **Step 4.12: Stage and commit**
 
 ```bash
 git add \
@@ -1717,7 +1717,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Test: `packages/slides/src/themes/themes.test.ts`
 - Test: `packages/slides/src/themes/themes.visual.test.ts`
 
-- [ ] **Step 5.1: Create the default-light theme**
+- [x] **Step 5.1: Create the default-light theme**
 
 Create `packages/slides/src/themes/default-light.ts`:
 
@@ -1745,7 +1745,7 @@ export const defaultLight: Theme = {
 };
 ```
 
-- [ ] **Step 5.2: Create default-dark, streamline, focus, material**
+- [x] **Step 5.2: Create default-dark, streamline, focus, material**
 
 Each is a sibling file. Color values:
 
@@ -1817,7 +1817,7 @@ export const material: Theme = {
 };
 ```
 
-- [ ] **Step 5.3: Create the themes index**
+- [x] **Step 5.3: Create the themes index**
 
 Create `packages/slides/src/themes/index.ts`:
 
@@ -1844,7 +1844,7 @@ export function getBuiltInTheme(id: string): Theme {
 }
 ```
 
-- [ ] **Step 5.4: Re-export from slides package index**
+- [x] **Step 5.4: Re-export from slides package index**
 
 Modify `packages/slides/src/index.ts`. Add:
 
@@ -1860,7 +1860,7 @@ export {
 } from './themes';
 ```
 
-- [ ] **Step 5.5: Replace inline placeholders**
+- [x] **Step 5.5: Replace inline placeholders**
 
 Modify `packages/slides/src/model/migrate.ts` — replace the inline placeholder import:
 
@@ -1875,7 +1875,7 @@ Modify `packages/frontend/src/app/slides/yorkie-slides-store.ts` similarly:
 import { defaultLight } from '@wafflebase/slides';
 ```
 
-- [ ] **Step 5.6: Write the themes unit test**
+- [x] **Step 5.6: Write the themes unit test**
 
 Create `packages/slides/src/themes/themes.test.ts`:
 
@@ -1912,7 +1912,7 @@ describe('getBuiltInTheme', () => {
 });
 ```
 
-- [ ] **Step 5.7: Write the themes visual snapshot test**
+- [x] **Step 5.7: Write the themes visual snapshot test**
 
 Create `packages/slides/src/themes/themes.visual.test.ts`:
 
@@ -1952,7 +1952,7 @@ describe('built-in themes × reference decks', () => {
 });
 ```
 
-- [ ] **Step 5.8: Generate goldens for the first time**
+- [x] **Step 5.8: Generate goldens for the first time**
 
 ```bash
 UPDATE_SNAPSHOTS=1 pnpm --filter @wafflebase/slides test:visual
@@ -1960,7 +1960,7 @@ UPDATE_SNAPSHOTS=1 pnpm --filter @wafflebase/slides test:visual
 
 Expected: 15 .png files written to `test-fixtures/visual/goldens/`. Manually open 2–3 to sanity-check that they look like 5 different themes applied to the deck.
 
-- [ ] **Step 5.9: Run visual test against the new goldens**
+- [x] **Step 5.9: Run visual test against the new goldens**
 
 ```bash
 pnpm --filter @wafflebase/slides test:visual
@@ -1968,7 +1968,7 @@ pnpm --filter @wafflebase/slides test:visual
 
 Expected: 15 passed.
 
-- [ ] **Step 5.10: Run pnpm verify:fast**
+- [x] **Step 5.10: Run pnpm verify:fast**
 
 ```bash
 pnpm verify:fast
@@ -1976,7 +1976,7 @@ pnpm verify:fast
 
 Expected: all 748+ tests pass.
 
-- [ ] **Step 5.11: Stage and commit**
+- [x] **Step 5.11: Stage and commit**
 
 ```bash
 git add \
@@ -2017,7 +2017,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Modify: `packages/frontend/src/app/slides/contextual-toolbar.tsx` (add "Theme" button)
 - Test: `packages/frontend/tests/app/slides/theme-panel.test.tsx`
 
-- [ ] **Step 6.1: Implement the theme thumbnail component**
+- [x] **Step 6.1: Implement the theme thumbnail component**
 
 Create `packages/frontend/src/app/slides/theme-thumbnail.tsx`:
 
@@ -2058,7 +2058,7 @@ export function ThemeThumbnail({ theme, selected, onClick }: Props) {
 }
 ```
 
-- [ ] **Step 6.2: Implement the theme panel**
+- [x] **Step 6.2: Implement the theme panel**
 
 Create `packages/frontend/src/app/slides/theme-panel.tsx`:
 
@@ -2105,7 +2105,7 @@ export function ThemePanel({ store, currentThemeId, onClose }: Props) {
 
 > **Note:** `addTheme` and `applyTheme` were added to `SlidesStore` in Task 3 step 3.8. Both are wrapped here in a single `store.batch(...)` so the user sees one undo step.
 
-- [ ] **Step 6.3: Add the toggle button to the contextual toolbar**
+- [x] **Step 6.3: Add the toggle button to the contextual toolbar**
 
 Modify `packages/frontend/src/app/slides/contextual-toolbar.tsx` (or wherever the top toolbar lives — the survey called it `slides-formatting-toolbar.tsx`). Add a "Theme" button on the right:
 
@@ -2123,7 +2123,7 @@ type Props = { /* existing */; onToggleThemePanel: () => void; themePanelOpen: b
 </button>
 ```
 
-- [ ] **Step 6.4: Wire panel into editor-shell**
+- [x] **Step 6.4: Wire panel into editor-shell**
 
 Modify `packages/frontend/src/app/slides/editor-shell.tsx`. Add state for panel visibility and render `<ThemePanel>` when open:
 
@@ -2150,7 +2150,7 @@ export function EditorShell({ store /* etc. */ }: Props) {
 }
 ```
 
-- [ ] **Step 6.5: Write the theme panel test**
+- [x] **Step 6.5: Write the theme panel test**
 
 Create `packages/frontend/tests/app/slides/theme-panel.test.tsx`:
 
@@ -2191,7 +2191,7 @@ describe('ThemePanel', () => {
 });
 ```
 
-- [ ] **Step 6.6: Run frontend tests**
+- [x] **Step 6.6: Run frontend tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test
@@ -2199,7 +2199,7 @@ pnpm --filter @wafflebase/frontend test
 
 Expected: existing tests pass + 3 new theme-panel tests.
 
-- [ ] **Step 6.7: Manually browser-smoke**
+- [x] **Step 6.7: Manually browser-smoke**
 
 ```bash
 pnpm dev
@@ -2207,7 +2207,7 @@ pnpm dev
 
 Open http://localhost:5173, navigate to a slide deck, click "Theme" in the toolbar, click each theme. Confirm canvas re-renders with the new theme. Refresh the page — theme persists (Yorkie). Open in two browser windows, change theme in one — appears in the other.
 
-- [ ] **Step 6.8: Run pnpm verify:fast**
+- [x] **Step 6.8: Run pnpm verify:fast**
 
 ```bash
 pnpm verify:fast
@@ -2215,7 +2215,7 @@ pnpm verify:fast
 
 Expected: all tests pass.
 
-- [ ] **Step 6.9: Stage and commit**
+- [x] **Step 6.9: Stage and commit**
 
 ```bash
 git add \
@@ -2251,7 +2251,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Create: `packages/slides/src/model/layouts.visual.test.ts`
 - Modify: `packages/slides/test-fixtures/decks/three-slides.json` (use new layout ids)
 
-- [ ] **Step 7.1: Replace `BUILT_IN_LAYOUTS` with eleven layouts**
+- [x] **Step 7.1: Replace `BUILT_IN_LAYOUTS` with eleven layouts**
 
 Modify `packages/slides/src/model/layout.ts`. Each layout adds `masterId`, `staticElements`, and uses the new structure:
 
@@ -2395,7 +2395,7 @@ export function getLayout(layoutId: string): Layout {
 }
 ```
 
-- [ ] **Step 7.2: Update layout test**
+- [x] **Step 7.2: Update layout test**
 
 Create or extend `packages/slides/src/model/layout.test.ts`:
 
@@ -2440,7 +2440,7 @@ describe('getLayout', () => {
 });
 ```
 
-- [ ] **Step 7.3: Add a layouts visual snapshot test**
+- [x] **Step 7.3: Add a layouts visual snapshot test**
 
 Create `packages/slides/src/model/layouts.visual.test.ts`:
 
@@ -2494,7 +2494,7 @@ describe('built-in layouts × default-light', () => {
 });
 ```
 
-- [ ] **Step 7.4: Generate layout goldens**
+- [x] **Step 7.4: Generate layout goldens**
 
 ```bash
 UPDATE_SNAPSHOTS=1 pnpm --filter @wafflebase/slides test:visual
@@ -2502,7 +2502,7 @@ UPDATE_SNAPSHOTS=1 pnpm --filter @wafflebase/slides test:visual
 
 Expected: 15 (themes) + 11 (layouts) = 26 .png files. Inspect 2–3 layout goldens to confirm placeholders are positioned reasonably.
 
-- [ ] **Step 7.5: Run all slides tests**
+- [x] **Step 7.5: Run all slides tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -2510,7 +2510,7 @@ pnpm --filter @wafflebase/slides test
 
 Expected: existing + 4 new layout unit tests + 11 visual snapshots pass.
 
-- [ ] **Step 7.6: Run pnpm verify:fast**
+- [x] **Step 7.6: Run pnpm verify:fast**
 
 ```bash
 pnpm verify:fast
@@ -2518,7 +2518,7 @@ pnpm verify:fast
 
 Expected: all tests pass.
 
-- [ ] **Step 7.7: Stage and commit**
+- [x] **Step 7.7: Stage and commit**
 
 ```bash
 git add \
@@ -2556,7 +2556,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 - Test: `packages/frontend/tests/app/slides/themed-color-picker.test.tsx`
 - Test: `packages/frontend/tests/app/slides/themed-font-picker.test.tsx`
 
-- [ ] **Step 8.1: Implement the themed color picker**
+- [x] **Step 8.1: Implement the themed color picker**
 
 Create `packages/frontend/src/app/slides/themed-color-picker.tsx`:
 
@@ -2619,7 +2619,7 @@ export function ThemedColorPicker({ value, theme, onChange }: Props) {
 }
 ```
 
-- [ ] **Step 8.2: Implement the themed font picker**
+- [x] **Step 8.2: Implement the themed font picker**
 
 Create `packages/frontend/src/app/slides/themed-font-picker.tsx`:
 
@@ -2679,7 +2679,7 @@ export function ThemedFontPicker({ value, theme, onChange }: Props) {
 }
 ```
 
-- [ ] **Step 8.3: Wire pickers into the contextual toolbar**
+- [x] **Step 8.3: Wire pickers into the contextual toolbar**
 
 Modify `packages/frontend/src/app/slides/contextual-toolbar.tsx`. When a shape is selected, replace the existing color picker with `<ThemedColorPicker>`. Pass:
 
@@ -2695,7 +2695,7 @@ For text selection, add `<ThemedFontPicker>` at the right side of the toolbar si
 
 > **`getActiveTheme`** is exported from slides in Task 2's `render-context.ts`. Re-export it from `packages/slides/src/index.ts`.
 
-- [ ] **Step 8.4: Write the color picker test**
+- [x] **Step 8.4: Write the color picker test**
 
 Create `packages/frontend/tests/app/slides/themed-color-picker.test.tsx`:
 
@@ -2734,11 +2734,11 @@ describe('ThemedColorPicker', () => {
 });
 ```
 
-- [ ] **Step 8.5: Write the font picker test**
+- [x] **Step 8.5: Write the font picker test**
 
 Create `packages/frontend/tests/app/slides/themed-font-picker.test.tsx` (same shape as the color picker test — assert role buttons and system select).
 
-- [ ] **Step 8.6: Run frontend tests**
+- [x] **Step 8.6: Run frontend tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test
@@ -2746,7 +2746,7 @@ pnpm --filter @wafflebase/frontend test
 
 Expected: existing tests pass + new picker tests.
 
-- [ ] **Step 8.7: Manually browser-smoke**
+- [x] **Step 8.7: Manually browser-smoke**
 
 ```bash
 pnpm dev
@@ -2757,7 +2757,7 @@ pnpm dev
 - Switch back. Confirm the swatch shows the active role indicator (small dot).
 - Insert a text element. Click the font selector. Pick "Heading — Inter". Type something. Confirm it's the heading font.
 
-- [ ] **Step 8.8: Run pnpm verify:fast**
+- [x] **Step 8.8: Run pnpm verify:fast**
 
 ```bash
 pnpm verify:fast
@@ -2765,7 +2765,7 @@ pnpm verify:fast
 
 Expected: all tests pass.
 
-- [ ] **Step 8.9: Stage and commit**
+- [x] **Step 8.9: Stage and commit**
 
 ```bash
 git add \
@@ -2796,7 +2796,7 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 
 ## End-of-PR1 verification
 
-- [ ] **Step 9.1: Run the full verification suite**
+- [x] **Step 9.1: Run the full verification suite**
 
 ```bash
 pnpm verify:fast
@@ -2806,21 +2806,21 @@ pnpm verify:integration  # requires docker compose up -d (Postgres + Yorkie)
 
 Expected: all green. 26 visual goldens (15 themes + 11 layouts) match.
 
-- [ ] **Step 9.2: Visual diff on existing v1 deck regression set**
+- [x] **Step 9.2: Visual diff on existing v1 deck regression set**
 
 Open three pre-PR1 demo decks (use the seed data on a fresh local DB or the design-doc fixtures). Compare side-by-side with a `git stash`'d copy at the previous commit. Expected: pixel-identical under `default-light`.
 
-- [ ] **Step 9.3: PDF export sanity check**
+- [x] **Step 9.3: PDF export sanity check**
 
 (If PDF export is wired up at this point — Task 5b-3 in the broader slides plan. If not yet implemented, skip.) Export a deck under each of the five themes; confirm the PDF visually matches the canvas.
 
-- [ ] **Step 9.4: Update task index**
+- [x] **Step 9.4: Update task index**
 
 ```bash
 pnpm tasks:index
 ```
 
-- [ ] **Step 9.5: Open the PR**
+- [x] **Step 9.5: Open the PR**
 
 ```bash
 git push -u origin <branch-name>
@@ -2852,11 +2852,11 @@ to commit 2 if you need a green starting point.
 
 ## Test plan
 
-- [ ] `pnpm verify:fast` — green
-- [ ] `pnpm slides test:visual` — 26 goldens match
-- [ ] Browser smoke: switch theme on a deck, see canvas update
-- [ ] Browser smoke: insert shape, pick `accent1`, switch theme — color follows
-- [ ] Browser smoke: existing v1 deck looks identical to main
+- [x] `pnpm verify:fast` — green
+- [x] `pnpm slides test:visual` — 26 goldens match
+- [x] Browser smoke: switch theme on a deck, see canvas update
+- [x] Browser smoke: insert shape, pick `accent1`, switch theme — color follows
+- [x] Browser smoke: existing v1 deck looks identical to main
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF

@@ -10,7 +10,7 @@ node-canvas goldens (which cover the renderer in isolation).
 
 - [x] Read existing `chart-scenarios.tsx` / `format-scenarios.tsx` /
       `sheet-scenarios.tsx` patterns
-- [ ] Create `packages/frontend/src/app/harness/visual/slides-scenarios.tsx`
+- [x] Create `packages/frontend/src/app/harness/visual/slides-scenarios.tsx`
       with 5 scenarios:
   - `slides-canvas-default-light` — themed slide rendered to a real
     `<canvas>` via `drawSlide`, default-light theme
@@ -22,19 +22,19 @@ node-canvas goldens (which cover the renderer in isolation).
   - `slides-color-picker` — `ThemedColorPicker` standalone with the
     default-light theme so the Theme / Standard / Custom sections
     render
-- [ ] Wire `<SlidesVisualScenarios />` into
+- [x] Wire `<SlidesVisualScenarios />` into
       `packages/frontend/src/app/harness/visual/page.tsx`
-- [ ] Add the 5 scenario ids to
+- [x] Add the 5 scenario ids to
       `packages/frontend/scripts/verify-visual-browser.mjs`
       (`scenarioIds` array)
-- [ ] Generate baselines via
+- [x] Generate baselines via
       `pnpm verify:browser:docker:update` (Docker = CI parity)
-- [ ] Run `pnpm verify:browser:docker` to confirm baselines match
-- [ ] Run `pnpm verify:fast` to confirm no regressions in unit lane
-- [ ] Verify chunk gate not breached
+- [x] Run `pnpm verify:browser:docker` to confirm baselines match
+- [x] Run `pnpm verify:fast` to confirm no regressions in unit lane
+- [x] Verify chunk gate not breached
       (`pnpm verify:frontend:chunks`) — the harness page imports
       slides UI which already sits in the slides-detail chunk
-- [ ] Commit + push to existing PR1 branch
+- [x] Commit + push to existing PR1 branch
 
 ## Review
 
