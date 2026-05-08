@@ -18,5 +18,11 @@ const FIXTURE_ROOT = join(__dirname, '..', '..', 'test-fixtures', 'decks');
  */
 export function loadDeckFixture(name: string): SlidesDocument {
   const path = join(FIXTURE_ROOT, `${name}.json`);
-  return JSON.parse(readFileSync(path, 'utf-8')) as SlidesDocument;
+  const parsed = JSON.parse(readFileSync(path, 'utf-8'));
+  if (!parsed?.meta || !Array.isArray(parsed?.slides)) {
+    throw new Error(
+      `Invalid deck fixture '${name}': missing meta or slides`,
+    );
+  }
+  return parsed as SlidesDocument;
 }

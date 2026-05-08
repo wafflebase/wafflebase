@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, beforeAll } from 'vitest';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -78,7 +78,13 @@ describe('built-in themes x reference decks', () => {
           return;
         }
         const golden = readFileSync(goldenPath);
-        expect(png.equals(golden)).toBe(true);
+        if (!png.equals(golden)) {
+          throw new Error(
+            `Visual diff for ${themeId}__${fixture}.\n` +
+              `If this change is intentional, re-run with UPDATE_SNAPSHOTS=1:\n` +
+              `  UPDATE_SNAPSHOTS=1 pnpm --filter @wafflebase/slides test:visual`,
+          );
+        }
       });
     }
   }

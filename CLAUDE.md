@@ -45,6 +45,7 @@ detached.
 - **Store abstraction** — all spreadsheet behavior must go through the `Store` interface, all document behavior through `DocStore`. Do not bypass with ad-hoc persistence.
 - **Integration/e2e tests** require `docker compose up -d` first.
 - **Frontend chunk-gate** defaults are in `harness.config.json`; override with `FRONTEND_CHUNK_LIMIT_KB` / `FRONTEND_CHUNK_COUNT_LIMIT`.
+- **`pnpm.onlyBuiltDependencies` allowlist** in root `package.json` includes `canvas` so the slides package can run `node-canvas` for visual snapshot tests (`pnpm --filter @wafflebase/slides test:visual`). Do not remove unless that lane is dropped.
 
 ## Design Docs
 

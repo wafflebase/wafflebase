@@ -20,8 +20,8 @@
     "dev": "vite",
     "test": "vitest --run --passWithNoTests",
     "test:watch": "vitest --watch --passWithNoTests",
-    "test:visual": "vitest run visual.test",
-    "test:visual:update": "UPDATE_SNAPSHOTS=1 vitest run visual.test",
+    "test:visual": "INCLUDE_VISUAL_TESTS=1 vitest run visual.test",
+    "test:visual:update": "INCLUDE_VISUAL_TESTS=1 UPDATE_SNAPSHOTS=1 vitest run visual.test",
     "build": "vite --config vite.build.ts build",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write ."
