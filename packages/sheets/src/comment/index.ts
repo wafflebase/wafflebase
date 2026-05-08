@@ -6,3 +6,5 @@ export {
   deleteComment,
   setThreadResolved,
 } from './thread';
+export { cellAnchorToSref, isAnchorAlive } from './anchor';
+export type { AxisOrder, CellAnchorIds } from './anchor';
