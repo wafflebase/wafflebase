@@ -105,7 +105,12 @@ import { MemStore } from './store/memory';
 import { CellIndex } from './store/cell-index';
 import { findEdgeWithIndex } from './store/find-edge';
 import { ReadOnlyStore } from './store/readonly';
-import { initialize, Spreadsheet, type LayoutRect, type Theme } from './view/spreadsheet';
+import {
+  initialize,
+  Spreadsheet,
+  type LayoutRect,
+  type Theme,
+} from './view/spreadsheet';
 import { getPeerCursorColor } from './view/theme';
 import {
   buildLocaleFormatPreview,
@@ -166,6 +171,12 @@ import {
   createSpreadsheetDocument,
   initialSpreadsheetDocument,
 } from './model/workbook/worksheet-document';
+import {
+  type Comment,
+  type CommentAnchor,
+  type CommentAuthor,
+  type Thread,
+} from './comment/types';
 
 export {
   initialize,
@@ -319,4 +330,8 @@ export type {
   CellAnchor,
   RangeAnchor,
   SelectionPresence,
+  Comment,
+  CommentAnchor,
+  CommentAuthor,
+  Thread,
 };
