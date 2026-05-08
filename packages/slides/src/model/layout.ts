@@ -207,6 +207,13 @@ export function getLayout(layoutId: string): Layout {
  * 3. Orphans (ref-bearing but unmatched): empty → delete; non-empty
  *    → demote (drop `placeholderRef`, keep frame and content).
  *
+ * Element array order is preserved: surviving placeholder elements
+ * stay at their original positions, deletions are removed in place,
+ * and fresh placeholders for unmatched slots are appended at the end.
+ * This means the final element order may differ from
+ * `newLayout.placeholders` order — by design, so user z-order across
+ * layout switches is preserved.
+ *
  * The user's `applyLayout` calls in both stores route here so the
  * semantics never diverge.
  */
@@ -274,7 +281,11 @@ export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
     r.element.placeholderRef = r.slot.ref;
   }
   for (const d of demotions) {
-    d.element.placeholderRef = undefined;
+    // `delete` emits a Yorkie remove-field op, whereas assigning
+    // undefined leaves a "key with undefined value" set op. Both
+    // pass our truthy partition above, but delete is the correct
+    // CRDT semantic and matches yorkie-slides-store.ts.
+    delete d.element.placeholderRef;
   }
 
   // Remove dead orphans — splice from the highest index down so earlier
