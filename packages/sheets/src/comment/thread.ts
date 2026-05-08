@@ -35,7 +35,12 @@ export function addReply(
   now: () => number,
 ): Thread {
   const text = assertNonEmpty(body);
-  const reply: Comment = { id: newCommentId(), author, body: text, createdAt: now() };
+  const reply: Comment = {
+    id: newCommentId(),
+    author,
+    body: text,
+    createdAt: now(),
+  };
   return { ...thread, comments: [...thread.comments, reply] };
 }
 
@@ -57,11 +62,17 @@ export function editComment(
  * Returns null when the root comment is deleted — caller should delete the
  * thread entry. Otherwise returns the thread with the reply removed.
  */
-export function deleteComment(thread: Thread, commentId: string): Thread | null {
+export function deleteComment(
+  thread: Thread,
+  commentId: string,
+): Thread | null {
   const idx = thread.comments.findIndex((c) => c.id === commentId);
   if (idx < 0) throw new Error(`Comment not found: ${commentId}`);
   if (idx === 0) return null;
-  return { ...thread, comments: thread.comments.filter((c) => c.id !== commentId) };
+  return {
+    ...thread,
+    comments: thread.comments.filter((c) => c.id !== commentId),
+  };
 }
 
 export function setThreadResolved(

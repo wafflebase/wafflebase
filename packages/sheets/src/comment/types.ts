@@ -4,8 +4,12 @@ export type CommentAuthor = {
   photo?: string;
 };
 
-export type CommentAnchor =
-  | { kind: 'sheet-cell'; tabId: string; rowId: string; colId: string };
+export type CommentAnchor = {
+  kind: 'sheet-cell';
+  tabId: string;
+  rowId: string;
+  colId: string;
+};
 
 export type Comment = {
   id: string;

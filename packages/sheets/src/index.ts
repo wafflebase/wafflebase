@@ -181,6 +181,7 @@ import {
   createThread,
   addReply,
 } from './comment/thread';
+import { cellAnchorToSref, isAnchorAlive } from './comment/anchor';
 
 export {
   initialize,
@@ -278,6 +279,8 @@ export {
   rangeToRangeAnchor,
   createThread,
   addReply,
+  cellAnchorToSref,
+  isAnchorAlive,
 };
 
 export type {

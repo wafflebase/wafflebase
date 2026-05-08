@@ -321,7 +321,12 @@ export interface Store {
     by: CommentAuthor,
   ): Promise<void>;
 
-  /** Read threads filtered by tab, anchor, or resolved state. */
+  /**
+   * Read threads from a single tab, filtered by anchor or resolved state.
+   * Defaults to the store's active tab when `tabId` is omitted. To aggregate
+   * threads across all tabs, walk `Worksheet.comments` from each sheet
+   * directly — this method is intentionally per-tab.
+   */
   listThreads(opts?: {
     tabId?: string;
     cellAnchor?: { rowId: string; colId: string };

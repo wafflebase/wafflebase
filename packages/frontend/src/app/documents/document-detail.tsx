@@ -49,7 +49,7 @@ import {
   normalizeTabName,
 } from "./tab-name";
 import type { Thread, CommentAnchor } from "@wafflebase/sheets";
-import { anchorToRef, toSref } from "@wafflebase/sheets";
+import { cellAnchorToSref } from "@wafflebase/sheets";
 import { CommentSidePanel } from "@/app/spreadsheet/components/comments/CommentSidePanel";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
@@ -217,14 +217,14 @@ function DocumentLayout({ documentId }: { documentId: string }) {
       const ws = root.sheets?.[anchor.tabId];
       if (!ws) return;
 
-      const ref = anchorToRef(
+      const sref = cellAnchorToSref(
         { rowId: anchor.rowId, colId: anchor.colId },
-        Array.from(ws.rowOrder ?? []) as string[],
-        Array.from(ws.colOrder ?? []) as string[],
+        {
+          rowOrder: Array.from(ws.rowOrder ?? []) as string[],
+          colOrder: Array.from(ws.colOrder ?? []) as string[],
+        },
       );
-      if (!ref) return;
-
-      const sref = toSref(ref);
+      if (!sref) return;
 
       // Switch to the target tab if it differs from the current one.
       if (anchor.tabId !== activeTabId) {
