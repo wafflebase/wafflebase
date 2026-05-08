@@ -47,5 +47,11 @@ PR1 merge or in a follow-up cleanup commit:
   `string | ThemeFont` (parallel to `color: StoredColor` extension) so slides text font picks
   preserve role bindings. Without it, theme-switch on text-fonted decks doesn't follow the
   new theme.
+- **Render contextual popovers via React portal.** PR1 currently applies `!overflow-visible`
+  on the slides Toolbar to keep Fill / Font popovers visible past the toolbar's ~40 px height
+  (the shadcn Toolbar's `overflow-x-auto` triggers a CSS spec quirk where the other axis
+  becomes auto, clipping below). A portal to `document.body` would isolate popover positioning
+  from any ancestor overflow and avoid the override. Apply when adopting `@radix-ui/react-popover`
+  or rolling a small portal-based popover wrapper.
 
 ## Brainstorming
