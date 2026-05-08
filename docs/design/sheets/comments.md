@@ -61,22 +61,25 @@ packages/sheets/src/comment/
 packages/sheets/src/store/store.ts
 └── Store interface gains six comment methods (§4)
 
+packages/sheets/src/view/
+└── render-comments.ts             # NEW — canvas marker rendering
+
 packages/frontend/src/app/spreadsheet/
 ├── yorkie-store.ts                # Store impl gains comment methods
 ├── yorkie-worksheet-comments.ts   # NEW — Yorkie-local comment mutations
 ├── yorkie-worksheet-structure.ts  # MODIFY — orphan cleanup on row/col delete
-├── canvas/render-comments.ts      # NEW — canvas marker rendering
 └── components/comments/           # NEW — popover, side panel, composer
     ├── CommentPopover.tsx
     ├── CommentSidePanel.tsx
     └── CommentComposer.tsx
 ```
 
-The shared `packages/sheets` package owns only the data model and pure helpers
-— no Yorkie dependency. The frontend package owns the Yorkie boundary, the
-Canvas marker layer, and the React UI. This mirrors the existing split for axis
-ID and structural mutations described in
-[collaboration.md](./collaboration.md).
+The shared `packages/sheets` package owns the data model, pure helpers, and the
+Canvas grid renderer (which already lives at `packages/sheets/src/view/gridcanvas.ts`).
+The frontend package owns the Yorkie boundary, the React UI (popover, side panel,
+composer), and event wiring. Comment marker drawing extends the existing sheets
+canvas pipeline. This mirrors the existing split for axis ID and structural
+mutations described in [collaboration.md](./collaboration.md).
 
 ### 2. Data Model
 
