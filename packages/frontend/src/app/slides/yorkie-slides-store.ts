@@ -7,6 +7,7 @@ import {
   type Frame,
   type Layout,
   type Master,
+  type PlaceholderRef,
   type Slide as ModelSlide,
   type SlidesDocument,
   type SlidesStore,
@@ -245,13 +246,23 @@ export class YorkieSlidesStore implements SlidesStore {
       const layoutId = (s as { layoutId: string }).layoutId;
       const background = yorkieToPlain<unknown>((s as { background: unknown }).background);
       const elements = ((s as { elements: unknown[] }).elements ?? []).map((e) => {
-        const el = e as { id: string; type: string; frame: unknown; data: unknown };
+        const el = e as {
+          id: string;
+          type: string;
+          frame: unknown;
+          data: unknown;
+          placeholderRef?: unknown;
+        };
+        const placeholderRef = yorkieToPlain<PlaceholderRef | undefined>(
+          el.placeholderRef,
+        );
         if (el.type === 'text') {
           const blocks = yorkieToPlain<Block[]>((el.data as { blocks?: unknown }).blocks) ?? [];
           return {
             id: el.id,
             type: 'text',
             frame: yorkieToPlain<Frame>(el.frame),
+            placeholderRef,
             data: { blocks },
           };
         }
@@ -259,6 +270,7 @@ export class YorkieSlidesStore implements SlidesStore {
           id: el.id,
           type: el.type,
           frame: yorkieToPlain<Frame>(el.frame),
+          placeholderRef,
           data: yorkieToPlain<object>(el.data),
         };
       });
