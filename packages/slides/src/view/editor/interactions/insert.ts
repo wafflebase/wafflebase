@@ -67,7 +67,10 @@ function defaultsForShape(
       };
     case 'filled':
     default:
-      return { fill: DEFAULT_FILL };
+      return {
+        fill: DEFAULT_FILL,
+        stroke: { color: DEFAULT_TEXT_COLOR, width: 1 },
+      };
   }
 }
 
