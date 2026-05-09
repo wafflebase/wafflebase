@@ -54,6 +54,10 @@ import {
   buildMathEqual,
   MATH_EQUAL_ADJUSTMENTS,
 } from './equation/math-equal';
+import {
+  buildMathNotEqual,
+  MATH_NOT_EQUAL_ADJUSTMENTS,
+} from './equation/math-not-equal';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -104,6 +108,7 @@ PATH_BUILDERS.set('mathMinus', buildMathMinus);
 PATH_BUILDERS.set('mathMultiply', buildMathMultiply);
 PATH_BUILDERS.set('mathDivide', buildMathDivide);
 PATH_BUILDERS.set('mathEqual', buildMathEqual);
+PATH_BUILDERS.set('mathNotEqual', buildMathNotEqual);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
@@ -134,3 +139,4 @@ ADJUSTMENT_SPECS.set('mathMinus', MATH_PLUS_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathMultiply', MATH_PLUS_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathDivide', MATH_DIVIDE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathEqual', MATH_EQUAL_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('mathNotEqual', MATH_NOT_EQUAL_ADJUSTMENTS);
