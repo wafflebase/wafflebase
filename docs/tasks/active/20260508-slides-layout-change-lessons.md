@@ -15,13 +15,13 @@ Two compounding gotchas:
 
 This is encoded in `applyLayoutToSlide` (`packages/slides/src/model/layout.ts`) and pinned by integration test `apply-layout-with-edit` in `yorkie-slides-concurrent.integration.ts`. **Don't** revert to "build a new array and reassign" — it will pass MemStore tests and silently break Yorkie.
 
-## 2. `YorkieSlidesStore.read()` strips `placeholderRef` (latent)
+## 2. `YorkieSlidesStore.read()` strips `placeholderRef` (was latent — fixed mid-PR)
 
-`read()` builds a plain `SlidesDocument` from the Yorkie root via per-element conversion. After T5, the stored Yorkie elements carry `placeholderRef`, but the conversion in `read()` doesn't propagate it.
+`read()` originally built a plain `SlidesDocument` from the Yorkie root via per-element conversion that did NOT propagate `placeholderRef`. The layout-change feature itself didn't notice because `applyLayoutToSlide` ran against the live Yorkie proxy. T12 (ghost text) is what made it bite — the renderer's empty-placeholder branch reads `element.placeholderRef` from the `read()` snapshot to look up the hint string, and silently never fired in the live editor.
 
-**Why it didn't bite us:** the layout-change feature uses `applyLayoutToSlide` against the live Yorkie proxy (where `placeholderRef` is present), not against the `read()` snapshot. The picker's "selected layout" outline reads `slide.layoutId` (which is propagated). So end-to-end behavior is correct.
+**Fix:** the text and non-text branches of `read()` both unwrap `el.placeholderRef` via `yorkieToPlain<PlaceholderRef | undefined>` and include it on the returned element. Single commit, one import + one field per branch.
 
-**When it will bite:** any consumer that decides UX based on `read()`'s `element.placeholderRef` — e.g., a future "highlight placeholders in red" mode, or an export that should know which elements are slot-bound. Worth a one-line fix in `yorkie-slides-store.ts` `read()` (text/image/shape branches each pass through the optional ref). Filed mentally; not done in this PR.
+**Lesson:** when adding a new field to elements, audit BOTH the write path (`addSlide` in T5) AND the read conversion (`read()`). Tests for MemSlidesStore alone won't catch this because Mem returns a deep clone of the live state — the field auto-survives. Yorkie's per-element rebuild needs explicit propagation.
 
 ## 3. Slides package is framework-free; the picker had to be vanilla DOM
 
