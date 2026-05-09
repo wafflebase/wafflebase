@@ -1,10 +1,43 @@
 import type { SlidesStore } from '../../store/store';
 import type { SlidesEditor } from './editor';
 import { renderThumbnail } from '../canvas/thumbnail';
-import { showLayoutPicker } from './layout-picker';
 
-const THUMB_W = 192;
-const THUMB_H = 108;
+// Thumbnails preserve the slide's 16:9 aspect and scale to fit the
+// container's measured width. Floor/ceiling keep them legible on a
+// very narrow panel and from ballooning on a very wide one.
+const THUMB_ASPECT = 16 / 9;
+const MIN_THUMB_W = 80;
+const MAX_THUMB_W = 320;
+const FALLBACK_THUMB_W = 192;
+// Border width is constant across selection states (only the color
+// changes) so the inner canvas size doesn't jump when the user
+// switches the current slide. 1px on each side = 2px reserved.
+const BORDER_PX = 1;
+
+interface ThumbDims {
+  /** Outer item box (border-box). */
+  outerW: number;
+  outerH: number;
+  /** Inner canvas box — derived to be EXACTLY 16:9 so the slide-renderer
+   * (which letterboxes via Math.min(scaleX, scaleY)) fills the canvas
+   * end-to-end with no background gap. */
+  innerW: number;
+  innerH: number;
+}
+
+function computeThumbDims(containerWidth: number): ThumbDims {
+  const available = containerWidth > 0 ? containerWidth : FALLBACK_THUMB_W;
+  const outerW = Math.max(
+    MIN_THUMB_W,
+    Math.min(MAX_THUMB_W, Math.floor(available)),
+  );
+  const innerW = outerW - BORDER_PX * 2;
+  // Round innerH so the inner box stays as close to 16:9 as integer
+  // pixels allow. The outer height absorbs the rounding.
+  const innerH = Math.round(innerW / THUMB_ASPECT);
+  const outerH = innerH + BORDER_PX * 2;
+  return { outerW, outerH, innerW, innerH };
+}
 
 export interface ThumbnailPanelHandle {
   /**
@@ -41,6 +74,13 @@ export function mountThumbnailPanel(
 
   const render = (): void => {
     container.innerHTML = '';
+    const dims = computeThumbDims(container.clientWidth);
+    // Read DPR per render so a window dragged between Retina and a
+    // non-Retina monitor mid-session also re-paints at the right density.
+    const dpr =
+      typeof window !== 'undefined' && window.devicePixelRatio
+        ? window.devicePixelRatio
+        : 1;
     const doc = store.read();
     const currentId = editor.getCurrentSlideId();
     for (const slide of doc.slides) {
@@ -48,24 +88,41 @@ export function mountThumbnailPanel(
       item.dataset.slideId = slide.id;
       const isCurrent = slide.id === currentId;
       item.className = 'wfb-slides-thumb' + (isCurrent ? ' current' : '');
-      item.style.width = `${THUMB_W}px`;
-      item.style.height = `${THUMB_H}px`;
+      item.style.width = `${dims.outerW}px`;
+      item.style.height = `${dims.outerH}px`;
+      item.style.boxSizing = 'border-box';
       item.style.cursor = 'pointer';
-      item.style.outline = isCurrent ? '2px solid #3a7' : '1px solid #444';
+      // Use border (inside the box) instead of outline (outside the
+      // box). Outline pixels sit at the negative edge of the item and
+      // get clipped by the panel's overflow box when a thumbnail is
+      // flush against the panel's left/top — leaving the slide looking
+      // like its left + top edges are missing. Border thickness is
+      // constant across selection states; only the color changes, so
+      // the inner canvas size never jumps when the user switches the
+      // current slide. Theme tokens follow the host frontend's
+      // light/dark mode (fallbacks for theme-less hosts like jsdom).
+      const borderColor = isCurrent
+        ? 'var(--primary, #3a7)'
+        : 'var(--border, #444)';
+      item.style.border = `${BORDER_PX}px solid ${borderColor}`;
       item.style.marginBottom = '8px';
       item.draggable = true;
 
       const canvas = document.createElement('canvas');
-      canvas.width = THUMB_W;
-      canvas.height = THUMB_H;
-      canvas.style.width = `${THUMB_W}px`;
-      canvas.style.height = `${THUMB_H}px`;
+      // Backing store at device pixels; CSS box at logical pixels.
+      // Without the dpr multiplier on width/height, Retina renders a
+      // half-resolution bitmap that the browser stretches → blurry.
+      canvas.width = Math.round(dims.innerW * dpr);
+      canvas.height = Math.round(dims.innerH * dpr);
+      canvas.style.width = `${dims.innerW}px`;
+      canvas.style.height = `${dims.innerH}px`;
+      canvas.style.display = 'block';
       const ctx = canvas.getContext('2d');
       if (ctx) {
         renderThumbnail(ctx, slide, doc, {
-          hostWidth: THUMB_W,
-          hostHeight: THUMB_H,
-          dpr: 1,
+          hostWidth: dims.innerW,
+          hostHeight: dims.innerH,
+          dpr,
         });
       }
       item.appendChild(canvas);
@@ -112,49 +169,6 @@ export function mountThumbnailPanel(
 
       container.appendChild(item);
     }
-
-    // "+ Add slide" split button at the bottom.
-    const addBar = document.createElement('div');
-    addBar.style.display = 'flex';
-    addBar.style.width = `${THUMB_W}px`;
-    addBar.style.border = '1px solid #444';
-    addBar.style.borderRadius = '4px';
-    addBar.style.overflow = 'hidden';
-
-    const insertBtn = document.createElement('button');
-    insertBtn.dataset.addSlideInsert = '';
-    insertBtn.textContent = '+ Add slide';
-    insertBtn.style.flex = '1';
-    insertBtn.style.border = 'none';
-    insertBtn.style.cursor = 'pointer';
-    insertBtn.addEventListener('click', () => {
-      store.batch(() => store.addSlide('blank'));
-      render();
-    });
-    addBar.appendChild(insertBtn);
-
-    const dropdownBtn = document.createElement('button');
-    dropdownBtn.dataset.addSlideDropdown = '';
-    dropdownBtn.textContent = '▾';
-    dropdownBtn.title = 'Choose a layout';
-    dropdownBtn.style.width = '24px';
-    dropdownBtn.style.borderLeft = '1px solid #444';
-    dropdownBtn.style.cursor = 'pointer';
-    dropdownBtn.addEventListener('click', () => {
-      const rect = dropdownBtn.getBoundingClientRect();
-      showLayoutPicker(document.body, {
-        store,
-        anchor: { x: rect.left, y: rect.bottom + 4 },
-        onPick: (layoutId) => {
-          store.batch(() => store.addSlide(layoutId));
-          render();
-        },
-        onClose: () => {},
-      });
-    });
-    addBar.appendChild(dropdownBtn);
-
-    container.appendChild(addBar);
   };
 
   // Re-render when the editor's selection changes — this is a cheap
@@ -162,11 +176,36 @@ export function mountThumbnailPanel(
   // etc.) and the thumbnail draw is fast.
   const off = editor.onSelectionChange(() => render());
 
+  // Re-render when the panel's host element changes width (user drags
+  // the column resizer in slides-view.tsx). Skip the no-op tick where
+  // the computed thumb size hasn't actually moved off the last value,
+  // so editor selection changes that happen to coincide don't render
+  // twice. ResizeObserver isn't in jsdom by default — fall through to
+  // a one-shot render in that case so the panel still mounts.
+  let lastOuterW = -1;
+  let resizeObserver: ResizeObserver | null = null;
+  const renderIfSizeChanged = (): void => {
+    const { outerW } = computeThumbDims(container.clientWidth);
+    if (outerW === lastOuterW) return;
+    lastOuterW = outerW;
+    render();
+  };
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => renderIfSizeChanged());
+    resizeObserver.observe(container);
+  }
+
+  // Seed lastOuterW so the observer's first synchronous fire is a
+  // no-op (it would otherwise paint the same frame twice on mount).
+  lastOuterW = computeThumbDims(container.clientWidth).outerW;
   render();
 
   return {
     refresh: render,
-    dispose: () => off(),
+    dispose: () => {
+      off();
+      resizeObserver?.disconnect();
+    },
     getSelectedSlideIds: () => [...selectedSlideIds],
   };
 }
