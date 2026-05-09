@@ -1,5 +1,5 @@
 import type { Block } from '@wafflebase/docs';
-import type { Master, PlaceholderRef, Theme, ThemeColor } from '@wafflebase/slides';
+import type { Master, PlaceholderRef, ShapeKind, Theme, ThemeColor } from '@wafflebase/slides';
 
 /**
  * Yorkie document root for the slides editor. Text element bodies
@@ -87,7 +87,8 @@ export interface YorkieShapeElement {
   frame: YorkieFrame;
   placeholderRef?: PlaceholderRef;
   data: {
-    kind: 'rect' | 'ellipse' | 'line' | 'arrow';
+    kind: ShapeKind;
+    adjustments?: number[];
     fill?: ThemeColor;
     stroke?: { color: ThemeColor; width: number };
   };
