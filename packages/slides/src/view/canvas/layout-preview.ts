@@ -43,13 +43,27 @@ export function renderLayoutPreview(
   master: Master,
   size: { w: number; h: number },
 ): HTMLCanvasElement {
-  const key = `${theme.id}:${master.id}:${layout.id}:${size.w}x${size.h}`;
+  // Read DPR per call so a window dragged between Retina and a non-
+  // Retina monitor mid-session paints the preview at the right
+  // density. DPR is part of the cache key so the second display gets
+  // a freshly-rendered canvas instead of the first display's bitmap.
+  const dpr =
+    typeof window !== 'undefined' && window.devicePixelRatio
+      ? window.devicePixelRatio
+      : 1;
+  const key = `${theme.id}:${master.id}:${layout.id}:${size.w}x${size.h}@${dpr}`;
   const hit = cache.get(key);
   if (hit) return hit;
 
   const canvas = document.createElement('canvas');
-  canvas.width = size.w;
-  canvas.height = size.h;
+  // Backing store at device pixels; CSS box at logical pixels.
+  // Without the dpr multiplier on width/height, Retina renders a
+  // half-resolution bitmap that the browser stretches → blurry.
+  canvas.width = Math.round(size.w * dpr);
+  canvas.height = Math.round(size.h * dpr);
+  canvas.style.width = `${size.w}px`;
+  canvas.style.height = `${size.h}px`;
+  canvas.style.display = 'block';
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     // Context unavailable (jsdom without polyfill, headless edge cases).
@@ -67,7 +81,7 @@ export function renderLayoutPreview(
   renderThumbnail(ctx, slide, doc, {
     hostWidth: size.w,
     hostHeight: size.h,
-    dpr: 1,
+    dpr,
   });
   cache.set(key, canvas);
   return canvas;

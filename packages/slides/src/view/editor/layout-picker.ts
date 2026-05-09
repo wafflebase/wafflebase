@@ -4,6 +4,12 @@ import type { SlidesStore } from '../../store/store';
 
 const PREVIEW_W = 160;
 const PREVIEW_H = 90;
+// Each cell wraps the preview canvas with a small padding for
+// breathing room. The grid column track must absorb this padding,
+// otherwise the canvas (PREVIEW_W wide) gets pushed past the cell's
+// right outline by exactly `CELL_PAD` pixels.
+const CELL_PAD = 4;
+const CELL_W = PREVIEW_W + CELL_PAD * 2;
 
 export interface LayoutPickerOptions {
   store: SlidesStore;
@@ -32,14 +38,18 @@ export function showLayoutPicker(
   popover.style.position = 'fixed';
   popover.style.left = `${opts.anchor.x}px`;
   popover.style.top = `${opts.anchor.y}px`;
-  popover.style.background = '#2a2a2a';
-  popover.style.border = '1px solid #444';
+  // Theme tokens from shadcn (frontend's index.css) so the picker
+  // follows light/dark mode. Fallbacks keep jsdom + theme-less hosts
+  // (Storybook, isolated demos) on a sensible dark surface.
+  popover.style.background = 'var(--popover, #2a2a2a)';
+  popover.style.color = 'var(--popover-foreground, #ddd)';
+  popover.style.border = '1px solid var(--border, #444)';
   popover.style.borderRadius = '6px';
   popover.style.padding = '8px';
   popover.style.zIndex = '9999';
-  popover.style.boxShadow = '0 6px 24px rgba(0, 0, 0, 0.5)';
+  popover.style.boxShadow = '0 6px 24px rgba(0, 0, 0, 0.25)';
   popover.style.display = 'grid';
-  popover.style.gridTemplateColumns = `repeat(4, ${PREVIEW_W}px)`;
+  popover.style.gridTemplateColumns = `repeat(4, ${CELL_W}px)`;
   popover.style.gap = '8px';
 
   const doc = opts.store.read();
@@ -59,13 +69,14 @@ export function showLayoutPicker(
       String(layout.id === opts.selectedLayoutId),
     );
     cell.style.cursor = 'pointer';
-    cell.style.padding = '4px';
+    cell.style.boxSizing = 'border-box';
+    cell.style.padding = `${CELL_PAD}px`;
     cell.style.borderRadius = '4px';
     if (layout.id === opts.selectedLayoutId) {
       cell.dataset.selected = 'true';
-      cell.style.outline = '2px solid #3a7';
+      cell.style.outline = '2px solid var(--primary, #3a7)';
     } else {
-      cell.style.outline = '1px solid #444';
+      cell.style.outline = '1px solid var(--border, #444)';
     }
     const canvas = renderLayoutPreview(layout, theme, master, {
       w: PREVIEW_W,
@@ -75,7 +86,7 @@ export function showLayoutPicker(
     const label = document.createElement('div');
     label.textContent = layout.name;
     label.style.fontSize = '12px';
-    label.style.color = '#ddd';
+    label.style.color = 'var(--popover-foreground, #ddd)';
     label.style.marginTop = '4px';
     label.style.textAlign = 'center';
     cell.appendChild(label);
