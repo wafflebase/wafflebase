@@ -18,6 +18,7 @@ import { buildTrapezoid, TRAPEZOID_ADJUSTMENTS } from './basic/trapezoid';
 import { buildTriangle, TRIANGLE_ADJUSTMENTS } from './basic/triangle';
 import { ARROW_ADJUSTMENTS, buildRightArrow } from './arrows/right-arrow';
 import { buildLeftArrow } from './arrows/left-arrow';
+import { buildUpArrow } from './arrows/up-arrow';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -53,6 +54,7 @@ PATH_BUILDERS.set('can', buildCan);
 PATH_BUILDERS.set('cloud', buildCloud);
 PATH_BUILDERS.set('rightArrow', buildRightArrow);
 PATH_BUILDERS.set('leftArrow', buildLeftArrow);
+PATH_BUILDERS.set('upArrow', buildUpArrow);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
@@ -65,3 +67,4 @@ ADJUSTMENT_SPECS.set('donut', DONUT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('can', CAN_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('rightArrow', ARROW_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('leftArrow', ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('upArrow', ARROW_ADJUSTMENTS);
