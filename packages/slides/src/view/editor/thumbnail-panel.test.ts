@@ -1,15 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import '../canvas/test-canvas-env';
-
-vi.mock('./layout-picker', () => ({
-  showLayoutPicker: vi.fn(),
-}));
 
 import { MemSlidesStore } from '../../store/memory';
 import { initialize } from './editor';
 import { mountThumbnailPanel } from './thumbnail-panel';
-import { showLayoutPicker } from './layout-picker';
 
 beforeEach(() => { document.body.innerHTML = ''; });
 
@@ -74,17 +69,6 @@ describe('mountThumbnailPanel', () => {
     expect(handle.getSelectedSlideIds()).toEqual([]);
   });
 
-  it('"+" button appends a new slide', () => {
-    const { panel, store, editor } = makeFixture();
-    mountThumbnailPanel(panel, store, editor);
-    const before = store.read().slides.length;
-    const addBtn = panel.querySelector('button')!;
-    addBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(store.read().slides.length).toBe(before + 1);
-    // Panel re-rendered to reflect the new slide.
-    expect(panel.querySelectorAll('[data-slide-id]')).toHaveLength(before + 1);
-  });
-
   it('dispose detaches editor selection subscription', () => {
     const { panel, store, editor } = makeFixture();
     const handle = mountThumbnailPanel(panel, store, editor);
@@ -92,37 +76,94 @@ describe('mountThumbnailPanel', () => {
   });
 });
 
-describe('mountThumbnailPanel — split-button on + Add slide', () => {
-  it('left insert zone adds a blank slide', () => {
+describe('mountThumbnailPanel — responsive sizing + DPR', () => {
+  it('thumbnail outer box scales to the container width with 16:9 inner', () => {
     const { panel, store, editor } = makeFixture();
+    // jsdom does not compute layout, so we pin clientWidth directly.
+    Object.defineProperty(panel, 'clientWidth', { value: 240, configurable: true });
     mountThumbnailPanel(panel, store, editor);
-    const insert = panel.querySelector<HTMLButtonElement>('[data-add-slide-insert]')!;
-    expect(insert).toBeTruthy();
-
-    const before = store.read().slides.length;
-    insert.click();
-    const after = store.read().slides;
-    expect(after).toHaveLength(before + 1);
-    expect(after[after.length - 1].layoutId).toBe('blank');
+    const item = panel.querySelector<HTMLDivElement>('[data-slide-id]')!;
+    expect(item.style.width).toBe('240px');
+    // innerW = 240 - 2 = 238, innerH = round(238 / (16/9)) = 134,
+    // outerH = 134 + 2 = 136.
+    expect(item.style.height).toBe('136px');
   });
 
-  it('right dropdown zone opens the layout picker', () => {
+  it('thumbnail outer box clamps to MIN_THUMB_W (80px) on a very narrow panel', () => {
+    const { panel, store, editor } = makeFixture();
+    Object.defineProperty(panel, 'clientWidth', { value: 40, configurable: true });
+    mountThumbnailPanel(panel, store, editor);
+    const item = panel.querySelector<HTMLDivElement>('[data-slide-id]')!;
+    expect(item.style.width).toBe('80px');
+  });
+
+  it('thumbnail outer box clamps to MAX_THUMB_W (320px) on a very wide panel', () => {
+    const { panel, store, editor } = makeFixture();
+    Object.defineProperty(panel, 'clientWidth', { value: 800, configurable: true });
+    mountThumbnailPanel(panel, store, editor);
+    const item = panel.querySelector<HTMLDivElement>('[data-slide-id]')!;
+    expect(item.style.width).toBe('320px');
+  });
+
+  it('inner canvas box is exactly 16:9 so the slide fills it (no letterbox gap)', () => {
+    const { panel, store, editor } = makeFixture();
+    Object.defineProperty(panel, 'clientWidth', { value: 240, configurable: true });
+    mountThumbnailPanel(panel, store, editor);
+    const canvas = panel.querySelector<HTMLCanvasElement>('[data-slide-id] canvas')!;
+    // innerW / innerH must round-trip to 16:9 within 1 pixel.
+    const innerW = Number.parseInt(canvas.style.width, 10);
+    const innerH = Number.parseInt(canvas.style.height, 10);
+    expect(innerW).toBe(238);
+    expect(innerH).toBe(Math.round(238 / (16 / 9)));
+  });
+
+  it('canvas backing store is sized at devicePixelRatio for crisp Retina paint', () => {
+    const originalDpr = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true });
+    try {
+      const { panel, store, editor } = makeFixture();
+      Object.defineProperty(panel, 'clientWidth', { value: 200, configurable: true });
+      mountThumbnailPanel(panel, store, editor);
+      const canvas = panel.querySelector<HTMLCanvasElement>('[data-slide-id] canvas')!;
+      // 1px border on each side → innerW = 200 - 2 = 198,
+      // innerH = round(198 / (16/9)) = 111. Backing store is innerW/H × dpr.
+      const innerW = 198;
+      const innerH = Math.round(innerW / (16 / 9));
+      expect(canvas.width).toBe(innerW * 2);
+      expect(canvas.height).toBe(innerH * 2);
+      expect(canvas.style.width).toBe(`${innerW}px`);
+    } finally {
+      Object.defineProperty(window, 'devicePixelRatio', { value: originalDpr, configurable: true });
+    }
+  });
+
+  it('refresh() re-renders at the container\'s current width', () => {
+    const { panel, store, editor } = makeFixture();
+    Object.defineProperty(panel, 'clientWidth', { value: 160, configurable: true });
+    const handle = mountThumbnailPanel(panel, store, editor);
+    expect(panel.querySelector<HTMLDivElement>('[data-slide-id]')!.style.width).toBe('160px');
+    Object.defineProperty(panel, 'clientWidth', { value: 280, configurable: true });
+    handle.refresh();
+    expect(panel.querySelector<HTMLDivElement>('[data-slide-id]')!.style.width).toBe('280px');
+  });
+
+  it('falls back to a sensible default size when the container has no measured width', () => {
+    // jsdom default: clientWidth === 0. Falls back to FALLBACK_THUMB_W (192).
     const { panel, store, editor } = makeFixture();
     mountThumbnailPanel(panel, store, editor);
-    const dropdown = panel.querySelector<HTMLButtonElement>('[data-add-slide-dropdown]')!;
-    expect(dropdown).toBeTruthy();
+    const item = panel.querySelector<HTMLDivElement>('[data-slide-id]')!;
+    expect(item.style.width).toBe('192px');
+    // innerW = 190, innerH = round(190 / (16/9)) = 107, outerH = 109.
+    expect(item.style.height).toBe('109px');
+  });
 
-    (showLayoutPicker as unknown as { mockClear?: () => void }).mockClear?.();
-    dropdown.click();
-    expect(showLayoutPicker).toHaveBeenCalled();
-
-    // Run the picker's onPick callback to assert wiring.
-    const call = (showLayoutPicker as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    const opts = call[1] as { onPick: (id: string) => void };
-    const before = store.read().slides.length;
-    opts.onPick('title-body');
-    const after = store.read().slides;
-    expect(after).toHaveLength(before + 1);
-    expect(after[after.length - 1].layoutId).toBe('title-body');
+  it('does not render an in-panel "+ Add slide" button (moved to toolbar)', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    expect(panel.querySelector('[data-add-slide-insert]')).toBeNull();
+    expect(panel.querySelector('[data-add-slide-dropdown]')).toBeNull();
+    // No <button> children at all should remain in the panel after the
+    // refactor — the only interactive elements are the slide thumbs.
+    expect(panel.querySelectorAll('button')).toHaveLength(0);
   });
 });

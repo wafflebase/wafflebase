@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   resolveFont,
+  showLayoutPicker,
   type Element,
   type InsertKind,
   type SlidesEditor,
@@ -30,6 +31,8 @@ import {
   IconPalette,
   IconColorSwatch,
   IconTypography,
+  IconPlus,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { ThemedColorPicker } from "./themed-color-picker";
 import { ThemedFontPicker } from "./themed-font-picker";
@@ -187,8 +190,84 @@ export function SlidesFormattingToolbar({
   const fillHint = isShape ? undefined : "Select a shape to apply the fill.";
   const fontHint = isText ? undefined : "Select a text element to apply the font.";
 
+  // Anchor the layout picker popover off the chevron button so it
+  // opens flush with the split button rather than at click coords.
+  const layoutChevronRef = useRef<HTMLButtonElement | null>(null);
+  // Close handle returned by the open picker, or null when closed.
+  // Drives both the toggle behavior (second chevron click closes) and
+  // the unmount cleanup (so the popover and its document listeners
+  // don't outlive the toolbar when the user navigates away mid-pick).
+  const pickerCloseRef = useRef<(() => void) | null>(null);
+  const onAddBlankSlide = useCallback(() => {
+    if (!store) return;
+    store.batch(() => store.addSlide("blank"));
+  }, [store]);
+  const onOpenLayoutPicker = useCallback(() => {
+    if (!store) return;
+    if (pickerCloseRef.current) {
+      pickerCloseRef.current();
+      return;
+    }
+    const el = layoutChevronRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    pickerCloseRef.current = showLayoutPicker(document.body, {
+      store,
+      // Skip the picker's outside-click-close when the user clicks
+      // the chevron itself; the chevron's own onClick toggles via the
+      // close handle without the capture-phase race.
+      trigger: el,
+      anchor: { x: rect.left, y: rect.bottom + 4 },
+      onPick: (layoutId) => {
+        store.batch(() => store.addSlide(layoutId));
+      },
+      onClose: () => {
+        pickerCloseRef.current = null;
+      },
+    });
+  }, [store]);
+  // Close the popover if the toolbar unmounts mid-pick — otherwise
+  // the document listeners in showLayoutPicker outlive their consumer.
+  useEffect(() => () => pickerCloseRef.current?.(), []);
+
   return (
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
+      {/* New slide split-button — primary adds a blank slide; chevron
+          opens the layout picker. */}
+      <div className="inline-flex items-center rounded-md border">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onAddBlankSlide}
+              disabled={!store}
+              aria-label="Add slide"
+              className="inline-flex h-7 items-center gap-1 rounded-l-md px-2 text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            >
+              <IconPlus size={16} />
+              <span className="text-xs">Slide</span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Add slide</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              ref={layoutChevronRef}
+              type="button"
+              onClick={onOpenLayoutPicker}
+              disabled={!store}
+              aria-label="Choose a layout"
+              className="inline-flex h-7 w-6 items-center justify-center rounded-r-md border-l hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            >
+              <IconChevronDown size={14} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Choose a layout</TooltipContent>
+        </Tooltip>
+      </div>
+      <ToolbarSeparator className="mx-1" />
+
       {INSERT_BUTTONS.map((b) => (
         <Tooltip key={b.kind}>
           <TooltipTrigger asChild>

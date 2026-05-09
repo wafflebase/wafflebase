@@ -27,9 +27,13 @@ export function mountNotesPanel(
   ta.placeholder = 'Speaker notes…';
   ta.style.width = '100%';
   ta.style.minHeight = '80px';
-  ta.style.background = '#2a2a2a';
-  ta.style.color = '#ddd';
-  ta.style.border = '1px solid #444';
+  // Theme tokens from shadcn (frontend's index.css) so the textarea
+  // follows the surrounding light/dark mode. Fallbacks keep jsdom and
+  // theme-less hosts on a sensible dark surface.
+  ta.style.background = 'var(--background, #2a2a2a)';
+  ta.style.color = 'var(--foreground, #ddd)';
+  ta.style.border = '1px solid var(--border, #444)';
+  ta.style.borderRadius = '4px';
   ta.style.padding = '8px';
   ta.style.fontFamily = 'system-ui, sans-serif';
   ta.style.fontSize = '14px';

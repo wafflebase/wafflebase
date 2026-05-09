@@ -78,5 +78,6 @@ export { initialize as initializeEditor, type SlidesEditor, type SlidesEditorOpt
 // View — Editor (Phase 3b additions)
 export { mountThumbnailPanel, type ThumbnailPanelHandle } from './view/editor/thumbnail-panel';
 export { mountNotesPanel } from './view/editor/notes-panel';
+export { showLayoutPicker, type LayoutPickerOptions } from './view/editor/layout-picker';
 export { showContextMenu, dismiss as dismissContextMenu, type ContextMenuItem } from './view/editor/context-menu';
 export { MIME_TYPE as SLIDES_CLIPBOARD_MIME, serializeElements, deserializeElements } from './view/editor/interactions/clipboard';

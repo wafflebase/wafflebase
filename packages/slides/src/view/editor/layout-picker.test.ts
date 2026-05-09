@@ -118,4 +118,64 @@ describe('showLayoutPicker', () => {
     expect(onPick).toHaveBeenCalledWith('title-body');
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('returns a close fn that dismisses the popover and fires onClose', () => {
+    const store = new MemSlidesStore();
+    const onClose = vi.fn();
+    const h = host();
+    const close = showLayoutPicker(h, {
+      store,
+      anchor: { x: 0, y: 0 },
+      onPick: () => {},
+      onClose,
+    });
+    expect(typeof close).toBe('function');
+    expect(h.querySelector('.wfb-slides-layout-picker')).toBeTruthy();
+    close();
+    expect(h.querySelector('.wfb-slides-layout-picker')).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('returned close fn is idempotent — second call is a no-op', () => {
+    const store = new MemSlidesStore();
+    const onClose = vi.fn();
+    const close = showLayoutPicker(host(), {
+      store,
+      anchor: { x: 0, y: 0 },
+      onPick: () => {},
+      onClose,
+    });
+    close();
+    close();
+    close();
+    // Without the closed-flag guard, onClose would fire 3x and the
+    // toolbar's pickerCloseRef.current = null would also re-fire,
+    // causing surprising state churn during unmount races.
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('mousedown on the registered trigger does NOT close the popover', () => {
+    const store = new MemSlidesStore();
+    const onClose = vi.fn();
+    const h = host();
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    showLayoutPicker(h, {
+      store,
+      anchor: { x: 0, y: 0 },
+      trigger,
+      onPick: () => {},
+      onClose,
+    });
+    // Mousedown on the trigger — the toolbar's chevron click toggles
+    // the picker via the returned close handle, so the picker's own
+    // outside-click handler must not also close it (the "first
+    // mousedown closes, then click reopens" race).
+    trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(h.querySelector('.wfb-slides-layout-picker')).toBeTruthy();
+    // A click somewhere genuinely outside still closes.
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
