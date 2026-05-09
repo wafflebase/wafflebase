@@ -53,6 +53,10 @@ export function drawShape(
   if (data.stroke) {
     ctx.strokeStyle = resolveColor(data.stroke.color, theme);
     ctx.lineWidth = data.stroke.width;
+    // Round joins so concave corners (e.g. plus / mathPlus inner
+    // notches) don't sprout miter spikes that look like a small
+    // square at the cross's centre.
+    ctx.lineJoin = 'round';
     ctx.stroke(path);
   }
 }
