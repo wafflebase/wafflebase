@@ -58,6 +58,12 @@ import {
   buildMathNotEqual,
   MATH_NOT_EQUAL_ADJUSTMENTS,
 } from './equation/math-not-equal';
+import { buildStar4, STAR_4_ADJUSTMENTS } from './stars/star4';
+import { buildStar5, STAR_5_ADJUSTMENTS } from './stars/star5';
+import { buildStar6, STAR_6_ADJUSTMENTS } from './stars/star6';
+import { buildStar7, STAR_7_ADJUSTMENTS } from './stars/star7';
+import { buildStar8, STAR_8_ADJUSTMENTS } from './stars/star8';
+import { buildStar10, STAR_10_ADJUSTMENTS } from './stars/star10';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -109,6 +115,12 @@ PATH_BUILDERS.set('mathMultiply', buildMathMultiply);
 PATH_BUILDERS.set('mathDivide', buildMathDivide);
 PATH_BUILDERS.set('mathEqual', buildMathEqual);
 PATH_BUILDERS.set('mathNotEqual', buildMathNotEqual);
+PATH_BUILDERS.set('star4', buildStar4);
+PATH_BUILDERS.set('star5', buildStar5);
+PATH_BUILDERS.set('star6', buildStar6);
+PATH_BUILDERS.set('star7', buildStar7);
+PATH_BUILDERS.set('star8', buildStar8);
+PATH_BUILDERS.set('star10', buildStar10);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
@@ -140,3 +152,9 @@ ADJUSTMENT_SPECS.set('mathMultiply', MATH_PLUS_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathDivide', MATH_DIVIDE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathEqual', MATH_EQUAL_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathNotEqual', MATH_NOT_EQUAL_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star4', STAR_4_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star5', STAR_5_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star6', STAR_6_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star7', STAR_7_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star8', STAR_8_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('star10', STAR_10_ADJUSTMENTS);
