@@ -1,8 +1,9 @@
 # Wafflebase
 
-Wafflebase is a web-based collaborative spreadsheet and word processor. It
-bridges the gap between traditional spreadsheets and database tools, offering
-real-time collaboration and scalable performance for handling large datasets.
+Wafflebase is a web-based collaborative office suite — spreadsheets, word
+documents, and presentations. It offers real-time collaboration and scalable
+performance, and bridges the gap between traditional spreadsheets and database
+tools for handling large datasets.
 
 > **Status:** Early development. Core spreadsheet and document editing features
 > work, but the project is not yet production-ready. We are actively working on
@@ -32,6 +33,16 @@ real-time collaboration and scalable performance for handling large datasets.
 - **Block editing** — Paragraph-level operations with alignment and line
   height controls.
 
+### Slides
+
+- **Free-position canvas** — Place text boxes, shapes, and images anywhere
+  on a slide; reuses the Docs rich-text engine inside text boxes.
+- **Themes & layouts** — 5 built-in themes and 11 Google Slides–parity
+  layouts with placeholder identity tracking.
+- **Canvas + DOM editor** — Two-pane editor (slide list + main canvas) with
+  a DOM overlay for inline text editing.
+- **Import & export** — Best-effort PPTX import and PDF export.
+
 ### Shared
 
 - **Real-time collaboration** — Multi-user editing powered by
@@ -46,19 +57,21 @@ real-time collaboration and scalable performance for handling large datasets.
 | Frontend | React 19, Vite, TailwindCSS, Radix UI |
 | Sheets engine | Canvas rendering, ANTLR4 formula parser, Yorkie CRDT |
 | Docs engine | Canvas rendering, custom layout & pagination |
+| Slides engine | Canvas + DOM-overlay editor, theme/master/layout model, reuses Docs rich-text engine in text boxes |
 | Backend | NestJS, Prisma, PostgreSQL, GitHub OAuth + JWT |
 
 ## Project Structure
 
 - [packages/sheets/](packages/sheets/README.md) — Core spreadsheet engine (data model, formulas, Canvas rendering)
 - [packages/docs/](packages/docs/README.md) — Canvas-based document editor (rich text, inline formatting)
+- [packages/slides/](packages/slides/README.md) — Presentation engine (free-position elements, themes/layouts, Canvas + DOM overlay)
 - [packages/frontend/](packages/frontend/README.md) — React web app (pages, components, hooks)
 - [packages/backend/](packages/backend/README.md) — NestJS API server (auth, documents, data sources)
-- packages/cli/ — Command-line interface for Wafflebase API ([skills](packages/cli/skills/SKILL.md))
+- [packages/cli/](packages/cli/README.md) — Command-line interface for the Wafflebase API ([skills](packages/cli/skills/SKILL.md))
 - [packages/documentation/](packages/documentation/README.md) — VitePress documentation site (wafflebase.io/docs)
 
-The frontend depends on `@wafflebase/sheets` and `@wafflebase/docs` as
-workspace dependencies.
+The frontend depends on `@wafflebase/sheets`, `@wafflebase/docs`, and
+`@wafflebase/slides` as workspace dependencies.
 
 ## Getting Started
 
@@ -131,27 +144,14 @@ pnpm verify:integration:docker
 
 ## Contributing
 
-We welcome contributions! Check out open issues or propose new ideas.
-
-### Commit messages
-
-Commit messages should answer *what changed* and *why*:
-
-```
-Remove the synced seq when detaching the document
-
-To collect garbage like CRDT tombstones left on the document, all
-the changes should be applied to other replicas before GC. For this,
-if the document is no longer used by this client, it should be
-detached.
-```
-
-- Subject line: what changed, max 70 characters
-- Body: why, wrapped at 80 characters
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+full workflow — issue triage, design docs, verification lanes, commit
+conventions, and how AI coding agents fit in.
 
 ## Documentation
 
 - [docs/](docs/README.md) — design documents, architecture, and task tracking
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contributor workflow
 - [MAINTAINING.md](MAINTAINING.md) — release and maintenance procedures
 - [CLAUDE.md](CLAUDE.md) — agent instructions for AI-assisted development (also exposed as `AGENTS.md` via symlink)
 
