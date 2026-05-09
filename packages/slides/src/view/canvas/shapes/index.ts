@@ -46,6 +46,10 @@ import {
 import { buildMathPlus, MATH_PLUS_ADJUSTMENTS } from './equation/math-plus';
 import { buildMathMinus } from './equation/math-minus';
 import { buildMathMultiply } from './equation/math-multiply';
+import {
+  buildMathDivide,
+  MATH_DIVIDE_ADJUSTMENTS,
+} from './equation/math-divide';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -94,6 +98,7 @@ PATH_BUILDERS.set('cloudCallout', buildCloudCallout);
 PATH_BUILDERS.set('mathPlus', buildMathPlus);
 PATH_BUILDERS.set('mathMinus', buildMathMinus);
 PATH_BUILDERS.set('mathMultiply', buildMathMultiply);
+PATH_BUILDERS.set('mathDivide', buildMathDivide);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
@@ -122,3 +127,4 @@ ADJUSTMENT_SPECS.set('cloudCallout', CLOUD_CALLOUT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathPlus', MATH_PLUS_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathMinus', MATH_PLUS_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('mathMultiply', MATH_PLUS_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('mathDivide', MATH_DIVIDE_ADJUSTMENTS);
