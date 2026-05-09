@@ -37,7 +37,17 @@ export type ShapeKind =
   | 'wedgeEllipseCallout' | 'cloudCallout'
   // Equation (6)
   | 'mathPlus' | 'mathMinus' | 'mathMultiply'
-  | 'mathDivide' | 'mathEqual' | 'mathNotEqual';
+  | 'mathDivide' | 'mathEqual' | 'mathNotEqual'
+  // Stars (6, P2)
+  | 'star4' | 'star5' | 'star6' | 'star7' | 'star8' | 'star10'
+  // Flowchart (14, P2)
+  | 'flowChartTerminator' | 'flowChartPredefinedProcess'
+  | 'flowChartInternalStorage' | 'flowChartDocument'
+  | 'flowChartMultidocument' | 'flowChartManualInput'
+  | 'flowChartManualOperation' | 'flowChartOffpageConnector'
+  | 'flowChartPunchedCard' | 'flowChartPunchedTape'
+  | 'flowChartSummingJunction' | 'flowChartOr'
+  | 'flowChartDelay' | 'flowChartDisplay';
 
 export type ShapeStroke = {
   color: ThemeColor;
