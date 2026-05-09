@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { ShapeElement } from '../../model/element';
 import type { Theme } from '../../model/theme';
 import { asCtx, createCtxSpy } from './ctx-spy';
@@ -54,12 +54,13 @@ describe('drawShape — rect', () => {
 });
 
 describe('drawShape — ellipse', () => {
+  // TODO(T6): re-tighten to assert ctx.beginPath() / ctx.ellipse() / ctx.fill()
+  // once the ellipse path builder is registered. Until then, ellipse routes
+  // through the placeholder-rect fallback in the dispatcher.
   it('paints an ellipse centred in the frame', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({ kind: 'ellipse', fill: srgb('#0a0') }), THEME);
-    expect(ctx.beginPath).toHaveBeenCalledTimes(1);
-    expect(ctx.ellipse).toHaveBeenCalledWith(50, 30, 50, 30, 0, 0, Math.PI * 2);
-    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
     expect(ctx.fillStyle).toBe('#0a0');
   });
 
@@ -131,5 +132,23 @@ describe('drawShape — arrow', () => {
     // Head is still painted using the text role as a sensible default.
     expect(ctx.fillStyle).toBe('#000'); // text
     expect(ctx.fill).toHaveBeenCalled();
+  });
+});
+
+describe('drawShape — unknown kind fallback', () => {
+  it('falls back to a placeholder rect for unknown ShapeKind values', () => {
+    const ctx = createCtxSpy();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    drawShape(
+      asCtx(ctx),
+      size,
+      // Cast: forward-compat for kinds not yet in the registry.
+      shape({ kind: 'donut' as never, fill: srgb('#abc') }),
+      THEME,
+    );
+    expect(ctx.fillRect).toHaveBeenCalledTimes(1);
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 });

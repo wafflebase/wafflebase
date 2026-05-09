@@ -1,15 +1,20 @@
 import type { ShapeElement } from '../../model/element';
-import { resolveColor, type Theme, type ThemeColor } from '../../model/theme';
+import { resolveColor, type Theme } from '../../model/theme';
+import { drawLine, drawArrow } from './shape-special';
+import { PATH_BUILDERS } from './shapes';
+import type { FrameSize } from './shapes/builder';
 
-export type FrameSize = { w: number; h: number };
+export type { FrameSize } from './shapes/builder';
+
+const placeholderWarned = new Set<string>();
 
 /**
  * Draw a shape into element-local coordinates (top-left at 0,0). The
  * caller is responsible for the frame transform (translate + rotate).
  *
- * Every `ctx.fillStyle` / `ctx.strokeStyle` site goes through
- * `resolveColor(themeColor, theme)` so role-bound (palette) and srgb
- * (literal) colors share a single code path.
+ * line/arrow are special-cased (open path, two-tone arrow head). All
+ * other kinds resolve through PATH_BUILDERS; unknown kinds fall back
+ * to a placeholder rectangle so the slide always renders.
  */
 export function drawShape(
   ctx: CanvasRenderingContext2D,
@@ -17,23 +22,34 @@ export function drawShape(
   data: ShapeElement['data'],
   theme: Theme,
 ): void {
-  switch (data.kind) {
-    case 'rect':
-      drawRect(ctx, size, data, theme);
-      return;
-    case 'ellipse':
-      drawEllipse(ctx, size, data, theme);
-      return;
-    case 'line':
-      drawLine(ctx, size, data, theme);
-      return;
-    case 'arrow':
-      drawArrow(ctx, size, data, theme);
-      return;
+  if (data.kind === 'line') return drawLine(ctx, size, data, theme);
+  if (data.kind === 'arrow') return drawArrow(ctx, size, data, theme);
+
+  const builder = PATH_BUILDERS.get(data.kind);
+  if (!builder) {
+    if (!placeholderWarned.has(data.kind)) {
+      placeholderWarned.add(data.kind);
+      console.warn(
+        `slides: no path builder registered for shape kind "${data.kind}"; ` +
+          `falling back to placeholder rect`,
+      );
+    }
+    drawPlaceholderRect(ctx, size, data, theme);
+    return;
+  }
+  const path = builder(size, data.adjustments);
+  if (data.fill) {
+    ctx.fillStyle = resolveColor(data.fill, theme);
+    ctx.fill(path);
+  }
+  if (data.stroke) {
+    ctx.strokeStyle = resolveColor(data.stroke.color, theme);
+    ctx.lineWidth = data.stroke.width;
+    ctx.stroke(path);
   }
 }
 
-function drawRect(
+function drawPlaceholderRect(
   ctx: CanvasRenderingContext2D,
   { w, h }: FrameSize,
   data: ShapeElement['data'],
@@ -48,86 +64,4 @@ function drawRect(
     ctx.lineWidth = data.stroke.width;
     ctx.strokeRect(0, 0, w, h);
   }
-}
-
-function drawEllipse(
-  ctx: CanvasRenderingContext2D,
-  { w, h }: FrameSize,
-  data: ShapeElement['data'],
-  theme: Theme,
-): void {
-  ctx.beginPath();
-  ctx.ellipse(w / 2, h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
-  if (data.fill) {
-    ctx.fillStyle = resolveColor(data.fill, theme);
-    ctx.fill();
-  }
-  if (data.stroke) {
-    ctx.strokeStyle = resolveColor(data.stroke.color, theme);
-    ctx.lineWidth = data.stroke.width;
-    ctx.stroke();
-  }
-}
-
-function drawLine(
-  ctx: CanvasRenderingContext2D,
-  { w, h }: FrameSize,
-  data: ShapeElement['data'],
-  theme: Theme,
-): void {
-  if (!data.stroke) return; // A line with no stroke is invisible.
-  ctx.strokeStyle = resolveColor(data.stroke.color, theme);
-  ctx.lineWidth = data.stroke.width;
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(w, h);
-  ctx.stroke();
-}
-
-/**
- * Fallback head color used when an arrow has neither `fill` nor
- * `stroke` set. Bound to the theme's `text` role so the head still
- * paints in a visible, theme-appropriate ink rather than a hard-coded
- * `#000`.
- */
-const ARROW_HEAD_FALLBACK: ThemeColor = { kind: 'role', role: 'text' };
-
-function drawArrow(
-  ctx: CanvasRenderingContext2D,
-  { w, h }: FrameSize,
-  data: ShapeElement['data'],
-  theme: Theme,
-): void {
-  // Shaft
-  if (data.stroke) {
-    ctx.strokeStyle = resolveColor(data.stroke.color, theme);
-    ctx.lineWidth = data.stroke.width;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(w, h);
-    ctx.stroke();
-  }
-  // Head — a small filled triangle at the (w, h) tip, oriented along
-  // the shaft direction. The head length scales with the smaller of
-  // the frame's two dimensions so it stays visible at any frame
-  // aspect ratio.
-  const tip = { x: w, y: h };
-  const headLen = Math.min(w, h, 40) * 0.4;
-  const angle = Math.atan2(h, w);
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const baseCx = tip.x - headLen * cos;
-  const baseCy = tip.y - headLen * sin;
-  const half = headLen * 0.5;
-  const pLeft = { x: baseCx - half * sin, y: baseCy + half * cos };
-  const pRight = { x: baseCx + half * sin, y: baseCy - half * cos };
-
-  const headColor: ThemeColor = data.fill ?? data.stroke?.color ?? ARROW_HEAD_FALLBACK;
-  ctx.fillStyle = resolveColor(headColor, theme);
-  ctx.beginPath();
-  ctx.moveTo(tip.x, tip.y);
-  ctx.lineTo(pLeft.x, pLeft.y);
-  ctx.lineTo(pRight.x, pRight.y);
-  ctx.closePath();
-  ctx.fill();
 }
