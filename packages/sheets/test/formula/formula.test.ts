@@ -157,6 +157,15 @@ describe('Formula', () => {
     expect(evaluate('=-5/0')).toBe('#DIV/0!');
   });
 
+  it('should return #NUM! for numeric overflow', () => {
+    expect(evaluate('=1.5E308 * 10')).toBe('#NUM!');
+    expect(evaluate('=1E300 / 1E-100')).toBe('#NUM!');
+    expect(evaluate('=EXP(1000)')).toBe('#NUM!');
+    expect(evaluate('=FACT(200)')).toBe('#NUM!');
+    expect(evaluate('=PRODUCT(1E200, 1E200)')).toBe('#NUM!');
+    expect(evaluate('=POWER(10, 400)')).toBe('#NUM!');
+  });
+
   it('should unescape doubled quotes in string literals', () => {
     expect(evaluate('="say ""hello"""')).toBe('say "hello"');
     expect(evaluate('=""""')).toBe('"');

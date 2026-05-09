@@ -649,6 +649,10 @@ export type EvalNode =
   | ArrNode
   | LambdaNode;
 
+function numResult(value: number): NumNode | ErrNode {
+  return Number.isFinite(value) ? { t: 'num', v: value } : ErrNode.NUM;
+}
+
 /**
  * `Evaluator` class evaluates the formula. The grammar of the formula is defined in
  * `antlr/Formula.g4` file.
@@ -717,10 +721,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
   }
 
   visitNumber(ctx: NumberContext): EvalNode {
-    return {
-      t: 'num',
-      v: Number(ctx.text),
-    };
+    return numResult(Number(ctx.text));
   }
 
   visitBoolean(ctx: BooleanContext): EvalNode {
@@ -742,10 +743,10 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.ADD) {
-      return { t: 'num', v: left.v + right.v };
+      return numResult(left.v + right.v);
     }
 
-    return { t: 'num', v: left.v - right.v };
+    return numResult(left.v - right.v);
   }
 
   visitMulDiv(ctx: MulDivContext): EvalNode {
@@ -760,14 +761,14 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.MUL) {
-      return { t: 'num', v: left.v * right.v };
+      return numResult(left.v * right.v);
     }
 
     if (right.v === 0) {
       return ErrNode.DIV0;
     }
 
-    return { t: 'num', v: left.v / right.v };
+    return numResult(left.v / right.v);
   }
 
   visitConcat(ctx: ConcatContext): EvalNode {
@@ -867,7 +868,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
     }
 
     if (ctx._op.type === FormulaParser.SUB) {
-      return { t: 'num', v: -operand.v };
+      return numResult(-operand.v);
     }
 
     return operand;
