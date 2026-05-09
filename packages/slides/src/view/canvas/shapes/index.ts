@@ -3,6 +3,7 @@ import type { ShapeKind } from '../../../model/element';
 import type { AdjustmentSpec, PathBuilder } from './builder';
 import { buildDiamond } from './basic/diamond';
 import { buildEllipse } from './basic/ellipse';
+import { buildHexagon, HEXAGON_ADJUSTMENTS } from './basic/hexagon';
 import { buildParallelogram, PARALLELOGRAM_ADJUSTMENTS } from './basic/parallelogram';
 import { buildPentagon } from './basic/pentagon';
 import { buildRect } from './basic/rect';
@@ -37,8 +38,10 @@ PATH_BUILDERS.set('diamond', buildDiamond);
 PATH_BUILDERS.set('parallelogram', buildParallelogram);
 PATH_BUILDERS.set('trapezoid', buildTrapezoid);
 PATH_BUILDERS.set('pentagon', buildPentagon);
+PATH_BUILDERS.set('hexagon', buildHexagon);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('hexagon', HEXAGON_ADJUSTMENTS);
