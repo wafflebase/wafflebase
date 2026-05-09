@@ -35,6 +35,10 @@ import {
   buildWedgeRoundRectCallout,
   WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS,
 } from './callouts/wedge-round-rect-callout';
+import {
+  buildWedgeEllipseCallout,
+  WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS,
+} from './callouts/wedge-ellipse-callout';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -78,6 +82,7 @@ PATH_BUILDERS.set('chevron', buildChevron);
 PATH_BUILDERS.set('pentagonArrow', buildPentagonArrow);
 PATH_BUILDERS.set('wedgeRectCallout', buildWedgeRectCallout);
 PATH_BUILDERS.set('wedgeRoundRectCallout', buildWedgeRoundRectCallout);
+PATH_BUILDERS.set('wedgeEllipseCallout', buildWedgeEllipseCallout);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
@@ -101,3 +106,4 @@ ADJUSTMENT_SPECS.set(
   'wedgeRoundRectCallout',
   WEDGE_ROUND_RECT_CALLOUT_ADJUSTMENTS,
 );
+ADJUSTMENT_SPECS.set('wedgeEllipseCallout', WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS);
