@@ -12,6 +12,7 @@ import {
   initialSpreadsheetDocument,
 } from "@/types/worksheet";
 import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
+import type { YorkieSlidesRoot } from "@/types/slides-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
@@ -27,6 +28,15 @@ type PeerJumpTarget = {
 const DataSourceView = lazy(() =>
   import("@/app/spreadsheet/datasource-view").then((module) => ({
     default: module.DataSourceView,
+  })),
+);
+
+// Slides editor + @wafflebase/slides bundle is heavy (see
+// `slides-detail-*` chunk override in harness.config.json). Lazy-load
+// it so non-slides share links don't pay the cost.
+const SlidesView = lazy(() =>
+  import("@/app/slides/slides-view").then((module) => ({
+    default: module.SlidesView,
   })),
 );
 
@@ -184,6 +194,36 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
   );
 }
 
+function SharedSlidesLayout({ resolved }: { resolved: ResolvedShareLink }) {
+  // `SlidesView` accepts `readOnly` for API parity with `DocsView` but
+  // currently treats it as a no-op (see slides-view.tsx — Phase 4a).
+  // The share-link role is forwarded so it lights up automatically when
+  // Phase 4b wires the read-only path. Until then, viewer-role shares
+  // see the "View only" badge but the editor is still interactive.
+  const readOnly = resolved.role === "viewer";
+
+  return (
+    <div className="flex h-screen w-full flex-col">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
+        <div className="flex items-center gap-2">
+          <h1 className="text-base font-medium">{resolved.title}</h1>
+          {readOnly && (
+            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              View only
+            </span>
+          )}
+        </div>
+        <UserPresence />
+      </header>
+      <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+        <Suspense fallback={<Loader />}>
+          <SlidesView readOnly={readOnly} />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
 function SharedDocumentInner({
   resolved,
 }: {
@@ -201,10 +241,16 @@ function SharedDocumentInner({
     photo: currentUser?.photo || "",
   };
 
-  const isDocs = resolved.type === "doc";
-  const docKey = isDocs
-    ? `doc-${resolved.documentId}`
-    : `sheet-${resolved.documentId}`;
+  // The Yorkie document key namespaces the three document types so a
+  // shared share-link routes the client to the same Yorkie document the
+  // owner is editing — `doc-{id}` / `slides-{id}` / `sheet-{id}` mirror
+  // the namespacing used by the per-type detail routes.
+  const docKey =
+    resolved.type === "doc"
+      ? `doc-${resolved.documentId}`
+      : resolved.type === "slides"
+      ? `slides-${resolved.documentId}`
+      : `sheet-${resolved.documentId}`;
 
   return (
     <YorkieProvider
@@ -212,7 +258,7 @@ function SharedDocumentInner({
       apiKey={import.meta.env.VITE_YORKIE_API_KEY}
       metadata={{ userID: presence.username }}
     >
-      {isDocs ? (
+      {resolved.type === "doc" ? (
         <DocumentProvider<YorkieDocsRoot>
           docKey={docKey}
           initialRoot={initialDocsRoot()}
@@ -220,6 +266,15 @@ function SharedDocumentInner({
           enableDevtools={import.meta.env.DEV}
         >
           <SharedDocsLayout resolved={resolved} />
+        </DocumentProvider>
+      ) : resolved.type === "slides" ? (
+        <DocumentProvider<Partial<YorkieSlidesRoot>>
+          docKey={docKey}
+          initialRoot={{}}
+          initialPresence={presence}
+          enableDevtools={import.meta.env.DEV}
+        >
+          <SharedSlidesLayout resolved={resolved} />
         </DocumentProvider>
       ) : (
         <DocumentProvider

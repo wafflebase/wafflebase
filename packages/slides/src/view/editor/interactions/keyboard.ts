@@ -37,6 +37,28 @@ export function buildKeyRules(ctx: KeyboardContext): KeyRule[] {
       run: (e) => { e.preventDefault(); ctx.store.redo(); ctx.requestRender(); },
     },
 
+    // Delete / Backspace — remove selected elements. Skipped while the
+    // user is typing in a textarea/input/contenteditable so Backspace
+    // inside the inline text-box editor still deletes characters.
+    {
+      match: (e) =>
+        (e.key === 'Delete' || e.key === 'Backspace') &&
+        !isModPressed(e) &&
+        !isEditableTarget(e.target),
+      run: (e) => {
+        const ids = ctx.selection.get();
+        if (ids.length === 0) return;
+        const slide = currentSlide(ctx);
+        if (!slide) return;
+        e.preventDefault();
+        ctx.store.batch(() =>
+          ctx.store.removeElements(slide.id, [...ids]),
+        );
+        ctx.selection.clear();
+        ctx.requestRender();
+      },
+    },
+
     // Arrow nudge — only when something is selected and no modifier.
     ...(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] as const).map(
       (key): KeyRule => ({
@@ -279,4 +301,12 @@ function tryDeserialize(json: string): ElementInit[] | null {
 
 function keyEquals(eventKey: string, target: string): boolean {
   return eventKey.toLowerCase() === target.toLowerCase();
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if ((target as HTMLElement).isContentEditable) return true;
+  return false;
 }
