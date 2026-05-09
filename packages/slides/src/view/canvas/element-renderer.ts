@@ -1,4 +1,6 @@
 import type { Element } from '../../model/element';
+import type { PlaceholderStyle } from '../../model/master';
+import { placeholderHintFor } from '../../model/placeholder-hints';
 import type { SlidesDocument } from '../../model/presentation';
 import type { Theme } from '../../model/theme';
 import { drawShape } from './shape-renderer';
@@ -46,9 +48,32 @@ export function drawElement(
       case 'shape':
         drawShape(ctx, size, element.data, theme);
         break;
-      case 'text':
-        drawText(ctx, size, element.data, theme);
+      case 'text': {
+        // Only ref-bearing elements get a ghost hint — user-added text
+        // boxes (no `placeholderRef`) must remain blank when empty.
+        // Slot typography (font role + size, color role, alignment)
+        // comes from the active master so the hint matches what the
+        // user will see when they start typing.
+        let placeholderHint:
+          | { text: string; style: PlaceholderStyle }
+          | undefined;
+        if (element.placeholderRef) {
+          const master =
+            doc.masters.find((m) => m.id === doc.meta.masterId)
+            ?? doc.masters[0];
+          const style =
+            master?.placeholderStyles[element.placeholderRef.type]
+            ?? master?.placeholderStyles.body;
+          if (style) {
+            placeholderHint = {
+              text: placeholderHintFor(element.placeholderRef.type),
+              style,
+            };
+          }
+        }
+        drawText(ctx, size, element.data, theme, { placeholderHint });
         break;
+      }
       case 'image':
         drawImage(ctx, size, element.data, onAssetLoad);
         break;

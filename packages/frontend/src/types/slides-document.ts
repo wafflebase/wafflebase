@@ -1,5 +1,5 @@
 import type { Block } from '@wafflebase/docs';
-import type { Master, Theme, ThemeColor } from '@wafflebase/slides';
+import type { Master, PlaceholderRef, Theme, ThemeColor } from '@wafflebase/slides';
 
 /**
  * Yorkie document root for the slides editor. Text element bodies
@@ -65,6 +65,7 @@ export interface YorkieTextElement {
   id: string;
   type: 'text';
   frame: YorkieFrame;
+  placeholderRef?: PlaceholderRef;
   data: { blocks: Block[] };
 }
 
@@ -72,6 +73,7 @@ export interface YorkieImageElement {
   id: string;
   type: 'image';
   frame: YorkieFrame;
+  placeholderRef?: PlaceholderRef;
   data: {
     src: string;
     crop?: { x: number; y: number; w: number; h: number };
@@ -83,6 +85,7 @@ export interface YorkieShapeElement {
   id: string;
   type: 'shape';
   frame: YorkieFrame;
+  placeholderRef?: PlaceholderRef;
   data: {
     kind: 'rect' | 'ellipse' | 'line' | 'arrow';
     fill?: ThemeColor;

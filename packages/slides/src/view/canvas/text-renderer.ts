@@ -8,8 +8,9 @@ import {
   type StoredColor,
 } from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
+import type { PlaceholderStyle } from '../../model/master';
 import type { Theme, ThemeColor } from '../../model/theme';
-import { resolveColor } from '../../model/theme';
+import { resolveColor, resolveFont } from '../../model/theme';
 import type { FrameSize } from './shape-renderer';
 
 /**
@@ -78,16 +79,94 @@ function makeColorResolver(theme: Theme): ColorResolver {
  */
 export function drawText(
   ctx: CanvasRenderingContext2D,
-  { w }: FrameSize,
+  size: FrameSize,
   data: TextElement['data'],
   theme: Theme,
+  options?: {
+    placeholderHint?: { text: string; style: PlaceholderStyle };
+  },
 ): void {
-  if (data.blocks.length === 0) return;
+  // "All inlines empty" mirrors `isElementEmpty` for text elements:
+  // a placeholder seeded by `buildInsertElement` typically has one
+  // block with one inline whose `text === ''`, so the cheaper-to-detect
+  // `data.blocks.length === 0` case alone is not sufficient.
+  const allEmpty =
+    data.blocks.length === 0 ||
+    data.blocks.every((b) => b.inlines.every((inl) => inl.text === ''));
+
+  if (allEmpty) {
+    if (options?.placeholderHint) {
+      drawHint(
+        ctx,
+        size,
+        options.placeholderHint.text,
+        theme,
+        options.placeholderHint.style,
+      );
+    }
+    return;
+  }
   const normalized: Block[] = data.blocks.map((b) => ({
     ...b,
     style: normalizeBlockStyle(b.style),
   }));
   const colorResolver = makeColorResolver(theme);
-  const { layout } = computeLayout(normalized, measurer, w);
+  const { layout } = computeLayout(normalized, measurer, size.w);
   paintLayout(ctx, layout, 0, 0, { colorResolver });
+}
+
+/**
+ * Paint the muted "Click to add title"-style hint inside an empty
+ * placeholder. The hint adopts the slot's master `PlaceholderStyle`
+ * (font role + size, color role, alignment) so the title slot
+ * renders the hint at title scale, the body slot at body scale,
+ * the subtitle slot at subtitle scale — matching what the user
+ * will see the moment they start typing.
+ *
+ * The role color is rendered at 40% alpha so the hint reads as
+ * ghost-text rather than committed content.
+ */
+function drawHint(
+  ctx: CanvasRenderingContext2D,
+  size: FrameSize,
+  hint: string,
+  theme: Theme,
+  style: PlaceholderStyle,
+): void {
+  ctx.save();
+  const color = resolveColor({ kind: 'role', role: style.colorRole }, theme);
+  const family = resolveFont({ kind: 'role', role: style.fontRole }, theme);
+  ctx.fillStyle = withAlpha(color, 0.4);
+  ctx.font = `${style.fontSize}px ${family}`;
+  ctx.textBaseline = 'top';
+  ctx.textAlign = style.align;
+  const padding = 8;
+  const x =
+    style.align === 'center' ? size.w / 2
+    : style.align === 'right' ? size.w - padding
+    : padding;
+  ctx.fillText(hint, x, padding);
+  ctx.restore();
+}
+
+/**
+ * Convert a hex color (`#RRGGBB` or 3-char shorthand `#RGB`) to an
+ * `rgba(...)` string with the given alpha. Falls back to neutral grey
+ * on parse failure so a malformed theme color still renders a visible
+ * — if untheme'd — ghost rather than nothing at all.
+ */
+function withAlpha(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(hex);
+  if (!m) return `rgba(128, 128, 128, ${alpha})`;
+  const h =
+    m[1].length === 3
+      ? m[1]
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : m[1];
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

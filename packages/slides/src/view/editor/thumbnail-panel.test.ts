@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import '../canvas/test-canvas-env';
+
+vi.mock('./layout-picker', () => ({
+  showLayoutPicker: vi.fn(),
+}));
+
 import { MemSlidesStore } from '../../store/memory';
 import { initialize } from './editor';
 import { mountThumbnailPanel } from './thumbnail-panel';
+import { showLayoutPicker } from './layout-picker';
 
 beforeEach(() => { document.body.innerHTML = ''; });
 
@@ -83,5 +89,40 @@ describe('mountThumbnailPanel', () => {
     const { panel, store, editor } = makeFixture();
     const handle = mountThumbnailPanel(panel, store, editor);
     expect(() => handle.dispose()).not.toThrow();
+  });
+});
+
+describe('mountThumbnailPanel — split-button on + Add slide', () => {
+  it('left insert zone adds a blank slide', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const insert = panel.querySelector<HTMLButtonElement>('[data-add-slide-insert]')!;
+    expect(insert).toBeTruthy();
+
+    const before = store.read().slides.length;
+    insert.click();
+    const after = store.read().slides;
+    expect(after).toHaveLength(before + 1);
+    expect(after[after.length - 1].layoutId).toBe('blank');
+  });
+
+  it('right dropdown zone opens the layout picker', () => {
+    const { panel, store, editor } = makeFixture();
+    mountThumbnailPanel(panel, store, editor);
+    const dropdown = panel.querySelector<HTMLButtonElement>('[data-add-slide-dropdown]')!;
+    expect(dropdown).toBeTruthy();
+
+    (showLayoutPicker as unknown as { mockClear?: () => void }).mockClear?.();
+    dropdown.click();
+    expect(showLayoutPicker).toHaveBeenCalled();
+
+    // Run the picker's onPick callback to assert wiring.
+    const call = (showLayoutPicker as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const opts = call[1] as { onPick: (id: string) => void };
+    const before = store.read().slides.length;
+    opts.onPick('title-body');
+    const after = store.read().slides;
+    expect(after).toHaveLength(before + 1);
+    expect(after[after.length - 1].layoutId).toBe('title-body');
   });
 });

@@ -4,6 +4,12 @@ import '../canvas/test-canvas-env';
 import { MemSlidesStore } from '../../store/memory';
 import { initialize, type SlidesEditor } from './editor';
 
+vi.mock('./layout-picker', () => ({
+  showLayoutPicker: vi.fn(),
+}));
+
+import { showLayoutPicker } from './layout-picker';
+
 function makeFixture() {
   const canvas = document.createElement('canvas');
   canvas.width = 960;
@@ -244,5 +250,47 @@ describe('initialize', () => {
     editor.setCurrentSlide(secondId);
     expect(editor.getCurrentSlideId()).toBe(secondId);
     expect(editor.getSelection()).toEqual([]);
+  });
+});
+
+describe('Editor canvas context menu — Change layout', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    (showLayoutPicker as unknown as ReturnType<typeof vi.fn>).mockClear?.();
+  });
+
+  it('right-clicking the slide background opens a context menu with "Change layout…"', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const ed = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 50, clientY: 50, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    expect(menu).toBeTruthy();
+    const labels = [...menu.querySelectorAll('li')].map((li) => li.textContent);
+    expect(labels).toContain('Change layout…');
+    ed.detach();
+  });
+
+  it('clicking "Change layout…" opens the picker with selectedLayoutId set to the current slide layout', () => {
+    const { canvas, overlay, store } = makeFixture(); // makeFixture creates a 'blank' slide
+    const ed = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    canvas.dispatchEvent(new MouseEvent('contextmenu', {
+      clientX: 50, clientY: 75, bubbles: true, cancelable: true,
+    }));
+    const menu = document.querySelector('.wfb-slides-context-menu') as HTMLElement;
+    const item = [...menu.querySelectorAll('li')].find((li) => li.textContent === 'Change layout…') as HTMLElement;
+    item.click();
+    expect(showLayoutPicker).toHaveBeenCalled();
+    const call = (showLayoutPicker as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const opts = call[1] as { selectedLayoutId?: string; anchor: { x: number; y: number }; onPick: (id: string) => void };
+    expect(opts.selectedLayoutId).toBe('blank');
+    expect(opts.anchor).toEqual({ x: 50, y: 75 });
+
+    // onPick wiring: picking a layout calls store.applyLayout under store.batch.
+    const slideId = store.read().slides[0].id;
+    opts.onPick('title-body');
+    expect(store.read().slides.find((s) => s.id === slideId)!.layoutId).toBe('title-body');
+    ed.detach();
   });
 });

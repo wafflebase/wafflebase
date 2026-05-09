@@ -21,6 +21,7 @@ export type {
 export { resolveColor, resolveFont } from './model/theme';
 export type { Master, PlaceholderStyle, MasterBackground } from './model/master';
 export { DEFAULT_MASTER } from './model/master';
+export { seedPlaceholderBlocks } from './model/placeholder-blocks';
 
 export type {
   Crop,
@@ -31,6 +32,8 @@ export type {
   Frame,
   ImageElement,
   ImageRef,
+  PlaceholderRef,
+  PlaceholderType,
   ShapeElement,
   ShapeKind,
   ShapeStroke,
@@ -41,7 +44,7 @@ export { generateId } from './model/element';
 export type { Point } from './model/frame';
 export { boundingBox, combinedBoundingBox, containsPoint, toLocal } from './model/frame';
 
-export { BUILT_IN_LAYOUTS, getLayout } from './model/layout';
+export { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } from './model/layout';
 
 export { migrateDocument } from './model/migrate';
 
