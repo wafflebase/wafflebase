@@ -2,7 +2,7 @@ import type { ShapeKind } from '../../model/element';
 import type { FrameSize } from './shapes/builder';
 import { PATH_BUILDERS } from './shapes';
 
-const STROKE_WIDTH = 1.5;
+const STROKE_WIDTH = 1.0;
 const PADDING = 1;
 
 /**
