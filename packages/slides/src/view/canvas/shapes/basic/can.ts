@@ -39,9 +39,16 @@ export const buildCan: PathBuilder = ({ w, h }, adjustments) => {
   // bottom of the ellipse.
   path.ellipse(w / 2, h - ry, w / 2, ry, 0, 0, Math.PI);
   path.closePath();
-  // Lid line — separate sub-path so the can opening stays visible
-  // when the shape is stroked. Drawn after the body fills, the lid
-  // ellipse renders as a thin oval across the top.
-  path.ellipse(w / 2, ry, w / 2, ry, 0, 0, Math.PI * 2);
+  // Can-opening line — only the lower half of the top ellipse. The
+  // upper half coincides with the body silhouette's top arc; drawing
+  // the full lid would double-stroke the top and create a visible
+  // ring. Explicit moveTo before the arc prevents Canvas2D from
+  // emitting an implicit lineTo from the body's last point (0, ry)
+  // to the arc's start (w, ry) — that would paint a horizontal line
+  // across the top of the can in real browsers (the test-canvas
+  // shim's ellipse implementation skips the implicit lineTo, so this
+  // bug is invisible to unit tests).
+  path.moveTo(w, ry);
+  path.ellipse(w / 2, ry, w / 2, ry, 0, 0, Math.PI);
   return path;
 };
