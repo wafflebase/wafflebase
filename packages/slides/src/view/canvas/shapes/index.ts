@@ -1,6 +1,7 @@
 // packages/slides/src/view/canvas/shapes/index.ts
 import type { ShapeKind } from '../../../model/element';
 import type { AdjustmentSpec, PathBuilder } from './builder';
+import { buildEllipse } from './basic/ellipse';
 import { buildRect } from './basic/rect';
 
 /**
@@ -21,3 +22,4 @@ export const ADJUSTMENT_SPECS = new Map<
 >();
 
 PATH_BUILDERS.set('rect', buildRect);
+PATH_BUILDERS.set('ellipse', buildEllipse);

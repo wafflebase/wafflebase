@@ -58,14 +58,16 @@ describe('drawShape — rect', () => {
 });
 
 describe('drawShape — ellipse', () => {
-  // TODO(T6): re-tighten to assert ctx.beginPath() / ctx.ellipse() / ctx.fill()
-  // once the ellipse path builder is registered. Until then, ellipse routes
-  // through the placeholder-rect fallback in the dispatcher.
-  it('paints an ellipse centred in the frame', () => {
+  it('fills an ellipse path with the given fill', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({ kind: 'ellipse', fill: srgb('#0a0') }), THEME);
-    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
     expect(ctx.fillStyle).toBe('#0a0');
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    // Dispatcher passes a Path2D produced by buildEllipse; the actual
+    // ellipse() call lives on Path2D and is opaque to the spy. Assert
+    // on the dispatcher-level signal: a single Path2D argument (not the
+    // 'evenodd' fill-rule literal that donut/star will use later).
+    expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
   });
 
   it('resolves a role-bound fill through the theme', () => {
