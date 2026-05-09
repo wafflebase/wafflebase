@@ -372,6 +372,38 @@ describe('MemSlidesStore — addSlide stamps placeholderRef', () => {
   });
 });
 
+describe('MemSlidesStore — addSlide seeds master typography', () => {
+  it('title placeholder gets fontSize 44, heading font, role-bound color, left align', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => { slideId = store.addSlide('title-body'); });
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId)!;
+    const titleEl = slide.elements.find((e) => e.placeholderRef?.type === 'title');
+    expect(titleEl?.type).toBe('text');
+    if (titleEl?.type === 'text') {
+      const inline = titleEl.data.blocks[0]?.inlines[0];
+      expect(inline?.style.fontSize).toBe(44);
+      expect(typeof inline?.style.fontFamily).toBe('string');
+      expect(inline?.style.color).toEqual({ kind: 'role', role: 'text' });
+      expect(titleEl.data.blocks[0]?.style.alignment).toBe('left');
+    }
+  });
+
+  it('big-number placeholder gets fontSize 96, center alignment', () => {
+    const store = new MemSlidesStore();
+    let slideId = '';
+    store.batch(() => { slideId = store.addSlide('big-number'); });
+    const doc = store.read();
+    const slide = doc.slides.find((s) => s.id === slideId)!;
+    const bigEl = slide.elements.find((e) => e.placeholderRef?.type === 'big-number');
+    if (bigEl?.type === 'text') {
+      expect(bigEl.data.blocks[0]?.inlines[0]?.style.fontSize).toBe(96);
+      expect(bigEl.data.blocks[0]?.style.alignment).toBe('center');
+    }
+  });
+});
+
 describe('MemSlidesStore — batch / undo / redo', () => {
   it('batch groups multiple mutations into one undo entry', () => {
     const store = new MemSlidesStore();

@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
 import { applyLayoutToSlide, getLayout } from './layout';
+import { DEFAULT_MASTER } from './master';
 import type { Element, TextElement } from './element';
 import type { Slide } from './presentation';
+import { defaultLight } from '../themes/default-light';
 
 function blocks(text: string): Block[] {
   return [
@@ -107,6 +109,19 @@ describe('applyLayoutToSlide', () => {
     expect(demoted!.placeholderRef).toBeUndefined();
     expect(demoted!.frame).toMatchObject(originalBodyFrame);
     expect(demoted!.data.blocks[0].inlines[0].text).toBe('kept');
+  });
+
+  it('fresh placeholder materialized via context gets master-seeded blocks', () => {
+    const slide = makeSlide('blank', []);
+    const master = DEFAULT_MASTER;
+    const theme = defaultLight;
+    applyLayoutToSlide(slide, getLayout('title-body'), { master, theme });
+    const titleEl = slide.elements.find((e) => e.placeholderRef?.type === 'title');
+    if (titleEl && titleEl.type === 'text') {
+      expect(titleEl.data.blocks[0]?.inlines[0]?.style.fontSize).toBe(44);
+    } else {
+      expect.fail('title element missing or not text');
+    }
   });
 
   it('6. user-added elements are untouched', () => {

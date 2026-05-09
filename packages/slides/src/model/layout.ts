@@ -2,8 +2,11 @@ import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
 import { clone } from './clone';
 import { generateId, isElementEmpty } from './element';
 import type { Element, PlaceholderRef, PlaceholderType } from './element';
+import type { Master } from './master';
+import { seedPlaceholderBlocks } from './placeholder-blocks';
 import type { Layout, PlaceholderSpec, Slide } from './presentation';
 import { SLIDE_WIDTH, SLIDE_HEIGHT } from './presentation';
+import type { Theme } from './theme';
 
 const PADDING = 80;
 const W = SLIDE_WIDTH - PADDING * 2;
@@ -217,7 +220,11 @@ export function getLayout(layoutId: string): Layout {
  * The user's `applyLayout` calls in both stores route here so the
  * semantics never diverge.
  */
-export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
+export function applyLayoutToSlide(
+  slide: Slide,
+  newLayout: Layout,
+  context?: { master: Master; theme: Theme },
+): void {
   // Compute (type, index) for each new-layout slot using array order.
   const refs = slotRefsForLayout(newLayout);
   type Slot = { spec: PlaceholderSpec; ref: PlaceholderRef };
@@ -303,8 +310,24 @@ export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
   for (let si = 0; si < slots.length; si++) {
     if (usedSlots.has(si)) continue;
     const slot = slots[si];
+    const cloned = clone(slot.spec) as PlaceholderSpec;
+    // When a master+theme context is supplied and the slot is a text
+    // placeholder, seed `data.blocks` with the slot's master typography
+    // so typed characters inherit fontSize / fontFamily / color /
+    // alignment / lineHeight from the very first keystroke. Without
+    // this, the cloned-from-spec emptyBlocks() carries no inline
+    // styling and the first typed character falls back to the docs
+    // DEFAULT_INLINE_STYLE (11px Arial).
+    if (context && cloned.type === 'text') {
+      const placeholderStyle =
+        context.master.placeholderStyles[slot.ref.type]
+        ?? context.master.placeholderStyles.body;
+      if (placeholderStyle) {
+        cloned.data = { blocks: seedPlaceholderBlocks(placeholderStyle, context.theme) };
+      }
+    }
     const fresh = {
-      ...clone(slot.spec),
+      ...cloned,
       id: generateId(),
       placeholderRef: slot.ref,
     } as Element;

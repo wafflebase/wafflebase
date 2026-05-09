@@ -18,6 +18,7 @@ import {
   generateId,
   getLayout,
   migrateDocument,
+  seedPlaceholderBlocks,
   slotRefsForLayout,
 } from '@wafflebase/slides';
 import type { Block } from '@wafflebase/docs';
@@ -372,13 +373,22 @@ export class YorkieSlidesStore implements SlidesStore {
     const layout = getLayout(layoutId);
     const id = generateId();
     const refs = slotRefsForLayout(layout);
+    const { master, theme } = this.resolveMasterAndTheme();
     this.doc.update((r) => {
       const elements: YorkieElement[] = layout.placeholders.map((p, i) => {
         const placeholder = clone(p) as YorkiePlaceholder;
         const elementId = generateId();
         const placeholderRef = refs[i];
         if (placeholder.type === 'text') {
-          const blocks = (placeholder.data as { blocks?: Block[] }).blocks ?? [];
+          // Seed typed-text styling from the master's PlaceholderStyle so
+          // user keystrokes inherit fontSize / fontFamily / color from
+          // the very first character (matches the ghost-text rendering).
+          const placeholderStyle =
+            master.placeholderStyles[placeholderRef.type]
+            ?? master.placeholderStyles.body;
+          const blocks = placeholderStyle
+            ? seedPlaceholderBlocks(placeholderStyle, theme)
+            : (placeholder.data as { blocks?: Block[] }).blocks ?? [];
           return {
             id: elementId,
             type: 'text',
@@ -578,14 +588,41 @@ export class YorkieSlidesStore implements SlidesStore {
   applyLayout(slideId: string, layoutId: string): void {
     this.requireBatch();
     const layout = getLayout(layoutId);
+    const { master, theme } = this.resolveMasterAndTheme();
     this.doc.update((r) => {
       const s = r.slides.find((s) => s.id === slideId);
       if (!s) throw new Error(`Slide not found: ${slideId}`);
       // Cast through unknown: Yorkie array proxies expose the same shape
       // as plain Slide for the operations applyLayoutToSlide performs
       // (property assignment on slide.layoutId; splice on slide.elements).
-      applyLayoutToSlide(s as unknown as ModelSlide, layout);
+      applyLayoutToSlide(s as unknown as ModelSlide, layout, { master, theme });
     });
+  }
+
+  /**
+   * Resolve the active master + theme from the Yorkie root, falling back
+   * to defaults if the document predates the v0.5 theme system. The
+   * fallback matches what `ensureSlidesRoot` would backfill, so callers
+   * can rely on a non-null pair without checking.
+   */
+  private resolveMasterAndTheme(): { master: Master; theme: Theme } {
+    const root = this.doc.getRoot() as {
+      meta?: { themeId?: string; masterId?: string };
+      themes?: unknown;
+      masters?: unknown;
+    };
+    const themes = yorkieToPlain<Theme[]>(root.themes) ?? [];
+    const masters = yorkieToPlain<Master[]>(root.masters) ?? [];
+    const meta = yorkieToPlain<{ themeId?: string; masterId?: string }>(root.meta) ?? {};
+    const master =
+      masters.find((m) => m.id === meta.masterId)
+      ?? masters[0]
+      ?? DEFAULT_MASTER;
+    const theme =
+      themes.find((t) => t.id === meta.themeId)
+      ?? themes[0]
+      ?? defaultLight;
+    return { master, theme };
   }
 
   // --- element ops ---

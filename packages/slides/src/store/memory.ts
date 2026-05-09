@@ -11,6 +11,7 @@ import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout, slotRefsForLayout } fr
 import { DEFAULT_BACKGROUND } from '../model/presentation';
 import { DEFAULT_MASTER } from '../model/master';
 import { migrateDocument } from '../model/migrate';
+import { seedPlaceholderBlocks } from '../model/placeholder-blocks';
 import type { Theme } from '../model/theme';
 import { defaultLight } from '../themes/default-light';
 import { clone } from '../model/clone';
@@ -61,15 +62,36 @@ export class MemSlidesStore implements SlidesStore {
     const layout = getLayout(layoutId);
     const id = generateId();
     const refs = slotRefsForLayout(layout);
+    const master =
+      this.doc.masters.find((m) => m.id === this.doc.meta.masterId)
+      ?? this.doc.masters[0];
+    const theme =
+      this.doc.themes.find((t) => t.id === this.doc.meta.themeId)
+      ?? this.doc.themes[0];
     const slide: Slide = {
       id,
       layoutId: layout.id,
       background: clone(DEFAULT_BACKGROUND),
-      elements: layout.placeholders.map((p, i) => ({
-        ...clone(p),
-        id: generateId(),
-        placeholderRef: refs[i],
-      } as Element)),
+      elements: layout.placeholders.map((p, i) => {
+        const ref = refs[i];
+        const cloned = clone(p);
+        // Seed typed-text styling from the master's PlaceholderStyle so
+        // user keystrokes inherit fontSize / fontFamily / color from
+        // the very first character (matches the ghost-text rendering).
+        if (cloned.type === 'text' && master && theme) {
+          const placeholderStyle =
+            master.placeholderStyles[ref.type]
+            ?? master.placeholderStyles.body;
+          if (placeholderStyle) {
+            cloned.data = { blocks: seedPlaceholderBlocks(placeholderStyle, theme) };
+          }
+        }
+        return {
+          ...cloned,
+          id: generateId(),
+          placeholderRef: ref,
+        } as Element;
+      }),
       notes: [],
     };
     const insertAt = atIndex === undefined
@@ -143,7 +165,17 @@ export class MemSlidesStore implements SlidesStore {
   applyLayout(slideId: string, layoutId: string): void {
     this.requireBatch();
     const slide = this.requireSlide(slideId);
-    applyLayoutToSlide(slide, getLayout(layoutId));
+    const master =
+      this.doc.masters.find((m) => m.id === this.doc.meta.masterId)
+      ?? this.doc.masters[0];
+    const theme =
+      this.doc.themes.find((t) => t.id === this.doc.meta.themeId)
+      ?? this.doc.themes[0];
+    applyLayoutToSlide(
+      slide,
+      getLayout(layoutId),
+      master && theme ? { master, theme } : undefined,
+    );
   }
 
   // --- element ops ---
