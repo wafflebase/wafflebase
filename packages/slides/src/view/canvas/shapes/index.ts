@@ -4,6 +4,7 @@ import type { AdjustmentSpec, PathBuilder } from './builder';
 import { buildEllipse } from './basic/ellipse';
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS } from './basic/round-rect';
+import { buildRtTriangle } from './basic/rt-triangle';
 import { buildTriangle, TRIANGLE_ADJUSTMENTS } from './basic/triangle';
 
 /**
@@ -27,6 +28,7 @@ PATH_BUILDERS.set('rect', buildRect);
 PATH_BUILDERS.set('ellipse', buildEllipse);
 PATH_BUILDERS.set('roundRect', buildRoundRect);
 PATH_BUILDERS.set('triangle', buildTriangle);
+PATH_BUILDERS.set('rtTriangle', buildRtTriangle);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
