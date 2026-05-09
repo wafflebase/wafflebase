@@ -158,12 +158,21 @@ describe('Formula', () => {
   });
 
   it('should return #NUM! for numeric overflow', () => {
+    const grid: Grid = new Map<string, Cell>();
+    grid.set('A1', { v: '1E200' } as Cell);
+    grid.set('A2', { v: '1E200' } as Cell);
+    grid.set('B1', { v: '1E200' } as Cell);
+    grid.set('B2', { v: '1E200' } as Cell);
+
+    expect(evaluate('=1.79769311E308')).toBe('#NUM!');
     expect(evaluate('=1.5E308 * 10')).toBe('#NUM!');
     expect(evaluate('=1E300 / 1E-100')).toBe('#NUM!');
     expect(evaluate('=EXP(1000)')).toBe('#NUM!');
     expect(evaluate('=FACT(200)')).toBe('#NUM!');
     expect(evaluate('=PRODUCT(1E200, 1E200)')).toBe('#NUM!');
     expect(evaluate('=POWER(10, 400)')).toBe('#NUM!');
+    expect(evaluate('=SUMPRODUCT(A1:A2, B1:B2)', grid)).toBe('#NUM!');
+    expect(evaluate('=MMULT({1E200,0;0,0},{1E200,0;0,0})')).toBe('#NUM!');
   });
 
   it('should unescape doubled quotes in string literals', () => {
