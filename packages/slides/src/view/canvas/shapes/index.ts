@@ -1,6 +1,7 @@
 // packages/slides/src/view/canvas/shapes/index.ts
 import type { ShapeKind } from '../../../model/element';
 import type { AdjustmentSpec, PathBuilder } from './builder';
+import { buildRect } from './basic/rect';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -18,3 +19,5 @@ export const ADJUSTMENT_SPECS = new Map<
   ShapeKind,
   readonly AdjustmentSpec[]
 >();
+
+PATH_BUILDERS.set('rect', buildRect);

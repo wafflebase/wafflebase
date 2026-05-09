@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import type { ShapeElement } from '../../model/element';
 import type { Theme } from '../../model/theme';
 import { asCtx, createCtxSpy } from './ctx-spy';
+// Install Path2D global before importing the renderer/builders.
+import './test-canvas-env';
 import { drawShape } from './shape-renderer';
 
 const THEME: Theme = {
@@ -20,28 +22,30 @@ const shape = (data: ShapeElement['data']): ShapeElement['data'] => data;
 const srgb = (value: string) => ({ kind: 'srgb' as const, value });
 
 describe('drawShape — rect', () => {
-  it('fills a rectangle at (0,0,w,h) with the given fill', () => {
+  it('fills a rectangle path with the given fill', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({ kind: 'rect', fill: srgb('#abc') }), THEME);
     expect(ctx.fillStyle).toBe('#abc');
-    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
   });
 
-  it('strokes a rectangle when stroke is set', () => {
+  it('strokes a rectangle path when stroke is set', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({
       kind: 'rect', stroke: { color: srgb('#000'), width: 3 },
     }), THEME);
     expect(ctx.strokeStyle).toBe('#000');
     expect(ctx.lineWidth).toBe(3);
-    expect(ctx.strokeRect).toHaveBeenCalledWith(0, 0, 100, 60);
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    expect(ctx.stroke.mock.calls[0][0]).toBeInstanceOf(Path2D);
   });
 
   it('skips fill and stroke when neither is set', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({ kind: 'rect' }), THEME);
-    expect(ctx.fillRect).not.toHaveBeenCalled();
-    expect(ctx.strokeRect).not.toHaveBeenCalled();
+    expect(ctx.fill).not.toHaveBeenCalled();
+    expect(ctx.stroke).not.toHaveBeenCalled();
   });
 
   it('resolves a role-bound fill through the theme', () => {
