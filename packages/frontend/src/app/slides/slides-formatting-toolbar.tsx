@@ -4,6 +4,7 @@ import {
   showLayoutPicker,
   type Element,
   type InsertKind,
+  type ShapeKind,
   type SlidesEditor,
   type SlidesStore,
   type Theme,
@@ -23,10 +24,6 @@ import {
   DropdownMenuContent,
 } from "@/components/ui/dropdown-menu";
 import {
-  IconSquare,
-  IconCircle,
-  IconLine,
-  IconArrowRight,
   IconLetterT,
   IconPalette,
   IconColorSwatch,
@@ -34,6 +31,7 @@ import {
   IconPlus,
   IconChevronDown,
 } from "@tabler/icons-react";
+import { ShapePicker } from "./shape-picker";
 import { ThemedColorPicker } from "./themed-color-picker";
 import { ThemedFontPicker } from "./themed-font-picker";
 import {
@@ -63,20 +61,6 @@ interface SlidesFormattingToolbarProps {
   onToggleThemePanel?: () => void;
   themePanelOpen?: boolean;
 }
-
-interface InsertButton {
-  kind: InsertKind;
-  label: string;
-  icon: React.ReactNode;
-}
-
-const INSERT_BUTTONS: InsertButton[] = [
-  { kind: "rect",    label: "Rectangle", icon: <IconSquare size={16} /> },
-  { kind: "ellipse", label: "Ellipse",   icon: <IconCircle size={16} /> },
-  { kind: "line",    label: "Line",      icon: <IconLine size={16} /> },
-  { kind: "arrow",   label: "Arrow",     icon: <IconArrowRight size={16} /> },
-  { kind: "text",    label: "Text box",  icon: <IconLetterT size={16} /> },
-];
 
 /**
  * Read the single selected element on the active slide. Returns null
@@ -268,24 +252,31 @@ export function SlidesFormattingToolbar({
       </div>
       <ToolbarSeparator className="mx-1" />
 
-      {INSERT_BUTTONS.map((b) => (
-        <Tooltip key={b.kind}>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={insertMode === b.kind}
-              onPressedChange={(pressed) => {
-                editor?.setInsertMode(pressed ? b.kind : null);
-              }}
-              aria-label={b.label}
-              disabled={!editor}
-            >
-              {b.icon}
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>{b.label}</TooltipContent>
-        </Tooltip>
-      ))}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Toggle
+            size="sm"
+            pressed={insertMode === "text"}
+            onPressedChange={(pressed) => {
+              editor?.setInsertMode(pressed ? "text" : null);
+            }}
+            aria-label="Text box"
+            disabled={!editor}
+          >
+            <IconLetterT size={16} />
+          </Toggle>
+        </TooltipTrigger>
+        <TooltipContent>Text box</TooltipContent>
+      </Tooltip>
+      <ShapePicker
+        activeKind={
+          insertMode && insertMode !== "text"
+            ? (insertMode as ShapeKind)
+            : null
+        }
+        onSelect={(kind) => editor?.setInsertMode(kind)}
+        disabled={!editor}
+      />
       <ToolbarSeparator className="mx-1" />
 
       <DropdownMenu>
