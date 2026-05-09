@@ -1,6 +1,7 @@
 // packages/slides/src/view/canvas/shapes/index.ts
 import type { ShapeKind } from '../../../model/element';
 import type { AdjustmentSpec, PathBuilder } from './builder';
+import { buildDiamond } from './basic/diamond';
 import { buildEllipse } from './basic/ellipse';
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS } from './basic/round-rect';
@@ -29,6 +30,7 @@ PATH_BUILDERS.set('ellipse', buildEllipse);
 PATH_BUILDERS.set('roundRect', buildRoundRect);
 PATH_BUILDERS.set('triangle', buildTriangle);
 PATH_BUILDERS.set('rtTriangle', buildRtTriangle);
+PATH_BUILDERS.set('diamond', buildDiamond);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
