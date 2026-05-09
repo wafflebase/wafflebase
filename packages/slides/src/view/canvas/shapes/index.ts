@@ -64,6 +64,13 @@ import { buildStar6, STAR_6_ADJUSTMENTS } from './stars/star6';
 import { buildStar7, STAR_7_ADJUSTMENTS } from './stars/star7';
 import { buildStar8, STAR_8_ADJUSTMENTS } from './stars/star8';
 import { buildStar10, STAR_10_ADJUSTMENTS } from './stars/star10';
+import { buildFlowChartTerminator } from './flowchart/terminator';
+import { buildFlowChartPredefinedProcess } from './flowchart/predefined-process';
+import { buildFlowChartInternalStorage } from './flowchart/internal-storage';
+import { buildFlowChartManualInput } from './flowchart/manual-input';
+import { buildFlowChartManualOperation } from './flowchart/manual-operation';
+import { buildFlowChartOffpageConnector } from './flowchart/offpage-connector';
+import { buildFlowChartPunchedCard } from './flowchart/punched-card';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -121,6 +128,13 @@ PATH_BUILDERS.set('star6', buildStar6);
 PATH_BUILDERS.set('star7', buildStar7);
 PATH_BUILDERS.set('star8', buildStar8);
 PATH_BUILDERS.set('star10', buildStar10);
+PATH_BUILDERS.set('flowChartTerminator', buildFlowChartTerminator);
+PATH_BUILDERS.set('flowChartPredefinedProcess', buildFlowChartPredefinedProcess);
+PATH_BUILDERS.set('flowChartInternalStorage', buildFlowChartInternalStorage);
+PATH_BUILDERS.set('flowChartManualInput', buildFlowChartManualInput);
+PATH_BUILDERS.set('flowChartManualOperation', buildFlowChartManualOperation);
+PATH_BUILDERS.set('flowChartOffpageConnector', buildFlowChartOffpageConnector);
+PATH_BUILDERS.set('flowChartPunchedCard', buildFlowChartPunchedCard);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
