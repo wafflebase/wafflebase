@@ -1,5 +1,5 @@
 import { DEFAULT_BLOCK_STYLE, type Block } from '@wafflebase/docs';
-import type { ElementInit } from '../../../model/element';
+import type { ElementInit, ShapeKind } from '../../../model/element';
 import type { ThemeColor } from '../../../model/theme';
 import type { InsertKind } from '../editor';
 
@@ -8,12 +8,68 @@ import type { InsertKind } from '../editor';
 // Users can override per-shape via the Fill picker (which writes
 // concrete `{ kind: 'srgb' }` values).
 const DEFAULT_FILL: ThemeColor = { kind: 'role', role: 'accent1' };
-const DEFAULT_STROKE_COLOR: ThemeColor = { kind: 'role', role: 'text' };
+const DEFAULT_TEXT_COLOR: ThemeColor = { kind: 'role', role: 'text' };
+const DEFAULT_BACKGROUND: ThemeColor = { kind: 'role', role: 'background' };
 const DEFAULT_STROKE_WIDTH = 2;
 const TEXT_DEFAULT_W = 400;
 const TEXT_DEFAULT_H = 80;
 
 export interface Point { x: number; y: number; }
+
+/**
+ * Per-kind visual category. Determines which fill/stroke combo a freshly
+ * inserted shape gets:
+ *   - `filled`     — accent1 fill, no stroke (basic shapes, block arrows, equation)
+ *   - `outlined`   — background fill, text-coloured stroke (callouts)
+ *   - `lineSpecial`— stroke only (line); arrow also fills the head
+ */
+type ShapeStyle = 'filled' | 'outlined' | 'lineSpecial';
+
+const STYLE_BY_KIND: ReadonlyMap<ShapeKind, ShapeStyle> = new Map<
+  ShapeKind,
+  ShapeStyle
+>([
+  // Lines
+  ['line', 'lineSpecial'],
+  ['arrow', 'lineSpecial'],
+  // Basic + Block Arrows + Equation → filled
+  ...((
+    [
+      'rect', 'roundRect', 'ellipse', 'triangle', 'rtTriangle', 'diamond',
+      'parallelogram', 'trapezoid', 'pentagon', 'hexagon', 'octagon',
+      'plus', 'donut', 'can', 'cloud',
+      'rightArrow', 'leftArrow', 'upArrow', 'downArrow',
+      'leftRightArrow', 'quadArrow', 'chevron', 'pentagonArrow',
+      'mathPlus', 'mathMinus', 'mathMultiply',
+      'mathDivide', 'mathEqual', 'mathNotEqual',
+    ] as ShapeKind[]
+  ).map((k) => [k, 'filled' as ShapeStyle] as const)),
+  // Callouts → outlined
+  ['wedgeRectCallout', 'outlined'],
+  ['wedgeRoundRectCallout', 'outlined'],
+  ['wedgeEllipseCallout', 'outlined'],
+  ['cloudCallout', 'outlined'],
+]);
+
+function defaultsForShape(
+  kind: ShapeKind,
+): { fill?: ThemeColor; stroke?: { color: ThemeColor; width: number } } {
+  switch (STYLE_BY_KIND.get(kind)) {
+    case 'lineSpecial':
+      return {
+        stroke: { color: DEFAULT_TEXT_COLOR, width: DEFAULT_STROKE_WIDTH },
+        ...(kind === 'arrow' ? { fill: DEFAULT_TEXT_COLOR } : {}),
+      };
+    case 'outlined':
+      return {
+        fill: DEFAULT_BACKGROUND,
+        stroke: { color: DEFAULT_TEXT_COLOR, width: DEFAULT_STROKE_WIDTH },
+      };
+    case 'filled':
+    default:
+      return { fill: DEFAULT_FILL };
+  }
+}
 
 /**
  * Build the ElementInit for a freshly-inserted element given the
@@ -23,7 +79,8 @@ export interface Point { x: number; y: number; }
  */
 export function buildInsertElement(
   kind: InsertKind,
-  start: Point, end: Point,
+  start: Point,
+  end: Point,
 ): ElementInit {
   if (kind === 'text') {
     return {
@@ -38,7 +95,7 @@ export function buildInsertElement(
           // resolver also remaps the docs default `'#000000'` to the
           // `text` role (covers freshly typed runs that inherit
           // `DEFAULT_INLINE_STYLE` instead of this explicit role).
-          inlines: [{ text: '', style: { color: { kind: 'role', role: 'text' } } }],
+          inlines: [{ text: '', style: { color: DEFAULT_TEXT_COLOR } }],
           // Fully-defaulted style — `computeLayout` reads `marginTop`
           // and `marginBottom` without a fallback, so a sparse style
           // would NaN the cumulative y and the slide canvas would
@@ -57,10 +114,5 @@ export function buildInsertElement(
   const h = Math.abs(end.y - start.y);
   const frame = { x, y, w, h, rotation: 0 };
 
-  switch (kind) {
-    case 'rect':    return { type: 'shape', frame, data: { kind: 'rect', fill: DEFAULT_FILL } };
-    case 'ellipse': return { type: 'shape', frame, data: { kind: 'ellipse', fill: DEFAULT_FILL } };
-    case 'line':    return { type: 'shape', frame, data: { kind: 'line',  stroke: { color: DEFAULT_STROKE_COLOR, width: DEFAULT_STROKE_WIDTH } } };
-    case 'arrow':   return { type: 'shape', frame, data: { kind: 'arrow', stroke: { color: DEFAULT_STROKE_COLOR, width: DEFAULT_STROKE_WIDTH }, fill: DEFAULT_STROKE_COLOR } };
-  }
+  return { type: 'shape', frame, data: { kind, ...defaultsForShape(kind) } };
 }

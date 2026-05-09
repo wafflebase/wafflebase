@@ -46,3 +46,27 @@ describe('buildInsertElement — text', () => {
     expect(text.frame.y).toBe(50);
   });
 });
+
+describe('buildInsertElement — category defaults', () => {
+  it('uses outlined defaults for callouts', () => {
+    const init = buildInsertElement(
+      'wedgeRectCallout', { x: 0, y: 0 }, { x: 100, y: 50 });
+    expect(init).toMatchObject({
+      type: 'shape',
+      data: {
+        kind: 'wedgeRectCallout',
+        fill: { kind: 'role', role: 'background' },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 2 },
+      },
+    });
+  });
+
+  it('uses filled defaults for new block-arrow kinds', () => {
+    const init = buildInsertElement(
+      'rightArrow', { x: 0, y: 0 }, { x: 100, y: 50 });
+    expect(init).toMatchObject({
+      type: 'shape',
+      data: { kind: 'rightArrow', fill: { kind: 'role', role: 'accent1' } },
+    });
+  });
+});
