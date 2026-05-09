@@ -20,6 +20,7 @@ import { ARROW_ADJUSTMENTS, buildRightArrow } from './arrows/right-arrow';
 import { buildLeftArrow } from './arrows/left-arrow';
 import { buildUpArrow } from './arrows/up-arrow';
 import { buildDownArrow } from './arrows/down-arrow';
+import { buildLeftRightArrow } from './arrows/left-right-arrow';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -57,6 +58,7 @@ PATH_BUILDERS.set('rightArrow', buildRightArrow);
 PATH_BUILDERS.set('leftArrow', buildLeftArrow);
 PATH_BUILDERS.set('upArrow', buildUpArrow);
 PATH_BUILDERS.set('downArrow', buildDownArrow);
+PATH_BUILDERS.set('leftRightArrow', buildLeftRightArrow);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
@@ -71,3 +73,4 @@ ADJUSTMENT_SPECS.set('rightArrow', ARROW_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('leftArrow', ARROW_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('upArrow', ARROW_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('downArrow', ARROW_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('leftRightArrow', ARROW_ADJUSTMENTS);
