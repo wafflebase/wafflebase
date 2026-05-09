@@ -62,8 +62,9 @@ export interface ThumbnailPanelHandle {
  * mini-canvas rendered via `renderThumbnail`; clicking a thumbnail
  * switches the editor's current slide; shift-click toggles slide-level
  * multi-selection (held locally in the panel — separate from element
- * selection); HTML5 drag-and-drop reorders via `store.moveSlide`; a
- * "+" button at the bottom appends a new blank slide.
+ * selection); HTML5 drag-and-drop reorders via `store.moveSlide`. New
+ * slides are added from the formatting toolbar's split-button, not
+ * from this panel.
  */
 export function mountThumbnailPanel(
   container: HTMLElement,

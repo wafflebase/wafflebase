@@ -32,10 +32,10 @@ function syntheticSlide(layout: Layout): Slide {
 
 /**
  * Render a small preview canvas for a layout against a given theme.
- * The canvas is cached by (theme, master, layout, size); theme
- * switches naturally route to different keys, so old entries fall
- * out of reachability and become GC eligible without an explicit
- * invalidation API.
+ * The canvas is cached by (theme, master, layout, size, dpr); theme
+ * switches and monitor moves naturally route to different keys, so
+ * old entries fall out of reachability and become GC eligible
+ * without an explicit invalidation API.
  */
 export function renderLayoutPreview(
   layout: Layout,

@@ -215,9 +215,7 @@ export function SlidesFormattingToolbar({
   return (
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
       {/* New slide split-button — primary adds a blank slide; chevron
-          opens the layout picker. Mirrors Google Slides' toolbar +
-          replaces the in-panel button that lived in the thumbnail
-          panel before this refactor. */}
+          opens the layout picker. */}
       <div className="inline-flex items-center rounded-md border">
         <Tooltip>
           <TooltipTrigger asChild>
