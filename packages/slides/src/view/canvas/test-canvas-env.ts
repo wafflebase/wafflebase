@@ -392,27 +392,51 @@ if (typeof (globalThis as { Path2D?: unknown }).Path2D === 'undefined') {
 }
 
 /**
- * Test-only canvas factory. Returns an object whose
- * `getContext('2d')` provides the narrow surface shape builder tests
- * need: `isPointInPath(path, x, y)`. Width/height are accepted for
- * symmetry with the browser API but are not used.
+ * Test-only canvas factory. Returns an object whose `getContext('2d')`
+ * provides the narrow surface shape builder + icon tests need:
+ *   - `isPointInPath(path, x, y, fillRule?)` for builder hit-tests
+ *   - mutable `lineWidth` / `lineJoin` plus no-op `save`/`restore`/
+ *     `translate`/`beginPath`/`moveTo`/`lineTo`/`stroke` for code paths
+ *     that draw outlines (e.g. `renderShapeIcon`)
+ *
+ * Width/height are accepted for symmetry with the browser API but are
+ * not used. New methods/state should be added here as renderers grow,
+ * keeping the mock just rich enough for the call-sites under test.
  */
+export interface TestCanvas2DContext {
+  isPointInPath(path: Path2D, x: number, y: number, fillRule?: FillRule): boolean;
+  // Mutable state — assignable so renderers that record line styles
+  // can be inspected by tests after the call.
+  lineWidth: number;
+  lineJoin: CanvasLineJoin;
+  strokeStyle: string;
+  // No-op draw plumbing.
+  save(): void;
+  restore(): void;
+  translate(x: number, y: number): void;
+  beginPath(): void;
+  moveTo(x: number, y: number): void;
+  lineTo(x: number, y: number): void;
+  stroke(path?: Path2D): void;
+}
+
 export function createTestCanvas(
   width: number,
   height: number,
 ): {
   width: number;
   height: number;
-  getContext(type: '2d'): {
-    isPointInPath(path: Path2D, x: number, y: number, fillRule?: FillRule): boolean;
-  };
+  getContext(type: '2d'): TestCanvas2DContext;
 } {
   return {
     width,
     height,
-    getContext(type: '2d') {
+    getContext(type: '2d'): TestCanvas2DContext {
       if (type !== '2d') throw new Error(`unsupported context type: ${type}`);
-      return {
+      const ctx: TestCanvas2DContext = {
+        lineWidth: 1,
+        lineJoin: 'miter',
+        strokeStyle: '#000000',
         isPointInPath(
           path: Path2D,
           x: number,
@@ -421,7 +445,15 @@ export function createTestCanvas(
         ): boolean {
           return isPointInPathImpl(path as unknown as TestPath2D, x, y, fillRule);
         },
+        save(): void {},
+        restore(): void {},
+        translate(_x: number, _y: number): void {},
+        beginPath(): void {},
+        moveTo(_x: number, _y: number): void {},
+        lineTo(_x: number, _y: number): void {},
+        stroke(_path?: Path2D): void {},
       };
+      return ctx;
     },
   };
 }

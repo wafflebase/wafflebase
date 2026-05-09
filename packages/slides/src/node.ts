@@ -59,3 +59,13 @@ export { BUILT_IN_LAYOUTS, getLayout } from './model/layout';
 // `MemSlidesStore` is also DOM-free and re-exported here.
 export type { SlidesStore } from './store/store';
 export { MemSlidesStore } from './store/memory';
+
+// Shape registry + icon helper. The `PATH_BUILDERS` map and
+// `renderShapeIcon` *signatures* type-reference `Path2D` /
+// `CanvasRenderingContext2D` (DOM ambients), but neither calls those
+// constructors at module-load time — Path2D is only instantiated when
+// a builder is invoked, and the icon helper only runs when given a
+// real ctx. Backend code that does not invoke them stays runtime-clean.
+export { renderShapeIcon } from './view/canvas/shape-icon';
+export { PATH_BUILDERS, ADJUSTMENT_SPECS } from './view/canvas/shapes';
+export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shapes/builder';
