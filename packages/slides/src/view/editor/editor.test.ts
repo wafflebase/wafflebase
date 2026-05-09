@@ -117,6 +117,43 @@ describe('initialize', () => {
     void elementId;
   });
 
+  it('clicking on an already-selected element preserves the multi-selection and drags all of them', () => {
+    const { canvas, overlay, store } = makeFixture();
+    let aId = '';
+    let bId = '';
+    store.batch(() => {
+      const sid = store.read().slides[0].id;
+      aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 400, y: 400, w: 100, h: 100, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+    // Click inside element `a` (no shift). Multi-selection should be
+    // preserved so the follow-up drag moves both elements.
+    dispatchMouseDown(canvas, 150, 150);
+    expect(editor.getSelection()).toEqual([aId, bId]);
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 180, bubbles: true }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { clientX: 200, clientY: 180, bubbles: true }));
+    const elements = store.read().slides[0].elements;
+    const a = elements.find((el) => el.id === aId)!;
+    const b = elements.find((el) => el.id === bId)!;
+    // Both elements moved by approximately the same delta. Snap may
+    // tweak by ≤ 8 px, but the per-element delta is identical so the
+    // gap between a and b is preserved.
+    expect(b.frame.x - a.frame.x).toBe(300);
+    expect(b.frame.y - a.frame.y).toBe(300);
+    expect(a.frame.x).toBeGreaterThan(100);
+    expect(a.frame.y).toBeGreaterThan(100);
+  });
+
   it('dragging the e handle resizes the selected element', () => {
     const { canvas, overlay, store } = makeFixture();
     let elementId = '';

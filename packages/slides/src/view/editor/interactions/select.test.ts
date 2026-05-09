@@ -44,4 +44,15 @@ describe('selectAt', () => {
   it('shift-click on empty canvas leaves selection unchanged', () => {
     expect(selectAt(slide, 500, 500, { shift: true }, ['a'])).toEqual(['a']);
   });
+
+  it('clicking an already-selected element preserves the multi-selection', () => {
+    // Without this, a no-shift click on one of several selected
+    // elements would collapse the selection to just the hit and the
+    // follow-up drag would only move that one element.
+    expect(selectAt(slide, 250, 250, {}, ['a', 'b'])).toEqual(['a', 'b']);
+  });
+
+  it('clicking a non-selected element while others are selected replaces selection', () => {
+    expect(selectAt(slide, 60, 60, {}, ['b'])).toEqual(['c']);
+  });
 });

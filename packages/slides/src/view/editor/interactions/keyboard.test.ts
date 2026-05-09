@@ -113,6 +113,65 @@ describe('keyboard — undo/redo', () => {
   });
 });
 
+describe('keyboard — Delete / Backspace', () => {
+  let editor: SlidesEditor | null = null;
+  beforeEach(() => { if (editor) { editor.detach(); editor = null; } });
+
+  it('Delete removes the selected element', () => {
+    const { editor: e, store, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+    expect(store.read().slides[0].elements).toHaveLength(0);
+    expect(editor.getSelection()).toEqual([]);
+  });
+
+  it('Backspace removes the selected element', () => {
+    const { editor: e, store, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    expect(store.read().slides[0].elements).toHaveLength(0);
+  });
+
+  it('Delete with no selection is a no-op', () => {
+    const { editor: e, store } = makeFixture();
+    editor = e;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+    expect(store.read().slides[0].elements).toHaveLength(1);
+  });
+
+  it('Delete removes every element in a multi-selection in one undo entry', () => {
+    const { editor: e, store, elementId } = makeFixture();
+    editor = e;
+    let secondId = '';
+    store.batch(() => {
+      secondId = store.addElement(store.read().slides[0].id, {
+        type: 'shape',
+        frame: { x: 400, y: 400, w: 50, h: 50, rotation: 0 },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#0a0' } },
+      });
+    });
+    editor.setSelection([elementId, secondId]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+    expect(store.read().slides[0].elements).toHaveLength(0);
+    store.undo();
+    expect(store.read().slides[0].elements).toHaveLength(2);
+  });
+
+  it('Backspace inside a textarea does not delete elements', () => {
+    const { editor: e, store, elementId } = makeFixture();
+    editor = e;
+    editor.setSelection([elementId]);
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+    expect(store.read().slides[0].elements).toHaveLength(1);
+    textarea.remove();
+  });
+});
+
 describe('keyboard — Cmd+D duplicate element', () => {
   let editor: SlidesEditor | null = null;
   beforeEach(() => { if (editor) { editor.detach(); editor = null; } });

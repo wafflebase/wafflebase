@@ -27,6 +27,11 @@ export function selectAt(
   }
 
   if (hit === null) return [];
+  // Preserve an existing multi-selection when the user clicks on an
+  // element that's already part of it. Without this guard, the no-shift
+  // click would collapse the selection to `[hit]` and a follow-up drag
+  // would only move the single clicked element instead of the group.
+  if (current.includes(hit)) return [...current];
   return [hit];
 }
 
