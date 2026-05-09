@@ -148,9 +148,12 @@ describe('drawShape — unknown kind fallback', () => {
     drawShape(
       asCtx(ctx),
       size,
-      // Cast: forward-compat for kinds not yet in the registry. Use a
-      // kind that is still unregistered (math glyphs land in T10).
-      shape({ kind: 'mathPlus' as never, fill: srgb('#abc') }),
+      // Cast: P4's PPTX importer can produce shape kinds that are not in
+      // the union (forward-compat for OOXML kinds that ship later). Use a
+      // synthetic name that is guaranteed to never be a real ShapeKind so
+      // this test stays meaningful even after T10 registers all current
+      // union members.
+      shape({ kind: '__test_unknown__' as never, fill: srgb('#abc') }),
       THEME,
     );
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
