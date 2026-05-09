@@ -6,6 +6,21 @@ const STROKE_WIDTH = 1.5;
 const PADDING = 1;
 
 /**
+ * For picker-icon rendering of callouts, fall back to the bubble
+ * shape only — the tail and the small thought-bubble circles do not
+ * fit at 24×24 and make the preview unrecognizable. The proxy maps
+ * each callout to its closest "bubble-only" basic shape; the slide
+ * canvas still renders the full callout (tail + bubbles) at full
+ * size unchanged.
+ */
+const CALLOUT_BUBBLE_PROXY: Partial<Record<ShapeKind, ShapeKind>> = {
+  wedgeRectCallout: 'rect',
+  wedgeRoundRectCallout: 'roundRect',
+  wedgeEllipseCallout: 'ellipse',
+  cloudCallout: 'cloud',
+};
+
+/**
  * Paint a shape outline at icon size into the supplied context. Used
  * by the toolbar's Shape ▾ picker so previews track geometry from
  * `PATH_BUILDERS` without a separate icon asset. Caller is expected to
@@ -45,7 +60,8 @@ export function renderShapeIcon(
       ctx.stroke();
       return;
     }
-    const builder = PATH_BUILDERS.get(kind);
+    const iconKind = CALLOUT_BUBBLE_PROXY[kind] ?? kind;
+    const builder = PATH_BUILDERS.get(iconKind);
     if (!builder) return;
     const path = builder({ w, h }, undefined);
     ctx.stroke(path);

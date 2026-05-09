@@ -20,4 +20,22 @@ describe('renderShapeIcon', () => {
     expect(() => renderShapeIcon('line', ctx, { w: 24, h: 24 })).not.toThrow();
     expect(() => renderShapeIcon('arrow', ctx, { w: 24, h: 24 })).not.toThrow();
   });
+
+  it('renders callouts via their bubble-shape proxy', () => {
+    const canvas = createTestCanvas(24, 24);
+    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
+    // The four callouts must not throw and should produce a stroke at
+    // picker size — they fall back to their bubble proxy (rect /
+    // roundRect / ellipse / cloud) so the preview is recognizable.
+    for (const kind of [
+      'wedgeRectCallout',
+      'wedgeRoundRectCallout',
+      'wedgeEllipseCallout',
+      'cloudCallout',
+    ] as const) {
+      expect(() =>
+        renderShapeIcon(kind, ctx, { w: 24, h: 24 }),
+      ).not.toThrow();
+    }
+  });
 });
