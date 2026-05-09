@@ -21,10 +21,33 @@ type TestPath2DLike = {
   finalize: () => void;
 };
 
+/**
+ * Round all numeric leaves in an object/array tree to 6 decimal
+ * places. The shim's polyline approximation of arcs / beziers walks
+ * trig functions (`Math.sin` / `Math.cos`) whose final-ULP results
+ * vary across CPU microarchitectures (Apple Silicon vs Linux x86_64
+ * GitHub runners), and that variance leaks into snapshot string
+ * representations like `6.005165928857689` vs `6.005165928857686`.
+ * Six-decimal rounding pins the snapshot to micrometer-level
+ * precision — geometric regressions stay visible, ULP noise does not.
+ */
+function quantize(value: unknown): unknown {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Math.round(value * 1e6) / 1e6 : value;
+  }
+  if (Array.isArray(value)) return value.map(quantize);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = quantize(v);
+    return out;
+  }
+  return value;
+}
+
 describe('shape registry snapshot', () => {
   it('every registered builder produces stable Path2D ops at 100x100', () => {
     const sortedKinds = [...PATH_BUILDERS.keys()].sort();
-    const log: Record<string, ReadonlyArray<unknown>> = {};
+    const log: Record<string, unknown> = {};
     for (const kind of sortedKinds) {
       const builder = PATH_BUILDERS.get(kind)!;
       const path = builder({ w: 100, h: 100 }, undefined) as unknown as TestPath2DLike;
@@ -33,7 +56,7 @@ describe('shape registry snapshot', () => {
       // walk. Without this the snapshot would omit any trailing
       // subpath that was never explicitly closed.
       path.finalize();
-      log[kind] = path.ops;
+      log[kind] = quantize(path.ops);
     }
     expect(log).toMatchSnapshot();
   });
