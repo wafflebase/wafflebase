@@ -6,13 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 160
+Total archived tasks: 161
 
-## 2026/05 (15 tasks)
+## 2026/05 (16 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
 | sheets comments (2026-05-08) | [20260508-sheets-comments-todo.md](./2026/05/20260508-sheets-comments-todo.md) | [20260508-sheets-comments-lessons.md](./2026/05/20260508-sheets-comments-lessons.md) |
+| slides layout change (2026-05-08) | [20260508-slides-layout-change-todo.md](./2026/05/20260508-slides-layout-change-todo.md) | [20260508-slides-layout-change-lessons.md](./2026/05/20260508-slides-layout-change-lessons.md) |
 | slides visual harness scenarios (2026-05-08) | [20260508-slides-visual-harness-scenarios-todo.md](./2026/05/20260508-slides-visual-harness-scenarios-todo.md) | - |
 | slides pr1 themed authoring (2026-05-07) | [20260507-slides-pr1-themed-authoring-todo.md](./2026/05/20260507-slides-pr1-themed-authoring-todo.md) | - |
 | cli expired session 404 (2026-05-05) | [20260505-cli-expired-session-404-todo.md](./2026/05/20260505-cli-expired-session-404-todo.md) | - |

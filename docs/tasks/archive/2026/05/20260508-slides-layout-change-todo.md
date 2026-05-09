@@ -24,7 +24,7 @@ Adds the new types and the empty-check helper used by the orphan-demote pass.
 - Modify: `packages/slides/src/model/element.ts`
 - Create: `packages/slides/src/model/element.test.ts`
 
-- [ ] **Step 1: Write the failing test for `isElementEmpty`**
+- [x] **Step 1: Write the failing test for `isElementEmpty`**
 
 `packages/slides/src/model/element.test.ts`:
 
@@ -83,12 +83,12 @@ describe('isElementEmpty', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- element.test.ts`
 Expected: FAIL — `isElementEmpty is not defined` (import error).
 
-- [ ] **Step 3: Implement types and helper**
+- [x] **Step 3: Implement types and helper**
 
 Edit `packages/slides/src/model/element.ts`. Add the placeholder types **before** `Element` and the helper at the end:
 
@@ -128,17 +128,17 @@ export function isElementEmpty(el: Element): boolean {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- element.test.ts`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Run package-wide tests**
+- [x] **Step 5: Run package-wide tests**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS — adding `placeholderRef?` is additive and doesn't break existing tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/model/element.ts packages/slides/src/model/element.test.ts
@@ -166,7 +166,7 @@ Stamps a `placeholder.type` onto every spec; updates the `textPlaceholder` helpe
 - Modify: `packages/slides/src/model/layout.ts`
 - Modify: `packages/slides/src/model/layout.test.ts`
 
-- [ ] **Step 1: Write the failing snapshot test**
+- [x] **Step 1: Write the failing snapshot test**
 
 Append to `packages/slides/src/model/layout.test.ts`, inside the existing `describe('BUILT_IN_LAYOUTS')`:
 
@@ -194,12 +194,12 @@ Append to `packages/slides/src/model/layout.test.ts`, inside the existing `descr
   });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- layout.test.ts`
 Expected: FAIL — `placeholder` is undefined on the existing specs.
 
-- [ ] **Step 3: Extend `PlaceholderSpec`**
+- [x] **Step 3: Extend `PlaceholderSpec`**
 
 Edit `packages/slides/src/model/presentation.ts`:
 
@@ -213,7 +213,7 @@ export type PlaceholderSpec = ElementInit & {
 };
 ```
 
-- [ ] **Step 4: Update `textPlaceholder` helper to take a slot type**
+- [x] **Step 4: Update `textPlaceholder` helper to take a slot type**
 
 Edit `packages/slides/src/model/layout.ts`. Change the helper signature and body:
 
@@ -237,7 +237,7 @@ Add the import at the top:
 import type { PlaceholderType } from './element';
 ```
 
-- [ ] **Step 5: Stamp every layout's placeholders with the slot type**
+- [x] **Step 5: Stamp every layout's placeholders with the slot type**
 
 Edit `BUILT_IN_LAYOUTS` in `packages/slides/src/model/layout.ts`. Replace each `textPlaceholder(...)` call with the type prepended. The complete map (preserve frame coords from existing code):
 
@@ -280,12 +280,12 @@ textPlaceholder('big-number', PADDING, SLIDE_HEIGHT / 2 - 200, W, 280),
 textPlaceholder('body',       PADDING, SLIDE_HEIGHT / 2 + 100, W, 100),
 ```
 
-- [ ] **Step 6: Run all slides tests to verify**
+- [x] **Step 6: Run all slides tests to verify**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS — new test passes; existing tests unaffected.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/model/presentation.ts packages/slides/src/model/layout.ts packages/slides/src/model/layout.test.ts
@@ -313,7 +313,7 @@ The 3-pass algorithm (partition, type-first match, demote orphans). Lives in `mo
 - Modify: `packages/slides/src/model/layout.ts`
 - Create: `packages/slides/src/model/layout-apply.test.ts`
 
-- [ ] **Step 1: Write the six failing scenarios**
+- [x] **Step 1: Write the six failing scenarios**
 
 Create `packages/slides/src/model/layout-apply.test.ts`:
 
@@ -446,12 +446,12 @@ describe('applyLayoutToSlide', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- layout-apply.test.ts`
 Expected: FAIL — `applyLayoutToSlide is not exported` (import error).
 
-- [ ] **Step 3: Implement `applyLayoutToSlide`**
+- [x] **Step 3: Implement `applyLayoutToSlide`**
 
 Edit `packages/slides/src/model/layout.ts`. Add imports if not present, then append at the bottom of the file:
 
@@ -526,17 +526,17 @@ export function applyLayoutToSlide(slide: Slide, newLayout: Layout): void {
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- layout-apply.test.ts`
 Expected: PASS — all six scenarios.
 
-- [ ] **Step 5: Run the full slides test suite**
+- [x] **Step 5: Run the full slides test suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS — store-level applyLayout tests still pass against the old store body (Task 4 swaps that).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/model/layout.ts packages/slides/src/model/layout-apply.test.ts
@@ -564,7 +564,7 @@ EOF
 - Modify: `packages/slides/src/store/memory.ts`
 - Modify: `packages/slides/src/store/memory.test.ts`
 
-- [ ] **Step 1: Write a failing test for `addSlide` placeholderRef stamping**
+- [x] **Step 1: Write a failing test for `addSlide` placeholderRef stamping**
 
 Append to `packages/slides/src/store/memory.test.ts` inside an existing `describe` block (or add a new one):
 
@@ -598,12 +598,12 @@ describe('MemSlidesStore — addSlide stamps placeholderRef', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- memory.test.ts -t 'stamps placeholderRef'`
 Expected: FAIL — `placeholderRef` is undefined on the elements (current code does not stamp).
 
-- [ ] **Step 3: Update `addSlide` to stamp placeholderRefs**
+- [x] **Step 3: Update `addSlide` to stamp placeholderRefs**
 
 Edit `packages/slides/src/store/memory.ts`. Replace the `elements:` mapper inside `addSlide`:
 
@@ -620,7 +620,7 @@ elements: layout.placeholders.map((p, i) => {
 }),
 ```
 
-- [ ] **Step 4: Replace `applyLayout` body with a call to the shared helper**
+- [x] **Step 4: Replace `applyLayout` body with a call to the shared helper**
 
 Still in `packages/slides/src/store/memory.ts`, replace the `applyLayout` body:
 
@@ -640,7 +640,7 @@ import { BUILT_IN_LAYOUTS, applyLayoutToSlide, getLayout } from '../model/layout
 
 Remove the now-unused `clone` calls inside the old `applyLayout` body if any are orphaned by the rewrite (the shared helper does its own copy internally).
 
-- [ ] **Step 5: Run all memory tests**
+- [x] **Step 5: Run all memory tests**
 
 Run: `pnpm --filter @wafflebase/slides test -- memory.test.ts`
 Expected: PASS — new tests pass; the existing `MemSlidesStore — applyLayout` describe-block now exercises the shared helper transparently. If any existing assertions check the old additive-only behaviour (e.g., placeholders keep accumulating), update them to the new semantics:
@@ -649,12 +649,12 @@ Expected: PASS — new tests pass; the existing `MemSlidesStore — applyLayout`
 
 If an existing assertion expects placeholder *accumulation* (additive behaviour), rewrite it to expect the **partitioned** outcome (slots-only, plus demoted orphans) and add a comment referencing this task.
 
-- [ ] **Step 6: Run full slides test suite**
+- [x] **Step 6: Run full slides test suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/store/memory.ts packages/slides/src/store/memory.test.ts
@@ -680,11 +680,11 @@ Same routing for the Yorkie store. The Yorkie variant mutates the live array pro
 **Files:**
 - Modify: `packages/frontend/src/app/slides/yorkie-slides-store.ts`
 
-- [ ] **Step 1: Locate the existing `addSlide` and `applyLayout` in the Yorkie store**
+- [x] **Step 1: Locate the existing `addSlide` and `applyLayout` in the Yorkie store**
 
 Read around `packages/frontend/src/app/slides/yorkie-slides-store.ts:559` (`applyLayout`) and the corresponding `addSlide` method (above it).
 
-- [ ] **Step 2: Update `addSlide` to stamp `placeholderRef`**
+- [x] **Step 2: Update `addSlide` to stamp `placeholderRef`**
 
 In the Yorkie `addSlide`, where the elements array is built from `layout.placeholders`, mirror the MemStore mapper:
 
@@ -698,7 +698,7 @@ const placeholderRef = { type: p.placeholder.type, index: sameTypeBefore };
 
 The exact push statement depends on how the Yorkie element shapes are spelled in this file — preserve its existing branching for `'text' | 'image' | 'shape'` and add `placeholderRef` as an additional property on each branch.
 
-- [ ] **Step 3: Replace `applyLayout` body to call the shared helper**
+- [x] **Step 3: Replace `applyLayout` body to call the shared helper**
 
 ```ts
 applyLayout(slideId: string, layoutId: string): void {
@@ -724,12 +724,12 @@ import type { Slide } from '@wafflebase/slides';
 
 (If `@wafflebase/slides` does not currently re-export `applyLayoutToSlide` and `Slide` from its `index.ts`, add the re-export there in the same task. Verify with: `grep -n 'applyLayoutToSlide\|export type.*Slide' packages/slides/src/index.ts`.)
 
-- [ ] **Step 4: Run the slides + frontend test suites**
+- [x] **Step 4: Run the slides + frontend test suites**
 
 Run: `pnpm --filter @wafflebase/slides test && pnpm --filter @wafflebase/frontend test --run`
 Expected: PASS. (Frontend yorkie-store tests are likely jsdom-based; if `RUN_YORKIE_INTEGRATION_TESTS` is unset, integration coverage is added in Task 6.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/yorkie-slides-store.ts packages/slides/src/index.ts
@@ -755,11 +755,11 @@ Two clients call `applyLayout` concurrently → final state converges. Gated by 
 **Files:**
 - Modify or create: `packages/frontend/src/app/slides/yorkie-slides-store.test.ts` (or wherever existing yorkie tests live — verify with `find packages/frontend -name '*yorkie*test*'`)
 
-- [ ] **Step 1: Locate the existing yorkie-slides-store test infrastructure**
+- [x] **Step 1: Locate the existing yorkie-slides-store test infrastructure**
 
 Run: `find packages/frontend -name '*yorkie*' -type f`. Read any existing `yorkie-slides-store.test.ts` to understand the gate pattern (`describe.skipIf(!process.env.RUN_YORKIE_INTEGRATION_TESTS)`).
 
-- [ ] **Step 2: Write the convergence test**
+- [x] **Step 2: Write the convergence test**
 
 Add a new `describe` (gate-aware). Skeleton:
 
@@ -793,7 +793,7 @@ describe.skipIf(!process.env.RUN_YORKIE_INTEGRATION_TESTS)(
 
 The exact `openClient`, `sync`, `closeClient` shape comes from any existing yorkie test helper in the repo. If none exists, write a minimal helper in the same file (the test is gated, so it only runs locally with both Postgres and Yorkie up).
 
-- [ ] **Step 3: Run the test locally with the gate**
+- [x] **Step 3: Run the test locally with the gate**
 
 ```bash
 docker compose up -d
@@ -802,7 +802,7 @@ RUN_YORKIE_INTEGRATION_TESTS=true pnpm --filter @wafflebase/frontend test -- yor
 
 Expected: PASS. If the test reveals a real divergence, fix it in `applyLayoutToSlide` (most likely an array-proxy mutation pattern issue) before continuing.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/yorkie-slides-store.test.ts
@@ -830,7 +830,7 @@ Reuse `thumbnail.ts` to render small previews of an empty layout. Module-level c
 - Create: `packages/slides/src/view/canvas/layout-preview.ts`
 - Create: `packages/slides/src/view/canvas/layout-preview.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `packages/slides/src/view/canvas/layout-preview.test.ts`:
 
@@ -877,12 +877,12 @@ describe('renderLayoutPreview', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- layout-preview.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `renderLayoutPreview`**
+- [x] **Step 3: Implement `renderLayoutPreview`**
 
 Create `packages/slides/src/view/canvas/layout-preview.ts`:
 
@@ -953,17 +953,17 @@ export function renderLayoutPreview(
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- layout-preview.test.ts`
 Expected: PASS. If `renderThumbnail`'s signature differs, adapt (read `packages/slides/src/view/canvas/thumbnail.ts` to confirm the call shape — the same shape is used in `thumbnail-panel.ts:64`).
 
-- [ ] **Step 5: Run the slides test suite**
+- [x] **Step 5: Run the slides test suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/layout-preview.ts packages/slides/src/view/canvas/layout-preview.test.ts
@@ -991,7 +991,7 @@ A self-contained popover that mounts a 4×3 grid of preview canvases plus labels
 - Create: `packages/slides/src/view/editor/layout-picker.ts`
 - Create: `packages/slides/src/view/editor/layout-picker.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `packages/slides/src/view/editor/layout-picker.test.ts`:
 
@@ -1067,12 +1067,12 @@ describe('showLayoutPicker', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- layout-picker.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement `showLayoutPicker`**
+- [x] **Step 3: Implement `showLayoutPicker`**
 
 Create `packages/slides/src/view/editor/layout-picker.ts`:
 
@@ -1172,12 +1172,12 @@ export function showLayoutPicker(
 
 Note: the cache returns the same `<canvas>` instance for repeat keys. Because a DOM node can only be in one place, do not insert the cached canvas directly across multiple pickers simultaneously — but the picker is one-at-a-time and re-mounts per open, so `appendChild` re-parents harmlessly. If a future use case opens two pickers, swap to "draw the cached pixels onto a fresh canvas" — out of scope here.
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- layout-picker.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/layout-picker.ts packages/slides/src/view/editor/layout-picker.test.ts
@@ -1204,7 +1204,7 @@ Replace the single button with a flex container of two clickable zones.
 - Modify: `packages/slides/src/view/editor/thumbnail-panel.ts`
 - Modify: `packages/slides/src/view/editor/thumbnail-panel.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `packages/slides/src/view/editor/thumbnail-panel.test.ts`:
 
@@ -1234,12 +1234,12 @@ it('clicks on the ▾ zone open the layout picker; left zone preserves blank ins
 
 (Read the existing `thumbnail-panel.test.ts` to confirm the test-helper name `createTestEditor` and adjust if different.)
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- thumbnail-panel.test.ts`
 Expected: FAIL — `data-add-slide-dropdown` not present.
 
-- [ ] **Step 3: Replace the single `+` button with split markup**
+- [x] **Step 3: Replace the single `+` button with split markup**
 
 Edit `packages/slides/src/view/editor/thumbnail-panel.ts` lines 116–123 (the existing button block). Replace with:
 
@@ -1294,17 +1294,17 @@ Add the import at the top:
 import { showLayoutPicker } from './layout-picker';
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- thumbnail-panel.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full slides test suite**
+- [x] **Step 5: Run the full slides test suite**
 
 Run: `pnpm --filter @wafflebase/slides test`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/thumbnail-panel.ts packages/slides/src/view/editor/thumbnail-panel.test.ts
@@ -1330,7 +1330,7 @@ Adds a single item to `canvasContextItems` (slide-background right-click).
 - Modify: `packages/slides/src/view/editor/editor.ts`
 - Modify: `packages/slides/src/view/editor/editor.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `packages/slides/src/view/editor/editor.test.ts` (consult the existing `describe` blocks for the test-fixture pattern):
 
@@ -1350,12 +1350,12 @@ it('canvas context menu includes a Change layout… item that opens the picker',
 
 If `editor.test.ts` lacks helpers like `fireRightClickOnCanvas`, add a minimal one (or invoke `editor['onContextMenu']` via a typed escape).
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `pnpm --filter @wafflebase/slides test -- editor.test.ts`
 Expected: FAIL — item missing.
 
-- [ ] **Step 3: Add the item**
+- [x] **Step 3: Add the item**
 
 Edit `packages/slides/src/view/editor/editor.ts` `canvasContextItems` (around line 381). Append before the `Insert text` item:
 
@@ -1401,17 +1401,17 @@ Add the import at the top of `editor.ts`:
 import { showLayoutPicker } from './layout-picker';
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter @wafflebase/slides test -- editor.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Full slides + frontend test suites**
+- [x] **Step 5: Full slides + frontend test suites**
 
 Run: `pnpm --filter @wafflebase/slides test && pnpm --filter @wafflebase/frontend test --run`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts packages/slides/src/view/editor/editor.test.ts
@@ -1438,14 +1438,14 @@ The merge gate per `CLAUDE.md`.
 - Create: `docs/tasks/active/20260508-slides-layout-change-lessons.md`
 - Modify: `docs/tasks/active/20260508-slides-layout-change-todo.md` (this file — fill the Review section below)
 
-- [ ] **Step 1: Run `pnpm verify:fast`**
+- [x] **Step 1: Run `pnpm verify:fast`**
 
 Run: `pnpm verify:fast`
 Expected: PASS — lint clean, all unit tests green.
 
 If anything fails, fix it before proceeding (no `--no-verify` shortcuts).
 
-- [ ] **Step 2: Browser smoke against `pnpm dev`**
+- [x] **Step 2: Browser smoke against `pnpm dev`**
 
 Start: `docker compose up -d && pnpm dev`
 
@@ -1458,11 +1458,11 @@ Walk through every item; document any deviation in the lessons file:
 5. Switch theme via the existing theme panel → reopen the picker → previews reflect the new theme colors.
 6. Press Cmd/Ctrl-Z after a layout change → reverts to previous layout in one step.
 
-- [ ] **Step 3: Write lessons file**
+- [x] **Step 3: Write lessons file**
 
 `docs/tasks/active/20260508-slides-layout-change-lessons.md` — capture any lesson worth carrying to the next task. Acceptable to be brief or even minimal if nothing surprised you. Patterns worth recording: divergences between the spec and reality (e.g., a Yorkie-array mutation pattern that did not work and how it was solved), or anything you would want a future agent to learn.
 
-- [ ] **Step 4: Fill the Review section in this file**
+- [x] **Step 4: Fill the Review section in this file**
 
 Append to the bottom of `docs/tasks/active/20260508-slides-layout-change-todo.md`:
 
@@ -1475,14 +1475,14 @@ Append to the bottom of `docs/tasks/active/20260508-slides-layout-change-todo.md
 - Manual smoke: PASS
 ```
 
-- [ ] **Step 5: Archive and reindex**
+- [x] **Step 5: Archive and reindex**
 
 ```bash
 pnpm tasks:archive
 pnpm tasks:index
 ```
 
-- [ ] **Step 6: Final commit and push**
+- [x] **Step 6: Final commit and push**
 
 ```bash
 git add docs/tasks/
@@ -1499,7 +1499,7 @@ EOF
 git push
 ```
 
-- [ ] **Step 7: Open the PR**
+- [x] **Step 7: Open the PR**
 
 ```bash
 gh pr create --title "Add slide layout change UI with placeholder identity" --body "$(cat <<'EOF'
@@ -1548,7 +1548,7 @@ Surfaced during PR review smoke: a new slide from a non-blank layout shows empty
 - Modify: `packages/slides/src/view/canvas/element-renderer.ts`
 - Modify: `packages/slides/src/view/canvas/text-renderer.test.ts` (or create if missing)
 
-- [ ] **Step 1: Hint table + lookup function**
+- [x] **Step 1: Hint table + lookup function**
 
 `packages/slides/src/model/placeholder-hints.ts`:
 
@@ -1568,7 +1568,7 @@ export function placeholderHintFor(type: PlaceholderType): string {
 }
 ```
 
-- [ ] **Step 2: Failing test for `drawText` ghost-text branch**
+- [x] **Step 2: Failing test for `drawText` ghost-text branch**
 
 In `text-renderer.test.ts` (create if not yet present; mirror `layout-preview.test.ts`'s `// @vitest-environment jsdom` + `import './test-canvas-env';` prefix), assert:
 
@@ -1578,7 +1578,7 @@ In `text-renderer.test.ts` (create if not yet present; mirror `layout-preview.te
 
 Use a vitest `vi.spyOn(ctx, 'fillText')` to inspect the call list.
 
-- [ ] **Step 3: Update `drawText` signature to accept the hint**
+- [x] **Step 3: Update `drawText` signature to accept the hint**
 
 ```ts
 export function drawText(
@@ -1627,7 +1627,7 @@ function drawHint(
 
 The font/positioning above is intentionally minimal — readable at the slide's native scale, and good enough that we don't have to wire the docs `computeLayout` machinery just to render one line of grey text.
 
-- [ ] **Step 4: Wire the hint at `drawElement`**
+- [x] **Step 4: Wire the hint at `drawElement`**
 
 In `view/canvas/element-renderer.ts`'s `case 'text':` branch:
 
@@ -1647,7 +1647,7 @@ Add the import:
 import { placeholderHintFor } from '../../model/placeholder-hints';
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test
@@ -1655,14 +1655,14 @@ pnpm --filter @wafflebase/slides test
 
 All 251+ tests still green; new text-renderer ghost-text tests pass.
 
-- [ ] **Step 6: Self-review**
+- [x] **Step 6: Self-review**
 
 - `git diff --stat`: 4 files (1 new, 3 modified). No other files changed.
 - User-added text elements (no `placeholderRef`) never get the hint.
 - Non-empty placeholders never get the hint (layout path wins).
 - The hint string is sourced from a single seam (`placeholderHintFor`) so future i18n is one file.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/slides/src/model/placeholder-hints.ts \
@@ -1684,4 +1684,4 @@ EOF
 )"
 ```
 
-- [ ] **Step 8: Push** — branch already tracks `origin/slides-layout-change`; `git push` lands the commit on the open PR.
+- [x] **Step 8: Push** — branch already tracks `origin/slides-layout-change`; `git push` lands the commit on the open PR.
