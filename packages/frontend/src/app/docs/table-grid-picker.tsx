@@ -58,7 +58,18 @@ export function TableGridPicker({ onSelect }: TableGridPickerProps) {
     [resolveCell, onSelect],
   );
 
-  const handleMouseLeave = useCallback(() => {
+  const handleMouseLeave = useCallback((e: React.MouseEvent) => {
+    const grid = gridRef.current;
+    if (grid) {
+      const rect = grid.getBoundingClientRect();
+      const exitedRight = e.clientX >= rect.right;
+      const exitedBottom = e.clientY >= rect.bottom;
+      if (exitedRight || exitedBottom) {
+        setHoverCol((prev) => (exitedRight ? MAX_SIZE - 1 : prev));
+        setHoverRow((prev) => (exitedBottom ? MAX_SIZE - 1 : prev));
+        return;
+      }
+    }
     setHoverRow(-1);
     setHoverCol(-1);
   }, []);

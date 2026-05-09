@@ -28,10 +28,10 @@ exist in the EditorAPI — this work connects them to the user interface.
 
 ### Component: `TableGridPicker`
 
-A 10x10 grid of small squares rendered inside a Radix `DropdownMenuContent`.
-Mouse hover highlights the selected region (top-left to hovered cell).
-Bottom label shows dimensions (e.g., "3 x 4"). Click calls
-`onSelect(rows, cols)`.
+A grid of small squares (up to 10x10, expanding from 5x5) rendered inside a
+Radix `DropdownMenuContent`. Mouse hover highlights the selected region
+(top-left to hovered cell). Bottom label shows dimensions (e.g., "3 x 4").
+Click calls `onSelect(rows, cols)`.
 
 ```typescript
 interface TableGridPickerProps {
@@ -44,6 +44,8 @@ interface TableGridPickerProps {
 - Hover: cells from (0,0) to (hoverRow, hoverCol) highlighted in blue
 - Click: fires `onSelect(hoverRow + 1, hoverCol + 1)`, closes dropdown
 - Label below grid: "3 x 4" or "Insert table" when no hover
+- Pointer exiting past the right/bottom edge while at the maximum pins the
+  selection to 10x10 instead of resetting (prevents overshoot snap-back)
 
 **Integration in `DocsFormattingToolbar`:**
 - New table icon button (`IconTable` from `@tabler/icons-react`) after the
