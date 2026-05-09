@@ -149,9 +149,8 @@ describe('drawShape — unknown kind fallback', () => {
       asCtx(ctx),
       size,
       // Cast: forward-compat for kinds not yet in the registry. Use a
-      // kind that is still unregistered (block arrows / callouts /
-      // math glyphs land in later tasks).
-      shape({ kind: 'wedgeRectCallout' as never, fill: srgb('#abc') }),
+      // kind that is still unregistered (math glyphs land in T10).
+      shape({ kind: 'mathPlus' as never, fill: srgb('#abc') }),
       THEME,
     );
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
