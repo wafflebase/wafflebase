@@ -1,4 +1,5 @@
 import type { PathBuilder } from '../builder';
+import { regularPolygonPath } from '../builder';
 
 /**
  * `pentagon` — regular convex pentagon inscribed in the element frame
@@ -7,15 +8,11 @@ import type { PathBuilder } from '../builder';
 export const buildPentagon: PathBuilder = ({ w, h }) => {
   const cx = w / 2;
   const cy = h / 2;
-  const rx = w / 2;
-  const ry = h / 2;
+  const verts = regularPolygonPath(cx, cy, w / 2, h / 2, 5);
   const path = new Path2D();
-  for (let i = 0; i < 5; i++) {
-    const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
-    const x = cx + rx * Math.cos(angle);
-    const y = cy + ry * Math.sin(angle);
-    if (i === 0) path.moveTo(x, y);
-    else path.lineTo(x, y);
+  path.moveTo(verts[0].x, verts[0].y);
+  for (let i = 1; i < verts.length; i++) {
+    path.lineTo(verts[i].x, verts[i].y);
   }
   path.closePath();
   return path;
