@@ -1,4 +1,4 @@
-import type { ShapeElement } from '../../model/element';
+import type { ShapeElement, ShapeKind } from '../../model/element';
 import { resolveColor, type Theme } from '../../model/theme';
 import { drawLine, drawArrow } from './shape-special';
 import { PATH_BUILDERS } from './shapes';
@@ -7,6 +7,14 @@ import type { FrameSize } from './shapes/builder';
 export type { FrameSize } from './shapes/builder';
 
 const placeholderWarned = new Set<string>();
+
+/**
+ * Shape kinds whose path geometry depends on the `evenodd` fill rule.
+ * The dispatcher passes `'evenodd'` to `ctx.fill(path, ...)` for these
+ * kinds so concentric counter-clockwise sub-paths punch holes (donut)
+ * rather than filling the whole interior.
+ */
+const EVENODD_KINDS: ReadonlySet<ShapeKind> = new Set(['donut']);
 
 /**
  * Draw a shape into element-local coordinates (top-left at 0,0). The
@@ -40,7 +48,7 @@ export function drawShape(
   const path = builder(size, data.adjustments);
   if (data.fill) {
     ctx.fillStyle = resolveColor(data.fill, theme);
-    ctx.fill(path);
+    ctx.fill(path, EVENODD_KINDS.has(data.kind) ? 'evenodd' : 'nonzero');
   }
   if (data.stroke) {
     ctx.strokeStyle = resolveColor(data.stroke.color, theme);

@@ -142,19 +142,31 @@ describe('drawShape — arrow', () => {
 });
 
 describe('drawShape — unknown kind fallback', () => {
-  it('falls back to a placeholder rect for unknown ShapeKind values', () => {
+  it('falls back to a placeholder rect for unregistered ShapeKind values', () => {
     const ctx = createCtxSpy();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     drawShape(
       asCtx(ctx),
       size,
-      // Cast: forward-compat for kinds not yet in the registry.
-      shape({ kind: 'donut' as never, fill: srgb('#abc') }),
+      // Cast: forward-compat for kinds not yet in the registry. Use a
+      // kind that is still unregistered (block arrows / callouts /
+      // math glyphs land in later tasks).
+      shape({ kind: 'rightArrow' as never, fill: srgb('#abc') }),
       THEME,
     );
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
     expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
+  });
+});
+
+describe('drawShape — donut (evenodd fill rule)', () => {
+  it('passes the evenodd fill rule to ctx.fill so the hole shows', () => {
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), size, shape({ kind: 'donut', fill: srgb('#abc') }), THEME);
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
+    expect(ctx.fill.mock.calls[0][1]).toBe('evenodd');
   });
 });

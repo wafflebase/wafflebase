@@ -2,6 +2,7 @@
 import type { ShapeKind } from '../../../model/element';
 import type { AdjustmentSpec, PathBuilder } from './builder';
 import { buildDiamond } from './basic/diamond';
+import { buildDonut, DONUT_ADJUSTMENTS } from './basic/donut';
 import { buildEllipse } from './basic/ellipse';
 import { buildHexagon, HEXAGON_ADJUSTMENTS } from './basic/hexagon';
 import { buildOctagon, OCTAGON_ADJUSTMENTS } from './basic/octagon';
@@ -43,6 +44,7 @@ PATH_BUILDERS.set('pentagon', buildPentagon);
 PATH_BUILDERS.set('hexagon', buildHexagon);
 PATH_BUILDERS.set('octagon', buildOctagon);
 PATH_BUILDERS.set('plus', buildPlus);
+PATH_BUILDERS.set('donut', buildDonut);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
@@ -51,3 +53,4 @@ ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('hexagon', HEXAGON_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('octagon', OCTAGON_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('plus', PLUS_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('donut', DONUT_ADJUSTMENTS);
