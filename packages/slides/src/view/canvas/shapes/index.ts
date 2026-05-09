@@ -2,6 +2,7 @@
 import type { ShapeKind } from '../../../model/element';
 import type { AdjustmentSpec, PathBuilder } from './builder';
 import { buildCan, CAN_ADJUSTMENTS } from './basic/can';
+import { buildCloud } from './basic/cloud';
 import { buildDiamond } from './basic/diamond';
 import { buildDonut, DONUT_ADJUSTMENTS } from './basic/donut';
 import { buildEllipse } from './basic/ellipse';
@@ -47,6 +48,7 @@ PATH_BUILDERS.set('octagon', buildOctagon);
 PATH_BUILDERS.set('plus', buildPlus);
 PATH_BUILDERS.set('donut', buildDonut);
 PATH_BUILDERS.set('can', buildCan);
+PATH_BUILDERS.set('cloud', buildCloud);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
