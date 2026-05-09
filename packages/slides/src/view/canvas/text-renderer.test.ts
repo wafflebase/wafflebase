@@ -2,6 +2,7 @@
 import { beforeAll, describe, it, expect } from 'vitest';
 import type { Block } from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
+import type { PlaceholderStyle } from '../../model/master';
 import type { Theme } from '../../model/theme';
 import { asCtx, createCtxSpy } from './ctx-spy';
 // Install the OffscreenCanvas shim before importing the renderer; see
@@ -35,6 +36,14 @@ function paragraph(text: string): Block {
 }
 
 const data = (blocks: Block[]): TextElement['data'] => ({ blocks });
+
+const TITLE_STYLE: PlaceholderStyle = {
+  fontRole: 'heading',
+  fontSize: 44,
+  colorRole: 'text',
+  align: 'left',
+  lineHeight: 1.2,
+};
 
 describe('drawText', () => {
   beforeAll(() => {
@@ -102,7 +111,7 @@ describe('drawText placeholder hint', () => {
       size,
       data([paragraph('')]),
       THEME,
-      { placeholderHint: 'Click to add title' },
+      { placeholderHint: { text: 'Click to add title', style: TITLE_STYLE } },
     );
     const texts = ctx.fillText.mock.calls.map((c) => c[0]);
     expect(texts).toContain('Click to add title');
@@ -117,7 +126,7 @@ describe('drawText placeholder hint', () => {
       size,
       data([paragraph('Hello')]),
       THEME,
-      { placeholderHint: 'Click to add title' },
+      { placeholderHint: { text: 'Click to add title', style: TITLE_STYLE } },
     );
     const texts = ctx.fillText.mock.calls.map((c) => c[0]);
     expect(texts).not.toContain('Click to add title');
@@ -129,5 +138,31 @@ describe('drawText placeholder hint', () => {
     // empty blocks, no hint — must paint nothing.
     drawText(asCtx(ctx), size, data([paragraph('')]), THEME);
     expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+
+  it('left-aligned hint anchors at (padding, padding)', () => {
+    const ctx = createCtxSpy();
+    drawText(
+      asCtx(ctx),
+      size,
+      data([paragraph('')]),
+      THEME,
+      { placeholderHint: { text: 'Click to add title', style: TITLE_STYLE } },
+    );
+    // Title style is left-aligned → x = padding (8), y = padding (8).
+    expect(ctx.fillText).toHaveBeenCalledWith('Click to add title', 8, 8);
+  });
+
+  it('center-aligned hint anchors at (w/2, padding)', () => {
+    const ctx = createCtxSpy();
+    const centerStyle: PlaceholderStyle = { ...TITLE_STYLE, align: 'center' };
+    drawText(
+      asCtx(ctx),
+      size,
+      data([paragraph('')]),
+      THEME,
+      { placeholderHint: { text: 'Click to add number', style: centerStyle } },
+    );
+    expect(ctx.fillText).toHaveBeenCalledWith('Click to add number', size.w / 2, 8);
   });
 });

@@ -8,8 +8,9 @@ import {
   type StoredColor,
 } from '@wafflebase/docs';
 import type { TextElement } from '../../model/element';
+import type { PlaceholderStyle } from '../../model/master';
 import type { Theme, ThemeColor } from '../../model/theme';
-import { resolveColor } from '../../model/theme';
+import { resolveColor, resolveFont } from '../../model/theme';
 import type { FrameSize } from './shape-renderer';
 
 /**
@@ -78,10 +79,12 @@ function makeColorResolver(theme: Theme): ColorResolver {
  */
 export function drawText(
   ctx: CanvasRenderingContext2D,
-  { w }: FrameSize,
+  size: FrameSize,
   data: TextElement['data'],
   theme: Theme,
-  options?: { placeholderHint?: string },
+  options?: {
+    placeholderHint?: { text: string; style: PlaceholderStyle };
+  },
 ): void {
   // "All inlines empty" mirrors `isElementEmpty` for text elements:
   // a placeholder seeded by `buildInsertElement` typically has one
@@ -93,7 +96,13 @@ export function drawText(
 
   if (allEmpty) {
     if (options?.placeholderHint) {
-      drawHint(ctx, w, options.placeholderHint, theme);
+      drawHint(
+        ctx,
+        size,
+        options.placeholderHint.text,
+        theme,
+        options.placeholderHint.style,
+      );
     }
     return;
   }
@@ -102,36 +111,42 @@ export function drawText(
     style: normalizeBlockStyle(b.style),
   }));
   const colorResolver = makeColorResolver(theme);
-  const { layout } = computeLayout(normalized, measurer, w);
+  const { layout } = computeLayout(normalized, measurer, size.w);
   paintLayout(ctx, layout, 0, 0, { colorResolver });
 }
 
 /**
  * Paint the muted "Click to add title"-style hint inside an empty
- * placeholder. Element-local coordinates: 8 px inset from the
- * placeholder's top-left, font size 32 px (roughly 1/3 of a typical
- * 90 px placeholder slot), 40% alpha on the deck's text role color
- * so the hint reads as ghost-text rather than committed content.
+ * placeholder. The hint adopts the slot's master `PlaceholderStyle`
+ * (font role + size, color role, alignment) so the title slot
+ * renders the hint at title scale, the body slot at body scale,
+ * the subtitle slot at subtitle scale — matching what the user
+ * will see the moment they start typing.
  *
- * Centring is intentionally deferred — visual smoke will tell us if
- * the top-left anchor needs polishing once the hint lands on screen.
+ * The role color is rendered at 40% alpha so the hint reads as
+ * ghost-text rather than committed content.
  */
 function drawHint(
   ctx: CanvasRenderingContext2D,
-  w: number,
+  size: FrameSize,
   hint: string,
   theme: Theme,
+  style: PlaceholderStyle,
 ): void {
   ctx.save();
-  const color = resolveColor({ kind: 'role', role: 'text' }, theme);
+  const color = resolveColor({ kind: 'role', role: style.colorRole }, theme);
+  const family = resolveFont({ kind: 'role', role: style.fontRole }, theme);
   ctx.fillStyle = withAlpha(color, 0.4);
-  ctx.font = '32px sans-serif';
+  ctx.font = `${style.fontSize}px ${family}`;
   ctx.textBaseline = 'top';
-  ctx.fillText(hint, 8, 8);
+  ctx.textAlign = style.align;
+  const padding = 8;
+  const x =
+    style.align === 'center' ? size.w / 2
+    : style.align === 'right' ? size.w - padding
+    : padding;
+  ctx.fillText(hint, x, padding);
   ctx.restore();
-  // Reserved for future centring; unused for now but kept in the
-  // signature so the call site doesn't drift if we add it.
-  void w;
 }
 
 /**

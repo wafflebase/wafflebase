@@ -49,5 +49,19 @@ export const DEFAULT_MASTER: Master = {
       align: 'left',
       lineHeight: 1.4,
     },
+    caption: {
+      fontRole: 'body',
+      fontSize: 14,
+      colorRole: 'textSecondary',
+      align: 'left',
+      lineHeight: 1.4,
+    },
+    'big-number': {
+      fontRole: 'heading',
+      fontSize: 96,
+      colorRole: 'text',
+      align: 'center',
+      lineHeight: 1.1,
+    },
   },
 };
