@@ -43,6 +43,7 @@ import {
   buildCloudCallout,
   CLOUD_CALLOUT_ADJUSTMENTS,
 } from './callouts/cloud-callout';
+import { buildMathPlus, MATH_PLUS_ADJUSTMENTS } from './equation/math-plus';
 
 /**
  * Shape kind → path builder. Filled in incrementally by the
@@ -88,6 +89,7 @@ PATH_BUILDERS.set('wedgeRectCallout', buildWedgeRectCallout);
 PATH_BUILDERS.set('wedgeRoundRectCallout', buildWedgeRoundRectCallout);
 PATH_BUILDERS.set('wedgeEllipseCallout', buildWedgeEllipseCallout);
 PATH_BUILDERS.set('cloudCallout', buildCloudCallout);
+PATH_BUILDERS.set('mathPlus', buildMathPlus);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
@@ -113,3 +115,4 @@ ADJUSTMENT_SPECS.set(
 );
 ADJUSTMENT_SPECS.set('wedgeEllipseCallout', WEDGE_ELLIPSE_CALLOUT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('cloudCallout', CLOUD_CALLOUT_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('mathPlus', MATH_PLUS_ADJUSTMENTS);
