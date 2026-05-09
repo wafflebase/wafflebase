@@ -7,6 +7,7 @@ import { buildParallelogram, PARALLELOGRAM_ADJUSTMENTS } from './basic/parallelo
 import { buildRect } from './basic/rect';
 import { buildRoundRect, ROUND_RECT_ADJUSTMENTS } from './basic/round-rect';
 import { buildRtTriangle } from './basic/rt-triangle';
+import { buildTrapezoid, TRAPEZOID_ADJUSTMENTS } from './basic/trapezoid';
 import { buildTriangle, TRIANGLE_ADJUSTMENTS } from './basic/triangle';
 
 /**
@@ -33,7 +34,9 @@ PATH_BUILDERS.set('triangle', buildTriangle);
 PATH_BUILDERS.set('rtTriangle', buildRtTriangle);
 PATH_BUILDERS.set('diamond', buildDiamond);
 PATH_BUILDERS.set('parallelogram', buildParallelogram);
+PATH_BUILDERS.set('trapezoid', buildTrapezoid);
 
 ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
+ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
