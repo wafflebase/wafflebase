@@ -1,4 +1,4 @@
-import type { Element, Frame } from '../../model/element';
+import type { Element, Frame, ShapeKind } from '../../model/element';
 import { combinedBoundingBox, containsPoint } from '../../model/frame';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
@@ -18,7 +18,7 @@ import { Selection } from './selection';
 import { snapDelta } from './snap';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 
-export type InsertKind = 'rect' | 'ellipse' | 'line' | 'arrow' | 'text';
+export type InsertKind = ShapeKind | 'text';
 
 export interface SlidesEditorOptions extends SlideRendererOptions {
   canvas: HTMLCanvasElement;

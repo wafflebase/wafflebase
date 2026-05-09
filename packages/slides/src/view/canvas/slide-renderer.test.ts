@@ -5,6 +5,8 @@ import type { Theme } from '../../model/theme';
 import { DEFAULT_MASTER } from '../../model/master';
 import { BUILT_IN_LAYOUTS } from '../../model/layout';
 import { asCtx, createCtxSpy } from './ctx-spy';
+// Install Path2D global before the slide renderer pulls in shape builders.
+import './test-canvas-env';
 import { SlideRenderer } from './slide-renderer';
 
 const THEME: Theme = {
@@ -79,8 +81,10 @@ describe('SlideRenderer.render', () => {
       ],
     };
     renderer.render(slide, DOC);
-    // 3 fillRects total: 1 background + 1 per shape
-    expect(ctx.fillRect).toHaveBeenCalledTimes(3);
+    // 1 fillRect for the background; rect shapes now route through the
+    // path-builder dispatcher, which calls `ctx.fill(path)` per shape.
+    expect(ctx.fillRect).toHaveBeenCalledTimes(1);
+    expect(ctx.fill).toHaveBeenCalledTimes(2);
   });
 
   it('applies a (hostWidth/SLIDE_WIDTH) scale so 1920x1080 logical maps to host pixels', () => {

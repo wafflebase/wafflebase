@@ -7,8 +7,10 @@ import {
   SlideRenderer,
   defaultLight,
   type Element,
+  type ShapeKind,
   type SlidesDocument,
   type Theme,
+  type ThemeColor,
 } from "@wafflebase/slides";
 import {
   Card,
@@ -120,6 +122,155 @@ function makeLayoutDoc(layoutId: string): SlidesDocument {
         layoutId,
         background: { fill: { kind: "role", role: "background" } },
         elements,
+        notes: [],
+      },
+    ],
+  };
+}
+
+/**
+ * Build a slide document that lays out every Phase 1 ShapeKind on a
+ * single canvas as a 5×7 grid. Each cell is the same frame size and
+ * uses the per-category default fill/stroke from the picker (filled
+ * for basic / arrows / equation, outlined for callouts, stroked for
+ * line / arrow). Used as a single baseline to catch geometry changes
+ * across the entire registry.
+ */
+const SHAPE_CATALOG: ShapeKind[] = [
+  // Lines
+  "line", "arrow",
+  // Basic (15)
+  "rect", "roundRect", "ellipse", "triangle", "rtTriangle",
+  "diamond", "parallelogram", "trapezoid", "pentagon", "hexagon",
+  "octagon", "plus", "donut", "can", "cloud",
+  // Block arrows (8)
+  "rightArrow", "leftArrow", "upArrow", "downArrow",
+  "leftRightArrow", "quadArrow", "chevron", "pentagonArrow",
+  // Callouts (4)
+  "wedgeRectCallout", "wedgeRoundRectCallout",
+  "wedgeEllipseCallout", "cloudCallout",
+  // Equation (6)
+  "mathPlus", "mathMinus", "mathMultiply",
+  "mathDivide", "mathEqual", "mathNotEqual",
+];
+
+const ACCENT1: ThemeColor = { kind: "role", role: "accent1" };
+const TEXT_ROLE: ThemeColor = { kind: "role", role: "text" };
+const BG_ROLE: ThemeColor = { kind: "role", role: "background" };
+const CALLOUT_KINDS = new Set<ShapeKind>([
+  "wedgeRectCallout",
+  "wedgeRoundRectCallout",
+  "wedgeEllipseCallout",
+  "cloudCallout",
+]);
+const LINE_KINDS = new Set<ShapeKind>(["line", "arrow"]);
+
+function shapeElement(
+  kind: ShapeKind,
+  frame: { x: number; y: number; w: number; h: number },
+): Element {
+  const adjustments = undefined; // Defaults — Phase 1 has no edit UI.
+  const lineSpecial = LINE_KINDS.has(kind);
+  const callout = CALLOUT_KINDS.has(kind);
+  return {
+    id: `${kind}-${frame.x}-${frame.y}`,
+    type: "shape",
+    frame: { ...frame, rotation: 0 },
+    data: {
+      kind,
+      adjustments,
+      ...(lineSpecial
+        ? {
+            stroke: { color: TEXT_ROLE, width: 2 },
+            ...(kind === "arrow" ? { fill: TEXT_ROLE } : {}),
+          }
+        : callout
+          ? { fill: BG_ROLE, stroke: { color: TEXT_ROLE, width: 2 } }
+          : { fill: ACCENT1 }),
+    },
+  } as Element;
+}
+
+function makeCatalogDoc(themeId: string = "default-light"): SlidesDocument {
+  // 5 columns × 7 rows = 35 cells. Canvas is the standard 1920×1080
+  // logical slide; cell size derived to fit with a small inset.
+  const cols = 5;
+  const rows = 7;
+  const cellW = 200;
+  const cellH = 100;
+  const xPad = (1920 - cols * cellW) / 2;
+  const yPad = (1080 - rows * cellH) / 2;
+  const elements: Element[] = SHAPE_CATALOG.map((kind, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const cellX = xPad + col * cellW;
+    const cellY = yPad + row * cellH;
+    return shapeElement(kind, {
+      x: cellX + 30,
+      y: cellY + 20,
+      w: cellW - 60,
+      h: cellH - 40,
+    });
+  });
+  return {
+    meta: { title: "Shape catalog", themeId, masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: { kind: "role", role: "background" } },
+        elements,
+        notes: [],
+      },
+    ],
+  };
+}
+
+/**
+ * Build a slide rendering one large donut to verify the evenodd fill
+ * rule produces a visible hole. Without evenodd, the inner ellipse
+ * would be filled the same accent1 colour as the outer one.
+ */
+function makeDonutDoc(): SlidesDocument {
+  return {
+    meta: { title: "Donut evenodd", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements: [shapeElement("donut", { x: 660, y: 240, w: 600, h: 600 })],
+        notes: [],
+      },
+    ],
+  };
+}
+
+/**
+ * Build a slide with a single rectangular callout so the tail's
+ * attachment to the closest edge (default `[-20833, 62500]` →
+ * bottom-edge tail pointing down-left) is visible in the baseline.
+ */
+function makeCalloutDoc(): SlidesDocument {
+  return {
+    meta: { title: "Callout tail", themeId: "default-light", masterId: "default" },
+    themes: BUILT_IN_THEMES,
+    masters: [DEFAULT_MASTER],
+    layouts: BUILT_IN_LAYOUTS,
+    slides: [
+      {
+        id: "s1",
+        layoutId: "blank",
+        background: { fill: BG_ROLE },
+        elements: [
+          shapeElement("wedgeRectCallout", { x: 760, y: 320, w: 400, h: 200 }),
+        ],
         notes: [],
       },
     ],
@@ -249,6 +400,45 @@ const SLIDES_SCENARIOS: SlidesScenario[] = [
     description:
       "Contextual picker layouts — color picker (Theme / Standard / Custom) and font picker (Theme fonts / System) — rendered standalone for baseline coverage independent of toolbar state.",
     render: () => <SlidesPickersScenario />,
+  },
+  // Phase 1 shape library — geometry baselines for the new 33 path
+  // builders. The catalog scenario covers every kind in one go;
+  // donut and callout pin a couple of higher-risk geometries
+  // (evenodd fill, tail attachment) at larger sizes for clarity.
+  {
+    id: "slides-canvas-shapes-catalog-light",
+    title: "Shapes — full 35 catalog (light)",
+    description:
+      "Every Phase 1 ShapeKind on a single slide, 5×7 grid. Default fills/strokes from the picker (accent1 fill for basic/arrows/equation, outlined for callouts). Default-light theme.",
+    render: () => <SlideCanvas doc={makeCatalogDoc("default-light")} />,
+  },
+  {
+    id: "slides-canvas-shapes-catalog-dark",
+    title: "Shapes — full 35 catalog (dark)",
+    description:
+      "Same shape catalog under default-dark theme — verifies role-bound fills/strokes flip correctly for all 33 new builders.",
+    render: () => <SlideCanvas doc={makeCatalogDoc("default-dark")} />,
+  },
+  {
+    id: "slides-canvas-shapes-catalog-material",
+    title: "Shapes — full 35 catalog (material)",
+    description:
+      "Catalog under the material theme — non-trivial accent1 colour to confirm theme resolution paths for new builders.",
+    render: () => <SlideCanvas doc={makeCatalogDoc("material")} />,
+  },
+  {
+    id: "slides-canvas-donut-evenodd",
+    title: "Shape — donut evenodd hole",
+    description:
+      "Single large donut. Hole must be visible; without the dispatcher's evenodd opt-in the inner ellipse would fill the same accent1 colour.",
+    render: () => <SlideCanvas doc={makeDonutDoc()} />,
+  },
+  {
+    id: "slides-canvas-callout-tail",
+    title: "Shape — callout tail attachment",
+    description:
+      "wedgeRectCallout with default adjustments (`[-20833, 62500]`). Tail attaches to the closest edge — bottom — and points down-left. Verifies the tail-edge selection logic and outline default fill.",
+    render: () => <SlideCanvas doc={makeCalloutDoc()} />,
   },
 ];
 

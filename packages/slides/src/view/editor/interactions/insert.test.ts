@@ -7,7 +7,11 @@ describe('buildInsertElement — drag-shaped shapes', () => {
     expect(init).toEqual({
       type: 'shape',
       frame: { x: 10, y: 20, w: 100, h: 60, rotation: 0 },
-      data: { kind: 'rect', fill: { kind: 'role', role: 'accent1' } },
+      data: {
+        kind: 'rect',
+        fill: { kind: 'role', role: 'accent1' },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 1 },
+      },
     });
   });
   it('builds an ellipse the same way', () => {
@@ -15,7 +19,11 @@ describe('buildInsertElement — drag-shaped shapes', () => {
     expect(init).toEqual({
       type: 'shape',
       frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
-      data: { kind: 'ellipse', fill: { kind: 'role', role: 'accent1' } },
+      data: {
+        kind: 'ellipse',
+        fill: { kind: 'role', role: 'accent1' },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 1 },
+      },
     });
   });
   it('normalises a backwards drag', () => {
@@ -44,5 +52,33 @@ describe('buildInsertElement — text', () => {
     expect(text.frame.h).toBe(80);
     expect(text.frame.x).toBe(50);
     expect(text.frame.y).toBe(50);
+  });
+});
+
+describe('buildInsertElement — category defaults', () => {
+  it('uses outlined defaults for callouts', () => {
+    const init = buildInsertElement(
+      'wedgeRectCallout', { x: 0, y: 0 }, { x: 100, y: 50 });
+    expect(init).toMatchObject({
+      type: 'shape',
+      data: {
+        kind: 'wedgeRectCallout',
+        fill: { kind: 'role', role: 'background' },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 2 },
+      },
+    });
+  });
+
+  it('uses filled defaults for new block-arrow kinds', () => {
+    const init = buildInsertElement(
+      'rightArrow', { x: 0, y: 0 }, { x: 100, y: 50 });
+    expect(init).toMatchObject({
+      type: 'shape',
+      data: {
+        kind: 'rightArrow',
+        fill: { kind: 'role', role: 'accent1' },
+        stroke: { color: { kind: 'role', role: 'text' }, width: 1 },
+      },
+    });
   });
 });

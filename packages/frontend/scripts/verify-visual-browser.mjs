@@ -66,6 +66,11 @@ const scenarioIds = [
   "slides-toolbar",
   "slides-theme-panel",
   "slides-pickers",
+  "slides-canvas-shapes-catalog-light",
+  "slides-canvas-shapes-catalog-dark",
+  "slides-canvas-shapes-catalog-material",
+  "slides-canvas-donut-evenodd",
+  "slides-canvas-callout-tail",
 ];
 
 const visualTargets = [

@@ -68,7 +68,9 @@ describe('drawElement — frame transform', () => {
   it('dispatches to drawShape for shape elements', () => {
     const ctx = createCtxSpy();
     drawElement(asCtx(ctx), shapeAt(0, 0), DOC, THEME, () => undefined);
-    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
+    // rect routes through the path-builder dispatcher: ctx.fill(path).
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
   });
 
   it('dispatches to drawText for text elements', () => {

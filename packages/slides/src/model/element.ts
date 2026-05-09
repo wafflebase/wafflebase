@@ -20,7 +20,24 @@ export type ImageRef = {
 /** Crop rectangle in image-relative coordinates (0..1 on each axis). */
 export type Crop = { x: number; y: number; w: number; h: number };
 
-export type ShapeKind = 'rect' | 'ellipse' | 'line' | 'arrow';
+export type ShapeKind =
+  // Lines (special-cased renderers in shape-special.ts)
+  | 'line' | 'arrow'
+  // Basic shapes (15)
+  | 'rect' | 'roundRect' | 'ellipse'
+  | 'triangle' | 'rtTriangle'
+  | 'diamond' | 'parallelogram' | 'trapezoid'
+  | 'pentagon' | 'hexagon' | 'octagon'
+  | 'plus' | 'donut' | 'can' | 'cloud'
+  // Block arrows (8)
+  | 'rightArrow' | 'leftArrow' | 'upArrow' | 'downArrow'
+  | 'leftRightArrow' | 'quadArrow' | 'chevron' | 'pentagonArrow'
+  // Callouts (4)
+  | 'wedgeRectCallout' | 'wedgeRoundRectCallout'
+  | 'wedgeEllipseCallout' | 'cloudCallout'
+  // Equation (6)
+  | 'mathPlus' | 'mathMinus' | 'mathMultiply'
+  | 'mathDivide' | 'mathEqual' | 'mathNotEqual';
 
 export type ShapeStroke = {
   color: ThemeColor;
@@ -67,6 +84,15 @@ export type ShapeElement = ElementBase & {
   type: 'shape';
   data: {
     kind: ShapeKind;
+    /**
+     * OOXML-aligned per-shape adjustments (mirrors `<a:avLst><a:gd>`).
+     * Path builders read this with sensible defaults when missing or
+     * shorter than expected. Phase 1 has no editing UI; defaults are
+     * used in practice. Stored from day one so P2/P3/P4 add edit UX
+     * without data migration. Units are per-shape (typically OOXML
+     * thousandths of the relevant dimension).
+     */
+    adjustments?: number[];
     fill?: ThemeColor;
     stroke?: ShapeStroke;
   };

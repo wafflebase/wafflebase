@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { ShapeElement } from '../../model/element';
 import type { Theme } from '../../model/theme';
 import { asCtx, createCtxSpy } from './ctx-spy';
+// Install Path2D global before importing the renderer/builders.
+import './test-canvas-env';
 import { drawShape } from './shape-renderer';
 
 const THEME: Theme = {
@@ -20,28 +22,30 @@ const shape = (data: ShapeElement['data']): ShapeElement['data'] => data;
 const srgb = (value: string) => ({ kind: 'srgb' as const, value });
 
 describe('drawShape — rect', () => {
-  it('fills a rectangle at (0,0,w,h) with the given fill', () => {
+  it('fills a rectangle path with the given fill', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({ kind: 'rect', fill: srgb('#abc') }), THEME);
     expect(ctx.fillStyle).toBe('#abc');
-    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
   });
 
-  it('strokes a rectangle when stroke is set', () => {
+  it('strokes a rectangle path when stroke is set', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({
       kind: 'rect', stroke: { color: srgb('#000'), width: 3 },
     }), THEME);
     expect(ctx.strokeStyle).toBe('#000');
     expect(ctx.lineWidth).toBe(3);
-    expect(ctx.strokeRect).toHaveBeenCalledWith(0, 0, 100, 60);
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    expect(ctx.stroke.mock.calls[0][0]).toBeInstanceOf(Path2D);
   });
 
   it('skips fill and stroke when neither is set', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({ kind: 'rect' }), THEME);
-    expect(ctx.fillRect).not.toHaveBeenCalled();
-    expect(ctx.strokeRect).not.toHaveBeenCalled();
+    expect(ctx.fill).not.toHaveBeenCalled();
+    expect(ctx.stroke).not.toHaveBeenCalled();
   });
 
   it('resolves a role-bound fill through the theme', () => {
@@ -54,13 +58,16 @@ describe('drawShape — rect', () => {
 });
 
 describe('drawShape — ellipse', () => {
-  it('paints an ellipse centred in the frame', () => {
+  it('fills an ellipse path with the given fill', () => {
     const ctx = createCtxSpy();
     drawShape(asCtx(ctx), size, shape({ kind: 'ellipse', fill: srgb('#0a0') }), THEME);
-    expect(ctx.beginPath).toHaveBeenCalledTimes(1);
-    expect(ctx.ellipse).toHaveBeenCalledWith(50, 30, 50, 30, 0, 0, Math.PI * 2);
-    expect(ctx.fill).toHaveBeenCalledTimes(1);
     expect(ctx.fillStyle).toBe('#0a0');
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    // Dispatcher passes a Path2D produced by buildEllipse; the actual
+    // ellipse() call lives on Path2D and is opaque to the spy. Assert
+    // on the dispatcher-level signal: a single Path2D argument (not the
+    // 'evenodd' fill-rule literal that donut/star will use later).
+    expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
   });
 
   it('resolves a role-bound fill through the theme', () => {
@@ -131,5 +138,37 @@ describe('drawShape — arrow', () => {
     // Head is still painted using the text role as a sensible default.
     expect(ctx.fillStyle).toBe('#000'); // text
     expect(ctx.fill).toHaveBeenCalled();
+  });
+});
+
+describe('drawShape — unknown kind fallback', () => {
+  it('falls back to a placeholder rect for unregistered ShapeKind values', () => {
+    const ctx = createCtxSpy();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    drawShape(
+      asCtx(ctx),
+      size,
+      // Cast: P4's PPTX importer can produce shape kinds that are not in
+      // the union (forward-compat for OOXML kinds that ship later). Use a
+      // synthetic name that is guaranteed to never be a real ShapeKind so
+      // this test stays meaningful even after T10 registers all current
+      // union members.
+      shape({ kind: '__test_unknown__' as never, fill: srgb('#abc') }),
+      THEME,
+    );
+    expect(ctx.fillRect).toHaveBeenCalledTimes(1);
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 100, 60);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+});
+
+describe('drawShape — donut (evenodd fill rule)', () => {
+  it('passes the evenodd fill rule to ctx.fill so the hole shows', () => {
+    const ctx = createCtxSpy();
+    drawShape(asCtx(ctx), size, shape({ kind: 'donut', fill: srgb('#abc') }), THEME);
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fill.mock.calls[0][0]).toBeInstanceOf(Path2D);
+    expect(ctx.fill.mock.calls[0][1]).toBe('evenodd');
   });
 });
