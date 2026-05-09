@@ -481,7 +481,7 @@ export function evaluateWithSpill(formula: string, grid?: Grid): string | SpillR
     const evaluator = new Evaluator(grid);
     const node = evaluator.visit(parsed.tree);
 
-    if (node.t === 'arr') {
+    if (node.t === 'arr' && node.spill !== false) {
       return {
         values: node.v.map((row) => row.map((cell) => evalNodeToStr(cell, grid))),
         rows: node.rows,
@@ -629,7 +629,7 @@ export const ErrNode = {
 
 export type RefNode = { t: 'ref'; v: Reference };
 export type EmptyNode = { t: 'empty' };
-export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number };
+export type ArrNode = { t: 'arr'; v: EvalNode[][]; rows: number; cols: number; spill?: boolean };
 export type LambdaNode = {
   t: 'lambda';
   params: string[];
@@ -894,7 +894,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       result.push(resultRow);
     }
 
-    return { t: 'arr', v: result, rows, cols };
+    return { t: 'arr', v: result, rows, cols, spill: false };
   }
 
   private comparisonArrayBinary(leftRaw: EvalNode, rightRaw: EvalNode, op: number): EvalNode | null {
@@ -928,7 +928,7 @@ class Evaluator implements FormulaVisitor<EvalNode> {
       result.push(resultRow);
     }
 
-    return { t: 'arr', v: result, rows, cols };
+    return { t: 'arr', v: result, rows, cols, spill: false };
   }
 
   private toMatrixArray(node: EvalNode): MatrixArray | ErrNode | null {

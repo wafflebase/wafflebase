@@ -132,6 +132,10 @@ describe('Formula', () => {
     expect(evaluate('=SUMPRODUCT((A1:A3="North")*B1:B3)', grid)).toBe('40');
   });
 
+  it('should reject SUMPRODUCT arrays with different shapes', () => {
+    expect(evaluate('=SUMPRODUCT({1,2,3,4},{1,2;3,4})')).toBe('#VALUE!');
+  });
+
   it('should use array literals in arithmetic', () => {
     expect(evaluate('={1,2,3}+10')).toBe('11');
   });

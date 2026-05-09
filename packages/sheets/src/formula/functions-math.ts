@@ -1768,6 +1768,8 @@ export function sumproductFunc(
   }
 
   const arrays: number[][] = [];
+  let expectedRows: number | undefined;
+  let expectedCols: number | undefined;
   for (const expr of exprs) {
     const matrix = getReferenceMatrixFromExpression(expr, visit, grid);
     if ('t' in matrix && matrix.t === 'err') {
@@ -1776,6 +1778,15 @@ export function sumproductFunc(
 
     const rows = matrix.t === 'arrmat' ? matrix.rowCount : matrix.v.rowCount;
     const cols = matrix.t === 'arrmat' ? matrix.colCount : matrix.v.colCount;
+    if (
+      expectedRows !== undefined &&
+      (rows !== expectedRows || cols !== expectedCols)
+    ) {
+      return ErrNode.VALUE;
+    }
+    expectedRows ??= rows;
+    expectedCols ??= cols;
+
     const values: number[] = [];
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
