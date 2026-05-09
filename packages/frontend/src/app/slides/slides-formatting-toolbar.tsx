@@ -193,24 +193,42 @@ export function SlidesFormattingToolbar({
   // Anchor the layout picker popover off the chevron button so it
   // opens flush with the split button rather than at click coords.
   const layoutChevronRef = useRef<HTMLButtonElement | null>(null);
+  // Close handle returned by the open picker, or null when closed.
+  // Drives both the toggle behavior (second chevron click closes) and
+  // the unmount cleanup (so the popover and its document listeners
+  // don't outlive the toolbar when the user navigates away mid-pick).
+  const pickerCloseRef = useRef<(() => void) | null>(null);
   const onAddBlankSlide = useCallback(() => {
     if (!store) return;
     store.batch(() => store.addSlide("blank"));
   }, [store]);
   const onOpenLayoutPicker = useCallback(() => {
     if (!store) return;
+    if (pickerCloseRef.current) {
+      pickerCloseRef.current();
+      return;
+    }
     const el = layoutChevronRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    showLayoutPicker(document.body, {
+    pickerCloseRef.current = showLayoutPicker(document.body, {
       store,
+      // Skip the picker's outside-click-close when the user clicks
+      // the chevron itself; the chevron's own onClick toggles via the
+      // close handle without the capture-phase race.
+      trigger: el,
       anchor: { x: rect.left, y: rect.bottom + 4 },
       onPick: (layoutId) => {
         store.batch(() => store.addSlide(layoutId));
       },
-      onClose: () => {},
+      onClose: () => {
+        pickerCloseRef.current = null;
+      },
     });
   }, [store]);
+  // Close the popover if the toolbar unmounts mid-pick — otherwise
+  // the document listeners in showLayoutPicker outlive their consumer.
+  useEffect(() => () => pickerCloseRef.current?.(), []);
 
   return (
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">

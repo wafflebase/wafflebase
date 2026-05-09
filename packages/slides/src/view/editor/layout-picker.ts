@@ -17,6 +17,15 @@ export interface LayoutPickerOptions {
   selectedLayoutId?: string;
   /** Top-left anchor in viewport coords (clientX/clientY). */
   anchor: { x: number; y: number };
+  /**
+   * The element that opened the picker (e.g. a toolbar split-button
+   * chevron). When set, mousedown on this element will NOT trigger
+   * the outside-click close path — letting the trigger itself toggle
+   * the picker via the close handle returned from `showLayoutPicker`,
+   * without the capture-phase race where mousedown closes and the
+   * follow-up click immediately reopens.
+   */
+  trigger?: HTMLElement | null;
   onPick: (layoutId: string) => void;
   onClose: () => void;
 }
@@ -26,11 +35,15 @@ export interface LayoutPickerOptions {
  * shows a 4-column grid of canvas previews (one per BUILT_IN_LAYOUTS
  * entry) and resolves through `onPick` on cell click. Outside-click
  * and Escape both call `onClose` only.
+ *
+ * Returns a `close` function so callers can dismiss the popover
+ * programmatically (e.g. on host unmount or to toggle from the same
+ * trigger element). The returned function is idempotent.
  */
 export function showLayoutPicker(
   host: HTMLElement,
   opts: LayoutPickerOptions,
-): void {
+): () => void {
   const popover = document.createElement('div');
   popover.className = 'wfb-slides-layout-picker';
   popover.setAttribute('role', 'listbox');
@@ -104,7 +117,15 @@ export function showLayoutPicker(
     popover.appendChild(cell);
   }
 
+  // Guard against double-close: the returned handle may be invoked
+  // by a useEffect cleanup at the same time the popover is closing
+  // through Escape / outside-click / pick. Without the flag,
+  // opts.onClose would fire twice and removeEventListener calls would
+  // hit already-removed listeners (no-op but noisy).
+  let closed = false;
   function close(): void {
+    if (closed) return;
+    closed = true;
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('mousedown', onOutside, true);
     popover.remove();
@@ -118,7 +139,14 @@ export function showLayoutPicker(
     }
   }
   function onOutside(e: MouseEvent): void {
-    if (!popover.contains(e.target as Node)) close();
+    const target = e.target as Node;
+    if (popover.contains(target)) return;
+    // Skip when the click is on the registered trigger — let the
+    // trigger's own click handler toggle the picker via `close`.
+    // Without this, the capture-phase mousedown closes the popover
+    // and the follow-up click immediately re-opens it.
+    if (opts.trigger && opts.trigger.contains(target)) return;
+    close();
   }
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('mousedown', onOutside, true);
@@ -141,4 +169,6 @@ export function showLayoutPicker(
     popover.querySelector<HTMLElement>('[data-selected="true"]')
     ?? popover.querySelector<HTMLElement>('[tabindex="0"]');
   focusTarget?.focus();
+
+  return close;
 }
