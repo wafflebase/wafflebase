@@ -1774,6 +1774,16 @@ exports[`shape registry snapshot > every registered builder produces stable Path
       "ry": 50,
     },
     {
+      "closed": false,
+      "kind": "subpath",
+      "points": [
+        {
+          "x": 75,
+          "y": 50,
+        },
+      ],
+    },
+    {
       "ccw": true,
       "cx": 50,
       "cy": 50,
