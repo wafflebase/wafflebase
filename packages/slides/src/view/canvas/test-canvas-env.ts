@@ -287,6 +287,33 @@ class TestPath2D {
     }
   }
 
+  /**
+   * Append the operations of another `Path2D` to this one. Mirrors the
+   * browser `Path2D.addPath(other)` API. Composite shape builders
+   * (e.g. `cloudCallout` reusing `buildCloud`) rely on this to compose
+   * sub-paths without re-implementing geometry.
+   *
+   * The pending sub-path on `this` (if any) is flushed first so it
+   * keeps a coherent ordering, then every op from `other` is copied
+   * across. We deliberately copy points arrays (rather than aliasing)
+   * so later mutations on `other` cannot leak in.
+   */
+  addPath(other: TestPath2D): void {
+    this.flushSubpath();
+    other.finalize();
+    for (const op of other.ops) {
+      if (op.kind === 'subpath') {
+        this.ops.push({
+          kind: 'subpath',
+          points: op.points.map((p) => ({ x: p.x, y: p.y })),
+          closed: op.closed,
+        });
+      } else {
+        this.ops.push({ ...op });
+      }
+    }
+  }
+
   private flushSubpath(): void {
     if (this.current && this.current.length > 0) {
       this.ops.push({ kind: 'subpath', points: this.current, closed: false });
