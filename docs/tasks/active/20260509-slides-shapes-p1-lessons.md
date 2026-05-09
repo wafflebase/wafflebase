@@ -83,6 +83,23 @@ registry, categorised picker popover).
   **Phase 4's preset-formula evaluator should override this builder**
   rather than try to fix the approximation.
 
+## Visual harness
+
+- Five new scenarios in
+  `packages/frontend/src/app/harness/visual/slides-scenarios.tsx`
+  cover the shape registry end-to-end: full 35-shape catalogue
+  (5×7 grid) under three themes, plus single-shape baselines for
+  donut (evenodd hole) and wedgeRectCallout (tail attachment).
+- **Baselines need regeneration** after merge — run
+  `pnpm verify:browser:docker:update` to capture the new PNGs and
+  commit them. Without baselines, the next `pnpm
+  verify:browser:docker` run fails for the new scenario IDs. Worth
+  doing as a follow-up commit on this PR rather than a separate one
+  so the visual gate stays meaningful.
+- The catalog scenario uses `layoutId: "blank"` to keep the
+  background uniform (no placeholder text adding noise to the
+  geometry diff).
+
 ## Picker UX
 
 - 35 canvas-rendered icons in the popover render fast enough on
