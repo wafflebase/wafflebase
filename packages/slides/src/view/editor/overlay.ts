@@ -1,6 +1,8 @@
 import type { Element, Frame } from '../../model/element';
 import { combinedBoundingBox } from '../../model/frame';
 import type { SnapGuide } from './snap';
+import { ADJUSTMENT_HANDLES } from '../canvas/shapes/index';
+import { defaultAdjustmentsFor } from './interactions/adjustment';
 
 const HANDLE_SIZE = 8;             // px
 const ROTATE_HANDLE_OFFSET = 24;   // px above top centre
@@ -39,6 +41,7 @@ export function renderOverlay(
 
   if (selectedElements.length === 1 && selectedElements[0].frame.rotation !== 0) {
     renderRotatedHandles(overlay, selectedElements[0].frame, options);
+    renderAdjustmentHandles(overlay, selectedElements[0], options);
   } else {
     renderAxisAlignedHandles(overlay, selectedElements, options);
   }
@@ -94,6 +97,10 @@ function renderAxisAlignedHandles(
   ];
   for (const [kind, cx, cy] of positions) {
     overlay.appendChild(makeHandle(kind, cx, cy));
+  }
+
+  if (selectedElements.length === 1) {
+    renderAdjustmentHandles(overlay, selectedElements[0], options);
   }
 }
 
@@ -202,4 +209,54 @@ function handleCursor(kind: string): string {
     case 'rotate':         return 'crosshair';
     default:               return 'default';
   }
+}
+
+const ADJUST_HANDLE_SIZE = 8; // px (post-scale, like resize handles)
+
+function renderAdjustmentHandles(
+  overlay: HTMLDivElement,
+  el: Element,
+  options: OverlayOptions,
+): void {
+  if (el.type !== 'shape') return;
+  const handles = ADJUSTMENT_HANDLES.get(el.data.kind);
+  if (!handles || handles.length === 0) return;
+
+  const { scale } = options;
+  const { frame } = el;
+  const cx = frame.x + frame.w / 2;
+  const cy = frame.y + frame.h / 2;
+  const cos = Math.cos(frame.rotation);
+  const sin = Math.sin(frame.rotation);
+  const localToWorld = (lx: number, ly: number) => {
+    const dx = lx - frame.w / 2;
+    const dy = ly - frame.h / 2;
+    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+  };
+
+  const adjustments =
+    el.data.adjustments ?? defaultAdjustmentsFor(el.data.kind);
+  handles.forEach((handle, i) => {
+    const local = handle.position({ w: frame.w, h: frame.h }, adjustments);
+    const world = localToWorld(local.x, local.y);
+    overlay.appendChild(
+      makeAdjustmentHandle(`adjust-${i}`, world.x * scale, world.y * scale),
+    );
+  });
+}
+
+function makeAdjustmentHandle(kind: string, cx: number, cy: number): HTMLDivElement {
+  const el = document.createElement('div');
+  el.dataset.handle = kind;
+  el.className = `wfb-slides-handle wfb-slides-adjust ${kind}`;
+  el.style.position = 'absolute';
+  el.style.left = `${cx - ADJUST_HANDLE_SIZE / 2}px`;
+  el.style.top = `${cy - ADJUST_HANDLE_SIZE / 2}px`;
+  el.style.width = `${ADJUST_HANDLE_SIZE}px`;
+  el.style.height = `${ADJUST_HANDLE_SIZE}px`;
+  el.style.background = '#FFD500';
+  el.style.border = '1px solid #000';
+  el.style.transform = 'rotate(45deg)'; // diamond
+  el.style.cursor = 'pointer';
+  return el;
 }

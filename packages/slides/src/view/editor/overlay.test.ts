@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
-import type { Element } from '../../model/element';
+import type { Element, ShapeElement } from '../../model/element';
 import { renderOverlay } from './overlay';
 
 const HANDLE_SIZE = 8;
@@ -154,5 +154,55 @@ describe('renderOverlay', () => {
     expect(g.style.top).toBe('270px');
     expect(g.style.width).toBe('960px');
     expect(g.style.height).toBe('1px');
+  });
+});
+
+function makeShape(kind: ShapeElement['data']['kind']): ShapeElement {
+  return {
+    id: 'el1',
+    type: 'shape',
+    frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+    data: { kind },
+  };
+}
+
+describe('renderOverlay — adjustment handles', () => {
+  let overlay: HTMLDivElement;
+  beforeEach(() => {
+    overlay = document.createElement('div');
+  });
+
+  it('paints a yellow diamond for a selected pilot shape (roundRect)', () => {
+    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1 });
+    const adj = overlay.querySelector('[data-handle="adjust-0"]');
+    expect(adj).not.toBeNull();
+  });
+
+  it('paints no adjustment handle for a non-pilot shape (rect)', () => {
+    renderOverlay(overlay, [makeShape('rect')], { scale: 1 });
+    const adj = overlay.querySelector('[data-handle^="adjust-"]');
+    expect(adj).toBeNull();
+  });
+
+  it('paints no adjustment handle on multi-selection', () => {
+    renderOverlay(
+      overlay,
+      [makeShape('roundRect'), makeShape('star5')],
+      { scale: 1 },
+    );
+    const adj = overlay.querySelector('[data-handle^="adjust-"]');
+    expect(adj).toBeNull();
+  });
+
+  it('appends adjustment handles AFTER resize handles in DOM order', () => {
+    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1 });
+    const children = Array.from(overlay.children);
+    const lastResize = children.findIndex(
+      (c) => c.getAttribute('data-handle') === 'rotate',
+    );
+    const firstAdjust = children.findIndex((c) =>
+      c.getAttribute('data-handle')?.startsWith('adjust-'),
+    );
+    expect(firstAdjust).toBeGreaterThan(lastResize);
   });
 });
