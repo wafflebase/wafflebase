@@ -413,6 +413,42 @@ describe('align/distribute', () => {
     expect(afterB).toEqual(beforeB);
   });
 
+  it('align uses axis-aligned frame fields and preserves rotation', () => {
+    const { canvas, overlay, store } = makeFixture();
+    const sid = store.read().slides[0].id;
+    // Two rotated elements at different unrotated x values. align('left')
+    // must write the result directly to frame.x and leave rotation alone.
+    let aId = '';
+    let bId = '';
+    const aRotation = Math.PI / 4;
+    const bRotation = Math.PI / 6;
+    store.batch(() => {
+      aId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 100, y: 0, w: 50, h: 50, rotation: aRotation },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+      bId = store.addElement(sid, {
+        type: 'shape',
+        frame: { x: 300, y: 0, w: 50, h: 50, rotation: bRotation },
+        data: { kind: 'rect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    editor.setSelection([aId, bId]);
+    editor.align('left');
+    const elements = store.read().slides[0].elements;
+    const a = elements.find((e) => e.id === aId)!;
+    const b = elements.find((e) => e.id === bId)!;
+    // Both elements' frame.x collapses to the same value (left-align
+    // pulls every selected frame to the reference's x — they share a
+    // common left edge after the op).
+    expect(a.frame.x).toBe(b.frame.x);
+    // Rotation preserved exactly on both elements.
+    expect(a.frame.rotation).toBe(aRotation);
+    expect(b.frame.rotation).toBe(bRotation);
+  });
+
   it('align/distribute commit through one store.batch (one undo step)', () => {
     const { canvas, overlay, store } = makeFixture();
     const sid = store.read().slides[0].id;

@@ -99,6 +99,9 @@ export interface SlidesEditor {
    * Align the selected elements relative to:
    *   - the combined bounding box of the selection, when ≥ 2 are selected;
    *   - the slide canvas (1920×1080), when exactly 1 is selected.
+   * Each element's new position is written directly to `frame.x/y` and
+   * `frame.rotation` is preserved; rotated elements keep their rotation
+   * after aligning (matches Google Slides).
    * No-op when nothing is selected.
    *
    * Wraps every moved frame in a single store.batch() so undo/redo treats
@@ -108,6 +111,8 @@ export interface SlidesEditor {
   /**
    * Equalize the gaps between consecutive selected elements along the
    * given axis. Endpoints stay; only inner elements move.
+   * Spacing uses each frame's axis-aligned `x/y/w/h`; rotation is
+   * preserved on every moved element.
    *
    * No-op when fewer than 3 elements are selected.
    */
@@ -357,7 +362,7 @@ class SlidesEditorImpl implements SlidesEditor {
         this.options.store.updateElementFrame(slideId, id, frame);
       }
     });
-    this.markDirty();
+    this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
   }
