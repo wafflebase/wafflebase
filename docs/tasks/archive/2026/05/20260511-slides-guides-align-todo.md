@@ -80,7 +80,7 @@ align/distribute pure functions, editor wiring) + `packages/frontend`
 
 ### Phase 1 — Snap guide data model
 
-- [ ] **1.1** Add to `snap.ts` the `SnapGuide` type:
+- [x] **1.1** Add to `snap.ts` the `SnapGuide` type:
 
   ```ts
   export type SnapGuide =
@@ -96,18 +96,18 @@ align/distribute pure functions, editor wiring) + `packages/frontend`
   `guides` list by inspecting the winning candidates on each axis
   (slide-center if index 0, edge otherwise). `position` is the snap
   line's slide-space coordinate (= the `to` of the winning candidate).
-- [ ] **1.2** Update `snap.test.ts`. Existing assertions become
+- [x] **1.2** Update `snap.test.ts`. Existing assertions become
   `result.dx`/`result.dy`. Add 3 new tests:
   - slide-center snap on X emits one guide `{axis:'x', position:960, kind:'slide-center'}`
   - element-edge snap emits `{axis:'x', position:600, kind:'edge'}`
   - no snap → `guides: []`
-- [ ] **1.3** Run `pnpm --filter @wafflebase/slides test snap`. All
+- [x] **1.3** Run `pnpm --filter @wafflebase/slides test snap`. All
   assertions green.
-- [ ] **1.4** Commit: `feat(slides): emit snap guide info from snapDelta`.
+- [x] **1.4** Commit: `feat(slides): emit snap guide info from snapDelta`.
 
 ### Phase 2 — Overlay guide rendering
 
-- [ ] **2.1** Extend `OverlayOptions` in `overlay.ts`:
+- [x] **2.1** Extend `OverlayOptions` in `overlay.ts`:
 
   ```ts
   export interface OverlayOptions {
@@ -125,36 +125,36 @@ align/distribute pure functions, editor wiring) + `packages/frontend`
   - horizontal (`axis: 'y'`): `left = 0`, `top = position * scale`,
     `width = slideWidth * scale`, `height = 1px`
   - background `#e11d48`, `pointer-events: none`.
-- [ ] **2.2** Update all `renderOverlay` call sites to pass
+- [x] **2.2** Update all `renderOverlay` call sites to pass
   `slideWidth`/`slideHeight` from `SLIDE_WIDTH`/`SLIDE_HEIGHT`.
   In `editor.ts` `paintLive` (line 780) accept a `guides` arg and
   forward; in the no-drag overlay refresh path pass `guides: []`.
-- [ ] **2.3** Add an overlay test (or create
+- [x] **2.3** Add an overlay test (or create
   `view/editor/overlay.test.ts` if it doesn't exist) asserting:
   - no guide nodes when `guides: []`
   - one vertical line at `left: 480px` when called with
     `guides: [{axis:'x', position:960, kind:'slide-center'}]` and
     `scale: 0.5`
-- [ ] **2.4** Run `pnpm --filter @wafflebase/slides test overlay`. Green.
-- [ ] **2.5** Commit: `feat(slides): render snap guides on overlay`.
+- [x] **2.4** Run `pnpm --filter @wafflebase/slides test overlay`. Green.
+- [x] **2.5** Commit: `feat(slides): render snap guides on overlay`.
 
 ### Phase 3 — Wire guides through drag interaction
 
-- [ ] **3.1** In `editor.ts` `startDrag` (line 716):
+- [x] **3.1** In `editor.ts` `startDrag` (line 716):
   - Capture `guides` from `snapDelta` result on each `onMove`.
   - Pass them into `paintLive(live, guides)`.
   - On `onUp`, render the post-commit overlay with `guides: []` so
     the lines disappear once the drag ends.
-- [ ] **3.2** Manual smoke test in `pnpm dev`: drag an element until
+- [x] **3.2** Manual smoke test in `pnpm dev`: drag an element until
   its center crosses slide-center → magenta vertical line appears;
   drag near another element's edge → guide appears; release → guide
   vanishes.
-- [ ] **3.3** Run `pnpm --filter @wafflebase/slides test`. Green.
-- [ ] **3.4** Commit: `feat(slides): show alignment guides while dragging`.
+- [x] **3.3** Run `pnpm --filter @wafflebase/slides test`. Green.
+- [x] **3.4** Commit: `feat(slides): show alignment guides while dragging`.
 
 ### Phase 4 — Align/distribute pure functions
 
-- [ ] **4.1** Create `align.ts`:
+- [x] **4.1** Create `align.ts`:
 
   ```ts
   import type { Frame } from '../../model/element';
@@ -187,7 +187,7 @@ align/distribute pure functions, editor wiring) + `packages/frontend`
     a no-op entry — keeps the batch tight).
   - `distributeFrames`: require ≥ 3; sort by leading edge (x or y);
     keep the first and last; gap = (lastEdge − firstEdge − sum(inner widths))/(n−1); place inner elements consecutively. Return only frames that moved.
-- [ ] **4.2** Create `align.test.ts` with cases:
+- [x] **4.2** Create `align.test.ts` with cases:
   - 3 elements, align left, ref = bbox of selection → all `x` = min(x)
   - 1 element, align center-h, ref = `{x:0,y:0,w:1920,h:1080}` →
     `x = (1920 − w) / 2`
@@ -197,12 +197,12 @@ align/distribute pure functions, editor wiring) + `packages/frontend`
   - distribute requires ≥ 3 — call with 2 elements throws or returns
     empty map (decide: empty map; matches "no-op for impossible input"
     convention used elsewhere in the package)
-- [ ] **4.3** Run `pnpm --filter @wafflebase/slides test align`. Green.
-- [ ] **4.4** Commit: `feat(slides): align + distribute frame helpers`.
+- [x] **4.3** Run `pnpm --filter @wafflebase/slides test align`. Green.
+- [x] **4.4** Commit: `feat(slides): align + distribute frame helpers`.
 
 ### Phase 5 — Editor exposure
 
-- [ ] **5.1** Add to `SlidesEditor` interface in `editor.ts`:
+- [x] **5.1** Add to `SlidesEditor` interface in `editor.ts`:
 
   ```ts
   align(direction: AlignDirection): void;
@@ -218,54 +218,54 @@ align/distribute pure functions, editor wiring) + `packages/frontend`
     `updateElementFrame(slideId, id, frame)` per moved element.
   - `markDirty()` + `render()`.
   - No-op when selection is empty (align) or < 3 (distribute).
-- [ ] **5.2** Re-export `AlignDirection`, `DistributeAxis` from
+- [x] **5.2** Re-export `AlignDirection`, `DistributeAxis` from
   `packages/slides/src/index.ts`.
-- [ ] **5.3** Add an editor-level test (extend `editor.test.ts` or
+- [x] **5.3** Add an editor-level test (extend `editor.test.ts` or
   create `editor.align.test.ts`) covering:
   - align left with multi-select moves frames to bbox.x
   - align center-h with single-select centers on slide
   - distribute horizontal with 3 elements equalizes gaps
   - distribute with 2 elements is a no-op
-- [ ] **5.4** Run `pnpm --filter @wafflebase/slides test`. Green.
-- [ ] **5.5** Commit: `feat(slides): editor align + distribute API`.
+- [x] **5.4** Run `pnpm --filter @wafflebase/slides test`. Green.
+- [x] **5.5** Commit: `feat(slides): editor align + distribute API`.
 
 ### Phase 6 — Toolbar UI
 
-- [ ] **6.1** In `slides-formatting-toolbar.tsx`, add a new toolbar
+- [x] **6.1** In `slides-formatting-toolbar.tsx`, add a new toolbar
   group with 8 buttons. Use tabler icons:
   `IconLayoutAlignLeft`, `IconLayoutAlignCenter`, `IconLayoutAlignRight`,
   `IconLayoutAlignTop`, `IconLayoutAlignMiddle`, `IconLayoutAlignBottom`,
   `IconLayoutDistributeHorizontal`, `IconLayoutDistributeVertical`.
   Each calls `editor?.align(...)` / `editor?.distribute(...)`.
-- [ ] **6.2** Disabled state derived from `editor.getSelection().length`
+- [x] **6.2** Disabled state derived from `editor.getSelection().length`
   via the existing `onSelectionChange` subscription pattern already
   used in this file:
   - align buttons: disabled when length === 0
   - distribute buttons: disabled when length < 3
   Keep tooltip text descriptive (e.g., "Align left", "Distribute
   horizontally — needs 3+ objects").
-- [ ] **6.3** Manual smoke in `pnpm dev`:
+- [x] **6.3** Manual smoke in `pnpm dev`:
   - select 1 element → click "align center-h" → element snaps to slide
     center horizontally
   - select 3 elements → click "distribute horizontal" → equal gaps
   - select 0 → align/distribute buttons greyed out
-- [ ] **6.4** Run `pnpm verify:fast`. Green.
-- [ ] **6.5** Commit: `feat(slides): align/distribute toolbar group`.
+- [x] **6.4** Run `pnpm verify:fast`. Green.
+- [x] **6.5** Commit: `feat(slides): align/distribute toolbar group`.
 
 ### Phase 7 — Docs + wrap-up
 
-- [ ] **7.1** Update `docs/design/slides/slides.md`:
+- [x] **7.1** Update `docs/design/slides/slides.md`:
   - Move "snap guidelines while dragging" out of "future" into the
     editor/rendering section describing what's shipped.
   - Replace the v1.1-deferred align/distribute bullet with a
     short shipped sub-section listing semantics (multi-select uses
     selection bbox, single-select uses slide, distribute needs 3+).
-- [ ] **7.2** Self-review: dispatch
+- [x] **7.2** Self-review: dispatch
   `superpowers:requesting-code-review` over the branch diff. Address
   blocking findings; note non-blocking ones in a follow-up bullet here.
-- [ ] **7.3** `pnpm verify:fast` final pass.
-- [ ] **7.4** `pnpm tasks:archive && pnpm tasks:index`.
-- [ ] **7.5** Open PR. Title: `Slides: live snap guides + align/distribute toolbar`.
+- [x] **7.3** `pnpm verify:fast` final pass.
+- [x] **7.4** `pnpm tasks:archive && pnpm tasks:index`.
+- [x] **7.5** Open PR. Title: `Slides: live snap guides + align/distribute toolbar`.
 
 ## Verification
 

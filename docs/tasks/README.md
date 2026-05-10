@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| slides guides align (2026-05-11) | [20260511-slides-guides-align-todo.md](./active/20260511-slides-guides-align-todo.md) | [20260511-slides-guides-align-lessons.md](./active/20260511-slides-guides-align-lessons.md) |
 | slides themes layouts import (2026-05-07) | [20260507-slides-themes-layouts-import-todo.md](./active/20260507-slides-themes-layouts-import-todo.md) | [20260507-slides-themes-layouts-import-lessons.md](./active/20260507-slides-themes-layouts-import-lessons.md) |
 | slides package mvp (2026-05-05) | [20260505-slides-package-mvp-todo.md](./active/20260505-slides-package-mvp-todo.md) | [20260505-slides-package-mvp-lessons.md](./active/20260505-slides-package-mvp-lessons.md) |
 | pdf export followup (2026-05-01) | [20260501-pdf-export-followup-todo.md](./active/20260501-pdf-export-followup-todo.md) | - |
@@ -28,7 +27,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 167
+- Archived task count: 168
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: slides guides align (2026-05-11)
+Latest active task: slides themes layouts import (2026-05-07)
