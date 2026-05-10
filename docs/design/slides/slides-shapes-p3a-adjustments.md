@@ -207,8 +207,11 @@ ADJUSTMENT_HANDLES.set('star5', STAR_5_HANDLES);
   `adj0 = round(inset / (h/2 × w/h) × 100000)`. Vertical pointer
   motion is ignored.
 - **Point (wedgeRectCallout)**: position at
-  `(adj0 / 100000 * w, adj1 / 100000 * h)`. `apply` inverts both
-  components independently and clamps each to its spec.
+  `(w/2 + adj0/100000 × w, h/2 + adj1/100000 × h)` — adjustments are
+  signed thousandths *relative to the frame center*, matching the
+  path builder. `apply` inverts both components independently
+  (`adj_n = round((pointer.n - center.n) / dim_n × 100000)`) and
+  clamps each to its spec range.
 
 ### 3. Renderer / interaction integration
 
