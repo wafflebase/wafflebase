@@ -161,7 +161,7 @@ stars (inner-ratio), zero for flowchart.
 
 #### Directory layout (additions)
 
-```
+```text
 packages/slides/src/view/canvas/shapes/
 ├── builder.ts                 # adds regularPolygonPath helper
 ├── stars/
@@ -244,7 +244,7 @@ multi-period waves to keep the test shim happy, see P1 lessons
 
 #### Section ordering
 
-```
+```text
 Lines · Shapes · Block Arrows · Flowchart · Callouts · Equation · Stars
 ```
 

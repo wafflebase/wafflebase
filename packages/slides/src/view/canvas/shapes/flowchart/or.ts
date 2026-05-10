@@ -11,7 +11,7 @@ export const buildFlowChartOr: PathBuilder = ({ w, h }) => {
   const ry = h / 2;
   const path = new Path2D();
   const segments = 64;
-  for (let i = 0; i <= segments; i++) {
+  for (let i = 0; i < segments; i++) {
     const angle = (i / segments) * Math.PI * 2;
     const x = cx + rx * Math.cos(angle);
     const y = cy + ry * Math.sin(angle);

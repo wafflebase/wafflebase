@@ -17,7 +17,6 @@ export const buildFlowChartPunchedTape: PathBuilder = ({ w, h }) => {
   appendSineWave(path, 0, w, topY, amp);
   path.lineTo(w, botY);
   appendSineWave(path, w, 0, botY, -amp);
-  path.lineTo(0, topY);
   path.closePath();
   return path;
 };

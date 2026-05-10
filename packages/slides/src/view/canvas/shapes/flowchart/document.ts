@@ -23,7 +23,6 @@ export function appendDocumentSubpath(
   path.lineTo(x + w, y);
   path.lineTo(x + w, baseY);
   appendSineWave(path, x + w, x, baseY, amp);
-  path.lineTo(x, y);
   path.closePath();
 }
 

@@ -2285,10 +2285,6 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "x": 0,
           "y": 93.75,
         },
-        {
-          "x": 0,
-          "y": 0,
-        },
       ],
     },
   ],
@@ -2522,10 +2518,6 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "x": 12.5,
           "y": 82.03125,
         },
-        {
-          "x": 12.5,
-          "y": 0,
-        },
       ],
     },
     {
@@ -2672,10 +2664,6 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "x": 6.25,
           "y": 88.28125,
         },
-        {
-          "x": 6.25,
-          "y": 6.25,
-        },
       ],
     },
     {
@@ -2821,10 +2809,6 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         {
           "x": 0,
           "y": 94.53125,
-        },
-        {
-          "x": 0,
-          "y": 12.5,
         },
       ],
     },
@@ -3117,10 +3101,6 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         {
           "x": 99.759236,
           "y": 45.099143,
-        },
-        {
-          "x": 100,
-          "y": 50,
         },
       ],
     },
@@ -3487,10 +3467,6 @@ exports[`shape registry snapshot > every registered builder produces stable Path
           "x": 0,
           "y": 93.75,
         },
-        {
-          "x": 0,
-          "y": 6.25,
-        },
       ],
     },
   ],
@@ -3754,10 +3730,6 @@ exports[`shape registry snapshot > every registered builder produces stable Path
         {
           "x": 99.759236,
           "y": 45.099143,
-        },
-        {
-          "x": 100,
-          "y": 50,
         },
       ],
     },

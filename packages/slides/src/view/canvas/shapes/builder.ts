@@ -62,6 +62,11 @@ export function regularPolygonPath(
   points: number,
   rotation: number = -Math.PI / 2,
 ): { x: number; y: number }[] {
+  if (!Number.isInteger(points) || points < 3) {
+    throw new RangeError(
+      `regularPolygonPath: \`points\` must be an integer >= 3, got ${points}`,
+    );
+  }
   const verts: { x: number; y: number }[] = [];
   for (let i = 0; i < points; i++) {
     const angle = rotation + (i / points) * Math.PI * 2;
