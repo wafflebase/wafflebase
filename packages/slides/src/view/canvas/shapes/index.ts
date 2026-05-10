@@ -1,6 +1,6 @@
 // packages/slides/src/view/canvas/shapes/index.ts
 import type { ShapeKind } from '../../../model/element';
-import type { AdjustmentSpec, PathBuilder } from './builder';
+import type { AdjustmentHandle, AdjustmentSpec, PathBuilder } from './builder';
 import { buildCan, CAN_ADJUSTMENTS } from './basic/can';
 import { buildCloud } from './basic/cloud';
 import { buildDiamond } from './basic/diamond';
@@ -94,6 +94,17 @@ export const PATH_BUILDERS = new Map<ShapeKind, PathBuilder>();
 export const ADJUSTMENT_SPECS = new Map<
   ShapeKind,
   readonly AdjustmentSpec[]
+>();
+
+/**
+ * Shape kind → drag-handle metadata. Only kinds with at least one
+ * authored handle are listed. Unregistered kinds get zero handles
+ * (no drag UX, defaults still apply). Phase P3-A.1 fills the pilot
+ * 9; P3-A.2 fills the remaining 24.
+ */
+export const ADJUSTMENT_HANDLES = new Map<
+  ShapeKind,
+  readonly AdjustmentHandle[]
 >();
 
 PATH_BUILDERS.set('rect', buildRect);
