@@ -15,7 +15,7 @@ import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
 import { Selection } from './selection';
-import { snapDelta } from './snap';
+import { snapDelta, type SnapGuide } from './snap';
 import { mountSlidesTextBox, type SlidesTextBoxEditor } from './text-box-editor';
 
 export type InsertKind = ShapeKind | 'text';
@@ -744,14 +744,15 @@ class SlidesEditorImpl implements SlidesEditor {
       const rawDx = cur.x - start.x;
       const rawDy = cur.y - start.y;
       const bbox = combinedBoundingBox(Array.from(originalFrames.values()))!;
-      const { dx, dy } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
+      const { dx, dy, guides } = snapDelta(bbox, rawDx, rawDy, otherFrames, { w: SLIDE_WIDTH, h: SLIDE_HEIGHT });
 
       for (const [id, base] of originalFrames) {
         live.set(id, { ...base, x: base.x + dx, y: base.y + dy });
       }
       // Repaint canvas + overlay with the live frames; we DO NOT touch
-      // the store yet.
-      this.paintLive(live);
+      // the store yet. `guides` flow through to the overlay so magenta
+      // alignment lines render alongside the selection handles.
+      this.paintLive(live, guides);
     };
     const onUp = (_ev: MouseEvent) => {
       document.removeEventListener('mousemove', onMove);
@@ -765,12 +766,17 @@ class SlidesEditorImpl implements SlidesEditor {
       });
       this.renderer.markDirty();
       this.render();
+      // `render()` repaints only the canvas — without an explicit overlay
+      // refresh, the magenta guide nodes from the last `paintLive` would
+      // persist after mouseup. `repaintOverlay()` rebuilds the overlay
+      // with `selected` and no `guides`, clearing them.
+      this.repaintOverlay();
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
 
-  private paintLive(live: Map<string, Frame>): void {
+  private paintLive(live: Map<string, Frame>, guides: readonly SnapGuide[] = []): void {
     // Render a synthesised slide where the selected elements use their
     // live frames. We bypass the store so each mousemove is one paint,
     // not one Yorkie op.
@@ -789,6 +795,7 @@ class SlidesEditorImpl implements SlidesEditor {
       scale: this.scale(),
       slideWidth: SLIDE_WIDTH,
       slideHeight: SLIDE_HEIGHT,
+      guides,
     });
   }
 
