@@ -1,5 +1,8 @@
 // packages/slides/src/view/canvas/shapes/builder.ts
 
+import type { Point } from '../../../model/frame';
+
+export type { Point };
 export type FrameSize = { w: number; h: number };
 
 /**
@@ -77,3 +80,25 @@ export function regularPolygonPath(
   }
   return verts;
 }
+
+/**
+ * One drag handle for one (or more) adjustment value(s) on a shape.
+ * Both functions work in element-local coordinates — origin = frame
+ * top-left, axes = pre-rotation. The editor applies the rotation
+ * transform once at paint and inverse-transform once at hit-test.
+ */
+export type AdjustmentHandle = {
+  /** Where to draw the diamond, in element-local coords. */
+  position: (frame: FrameSize, adjustments: number[]) => Point;
+  /**
+   * Drag pointer (element-local) → new full adjustments array.
+   * Indices the handle does not control are passed through from
+   * `startAdjustments`. Values must be clamped to the matching
+   * AdjustmentSpec's `min`/`max`.
+   */
+  apply: (
+    frame: FrameSize,
+    startAdjustments: number[],
+    pointer: Point,
+  ) => number[];
+};
