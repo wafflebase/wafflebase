@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 162
+Total archived tasks: 163
 
-## 2026/05 (17 tasks)
+## 2026/05 (18 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| slides thumb context menu (2026-05-10) | [20260510-slides-thumb-context-menu-todo.md](./2026/05/20260510-slides-thumb-context-menu-todo.md) | [20260510-slides-thumb-context-menu-lessons.md](./2026/05/20260510-slides-thumb-context-menu-lessons.md) |
 | slides shapes p2 (2026-05-09) | [20260509-slides-shapes-p2-todo.md](./2026/05/20260509-slides-shapes-p2-todo.md) | [20260509-slides-shapes-p2-lessons.md](./2026/05/20260509-slides-shapes-p2-lessons.md) |
 | sheets comments (2026-05-08) | [20260508-sheets-comments-todo.md](./2026/05/20260508-sheets-comments-todo.md) | [20260508-sheets-comments-lessons.md](./2026/05/20260508-sheets-comments-lessons.md) |
 | slides layout change (2026-05-08) | [20260508-slides-layout-change-todo.md](./2026/05/20260508-slides-layout-change-todo.md) | [20260508-slides-layout-change-lessons.md](./2026/05/20260508-slides-layout-change-lessons.md) |

@@ -1,17 +1,19 @@
 ---
-title: Slides thumbnail context menu, shape picker dark mode, toolbar select toggle
+title: Slides thumb context menu, mode toggles, dark-mode shapes, first-slide seed
 target-version: 0.3.8
 ---
 
-# Slides thumbnail context menu + toolbar select mode
+# Slides editor UX fixes
 
-Three small UX fixes to the slides editor reported by the user.
+Five small UX fixes to the slides editor reported by the user.
 
 ## Goals
 
 - Right-click on a slide thumbnail opens a basic editing menu (new / duplicate / delete / change layout).
 - Shape preview outlines in the toolbar shape dropdown stay visible in dark mode.
-- Toolbar exposes an explicit Select-mode button next to Text / Shape so the three insert-mode states are visible and switchable.
+- Toolbar exposes an explicit Select-mode button next to Text / Shape so the three insert-mode states are visible and switchable; exactly one is always pressed.
+- Toolbar Shape trigger is icon-only (no "Shape" text label) and visually matches the Toggle pressed style.
+- Brand-new presentations open with a seeded blank slide so the canvas isn't empty.
 
 ## Non-Goals
 
@@ -35,7 +37,13 @@ Three small UX fixes to the slides editor reported by the user.
 3. **Toolbar Select / Text / Shape group** (`packages/frontend/src/app/slides/slides-formatting-toolbar.tsx`, `shape-picker.tsx`)
    - Add a Select toggle (`IconPointer`) to the left of the Text toggle. Pressed when `insertMode === null`. Click sets `insertMode(null)`.
    - Strip the "Shape" text label from the shape picker trigger — icon-only.
-   - Verify Shape button pressed visual matches Toggle pressed visual; align if needed.
+   - Align the Shape trigger pressed visual with the Toggle component (`data-state=on/off`, `bg-accent / text-accent-foreground`, `h-8 min-w-8 px-1.5`).
+
+4. **Seed first slide on new presentations** (`packages/frontend/src/app/slides/slides-view.tsx`)
+   - The editor's `render()` bails out when no current slide exists, so a brand-new doc lands on a blank canvas.
+   - After `ensureSlidesRoot`, when `store.read().slides.length === 0`, call `store.batch(() => store.addSlide("blank"))`.
+   - Match Google Slides "new deck always opens with one slide" UX.
+   - Concurrent first-mount race: two clients can both seed (yielding 2 slides). Acceptable — matches the established `docs-view.tsx` `ensureTree` pattern; future improvement could gate via a `meta.seeded` flag.
 
 ## Verification
 
