@@ -59,12 +59,12 @@ import {
   buildMathNotEqual,
   MATH_NOT_EQUAL_ADJUSTMENTS,
 } from './equation/math-not-equal';
-import { buildStar4, STAR_4_ADJUSTMENTS } from './stars/star4';
+import { buildStar4, STAR_4_ADJUSTMENTS, STAR_4_HANDLES } from './stars/star4';
 import { buildStar5, STAR_5_ADJUSTMENTS, STAR_5_HANDLES } from './stars/star5';
-import { buildStar6, STAR_6_ADJUSTMENTS } from './stars/star6';
-import { buildStar7, STAR_7_ADJUSTMENTS } from './stars/star7';
-import { buildStar8, STAR_8_ADJUSTMENTS } from './stars/star8';
-import { buildStar10, STAR_10_ADJUSTMENTS } from './stars/star10';
+import { buildStar6, STAR_6_ADJUSTMENTS, STAR_6_HANDLES } from './stars/star6';
+import { buildStar7, STAR_7_ADJUSTMENTS, STAR_7_HANDLES } from './stars/star7';
+import { buildStar8, STAR_8_ADJUSTMENTS, STAR_8_HANDLES } from './stars/star8';
+import { buildStar10, STAR_10_ADJUSTMENTS, STAR_10_HANDLES } from './stars/star10';
 import { buildFlowChartTerminator } from './flowchart/terminator';
 import { buildFlowChartPredefinedProcess } from './flowchart/predefined-process';
 import { buildFlowChartInternalStorage } from './flowchart/internal-storage';
@@ -166,7 +166,12 @@ ADJUSTMENT_SPECS.set('roundRect', ROUND_RECT_ADJUSTMENTS);
 ADJUSTMENT_HANDLES.set('roundRect', ROUND_RECT_HANDLES);
 ADJUSTMENT_HANDLES.set('chevron', CHEVRON_HANDLES);
 ADJUSTMENT_HANDLES.set('wedgeRectCallout', WEDGE_RECT_CALLOUT_HANDLES);
+ADJUSTMENT_HANDLES.set('star4', STAR_4_HANDLES);
 ADJUSTMENT_HANDLES.set('star5', STAR_5_HANDLES);
+ADJUSTMENT_HANDLES.set('star6', STAR_6_HANDLES);
+ADJUSTMENT_HANDLES.set('star7', STAR_7_HANDLES);
+ADJUSTMENT_HANDLES.set('star8', STAR_8_HANDLES);
+ADJUSTMENT_HANDLES.set('star10', STAR_10_HANDLES);
 ADJUSTMENT_SPECS.set('triangle', TRIANGLE_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('parallelogram', PARALLELOGRAM_ADJUSTMENTS);
 ADJUSTMENT_SPECS.set('trapezoid', TRAPEZOID_ADJUSTMENTS);
