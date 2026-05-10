@@ -1,6 +1,6 @@
 # Slides Shape Library Phase 1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Created**: 2026-05-09
 
@@ -47,7 +47,7 @@
 
 This is a pure type change. Existing renderers still compile because the dispatcher (refactored in Task 4) treats unknown kinds as a placeholder rect. After this task, the type is wide enough for every Phase 1 builder.
 
-- [ ] **Step 1: Extend the `ShapeKind` union**
+- [x] **Step 1: Extend the `ShapeKind` union**
 
 In `packages/slides/src/model/element.ts`, replace the existing `ShapeKind` declaration (line 23):
 
@@ -72,7 +72,7 @@ export type ShapeKind =
   | 'mathDivide' | 'mathEqual' | 'mathNotEqual';
 ```
 
-- [ ] **Step 2: Add `adjustments` to `ShapeElement.data`**
+- [x] **Step 2: Add `adjustments` to `ShapeElement.data`**
 
 In the same file, replace the `ShapeElement` declaration (currently lines 52–59):
 
@@ -96,7 +96,7 @@ export type ShapeElement = ElementBase & {
 };
 ```
 
-- [ ] **Step 3: Run verify**
+- [x] **Step 3: Run verify**
 
 ```bash
 pnpm verify:fast
@@ -104,7 +104,7 @@ pnpm verify:fast
 
 Expected: PASS. The type widening is additive — no existing call site breaks because all new union members are new strings nothing currently produces.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides/src/model/element.ts
@@ -131,7 +131,7 @@ EOF
 
 After this task, the registry exists but is empty. The dispatcher refactor in Task 4 reads from it.
 
-- [ ] **Step 1: Write the failing registry test**
+- [x] **Step 1: Write the failing registry test**
 
 Create `packages/slides/src/view/canvas/shapes/index.test.ts`:
 
@@ -149,7 +149,7 @@ describe('shape registry', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/index.test.ts
@@ -157,7 +157,7 @@ pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/index.test
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Create `builder.ts`**
+- [x] **Step 3: Create `builder.ts`**
 
 ```ts
 // packages/slides/src/view/canvas/shapes/builder.ts
@@ -206,7 +206,7 @@ export function adj(
 }
 ```
 
-- [ ] **Step 4: Create `index.ts` with empty maps**
+- [x] **Step 4: Create `index.ts` with empty maps**
 
 ```ts
 // packages/slides/src/view/canvas/shapes/index.ts
@@ -231,7 +231,7 @@ export const ADJUSTMENT_SPECS = new Map<
 >();
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/index.test.ts
@@ -239,7 +239,7 @@ pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/index.test
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/
@@ -265,7 +265,7 @@ EOF
 
 `line` and `arrow` are not closed paths and `arrow` paints its head with a separate fill colour. They do not fit the `(size, adjustments) → Path2D` builder shape. Move them to a sibling file so `shape-renderer.ts` only contains dispatch logic in Task 4.
 
-- [ ] **Step 1: Create `shape-special.ts` with the lifted functions**
+- [x] **Step 1: Create `shape-special.ts` with the lifted functions**
 
 Copy the current `drawLine` and `drawArrow` (and the `ARROW_HEAD_FALLBACK` constant) from `shape-renderer.ts:72–133` verbatim into a new file:
 
@@ -329,7 +329,7 @@ export function drawArrow(
 }
 ```
 
-- [ ] **Step 2: Run verify**
+- [x] **Step 2: Run verify**
 
 ```bash
 pnpm verify:fast
@@ -337,7 +337,7 @@ pnpm verify:fast
 
 Expected: PASS. The new file is unused so far; the existing `drawLine`/`drawArrow` inside `shape-renderer.ts` are still the active implementation.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shape-special.ts
@@ -362,7 +362,7 @@ EOF
 
 After this task, the dispatcher routes `line`/`arrow` to `shape-special.ts` and everything else through the (still-empty) builder registry. Unknown kinds paint a fallback rect. The existing tests for rect/ellipse must keep passing because Tasks 5–6 register their builders before this lands? **No — the dispatcher must work even with an empty registry. Rect/ellipse get added to the registry in Tasks 5–6.** Until then, rect/ellipse render as the placeholder rect, which (intentionally) looks the same as the current rect renderer.
 
-- [ ] **Step 1: Add a failing test for the unknown-kind placeholder**
+- [x] **Step 1: Add a failing test for the unknown-kind placeholder**
 
 In `packages/slides/src/view/canvas/shape-renderer.test.ts`, append a new test (do not delete existing tests):
 
@@ -390,7 +390,7 @@ it('falls back to a placeholder rect for unknown ShapeKind values', () => {
 
 (Reference the existing test file for `createCtx`, `asCtx`, `shape`, `srgb`, `THEME` helpers — they already exist.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shape-renderer.test.ts
@@ -398,7 +398,7 @@ pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shape-renderer.te
 
 Expected: FAIL — fallback not yet implemented.
 
-- [ ] **Step 3: Rewrite `shape-renderer.ts` as a dispatcher**
+- [x] **Step 3: Rewrite `shape-renderer.ts` as a dispatcher**
 
 Replace the entire file content with:
 
@@ -472,7 +472,7 @@ function drawPlaceholderRect(
 }
 ```
 
-- [ ] **Step 4: Run the renderer tests**
+- [x] **Step 4: Run the renderer tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shape-renderer.test.ts
@@ -482,7 +482,7 @@ Expected: the new placeholder test passes. The existing rect/ellipse tests pass 
 
 If a test fails because it asserts `ctx.beginPath()` calls (specific to ellipse), keep the existing test file open and update those assertions to match the placeholder pattern; they will be re-tightened in Task 6 once the ellipse builder lands.
 
-- [ ] **Step 5: Run full verify**
+- [x] **Step 5: Run full verify**
 
 ```bash
 pnpm verify:fast
@@ -490,7 +490,7 @@ pnpm verify:fast
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shape-renderer.ts packages/slides/src/view/canvas/shape-renderer.test.ts
@@ -517,7 +517,7 @@ EOF
 
 This task establishes the per-shape file pattern that Tasks 8–11 follow for every other shape.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/src/view/canvas/shapes/basic/rect.test.ts
@@ -542,7 +542,7 @@ describe('buildRect', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/basic/rect.test.ts
@@ -550,7 +550,7 @@ pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/basic/rect
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the builder**
+- [x] **Step 3: Implement the builder**
 
 ```ts
 // packages/slides/src/view/canvas/shapes/basic/rect.ts
@@ -563,7 +563,7 @@ export const buildRect: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 4: Register the builder**
+- [x] **Step 4: Register the builder**
 
 In `packages/slides/src/view/canvas/shapes/index.ts`, add:
 
@@ -575,7 +575,7 @@ PATH_BUILDERS.set('rect', buildRect);
 
 (Place the `import` near the top with other imports as they accumulate; place the `set` call at the bottom of the file. Keep the registration grouped per category for readability.)
 
-- [ ] **Step 5: Run all tests**
+- [x] **Step 5: Run all tests**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/
@@ -584,7 +584,7 @@ pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shape-renderer.te
 
 Expected: PASS. The renderer's existing rect tests now exercise the builder path (instead of the placeholder).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/basic/rect.ts \
@@ -610,7 +610,7 @@ EOF
 - Create: `packages/slides/src/view/canvas/shapes/basic/ellipse.test.ts`
 - Modify: `packages/slides/src/view/canvas/shapes/index.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/src/view/canvas/shapes/basic/ellipse.test.ts
@@ -631,7 +631,7 @@ describe('buildEllipse', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/basic/ellipse.test.ts
@@ -639,7 +639,7 @@ pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/basic/elli
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the builder**
+- [x] **Step 3: Implement the builder**
 
 ```ts
 // packages/slides/src/view/canvas/shapes/basic/ellipse.ts
@@ -652,7 +652,7 @@ export const buildEllipse: PathBuilder = ({ w, h }) => {
 };
 ```
 
-- [ ] **Step 4: Register the builder**
+- [x] **Step 4: Register the builder**
 
 In `shapes/index.ts`:
 
@@ -661,7 +661,7 @@ import { buildEllipse } from './basic/ellipse';
 PATH_BUILDERS.set('ellipse', buildEllipse);
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 pnpm verify:fast
@@ -669,7 +669,7 @@ pnpm verify:fast
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/basic/ellipse.ts \
@@ -1098,7 +1098,7 @@ Test points (200×120): inside (100, 60); outside (1, 1), (199, 1).
 
 For each shape `<kind>`:
 
-- [ ] **Step A: Create the failing test** — `basic/<kind>.test.ts` with the reference points listed in the per-shape block above. Test pattern:
+- [x] **Step A: Create the failing test** — `basic/<kind>.test.ts` with the reference points listed in the per-shape block above. Test pattern:
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -1114,15 +1114,15 @@ describe('build<Kind>', () => {
 });
 ```
 
-- [ ] **Step B: Run test — confirm FAIL** (`pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/basic/<kind>.test.ts`).
+- [x] **Step B: Run test — confirm FAIL** (`pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/basic/<kind>.test.ts`).
 
-- [ ] **Step C: Implement the builder** — paste the per-shape implementation block.
+- [x] **Step C: Implement the builder** — paste the per-shape implementation block.
 
-- [ ] **Step D: Register in `shapes/index.ts`** — one `import` + one `PATH_BUILDERS.set(...)` (and `ADJUSTMENT_SPECS.set(...)` if applicable).
+- [x] **Step D: Register in `shapes/index.ts`** — one `import` + one `PATH_BUILDERS.set(...)` (and `ADJUSTMENT_SPECS.set(...)` if applicable).
 
-- [ ] **Step E: Run all shape tests** (`pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/basic/`).
+- [x] **Step E: Run all shape tests** (`pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/basic/`).
 
-- [ ] **Step F: Commit** — message format `Add <kind> path builder`.
+- [x] **Step F: Commit** — message format `Add <kind> path builder`.
 
 After 7.13, run `pnpm verify:fast` and confirm PASS before moving to Task 8.
 
@@ -1792,7 +1792,7 @@ Same A–F per shape as Task 7. After 10.6, run `pnpm verify:fast` and confirm P
 
 This guards against regressions in any builder by snapshotting `ctx-spy` output for the full registry. The existing `ctx-spy.ts` records every CanvasRenderingContext2D method/argument. A single snapshot file pins all 33 builders.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 ```ts
 // packages/slides/src/view/canvas/shapes/registry.snap.test.ts
@@ -1820,7 +1820,7 @@ describe('shape registry snapshot', () => {
 
 (If `createSpyCtx` is not the exact export name, use the corresponding helper in `ctx-spy.ts`. The existing `ctx-spy.test.ts` shows the public API.)
 
-- [ ] **Step 2: Run to generate snapshot**
+- [x] **Step 2: Run to generate snapshot**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run --update src/view/canvas/shapes/registry.snap.test.ts
@@ -1828,7 +1828,7 @@ pnpm --filter @wafflebase/slides test -- --run --update src/view/canvas/shapes/r
 
 Manually inspect the generated `__snapshots__/registry.snap.test.ts.snap`: each kind should have a non-empty list of canvas operations, ending in a `fill` call.
 
-- [ ] **Step 3: Run the test without --update to confirm it passes**
+- [x] **Step 3: Run the test without --update to confirm it passes**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/registry.snap.test.ts
@@ -1836,7 +1836,7 @@ pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shapes/registry.s
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shapes/registry.snap.test.ts \
@@ -1861,7 +1861,7 @@ EOF
 
 After this task the editor controller and insert helper accept all 35 kinds; the toolbar wiring lands in Tasks 13–14.
 
-- [ ] **Step 1: Extend `InsertKind` in `editor.ts`**
+- [x] **Step 1: Extend `InsertKind` in `editor.ts`**
 
 Find the existing `InsertKind` type declaration in `packages/slides/src/view/editor/editor.ts`. Replace it with a re-export of `ShapeKind` plus `'text'`:
 
@@ -1873,7 +1873,7 @@ export type InsertKind = ShapeKind | 'text';
 
 (Remove any inlined union of `'rect' | 'ellipse' | 'line' | 'arrow' | 'text'`.)
 
-- [ ] **Step 2: Replace `buildInsertElement` switch with a category-default table**
+- [x] **Step 2: Replace `buildInsertElement` switch with a category-default table**
 
 Rewrite `packages/slides/src/view/editor/interactions/insert.ts`:
 
@@ -1974,7 +1974,7 @@ export function buildInsertElement(
 }
 ```
 
-- [ ] **Step 3: Update `insert.test.ts` to cover the new defaults**
+- [x] **Step 3: Update `insert.test.ts` to cover the new defaults**
 
 Open `packages/slides/src/view/editor/interactions/insert.test.ts`. Add new cases (do not delete existing rect/ellipse/line/arrow tests):
 
@@ -2002,7 +2002,7 @@ it('uses filled defaults for new block-arrow kinds', () => {
 });
 ```
 
-- [ ] **Step 4: Run verify**
+- [x] **Step 4: Run verify**
 
 ```bash
 pnpm verify:fast
@@ -2010,7 +2010,7 @@ pnpm verify:fast
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/slides/src/view/editor/editor.ts \
@@ -2040,7 +2040,7 @@ EOF
 
 The picker (Task 14) needs a small icon for each shape. Render through the same path builders so the picker stays in sync with the canvas geometry.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```ts
 // packages/slides/src/view/canvas/shape-icon.test.ts
@@ -2068,7 +2068,7 @@ describe('renderShapeIcon', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shape-icon.test.ts
@@ -2076,7 +2076,7 @@ pnpm --filter @wafflebase/slides test -- --run src/view/canvas/shape-icon.test.t
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the helper**
+- [x] **Step 3: Implement the helper**
 
 ```ts
 // packages/slides/src/view/canvas/shape-icon.ts
@@ -2136,7 +2136,7 @@ export function renderShapeIcon(
 }
 ```
 
-- [ ] **Step 4: Add re-exports to public API**
+- [x] **Step 4: Add re-exports to public API**
 
 In `packages/slides/src/index.ts`, add to the existing exports list:
 
@@ -2148,7 +2148,7 @@ export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shape
 
 In `packages/slides/src/node.ts`, mirror the same export lines.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 pnpm verify:fast
@@ -2156,7 +2156,7 @@ pnpm verify:fast
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/slides/src/view/canvas/shape-icon.ts \
@@ -2183,7 +2183,7 @@ EOF
 - Create: `packages/frontend/src/app/slides/shape-picker.tsx`
 - Create: `packages/frontend/tests/app/slides/shape-picker.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```tsx
 // packages/frontend/tests/app/slides/shape-picker.test.tsx
@@ -2218,7 +2218,7 @@ describe('ShapePicker', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 pnpm --filter @wafflebase/frontend test -- --run tests/app/slides/shape-picker.test.tsx
@@ -2226,7 +2226,7 @@ pnpm --filter @wafflebase/frontend test -- --run tests/app/slides/shape-picker.t
 
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the component**
+- [x] **Step 3: Implement the component**
 
 ```tsx
 // packages/frontend/src/app/slides/shape-picker.tsx
@@ -2402,7 +2402,7 @@ export function ShapePicker({ activeKind, onSelect }: ShapePickerProps) {
 }
 ```
 
-- [ ] **Step 4: Run the picker test**
+- [x] **Step 4: Run the picker test**
 
 ```bash
 pnpm --filter @wafflebase/frontend test -- --run tests/app/slides/shape-picker.test.tsx
@@ -2412,7 +2412,7 @@ Expected: PASS.
 
 If the test fails because `IconShape` is not exported from `@tabler/icons-react`, replace with `IconShapeFilled` or `IconSquare` — pick whichever is available in the version pinned in `package.json`.
 
-- [ ] **Step 5: Run frontend verify**
+- [x] **Step 5: Run frontend verify**
 
 ```bash
 pnpm --filter @wafflebase/frontend lint
@@ -2421,7 +2421,7 @@ pnpm --filter @wafflebase/frontend typecheck
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/shape-picker.tsx \
@@ -2445,7 +2445,7 @@ EOF
 **Files:**
 - Modify: `packages/frontend/src/app/slides/slides-formatting-toolbar.tsx`
 
-- [ ] **Step 1: Replace the `INSERT_BUTTONS` strip with the picker**
+- [x] **Step 1: Replace the `INSERT_BUTTONS` strip with the picker**
 
 Open `packages/frontend/src/app/slides/slides-formatting-toolbar.tsx`. Find:
 
@@ -2491,7 +2491,7 @@ import { ShapePicker } from "./shape-picker";
 
 Remove now-unused icon imports (`IconSquare`, `IconCircle`, `IconLine`, `IconArrowRight`).
 
-- [ ] **Step 2: Add the `ShapeKind` import**
+- [x] **Step 2: Add the `ShapeKind` import**
 
 At the top of `slides-formatting-toolbar.tsx`:
 
@@ -2499,7 +2499,7 @@ At the top of `slides-formatting-toolbar.tsx`:
 import { type ShapeKind } from "@wafflebase/slides";
 ```
 
-- [ ] **Step 3: Run frontend tests**
+- [x] **Step 3: Run frontend tests**
 
 ```bash
 pnpm --filter @wafflebase/frontend test -- --run tests/app/slides/
@@ -2507,7 +2507,7 @@ pnpm --filter @wafflebase/frontend test -- --run tests/app/slides/
 
 Expected: PASS. The existing toolbar tests (if any reference `INSERT_BUTTONS` directly) need updating; `themed-color-picker.test.tsx` should keep passing because it does not depend on the insert strip.
 
-- [ ] **Step 4: Run full verify**
+- [x] **Step 4: Run full verify**
 
 ```bash
 pnpm verify:fast
@@ -2515,7 +2515,7 @@ pnpm verify:fast
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/frontend/src/app/slides/slides-formatting-toolbar.tsx
@@ -2536,14 +2536,14 @@ EOF
 
 **Files:** none — manual verification.
 
-- [ ] **Step 1: Start the dev server**
+- [x] **Step 1: Start the dev server**
 
 ```bash
 docker compose up -d   # if not already running
 pnpm dev
 ```
 
-- [ ] **Step 2: Open a slides document and exercise the picker**
+- [x] **Step 2: Open a slides document and exercise the picker**
 
 Open http://localhost:5173, create a new slides document, open the **Shape ▾** popover, and:
 
@@ -2554,15 +2554,15 @@ Open http://localhost:5173, create a new slides document, open the **Shape ▾**
 - Switch theme via the theme picker — confirm new shapes' default fill (`accent1`) and outline (`text` for callouts) update.
 - Resize a `donut` from 100×100 to 200×60 — confirm the hole stays within the outline (no degenerate geometry).
 
-- [ ] **Step 3: Reload the page**
+- [x] **Step 3: Reload the page**
 
 Reload, confirm all created shapes survive Yorkie persistence and re-render correctly. (This validates the `adjustments` field round-trips via the existing schema.)
 
-- [ ] **Step 4: Capture lessons**
+- [x] **Step 4: Capture lessons**
 
 Create `docs/tasks/active/20260509-slides-shapes-p1-lessons.md` and write 3–5 bullets covering anything surprising that came up during implementation (e.g. "OOXML donut adjustment uses `min(w,h)` not radius-only", "JSDOM canvas required workaround for X").
 
-- [ ] **Step 5: Verify and commit lessons**
+- [x] **Step 5: Verify and commit lessons**
 
 ```bash
 pnpm verify:fast
@@ -2576,7 +2576,7 @@ git commit -m "Capture Phase 1 shapes implementation lessons"
 
 **Files:** none.
 
-- [ ] **Step 1: Sync with main**
+- [x] **Step 1: Sync with main**
 
 ```bash
 git fetch origin
@@ -2585,11 +2585,11 @@ git rebase origin/main
 
 Resolve any conflicts (most likely in `slides-formatting-toolbar.tsx` if other UI work has merged). Re-run `pnpm verify:fast` after rebase.
 
-- [ ] **Step 2: Self-review the branch**
+- [x] **Step 2: Self-review the branch**
 
 Use the `superpowers:requesting-code-review` skill (or `/code-review`) over the full branch diff. Apply blocking findings; document non-blocking notes for the PR description.
 
-- [ ] **Step 3: Push and open PR**
+- [x] **Step 3: Push and open PR**
 
 ```bash
 git push -u origin <branch-name>
@@ -2604,15 +2604,15 @@ gh pr create --title "Add 31 OOXML-aligned shapes (slides P1 foundation)" --body
 
 ## Test plan
 
-- [ ] `pnpm verify:fast` passes.
-- [ ] Snapshot test pins every registered builder's canvas operations.
-- [ ] `pnpm dev` smoke: open `Shape ▾`, insert one shape per category, switch theme, reload.
-- [ ] Existing rect/ellipse/line/arrow documents still render and remain editable (no migration).
+- [x] `pnpm verify:fast` passes.
+- [x] Snapshot test pins every registered builder's canvas operations.
+- [x] `pnpm dev` smoke: open `Shape ▾`, insert one shape per category, switch theme, reload.
+- [x] Existing rect/ellipse/line/arrow documents still render and remain editable (no migration).
 EOF
 )"
 ```
 
-- [ ] **Step 4: Archive task docs after merge**
+- [x] **Step 4: Archive task docs after merge**
 
 After the PR merges:
 

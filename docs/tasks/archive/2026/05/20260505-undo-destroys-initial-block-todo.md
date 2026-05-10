@@ -64,8 +64,8 @@ Two complementary changes:
 - [x] Initialize `undoFloor` in YorkieDocStore constructor
 - [x] Add regression test in yorkie-doc-store.test.ts
 - [x] `pnpm verify:fast` — all 741 tests pass
-- [ ] Manually verify in browser: new doc → "asdf"<Enter>"asdf"<Enter>"asdf"<Cmd+Z×N>typing → no crash
-- [ ] Commit, push, open PR
+- [x] Manually verify in browser: new doc → "asdf"<Enter>"asdf"<Enter>"asdf"<Cmd+Z×N>typing → no crash
+- [x] Commit, push, open PR — shipped as PR #189 (`cddefc3a`)
 
 ## Notes
 

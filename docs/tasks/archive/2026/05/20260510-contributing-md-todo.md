@@ -32,20 +32,20 @@ inline Contributing section to a pointer.
 
 ## Plan
 
-- [ ] **Step 1:** Draft `CONTRIBUTING.md` with sections:
+- [x] **Step 1:** Draft `CONTRIBUTING.md` with sections:
   TL;DR, Before you start, Contribution paths (bug / feature / docs),
   Local development (link), Verification gates, Commit messages,
   Pull Request workflow, Code review, AI agent–assisted contributions,
   Package-specific gotchas, License & CLA.
-- [ ] **Step 2:** Trim README's `## Contributing` section to a pointer at
+- [x] **Step 2:** Trim README's `## Contributing` section to a pointer at
   `CONTRIBUTING.md`, keep the commit-message snippet OR move it fully
   into `CONTRIBUTING.md` (decide while editing — pick whichever avoids
   duplication).
-- [ ] **Step 3:** Update `docs/tasks/README.md` active table to include
+- [x] **Step 3:** Update `docs/tasks/README.md` active table to include
   this task.
-- [ ] **Step 4:** Run `pnpm verify:fast` (markdown-only change, but
+- [x] **Step 4:** Run `pnpm verify:fast` (markdown-only change, but
   required by repo policy).
-- [ ] **Step 5:** Owner review → commit → PR.
+- [x] **Step 5:** Owner review → commit → PR — shipped as PR #204 (`79476c28`).
 
 ## Verification
 
