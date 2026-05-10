@@ -173,13 +173,13 @@ describe('renderOverlay — adjustment handles', () => {
   });
 
   it('paints a yellow diamond for a selected pilot shape (roundRect)', () => {
-    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1 });
+    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const adj = overlay.querySelector('[data-handle="adjust-0"]');
     expect(adj).not.toBeNull();
   });
 
   it('paints no adjustment handle for a non-pilot shape (rect)', () => {
-    renderOverlay(overlay, [makeShape('rect')], { scale: 1 });
+    renderOverlay(overlay, [makeShape('rect')], { scale: 1, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const adj = overlay.querySelector('[data-handle^="adjust-"]');
     expect(adj).toBeNull();
   });
@@ -188,14 +188,14 @@ describe('renderOverlay — adjustment handles', () => {
     renderOverlay(
       overlay,
       [makeShape('roundRect'), makeShape('star5')],
-      { scale: 1 },
+      { scale: 1, slideWidth: SLIDE_W, slideHeight: SLIDE_H },
     );
     const adj = overlay.querySelector('[data-handle^="adjust-"]');
     expect(adj).toBeNull();
   });
 
   it('appends adjustment handles AFTER resize handles in DOM order', () => {
-    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1 });
+    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const children = Array.from(overlay.children);
     const lastResize = children.findIndex(
       (c) => c.getAttribute('data-handle') === 'rotate',
@@ -207,7 +207,7 @@ describe('renderOverlay — adjustment handles', () => {
   });
 
   it('adjustment handle is the LAST sibling for a pilot shape (z-order check)', () => {
-    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1 });
+    renderOverlay(overlay, [makeShape('roundRect')], { scale: 1, slideWidth: SLIDE_W, slideHeight: SLIDE_H });
     const lastChild = overlay.lastElementChild;
     expect(lastChild?.getAttribute('data-handle')).toMatch(/^adjust-/);
   });

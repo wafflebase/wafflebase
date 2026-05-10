@@ -1044,7 +1044,11 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.forceRender(synthetic, this.options.store.read());
     // Repaint overlay so adjustment handles follow the live shape.
     const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
-    renderOverlay(this.options.overlay, selected, { scale: this.scale() });
+    renderOverlay(this.options.overlay, selected, {
+      scale: this.scale(),
+      slideWidth: SLIDE_WIDTH,
+      slideHeight: SLIDE_HEIGHT,
+    });
   }
 
   private startRotate(clientX: number, clientY: number): void {
