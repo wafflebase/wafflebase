@@ -473,6 +473,124 @@ describe('align/distribute', () => {
   });
 });
 
+describe('Editor — adjustment drag (Task 12)', () => {
+  let editor: SlidesEditor | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (editor) {
+      editor.detach();
+      editor = null;
+    }
+  });
+
+  /**
+   * Build a fixture with a single roundRect shape and return the
+   * editor, store, and element id. We use hostWidth=1920 so that
+   * scale = hostWidth / SLIDE_WIDTH = 1920 / 1920 = 1, meaning overlay
+   * pixel positions equal logical slide coordinates.
+   */
+  function setupRoundRect() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1920;
+    canvas.height = 1080;
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    document.body.appendChild(canvas);
+    document.body.appendChild(overlay);
+    const store = new MemSlidesStore();
+    let slideId = '';
+    let elementId = '';
+    store.batch(() => {
+      slideId = store.addSlide('blank');
+      elementId = store.addElement(slideId, {
+        type: 'shape',
+        frame: { x: 100, y: 100, w: 200, h: 100, rotation: 0 },
+        data: { kind: 'roundRect', fill: { kind: 'srgb' as const, value: '#abc' } },
+      });
+    });
+    editor = initialize({ canvas, overlay, store, hostWidth: 1920, hostHeight: 1080, dpr: 1 });
+    // Select the element so the overlay renders adjustment handles.
+    editor.setSelection([elementId]);
+    // Force overlay repaint (setSelection triggers repaintOverlay via selection.subscribe).
+    return { canvas, overlay, store, elementId };
+  }
+
+  function readAdjustments(store: MemSlidesStore, elementId: string): readonly number[] | undefined {
+    const slide = store.read().slides[0];
+    const el = slide.elements.find((e) => e.id === elementId);
+    if (!el || el.type !== 'shape') return undefined;
+    // Use the stored adjustments, falling back to undefined when absent.
+    return (el.data as { adjustments?: number[] }).adjustments;
+  }
+
+  it('commits one updateElementData with changed adjustments on a real drag (>2px)', () => {
+    const { overlay, store, elementId } = setupRoundRect();
+    // The adjust-0 handle is rendered inside the overlay. Its style.left/top
+    // give the hit-test-readable position (scale=1 means overlay px == logical px).
+    const handle = overlay.querySelector<HTMLDivElement>('[data-handle="adjust-0"]');
+    expect(handle).not.toBeNull();
+    const left = parseFloat(handle!.style.left);
+    const top = parseFloat(handle!.style.top);
+    // Click center of the handle (left + ADJUST_HANDLE_SIZE/2 = left + 4).
+    const cx = left + 4;
+    const cy = top + 4;
+
+    // Dispatch on the handle element (real-browser path — the overlay listener
+    // in the editor catches it and routes to startAdjustmentDrag).
+    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
+    // Move >2px to cross the threshold (which is 2px in world coords; scale=1
+    // so 10px clientX change == 10px world change, well past the threshold).
+    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx + 10, clientY: cy }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, clientX: cx + 10, clientY: cy }));
+
+    // The store must now have adjustments set (non-default) on the element.
+    const adjustments = readAdjustments(store, elementId);
+    expect(adjustments).toBeDefined();
+    // Default is [16667]. A 10-px rightward drag moves the handle, producing
+    // a different corner radius ratio.
+    expect(adjustments![0]).not.toBe(16667);
+    // Sanity: undo must be possible (one batch was committed).
+    expect(store.canUndo()).toBe(true);
+  });
+
+  it('does not commit when drag is below the 2px threshold', () => {
+    const { overlay, store, elementId } = setupRoundRect();
+    const handle = overlay.querySelector<HTMLDivElement>('[data-handle="adjust-0"]');
+    expect(handle).not.toBeNull();
+    const left = parseFloat(handle!.style.left);
+    const top = parseFloat(handle!.style.top);
+    const cx = left + 4;
+    const cy = top + 4;
+
+    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
+    // Move only 1px — below the 2px threshold (sqrt(1²+0²)=1 < 2).
+    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx + 1, clientY: cy }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, clientX: cx + 1, clientY: cy }));
+
+    // No store update → adjustments field absent (never written).
+    const adjustments = readAdjustments(store, elementId);
+    expect(adjustments).toBeUndefined();
+  });
+
+  it('preserves element selection after a real drag', () => {
+    const { overlay, elementId } = setupRoundRect();
+    const handle = overlay.querySelector<HTMLDivElement>('[data-handle="adjust-0"]');
+    expect(handle).not.toBeNull();
+    const left = parseFloat(handle!.style.left);
+    const top = parseFloat(handle!.style.top);
+    const cx = left + 4;
+    const cy = top + 4;
+
+    handle!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: cx, clientY: cy }));
+    document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx + 10, clientY: cy }));
+    document.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, clientX: cx + 10, clientY: cy }));
+
+    // Selection must still contain the element after the drag commits.
+    expect(editor!.getSelection()).toEqual([elementId]);
+  });
+});
+
 describe('Editor canvas context menu — Change layout', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
