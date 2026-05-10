@@ -10,6 +10,7 @@ import {
   type AlignReference,
   type DistributeAxis,
 } from './align';
+import { ADJUSTMENT_HANDLES, ADJUSTMENT_SPECS } from '../canvas/shapes';
 import { showContextMenu, type ContextMenuItem } from './context-menu';
 import { handleHitTest, type HandleKind } from './hit-test';
 import { buildInsertElement } from './interactions/insert';
@@ -18,6 +19,14 @@ import { selectAt } from './interactions/select';
 import { normalizeRect, selectInRect } from './interactions/lasso';
 import { resizeFrameWorld, type ResizeHandle } from './interactions/resize';
 import { applyRotate } from './interactions/rotate';
+import {
+  defaultAdjustmentsFor,
+  snapToDefaults,
+} from './interactions/adjustment';
+import {
+  showAdjustmentTooltip,
+  hideAdjustmentTooltip,
+} from './adjustment-tooltip';
 import { runKeyRules, type KeyRule } from './keymap';
 import { showLayoutPicker } from './layout-picker';
 import { renderOverlay } from './overlay';
@@ -925,12 +934,117 @@ class SlidesEditorImpl implements SlidesEditor {
   }
 
   private startAdjustmentDrag(
-    _handleIndex: number,
-    _clientX: number,
-    _clientY: number,
+    handleIndex: number,
+    clientX: number,
+    clientY: number,
   ): void {
-    // T11: drag loop + tooltip + commit. Stubbed here so Task 10 can land
-    // the routing layer without a forward-reference compile error.
+    const startSlide = this.currentSlide();
+    if (!startSlide) return;
+    const selectedIds = this.selection.get();
+    if (selectedIds.length !== 1) return;
+    const elementId = selectedIds[0];
+    const startEl = startSlide.elements.find((e) => e.id === elementId);
+    if (!startEl || startEl.type !== 'shape') return;
+
+    const handles = ADJUSTMENT_HANDLES.get(startEl.data.kind);
+    if (!handles || !handles[handleIndex]) return;
+    const handle = handles[handleIndex];
+    const specs = ADJUSTMENT_SPECS.get(startEl.data.kind) ?? [];
+    const startAdjustments =
+      startEl.data.adjustments ?? defaultAdjustmentsFor(startEl.data.kind);
+
+    const startWorld = this.clientToLogical(clientX, clientY);
+    const cx = startEl.frame.x + startEl.frame.w / 2;
+    const cy = startEl.frame.y + startEl.frame.h / 2;
+    const cos = Math.cos(startEl.frame.rotation);
+    const sin = Math.sin(startEl.frame.rotation);
+    // World → element-local (inverse rotation around center, then re-anchor to top-left).
+    const worldToLocal = (wx: number, wy: number) => {
+      const dx = wx - cx;
+      const dy = wy - cy;
+      const lx = dx * cos + dy * sin + startEl.frame.w / 2;
+      const ly = -dx * sin + dy * cos + startEl.frame.h / 2;
+      return { x: lx, y: ly };
+    };
+
+    let live = startAdjustments;
+    let moved = false;
+
+    const onMove = (ev: MouseEvent) => {
+      const cur = this.clientToLogical(ev.clientX, ev.clientY);
+      if (!moved) {
+        const dx = cur.x - startWorld.x;
+        const dy = cur.y - startWorld.y;
+        if (dx * dx + dy * dy < 4) return; // 2px threshold
+        moved = true;
+      }
+      const local = worldToLocal(cur.x, cur.y);
+      let next = handle.apply(
+        { w: startEl.frame.w, h: startEl.frame.h },
+        startAdjustments,
+        local,
+      );
+      if (ev.shiftKey) next = snapToDefaults(startEl.data.kind, next);
+      live = next;
+      this.paintLiveAdjustments(elementId, live);
+
+      // Tooltip — formatted value, upper-right of handle in world coords.
+      const handleLocal = handle.position(
+        { w: startEl.frame.w, h: startEl.frame.h },
+        live,
+      );
+      const handleWorld = {
+        x:
+          cx +
+          (handleLocal.x - startEl.frame.w / 2) * cos -
+          (handleLocal.y - startEl.frame.h / 2) * sin,
+        y:
+          cy +
+          (handleLocal.x - startEl.frame.w / 2) * sin +
+          (handleLocal.y - startEl.frame.h / 2) * cos,
+      };
+      showAdjustmentTooltip(
+        this.options.overlay,
+        handleWorld.x,
+        handleWorld.y,
+        this.scale(),
+        formatAdjustments(specs, live),
+      );
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      hideAdjustmentTooltip();
+      if (!moved) return;
+      this.options.store.batch(() => {
+        this.options.store.updateElementData(startSlide.id, elementId, {
+          adjustments: live,
+        });
+      });
+      this.renderer.markDirty();
+      this.render();
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  private paintLiveAdjustments(elementId: string, adjustments: number[]): void {
+    // Render a synthetic slide where the target shape's data has the live
+    // adjustments applied. Mirrors paintLive but overrides element data
+    // instead of frame, using the same forceRender pattern.
+    const slide = this.currentSlide();
+    if (!slide) return;
+    const synthetic = {
+      ...slide,
+      elements: slide.elements.map((el) => {
+        if (el.id !== elementId || el.type !== 'shape') return el;
+        return { ...el, data: { ...el.data, adjustments } };
+      }),
+    };
+    this.renderer.forceRender(synthetic, this.options.store.read());
+    // Repaint overlay so adjustment handles follow the live shape.
+    const selected = synthetic.elements.filter((e) => this.selection.has(e.id));
+    renderOverlay(this.options.overlay, selected, { scale: this.scale() });
   }
 
   private startRotate(clientX: number, clientY: number): void {
@@ -1006,6 +1120,21 @@ export function initialize(options: SlidesEditorOptions): SlidesEditor {
   const editor = new SlidesEditorImpl(options);
   editor.render();
   return editor;
+}
+
+function formatAdjustments(
+  specs: readonly { name: string; format?: (v: number) => string }[],
+  values: number[],
+): string {
+  if (specs.length === 1) {
+    const v = values[0];
+    return specs[0].format ? specs[0].format(v) : String(v);
+  }
+  return specs
+    .map((s, i) =>
+      `${s.name.charAt(0).toLowerCase()}: ${s.format ? s.format(values[i]) : values[i]}`,
+    )
+    .join(' / ');
 }
 
 function topmostUnderPoint(slide: { elements: { id: string; frame: Frame }[] }, x: number, y: number): string | null {
