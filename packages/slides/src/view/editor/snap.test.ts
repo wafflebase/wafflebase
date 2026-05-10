@@ -41,6 +41,37 @@ describe('snapDelta', () => {
     const result = snapDelta(
       { x: 0, y: 0, w: 100, h: 100 }, 17, 23, [], { w: 1920, h: 1080 },
     );
-    expect(result).toEqual({ dx: 17, dy: 23 });
+    expect(result.dx).toBe(17);
+    expect(result.dy).toBe(23);
+  });
+
+  it('emits a slide-center guide when snapping to the slide centre', () => {
+    const result = snapDelta(
+      { x: 860, y: 0, w: 100, h: 100 }, 53, 0, [], SLIDE,
+    );
+    expect(result.guides).toContainEqual({
+      axis: 'x',
+      position: 960,
+      kind: 'slide-center',
+    });
+  });
+
+  it('emits an edge guide when snapping to an element edge', () => {
+    const others: Frame[] = [f(500, 0, 100, 100)];
+    const result = snapDelta(
+      { x: 860, y: 0, w: 100, h: 100 }, -257, 0, others, SLIDE,
+    );
+    expect(result.guides).toContainEqual({
+      axis: 'x',
+      position: 600,
+      kind: 'edge',
+    });
+  });
+
+  it('returns an empty guides array when nothing snaps', () => {
+    const result = snapDelta(
+      { x: 0, y: 0, w: 100, h: 100 }, 17, 23, [], { w: 1920, h: 1080 },
+    );
+    expect(result.guides).toEqual([]);
   });
 });
